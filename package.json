@@ -1,0 +1,18 @@
+{
+  "name": "dev-tracker-root",
+  "private": true,
+  "version": "0.0.0",
+  "description": "One board for the GitHub issues you own and the Claude Code sessions running on your machine.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "watch": "npm run watch --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "tsc -b --pretty"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}

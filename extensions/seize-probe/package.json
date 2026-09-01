@@ -1,0 +1,11 @@
+{
+  "name": "seize-probe",
+  "displayName": "dev-tracker seize probe",
+  "description": "Proves in-process claude-vscode.editor.open targets the window whose extension host runs it.",
+  "version": "0.0.1",
+  "publisher": "or",
+  "engines": { "vscode": "^1.70.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {}
+}
