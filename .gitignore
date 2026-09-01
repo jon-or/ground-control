@@ -1,0 +1,7 @@
+node_modules/
+out/
+dist/
+*.vsix
+*.tsbuildinfo
+.DS_Store
+.claude/personal/
