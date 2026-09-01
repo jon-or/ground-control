@@ -1,0 +1,74 @@
+{
+  "data": {
+    "cards": {
+      "issueCount": 1754,
+      "pageInfo": {
+        "hasNextPage": true,
+        "endCursor": "Y3Vyc29yOjIwMA=="
+      },
+      "nodes": [
+        {
+          "number": 19082,
+          "title": "SMS \"Reset ENTIRE Brand\" strands the account when Twilio's delete fails, with no retry",
+          "url": "https://github.com/ownerrez/orez/issues/19082",
+          "updatedAt": "2026-08-27T18:20:51Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "ownerrez/orez"
+          },
+          "assignees": {
+            "nodes": []
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🔖 Planned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 19078,
+          "title": "Add or-inspect-errors agent skill to triage new prod errors and tickets",
+          "url": "https://github.com/ownerrez/orez/issues/19078",
+          "updatedAt": "2026-09-01T20:12:24Z",
+          "issueType": {
+            "name": "Task"
+          },
+          "repository": {
+            "nameWithOwner": "ownerrez/orez"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "ithielnor"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🔍 Dev Review"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "assignedTotal": {
+      "issueCount": 1754
+    }
+  }
+}

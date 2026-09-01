@@ -1,0 +1,105 @@
+{
+  "data": {
+    "cards": {
+      "issueCount": 1754,
+      "pageInfo": {
+        "hasNextPage": true,
+        "endCursor": "Y3Vyc29yOjEwMA=="
+      },
+      "nodes": [
+        {
+          "number": 19398,
+          "title": "Vrbo re-merge drops payments when one installment settles across multiple dates",
+          "url": "https://github.com/ownerrez/orez/issues/19398",
+          "updatedAt": "2026-09-01T20:31:04Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "ownerrez/orez"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "crobibero"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 19395,
+          "title": "Airbnb deposit never imports when one booking has two resolution adjustments of the same amount",
+          "url": "https://github.com/ownerrez/orez/issues/19395",
+          "updatedAt": "2026-09-01T20:20:40Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "ownerrez/orez"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "Turntwo"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "⚒️ Dev"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 19394,
+          "title": "Route support-agent history to the record that owns each field",
+          "url": "https://github.com/ownerrez/orez/issues/19394",
+          "updatedAt": "2026-09-01T18:19:32Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "ownerrez/orez"
+          },
+          "assignees": {
+            "nodes": []
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🆕 New"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "assignedTotal": {
+      "issueCount": 1754
+    }
+  }
+}
