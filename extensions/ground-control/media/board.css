@@ -1,0 +1,245 @@
+:root {
+  color-scheme: light dark;
+  --gc-radius: 6px;
+  --gc-gutter: 1.25rem;
+  --gc-accent: var(--vscode-charts-lines, var(--vscode-panel-border));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 var(--gc-gutter) 3rem;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  line-height: 1.45;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+/* Header ------------------------------------------------------------------ */
+
+header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 calc(var(--gc-gutter) * -1);
+  padding: 1rem var(--gc-gutter) 0.85rem;
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+#meta {
+  flex: 1;
+  min-width: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#meta.stale {
+  color: var(--vscode-list-warningForeground, var(--vscode-descriptionForeground));
+}
+
+#refresh {
+  flex: none;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  padding: 0.2rem 0.7rem;
+  cursor: pointer;
+}
+
+#refresh:hover {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border-color: var(--vscode-button-background);
+}
+
+#refresh:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+/* Notices ----------------------------------------------------------------- */
+
+#notices:not(:empty) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.9rem 0 0;
+  max-width: 72rem;
+}
+
+.notice {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr;
+  gap: 0 0.5rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--vscode-panel-border);
+  border-left-width: 3px;
+  border-left-color: var(--vscode-charts-yellow, var(--vscode-panel-border));
+  border-radius: var(--gc-radius);
+  background: var(--vscode-editorWidget-background, transparent);
+}
+
+.notice::before {
+  content: '!';
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.1rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--vscode-editor-background);
+  background: var(--vscode-charts-yellow, var(--vscode-descriptionForeground));
+  border-radius: 50%;
+}
+
+.notice.error {
+  border-left-color: var(--vscode-charts-red, var(--vscode-errorForeground));
+}
+
+.notice.error::before {
+  background: var(--vscode-charts-red, var(--vscode-errorForeground));
+}
+
+.notice .remedy {
+  grid-column: 2;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.8rem;
+}
+
+/* Cards ------------------------------------------------------------------- */
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 1rem;
+  max-width: 72rem;
+}
+
+main.stale {
+  opacity: 0.5;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  text-align: left;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editorWidget-background, transparent);
+  border: 1px solid transparent;
+  border-radius: var(--gc-radius);
+  box-shadow: inset 3px 0 0 var(--gc-accent);
+  cursor: pointer;
+}
+
+.card:hover {
+  background: var(--vscode-list-hoverBackground, var(--vscode-editorWidget-background));
+  border-color: var(--vscode-panel-border);
+}
+
+.card:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.card:active {
+  background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground));
+}
+
+.number {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+}
+
+.card:hover .number {
+  color: var(--vscode-foreground);
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.chip {
+  padding: 0.05rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gc-accent);
+  border: 1px solid var(--gc-accent);
+  border-radius: 3px;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+/* Type sets the card's accent bar and chip; the status keeps the board's own emoji vocabulary as its marker. */
+.type-bug {
+  --gc-accent: var(--vscode-charts-red, var(--vscode-errorForeground));
+}
+
+.type-feature {
+  --gc-accent: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+}
+
+.type-task {
+  --gc-accent: var(--vscode-charts-green, var(--vscode-descriptionForeground));
+}
+
+.type-epic {
+  --gc-accent: var(--vscode-charts-purple, var(--vscode-descriptionForeground));
+}
+
+/* Empty state ------------------------------------------------------------- */
+
+.empty {
+  margin: 0;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+  border: 1px dashed var(--vscode-panel-border);
+  border-radius: var(--gc-radius);
+}
