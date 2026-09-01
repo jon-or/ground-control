@@ -1,16 +1,22 @@
 {
-  "name": "dev-tracker-root",
+  "name": "ground-control-root",
   "private": true,
   "version": "0.0.0",
   "description": "One board for the GitHub issues you own and the Claude Code sessions running on your machine.",
   "engines": {
     "node": ">=20"
   },
+  "workspaces": [
+    "packages/github",
+    "extensions/ground-control"
+  ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "watch": "npm run watch --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
-    "typecheck": "tsc -b --pretty"
+    "verify": "npm run typecheck && npm test",
+    "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || exit 0"
   },
   "devDependencies": {
     "typescript": "^5.9.0"

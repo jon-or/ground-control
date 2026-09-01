@@ -1,6 +1,6 @@
 {
   "name": "seize-probe",
-  "displayName": "dev-tracker seize probe",
+  "displayName": "ground-control seize probe",
   "description": "Proves in-process claude-vscode.editor.open targets the window whose extension host runs it.",
   "version": "0.0.1",
   "publisher": "or",

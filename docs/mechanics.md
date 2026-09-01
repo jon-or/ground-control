@@ -704,7 +704,7 @@ Also proven: auto-handback on an **operator's manual tab close** · the **cold p
 | 7 | Does closing a tab on a **genuinely live** session release it as fast? | §11's retry loop covers it, but the attempt count is unmeasured for the case that matters most. | Seize a running station, close the tab mid-turn, read `attempts`. |
 | 8 | Can the factory create a worktree **and** its IIS site from scratch? | The nine-station pipeline starts at intake with no workspace. `claude --worktree` exists and is unexplored. | Provision one end to end for a throwaway branch. |
 | 9 | Can a message be **injected** into a live session? | Steer-by-artifact is the design, but `initialPrompt` only prefills and is dropped when the tab is open (§6). | `--brief` / `SendUserMessage` is a lead. |
-| 10 | Does the tracker write-back at station 7 work from the factory's own code? | Proven by other tooling, never by dev-tracker. | `gh` project item-edit against a scratch card. |
+| 10 | Does the tracker write-back at station 7 work from the factory's own code? | Proven by other tooling, never by ground-control. | `gh` project item-edit against a scratch card. |
 
 **Lower stakes:**
 

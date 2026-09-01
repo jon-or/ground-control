@@ -2,11 +2,11 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run dev-tracker extension",
+      "name": "Run ground-control extension",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extensions/dev-tracker"],
-      "outFiles": ["${workspaceFolder}/extensions/dev-tracker/dist/**/*.js"],
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extensions/ground-control"],
+      "outFiles": ["${workspaceFolder}/extensions/ground-control/dist/**/*.js"],
       "preLaunchTask": "npm: build"
     }
   ]

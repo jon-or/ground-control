@@ -1,4 +1,4 @@
-# dev-tracker — PRD
+# ground-control — PRD
 
 User-facing requirements only. Mechanisms, schemas, and APIs live in `docs/mechanics.md`, `docs/task1.md`, `docs/task2.md`.
 

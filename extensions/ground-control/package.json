@@ -1,0 +1,77 @@
+{
+  "name": "ground-control",
+  "displayName": "Ground Control",
+  "version": "0.0.0",
+  "private": true,
+  "publisher": "ownerrez",
+  "description": "One board for the GitHub issues you own and the Claude Code sessions running on your machine.",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onWebviewPanel:groundControl.board"],
+  "contributes": {
+    "commands": [
+      { "command": "groundControl.openBoard", "title": "Open Board", "category": "Ground Control" },
+      { "command": "groundControl.refresh", "title": "Refresh Board", "category": "Ground Control" }
+    ],
+    "configuration": {
+      "title": "Ground Control",
+      "properties": {
+        "groundControl.github.logins": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Your GitHub username. Comma-separate several if you work under more than one account, such as a personal and a bot account. Left empty, the board offers to detect them from `gh auth status`."
+        },
+        "groundControl.github.repo": {
+          "type": "string",
+          "default": "ownerrez/orez",
+          "description": "The repository work is tracked in, as owner/name."
+        },
+        "groundControl.github.projectNumber": {
+          "type": "number",
+          "default": 3,
+          "description": "The GitHub project board work is tracked on. Used when Card Source is 'project'."
+        },
+        "groundControl.cardSource": {
+          "type": "string",
+          "enum": ["project", "issueSearch"],
+          "enumDescriptions": [
+            "Only issues on the configured project board. The board reports how many assigned issues this excludes.",
+            "Every open issue assigned to you, whether or not it is on the board."
+          ],
+          "default": "project",
+          "description": "Which assigned issues become cards."
+        },
+        "groundControl.github.ghPath": {
+          "type": "string",
+          "default": "gh",
+          "description": "Path to the GitHub CLI, if it is not on PATH."
+        },
+        "groundControl.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 30,
+          "description": "How often the board refreshes while it is open."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc -p tsconfig.json",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
+  },
+  "dependencies": {
+    "@ground-control/github": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.104.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}
