@@ -28,14 +28,14 @@ Do not write the test for: pass-through property bags, a config reader that retu
 
 **No network in tests.** Every test runs offline, against fixtures in `packages/*/test/fixtures/`. A test that hits GitHub is not a test — it fails on a plane, it fails in CI without a token, and it changes its answer when someone reassigns an issue.
 
-**Fixtures are recorded, not invented.** Capture a real response with `gh api graphql`, save it verbatim, and trim it only by deleting whole nodes. A hand-written fixture tests the fixture author's belief about the API, which is the thing most likely to be wrong. Record the command that produced each fixture in a sibling `.cmd` file so it can be refreshed.
+**Fixtures are recorded, not invented.** Capture a real response with `gh api graphql`, save it verbatim, and trim it only by deleting whole nodes. A hand-written fixture tests the fixture author's belief about the API, which is the thing most likely to be wrong. Record the command that produced each fixture in the fixtures directory's own `README.md` so it can be refreshed. A test may null a scalar the GraphQL schema declares nullable when the live API will not serve that shape on demand — derive it in the test and say so there, rather than saving a derived shape as a fixture.
 
 **Assert the refusal, not just the success.** For every rule, the valuable test is the one proving the bad input is rejected. A test suite that only walks the happy path tells you the code runs, not that it is correct.
 
-**A test that cannot fail is a bug.** Before writing an assertion, know what change to the source would break it. `expect(count).toBeGreaterThanOrEqual(n)` against data where the two are always equal proves nothing — that mistake was already caught once in review here.
+**A test that cannot fail is a bug.** Before writing an assertion, know what change to the source would break it. The same applies to the fakes: a stub that repeats its last recorded answer forever hides an over-paging bug from every test that uses it, so asking a fake for something it was not given is a failure. `expect(count).toBeGreaterThanOrEqual(n)` against data where the two are always equal proves nothing — that mistake was already caught once in review here.
 
-**Coverage is a floor, not a goal.** `packages/*` is held at 85% lines and branches. The number exists to make an untested new module fail loudly; it is not evidence that the tested code is correct.
+**Coverage is a floor, not a goal.** Each package sets its own threshold in its `vitest.config.ts`; `packages/github` is held at 85% lines and branches, and a new package opts in the same way. The number exists to make an untested new module fail loudly; it is not evidence that the tested code is correct.
 
 ## What is not unit-testable, and what covers it instead
 
-The extension host, the webview, and `vsce package` cannot be reached from vitest. They are covered by a written manual pass in `docs/task0.md` § Verification, run before each of the five commits lands, plus one hard requirement: **`vsce package --no-dependencies` must succeed**, because F5 resolves workspace dependencies that the packaged `.vsix` does not.
+The extension host, the webview, and `vsce package` cannot be reached from vitest. They are covered by a manual pass before a change lands, plus one hard requirement: **`vsce package --no-dependencies` must succeed**, because F5 resolves workspace dependencies that the packaged `.vsix` does not.

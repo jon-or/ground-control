@@ -1,0 +1,9 @@
+#!/bin/sh
+# The tree is good because a runner said so. See docs/testing.md.
+if git diff --cached --name-only --diff-filter=ACMR | grep -qvE '\.(md|txt)$'; then
+  npm run verify || {
+    echo ""
+    echo "pre-commit: npm run verify failed. Fix it, or use --no-verify only for a WIP or docs-only commit."
+    exit 1
+  }
+fi
