@@ -9,6 +9,7 @@ project number; the recorded values are scrubbed before the fixture is saved, be
 
 | File | Command |
 |---|---|
+| `avatars.json` | `$Q` with `cards` and `all` set to a focused issue-number search; preserves a recorded Dev Review card where the issue assignee and linked PR author differ |
 | `project-mode.json` | `gh api graphql -f query="$Q" -f cards='repo:$REPO is:issue is:open assignee:$LOGIN project:$REPO_OWNER/$PROJECT' -f all='repo:$REPO is:issue is:open assignee:$LOGIN'` |
 | `not-on-project.json` | same, with a project number the assigned issues are not on — a real response where the filter excludes every one |
 | `paged-page1.json` | `-f cards='repo:$REPO is:issue is:open' -f all='…'`, nodes trimmed to 3 |

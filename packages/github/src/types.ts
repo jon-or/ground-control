@@ -19,7 +19,14 @@ export interface IssueCard {
   url: string;
   status: string | null;
   assignees: string[];
+  avatar: CardAvatar | null;
   updatedAt: string;
+}
+
+export interface CardAvatar {
+  login: string;
+  url: string;
+  source: 'pull-request' | 'issue';
 }
 
 export interface AssignedIssues {
@@ -63,7 +70,20 @@ const searchNode = z.object({
   updatedAt: z.string(),
   issueType: z.object({ name: z.string() }).nullable(),
   repository: z.object({ nameWithOwner: z.string() }),
-  assignees: z.object({ nodes: z.array(z.object({ login: z.string() })) }),
+  assignees: z.object({
+    nodes: z.array(z.object({ login: z.string(), avatarUrl: z.string().optional() })),
+  }),
+  // Optional keeps recordings made before avatars were selected readable. The production query always requests it.
+  pullRequests: z
+    .object({
+      nodes: z.array(
+        z.object({
+          updatedAt: z.string(),
+          author: z.object({ login: z.string(), avatarUrl: z.string() }).nullable(),
+        }),
+      ),
+    })
+    .optional(),
   projectItems: z.object({ nodes: z.array(projectItem) }),
 });
 

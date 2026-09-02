@@ -61,8 +61,15 @@ function anonymiseResponse(response, logins) {
       node.repository.nameWithOwner = REPO;
     }
 
-    for (const assignee of node.assignees?.nodes ?? []) {
-      assignee.login = logins.of(assignee.login);
+    for (const actor of [
+      ...(node.assignees?.nodes ?? []),
+      ...(node.pullRequests?.nodes ?? []).map((pr) => pr.author).filter(Boolean),
+    ]) {
+      actor.login = logins.of(actor.login);
+
+      if (actor.avatarUrl) {
+        actor.avatarUrl = `https://avatars.githubusercontent.com/${actor.login}?s=40`;
+      }
     }
   }
 
@@ -75,11 +82,15 @@ function anonymiseResponse(response, logins) {
  */
 function assertScrubbed(recorded, written, logins) {
   const json = JSON.stringify(written);
+  const identifyingActorValues = (actor) =>
+    actor && !/^dev-\d+(-[a-z0-9-]+)?$/.test(actor.login) ? [actor.login, actor.avatarUrl] : [];
 
   const fromNodes = recorded.flatMap((r) =>
     (r?.data?.cards?.nodes ?? []).flatMap((n) => [
       n.title === title(n.number) ? null : n.title,
       n.repository?.nameWithOwner === REPO ? null : n.repository?.nameWithOwner,
+      ...(n.assignees?.nodes ?? []).flatMap(identifyingActorValues),
+      ...(n.pullRequests?.nodes ?? []).flatMap((pr) => identifyingActorValues(pr.author)),
     ]),
   );
 

@@ -1,0 +1,45 @@
+{
+  "data": {
+    "cards": {
+      "issueCount": 2,
+      "pageInfo": { "hasNextPage": false, "endCursor": "Y3Vyc29yOjI=" },
+      "nodes": [
+        {
+          "number": 16976,
+          "title": "Calendar feed overwrites a manual edit",
+          "url": "https://github.com/example-org/example-repo/issues/16976",
+          "updatedAt": "2026-09-01T21:57:41Z",
+          "issueType": { "name": "Feature" },
+          "repository": { "nameWithOwner": "example-org/example-repo" },
+          "assignees": { "nodes": [
+            { "login": "dev-2", "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40" }
+          ] },
+          "pullRequests": { "nodes": [
+            { "updatedAt": "2026-09-01T21:57:39Z", "author": { "login": "dev-2", "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40" } }
+          ] },
+          "projectItems": { "nodes": [
+            { "project": { "number": 3 }, "fieldValueByName": { "name": "⚒️ Dev" } }
+          ] }
+        },
+        {
+          "number": 17356,
+          "title": "Quote email overwrites a manual edit",
+          "url": "https://github.com/example-org/example-repo/issues/17356",
+          "updatedAt": "2026-09-01T19:53:19Z",
+          "issueType": { "name": "Bug" },
+          "repository": { "nameWithOwner": "example-org/example-repo" },
+          "assignees": { "nodes": [
+            { "login": "dev-1", "avatarUrl": "https://avatars.githubusercontent.com/dev-1?s=40" }
+          ] },
+          "pullRequests": { "nodes": [
+            { "updatedAt": "2026-09-01T18:58:00Z", "author": { "login": "dev-2", "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40" } }
+          ] },
+          "projectItems": { "nodes": [
+            { "project": { "number": 3 }, "fieldValueByName": { "name": "🔍 Dev Review" } }
+          ] }
+        }
+      ]
+    },
+    "assignedTotal": { "issueCount": 2 }
+  }
+}

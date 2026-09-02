@@ -10,14 +10,14 @@ import { promptForLogins } from './identity.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 
-interface SourceFailure {
+export interface SourceFailure {
   source: 'issues' | 'sessions';
   kind: string;
   message: string;
   remedy: string;
 }
 
-interface BoardMessage {
+export interface BoardMessage {
   type: 'board';
   cards: BoardCard[];
   issues: {
@@ -274,7 +274,7 @@ export class BoardPanel {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${n}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://avatars.githubusercontent.com; style-src ${webview.cspSource}; script-src 'nonce-${n}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link href="${media('board.css')}" rel="stylesheet">
 <title>Ground Control</title>
