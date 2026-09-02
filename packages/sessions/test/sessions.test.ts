@@ -18,6 +18,14 @@ import {
 const active = fixture('agents-active') as AgentEntry[];
 const all = fixture('agents-all') as (AgentEntry & { state?: string })[];
 
+/** The recorded sessions that have been prompted — the ones the board reports, in the order the CLI listed them. */
+const prompted = active.filter((entry) =>
+  transcripts.entries.some((t) => t.sessionId === entry.sessionId && t.writtenAt !== null),
+);
+
+/** The index in the CLI's response of the nth session the board reports, for a test that has to damage one. */
+const promptedIndex = (n: number): number => active.indexOf(prompted[n]!);
+
 function deps(response: unknown = active) {
   const run = runnerOf(response);
 
@@ -41,6 +49,7 @@ describe('the recording these tests rest on', () => {
   it('covers sessions with a transcript and sessions with none', () => {
     expect(transcripts.entries.filter((e) => e.writtenAt !== null).length).toBeGreaterThan(0);
     expect(transcripts.entries.filter((e) => e.writtenAt === null).length).toBeGreaterThan(0);
+    expect(prompted.length).toBeLessThan(active.length);
   });
 
   it('covers background sessions carrying a short id and a state, which no active session does', () => {
@@ -79,11 +88,50 @@ describe('fetchSessions', () => {
     expect(d.run.calls[0]?.[0]).toBe('claude');
   });
 
-  it('returns every session the CLI listed, in the order it listed them', async () => {
+  it('returns every prompted session the CLI listed, in the order it listed them', async () => {
     const snapshot = await fetchSessions(config(), deps());
 
-    expect(snapshot.sessions.map((s) => s.sessionId)).toEqual(active.map((e) => e.sessionId));
+    expect(snapshot.sessions.map((s) => s.sessionId)).toEqual(prompted.map((e) => e.sessionId));
     expect(snapshot.failures).toEqual([]);
+  });
+
+  it('keeps a background session the CLI reports a state for, whose transcript it cannot find', async () => {
+    const { sessions } = await fetchSessions(config(), deps(all));
+    const working = all.find((e) => e.state !== undefined)!;
+
+    expect(transcripts.entries.some((t) => t.sessionId === working.sessionId && t.writtenAt !== null)).toBe(false);
+    expect(sessions.map((s) => s.sessionId)).toContain(working.sessionId);
+  });
+
+  it('omits a listed session that has never been prompted, and calls it no failure', async () => {
+    const snapshot = await fetchSessions(config(), deps());
+    const idle = active.filter((entry) => !prompted.includes(entry));
+
+    expect(idle.length).toBeGreaterThan(0);
+    expect(snapshot.sessions.map((s) => s.sessionId)).not.toContain(idle[0]?.sessionId);
+    expect(snapshot.failures).toEqual([]);
+  });
+
+  it('keeps a session with no transcript that the hooks have reported activity for', async () => {
+    const idle = active.find((entry) => !prompted.includes(entry))!;
+    const marker = JSON.stringify({
+      v: 1,
+      sessionId: idle.sessionId,
+      event: 'UserPromptSubmit',
+      at: Date.now(),
+      notificationType: null,
+      source: null,
+      toolName: null,
+      reason: null,
+      backgroundTasks: 0,
+    });
+    const d = deps();
+    const snapshot = await fetchSessions(config(), {
+      ...d,
+      readText: (path) => (path.endsWith(`${idle.sessionId}.json`) ? marker : d.readText(path)),
+    });
+
+    expect(snapshot.sessions.map((s) => s.sessionId)).toContain(idle.sessionId);
   });
 
   it('stamps every session with the agent that reported it', async () => {
@@ -95,7 +143,7 @@ describe('fetchSessions', () => {
   it('reports status, state, and the short id exactly where the CLI supplied them', async () => {
     const { sessions } = await fetchSessions(config(), deps());
 
-    for (const [i, entry] of active.entries()) {
+    for (const [i, entry] of prompted.entries()) {
       expect(sessions[i]?.status).toBe(entry.status ?? null);
       expect(sessions[i]?.state).toBe(entry.state ?? null);
       expect(sessions[i]?.shortId).toBe(entry.id ?? null);
@@ -131,7 +179,7 @@ describe('fetchSessions', () => {
   it('carries each session its own recorded transcript write time', async () => {
     const { sessions } = await fetchSessions(config(), deps());
 
-    for (const entry of transcripts.entries) {
+    for (const entry of transcripts.entries.filter((e) => e.writtenAt !== null)) {
       expect(sessions.find((s) => s.sessionId === entry.sessionId)?.transcriptWrittenAt).toBe(entry.writtenAt);
     }
   });
@@ -139,15 +187,17 @@ describe('fetchSessions', () => {
   it('carries each session its own recorded title, and none where the transcript held none', async () => {
     const { sessions } = await fetchSessions(config(), deps());
 
-    expect(transcripts.entries.filter((e) => e.titles.length > 0).length).toBeGreaterThan(0);
-    expect(transcripts.entries.filter((e) => e.titles.length === 0).length).toBeGreaterThan(0);
+    const reported = transcripts.entries.filter((e) => e.writtenAt !== null);
 
-    for (const entry of transcripts.entries) {
+    expect(reported.filter((e) => e.titles.length > 0).length).toBeGreaterThan(0);
+    expect(reported.filter((e) => e.titles.length === 0).length).toBeGreaterThan(0);
+
+    for (const entry of reported) {
       expect(sessions.find((s) => s.sessionId === entry.sessionId)?.title).toBe(expectedTitle(entry));
     }
   });
 
-  it('reports no title for a session whose transcript cannot be read at all', async () => {
+  it('reports no title for a session whose transcript is there but unreadable', async () => {
     const { sessions } = await fetchSessions(config(), { ...deps(), readTail: () => null });
 
     expect(sessions.every((s) => s.title === null)).toBe(true);
@@ -155,7 +205,7 @@ describe('fetchSessions', () => {
 
   it('keeps a session whose kind the board has never seen', async () => {
     const unknown = structuredClone(active);
-    unknown[0]!.kind = 'something-new';
+    unknown[promptedIndex(0)]!.kind = 'something-new';
 
     const snapshot = await fetchSessions(config(), deps(unknown));
 
@@ -164,7 +214,7 @@ describe('fetchSessions', () => {
 
   it('keeps a session with no display name', async () => {
     const unnamed = structuredClone(active);
-    delete unnamed[0]!.name;
+    delete unnamed[promptedIndex(0)]!.name;
 
     const snapshot = await fetchSessions(config(), deps(unnamed));
 
@@ -223,7 +273,7 @@ describe('fetchSessions', () => {
       deps(),
     );
 
-    expect(snapshot.sessions).toHaveLength(active.length);
+    expect(snapshot.sessions).toHaveLength(prompted.length);
     expect(snapshot.failures.map((f) => f.agent)).toEqual(['gemini']);
   });
 
@@ -273,12 +323,12 @@ describe('fetchSessions', () => {
 
   it('counts more than one unreadable entry in the plural', async () => {
     const broken = structuredClone(active) as unknown as Record<string, unknown>[];
-    delete broken[0]!.sessionId;
-    delete broken[1]!.cwd;
+    delete broken[promptedIndex(0)]!.sessionId;
+    delete broken[promptedIndex(1)]!.cwd;
 
     const snapshot = await fetchSessions(config(), deps(broken));
 
-    expect(snapshot.sessions).toHaveLength(active.length - 2);
+    expect(snapshot.sessions).toHaveLength(prompted.length - 2);
     expect(snapshot.failures[0]?.message).toContain('2 sessions the board could not read');
     expect(snapshot.failures[0]?.message).toContain('sessionId');
     expect(snapshot.failures[0]?.message).not.toContain('cwd');
@@ -286,11 +336,11 @@ describe('fetchSessions', () => {
 
   it('keeps every readable session when one entry is not, and says how many it dropped', async () => {
     const broken = structuredClone(active) as unknown as Record<string, unknown>[];
-    delete broken[0]!.sessionId;
+    delete broken[promptedIndex(0)]!.sessionId;
 
     const snapshot = await fetchSessions(config(), deps(broken));
 
-    expect(snapshot.sessions).toHaveLength(active.length - 1);
+    expect(snapshot.sessions).toHaveLength(prompted.length - 1);
     expect(snapshot.failures[0]?.message).toContain('1 session the board could not read');
     expect(snapshot.failures[0]?.message).toContain('sessionId');
   });
@@ -304,7 +354,7 @@ describe('fetchSessions', () => {
 
     const snapshot = await fetchSessions(config(), deps(withoutPid));
 
-    expect(snapshot.sessions).toHaveLength(active.length);
+    expect(snapshot.sessions).toHaveLength(prompted.length);
     expect(snapshot.failures).toEqual([]);
   });
 });

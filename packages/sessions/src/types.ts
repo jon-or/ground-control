@@ -10,6 +10,20 @@ export interface SessionsConfig {
   branchIssuePattern: string;
 }
 
+export type ActivityPhase = 'running' | 'waiting' | 'idle';
+
+/**
+ * The last phase a hook reported, and when. Never a guarantee the session is in it now — `claude agents --json` does not say what an interactive
+ * session is doing, which is why hooks exist at all (`docs/mechanics.md` §20). The board reports what it observed and how long ago.
+ */
+export interface SessionActivity {
+  phase: ActivityPhase;
+  /** Epoch milliseconds the hook fired, not when the board read it. */
+  at: number;
+  /** The hook event the phase came from, so a card can say what it saw. */
+  event: string;
+}
+
 export interface Session {
   /** The provider that reported it — what tells two CLIs' sessions apart on one board. */
   agent: string;
@@ -34,6 +48,8 @@ export interface Session {
    * have a transcript hours old, or none at all, so `docs/mechanics.md` §3 forbids deriving running from it.
    */
   transcriptWrittenAt: number | null;
+  /** Null when no hook has reported on this session, or reported nothing the board recognises. */
+  activity: SessionActivity | null;
 }
 
 export type FailureKind = 'agent-missing' | 'agent-failed' | 'bad-response' | 'unknown-agent';

@@ -291,6 +291,20 @@ main.dragging .lane-idle {
   box-shadow: inset 3px 0 0 var(--gc-accent);
 }
 
+/*
+ * The type accent is an inset shadow, so a border does not collide with it. `:hover` is matched too, and both rules
+ * are declared here rather than left to source order — the ring must not disappear at the moment it is pointed at.
+ */
+.card[data-waiting],
+.card[data-waiting]:hover {
+  border-color: var(--vscode-charts-yellow);
+  background: color-mix(in srgb, var(--vscode-charts-yellow) 7%, var(--vscode-editorWidget-background, transparent));
+}
+
+.card[data-waiting]:hover {
+  background: color-mix(in srgb, var(--vscode-charts-yellow) 14%, var(--vscode-editorWidget-background, transparent));
+}
+
 /* Number left, avatar right, its labels between - the card says what it is and who has it before the title is read. */
 .card-meta {
   display: flex;
@@ -407,6 +421,73 @@ main.dragging .lane-idle {
   flex: none;
   margin-left: auto;
   white-space: nowrap;
+}
+
+/*
+ * One highlight, one pass, left to right. The image is three times the label and never repeats, so the band leads in from off the left and
+ * leaves off the right with nothing behind it — a repeating background tiles, which is what puts a second band on screen behind the first.
+ */
+@keyframes gc-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: 0% 0;
+  }
+}
+
+.session[data-phase='running'] .session-label {
+  /* Monochrome: the session's own name, lit rather than recoloured. A chart colour would read as a category. */
+  background-image: linear-gradient(
+    95deg,
+    color-mix(in srgb, var(--vscode-descriptionForeground) 60%, var(--vscode-editorWidget-background, transparent)) 43%,
+    var(--vscode-foreground) 50%,
+    color-mix(in srgb, var(--vscode-descriptionForeground) 60%, var(--vscode-editorWidget-background, transparent)) 57%
+  );
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  font-weight: 600;
+  /* Longhands, not the shorthand: jsdom computes these, so the rule is assertable rather than taken on trust. */
+  animation-name: gc-shimmer;
+  animation-duration: 1.8s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.session[data-phase='waiting'] .session-label,
+.session[data-phase='waiting'] .state {
+  color: var(--vscode-charts-yellow);
+  font-weight: 600;
+}
+
+/* Reduced motion must not mean less information: the running session stays marked, it just stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  .session[data-phase='running'] .session-label {
+    background-image: none;
+    color: var(--vscode-foreground);
+    animation-name: none;
+  }
+}
+
+/*
+ * Under forced colours the gradient is the one thing that may not paint, and the label's own colour is transparent -
+ * so the name would vanish. The phase is text in the row beside it either way, but the name has to be readable.
+ */
+@media (forced-colors: active) {
+  .session[data-phase='running'] .session-label {
+    background-image: none;
+    color: CanvasText;
+    animation-name: none;
+  }
+
+  .card[data-waiting],
+  .card[data-waiting]:hover {
+    border-color: Highlight;
+  }
 }
 
 .card:hover {

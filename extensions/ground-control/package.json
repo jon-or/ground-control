@@ -8,13 +8,30 @@
   "engines": {
     "vscode": "^1.104.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "main": "./dist/extension.js",
-  "activationEvents": ["onWebviewPanel:groundControl.board"],
+  "activationEvents": [
+    "onWebviewPanel:groundControl.board"
+  ],
   "contributes": {
     "commands": [
-      { "command": "groundControl.openBoard", "title": "Open Board", "category": "Ground Control" },
-      { "command": "groundControl.refresh", "title": "Refresh Board", "category": "Ground Control" }
+      {
+        "command": "groundControl.openBoard",
+        "title": "Open Board",
+        "category": "Ground Control"
+      },
+      {
+        "command": "groundControl.refresh",
+        "title": "Refresh Board",
+        "category": "Ground Control"
+      },
+      {
+        "command": "groundControl.removeSessionHooks",
+        "title": "Remove Session Hooks",
+        "category": "Ground Control"
+      }
     ],
     "configuration": {
       "title": "Ground Control",
@@ -36,7 +53,10 @@
         },
         "groundControl.cardSource": {
           "type": "string",
-          "enum": ["project", "issueSearch"],
+          "enum": [
+            "project",
+            "issueSearch"
+          ],
           "enumDescriptions": [
             "Only issues on the configured project board. The board reports how many assigned issues this excludes.",
             "Every open issue assigned to you, whether or not it is on the board."
@@ -51,8 +71,13 @@
         },
         "groundControl.boardStatuses": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["🎁 Assigned", "⚒️ Dev"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "🎁 Assigned",
+            "⚒️ Dev"
+          ],
           "markdownDescription": "Which project-board statuses keep an issue on the board. A status decides only whether a card is shown, never which lane it is in — lanes are yours to move cards between. Anything not listed is archived behind the Show-archived toggle."
         },
         "groundControl.sessionRefreshSeconds": {
@@ -63,7 +88,9 @@
         },
         "groundControl.agents": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "default": {},
           "markdownDescription": "The agent CLIs to read sessions from, as id to command or full path. Left empty, the board reads the ones that ship enabled."
         },
@@ -77,6 +104,11 @@
           "default": 300,
           "minimum": 30,
           "description": "How often the board refreshes while it is open."
+        },
+        "groundControl.installSessionHooks": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Let the board tell when a session is running. Claude Code's own `claude agents --json` does not report what an interactive session is doing, so the board writes a small activity hook to `~/.claude/ground-control/hook.mjs` and adds entries pointing at it to your `~/.claude/settings.json` the first time you open the board. It backs the file up first, adds only its own entries, and refuses to write at all if it cannot read the file. Turn this off to remove those entries — sessions still appear, they just cannot report what they are doing."
         }
       }
     }
@@ -86,7 +118,8 @@
     "watch": "node esbuild.js --watch",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "test": "vitest run --coverage",
-    "package": "vsce package --no-dependencies --allow-missing-repository"
+    "package": "vsce package --no-dependencies --allow-missing-repository",
+    "vscode:uninstall": "node ./dist/uninstall.js"
   },
   "dependencies": {
     "@ground-control/github": "*"

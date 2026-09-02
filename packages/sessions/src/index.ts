@@ -1,3 +1,20 @@
 export { fetchSessions } from './sessions.js';
 export { providers } from './providers.js';
-export type { AgentConfig, Session, SessionsConfig, SessionsSnapshot } from './types.js';
+export { readActivity, unreportedSessions } from './phase.js';
+export { backupsToDelete, hookNotice, lockIsStale, markerIsOrphaned, planHookInstall } from './hookPlan.js';
+export {
+  HOOK_SOURCE,
+  activityDirOf,
+  claudeSettingsPathOf,
+  groundControlDirOf,
+  hookPathOf,
+} from './hookScript.js';
+export type { HookPlan } from './hookPlan.js';
+export type {
+  ActivityPhase,
+  AgentConfig,
+  Session,
+  SessionActivity,
+  SessionsConfig,
+  SessionsSnapshot,
+} from './types.js';
