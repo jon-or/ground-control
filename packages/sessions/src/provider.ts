@@ -11,10 +11,17 @@ export type StatMtime = (path: string) => number | null;
 /** Directory entry names, or null when the path is not a readable directory. */
 export type ListDir = (path: string) => string[] | null;
 
+/**
+ * The last `bytes` bytes of a file as text, or null when it cannot be read. A transcript runs to megabytes and the
+ * board re-reads it every 30 s, so a reader takes the end of one rather than the whole.
+ */
+export type ReadTail = (path: string, bytes: number) => string | null;
+
 export interface ProviderDeps {
   readText: ReadText;
   mtime: StatMtime;
   listDir: ListDir;
+  readTail: ReadTail;
   home: string;
   /** Null when the configured issue pattern is unusable; a provider then reports branches and links nothing. */
   pattern: RegExp | null;

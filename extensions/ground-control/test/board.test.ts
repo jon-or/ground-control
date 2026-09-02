@@ -16,6 +16,7 @@ const session = {
   sessionId: 'session-1',
   shortId: null,
   name: 'cache-remediation',
+  title: null,
   cwd: 'c:/work/18953-cache-remediation',
   kind: 'interactive',
   startedAt: 1,
@@ -164,7 +165,7 @@ describe('board webview', () => {
               sessions: [{ ...session, name: null, shortId: 'short-1' }],
             },
             {
-              key: 'session:claude:session-2',
+              key: 'session:c:/work/18953-cache-remediation',
               issue: null,
               issueNumber: null,
               lane: 'unstarted',
@@ -195,12 +196,138 @@ describe('board webview', () => {
 
     const badges = Array.from(document.querySelectorAll<HTMLElement>('.card-meta .badge'));
 
-    expect(badges.map((b) => b.className.replace('badge ', ''))).toEqual(['type', 'status', 'pull-request']);
+    expect(badges.map((b) => b.className.replace('badge ', ''))).toEqual([
+      'type',
+      'status',
+      'pull-request link',
+    ]);
     expect(badges[0]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-red)');
     expect(badges[1]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
     expect(badges[2]?.textContent).toBe('#19403');
     expect(badges[2]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-green)');
     expect(badges[2]?.querySelector('.pr-mark')).not.toBeNull();
+  });
+
+  it('opens the issue from its number and the pull request from its badge', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    const number = document.querySelector<HTMLButtonElement>('.card-meta .number')!;
+    const pr = document.querySelector<HTMLButtonElement>('.card-meta .badge.pull-request')!;
+
+    expect(number.tagName).toBe('BUTTON');
+    expect(number.title).toBe('Open issue #18953 on GitHub');
+    // The button's own text is a bare number, so without this a screen reader announces only "18953, button".
+    expect(number.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
+    expect(number.draggable).toBe(false);
+    expect(pr.tagName).toBe('BUTTON');
+    expect(pr.title).toBe('Pull request #19403 — open');
+    expect(pr.getAttribute('aria-label')).toBe('Open pull request #19403, open, on GitHub');
+    expect(pr.draggable).toBe(false);
+    expect(getComputedStyle(pr).cursor).toBe('pointer');
+
+    number.click();
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
+
+    pr.click();
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openPullRequest', number: 18953 });
+  });
+
+  it('labels a session with its own title, falling back to the name Claude derived from the directory', () => {
+    const titled: LanedCard = {
+      key: 'session:c:/work/scratch',
+      issue: null,
+      issueNumber: null,
+      lane: 'build',
+      returned: false,
+      reason: 'Ad-hoc work with no issue.',
+      sessions: [
+        { ...session, sessionId: 'a', title: 'Grouping orphan sessions', cwd: 'c:/work/scratch', issueNumber: null },
+        { ...session, sessionId: 'b', title: null, name: 'scratch-7b', cwd: 'c:/work/scratch', issueNumber: null },
+      ],
+    };
+
+    send(message({ lanes: lanes({ build: [titled] }) }));
+
+    const labels = Array.from(document.querySelectorAll<HTMLElement>('.session-label')).map((el) => el.textContent);
+
+    expect(labels).toEqual(['Grouping orphan sessions', 'scratch-7b']);
+  });
+
+  it('names a card for its directory when the CLI reports a Windows path', () => {
+    const win = 'd:\\git\\ground-control';
+    const grouped: LanedCard = {
+      key: 'session:d:/git/ground-control',
+      issue: null,
+      issueNumber: null,
+      lane: 'build',
+      returned: false,
+      reason: 'Ad-hoc work with no issue.',
+      sessions: [
+        { ...session, sessionId: 'a', name: null, shortId: null, cwd: win, issueNumber: null },
+        { ...session, sessionId: 'b', name: null, shortId: null, cwd: win, issueNumber: null },
+      ],
+    };
+
+    send(message({ lanes: lanes({ build: [grouped] }) }));
+
+    const card = document.querySelector<HTMLElement>('.card')!;
+
+    expect(document.querySelectorAll('.card')).toHaveLength(1);
+    expect(card.querySelector('.title')?.textContent).toBe('ground-control');
+    expect(Array.from(card.querySelectorAll('.session-label')).map((el) => el.textContent)).toEqual([
+      'ground-control',
+      'ground-control',
+    ]);
+  });
+
+  it('names a card with no issue for its directory and lists every session running there', () => {
+    const grouped: LanedCard = {
+      key: 'session:c:/work/scratch',
+      issue: null,
+      issueNumber: null,
+      lane: 'build',
+      returned: false,
+      reason: 'Ad-hoc work with no issue.',
+      sessions: [
+        { ...session, sessionId: 'a', name: 'reading logs', cwd: 'c:/work/scratch', issueNumber: null },
+        { ...session, sessionId: 'b', name: 'drafting notes', cwd: 'c:/work/scratch', issueNumber: null },
+      ],
+    };
+
+    send(message({ lanes: lanes({ build: [grouped] }) }));
+
+    const card = document.querySelector<HTMLElement>('.card')!;
+    const labels = Array.from(card.querySelectorAll<HTMLElement>('.session-label')).map((el) => el.textContent);
+
+    expect(card.querySelector('.title')?.textContent).toBe('scratch');
+    expect(card.querySelector('.number')?.textContent).toBe('sessions');
+    expect(labels).toEqual(['reading logs', 'drafting notes']);
+  });
+
+  it('leaves the number as plain text on a card with no issue behind it', () => {
+    send(
+      message({
+        lanes: lanes({
+          unstarted: [
+            {
+              key: 'session:c:/work/18953-cache-remediation',
+              issue: null,
+              issueNumber: null,
+              lane: 'unstarted',
+              returned: false,
+              reason: 'Ad-hoc work with no issue.',
+              sessions: [session],
+            },
+          ],
+        }),
+      }),
+    );
+
+    const number = document.querySelector<HTMLElement>('.card-meta .number')!;
+
+    expect(number.tagName).toBe('SPAN');
+    expect(number.textContent).toBe('session');
+    expect(number.classList).not.toContain('link');
   });
 
   it('leaves out a badge the issue has nothing for', () => {
@@ -363,13 +490,14 @@ describe('lanes', () => {
     expect(document.getElementById('archived-toggle')?.hidden).toBe(true);
   });
 
-  it('marks a returned card and says what its status means — R6, R25', () => {
+  it('marks a returned card, and leaves the card itself without a tooltip — R6', () => {
     send(message({ lanes: lanes({ unstarted: [{ ...liveCard, returned: true }] }) }));
 
     const card = document.querySelector<HTMLElement>('.card')!;
 
     expect(card.querySelector('.card-meta .badges .returned')?.textContent).toBe('Returned');
-    expect(card.querySelector<HTMLElement>('.card-open')?.title).toContain('⚒️ Dev');
+    expect(card.querySelector<HTMLElement>('.card-open')?.title).toBe('');
+    expect(card.title).toBe('');
   });
 
   it('moves a focused card one lane with alt and an arrow', () => {
@@ -465,6 +593,20 @@ describe('lanes', () => {
     expect(Array.from(document.querySelectorAll<HTMLElement>('.card'))).toEqual(before);
   });
 
+  it('rebuilds a card whose session was retitled, so the new title is on it', () => {
+    send(message({ lanes: lanes({ plan: [planCard] }) }));
+
+    const before = document.querySelector<HTMLElement>('.card')!;
+    const retitled = { ...planCard, sessions: [{ ...session, title: 'Now checking the migration' }] };
+
+    send(message({ lanes: lanes({ plan: [retitled] }) }));
+
+    const after = document.querySelector<HTMLElement>('.card')!;
+
+    expect(after).not.toBe(before);
+    expect(after.querySelector('.session-label')?.textContent).toBe('Now checking the migration');
+  });
+
   it('rebuilds only the card whose content changed, and reorders the rest in place', () => {
     const other: LanedCard = { ...planCard, key: 'issue:18900', issueNumber: 18900 };
 
@@ -526,7 +668,7 @@ describe('lanes', () => {
 
   it('keeps a card with no issue reachable from a keyboard, since its open button is disabled', () => {
     const adHoc: LanedCard = {
-      key: 'session:claude:session-2',
+      key: 'session:c:/work/18953-cache-remediation',
       issue: null,
       issueNumber: null,
       lane: 'plan',

@@ -38,6 +38,7 @@ export type Outbound = { type: 'loading' } | BoardMessage;
 type Inbound =
   | { type: 'refresh' }
   | { type: 'openIssue'; number: number }
+  | { type: 'openPullRequest'; number: number }
   | { type: 'moveCard'; key: string; lane: LaneId };
 
 function nonce(): string {
@@ -117,6 +118,15 @@ export class BoardPanel {
 
           if (card) {
             void vscode.env.openExternal(vscode.Uri.parse(card.url));
+          }
+        }
+
+        // The webview names the issue, never the URL: the address comes from the read the extension itself made.
+        if (msg.type === 'openPullRequest') {
+          const pr = this.#issues?.cards.find((c) => c.number === msg.number)?.pullRequest;
+
+          if (pr) {
+            void vscode.env.openExternal(vscode.Uri.parse(pr.url));
           }
         }
 

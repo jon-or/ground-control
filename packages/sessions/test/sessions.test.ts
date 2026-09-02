@@ -4,10 +4,12 @@ import type { AgentEntry } from '../src/providers/claude.js';
 import {
   claudeWith,
   config,
+  expectedTitle,
   failingRunner,
   fixture,
   gitReads,
   listRecordedDirs,
+  readRecordedTails,
   recordedMtimes,
   runnerOf,
   transcripts,
@@ -19,7 +21,15 @@ const all = fixture('agents-all') as (AgentEntry & { state?: string })[];
 function deps(response: unknown = active) {
   const run = runnerOf(response);
 
-  return { run, agents: claudeWith(run), readText: gitReads(), mtime: recordedMtimes, listDir: listRecordedDirs, home: transcripts.home };
+  return {
+    run,
+    agents: claudeWith(run),
+    readText: gitReads(),
+    mtime: recordedMtimes,
+    listDir: listRecordedDirs,
+    readTail: readRecordedTails,
+    home: transcripts.home,
+  };
 }
 
 describe('the recording these tests rest on', () => {
@@ -124,6 +134,23 @@ describe('fetchSessions', () => {
     for (const entry of transcripts.entries) {
       expect(sessions.find((s) => s.sessionId === entry.sessionId)?.transcriptWrittenAt).toBe(entry.writtenAt);
     }
+  });
+
+  it('carries each session its own recorded title, and none where the transcript held none', async () => {
+    const { sessions } = await fetchSessions(config(), deps());
+
+    expect(transcripts.entries.filter((e) => e.titles.length > 0).length).toBeGreaterThan(0);
+    expect(transcripts.entries.filter((e) => e.titles.length === 0).length).toBeGreaterThan(0);
+
+    for (const entry of transcripts.entries) {
+      expect(sessions.find((s) => s.sessionId === entry.sessionId)?.title).toBe(expectedTitle(entry));
+    }
+  });
+
+  it('reports no title for a session whose transcript cannot be read at all', async () => {
+    const { sessions } = await fetchSessions(config(), { ...deps(), readTail: () => null });
+
+    expect(sessions.every((s) => s.title === null)).toBe(true);
   });
 
   it('keeps a session whose kind the board has never seen', async () => {

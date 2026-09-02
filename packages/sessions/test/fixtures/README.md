@@ -13,7 +13,7 @@ Read the diff before committing — a fixture is evidence, and the counts move a
 | `agents-active.json` | `claude agents --json` — every live session |
 | `agents-all.json` | `claude agents --all --json` — the same sessions plus finished background ones. The only fixture carrying a short `id` or a `state`, so it is what proves those two fields are mapped rather than hardcoded |
 | `git-reads.json` | each recorded checkout's `.git` and its `HEAD`, keyed by forward-slash path. A `null` is a real read failure: a plain `.git` is a directory, so reading it as text fails, which is how a clone is told from a worktree |
-| `transcripts.json` | the project-directory listing, plus each live session's cwd, the directory its transcript was found in (`dir`), and that transcript's write time — both `null` where there is no transcript |
+| `transcripts.json` | the project-directory listing, plus each live session's cwd, the directory its transcript was found in (`dir`), that transcript's write time, the title records inside the window the reader reads (`titles`), and how far from the transcript's end its last title sat (`titleBytesFromEnd`) |
 
 ## Anonymised, and why that makes the tests stronger
 
@@ -22,6 +22,14 @@ This repo is public, so `anonymise.js` rewrites every checkout path, branch, ses
 Every structural property the tests turn on survives: which sessions share a checkout, which branches carry an issue number, which checkouts are worktrees rather than clones, which project directories differ from their slug only by case, and which sessions have no transcript. Only the names change.
 
 The paths are also **deliberately not paths that exist on this machine**, and that is load-bearing. While the fixtures named real checkouts, a reader that ignored its injected `readText`, `mtime`, `listDir` or `home` and read the real disk instead got identical answers and the suite stayed green — four mutations of `fetchSessions`'s dependency wiring survived. Against synthetic paths all four fail.
+
+## Titles: the records, not the bytes around them
+
+A transcript's title records are recorded; the conversation they sit among is not. Those bytes name real work in prose and cannot be anonymised the way a path can, so `titles` holds the records alone and the test's `readRecordedTails` rebuilds a tail from them behind a truncated fragment — which is what a positional read of a real file's end hands a reader. The title *text* is replaced like every other name; the record type, the field it uses, the order they appeared in, and which sessions had none are what the recording preserves.
+
+`titleBytesFromEnd` is the evidence behind the reader's window: it is measured over the whole file, so an entry with a `titleBytesFromEnd` and an empty `titles` is a session whose title sits beyond what the reader reads. That case is in the recording, and a test asserts it stayed there.
+
+No live session on this machine had a manual title when this was recorded, so the precedence between a manual and an automatic title is derived in `activity.test.ts` from a recorded automatic one, in the order §3b of `docs/mechanics.md` measured.
 
 ## What the tests rest on
 

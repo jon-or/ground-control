@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { listDirFromDisk, mtimeFromDisk, readTextFromDisk } from '../src/sessions.js';
+import { listDirFromDisk, mtimeFromDisk, readTailFromDisk, readTextFromDisk } from '../src/sessions.js';
 import { join as joinForward } from '../src/paths.js';
 
 // This package's own directory, which has the two shapes the readers must tell apart.
@@ -52,5 +52,22 @@ describe('listDirFromDisk', () => {
 
   it('returns null for a path that is not there', () => {
     expect(listDirFromDisk(join(pkg, 'no-such-directory'))).toBeNull();
+  });
+});
+
+describe('readTailFromDisk', () => {
+  it('reads the end of a file, not its start', () => {
+    const whole = readTextFromDisk(manifest)!;
+
+    expect(readTailFromDisk(manifest, 40)).toBe(whole.slice(-40));
+  });
+
+  it('reads a whole file smaller than the window asked for', () => {
+    expect(readTailFromDisk(manifest, 1_000_000)).toBe(readTextFromDisk(manifest));
+  });
+
+  it('is null for a directory and for a path that is not there', () => {
+    expect(readTailFromDisk(pkg, 100)).toBeNull();
+    expect(readTailFromDisk(join(pkg, 'no-such-file'), 100)).toBeNull();
   });
 });

@@ -8,14 +8,6 @@
     "name": "18941-inbox-badge-overwrites-a-manual-edit-c3"
   },
   {
-    "pid": 24480,
-    "cwd": "d:/work/repo.worktrees/18945-tax-rule-counts-archived-records-twice",
-    "kind": "interactive",
-    "startedAt": 1788270842242,
-    "sessionId": "43849707-0bc9-4e4e-bb09-a398606cc349",
-    "name": "18945-tax-rule-counts-archived-records-twice-43"
-  },
-  {
     "pid": 51028,
     "cwd": "d:/work/repo.worktrees/18953-guest-portal-skips-the-second-occurrence",
     "kind": "interactive",
@@ -81,14 +73,6 @@
     "sessionId": "e87fd6d6-9bf1-4a60-b5fa-da7f54716c7e",
     "name": "17198-guest-portal-drops-rows-past-the-first-page-2-e8",
     "state": "stopped"
-  },
-  {
-    "pid": 35780,
-    "cwd": "d:/work/repo.worktrees/18945-tax-rule-counts-archived-records-twice",
-    "kind": "interactive",
-    "startedAt": 1788284965729,
-    "sessionId": "4391cb76-a7b4-4509-a76a-0fcef5380fba",
-    "name": "18945-tax-rule-counts-archived-records-twice-43"
   },
   {
     "id": "322e2149",
@@ -163,67 +147,79 @@
     "state": "done"
   },
   {
-    "pid": 27204,
-    "cwd": "d:/work/repo",
+    "pid": 45096,
+    "cwd": "d:/work/repo.worktrees/18945-tax-rule-counts-archived-records-twice",
     "kind": "interactive",
-    "startedAt": 1788295712906,
-    "sessionId": "34b31b03-f5ee-4d09-b651-883d963e1782",
-    "name": "main-34"
+    "startedAt": 1788320221603,
+    "sessionId": "43849707-0bc9-4e4e-bb09-a398606cc349",
+    "name": "18945-tax-rule-counts-archived-records-twice-43"
   },
   {
-    "pid": 58076,
+    "pid": 9536,
+    "cwd": "d:/work/repo.worktrees/18950-inbox-badge-retries-a-settled-charge",
+    "kind": "interactive",
+    "startedAt": 1788351294330,
+    "sessionId": "11ae8d6d-0fd8-46e9-92d4-c12fad3a16e6",
+    "name": "18950-inbox-badge-retries-a-settled-charge-11"
+  },
+  {
+    "pid": 53504,
+    "cwd": "d:/work/repo",
+    "kind": "interactive",
+    "startedAt": 1788351381240,
+    "sessionId": "8451aeef-78eb-4d27-9a3e-c6b2d515a1c7",
+    "name": "main-84"
+  },
+  {
+    "id": "2179fd11",
     "cwd": "d:/work/clone-2",
-    "kind": "interactive",
-    "startedAt": 1788295816713,
-    "sessionId": "1ae27459-6f56-46dd-bf59-962c5838a6fd",
-    "name": "main-1a"
+    "kind": "background",
+    "startedAt": 1788351967146,
+    "sessionId": "2179fd11-a66b-4927-ba08-b7787ebf4996",
+    "name": "main-21",
+    "state": "stopped"
   },
   {
-    "pid": 33652,
-    "cwd": "d:/work/repo",
-    "kind": "interactive",
-    "startedAt": 1788296228894,
-    "sessionId": "fd7337ee-5b3f-47d5-ba18-42a2506978c4",
-    "name": "main-fd"
+    "id": "b83de7fe",
+    "cwd": "d:/work/clone-2",
+    "kind": "background",
+    "startedAt": 1788352152533,
+    "sessionId": "b83de7fe-0f30-4281-8034-d8054108b38a",
+    "name": "main-b8",
+    "state": "stopped"
   },
   {
-    "pid": 48404,
-    "cwd": "d:/work/clone-3",
-    "kind": "interactive",
-    "startedAt": 1788297430279,
-    "sessionId": "a85261e1-eef7-4b88-bd08-0f400e05522f",
-    "name": "main-a8"
+    "id": "1f9c002f",
+    "cwd": "d:/work/clone-2",
+    "kind": "background",
+    "startedAt": 1788352295363,
+    "sessionId": "1f9c002f-b53e-4d6c-901b-b4b5920343f9",
+    "name": "main-1f",
+    "state": "done"
   },
   {
-    "pid": 58028,
-    "cwd": "d:/work/repo",
-    "kind": "interactive",
-    "startedAt": 1788300239728,
-    "sessionId": "b5a2318d-4dab-4eb8-97c5-e4b1c0d7b4c0",
-    "name": "main-b5"
+    "id": "07265e6d",
+    "cwd": "d:/work/clone-2",
+    "kind": "background",
+    "startedAt": 1788352418942,
+    "sessionId": "07265e6d-cd29-481d-88d9-41836660d588",
+    "name": "main-07",
+    "state": "stopped"
   },
   {
-    "pid": 28104,
-    "cwd": "d:/work/repo",
-    "kind": "interactive",
-    "startedAt": 1788300247459,
-    "sessionId": "07e9500c-e183-40e4-840f-b32b7bf0da62",
-    "name": "main-07"
-  },
-  {
-    "pid": 60664,
+    "pid": 67556,
     "cwd": "d:/work/repo.worktrees/17198-guest-portal-drops-rows-past-the-first-page",
     "kind": "interactive",
-    "startedAt": 1788307449772,
-    "sessionId": "dd37c678-6774-438a-80b2-912632a15123",
-    "name": "17198-guest-portal-drops-rows-past-the-first-page-dd"
+    "startedAt": 1788352748184,
+    "sessionId": "27260563-58e5-4587-9968-7e36d5e6913c",
+    "name": "17198-guest-portal-drops-rows-past-the-first-page-27"
   },
   {
-    "pid": 53076,
+    "pid": 53720,
     "cwd": "d:/work/repo",
     "kind": "interactive",
-    "startedAt": 1788309271322,
-    "sessionId": "15873f6d-e446-4073-abae-25b4f134da35",
-    "name": "main-15"
+    "startedAt": 1788353104483,
+    "sessionId": "fe9dd9ae-ee41-488c-8f7d-69a6dcdc9189",
+    "name": "main-fe"
   }
 ]

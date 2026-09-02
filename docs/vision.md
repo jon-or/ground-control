@@ -20,12 +20,14 @@ The operator can, at any moment, on any running agent:
 | Level | What it means | Cost |
 |---|---|---|
 | **Watch** | tail the station's `stream-json` events — current tool call, live | free — does not touch the process |
-| **Steer** | edit the agent's artifact (`plan.md`, `findings.json`); the station re-reads at its next checkpoint | free — does not touch the process |
+| **Steer** | send the station a message, or edit the artifact it re-reads at its next checkpoint | free — does not touch the process, but lands only at the station's next turn boundary |
 | **Seize** | kill the station, open its session in a native editor tab, drive by hand | **kills every in-flight subagent** |
 
 Seize is a four-step loop, not a button: **kill → seize → release → hand back.** An open editor tab holds the session, and a hand-back attempted while it is open silently forks into a second agent on the same worktree. Release — closing the tab — is a first-class action the extension performs, never something the operator is trusted to remember (`docs/mechanics.md` §11).
 
-Steer is the important one. The operator corrects the agent by editing the artifact, not by arguing in a chat window — which is what makes supervising several items at once tractable.
+Steer is the important one, and it has two forms. The operator corrects the agent by editing the artifact it will re-read, or by pushing a message straight into the live session over its local socket — no tab, no kill, no Claude session of our own on the sending side (`docs/mechanics.md` §18). Both beat arguing in a chat window, which is what makes supervising several items at once tractable.
+
+Neither form interrupts. A message queues until the station finishes the tool call it is inside, so steering changes what an agent does **next**, never what it is doing now. A station already ten minutes into the wrong build is a Seize, not a Steer — that boundary is what keeps Seize in the product.
 
 Seize is the whole argument for a VS Code extension rather than a web dashboard: one keystroke from watching to driving, in a real terminal, with full conversation history intact. It is not free, though — stopping a session SIGKILLs its subagents and discards their results (`docs/mechanics.md` §4). The board must quote that price before the operator pays it, and offer Steer instead.
 

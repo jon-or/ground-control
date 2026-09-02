@@ -48,13 +48,15 @@ function notice(text, remedy, isError) {
   noticesEl.appendChild(el);
 }
 
+/** The last segment of a path. Both separators, because an agent CLI reports the cwd in its platform's own shape. */
 function basename(dir) {
-  const parts = dir.split(/[\/]/).filter(Boolean);
+  const parts = dir.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? dir;
 }
 
+/** What a session calls itself. `name` is the CLI's own and often derived from the directory — the weakest of the three. */
 function sessionLabel(session) {
-  return session.name ?? session.shortId ?? basename(session.cwd);
+  return session.title ?? session.name ?? session.shortId ?? basename(session.cwd);
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -138,11 +140,17 @@ const BADGE_COLORS = {
 /** A pull request's own state colours, matching what GitHub paints them. */
 const PR_COLORS = { OPEN: 'GREEN', MERGED: 'PURPLE', CLOSED: 'RED' };
 
-function badge(kind, text, color, title) {
-  const el = document.createElement('span');
-  el.className = `badge ${kind}`;
+function badge(kind, text, color, title, onOpen) {
+  const el = document.createElement(onOpen ? 'button' : 'span');
+  el.className = onOpen ? `badge ${kind} link` : `badge ${kind}`;
   el.style.setProperty('--gc-badge', `var(--vscode-charts-${BADGE_COLORS[color] ?? 'foreground'})`);
   el.append(text);
+
+  if (onOpen) {
+    el.type = 'button';
+    el.draggable = false;
+    el.addEventListener('click', onOpen);
+  }
 
   if (title) {
     el.title = title;
@@ -156,8 +164,13 @@ function cardTitle(boardCard) {
     return boardCard.issue.title;
   }
 
+  // A card with no issue is a directory, not one session, so it is named for the directory its sessions run in.
+  if (boardCard.issueNumber === null) {
+    return basename(boardCard.sessions[0].cwd);
+  }
+
   // A session names an issue the developer does not own. R2 forbids hiding the session, so the card says why it is bare.
-  return boardCard.issueNumber === null ? sessionLabel(boardCard.sessions[0]) : 'Not among your assigned issues';
+  return 'Not among your assigned issues';
 }
 
 /** GitHub's own pull-request glyph, so the badge reads as a PR rather than a second issue number. */
@@ -214,9 +227,22 @@ function card(boardCard, avatarPool, placeable) {
   const meta = document.createElement('span');
   meta.className = 'card-meta';
 
-  const number = document.createElement('span');
-  number.className = 'number';
-  number.textContent = boardCard.issueNumber === null ? 'session' : `#${boardCard.issueNumber}`;
+  const number = document.createElement(issue ? 'button' : 'span');
+  number.className = issue ? 'number link' : 'number';
+  number.textContent =
+    boardCard.issueNumber === null
+      ? `${boardCard.sessions.length === 1 ? 'session' : 'sessions'}`
+      : `#${boardCard.issueNumber}`;
+
+  if (issue) {
+    number.type = 'button';
+    number.title = `Open issue #${issue.number} on GitHub`;
+    // The button's text is a bare number, and that is the name a screen reader uses — `title` is only a description.
+    number.setAttribute('aria-label', `Open issue #${issue.number} on GitHub`);
+    // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
+    number.draggable = false;
+    number.addEventListener('click', () => vscode.postMessage({ type: 'openIssue', number: issue.number }));
+  }
 
   const avatarSlot = document.createElement('span');
   avatarSlot.className = 'avatar-slot';
@@ -240,9 +266,6 @@ function card(boardCard, avatarPool, placeable) {
   title.textContent = cardTitle(boardCard);
 
   open.appendChild(title);
-  const heading = boardCard.issueNumber === null ? title.textContent : `#${boardCard.issueNumber} ${title.textContent}`;
-  // R25 - what the card's status means for it, in the developer's own words. The lane is theirs and needs no reason.
-  open.title = `${heading}\n${boardCard.reason}`;
 
   if (issue) {
     open.addEventListener('click', () => vscode.postMessage({ type: 'openIssue', number: issue.number }));
@@ -262,8 +285,17 @@ function card(boardCard, avatarPool, placeable) {
   }
 
   if (issue?.pullRequest) {
-    const pr = badge('pull-request', `#${issue.pullRequest.number}`, PR_COLORS[issue.pullRequest.state] ?? null);
-    pr.title = `Pull request #${issue.pullRequest.number} — ${issue.pullRequest.state.toLowerCase()}`;
+    const pr = badge(
+      'pull-request',
+      `#${issue.pullRequest.number}`,
+      PR_COLORS[issue.pullRequest.state] ?? null,
+      `Pull request #${issue.pullRequest.number} — ${issue.pullRequest.state.toLowerCase()}`,
+      () => vscode.postMessage({ type: 'openPullRequest', number: issue.number }),
+    );
+    pr.setAttribute(
+      'aria-label',
+      `Open pull request #${issue.pullRequest.number}, ${issue.pullRequest.state.toLowerCase()}, on GitHub`,
+    );
     pr.prepend(pullRequestMark());
     badges.appendChild(pr);
   }
@@ -298,8 +330,6 @@ function card(boardCard, avatarPool, placeable) {
     if (open.disabled) {
       el.tabIndex = 0;
     }
-
-    open.title = `${open.title}\nDrag, or press Alt with an arrow key, to move this card between lanes.`;
 
     el.addEventListener('keydown', (event) => {
       if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) {
@@ -386,9 +416,8 @@ function signature(boardCard) {
   return JSON.stringify([
     boardCard.lane,
     boardCard.returned,
-    boardCard.reason,
     boardCard.issue,
-    boardCard.sessions.map((s) => [s.agent, s.sessionId, s.name, s.shortId, s.cwd, s.state, s.status]),
+    boardCard.sessions.map((s) => [s.agent, s.sessionId, s.title, s.name, s.shortId, s.cwd, s.state, s.status]),
   ]);
 }
 
@@ -534,7 +563,7 @@ function render(payload) {
     );
   }
 
-  // R25 - a status set that matches nothing archives the whole board, and the per-card reason alone does not say why.
+  // A status set that matches nothing archives the whole board, and no card can say that from its own status.
   if (archived && archived.cards.length > 0 && countCards(payload.lanes) === archived.cards.length) {
     notice(
       'Every issue the board read is archived, so no lane has anything in it.',
