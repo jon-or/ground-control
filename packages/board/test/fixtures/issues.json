@@ -1,0 +1,172 @@
+[
+  {
+    "number": 19231,
+    "title": "Booking export drops rows past the first page",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/19231",
+    "status": "🆕 New",
+    "assignees": [
+      "dev-1",
+      "dev-2",
+      "dev-3"
+    ],
+    "updatedAt": "2026-08-28T12:57:45Z"
+  },
+  {
+    "number": 19230,
+    "title": "Owner statement fails silently on an empty result",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/19230",
+    "status": "🆕 New",
+    "assignees": [
+      "dev-1",
+      "dev-2",
+      "dev-3"
+    ],
+    "updatedAt": "2026-08-28T13:22:26Z"
+  },
+  {
+    "number": 19072,
+    "title": "Listing sync retries a settled charge",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/19072",
+    "status": "🎁 Assigned",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-08-21T19:10:28Z"
+  },
+  {
+    "number": 18954,
+    "title": "Tax rule counts archived records twice",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/18954",
+    "status": "⚒️ Dev",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-09-01T22:01:13Z"
+  },
+  {
+    "number": 18953,
+    "title": "Guest portal drops rows past the first page",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/18953",
+    "status": "⚒️ Dev",
+    "assignees": [
+      "dev-3",
+      "dev-4"
+    ],
+    "updatedAt": "2026-08-31T20:51:27Z"
+  },
+  {
+    "number": 18949,
+    "title": "Listing sync rounds the wrong currency unit",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/18949",
+    "status": "⚒️ Dev",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-09-01T20:54:15Z"
+  },
+  {
+    "number": 18945,
+    "title": "Owner statement counts archived records twice",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/18945",
+    "status": "🎁 Assigned",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-09-01T20:31:30Z"
+  },
+  {
+    "number": 18943,
+    "title": "Refund ledger fails silently on an empty result",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/18943",
+    "status": "🎁 Assigned",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-08-14T20:24:50Z"
+  },
+  {
+    "number": 18942,
+    "title": "Review import reads across the tenant boundary",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/18942",
+    "status": "🎁 Assigned",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-08-14T20:24:49Z"
+  },
+  {
+    "number": 18941,
+    "title": "Calendar feed skips the second occurrence",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/18941",
+    "status": "🎁 Assigned",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-08-14T20:24:48Z"
+  },
+  {
+    "number": 18655,
+    "title": "Listing sync fails silently on an empty result",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/18655",
+    "status": "🎁 Assigned",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-08-11T19:01:02Z"
+  },
+  {
+    "number": 18568,
+    "title": "Booking export ignores the account time zone",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/18568",
+    "status": "🎁 Assigned",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-08-11T20:47:25Z"
+  },
+  {
+    "number": 18531,
+    "title": "Review import ignores the account time zone",
+    "type": "Feature",
+    "url": "https://github.com/example-org/example-repo/issues/18531",
+    "status": "🎁 Assigned",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-09-01T19:16:43Z"
+  },
+  {
+    "number": 16106,
+    "title": "Channel mapping counts archived records twice",
+    "type": "Bug",
+    "url": "https://github.com/example-org/example-repo/issues/16106",
+    "status": "🎁 Assigned",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-08-11T18:07:39Z"
+  },
+  {
+    "number": 16080,
+    "title": "Owner statement ignores the account time zone",
+    "type": "Task",
+    "url": "https://github.com/example-org/example-repo/issues/16080",
+    "status": "⚒️ Dev",
+    "assignees": [
+      "dev-3"
+    ],
+    "updatedAt": "2026-09-01T20:41:10Z"
+  }
+]

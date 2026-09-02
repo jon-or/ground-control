@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import type { CardSource, GithubConfig } from '@ground-control/github';
+import { providers } from '@ground-control/sessions';
+import type { AgentConfig, SessionsConfig } from '@ground-control/sessions';
 
 export const SECTION = 'groundControl';
 const LOGINS = 'github.logins';
@@ -24,11 +26,39 @@ export function readConfig(): GithubConfig {
   };
 }
 
-export function refreshIntervalMs(): number {
-  const seconds = vscode.workspace.getConfiguration(SECTION).get<number>('refreshIntervalSeconds', 300);
+export function readSessionsConfig(): SessionsConfig {
+  const cfg = vscode.workspace.getConfiguration(SECTION);
 
-  // A hand-edited settings.json can hold a string here, and setInterval(NaN) fires every millisecond.
-  return (Number.isFinite(seconds) ? Math.max(30, Number(seconds)) : 300) * 1000;
+  const configured = cfg.get<Record<string, string>>('agents', {});
+
+  // R30: only the CLIs named here are read. An empty map means the defaults, so a provider that ships enabled works
+  // without the developer editing settings, and one that ships off stays off until they name it.
+  const entries: AgentConfig[] =
+    Object.keys(configured).length > 0
+      ? Object.entries(configured).map(([id, path]) => ({ id, path }))
+      : providers()
+          .filter((provider) => provider.defaultEnabled)
+          .map((provider) => ({ id: provider.id, path: provider.defaultPath }));
+
+  return {
+    agents: entries,
+    branchIssuePattern: cfg.get<string>('branchIssuePattern', '^(\\d+)-'),
+  };
+}
+
+/** A hand-edited settings.json can hold a string here, and setInterval(NaN) fires every millisecond. */
+function intervalMs(key: string, fallback: number, floor: number): number {
+  const seconds = vscode.workspace.getConfiguration(SECTION).get<number>(key, fallback);
+
+  return (Number.isFinite(seconds) ? Math.max(floor, Number(seconds)) : fallback) * 1000;
+}
+
+export function refreshIntervalMs(): number {
+  return intervalMs('refreshIntervalSeconds', 300, 30);
+}
+
+export function sessionIntervalMs(): number {
+  return intervalMs('sessionRefreshSeconds', 5, 2);
 }
 
 /**

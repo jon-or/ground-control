@@ -9,19 +9,19 @@
       "nodes": [
         {
           "number": 19400,
-          "title": "Clean up QuickBooks payments orphaned by turning off booking sync",
-          "url": "https://github.com/ownerrez/orez/issues/19400",
+          "title": "Guest portal reads across the tenant boundary",
+          "url": "https://github.com/example-org/example-repo/issues/19400",
           "updatedAt": "2026-09-01T21:15:30Z",
           "issueType": {
             "name": "Feature"
           },
           "repository": {
-            "nameWithOwner": "ownerrez/orez"
+            "nameWithOwner": "example-org/example-repo"
           },
           "assignees": {
             "nodes": [
               {
-                "login": "Turntwo"
+                "login": "dev-3"
               }
             ]
           },
@@ -40,19 +40,19 @@
         },
         {
           "number": 19398,
-          "title": "Vrbo re-merge drops payments when one installment settles across multiple dates",
-          "url": "https://github.com/ownerrez/orez/issues/19398",
+          "title": "Payment retry sends before the template renders",
+          "url": "https://github.com/example-org/example-repo/issues/19398",
           "updatedAt": "2026-09-01T20:31:04Z",
           "issueType": {
             "name": "Bug"
           },
           "repository": {
-            "nameWithOwner": "ownerrez/orez"
+            "nameWithOwner": "example-org/example-repo"
           },
           "assignees": {
             "nodes": [
               {
-                "login": "crobibero"
+                "login": "dev-2"
               }
             ]
           },
@@ -71,19 +71,19 @@
         },
         {
           "number": 19395,
-          "title": "Airbnb deposit never imports when one booking has two resolution adjustments of the same amount",
-          "url": "https://github.com/ownerrez/orez/issues/19395",
+          "title": "Owner statement counts archived records twice",
+          "url": "https://github.com/example-org/example-repo/issues/19395",
           "updatedAt": "2026-09-01T20:54:52Z",
           "issueType": {
             "name": "Bug"
           },
           "repository": {
-            "nameWithOwner": "ownerrez/orez"
+            "nameWithOwner": "example-org/example-repo"
           },
           "assignees": {
             "nodes": [
               {
-                "login": "Ryan-Collins-OwnerRez"
+                "login": "dev-6"
               }
             ]
           },

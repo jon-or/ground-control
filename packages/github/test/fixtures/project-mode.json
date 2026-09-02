@@ -1,1 +1,434 @@
-{"data":{"cards":{"issueCount":13,"pageInfo":{"hasNextPage":false,"endCursor":"Y3Vyc29yOjEz"},"nodes":[{"number":19231,"title":"Remove nullable userId from DAO reads so unscoped reads must be named","url":"https://github.com/ownerrez/orez/issues/19231","updatedAt":"2026-08-28T12:57:45Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"railapex"},{"login":"ithielnor"},{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🆕 New"}}]}},{"number":19230,"title":"Fail the build when a tenant-owned read has no SQL scope","url":"https://github.com/ownerrez/orez/issues/19230","updatedAt":"2026-08-28T13:22:26Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"railapex"},{"login":"ithielnor"},{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🆕 New"}}]}},{"number":19072,"title":"Airbnb listing imported as availability-only can never re-import its content, and content re-imports have no confirmation","url":"https://github.com/ownerrez/orez/issues/19072","updatedAt":"2026-08-21T19:10:28Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🎁 Assigned"}}]}},{"number":18953,"title":"[Caching] Log rows commit but their cached counts do not update","url":"https://github.com/ownerrez/orez/issues/18953","updatedAt":"2026-08-31T20:51:27Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"},{"login":"jon-or-ai"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"⚒️ Dev"}}]}},{"number":18945,"title":"VrtExport rows cannot be inserted through the entity","url":"https://github.com/ownerrez/orez/issues/18945","updatedAt":"2026-09-01T20:31:30Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🎁 Assigned"}}]}},{"number":18943,"title":"The team staff edit page 500s when a user has two revoked grants","url":"https://github.com/ownerrez/orez/issues/18943","updatedAt":"2026-08-14T20:24:50Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🎁 Assigned"}}]}},{"number":18942,"title":"The trigger delete guard counts across accounts and misses inbox accounts","url":"https://github.com/ownerrez/orez/issues/18942","updatedAt":"2026-08-14T20:24:49Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🎁 Assigned"}}]}},{"number":18941,"title":"The inbox unread badge stays on a fully-read thread","url":"https://github.com/ownerrez/orez/issues/18941","updatedAt":"2026-08-14T20:24:48Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🎁 Assigned"}}]}},{"number":18655,"title":"One row, two live instances after a plain-then-read-model read","url":"https://github.com/ownerrez/orez/issues/18655","updatedAt":"2026-08-11T19:01:02Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🎁 Assigned"}}]}},{"number":18568,"title":"BookingDao.IsReserved ignores userId and answers for any account's property","url":"https://github.com/ownerrez/orez/issues/18568","updatedAt":"2026-08-11T20:47:25Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🎁 Assigned"}}]}},{"number":18531,"title":"Inbound Email v0.2 - Read-only threads in the inbox","url":"https://github.com/ownerrez/orez/issues/18531","updatedAt":"2026-09-01T19:16:43Z","issueType":{"name":"Feature"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🎁 Assigned"}}]}},{"number":16976,"title":"More Task tweaks and bugs","url":"https://github.com/ownerrez/orez/issues/16976","updatedAt":"2026-09-01T18:11:15Z","issueType":{"name":"Feature"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🔍 Dev Review"}}]}},{"number":16106,"title":"Booking.com availability stuck in blocked state","url":"https://github.com/ownerrez/orez/issues/16106","updatedAt":"2026-08-11T18:07:39Z","issueType":{"name":"Bug"},"repository":{"nameWithOwner":"ownerrez/orez"},"assignees":{"nodes":[{"login":"jon-or"}]},"projectItems":{"nodes":[{"project":{"number":3},"fieldValueByName":{"name":"🎁 Assigned"}}]}}]},"assignedTotal":{"issueCount":13}}}
+{
+  "data": {
+    "cards": {
+      "issueCount": 13,
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": "Y3Vyc29yOjEz"
+      },
+      "nodes": [
+        {
+          "number": 19231,
+          "title": "Booking export drops rows past the first page",
+          "url": "https://github.com/example-org/example-repo/issues/19231",
+          "updatedAt": "2026-08-28T12:57:45Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-5"
+              },
+              {
+                "login": "dev-4"
+              },
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🆕 New"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 19230,
+          "title": "Owner statement fails silently on an empty result",
+          "url": "https://github.com/example-org/example-repo/issues/19230",
+          "updatedAt": "2026-08-28T13:22:26Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-5"
+              },
+              {
+                "login": "dev-4"
+              },
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🆕 New"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 19072,
+          "title": "Listing sync retries a settled charge",
+          "url": "https://github.com/example-org/example-repo/issues/19072",
+          "updatedAt": "2026-08-21T19:10:28Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 18953,
+          "title": "Guest portal drops rows past the first page",
+          "url": "https://github.com/example-org/example-repo/issues/18953",
+          "updatedAt": "2026-08-31T20:51:27Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              },
+              {
+                "login": "dev-1-bot"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "⚒️ Dev"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 18945,
+          "title": "Owner statement counts archived records twice",
+          "url": "https://github.com/example-org/example-repo/issues/18945",
+          "updatedAt": "2026-09-01T20:31:30Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 18943,
+          "title": "Refund ledger fails silently on an empty result",
+          "url": "https://github.com/example-org/example-repo/issues/18943",
+          "updatedAt": "2026-08-14T20:24:50Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 18942,
+          "title": "Review import reads across the tenant boundary",
+          "url": "https://github.com/example-org/example-repo/issues/18942",
+          "updatedAt": "2026-08-14T20:24:49Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 18941,
+          "title": "Calendar feed skips the second occurrence",
+          "url": "https://github.com/example-org/example-repo/issues/18941",
+          "updatedAt": "2026-08-14T20:24:48Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 18655,
+          "title": "Listing sync fails silently on an empty result",
+          "url": "https://github.com/example-org/example-repo/issues/18655",
+          "updatedAt": "2026-08-11T19:01:02Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 18568,
+          "title": "Booking export ignores the account time zone",
+          "url": "https://github.com/example-org/example-repo/issues/18568",
+          "updatedAt": "2026-08-11T20:47:25Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 18531,
+          "title": "Review import ignores the account time zone",
+          "url": "https://github.com/example-org/example-repo/issues/18531",
+          "updatedAt": "2026-09-01T19:16:43Z",
+          "issueType": {
+            "name": "Feature"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 16976,
+          "title": "Calendar feed overwrites a manual edit",
+          "url": "https://github.com/example-org/example-repo/issues/16976",
+          "updatedAt": "2026-09-01T18:11:15Z",
+          "issueType": {
+            "name": "Feature"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🔍 Dev Review"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 16106,
+          "title": "Channel mapping counts archived records twice",
+          "url": "https://github.com/example-org/example-repo/issues/16106",
+          "updatedAt": "2026-08-11T18:07:39Z",
+          "issueType": {
+            "name": "Bug"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1"
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "assignedTotal": {
+      "issueCount": 13
+    }
+  }
+}

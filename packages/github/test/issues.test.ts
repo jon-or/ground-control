@@ -19,11 +19,11 @@ describe('fetchAssignedIssues', () => {
     expect(value.cards).toHaveLength(13);
     expect(value.cards.find((c) => c.number === 18953)).toEqual({
       number: 18953,
-      title: '[Caching] Log rows commit but their cached counts do not update',
+      title: 'Guest portal drops rows past the first page',
       type: 'Bug',
-      url: 'https://github.com/ownerrez/orez/issues/18953',
+      url: 'https://github.com/example-org/example-repo/issues/18953',
       status: '⚒️ Dev',
-      assignees: ['jon-or', 'jon-or-ai'],
+      assignees: ['dev-1', 'dev-1-bot'],
       updatedAt: '2026-08-31T20:51:27Z',
     });
   });
@@ -54,8 +54,8 @@ describe('fetchAssignedIssues', () => {
     const runner = runnerOf(fixture('not-on-project'));
     await unwrap(config(), runner);
 
-    expect(runner.calls[0]).toContain('cards=repo:ownerrez/orez is:issue is:open assignee:jon-or project:ownerrez/3');
-    expect(runner.calls[0]).toContain('all=repo:ownerrez/orez is:issue is:open assignee:jon-or');
+    expect(runner.calls[0]).toContain('cards=repo:example-org/example-repo is:issue is:open assignee:dev-1 project:example-org/3');
+    expect(runner.calls[0]).toContain('all=repo:example-org/example-repo is:issue is:open assignee:dev-1');
   });
 
   it('sends the query document, not only its variables', async () => {
@@ -169,6 +169,6 @@ describe('fetchAssignedIssues', () => {
     const value = await unwrap(config(), runner);
 
     expect(runner.calls[0]).toContain(`cards=${value.sourceQuery}`);
-    expect(value.sourceQuery).toContain('project:ownerrez/3');
+    expect(value.sourceQuery).toContain('project:example-org/3');
   });
 });

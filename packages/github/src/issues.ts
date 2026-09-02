@@ -5,7 +5,7 @@ import type { AssignedIssues, GithubConfig, IssueCard, Result, SearchNode } from
 import { searchResponse } from './types.js';
 
 /**
- * Repeated `assignee:` qualifiers OR in GitHub's issue search — verified against ownerrez/orez.
+ * Repeated `assignee:` qualifiers OR in GitHub's issue search — verified against a live repo.
  * They AND in `projectV2.items(query:)`, so this trick does not survive a move to the project API.
  */
 export function buildSearchQuery(cfg: GithubConfig, withProject: boolean): string {

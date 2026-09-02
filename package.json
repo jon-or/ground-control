@@ -8,6 +8,8 @@
   },
   "workspaces": [
     "packages/github",
+    "packages/sessions",
+    "packages/board",
     "extensions/ground-control"
   ],
   "scripts": {

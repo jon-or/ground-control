@@ -9,17 +9,17 @@
       "nodes": [
         {
           "number": 19120,
-          "title": "Anonymous portal visitor can escalate to the guest's PII on an unverified booking",
-          "url": "https://github.com/ownerrez/orez/issues/19120",
+          "title": "Listing sync skips the second occurrence",
+          "url": "https://github.com/example-org/example-repo/issues/19120",
           "updatedAt": "2026-08-21T08:42:38Z",
           "issueType": null,
           "repository": {
-            "nameWithOwner": "ownerrez/orez"
+            "nameWithOwner": "example-org/example-repo"
           },
           "assignees": {
             "nodes": [
               {
-                "login": "EmondDeW"
+                "login": "dev-7"
               }
             ]
           },
@@ -38,12 +38,12 @@
         },
         {
           "number": 18937,
-          "title": "LQA (Listing Analyzer) performance is too slow for large accounts",
-          "url": "https://github.com/ownerrez/orez/issues/18937",
+          "title": "Quote email ignores the account time zone",
+          "url": "https://github.com/example-org/example-repo/issues/18937",
           "updatedAt": "2026-08-14T16:46:22Z",
           "issueType": null,
           "repository": {
-            "nameWithOwner": "ownerrez/orez"
+            "nameWithOwner": "example-org/example-repo"
           },
           "assignees": {
             "nodes": []
