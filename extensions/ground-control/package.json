@@ -71,14 +71,35 @@
         },
         "groundControl.boardStatuses": {
           "type": "array",
+          "scope": "application",
           "items": {
             "type": "string"
           },
           "default": [
             "🎁 Assigned",
-            "⚒️ Dev"
+            "⚒️ Dev",
+            "🔍 Dev Review"
           ],
-          "markdownDescription": "Which project-board statuses keep an issue on the board. A status decides only whether a card is shown, never which lane it is in — lanes are yours to move cards between. Anything not listed is archived behind the Show-archived toggle."
+          "markdownDescription": "Which project-board statuses keep an issue on the board; anything not listed is archived behind the Show-archived toggle. Editing this list clears the Returned marks, and removing a status archives its cards, which then forget which lane you had put them in. Where a card lands is `#groundControl.statusLanes#`, your own open pull requests, and your own placement."
+        },
+        "groundControl.statusLanes": {
+          "type": "object",
+          "scope": "application",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "unstarted",
+              "plan",
+              "build",
+              "review",
+              "done",
+              "icebox"
+            ]
+          },
+          "default": {
+            "🔍 Dev Review": "review"
+          },
+          "markdownDescription": "Which lane a card arrives in — and stays in until you move it — for the statuses that carry one. Most statuses say nothing about stage, so leave them out. Your own **open** pull request outranks this; a merged or closed one is read as nothing. A card you have moved yourself is never moved again, until it goes past your hands and comes back."
         },
         "groundControl.sessionRefreshSeconds": {
           "type": "number",

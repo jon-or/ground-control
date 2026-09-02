@@ -32,6 +32,11 @@ export interface CardPullRequest {
   number: number;
   url: string;
   state: string;
+  /** Who opened it, or null when GitHub reports no author — a deleted account. What tells the developer's own PR from a colleague's. */
+  author: string | null;
+  isDraft: boolean;
+  /** `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or null when no review has been asked for. */
+  reviewDecision: string | null;
 }
 
 export interface CardAvatar {
@@ -93,6 +98,9 @@ const searchNode = z.object({
           url: z.string(),
           state: z.string(),
           updatedAt: z.string(),
+          // Defaulted, not required: a recording made before these were selected must stay readable. The production query requests both.
+          isDraft: z.boolean().default(false),
+          reviewDecision: z.string().nullable().default(null),
           author: z.object({ login: z.string(), avatarUrl: z.string() }).nullable(),
         }),
       ),

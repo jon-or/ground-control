@@ -27,7 +27,14 @@ describe('fetchAssignedIssues', () => {
       statusColor: 'GRAY',
       assignees: ['dev-1', 'dev-1-bot'],
       avatar: { login: 'dev-1', url: 'https://avatars.githubusercontent.com/dev-1?s=40', source: 'issue' },
-      pullRequest: { number: 19296, url: "https://github.com/example-org/example-repo/pull/19296", state: "OPEN" },
+      pullRequest: {
+        number: 19296,
+        url: "https://github.com/example-org/example-repo/pull/19296",
+        state: "OPEN",
+        author: 'dev-1-bot',
+        isDraft: false,
+        reviewDecision: null,
+      },
       updatedAt: "2026-08-31T20:51:27Z",
     });
   });
@@ -51,7 +58,46 @@ describe('fetchAssignedIssues', () => {
       number: 19403,
       url: 'https://github.com/example-org/example-repo/pull/19403',
       state: 'OPEN',
+      author: 'dev-3',
+      isDraft: false,
+      reviewDecision: null,
     });
+  });
+
+  /** The board reads all three to decide which lane a card arrives in, and a card holds no lane at all without the author. */
+  it('names who opened the pull request, whether it is a draft, and what its review said', async () => {
+    const response = structuredClone(fixture('avatars')) as {
+      data: { cards: { nodes: Array<{ number: number; pullRequests: { nodes: Array<Record<string, unknown>> } }> } };
+    };
+    const node = response.data.cards.nodes.find((n) => n.number === 19400)!.pullRequests.nodes[0]!;
+
+    node.isDraft = true;
+    node.reviewDecision = 'CHANGES_REQUESTED';
+    node.author = null;
+
+    const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(response));
+
+    expect(value.cards.find((card) => card.number === 19400)?.pullRequest).toMatchObject({
+      author: null,
+      isDraft: true,
+      reviewDecision: 'CHANGES_REQUESTED',
+    });
+  });
+
+  it('speaks for an open pull request over a merged one somebody commented on later', async () => {
+    const response = structuredClone(fixture('avatars')) as {
+      data: { cards: { nodes: Array<{ number: number; pullRequests: { nodes: Array<Record<string, unknown>> } }> } };
+    };
+    const linked = response.data.cards.nodes.find((n) => n.number === 19400)!.pullRequests;
+    const merged = linked.nodes[0]!;
+
+    linked.nodes.push({ ...merged, number: 19500, state: 'OPEN', updatedAt: '2026-08-01T00:00:00Z' });
+    merged.state = 'MERGED';
+    merged.updatedAt = '2026-09-01T00:00:00Z';
+
+    const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(response));
+
+    expect(value.cards.find((card) => card.number === 19400)?.pullRequest?.number).toBe(19500);
   });
 
   it('carries GitHub own colour for the type and the status', async () => {

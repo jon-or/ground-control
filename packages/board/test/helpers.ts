@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { cwdKey } from '../src/merge.js';
+import type { CardPullRequest } from '@ground-control/github';
 import type { IssueCard, Session } from '../src/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -10,7 +11,29 @@ function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(here, 'fixtures', `${name}.json`), 'utf8'));
 }
 
-export const issues = fixture('issues') as IssueCard[];
+/** What `fetchAssignedIssues` returned when the recording was made, which predates three of the pull request's fields. */
+type RecordedCard = Omit<IssueCard, 'pullRequest'> & {
+  pullRequest: (Omit<CardPullRequest, 'author' | 'isDraft' | 'reviewDecision'> & Partial<CardPullRequest>) | null;
+};
+
+/**
+ * A cast is not a check: it would hand every test `undefined` where the type promised a value, and a lane now reads all three of these.
+ * So each is filled where the recording holds nothing, and a pull request is nobody's until a test says whose it is.
+ */
+function completed(cards: RecordedCard[]): IssueCard[] {
+  return cards.map((card) => ({
+    ...card,
+    pullRequest:
+      card.pullRequest && {
+        ...card.pullRequest,
+        author: card.pullRequest.author ?? null,
+        isDraft: card.pullRequest.isDraft ?? false,
+        reviewDecision: card.pullRequest.reviewDecision ?? null,
+      },
+  }));
+}
+
+export const issues = completed(fixture('issues') as RecordedCard[]);
 
 /**
  * Every field a recorded session must carry, because a cast is not a check — a row missing one reads `undefined` where the type promised

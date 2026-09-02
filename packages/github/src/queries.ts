@@ -13,7 +13,7 @@ query($cards:String!, $all:String!, $after:String){
       repository{ nameWithOwner }
       assignees(first:10){ nodes{ login avatarUrl(size:40) } }
       pullRequests: closedByPullRequestsReferences(first:100){ nodes{
-        number url state updatedAt
+        number url state updatedAt isDraft reviewDecision
         author{ login avatarUrl(size:40) }
       }}
       projectItems(first:20){ nodes{

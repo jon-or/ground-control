@@ -55,40 +55,63 @@ A running session's own name shimmers, so a board of ten cards shows which ones 
 
 Work that resumes with no prompt behind it — a background task waking a session, a cron, a session already running when the board installed its hooks — counts from where the board first saw it resume. That is a floor rather than the true start, and it is the honest one: the board never reports a stretch as older than what it observed. A stretch's age does include time it spent parked on the developer, because what is reported is how long the work has been open, not how much of it happened.
 
+The chip names one pull request: the most recently updated open one that would close the issue, or the most recently updated of any state when none is open. An open one outranks a merged one, because a comment on work already landed must not speak for the card over work still in flight.
+
 A GitHub reference the board read itself is the way to that page: the issue number and the title open the issue in the browser, and the pull-request chip opens that pull request. The board resolves the address from its own read, so the card never carries a URL the webview hands back — which is also why an issue number the board only learned from a session's branch is shown but not linked. It has no read for that issue and will not guess its URL.
 
 **R6. Cards that need the user are visually unmistakable.**
 A card waiting on a decision must not look like a card that is working. This is the board's primary job — a parked agent the user never noticed is the failure mode being designed against.
 
-A card holding a session waiting on the developer is marked on three channels at once — a badge that says so in words, a border, and the session's own name set apart — because colour alone is not unmistakable to everyone who will use this. The mark is on the card, not only on the session line, so it survives being seen from across the board. Such a card does not move to the top of its lane: a phase flips on its own every few minutes, and cards jumping under the cursor is worse than a static order.
+Two things hold the user's turn, and the board marks both. **Needs you** is an agent that cannot go on without them — a permission prompt, a question, a plan to approve. **Your turn** is an agent that ended its turn and handed control back: finished is not done (R23), so a session sitting idle is either work to judge or work that stopped early, and both are the user's move. Needs you reads louder than your turn, and a card carrying both reads as needs you. Neither mark is ever claimed for a session the agent itself called finished: a dead session's last question is not a question anybody is waiting on.
+
+Either mark is carried on three channels at once — a badge that says so in words, a border, and the session's own name set apart — because colour alone is not unmistakable to everyone who will use this. The mark is on the card, not only on the session line, so it survives being seen from across the board. Such a card does not move to the top of its lane: a phase flips on its own every few minutes, and cards jumping under the cursor is worse than a static order.
+
+A finished turn asks nothing in **Done**, **Icebox** or **Archived** — the user has already said the card is not theirs to push on, and an agent finishing there is the state they asked for. A blocked agent is marked in every lane: a prompt nobody will answer is a mistake wherever it sits.
 
 ### Lanes
 
 **R7. Lanes are the board's own stages, independent of the tracker's statuses.**
-A GitHub status says whether a piece of work is the user's; it does not say what stage the user is at with it. ⚒️ Dev covers planning, building and checking alike, and 🔖 Planned or 👀 Tasking Review describe steps that happen before the work is theirs at all. So the board keeps its own lanes and does not try to read them out of a status. Every lane names one action the card is asking for; a lane holding two unlike jobs should be two lanes or none.
+A GitHub status says whether a piece of work is the user's; it mostly does not say what stage the user is at with it. ⚒️ Dev covers planning, building and checking alike, and 🔖 Planned or 👀 Tasking Review describe steps that happen before the work is theirs at all. So the board keeps its own lanes, and a status is only ever one of the things that says where a card *arrives* (R8) — it never overrides a lane the user has chosen. Every lane names one action the card is asking for; a lane holding two unlike jobs should be two lanes or none.
 
 | Lane | The action it asks for |
 |---|---|
 | **Unstarted** | pick it up, or leave it |
 | **Plan** | agree what to build |
 | **Build** | nothing, unless it stopped |
-| **Review** | read a diff and judge it |
+| **Review** | read a diff and judge it, or land one already judged |
 | **Done** | confirm and let go |
 | **Icebox** | nothing, deliberately |
 
 The lane is called **Unstarted** rather than New so it is never confused with the 🆕 New status, which is a different thing and is not on the board at all.
 
-**Review holds both kinds of review.** Checking an agent's diff before it ships and reviewing another developer's PR are the same process — read a diff, judge it — so they are one lane, and the card says whose work it is. Answering comments on the user's own PR is not review: there is code to change, so it returns to **Build**.
+**Review holds both kinds of review.** Checking an agent's diff before it ships and reviewing another developer's PR are the same process — read a diff, judge it — so they are one lane, and the card says whose work it is. Answering comments on the user's own PR is not review: there is code to change, so it belongs in **Build**. R8 reads that off the pull request rather than the status: a card whose PR has changes requested arrives in Build even under 🔍 Dev Review, and one with nothing asked of it arrives in Review, where landing it is the judgement left.
 
 **Done and Icebox are ends, not stages,** so an empty one is hidden. Both reappear the moment a card is picked up, or a card could never be dropped into an empty one.
 
 There is no Blocked lane. Its three would-be members are unlike: a session stopped by a usage limit recovers on its own (R20), a failed read is already a notice, and "I am avoiding this" is the Icebox. A card that is genuinely waiting says so on the card, in whatever lane it sits.
 
-**R8. A card sits in exactly one lane, and the user puts it there.**
-A card arrives in **Unstarted**, except one with no issue of its own: ad-hoc work is on the board only while its agent is running, so it arrives in **Build** rather than claiming to be unstarted. After that it moves only when the user moves it — by dragging it between columns, or with Alt and an arrow key on the focused card, which is the same move without a mouse. The board remembers the placement across refreshes and restarts. Nothing else moves a card: not a status change, not a session starting or stopping. When the factory's stations exist they will move cards, and that is the one thing that will ever join the user in doing so.
+**R8. A card sits in exactly one lane: it arrives on its own evidence, and the user's own placement outranks that.**
+A card arrives in the lane its evidence names, and the board re-reads that evidence on every refresh for as long as the user has not moved the card — so a card nobody has touched follows its pull request and its status. First match wins:
+
+| What the board reads | Where the card arrives |
+|---|---|
+| The user's own open pull request, changes requested | **Build** |
+| The user's own open pull request, draft | **Build** |
+| The user's own open pull request, otherwise | **Review** |
+| A status that names a stage — 🔍 Dev Review | **Review** |
+| No issue of its own | **Build** |
+| Anything else | **Unstarted** |
+
+The pull request outranks the status because a review asking for changes is code to change whatever the tracker says (R7). A merged or closed pull request is read as nothing — the status is the authority once it has landed — and one that is not the user's own says nothing about the user's stage, so it is read as nothing too. Whose it is comes from the same logins R28 identifies them by. Ad-hoc work with no issue arrives in **Build** rather than claiming to be unstarted: it is on the board only while its agent is running. Which statuses name a stage is a setting, shipped with the one that does.
+
+Once the user moves a card — by dragging it between columns, or with Alt and an arrow key on the focused card, which is the same move without a mouse — that placement *is* the lane, and nothing moves it again: not a status change, not a pull request opening, not a session starting or stopping. The board remembers it across refreshes and restarts. R9 holds the one exception. When the factory's stations exist they will move cards, and that is the one thing that will ever join the user in doing so.
 
 **R9. Work that has left the user's hands leaves the board.**
-A status decides board membership and nothing else. The statuses that keep a card are the ones where the work is the user's; everything else — before it reaches them, or once it is with a reviewer, a tester, a release or another team — takes the card off. Those cards are archived rather than deleted: a toggle in the header reveals them, with a count, in an Archived column at the end, so nothing is hidden without saying so. A card that comes back after being archived returns to the lane the user last had it in, marked as returned and sorted to the top of it — R6's "unmistakable" is a marker on the card, never a lane of its own, because a returned PR and a bounced issue ask for different work. The mark clears when the user moves the card, which is the only evidence the board has that they have seen it.
+A status decides board membership. The statuses that keep a card are the ones where the work is the user's; everything else — before it reaches them, or once it is with a tester, a release or another team — takes the card off. 🔍 Dev Review keeps the card: the user answers the comments, so the work is still theirs, and it is the one status that also names a stage (R8). Cards that leave are archived rather than deleted: a toggle in the header reveals them, with a count, in an Archived column at the end, so nothing is hidden without saying so.
+
+**A card that goes past the user's hands loses its placement.** R8's rule holds within one pass through them; a card that left and came back is a new pass, and the lane it was parked in belongs to the pass that ended — a card sitting in Done that has come back needing work is the board lying about it. So an archived card forgets where the user put it and a later return arrives on its own evidence, marked as returned and sorted to the top of the lane it arrives in. R6's "unmistakable" is a marker on the card, never a lane of its own, because a returned PR and a bounced issue ask for different work. The mark clears when the user moves the card, which is the only evidence the board has that they have seen it. A card never loses a placement twice, and never for a reason outside its own status.
+
+**Editing the membership setting costs something, and the board says which.** Any edit to it clears the returned marks, and the placements of cards that were already archived: a changed set carries cards across the archive line for reasons no card caused, and a board where a settings edit looks like a dozen cards returning at once is worse than losing the marks. Narrowing the set also archives every card the removed status held, and each of those forgets its lane. Both status settings are user-level rather than per-workspace, because one board's memory is shared by every window.
 
 An archived status cannot hide a card that still has a live agent on it. R2 outranks R9: no session is ever invisible, so the card stays where the user put it and says on its face what its status is.
 
@@ -160,7 +183,7 @@ Telling a running session from an idle one is part of that. The agent CLI does n
 | Which repository and project board work is tracked on | Their GitHub account(s) |
 | The set of statuses and what they mean | Where their checkout(s) live, and whether they use worktrees |
 | The branch-naming convention | Their local site hostname(s) |
-| The default lane set, and which statuses keep a card on the board | Which extra AI CLIs they have installed |
+| The default lane set, which statuses keep a card on the board, and which of them name a stage | Which extra AI CLIs they have installed |
 | | How much work they want in flight at once |
 | | How much the board is allowed to do on its own |
 | | What agents it starts are allowed to do without asking |
@@ -214,11 +237,11 @@ Newly installed hooks are one of those conditions: sessions already running cann
 
 ## 5. Open questions
 
-1. **Whether the lane set survives use.** *Settled for now.* R7's seven lanes and R8's manual movement are decided, and the statuses that keep a card on the board ship as a default the developer can change. What is untested is whether Plan and Review earn their columns once the factory's stations start moving cards, or whether the stations turn out to be the finer-grained thing and the lanes should coarsen.
+1. **Whether the lane set survives use.** *Settled for now.* R7's seven lanes are decided, R8's arrival is read from the world and its placement is the user's own, and both status settings — which keep a card, and which name a stage — ship as defaults the developer can change. What is untested is whether Plan and Review earn their columns once the factory's stations start moving cards, or whether the stations turn out to be the finer-grained thing and the lanes should coarsen.
 2. **When the board starts enforcing limits.** Deferred, not decided against. R10 displays a count today because the board has nothing to refuse; enforcement becomes a question the moment the board starts work of its own (R32).
 3. **How much of the pipeline is automatic?** Does the board only surface and intervene, or does it also start work on its own? This is the largest open question and it determines whether "unattended overnight" is a goal.
 4. **What links a session to an issue?** Branch name, working directory, something the user sets by hand, or a mixture. Affects how often R3 guesses wrong.
 5. **Sessions on other machines.** Out of scope for v1, but the board's value grows if it is the one place to look.
-6. **Where shared defaults come from.** Checked into the repo so a new developer inherits them by pulling, or shipped inside the extension so they update with it. The first keeps them reviewable alongside the code they describe; the second keeps them working before a checkout exists.
+6. **Where shared defaults come from.** *Settled for the status settings, open for the rest.* Which statuses keep a card and which name a stage ship inside the extension and are user-level: the memory they are compared against is one store shared by every window, so a per-workspace value would have two windows overwriting each other's. The open half is everything else — checked into the repo so a new developer inherits it by pulling, which keeps it reviewable alongside the code it describes, or shipped in the extension, which keeps it working before a checkout exists.
 7. **What links a session to an issue when the branch does not say.** *Partly settled.* The board reads the branch of the checkout the session runs in, searching upward so a session started in a subdirectory still finds it, and falls back to the checkout directory's own name. A session it cannot link joins the card for the directory it runs in (R4) rather than a guess. What is still open is the case the branch genuinely cannot answer — a session started before a branch exists, or a single clone carrying several issues — where asking the developer once per session may beat guessing. There is no way for a developer to set the link by hand today.
 8. **Whether a developer can see the board without the extension changing anything.** A read-only first run would let someone evaluate it with no risk, which matters for adoption across a team.
