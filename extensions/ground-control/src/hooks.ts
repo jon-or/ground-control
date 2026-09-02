@@ -13,6 +13,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
+import { basename } from 'node:path';
 import * as vscode from 'vscode';
 import {
   HOOK_SOURCE,
@@ -25,7 +26,7 @@ import {
   markerIsOrphaned,
   planHookInstall,
 } from '@ground-control/sessions';
-import type { HookPlan } from '@ground-control/sessions';
+import type { ActivityChange, HookPlan } from '@ground-control/sessions';
 import { installSessionHooks } from './config.js';
 
 export interface HookState {
@@ -271,22 +272,35 @@ export function pruneMarkers(home = homedir()): void {
 /**
  * Watches for hooks reporting a change. A phase change is what the developer is looking at, so it reaches the board
  * at once rather than on the next session poll — and it costs a file read, not the CLI spawn a poll costs.
+ *
+ * Which markers changed and how, because a marker appearing or being removed is a session the board has to read the
+ * CLI to place, where a phase on a session already up is a file read (`rosterIsStale`).
  */
-export function watchActivity(home: string, onChange: () => void): vscode.Disposable {
+export function watchActivity(home: string, onChange: (changes: ActivityChange[]) => void): vscode.Disposable {
   const pattern = new vscode.RelativePattern(vscode.Uri.file(activityDirOf(home)), '*.json');
   const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
-  // A turn boundary writes several markers at once, and every one of them would otherwise re-post the whole board.
+  // A turn boundary writes several markers at once, and every one of them would otherwise re-post the whole board. The
+  // window runs from the first event and is never extended: 17 live sessions can write faster than it, and a batch that
+  // re-arms on every write is a session end that never reaches the board.
   let pending: NodeJS.Timeout | undefined;
+  let batch: ActivityChange[] = [];
 
-  const changed = (): void => {
-    clearTimeout(pending);
-    pending = setTimeout(onChange, 150);
+  const changed = (kind: ActivityChange['kind']) => (uri: vscode.Uri): void => {
+    batch.push({ kind, sessionId: basename(uri.fsPath, '.json') });
+
+    pending ??= setTimeout(() => {
+      const changes = batch;
+
+      batch = [];
+      pending = undefined;
+      onChange(changes);
+    }, 150);
   };
 
-  watcher.onDidCreate(changed);
-  watcher.onDidChange(changed);
-  watcher.onDidDelete(changed);
+  watcher.onDidCreate(changed('created'));
+  watcher.onDidChange(changed('changed'));
+  watcher.onDidDelete(changed('deleted'));
 
   return new vscode.Disposable(() => {
     clearTimeout(pending);

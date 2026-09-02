@@ -86,6 +86,70 @@ describe('the activity writer', () => {
   });
 
   /**
+   * The duration on a running card counts the turn, so the prompt's own time has to survive every event inside the
+   * turn — a heartbeat lands on every tool batch, and an event-time anchor holds the card at zero all turn.
+   */
+  it('stamps the turn on the prompt and carries it across the events inside the turn', () => {
+    run(JSON.stringify({ session_id: 'turning', hook_event_name: 'UserPromptSubmit' }));
+
+    const prompt = markerFor('turning') as { at: number; turnAt: number };
+
+    expect(prompt.turnAt).toBe(prompt.at);
+
+    run(JSON.stringify({ session_id: 'turning', hook_event_name: 'PostToolBatch' }));
+    run(JSON.stringify({ session_id: 'turning', hook_event_name: 'PermissionRequest', tool_name: 'Bash' }));
+    run(JSON.stringify({ session_id: 'turning', hook_event_name: 'SessionStart', source: 'compact' }));
+    run(JSON.stringify({ session_id: 'turning', hook_event_name: 'Stop', background_tasks: [{}] }));
+
+    expect(markerFor('turning')).toMatchObject({ event: 'Stop', turnAt: prompt.turnAt });
+  });
+
+  /**
+   * A background wake and a cron fire tool events and no prompt, so a stamp that outlived its stretch would count them
+   * from the prompt before them — hours of nothing, on work a second old.
+   */
+  it.each([
+    ['a stop with nothing left in flight', { hook_event_name: 'Stop', background_tasks: [] }],
+    ['an agent_completed notification', { hook_event_name: 'Notification', notification_type: 'agent_completed' }],
+  ])('ends the stretch on %s, and starts a new one where work resumes', (_case, ending) => {
+    const id = `ending-${ending.hook_event_name}`;
+
+    run(JSON.stringify({ session_id: id, hook_event_name: 'UserPromptSubmit' }));
+
+    const first = markerFor(id) as { turnAt: number };
+
+    run(JSON.stringify({ ...ending, session_id: id }));
+
+    expect(markerFor(id)).toMatchObject({ turnAt: null });
+
+    run(JSON.stringify({ session_id: id, hook_event_name: 'PostToolBatch' }));
+
+    const resumed = markerFor(id) as { at: number; turnAt: number };
+
+    expect(resumed.turnAt).toBe(resumed.at);
+    expect(resumed.turnAt).not.toBe(first.turnAt);
+  });
+
+  it('ends the stretch on a session start that is not a compact', () => {
+    run(JSON.stringify({ session_id: 'restarting', hook_event_name: 'UserPromptSubmit' }));
+    run(JSON.stringify({ session_id: 'restarting', hook_event_name: 'SessionStart', source: 'resume' }));
+
+    expect(markerFor('restarting')).toMatchObject({ turnAt: null });
+  });
+
+  /**
+   * The hooks are installed into a machine already at work, so the first event a session reports is routinely a
+   * heartbeat mid-turn. Anchoring the stretch there is what keeps that card off zero until its next prompt.
+   */
+  it('starts the stretch at the first event of a session it has no marker for', () => {
+    run(JSON.stringify({ session_id: 'heartbeat-first', hook_event_name: 'PostToolBatch' }));
+
+    const marker = markerFor('heartbeat-first') as { at: number; turnAt: number };
+
+    expect(marker.turnAt).toBe(marker.at);
+  });
+
+  /**
    * A subagent's hooks carry the parent's session id, so its work would land on the parent — clearing a `waiting` on
    * a session actually parked on a prompt, which is the one case R6 exists for.
    */

@@ -3,8 +3,8 @@ import { assignLanes, mergeBoard, nextMemory, readMemory, withPlacement } from '
 import type { CardMemory, Lane, LaneId } from '@ground-control/board';
 import { fetchAssignedIssues } from '@ground-control/github';
 import type { AssignedIssues, Failure as GithubFailure } from '@ground-control/github';
-import { fetchSessions, hookNotice, readActivity, unreportedSessions } from '@ground-control/sessions';
-import type { Session, SessionsSnapshot } from '@ground-control/sessions';
+import { fetchSessions, hookNotice, readActivity, rosterIsStale, unreportedSessions } from '@ground-control/sessions';
+import type { ActivityChange, Session, SessionsSnapshot } from '@ground-control/sessions';
 import { homedir } from 'node:os';
 import { readBoardStatuses, readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
 import { promptForLogins } from './identity.js';
@@ -68,6 +68,8 @@ export class BoardPanel {
   #sessions: SessionsSnapshot | undefined;
   #issuesInFlight: Promise<void> | undefined;
   #sessionsInFlight: Promise<void> | undefined;
+  /** The last read came back with no sessions and a failure from every agent, so a hook event has nothing to read. */
+  #sessionsUnreadable = false;
   /** A dismissed identity prompt stays dismissed, or the refresh timer reopens the box every interval. */
   #promptDismissed = false;
   /** The webview is torn down when hidden, so polling stops with it. Tracked because the event also fires on focus. */
@@ -177,7 +179,7 @@ export class BoardPanel {
     );
 
     this.#panel.onDidDispose(() => this.dispose(), undefined, this.#disposables);
-    this.#disposables.push(watchActivity(this.#home, () => this.#rereadActivity()));
+    this.#disposables.push(watchActivity(this.#home, (changes) => this.#onActivity(changes)));
 
     this.#startPolling();
     this.#post({ type: 'loading' });
@@ -247,9 +249,27 @@ export class BoardPanel {
   }
 
   /**
-   * A hook reported a change. Only the markers are re-read — the session list has not changed, and reading it costs
-   * a CLI spawn — so a phase reaches the board in the time a file read takes rather than on the next poll.
+   * A hook reported a change. A session that ended or one the board has never listed moved the list itself, which only the CLI can report;
+   * anything else is a phase on a session already up, and re-reading its marker costs a file read instead of a CLI spawn.
    */
+  #onActivity(changes: readonly ActivityChange[]): void {
+    if (this.#disposed) {
+      return;
+    }
+
+    const known = new Set(this.#sessions?.sessions.map((session) => session.sessionId) ?? []);
+    const stale = rosterIsStale(changes, known, (id) => readActivity(this.#home, id, read) !== null);
+
+    // Not while the CLI is unreadable: it lists nothing, so every batch would be stale and spawn a read that fails
+    // again. The timer keeps retrying, which is the one place a read that may fail belongs.
+    if (stale && !this.#sessionsUnreadable) {
+      void this.#refreshSessions(true);
+      return;
+    }
+
+    this.#rereadActivity();
+  }
+
   #rereadActivity(): void {
     if (this.#disposed || this.#sessions === undefined) {
       return;
@@ -280,8 +300,16 @@ export class BoardPanel {
     return this.#issuesInFlight;
   }
 
-  #refreshSessions(): Promise<void> {
-    this.#sessionsInFlight ??= this.#readSessions().finally(() => {
+  /**
+   * `again` is for a change the in-flight read cannot have seen: a session that ended after that read listed it would otherwise stay on the board
+   * until the next poll. A timer or the button coalesces instead, because either is a read of whatever is there now.
+   */
+  #refreshSessions(again = false): Promise<void> {
+    if (this.#sessionsInFlight) {
+      return again ? this.#sessionsInFlight.then(() => this.#refreshSessions()) : this.#sessionsInFlight;
+    }
+
+    this.#sessionsInFlight = this.#readSessions().finally(() => {
       this.#sessionsInFlight = undefined;
     });
 
@@ -340,6 +368,7 @@ export class BoardPanel {
     // Always a snapshot: one CLI being unreadable contributes a failure and no sessions, and must not discard the rest. The activity is re-read
     // as it lands, because a poll that began before a hook fired carries the older phase and would put it back until the next event.
     this.#sessions = { ...snapshot, sessions: snapshot.sessions.map((session) => this.#withActivity(session)) };
+    this.#sessionsUnreadable = snapshot.sessions.length === 0 && snapshot.failures.length > 0;
 
     this.#render();
   }

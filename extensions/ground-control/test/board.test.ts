@@ -87,8 +87,18 @@ const liveCard: LanedCard = {
   sessions: [session],
 };
 
+/** The board's own duration clock, captured rather than started: a test drives it, and no interval outlives the run. */
+let tick: (() => void) | null = null;
+let tickMs = 0;
+
 beforeAll(async () => {
   vi.stubGlobal('acquireVsCodeApi', () => api);
+  vi.stubGlobal('setInterval', (fn: () => void, ms: number) => {
+    tick = fn;
+    tickMs = ms;
+
+    return 0;
+  });
   document.head.innerHTML = `<style>${readFileSync(resolve('media/board.css'), 'utf8')}</style>`;
   document.body.innerHTML = `
     <header>
@@ -403,10 +413,10 @@ describe('board webview', () => {
 });
 
 describe('reported activity', () => {
-  const withPhase = (phase: 'running' | 'waiting' | 'idle', at = Date.now(), over: Partial<Session> = {}) => ({
+  const withPhase = (phase: 'running' | 'waiting' | 'idle', since = Date.now(), over: Partial<Session> = {}) => ({
     ...session,
     ...over,
-    activity: { phase, at, event: 'PostToolBatch' },
+    activity: { phase, since, event: 'PostToolBatch' },
   });
 
   const cardWith = (sessions: Session[]): LanedCard => ({ ...liveCard, sessions });
@@ -525,18 +535,18 @@ describe('reported activity', () => {
     vi.setSystemTime(new Date('2026-09-02T12:00:00Z'));
 
     try {
-      const at = Date.now() - 90_000;
-      const card = sendCard([withPhase('running', at)]);
+      const since = Date.now() - 90_000;
+      const card = sendCard([withPhase('running', since)]);
 
       expect(card.querySelector('.state')?.textContent).toBe('running 1m');
 
       vi.advanceTimersByTime(10 * 60 * 1000);
-      sendCard([withPhase('running', at)]);
+      sendCard([withPhase('running', since)]);
 
       expect(document.querySelector('.card')).toBe(card);
       expect(card.querySelector('.state')?.textContent).toBe('running 11m');
 
-      // A newer heartbeat resets the age on the very same element, which is the whole point of the duration.
+      // A render inside the same turn keeps the count where it is; the next turn starts it again, on the same element.
       sendCard([withPhase('running', Date.now())]);
 
       expect(document.querySelector('.card')).toBe(card);
@@ -544,6 +554,44 @@ describe('reported activity', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('says what the duration counts, and what it last saw, on hover', () => {
+    const state = sendCard([withPhase('running')]).querySelector<HTMLElement>('.state')!;
+
+    expect(state.title).toBe(
+      'This session is working. The duration counts the turn it is in, from the prompt that began it where the board saw one. Last seen at the PostToolBatch hook.',
+    );
+  });
+
+  /**
+   * The anchor does not move, so its age is a function of the clock: the text has to advance with no message from the
+   * extension host and no read of the machine behind it.
+   */
+  it('advances the duration on its own clock, with nothing arriving from the host', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-02T12:00:00Z'));
+
+    try {
+      const card = sendCard([withPhase('running', Date.now())]);
+
+      expect(card.querySelector('.state')?.textContent).toBe('running 0s');
+
+      api.postMessage.mockClear();
+      vi.setSystemTime(new Date('2026-09-02T12:00:07Z'));
+      tick?.();
+
+      expect(document.querySelector('.card')).toBe(card);
+      expect(card.querySelector('.state')?.textContent).toBe('running 7s');
+      expect(api.postMessage).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Seconds are what the text is written to below a minute, so a slower clock leaves a card reading 0s for that long.
+  it('runs that clock at the resolution the text is written to', () => {
+    expect(tickMs).toBe(1_000);
   });
 
   it('never rounds a duration up', () => {

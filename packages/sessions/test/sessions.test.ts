@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fetchSessions } from '../src/sessions.js';
 import type { AgentEntry } from '../src/providers/claude.js';
+import { HOOK_MARKER_VERSION } from '../src/hookScript.js';
 import {
   claudeWith,
   config,
@@ -115,10 +116,11 @@ describe('fetchSessions', () => {
   it('keeps a session with no transcript that the hooks have reported activity for', async () => {
     const idle = active.find((entry) => !prompted.includes(entry))!;
     const marker = JSON.stringify({
-      v: 1,
+      v: HOOK_MARKER_VERSION,
       sessionId: idle.sessionId,
       event: 'UserPromptSubmit',
       at: Date.now(),
+      turnAt: Date.now(),
       notificationType: null,
       source: null,
       toolName: null,

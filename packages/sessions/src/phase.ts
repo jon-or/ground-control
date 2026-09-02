@@ -8,12 +8,14 @@ import type { ActivityPhase, Session, SessionActivity } from './types.js';
  * rather than being rejected here — an event the board does not recognise must cost no phase, not a whole session.
  */
 const activityMarker = z.object({
-  // Pinned, not read: two extension versions share one `~/.claude`, so a marker whose field set was redefined must
-  // read as no phase rather than be consumed as this one.
+  // Pinned, not read: two extension versions share one `~/.claude`, so a marker whose fields were redefined must read
+  // as no phase rather than be consumed as this one. An added field is defaulted instead, which costs no session its phase.
   v: z.literal(HOOK_MARKER_VERSION),
   sessionId: z.string(),
   event: z.string().nullable(),
   at: z.number(),
+  /** When the stretch of work in flight began: its prompt, or its first event where it resumed without one. Absent from an older marker. */
+  turnAt: z.number().nullable().default(null),
   notificationType: z.string().nullable(),
   source: z.string().nullable(),
   toolName: z.string().nullable(),
@@ -43,6 +45,11 @@ export function phaseOf(marker: ActivityMarker): ActivityPhase | null {
     case 'PermissionDenied':
       return 'running';
 
+    // Compaction fires mid-turn on a session that is working, so blanking its phase would take a running card back to
+    // nothing. Every other source — startup, resume, clear, fork — says a session exists, not what it is doing.
+    case 'SessionStart':
+      return marker.source === 'compact' ? 'running' : null;
+
     case 'PermissionRequest':
     case 'Elicitation':
       return 'waiting';
@@ -64,6 +71,14 @@ export function phaseOf(marker: ActivityMarker): ActivityPhase | null {
     default:
       return null;
   }
+}
+
+/**
+ * What the card's duration counts from. A running session counts the stretch of work it is in — the prompt that began it, not the last
+ * heartbeat, which lands on every tool batch and would hold the number at zero. A stamp later than its own event is a clock step.
+ */
+function sinceOf(phase: ActivityPhase, marker: ActivityMarker): number {
+  return phase === 'running' && marker.turnAt !== null && marker.turnAt <= marker.at ? marker.turnAt : marker.at;
 }
 
 /**
@@ -99,7 +114,32 @@ export function readActivity(
   const phase = phaseOf(marker.data);
 
   // A null event reaches `phaseOf`'s default arm, so a phase at all proves the event was named.
-  return phase === null ? null : { phase, at: marker.data.at, event: marker.data.event as string };
+  return phase === null
+    ? null
+    : { phase, since: sinceOf(phase, marker.data), event: marker.data.event as string };
+}
+
+/** One marker file appearing, being rewritten, or being removed. The board's watcher reports a batch of these. */
+export interface ActivityChange {
+  kind: 'created' | 'changed' | 'deleted';
+  sessionId: string;
+}
+
+/**
+ * Whether a batch of marker changes moved the session list itself, rather than a phase within it. A marker removed is a session that ended or
+ * restarted, and one naming a session the board has not listed is a session it can only learn from the CLI. A phase on a listed session is neither.
+ */
+export function rosterIsStale(
+  changes: readonly ActivityChange[],
+  known: ReadonlySet<string>,
+  reportsPhase: (sessionId: string) => boolean,
+): boolean {
+  // Kind is not trusted for the unlisted session: a rename over a path a watcher has seen before is a create on one platform and a change on
+  // another. A marker claiming no phase is not worth the read — `neverPrompted` would filter that session out of the list it came back in (R2).
+  return changes.some(
+    (change) =>
+      change.kind === 'deleted' || (!known.has(change.sessionId) && reportsPhase(change.sessionId)),
+  );
 }
 
 /**
