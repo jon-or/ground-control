@@ -25,23 +25,72 @@ function notice(text, remedy, isError) {
   noticesEl.appendChild(el);
 }
 
-function card(issue) {
+function basename(dir) {
+  const parts = dir.split(/[\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? dir;
+}
+
+function sessionLabel(session) {
+  return session.name ?? session.shortId ?? basename(session.cwd);
+}
+
+function sessionLine(session) {
+  const el = document.createElement('span');
+  el.className = 'session';
+
+  const agent = document.createElement('span');
+  agent.className = 'agent';
+  agent.textContent = session.agent;
+
+  const label = document.createElement('span');
+  label.className = 'session-label';
+  label.textContent = sessionLabel(session);
+
+  el.append(agent, label);
+
+  // The provider's own words for what the session is doing. R23 - the board reports state, it does not infer it.
+  const reported = session.state ?? session.status;
+
+  if (reported) {
+    const state = document.createElement('span');
+    state.className = 'state';
+    state.textContent = reported;
+    el.appendChild(state);
+  }
+
+  return el;
+}
+
+function card(boardCard) {
   const el = document.createElement('button');
   el.type = 'button';
-  el.className = issue.type ? `card type-${issue.type.toLowerCase()}` : 'card';
-  el.title = `#${issue.number} ${issue.title}`;
+
+  const issue = boardCard.issue;
+  el.className = issue?.type ? `card type-${issue.type.toLowerCase()}` : 'card';
 
   const number = document.createElement('span');
   number.className = 'number';
-  number.textContent = `#${issue.number}`;
+  number.textContent = boardCard.issueNumber === null ? '' : `#${boardCard.issueNumber}`;
 
   const title = document.createElement('span');
   title.className = 'title';
-  title.textContent = issue.title;
+
+  if (issue) {
+    title.textContent = issue.title;
+  } else if (boardCard.issueNumber !== null) {
+    // A session names an issue the developer does not own. R2 forbids hiding the session, so the card says why it is bare.
+    title.textContent = 'Not among your assigned issues';
+    el.classList.add('unowned');
+  } else {
+    title.textContent = sessionLabel(boardCard.sessions[0]);
+    el.classList.add('session-only');
+  }
+
+  el.title = boardCard.issueNumber === null ? title.textContent : `#${boardCard.issueNumber} ${title.textContent}`;
 
   el.append(number, title);
 
-  if (issue.status) {
+  if (issue?.status) {
     const status = document.createElement('span');
     status.className = 'status';
     // The project board's own status text, emoji included - the board must not invent a second vocabulary.
@@ -49,16 +98,39 @@ function card(issue) {
     el.appendChild(status);
   }
 
-  if (issue.type) {
+  if (issue?.type) {
     const chip = document.createElement('span');
     chip.className = 'chip';
     chip.textContent = issue.type;
     el.appendChild(chip);
   }
 
-  el.addEventListener('click', () => vscode.postMessage({ type: 'openIssue', number: issue.number }));
+  for (const session of boardCard.sessions) {
+    el.appendChild(sessionLine(session));
+  }
+
+  if (issue) {
+    el.addEventListener('click', () => vscode.postMessage({ type: 'openIssue', number: issue.number }));
+  } else {
+    el.disabled = true;
+  }
 
   return el;
+}
+
+function readTime(payload) {
+  const stamps = [payload.issues?.fetchedAt, payload.sessions?.fetchedAt].filter(Boolean).map((s) => new Date(s));
+  return stamps.length === 0 ? null : new Date(Math.max(...stamps.map((d) => d.getTime())));
+}
+
+function emptyText(payload) {
+  if (payload.issues === null) {
+    return 'Nothing to show yet.';
+  }
+
+  return payload.issues.totalAssigned === 0
+    ? 'No open issues are assigned to you.'
+    : 'None of your assigned issues match the current card source.';
 }
 
 function render(payload) {
@@ -66,24 +138,41 @@ function render(payload) {
 
   noticesEl.replaceChildren();
   cardsEl.replaceChildren();
-  cardsEl.classList.remove('stale');
-  metaEl.classList.remove('stale');
 
-  const when = new Date(payload.fetchedAt);
-  metaEl.textContent = `${payload.cards.length} card${payload.cards.length === 1 ? '' : 's'} · read ${when.toLocaleTimeString()}`;
+  // A failed source keeps its last good read on screen, dimmed. Clearing it would imply the board verified there is
+  // nothing to show; leaving it bright would imply the read succeeded.
+  const stale = payload.failures.length > 0;
+  cardsEl.classList.toggle('stale', stale);
+  metaEl.classList.toggle('stale', stale);
 
-  if (payload.notOnProject > 0) {
+  const when = readTime(payload);
+  const count = `${payload.cards.length} card${payload.cards.length === 1 ? '' : 's'}`;
+  metaEl.textContent = when === null ? count : `${count} · read ${when.toLocaleTimeString()}`;
+
+  if (stale) {
+    metaEl.textContent = `${metaEl.textContent} · could not refresh`;
+  }
+
+  for (const failure of payload.failures) {
+    notice(failure.message, failure.remedy, true);
+  }
+
+  if (payload.sessions?.patternError) {
+    notice(payload.sessions.patternError, 'Fix groundControl.branchIssuePattern in Settings.', true);
+  }
+
+  if (payload.issues && payload.issues.notOnProject > 0) {
     notice(
-      `${payload.notOnProject} assigned issue${payload.notOnProject === 1 ? ' is' : 's are'} not on the configured project board, so they are not shown.`,
+      `${payload.issues.notOnProject} assigned issue${payload.issues.notOnProject === 1 ? ' is' : 's are'} not on the configured project board, so they are not shown.`,
       'Switch groundControl.cardSource to issueSearch to include them.',
       false,
     );
   }
 
-  if (payload.truncated) {
+  if (payload.issues?.truncated) {
     // `matched` is what this board's own query found. `totalAssigned` is the wider set and would overstate the gap.
     notice(
-      `More issues match than were read. Showing ${payload.cards.length} of ${payload.matched}.`,
+      `More issues match than were read. Showing ${payload.issues.count} of ${payload.issues.matched}.`,
       'The board reads a bounded number of pages per refresh.',
       false,
     );
@@ -92,16 +181,13 @@ function render(payload) {
   if (payload.cards.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'empty';
-    empty.textContent =
-      payload.totalAssigned === 0
-        ? 'No open issues are assigned to you.'
-        : 'None of your assigned issues match the current card source.';
+    empty.textContent = emptyText(payload);
     cardsEl.appendChild(empty);
     return;
   }
 
-  for (const issue of payload.cards) {
-    cardsEl.appendChild(card(issue));
+  for (const boardCard of payload.cards) {
+    cardsEl.appendChild(card(boardCard));
   }
 }
 
@@ -113,20 +199,8 @@ window.addEventListener('message', (event) => {
     return;
   }
 
-  if (message.type === 'cards') {
+  if (message.type === 'board') {
     render(message);
-    return;
-  }
-
-  if (message.type === 'error') {
-    // The last good list stays on screen, dimmed, and keeps its notices and read time. Clearing either would
-    // imply the board had verified that there is nothing to show, or that the dimmed list is current.
-    notice(message.message, message.remedy, true);
-    cardsEl.classList.add('stale');
-    metaEl.classList.add('stale');
-    metaEl.textContent = metaEl.textContent.includes('could not refresh')
-      ? metaEl.textContent
-      : `${metaEl.textContent} · could not refresh`;
   }
 });
 

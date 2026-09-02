@@ -9,14 +9,14 @@
       "nodes": [
         {
           "number": 19082,
-          "title": "SMS \"Reset ENTIRE Brand\" strands the account when Twilio's delete fails, with no retry",
-          "url": "https://github.com/ownerrez/orez/issues/19082",
+          "title": "Channel mapping sends before the template renders",
+          "url": "https://github.com/example-org/example-repo/issues/19082",
           "updatedAt": "2026-08-27T18:20:51Z",
           "issueType": {
             "name": "Bug"
           },
           "repository": {
-            "nameWithOwner": "ownerrez/orez"
+            "nameWithOwner": "example-org/example-repo"
           },
           "assignees": {
             "nodes": []
@@ -36,19 +36,19 @@
         },
         {
           "number": 19078,
-          "title": "Add or-inspect-errors agent skill to triage new prod errors and tickets",
-          "url": "https://github.com/ownerrez/orez/issues/19078",
+          "title": "Refund ledger fails silently on an empty result",
+          "url": "https://github.com/example-org/example-repo/issues/19078",
           "updatedAt": "2026-09-01T20:12:24Z",
           "issueType": {
             "name": "Task"
           },
           "repository": {
-            "nameWithOwner": "ownerrez/orez"
+            "nameWithOwner": "example-org/example-repo"
           },
           "assignees": {
             "nodes": [
               {
-                "login": "ithielnor"
+                "login": "dev-4"
               }
             ]
           },

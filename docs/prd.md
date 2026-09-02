@@ -35,8 +35,8 @@ Everything else about a developer's environment is theirs, and the board adapts 
 **R1. The board shows the GitHub issues assigned to the user.**
 One card per issue, with its number, title, and type. Issues nobody has assigned to the user do not appear.
 
-**R2. The board shows every active Claude Code session on the machine.**
-No session is invisible. A session the user forgot about is exactly what this board exists to surface.
+**R2. The board shows every active agent session on the machine.**
+No session is invisible. A session the user forgot about is exactly what this board exists to surface. Claude Code is the agent the board reads today; a developer running a second agent CLI sees its sessions on the same board, labelled by which agent reported them, rather than a second board.
 
 **R3. A session linked to an issue appears under that issue's card.**
 An issue card can hold several sessions. The card is the unit of work; sessions are attempts at it.
@@ -185,5 +185,5 @@ In their own terms: what is missing, or what failed.
 4. **What links a session to an issue?** Branch name, working directory, something the user sets by hand, or a mixture. Affects how often R3 guesses wrong.
 5. **Sessions on other machines.** Out of scope for v1, but the board's value grows if it is the one place to look.
 6. **Where shared defaults come from.** Checked into the repo so a new developer inherits them by pulling, or shipped inside the extension so they update with it. The first keeps them reviewable alongside the code they describe; the second keeps them working before a checkout exists.
-7. **What links a session to an issue when the branch does not say.** Branch number is the obvious signal, but it fails for a session started before a branch exists, and for developers working in a single clone across several issues. Falling back to asking the developer once per session may be better than guessing.
+7. **What links a session to an issue when the branch does not say.** *Partly settled.* The board reads the branch of the checkout the session runs in, searching upward so a session started in a subdirectory still finds it, and falls back to the checkout directory's own name. A session it cannot link gets its own card (R4) rather than a guess. What is still open is the case the branch genuinely cannot answer — a session started before a branch exists, or a single clone carrying several issues — where asking the developer once per session may beat guessing. There is no way for a developer to set the link by hand today.
 8. **Whether a developer can see the board without the extension changing anything.** A read-only first run would let someone evaluate it with no risk, which matters for adoption across a team.

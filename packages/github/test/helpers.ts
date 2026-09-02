@@ -12,8 +12,8 @@ export function fixture(name: string): unknown {
 export function config(over: Partial<GithubConfig> = {}): GithubConfig {
   return {
     ghPath: 'gh',
-    repo: 'ownerrez/orez',
-    logins: ['jon-or'],
+    repo: 'example-org/example-repo',
+    logins: ['dev-1'],
     projectNumber: 3,
     cardSource: 'project',
     maxPages: 5,

@@ -1,14 +1,38 @@
 import * as vscode from 'vscode';
+import { mergeBoard } from '@ground-control/board';
+import type { BoardCard } from '@ground-control/board';
 import { fetchAssignedIssues } from '@ground-control/github';
-import type { AssignedIssues, Failure } from '@ground-control/github';
-import { readConfig, refreshIntervalMs } from './config.js';
+import type { AssignedIssues, Failure as GithubFailure } from '@ground-control/github';
+import { fetchSessions } from '@ground-control/sessions';
+import type { SessionsSnapshot } from '@ground-control/sessions';
+import { readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
 import { promptForLogins } from './identity.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 
-type CardsMessage = { type: 'cards' } & AssignedIssues;
-type ErrorMessage = { type: 'error'; kind: Failure['kind']; message: string; remedy: string };
-type Outbound = { type: 'loading' } | CardsMessage | ErrorMessage;
+interface SourceFailure {
+  source: 'issues' | 'sessions';
+  kind: string;
+  message: string;
+  remedy: string;
+}
+
+interface BoardMessage {
+  type: 'board';
+  cards: BoardCard[];
+  issues: {
+    count: number;
+    matched: number;
+    totalAssigned: number;
+    notOnProject: number;
+    truncated: boolean;
+    fetchedAt: string;
+  } | null;
+  sessions: { count: number; patternError: string | null; fetchedAt: string } | null;
+  failures: SourceFailure[];
+}
+
+type Outbound = { type: 'loading' } | BoardMessage;
 
 function nonce(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -20,12 +44,16 @@ export class BoardPanel {
   readonly #panel: vscode.WebviewPanel;
   readonly #extensionUri: vscode.Uri;
   readonly #disposables: vscode.Disposable[] = [];
-  #timer: NodeJS.Timeout | undefined;
+  readonly #timers: NodeJS.Timeout[] = [];
   #disposed = false;
-  /** The webview is torn down when the tab goes background, so both are replayed on return. */
-  #lastCards: CardsMessage | undefined;
-  #lastError: ErrorMessage | undefined;
-  #inFlight: Promise<void> | undefined;
+  /** The webview is torn down when the tab goes background, so the last board is replayed on return. */
+  #lastBoard: BoardMessage | undefined;
+  /** Each source keeps its last good read and its last failure, so one failing never blanks the other. */
+  #issues: AssignedIssues | undefined;
+  #issuesError: GithubFailure | undefined;
+  #sessions: SessionsSnapshot | undefined;
+  #issuesInFlight: Promise<void> | undefined;
+  #sessionsInFlight: Promise<void> | undefined;
   /** A dismissed identity prompt stays dismissed, or the refresh timer reopens the box every interval. */
   #promptDismissed = false;
 
@@ -75,7 +103,7 @@ export class BoardPanel {
         }
 
         if (msg.type === 'openIssue') {
-          const card = this.#lastCards?.cards.find((c) => c.number === msg.number);
+          const card = this.#issues?.cards.find((c) => c.number === msg.number);
 
           if (card) {
             void vscode.env.openExternal(vscode.Uri.parse(card.url));
@@ -88,16 +116,8 @@ export class BoardPanel {
 
     this.#panel.onDidChangeViewState(
       () => {
-        if (!this.#panel.visible) {
-          return;
-        }
-
-        if (this.#lastCards) {
-          void this.#panel.webview.postMessage(this.#lastCards);
-        }
-
-        if (this.#lastError) {
-          void this.#panel.webview.postMessage(this.#lastError);
+        if (this.#panel.visible && this.#lastBoard) {
+          void this.#panel.webview.postMessage(this.#lastBoard);
         }
       },
       undefined,
@@ -106,23 +126,39 @@ export class BoardPanel {
 
     this.#panel.onDidDispose(() => this.dispose(), undefined, this.#disposables);
 
-    this.#timer = setInterval(() => void this.refresh(), refreshIntervalMs());
+    // Two cadences, because the two sources move at different speeds: a session's state changes in seconds, and
+    // `claude agents --json` costs a quarter of a second locally, while the GitHub read costs a network round trip.
+    this.#timers.push(
+      setInterval(() => void this.#refreshIssues(), refreshIntervalMs()),
+      setInterval(() => void this.#refreshSessions(), sessionIntervalMs()),
+    );
 
+    this.#post({ type: 'loading' });
     void this.refresh();
   }
 
-  /** Coalesces callers: the interval, the command, and the webview button share one in-flight read. */
+  /** Reads both sources. Each coalesces on its own, so the button and the two timers never stack up. */
   refresh(): Promise<void> {
-    this.#inFlight ??= this.#refreshOnce().finally(() => {
-      this.#inFlight = undefined;
-    });
-
-    return this.#inFlight;
+    return Promise.all([this.#refreshIssues(), this.#refreshSessions()]).then(() => undefined);
   }
 
-  async #refreshOnce(): Promise<void> {
-    this.#post({ type: 'loading' });
+  #refreshIssues(): Promise<void> {
+    this.#issuesInFlight ??= this.#readIssues().finally(() => {
+      this.#issuesInFlight = undefined;
+    });
 
+    return this.#issuesInFlight;
+  }
+
+  #refreshSessions(): Promise<void> {
+    this.#sessionsInFlight ??= this.#readSessions().finally(() => {
+      this.#sessionsInFlight = undefined;
+    });
+
+    return this.#sessionsInFlight;
+  }
+
+  async #readIssues(): Promise<void> {
     let cfg = readConfig();
 
     if (cfg.logins.length === 0) {
@@ -134,13 +170,12 @@ export class BoardPanel {
 
       if (logins.length === 0) {
         this.#promptDismissed = true;
-
-        this.#post({
-          type: 'error',
+        this.#issuesError = {
           kind: 'no-logins',
-          message: 'The board does not know which GitHub account is yours.',
+          message: 'The board does not know which GitHub account is yours, so it is showing sessions only.',
           remedy: 'Set groundControl.github.logins in Settings, or run Ground Control: Refresh Board to be asked again.',
-        });
+        };
+        this.#render();
 
         return;
       }
@@ -155,12 +190,67 @@ export class BoardPanel {
       return;
     }
 
-    if (!result.ok) {
-      this.#post({ type: 'error', ...result.error });
+    if (result.ok) {
+      this.#issues = result.value;
+      this.#issuesError = undefined;
+    } else {
+      this.#issuesError = result.error;
+    }
+
+    this.#render();
+  }
+
+  async #readSessions(): Promise<void> {
+    const snapshot = await fetchSessions(readSessionsConfig());
+
+    if (this.#disposed) {
       return;
     }
 
-    this.#post({ type: 'cards', ...result.value });
+    // Always a snapshot: one CLI being unreadable contributes a failure and no sessions, and must not discard the rest.
+    this.#sessions = snapshot;
+
+    this.#render();
+  }
+
+  /**
+   * One message carries the whole board. A source that failed keeps its last good read on screen and contributes a
+   * failure instead of an empty list — R24 forbids implying a fetch succeeded, and equally forbids erasing a board
+   * the developer can still read.
+   */
+  #render(): void {
+    const failures: SourceFailure[] = [];
+
+    if (this.#issuesError) {
+      failures.push({ source: 'issues', ...this.#issuesError });
+    }
+
+    for (const failure of this.#sessions?.failures ?? []) {
+      failures.push({ source: 'sessions', ...failure });
+    }
+
+    this.#post({
+      type: 'board',
+      cards: mergeBoard(this.#issues?.cards ?? [], this.#sessions?.sessions ?? []),
+      issues: this.#issues
+        ? {
+            count: this.#issues.cards.length,
+            matched: this.#issues.matched,
+            totalAssigned: this.#issues.totalAssigned,
+            notOnProject: this.#issues.notOnProject,
+            truncated: this.#issues.truncated,
+            fetchedAt: this.#issues.fetchedAt,
+          }
+        : null,
+      sessions: this.#sessions
+        ? {
+            count: this.#sessions.sessions.length,
+            patternError: this.#sessions.patternError,
+            fetchedAt: this.#sessions.fetchedAt,
+          }
+        : null,
+      failures,
+    });
   }
 
   #post(message: Outbound): void {
@@ -168,14 +258,8 @@ export class BoardPanel {
       return;
     }
 
-    // A failed refresh must not erase a board the developer can still read; the webview marks it stale instead.
-    if (message.type === 'cards') {
-      this.#lastCards = message;
-      this.#lastError = undefined;
-    }
-
-    if (message.type === 'error') {
-      this.#lastError = message;
+    if (message.type === 'board') {
+      this.#lastBoard = message;
     }
 
     void this.#panel.webview.postMessage(message);
@@ -219,9 +303,8 @@ export class BoardPanel {
       BoardPanel.current = undefined;
     }
 
-    if (this.#timer) {
-      clearInterval(this.#timer);
-      this.#timer = undefined;
+    while (this.#timers.length > 0) {
+      clearInterval(this.#timers.pop());
     }
 
     while (this.#disposables.length > 0) {

@@ -11,7 +11,7 @@ Re-verify anything marked **version-fragile** after a Claude Code or extension u
 Background sessions are first-party. A station does not need a bespoke process manager.
 
 ```bash
-cd D:/git/orez.worktrees/17198-inquiry-parsing-unicode-characters
+cd d:/work/repo.worktrees/17198-channel-mapping-drops-rows-past-the-first-page
 claude --bg --permission-mode bypassPermissions -n "factory-demo-17198" "<station prompt>"
 # → backgrounded · 9d937cb5 · factory-demo-17198
 ```
@@ -27,7 +27,7 @@ Related subcommands: `claude attach <id>` (terminal), `claude logs <id>`, `claud
 One call returns every live session on the machine, **interactive and background, across every worktree**:
 
 ```json
-{ "pid": 65380, "id": "9d937cb5", "cwd": "D:\\git\\orez.worktrees\\17198-...",
+{ "pid": 65380, "id": "9d937cb5", "cwd": "d:\\work\\repo.worktrees\\17198-...",
   "kind": "background", "startedAt": 1788284040892,
   "sessionId": "9d937cb5-933e-45de-8514-e1bff6e447ba",
   "name": "factory-demo-17198", "status": "busy", "state": "working" }
@@ -53,7 +53,17 @@ Layout:
 ~/.claude/projects/<project-slug>/<session-id>/subagents/agent-<id>.meta.json
 ```
 
-`<project-slug>` = the absolute path, lowercased, with `:` and every separator replaced by `-` (`d:\git\orez` → `d--git-orez`).
+`<project-slug>` = the absolute path with **every character that is not a letter or digit** replaced by `-`, runs not collapsed (`d:\work\repo` → `d--work-repo`; `d:\work\repo.worktrees\18941-inbox-badge` → `d--work-repo-worktrees-18941-inbox-badge`).
+
+**Measured, not inferred.** A session started in `D:\git\dev-tracker\.claude\personal\slug probe_x+y~z` produced `D--git-dev-tracker--claude-personal-slug-probe-x-y-z`, so the space, `_`, `+` and `~` all become `-`. Every real cwd on this machine contains only `- . : \`, which is why a narrower rule looks correct here and fails on the first path with an underscore or a space.
+
+**Case is not a lookup key** — version-fragile. A project directory's case is fixed by whichever path first created it, and the CLI reports one checkout under either drive-letter case: there is no `d--work-repo` on disk at all, while several live sessions report `cwd: d:\work\repo` and their transcripts sit in `D--work-repo`. NTFS hides this. A reader must resolve the directory case-insensitively against the actual listing, or it reports a transcript that exists as absent on any case-sensitive filesystem.
+
+**Absence is a real state.** Some live sessions have no transcript anywhere under `~/.claude/projects` — searched across every project directory, not just the expected one. A reader must return "unknown" for that, never an error and never a time.
+
+**A transcript's mtime is not liveness.** Among live sessions that had one, the oldest write measured was over 9 hours old — so a write time is only ever a write time.
+
+The counts behind these move as sessions start and exit; `packages/sessions/test/fixtures/` pins them, re-recordable with `node test/fixtures/record.js`. The probe is not among them — a probe directory cannot be recorded from a machine it no longer exists on, so it is asserted directly in `packages/sessions/test/activity.test.ts`.
 
 `meta.json` contents: `{"agentType","description","toolUseId","spawnDepth"}` — enough to attribute a subagent to the parent tool call that spawned it.
 
@@ -90,7 +100,7 @@ The cwd comes from `workspaceFolders[0]` and is **never** derived from the sessi
 - A multi-root workspace does not help — only the first folder counts.
 - **One seizable worktree means one VS Code window.** The WIP limit is what bounds the window count.
 
-Measured confirmation: session `9d937cb5` (project slug `D--git-orez-worktrees-17198-…`) fired into a window rooted at `d:\git\orez` produced **no tab at all**, while `106b56c3` (slug `D--git-orez`) fired into that same window opened correctly.
+Measured confirmation: session `9d937cb5` (project slug `D--work-repo-worktrees-17198-…`) fired into a window rooted at `d:\work\repo` produced **no tab at all**, while `106b56c3` (slug `D--work-repo`) fired into that same window opened correctly.
 
 ## 6. `claude-vscode.editor.open` — signature and behavior
 
@@ -112,7 +122,7 @@ Sibling commands that exist and are not yet characterized: `claude-vscode.primar
 
 Three fires of `vscode://or.claude-session-launcher/open?session=…` against a machine with seven VS Code windows:
 
-- Routing follows the **focused** window. Confirmed: with focus on `18945-vrtexport-entity-insert`, the tab appeared there.
+- Routing follows the **focused** window. Confirmed: with focus on `18945-owner-statement-counts-archived-records-twice`, the tab appeared there.
 - Focus is not something the orchestrator owns. The user, another app, or a background process can change it between the decision and the fire.
 - `Start-Process "vscode://…"` **did not route at all** — no handler log, no tab. `code --open-url "vscode://…"` routed reliably. The `session-launcher` README's claim that this machine's `code` CLI has no `--open-url` is **stale**; the flag exists and works.
 - PowerShell/cmd eats `&column=2` unless the whole URI is quoted.
@@ -126,7 +136,7 @@ VS Code runs one extension host per window. `vscode.commands.executeCommand` dis
 Proven with `extensions/seize-probe/` — a ~90-line probe loaded via `code --extensionDevelopmentPath=… --new-window <worktree>` (nothing permanently installed). It registers `{folder, pid}` under a slug in `~/.factory/windows.json`, watches `~/.factory/inbox/<slug>.json`, and on a write calls `editor.open` locally.
 
 ```
-17:58:23  activate: slug=d-git-orez-worktrees-17198-…  folder=d:\git\orez.worktrees\17198-…  pid=47024
+17:58:23  activate: slug=d-work-repo-worktrees-17198-…  folder=d:\work\repo.worktrees\17198-…  pid=47024
 17:58:59  handle … session=9d937cb5-…  claudeTabsBefore=1
 17:59:01  after: claudeTabs=1  titles=["factory-demo-17198"]
 17:59:21  handle … session=e87fd6d6-…  claudeTabsBefore=1
@@ -142,22 +152,22 @@ Caveat recorded for honesty: the first call is ambiguous. The window already hel
 Measured with the extension **normally installed** (junction plus an `extensions.json` entry), not `--extensionDevelopmentPath`, against a worktree with no window open:
 
 ```
-target slug: d-git-orez-worktrees-17510-rezzy-telling-guests-gap
+target slug: d-work-repo-worktrees-17510-channel-mapping-reads-across-the-tenant-boundary
 already registered: False
-code --new-window d:\git\orez.worktrees\17510-rezzy-telling-guests-gap
+code --new-window d:\work\repo.worktrees\17510-channel-mapping-reads-across-the-tenant-boundary
 registered: True  after 3.2s
-{"folder":"d:\\git\\orez.worktrees\\17510-…","pid":31120,"updated":"2026-09-01T19:52:02Z"}
+{"folder":"d:\\work\\repo.worktrees\\17510-…","pid":31120,"updated":"2026-09-01T19:52:02Z"}
 ```
 
 Then a seize into that brand-new window, with no prior Claude tab to confuse the count:
 
 ```
-handle seize … folder=d:\git\orez.worktrees\17510-…  claudeTabsBefore=0  titles=[]
+handle seize … folder=d:\work\repo.worktrees\17510-…  claudeTabsBefore=0  titles=[]
 after seize:  claudeTabs=1  titles=["cold-path"]
 tracked seized tab "cold-path" -> c01d0001-…
 ```
 
-and a live tab process at the right root: `{"pid":12036,"kind":"interactive","cwd":"d:\\git\\orez.worktrees\\17510-…"}`.
+and a live tab process at the right root: `{"pid":12036,"kind":"interactive","cwd":"d:\\work\\repo.worktrees\\17510-…"}`.
 
 So task 2 §5's cold path holds: **no window → open → register → seize** works, and the 15 s poll budget is generous. Registration under `--extensionDevelopmentPath` took 14–25 s; that was the Extension Development Host's startup cost, not the extension's.
 
@@ -290,14 +300,14 @@ So the hazard is not interleaved writes. It is **silently orphaned work**, which
 
 ### A seized tab renders full history, at the worktree
 
-Confirmed visually on a `-p` station seized into a window rooted at its own worktree. The tab showed the original prompt, the `SHELL-TURN-ONE` output, a collapsed "2 tool calls", and the agent's own report that *"Branch is `16976-more-task-tweaks-bugs`"* — the worktree's branch, from the pre-kill turn.
+Confirmed visually on a `-p` station seized into a window rooted at its own worktree. The tab showed the original prompt, the `SHELL-TURN-ONE` output, a collapsed "2 tool calls", and the agent's own report that *"Branch is `16976-calendar-feed-overwrites-a-manual-edit`"* — the worktree's branch, from the pre-kill turn.
 
 So `editor.open` loads the conversation, not just the session's identity. Tab titles proved identity earlier; this proves content.
 
 Two independent confirmations of the tab's working directory:
 
-- `claude agents --json` while the tab was open listed a live process for it — `{"pid": 55928, "kind": "interactive", "cwd": "d:\\git\\orez.worktrees\\16976-more-task-tweaks-bugs"}`. **Opening a tab starts a process**; that process is what holds the session, and closing the tab ends it.
-- A `pwd` the operator ran *inside* the tab returned `/d/git/orez.worktrees/16976-more-task-tweaks-bugs`.
+- `claude agents --json` while the tab was open listed a live process for it — `{"pid": 55928, "kind": "interactive", "cwd": "d:\\work\\repo.worktrees\\16976-calendar-feed-overwrites-a-manual-edit"}`. **Opening a tab starts a process**; that process is what holds the session, and closing the tab ends it.
+- A `pwd` the operator ran *inside* the tab returned `/d/work/repo.worktrees/16976-calendar-feed-overwrites-a-manual-edit`.
 
 Note the held process is `kind: interactive` with no short id, so **`claude stop` cannot release it** — it answers `No job matching '<uuid>'`. Closing the tab (`tabGroups.close`) is the only clean release; a pid kill works but leaves a tab displaying a dead session.
 
@@ -421,7 +431,7 @@ codex exec --sandbox read-only --skip-git-repo-check \
   "Review the diff of this branch against master … set verdict to null …"
 ```
 
-Run against a real 481-line orez branch diff (`18132-settled-void-repro-test`), it returned **exactly schema-conformant** JSON — every required key present, `verdict: null`, `severity` from the enum — and one substantive high-severity finding about a fall-through in `RefundBusiness.cs:316` where a void could be applied twice. 79,199 tokens, roughly six minutes.
+Run against a real 481-line branch diff (`18132-tax-rule-fails-silently-on-an-empty-result`), it returned **exactly schema-conformant** JSON — every required key present, `verdict: null`, `severity` from the enum — and one substantive high-severity finding about a fall-through where a void could be applied twice. 79,199 tokens, roughly six minutes.
 
 Relevant flags: `--output-schema <FILE>` pins the final response shape, `-o <FILE>` writes it, `--json` emits JSONL events, `--sandbox read-only` is the right posture for a reviewer, `-C <DIR>` sets the working root.
 
@@ -615,9 +625,9 @@ Design consequences:
 
 **Not yet known:** whether the CLI's exit code distinguishes a rate-limit stop from a clean finish. If it does, detection is a number rather than a string match — worth checking the first time a station hits one.
 
-## 16. Test evidence from the orez runner — `dotnet test` + TRX
+## 16. Test evidence from a .NET runner — `dotnet test` + TRX
 
-Measured against `OwnerRez.Test.Essential` (net8.0, `--no-build`).
+Measured against a 4,117-test xUnit project (net8.0, `--no-build`).
 
 ### `dotnet test --logger trx` gives a clean counter block
 
@@ -675,7 +685,7 @@ That settles task 1 open decision #2: **no filter.** A targeted subset saves not
 
 **Proven** (measured 2026-09-01, sections above): `--bg` dispatch in a worktree · `claude agents --json` as a session registry · transcript lag · subagents die on stop, with transcripts preserved and honest parent reporting · tab cwd from `workspaceFolders[0]` · `editor.open` signature and reveal behavior · URI routing follows focus and is unaddressable · in-process `executeCommand` is addressable · hand-back via bare `--bg --resume` and the flag-fork hazard · the `--bg` / `-p` capability split and the decision to run stations under `-p` · the full seize round trip (kill → seize → release → hand back) and the tab-holds-session trap · `PreToolUse` hooks veto for real · `codex exec --output-schema` produces conformant findings on a real diff.
 
-Also proven: auto-handback on an **operator's manual tab close** · the **cold path** (no window → `code --new-window` → registered in 3.2 s → seize) with the extension normally installed · the **clean operator round trip** with the operator's work intact and the transcript unforked · the evidence gate against the real orez runner, including that `dotnet test` exits 0 when its filter matches nothing · rate-limit failure shape characterized from 1,675 historical transcripts · **concurrent writers fork the transcript and silently orphan work**.
+Also proven: auto-handback on an **operator's manual tab close** · the **cold path** (no window → `code --new-window` → registered in 3.2 s → seize) with the extension normally installed · the **clean operator round trip** with the operator's work intact and the transcript unforked · the evidence gate against a real .NET runner, including that `dotnet test` exits 0 when its filter matches nothing · rate-limit failure shape characterized from 1,675 historical transcripts · **concurrent writers fork the transcript and silently orphan work**.
 
 **Unproven — ranked by damage if the assumption is wrong:**
 
@@ -687,7 +697,7 @@ Also proven: auto-handback on an **operator's manual tab close** · the **cold p
 |---|---|---|
 | 4 | **Which resume path?** `-p --resume` keeps the stream but loses the queue restore; `--bg --resume` restores the queue but kills the stream and renames the session (§10, §14). | Resume with `-p` plus a `factory bump` prompt: Watch survives, and orphans are recovered explicitly via `SendMessage` rather than implicitly. Still needs one run to confirm `SendMessage` reaches the original agent ids. |
 | 5 | Unattended permission posture. | Every session so far used `bypassPermissions`. Decide once station tool needs are known; `--allowedTools` plus hooks is the mechanism. |
-| — | Does "no new build warnings" join the evidence gate? | orez has a nonzero warning baseline, so this needs a baseline diff, not a zero check. |
+| — | Does "no new build warnings" join the evidence gate? | the target repo has a nonzero warning baseline, so this needs a baseline diff, not a zero check. |
 
 **Opportunistic — answer the first time it happens naturally:**
 

@@ -1,0 +1,229 @@
+[
+  {
+    "pid": 29372,
+    "cwd": "d:/work/repo.worktrees/18941-inbox-badge-overwrites-a-manual-edit",
+    "kind": "interactive",
+    "startedAt": 1788270079660,
+    "sessionId": "c35420da-e282-4fde-a420-0cbb6856dc03",
+    "name": "18941-inbox-badge-overwrites-a-manual-edit-c3"
+  },
+  {
+    "pid": 24480,
+    "cwd": "d:/work/repo.worktrees/18945-tax-rule-counts-archived-records-twice",
+    "kind": "interactive",
+    "startedAt": 1788270842242,
+    "sessionId": "43849707-0bc9-4e4e-bb09-a398606cc349",
+    "name": "18945-tax-rule-counts-archived-records-twice-43"
+  },
+  {
+    "pid": 51028,
+    "cwd": "d:/work/repo.worktrees/18953-guest-portal-skips-the-second-occurrence",
+    "kind": "interactive",
+    "startedAt": 1788277678154,
+    "sessionId": "0c6ba4cb-c5ee-47c1-8f1c-e59eca734b2e",
+    "name": "18953-guest-portal-skips-the-second-occurrence-0c"
+  },
+  {
+    "pid": 9060,
+    "cwd": "d:/work/repo.worktrees/18953-guest-portal-skips-the-second-occurrence",
+    "kind": "interactive",
+    "startedAt": 1788277688430,
+    "sessionId": "2e6d1d70-5846-4fbc-958b-d44a89811267",
+    "name": "18953-guest-portal-skips-the-second-occurrence-2e"
+  },
+  {
+    "pid": 40040,
+    "cwd": "c:/users/dev/.tools/worktrees/worker-1",
+    "kind": "interactive",
+    "startedAt": 1788281205162,
+    "sessionId": "e0e6c3f8-8eb3-4858-8429-f24ed33dcb3e",
+    "name": "worker-1-e0",
+    "status": "idle"
+  },
+  {
+    "pid": 35396,
+    "cwd": "d:/work/repo.worktrees/18941-inbox-badge-overwrites-a-manual-edit",
+    "kind": "interactive",
+    "startedAt": 1788281442354,
+    "sessionId": "05df954c-9893-43b2-a30d-1bf002502361",
+    "name": "18941-inbox-badge-overwrites-a-manual-edit-05"
+  },
+  {
+    "pid": 28464,
+    "cwd": "d:/work/repo.worktrees/18942-payment-retry-skips-the-second-occurrence",
+    "kind": "interactive",
+    "startedAt": 1788281583402,
+    "sessionId": "a4ba3b0f-c210-4f96-b2be-2b6c45145da5",
+    "name": "18942-payment-retry-skips-the-second-occurrence-a4"
+  },
+  {
+    "pid": 54712,
+    "cwd": "d:/work/repo.worktrees/18943-listing-sync-reads-across-the-tenant-boundary",
+    "kind": "interactive",
+    "startedAt": 1788281593738,
+    "sessionId": "73123d21-ecb4-46ea-8f72-a2b403af1782",
+    "name": "18943-listing-sync-reads-across-the-tenant-boundary-73"
+  },
+  {
+    "id": "9d937cb5",
+    "cwd": "d:/work/17198-guest-portal-drops-rows-past-the-first-page-2",
+    "kind": "background",
+    "startedAt": 1788284039315,
+    "sessionId": "9d937cb5-933e-45de-8514-e1bff6e447ba",
+    "name": "17198-guest-portal-drops-rows-past-the-first-page-2-9d",
+    "state": "stopped"
+  },
+  {
+    "id": "e87fd6d6",
+    "cwd": "d:/work/17198-guest-portal-drops-rows-past-the-first-page-2",
+    "kind": "background",
+    "startedAt": 1788284542120,
+    "sessionId": "e87fd6d6-9bf1-4a60-b5fa-da7f54716c7e",
+    "name": "17198-guest-portal-drops-rows-past-the-first-page-2-e8",
+    "state": "stopped"
+  },
+  {
+    "pid": 35780,
+    "cwd": "d:/work/repo.worktrees/18945-tax-rule-counts-archived-records-twice",
+    "kind": "interactive",
+    "startedAt": 1788284965729,
+    "sessionId": "4391cb76-a7b4-4509-a76a-0fcef5380fba",
+    "name": "18945-tax-rule-counts-archived-records-twice-43"
+  },
+  {
+    "id": "322e2149",
+    "cwd": "d:/work/17198-guest-portal-drops-rows-past-the-first-page-2",
+    "kind": "background",
+    "startedAt": 1788286464868,
+    "sessionId": "322e2149-f26a-4bff-b496-ea0e4f831e9e",
+    "name": "17198-guest-portal-drops-rows-past-the-first-page-2-32",
+    "state": "stopped"
+  },
+  {
+    "id": "9e6418f4",
+    "cwd": "d:/work/17198-guest-portal-drops-rows-past-the-first-page-2",
+    "kind": "background",
+    "startedAt": 1788286507347,
+    "sessionId": "9e6418f4-4372-471f-a7a1-d7a3c3db9e62",
+    "name": "17198-guest-portal-drops-rows-past-the-first-page-2-9e",
+    "state": "stopped"
+  },
+  {
+    "id": "d08dda21",
+    "cwd": "d:/work/16976-calendar-feed-rounds-the-wrong-currency-unit",
+    "kind": "background",
+    "startedAt": 1788287183282,
+    "sessionId": "d08dda21-d5e2-4fb5-9ed3-46ec0723b54b",
+    "name": "16976-calendar-feed-rounds-the-wrong-currency-unit-d0",
+    "state": "done"
+  },
+  {
+    "id": "94e14772",
+    "cwd": "d:/work/17198-guest-portal-drops-rows-past-the-first-page-2",
+    "kind": "background",
+    "startedAt": 1788287321605,
+    "sessionId": "94e14772-d286-4704-953e-47ccd8cc3e08",
+    "name": "17198-guest-portal-drops-rows-past-the-first-page-2-94",
+    "state": "stopped"
+  },
+  {
+    "id": "c1b2c3d4",
+    "cwd": "d:/work/17198-guest-portal-drops-rows-past-the-first-page-2",
+    "kind": "background",
+    "startedAt": 1788287340584,
+    "sessionId": "c1b2c3d4-0000-4000-8000-000000000003",
+    "name": "17198-guest-portal-drops-rows-past-the-first-page-2-c1",
+    "state": "stopped"
+  },
+  {
+    "id": "d1b2c3d4",
+    "cwd": "d:/work/repo.worktrees/17198-guest-portal-drops-rows-past-the-first-page",
+    "kind": "background",
+    "startedAt": 1788287810520,
+    "sessionId": "d1b2c3d4-0000-4000-8000-000000000004",
+    "name": "17198-guest-portal-drops-rows-past-the-first-page-d1",
+    "state": "stopped"
+  },
+  {
+    "id": "8e233b93",
+    "cwd": "d:/work/16976-calendar-feed-rounds-the-wrong-currency-unit",
+    "kind": "background",
+    "startedAt": 1788289661940,
+    "sessionId": "8e233b93-428d-4bde-8ce5-1402897c7b70",
+    "name": "16976-calendar-feed-rounds-the-wrong-currency-unit-8e",
+    "state": "stopped"
+  },
+  {
+    "id": "955fe450",
+    "cwd": "d:/work/16976-calendar-feed-rounds-the-wrong-currency-unit",
+    "kind": "background",
+    "startedAt": 1788290168165,
+    "sessionId": "955fe450-96c0-4818-acc1-2de7fd4b0f4e",
+    "name": "16976-calendar-feed-rounds-the-wrong-currency-unit-95",
+    "state": "done"
+  },
+  {
+    "pid": 27204,
+    "cwd": "d:/work/repo",
+    "kind": "interactive",
+    "startedAt": 1788295712906,
+    "sessionId": "34b31b03-f5ee-4d09-b651-883d963e1782",
+    "name": "main-34"
+  },
+  {
+    "pid": 58076,
+    "cwd": "d:/work/clone-2",
+    "kind": "interactive",
+    "startedAt": 1788295816713,
+    "sessionId": "1ae27459-6f56-46dd-bf59-962c5838a6fd",
+    "name": "main-1a"
+  },
+  {
+    "pid": 33652,
+    "cwd": "d:/work/repo",
+    "kind": "interactive",
+    "startedAt": 1788296228894,
+    "sessionId": "fd7337ee-5b3f-47d5-ba18-42a2506978c4",
+    "name": "main-fd"
+  },
+  {
+    "pid": 48404,
+    "cwd": "d:/work/clone-3",
+    "kind": "interactive",
+    "startedAt": 1788297430279,
+    "sessionId": "a85261e1-eef7-4b88-bd08-0f400e05522f",
+    "name": "main-a8"
+  },
+  {
+    "pid": 58028,
+    "cwd": "d:/work/repo",
+    "kind": "interactive",
+    "startedAt": 1788300239728,
+    "sessionId": "b5a2318d-4dab-4eb8-97c5-e4b1c0d7b4c0",
+    "name": "main-b5"
+  },
+  {
+    "pid": 28104,
+    "cwd": "d:/work/repo",
+    "kind": "interactive",
+    "startedAt": 1788300247459,
+    "sessionId": "07e9500c-e183-40e4-840f-b32b7bf0da62",
+    "name": "main-07"
+  },
+  {
+    "pid": 60664,
+    "cwd": "d:/work/repo.worktrees/17198-guest-portal-drops-rows-past-the-first-page",
+    "kind": "interactive",
+    "startedAt": 1788307449772,
+    "sessionId": "dd37c678-6774-438a-80b2-912632a15123",
+    "name": "17198-guest-portal-drops-rows-past-the-first-page-dd"
+  },
+  {
+    "pid": 53076,
+    "cwd": "d:/work/repo",
+    "kind": "interactive",
+    "startedAt": 1788309271322,
+    "sessionId": "15873f6d-e446-4073-abae-25b4f134da35",
+    "name": "main-15"
+  }
+]

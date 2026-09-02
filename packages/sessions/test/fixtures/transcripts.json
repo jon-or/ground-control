@@ -1,0 +1,134 @@
+{
+  "home": "/home/dev",
+  "projectDirs": [
+    "D--work-repo",
+    "c--users-dev--tools-worktrees-worker-1",
+    "d--work-clone-3",
+    "d--work-repo-worktrees-18941-inbox-badge-overwrites-a-manual-edit",
+    "d--work-repo-worktrees-18942-payment-retry-skips-the-second-occurrence",
+    "d--work-repo-worktrees-18943-listing-sync-reads-across-the-tenant-boundary",
+    "d--work-repo-worktrees-18945-tax-rule-counts-archived-records-twice",
+    "d--work-repo-worktrees-18953-guest-portal-skips-the-second-occurrence"
+  ],
+  "entries": [
+    {
+      "name": "18941-inbox-badge-overwrites-a-manual-edit-c3",
+      "cwd": "d:/work/repo.worktrees/18941-inbox-badge-overwrites-a-manual-edit",
+      "sessionId": "c35420da-e282-4fde-a420-0cbb6856dc03",
+      "dir": "d--work-repo-worktrees-18941-inbox-badge-overwrites-a-manual-edit",
+      "writtenAt": 1788271209606
+    },
+    {
+      "name": "18945-tax-rule-counts-archived-records-twice-43",
+      "cwd": "d:/work/repo.worktrees/18945-tax-rule-counts-archived-records-twice",
+      "sessionId": "43849707-0bc9-4e4e-bb09-a398606cc349",
+      "dir": "d--work-repo-worktrees-18945-tax-rule-counts-archived-records-twice",
+      "writtenAt": 1788295517363
+    },
+    {
+      "name": "18953-guest-portal-skips-the-second-occurrence-0c",
+      "cwd": "d:/work/repo.worktrees/18953-guest-portal-skips-the-second-occurrence",
+      "sessionId": "0c6ba4cb-c5ee-47c1-8f1c-e59eca734b2e",
+      "dir": null,
+      "writtenAt": null
+    },
+    {
+      "name": "18953-guest-portal-skips-the-second-occurrence-2e",
+      "cwd": "d:/work/repo.worktrees/18953-guest-portal-skips-the-second-occurrence",
+      "sessionId": "2e6d1d70-5846-4fbc-958b-d44a89811267",
+      "dir": "d--work-repo-worktrees-18953-guest-portal-skips-the-second-occurrence",
+      "writtenAt": 1788286739725
+    },
+    {
+      "name": "worker-1-e0",
+      "cwd": "c:/users/dev/.tools/worktrees/worker-1",
+      "sessionId": "e0e6c3f8-8eb3-4858-8429-f24ed33dcb3e",
+      "dir": "c--users-dev--tools-worktrees-worker-1",
+      "writtenAt": 1788281205340
+    },
+    {
+      "name": "18941-inbox-badge-overwrites-a-manual-edit-05",
+      "cwd": "d:/work/repo.worktrees/18941-inbox-badge-overwrites-a-manual-edit",
+      "sessionId": "05df954c-9893-43b2-a30d-1bf002502361",
+      "dir": "d--work-repo-worktrees-18941-inbox-badge-overwrites-a-manual-edit",
+      "writtenAt": 1788287474799
+    },
+    {
+      "name": "18942-payment-retry-skips-the-second-occurrence-a4",
+      "cwd": "d:/work/repo.worktrees/18942-payment-retry-skips-the-second-occurrence",
+      "sessionId": "a4ba3b0f-c210-4f96-b2be-2b6c45145da5",
+      "dir": "d--work-repo-worktrees-18942-payment-retry-skips-the-second-occurrence",
+      "writtenAt": 1788282056892
+    },
+    {
+      "name": "18943-listing-sync-reads-across-the-tenant-boundary-73",
+      "cwd": "d:/work/repo.worktrees/18943-listing-sync-reads-across-the-tenant-boundary",
+      "sessionId": "73123d21-ecb4-46ea-8f72-a2b403af1782",
+      "dir": "d--work-repo-worktrees-18943-listing-sync-reads-across-the-tenant-boundary",
+      "writtenAt": 1788282145748
+    },
+    {
+      "name": "18945-tax-rule-counts-archived-records-twice-43",
+      "cwd": "d:/work/repo.worktrees/18945-tax-rule-counts-archived-records-twice",
+      "sessionId": "4391cb76-a7b4-4509-a76a-0fcef5380fba",
+      "dir": null,
+      "writtenAt": null
+    },
+    {
+      "name": "main-34",
+      "cwd": "d:/work/repo",
+      "sessionId": "34b31b03-f5ee-4d09-b651-883d963e1782",
+      "dir": "D--work-repo",
+      "writtenAt": 1788310133608
+    },
+    {
+      "name": "main-1a",
+      "cwd": "d:/work/clone-2",
+      "sessionId": "1ae27459-6f56-46dd-bf59-962c5838a6fd",
+      "dir": null,
+      "writtenAt": null
+    },
+    {
+      "name": "main-fd",
+      "cwd": "d:/work/repo",
+      "sessionId": "fd7337ee-5b3f-47d5-ba18-42a2506978c4",
+      "dir": "D--work-repo",
+      "writtenAt": 1788296229256
+    },
+    {
+      "name": "main-a8",
+      "cwd": "d:/work/clone-3",
+      "sessionId": "a85261e1-eef7-4b88-bd08-0f400e05522f",
+      "dir": "d--work-clone-3",
+      "writtenAt": 1788297504647
+    },
+    {
+      "name": "main-b5",
+      "cwd": "d:/work/repo",
+      "sessionId": "b5a2318d-4dab-4eb8-97c5-e4b1c0d7b4c0",
+      "dir": null,
+      "writtenAt": null
+    },
+    {
+      "name": "main-07",
+      "cwd": "d:/work/repo",
+      "sessionId": "07e9500c-e183-40e4-840f-b32b7bf0da62",
+      "dir": "D--work-repo",
+      "writtenAt": 1788300390294
+    },
+    {
+      "name": "17198-guest-portal-drops-rows-past-the-first-page-dd",
+      "cwd": "d:/work/repo.worktrees/17198-guest-portal-drops-rows-past-the-first-page",
+      "sessionId": "dd37c678-6774-438a-80b2-912632a15123",
+      "dir": null,
+      "writtenAt": null
+    },
+    {
+      "name": "main-15",
+      "cwd": "d:/work/repo",
+      "sessionId": "15873f6d-e446-4073-abae-25b4f134da35",
+      "dir": "D--work-repo",
+      "writtenAt": 1788309364219
+    }
+  ]
+}
