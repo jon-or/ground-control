@@ -1,7 +1,15 @@
 import { ASSIGNED_ISSUES_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
 import { makeGhRunner } from './gh.js';
-import type { AssignedIssues, CardAvatar, GithubConfig, IssueCard, Result, SearchNode } from './types.js';
+import type {
+  AssignedIssues,
+  CardAvatar,
+  CardPullRequest,
+  GithubConfig,
+  IssueCard,
+  Result,
+  SearchNode,
+} from './types.js';
 import { searchResponse } from './types.js';
 
 /**
@@ -39,6 +47,13 @@ function selectCardAvatar(
   return assignee?.avatarUrl ? { login: assignee.login, url: assignee.avatarUrl, source: 'issue' } : null;
 }
 
+/** The pull request the card speaks for: the most recently updated one that would close the issue. */
+function selectPullRequest(node: Pick<SearchNode, 'pullRequests'>): CardPullRequest | null {
+  const latest = [...(node.pullRequests?.nodes ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+
+  return latest ? { number: latest.number, url: latest.url, state: latest.state } : null;
+}
+
 function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
   const item = node.projectItems.nodes.find((i) => i.project.number === cfg.projectNumber);
   const status = item?.fieldValueByName?.name ?? null;
@@ -47,10 +62,13 @@ function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
     number: node.number,
     title: node.title,
     type: node.issueType?.name ?? null,
+    typeColor: node.issueType?.color ?? null,
     url: node.url,
     status,
+    statusColor: item?.fieldValueByName?.color ?? null,
     assignees: node.assignees.nodes.map((a) => a.login),
     avatar: selectCardAvatar(node, cfg.logins, status),
+    pullRequest: selectPullRequest(node),
     updatedAt: node.updatedAt,
   };
 }

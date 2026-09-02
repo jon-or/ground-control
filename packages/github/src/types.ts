@@ -16,11 +16,22 @@ export interface IssueCard {
   number: number;
   title: string;
   type: string | null;
+  /** GitHub's own colour name for the type and the status — `RED`, `BLUE`, `GRAY` … — or null when there is none. */
+  typeColor: string | null;
   url: string;
   status: string | null;
+  statusColor: string | null;
   assignees: string[];
   avatar: CardAvatar | null;
+  /** The most recently updated pull request that would close this issue, or null when none is linked. */
+  pullRequest: CardPullRequest | null;
   updatedAt: string;
+}
+
+export interface CardPullRequest {
+  number: number;
+  url: string;
+  state: string;
 }
 
 export interface CardAvatar {
@@ -60,7 +71,7 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: Failure };
 
 const projectItem = z.object({
   project: z.object({ number: z.number() }),
-  fieldValueByName: z.object({ name: z.string() }).nullable(),
+  fieldValueByName: z.object({ name: z.string(), color: z.string().nullable() }).nullable(),
 });
 
 const searchNode = z.object({
@@ -68,7 +79,7 @@ const searchNode = z.object({
   title: z.string(),
   url: z.string(),
   updatedAt: z.string(),
-  issueType: z.object({ name: z.string() }).nullable(),
+  issueType: z.object({ name: z.string(), color: z.string().nullable() }).nullable(),
   repository: z.object({ nameWithOwner: z.string() }),
   assignees: z.object({
     nodes: z.array(z.object({ login: z.string(), avatarUrl: z.string().optional() })),
@@ -78,6 +89,9 @@ const searchNode = z.object({
     .object({
       nodes: z.array(
         z.object({
+          number: z.number(),
+          url: z.string(),
+          state: z.string(),
           updatedAt: z.string(),
           author: z.object({ login: z.string(), avatarUrl: z.string() }).nullable(),
         }),

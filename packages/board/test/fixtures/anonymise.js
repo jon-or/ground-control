@@ -61,12 +61,23 @@ function anonymiseSessions(sessions) {
 function anonymiseIssues(cards) {
   const seen = new Map();
 
-  return cards.map((card) => ({
-    ...card,
-    title: title(card.number),
-    url: `https://github.com/${REPO}/issues/${card.number}`,
-    assignees: logins(card.assignees, seen),
-  }));
+  return cards.map((card) => {
+    const assignees = logins(card.assignees, seen);
+    const [avatarLogin] = card.avatar ? logins([card.avatar.login], seen) : [];
+
+    return {
+      ...card,
+      title: title(card.number),
+      url: `https://github.com/${REPO}/issues/${card.number}`,
+      assignees,
+      avatar: card.avatar
+        ? { ...card.avatar, login: avatarLogin, url: `https://avatars.githubusercontent.com/${avatarLogin}?s=40` }
+        : null,
+      pullRequest: card.pullRequest
+        ? { ...card.pullRequest, url: `https://github.com/${REPO}/pull/${card.pullRequest.number}` }
+        : null,
+    };
+  });
 }
 
 /**
@@ -77,7 +88,7 @@ function assertScrubbed(recorded, written) {
   const json = JSON.stringify(written);
 
   const real = [
-    ...recorded.issues.flatMap((i) => [i.title, i.url, ...i.assignees]),
+    ...recorded.issues.flatMap((i) => [i.title, i.url, ...i.assignees, i.avatar?.login, i.avatar?.url, i.pullRequest?.url]),
     ...recorded.sessions.flatMap((s) => [s.cwd, s.name, s.branch]),
   ].filter((value) => typeof value === 'string' && value.length > 4 && value !== 'main');
 

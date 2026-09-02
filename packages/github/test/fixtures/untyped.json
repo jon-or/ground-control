@@ -19,9 +19,13 @@
           "assignees": {
             "nodes": [
               {
-                "login": "dev-7"
+                "login": "dev-10",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-10?s=40"
               }
             ]
+          },
+          "pullRequests": {
+            "nodes": []
           },
           "projectItems": {
             "nodes": [
@@ -30,7 +34,8 @@
                   "number": 3
                 },
                 "fieldValueByName": {
-                  "name": "🎁 Assigned"
+                  "name": "🎁 Assigned",
+                  "color": "GRAY"
                 }
               }
             ]
@@ -48,6 +53,9 @@
           "assignees": {
             "nodes": []
           },
+          "pullRequests": {
+            "nodes": []
+          },
           "projectItems": {
             "nodes": [
               {
@@ -55,7 +63,8 @@
                   "number": 3
                 },
                 "fieldValueByName": {
-                  "name": "🆕 New"
+                  "name": "🆕 New",
+                  "color": "GRAY"
                 }
               }
             ]

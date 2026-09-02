@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { boardStatuses } from '@ground-control/board';
 import type { CardSource, GithubConfig } from '@ground-control/github';
 import { providers } from '@ground-control/sessions';
 import type { AgentConfig, SessionsConfig } from '@ground-control/sessions';
@@ -46,6 +47,10 @@ export function readSessionsConfig(): SessionsConfig {
   };
 }
 
+export function readBoardStatuses(): string[] {
+  return boardStatuses(vscode.workspace.getConfiguration(SECTION).get<unknown>('boardStatuses'));
+}
+
 /** A hand-edited settings.json can hold a string here, and setInterval(NaN) fires every millisecond. */
 function intervalMs(key: string, fallback: number, floor: number): number {
   const seconds = vscode.workspace.getConfiguration(SECTION).get<number>(key, fallback);
@@ -58,7 +63,7 @@ export function refreshIntervalMs(): number {
 }
 
 export function sessionIntervalMs(): number {
-  return intervalMs('sessionRefreshSeconds', 5, 2);
+  return intervalMs('sessionRefreshSeconds', 30, 2);
 }
 
 /**

@@ -49,6 +49,29 @@
           "default": "gh",
           "description": "Path to the GitHub CLI, if it is not on PATH."
         },
+        "groundControl.boardStatuses": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["🎁 Assigned", "⚒️ Dev"],
+          "markdownDescription": "Which project-board statuses keep an issue on the board. A status decides only whether a card is shown, never which lane it is in — lanes are yours to move cards between. Anything not listed is archived behind the Show-archived toggle."
+        },
+        "groundControl.sessionRefreshSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 2,
+          "description": "How often the board re-reads the agent sessions on this machine, while it is the visible tab. Each read spawns the agent CLI, so a short interval costs a process every few seconds."
+        },
+        "groundControl.agents": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {},
+          "markdownDescription": "The agent CLIs to read sessions from, as id to command or full path. Left empty, the board reads the ones that ship enabled."
+        },
+        "groundControl.branchIssuePattern": {
+          "type": "string",
+          "default": "^(\\d+)-",
+          "markdownDescription": "Matches the issue number in a branch or directory name, as a regular expression whose first capture group is the number. The team convention ships as the default."
+        },
         "groundControl.refreshIntervalSeconds": {
           "type": "number",
           "default": 300,

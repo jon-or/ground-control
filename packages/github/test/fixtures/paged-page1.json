@@ -1,27 +1,38 @@
 {
   "data": {
     "cards": {
-      "issueCount": 1754,
+      "issueCount": 1753,
       "pageInfo": {
         "hasNextPage": true,
         "endCursor": "Y3Vyc29yOjEwMA=="
       },
       "nodes": [
         {
-          "number": 19398,
-          "title": "Payment retry sends before the template renders",
-          "url": "https://github.com/example-org/example-repo/issues/19398",
-          "updatedAt": "2026-09-01T20:31:04Z",
+          "number": 19405,
+          "title": "Refund ledger retries a settled charge",
+          "url": "https://github.com/example-org/example-repo/issues/19405",
+          "updatedAt": "2026-09-02T00:53:46Z",
           "issueType": {
-            "name": "Bug"
+            "name": "Bug",
+            "color": "RED"
           },
           "repository": {
             "nameWithOwner": "example-org/example-repo"
           },
           "assignees": {
+            "nodes": []
+          },
+          "pullRequests": {
             "nodes": [
               {
-                "login": "dev-2"
+                "number": 19406,
+                "url": "https://github.com/example-org/example-repo/pull/19406",
+                "state": "OPEN",
+                "updatedAt": "2026-09-02T00:53:16Z",
+                "author": {
+                  "login": "dev-2",
+                  "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40"
+                }
               }
             ]
           },
@@ -32,19 +43,21 @@
                   "number": 3
                 },
                 "fieldValueByName": {
-                  "name": "🎁 Assigned"
+                  "name": "🔍 Dev Review",
+                  "color": "GRAY"
                 }
               }
             ]
           }
         },
         {
-          "number": 19395,
-          "title": "Owner statement counts archived records twice",
-          "url": "https://github.com/example-org/example-repo/issues/19395",
-          "updatedAt": "2026-09-01T20:20:40Z",
+          "number": 19404,
+          "title": "Review import ignores the account time zone",
+          "url": "https://github.com/example-org/example-repo/issues/19404",
+          "updatedAt": "2026-09-01T22:40:50Z",
           "issueType": {
-            "name": "Bug"
+            "name": "Bug",
+            "color": "RED"
           },
           "repository": {
             "nameWithOwner": "example-org/example-repo"
@@ -52,35 +65,28 @@
           "assignees": {
             "nodes": [
               {
-                "login": "dev-3"
-              }
-            ]
-          },
-          "projectItems": {
-            "nodes": [
+                "login": "dev-3",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-3?s=40"
+              },
               {
-                "project": {
-                  "number": 3
-                },
-                "fieldValueByName": {
-                  "name": "⚒️ Dev"
-                }
+                "login": "dev-4",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-4?s=40"
+              },
+              {
+                "login": "dev-5",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-5?s=40"
+              },
+              {
+                "login": "dev-6",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-6?s=40"
+              },
+              {
+                "login": "dev-7",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-7?s=40"
               }
             ]
-          }
-        },
-        {
-          "number": 19394,
-          "title": "Channel mapping drops rows past the first page",
-          "url": "https://github.com/example-org/example-repo/issues/19394",
-          "updatedAt": "2026-09-01T18:19:32Z",
-          "issueType": {
-            "name": "Bug"
           },
-          "repository": {
-            "nameWithOwner": "example-org/example-repo"
-          },
-          "assignees": {
+          "pullRequests": {
             "nodes": []
           },
           "projectItems": {
@@ -90,7 +96,56 @@
                   "number": 3
                 },
                 "fieldValueByName": {
-                  "name": "🆕 New"
+                  "name": "🔍 Dev Review",
+                  "color": "GRAY"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 19400,
+          "title": "Guest portal reads across the tenant boundary",
+          "url": "https://github.com/example-org/example-repo/issues/19400",
+          "updatedAt": "2026-09-02T01:06:24Z",
+          "issueType": {
+            "name": "Feature",
+            "color": "BLUE"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-2",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40"
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": [
+              {
+                "number": 19403,
+                "url": "https://github.com/example-org/example-repo/pull/19403",
+                "state": "OPEN",
+                "updatedAt": "2026-09-02T00:52:30Z",
+                "author": {
+                  "login": "dev-3",
+                  "avatarUrl": "https://avatars.githubusercontent.com/dev-3?s=40"
+                }
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🔍 Dev Review",
+                  "color": "GRAY"
                 }
               }
             ]
@@ -99,7 +154,7 @@
       ]
     },
     "assignedTotal": {
-      "issueCount": 1754
+      "issueCount": 1753
     }
   }
 }

@@ -61,6 +61,10 @@ function anonymiseResponse(response, logins) {
       node.repository.nameWithOwner = REPO;
     }
 
+    for (const pr of node.pullRequests?.nodes ?? []) {
+      pr.url = `https://github.com/${REPO}/pull/${pr.number}`;
+    }
+
     for (const actor of [
       ...(node.assignees?.nodes ?? []),
       ...(node.pullRequests?.nodes ?? []).map((pr) => pr.author).filter(Boolean),
@@ -90,7 +94,10 @@ function assertScrubbed(recorded, written, logins) {
       n.title === title(n.number) ? null : n.title,
       n.repository?.nameWithOwner === REPO ? null : n.repository?.nameWithOwner,
       ...(n.assignees?.nodes ?? []).flatMap(identifyingActorValues),
-      ...(n.pullRequests?.nodes ?? []).flatMap((pr) => identifyingActorValues(pr.author)),
+      ...(n.pullRequests?.nodes ?? []).flatMap((pr) => [
+        pr.url?.startsWith(`https://github.com/${REPO}/`) ? null : pr.url,
+        ...identifyingActorValues(pr.author),
+      ]),
     ]),
   );
 

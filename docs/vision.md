@@ -37,7 +37,7 @@ Seize is also **window-addressed**, not global: a Claude tab's working directory
 
 **Only work the factory or the operator currently owns.** When an item is handed to an external reviewer or to QA, its card leaves the board. It returns when review comments arrive.
 
-One item is never in two lanes at once. Lane is a pure function of the item's current station.
+One item is never in two lanes at once. Lane is the operator's own — `Unstarted · Plan · Build · Review · Done · Icebox`, moved by hand and remembered by the board. One Review lane holds both station 6 and station 9: checking an agent's diff and reviewing another developer's PR are the same act. The tracker's status decides only whether a card is on the board at all; it never sets a lane, because a status like ⚒️ Dev spans planning, building and checking alike. When stations exist they become the second thing that may move a card, and the lane is then a function of the item's current station.
 
 ## Stations
 
