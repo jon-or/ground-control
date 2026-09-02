@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { linkOf } from '../link.js';
 import { normalize } from '../paths.js';
+import { readActivity } from '../phase.js';
 import type { ListDir, ProviderDeps, ProviderReading, ReadTail, SessionProvider, StatMtime } from '../provider.js';
 import type { Failure, Session } from '../types.js';
 import { runJsonCli } from './exec-json.js';
@@ -168,7 +169,22 @@ function toSession(entry: AgentEntry, deps: ProviderDeps): Session {
     branch: link.branch,
     issueNumber: link.issueNumber,
     transcriptWrittenAt: transcript?.writtenAt ?? null,
+    activity: readActivity(deps.home, entry.sessionId, deps.readText),
   };
+}
+
+/**
+ * A session that has never been prompted — an editor tab opened and left alone. The CLI creates the transcript at
+ * the first user turn, not at process start (`docs/mechanics.md` §3), no hook fires before one either, and a
+ * background session reports its own status: three independent signals, all silent only for work that never began.
+ */
+export function neverPrompted(session: Session): boolean {
+  return (
+    session.transcriptWrittenAt === null &&
+    session.activity === null &&
+    session.status === null &&
+    session.state === null
+  );
 }
 
 /** The transport is the provider's own, so a test supplies a recorded one without the interface knowing. */
@@ -250,7 +266,12 @@ export function makeClaudeProvider(run: ExecJson = runJsonCli): SessionProvider 
         const parsed = agentEntry.safeParse(raw);
 
         if (parsed.success) {
-          sessions.push(toSession(parsed.data, deps));
+          const session = toSession(parsed.data, deps);
+
+          if (!neverPrompted(session)) {
+            sessions.push(session);
+          }
+
           continue;
         }
 

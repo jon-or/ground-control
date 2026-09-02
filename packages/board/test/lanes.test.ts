@@ -79,7 +79,18 @@ describe('assignLanes', () => {
 
     expect(unmoved.length).toBeGreaterThan(0);
     expect(unmoved.every((c) => c.issue !== null)).toBe(true);
-    expect(new Set(unmoved.map((c) => c.reason))).toEqual(new Set(['🎁 Assigned', '⚒️ Dev']));
+
+    // Which of the two forms is not a choice: a status the board keeps says only itself, and one it would archive
+    // says why it is still here. Accepting either would let the suffix appear on an ordinary card unnoticed.
+    for (const card of unmoved) {
+      const status = card.issue?.status;
+
+      expect(card.reason).toBe(
+        status === null || DEFAULT_BOARD_STATUSES.includes(status!)
+          ? status
+          : `${status} — past your hands, but an agent is still running.`,
+      );
+    }
   });
 
   it('starts a card with no issue in Build — its agent is running, so it is not unstarted', () => {
@@ -153,6 +164,31 @@ describe('assignLanes', () => {
     const finished: Session = { ...sessions[0]!, issueNumber: 19072, state: 'done' };
 
     expect(issueIn(lanes(restatus(19072, '🏃 Testing'), [finished]), 19072)).toBe('archived');
+  });
+
+  /**
+   * The recording carries no reported activity — the hooks that write it were not installed when it was made — so
+   * each phase is derived here. An idle interactive session is live, not finished: R2 still outranks R9.
+   */
+  it.each(['running', 'waiting', 'idle'] as const)('holds an archiving card for a %s session too', (phase) => {
+    const live: Session = {
+      ...sessions[0]!,
+      issueNumber: 19072,
+      state: 'working',
+      activity: { phase, at: 1, event: 'Stop' },
+    };
+
+    expect(issueIn(lanes(restatus(19072, '🏃 Testing'), [live]), 19072)).toBe('unstarted');
+  });
+
+  // R8: nothing but the developer moves a card. A phase flips on its own every few minutes.
+  it.each(['running', 'waiting', 'idle'] as const)('puts a %s session in the lane the developer chose', (phase) => {
+    const memory: CardMemory = { placements: { 'issue:18954': 'review' }, seenPastMyHands: [] };
+    const session: Session = { ...sessions[0]!, issueNumber: 18954, activity: { phase, at: 1, event: 'Stop' } };
+    const board = lanes(issues, [session], memory);
+
+    expect(issueIn(board, 18954)).toBe('review');
+    expect(nextMemory(board, memory, true).placements).toEqual(memory.placements);
   });
 
   it('gives ad-hoc work a card per directory rather than hiding it — R4', () => {

@@ -3,16 +3,20 @@ import { assignLanes, mergeBoard, nextMemory, readMemory, withPlacement } from '
 import type { CardMemory, Lane, LaneId } from '@ground-control/board';
 import { fetchAssignedIssues } from '@ground-control/github';
 import type { AssignedIssues, Failure as GithubFailure } from '@ground-control/github';
-import { fetchSessions } from '@ground-control/sessions';
-import type { SessionsSnapshot } from '@ground-control/sessions';
+import { fetchSessions, hookNotice, readActivity, unreportedSessions } from '@ground-control/sessions';
+import type { Session, SessionsSnapshot } from '@ground-control/sessions';
+import { homedir } from 'node:os';
 import { readBoardStatuses, readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
 import { promptForLogins } from './identity.js';
+import { hookState, read, watchActivity } from './hooks.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 const MEMORY_KEY = 'groundControl.cardMemory';
+const INSTALLED_KEY = 'groundControl.hooksInstalledAt';
+const ANNOUNCED_KEY = 'groundControl.hooksAnnouncedAt';
 
 export interface SourceFailure {
-  source: 'issues' | 'sessions';
+  source: 'issues' | 'sessions' | 'hooks';
   kind: string;
   message: string;
   remedy: string;
@@ -30,6 +34,8 @@ export interface BoardMessage {
     fetchedAt: string;
   } | null;
   sessions: { count: number; patternError: string | null; fetchedAt: string } | null;
+  /** What the board did about its activity hooks, when there is something the developer has to know (R25). */
+  hooks: { notice: string } | null;
   failures: SourceFailure[];
 }
 
@@ -66,6 +72,9 @@ export class BoardPanel {
   #promptDismissed = false;
   /** The webview is torn down when hidden, so polling stops with it. Tracked because the event also fires on focus. */
   #visible = true;
+  readonly #home = homedir();
+  /** Stored, not per-panel: a session that predates the install still cannot report after a reload (R25). */
+  #installedAt: number;
 
   static show(context: vscode.ExtensionContext): { panel: BoardPanel; created: boolean } {
     const existing = BoardPanel.current;
@@ -104,6 +113,8 @@ export class BoardPanel {
     this.#extensionUri = extensionUri;
     this.#memento = memento;
     this.#panel.webview.html = this.#html();
+
+    this.#installedAt = this.#rememberInstall();
 
     BoardPanel.current = this;
 
@@ -166,10 +177,54 @@ export class BoardPanel {
     );
 
     this.#panel.onDidDispose(() => this.dispose(), undefined, this.#disposables);
+    this.#disposables.push(watchActivity(this.#home, () => this.#rereadActivity()));
 
     this.#startPolling();
     this.#post({ type: 'loading' });
     void this.refresh();
+  }
+
+  /**
+   * What the board has not already said. Installing the hooks is something that happened, not a condition, so it is said once and is then old
+   * news. Keyed on the install itself, so removing the hooks and putting them back says it again.
+   */
+  #announce(hooks: ReturnType<typeof hookState>): string | null {
+    const notice = hookNotice({
+      plan: hooks.plan,
+      wanted: hooks.wanted,
+      unreported: unreportedSessions(this.#sessions?.sessions ?? [], this.#installedAt),
+    });
+
+    if (notice === null || this.#memento.get<number>(ANNOUNCED_KEY) === this.#installedAt) {
+      return null;
+    }
+
+    void this.#memento.update(ANNOUNCED_KEY, this.#installedAt);
+
+    return notice;
+  }
+
+  #rememberInstall(): number {
+    const hooks = hookState();
+    const stored = this.#memento.get<number>(INSTALLED_KEY);
+
+    if (hooks.wanted === 'remove') {
+      void this.#memento.update(INSTALLED_KEY, undefined);
+      void this.#memento.update(ANNOUNCED_KEY, undefined);
+
+      return 0;
+    }
+
+    // Only a run that actually added entries starts the clock. Stamping one that added nothing would make the board
+    // claim that every session listed before this moment cannot report, of sessions that report on their next event.
+    if (typeof stored === 'number' || hooks.added === 0) {
+      return stored ?? 0;
+    }
+
+    const now = Date.now();
+    void this.#memento.update(INSTALLED_KEY, now);
+
+    return now;
   }
 
   /**
@@ -189,6 +244,27 @@ export class BoardPanel {
     while (this.#timers.length > 0) {
       clearInterval(this.#timers.pop());
     }
+  }
+
+  /**
+   * A hook reported a change. Only the markers are re-read — the session list has not changed, and reading it costs
+   * a CLI spawn — so a phase reaches the board in the time a file read takes rather than on the next poll.
+   */
+  #rereadActivity(): void {
+    if (this.#disposed || this.#sessions === undefined) {
+      return;
+    }
+
+    this.#sessions = {
+      ...this.#sessions,
+      sessions: this.#sessions.sessions.map((session) => this.#withActivity(session)),
+    };
+
+    this.#render();
+  }
+
+  #withActivity(session: Session): Session {
+    return { ...session, activity: readActivity(this.#home, session.sessionId, read) };
   }
 
   /** Reads both sources. Each coalesces on its own, so the button and the two timers never stack up. */
@@ -261,8 +337,9 @@ export class BoardPanel {
       return;
     }
 
-    // Always a snapshot: one CLI being unreadable contributes a failure and no sessions, and must not discard the rest.
-    this.#sessions = snapshot;
+    // Always a snapshot: one CLI being unreadable contributes a failure and no sessions, and must not discard the rest. The activity is re-read
+    // as it lands, because a poll that began before a hook fired carries the older phase and would put it back until the next event.
+    this.#sessions = { ...snapshot, sessions: snapshot.sessions.map((session) => this.#withActivity(session)) };
 
     this.#render();
   }
@@ -286,6 +363,12 @@ export class BoardPanel {
   #render(): void {
     const failures: SourceFailure[] = [];
 
+    const hooks = hookState();
+
+    if (hooks.failure) {
+      failures.push({ source: 'hooks', kind: 'hooks-failed', ...hooks.failure });
+    }
+
     if (this.#issuesError) {
       failures.push({ source: 'issues', ...this.#issuesError });
     }
@@ -305,6 +388,10 @@ export class BoardPanel {
     const sessionsRead = this.#sessions !== undefined && this.#sessions.failures.length === 0;
 
     void this.#memento.update(MEMORY_KEY, nextMemory(lanes, memory, sessionsRead));
+
+    this.#installedAt = this.#rememberInstall();
+
+    const notice = this.#announce(hooks);
 
     this.#post({
       type: 'board',
@@ -326,6 +413,7 @@ export class BoardPanel {
             fetchedAt: this.#sessions.fetchedAt,
           }
         : null,
+      hooks: notice === null ? null : { notice },
       failures,
     });
   }

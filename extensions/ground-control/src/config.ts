@@ -67,6 +67,14 @@ export function sessionIntervalMs(): number {
 }
 
 /**
+ * R34: whether the board may put its activity hooks in the developer's own Claude Code settings. Off removes them —
+ * skipping the install instead would leave the hooks the board already wrote running forever.
+ */
+export function installSessionHooks(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>('installSessionHooks', true);
+}
+
+/**
  * Writes to the scope that already carries a value, defaulting to Global. Writing Global unconditionally is
  * invisible when a workspace or folder setting shadows it, and the developer gets asked again every refresh.
  */

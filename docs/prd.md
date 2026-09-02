@@ -38,6 +38,8 @@ One card per issue, with its number, title, and type. Issues nobody has assigned
 **R2. The board shows every active agent session on the machine.**
 No session is invisible. A session the user forgot about is exactly what this board exists to surface. Claude Code is the agent the board reads today; a developer running a second agent CLI sees its sessions on the same board, labelled by which agent reported them, rather than a second board.
 
+A session that has never been prompted is not on it. An editor tab opened and left alone is a running process and nothing else — no transcript, no turn, no work — and a board of them is a board the user learns to ignore. The board omits a session only when all three of its independent signals are silent: no transcript, no reported activity, and no status of its own from the agent. Any one of them means the session has begun, so the cost of a transcript the board fails to locate is a card without a title, never a session it hides.
+
 **R3. A session linked to an issue appears under that issue's card.**
 An issue card can hold several sessions. The card is the unit of work; sessions are attempts at it.
 
@@ -47,10 +49,14 @@ Ad-hoc work is first-class. It is not hidden, and it is not forced into an issue
 **R5. Each card shows enough to decide whether to act, without opening it.**
 At minimum: what stage it is in, whether anything is running, whether anything needs the user, and how long it has been in that state.
 
+A running session's own name shimmers, so a board of ten cards shows which ones are moving without being read. The duration beside it is the time since the board last *observed* the session take a step, not the time since the prompt was submitted — an hour on a working session and an hour on a stuck one have to look different, and only an observation can tell them apart.
+
 A GitHub reference the board read itself is the way to that page: the issue number and the title open the issue in the browser, and the pull-request chip opens that pull request. The board resolves the address from its own read, so the card never carries a URL the webview hands back — which is also why an issue number the board only learned from a session's branch is shown but not linked. It has no read for that issue and will not guess its URL.
 
 **R6. Cards that need the user are visually unmistakable.**
 A card waiting on a decision must not look like a card that is working. This is the board's primary job — a parked agent the user never noticed is the failure mode being designed against.
+
+A card holding a session waiting on the developer is marked on three channels at once — a badge that says so in words, a border, and the session's own name set apart — because colour alone is not unmistakable to everyone who will use this. The mark is on the card, not only on the session line, so it survives being seen from across the board. Such a card does not move to the top of its lane: a phase flips on its own every few minutes, and cards jumping under the cursor is worse than a static order.
 
 ### Lanes
 
@@ -98,6 +104,8 @@ Looking at a session never interrupts it, slows it, or changes its state.
 **R13. The user can tell a working session from a stuck one.**
 "Thinking" and "waiting on a 5-minute command" must not look the same as "stopped 40 minutes ago".
 
+The board reports two facts and never a third: the last thing it observed a session do, and how long ago. It never turns a running session idle because time passed — a twenty-minute test run produces nothing to observe, and calling that stopped is the same lie in the other direction. A session stuck with a stale report reads as an implausible duration instead.
+
 ### Taking over
 
 **R14. The user can open a session in a Claude Code tab and drive it by hand.**
@@ -139,6 +147,8 @@ A stage completes when there is something to show for it. A session that stopped
 **R26. It works on first run with no setup.**
 A developer installs it, opens the board, and sees their assigned issues and running sessions. Anything the board can detect, it detects; anything it cannot, it asks for once, in place, rather than failing or showing an empty board with no explanation.
 
+Telling a running session from an idle one is part of that. The agent CLI does not report it, so the board installs its own hooks into the developer's Claude Code settings when it is activated — by opening the board, by one of its commands, or by a window reopening with the board tab already in it. A developer who has never opened it is never activated and so is never touched, which is what §2 asks. It backs the file up first, adds only its own entries — never a hook of the developer's own, even one sitting in the same group as ours — and refuses to write at all rather than repair a file it cannot fully read.
+
 **R27. Team-wide facts ship with the tool; personal facts are the developer's own settings.**
 
 | Shared — same for everyone, ships as defaults | Personal — differs per developer |
@@ -175,13 +185,19 @@ Limits vary with how a person works and with what their account can sustain. The
 **R34. Settings are changeable without editing files.**
 Anything a developer is expected to set, they can set from the board or from normal editor settings.
 
+Anything the board writes outside its own storage is reversible the same way, and reversible when the developer says so rather than at the next restart. Turning off the activity hooks removes the entries it added, on the change itself, rather than merely declining to add them again; the command is the same switch in one step. Uninstalling the extension removes them too — hook entries naming a writer nobody maintains would otherwise go on firing forever. The writer file itself is the one thing left behind, because sessions that already read the old settings go on spawning it and a deleted script makes each of them report a failure on every event.
+
 ### Honesty
 
 **R24. The board never shows a state it has not verified.**
 If an action may not have worked, the board says so rather than assuming success.
 
+A session reports what it is doing through the board's own hooks, and anything the board cannot read it declines to name: an event it has never seen, a report that disagrees with the session it claims to be from, a clock too far ahead to reason about. Each of those shows a session with no reported state, which is the truth, rather than a guess. The board also shows one state per session, never two — its own observation where it has one, and the agent CLI's own word where it does not.
+
 **R25. The user can see why a card cannot move forward.**
-In their own terms: what is missing, or what failed. Where that fits a badge, the badge carries it; a condition that belongs to the whole board — a status set matching nothing, a source that failed to read — is stated once above the lanes rather than on every card. A card carries no explanation of its own: the per-card hover that held one was removed, and nothing has replaced it.
+In their own terms: what is missing, or what failed. Where that fits a badge, the badge carries it; a condition that belongs to the whole board — a status set matching nothing, a source that failed to read, hooks that could not be installed — is stated once above the lanes rather than on every card. A card carries no explanation of its own: the per-card hover that held one was removed, and nothing has replaced it.
+
+Newly installed hooks are one of those conditions: sessions already running cannot report what they are doing until they restart, and a board showing no state for any of them looks like a board where nothing is happening. The board says how many, **once** — an install is something that happened, not a condition of the board, and a line the developer has already read and cannot act on is noise on every subsequent refresh. Removing the hooks and installing them again says it again.
 
 ## 4. What success looks like
 

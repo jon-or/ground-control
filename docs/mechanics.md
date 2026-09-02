@@ -60,11 +60,13 @@ Layout:
 
 **Case is not a lookup key** — version-fragile. A project directory's case is fixed by whichever path first created it, and the CLI reports one checkout under either drive-letter case: there is no `d--work-repo` on disk at all, while several live sessions report `cwd: d:\work\repo` and their transcripts sit in `D--work-repo`. NTFS hides this. A reader must resolve the directory case-insensitively against the actual listing, or it reports a transcript that exists as absent on any case-sensitive filesystem.
 
-**Absence is a real state.** Some live sessions have no transcript anywhere under `~/.claude/projects` — searched across every project directory, not just the expected one. A reader must return "unknown" for that, never an error and never a time.
+**Absence is a real state, and it means the session was never prompted.** Some live sessions have no transcript anywhere under `~/.claude/projects` — searched across every project directory, not just the expected one. Measured 2026-09-02: the transcript is created at the **first user turn**, not at process start. Four of fifteen live sessions had none, every one of them a VS Code tab opened and left alone (`entrypoint: claude-vscode`, seconds of CPU, no `todos/` entry); a session whose process started at 03:37 UTC got its transcript at 13:54 when it was first prompted; and a resumed session writes to the file the original id already owns, so its transcript predates its process. A reader must return "unknown" for the time, never an error — and the board takes the absence itself as the signal that there is nothing to show (`docs/prd.md` R2).
+
+`~/.claude/sessions/<pid>.json` carries the same registry the CLI reports, plus `entrypoint` and `nameSource`. `~/.claude/session-env/<session-id>/` is created at session start for every session, prompted or not, so it is **not** a discriminator.
 
 **A transcript's mtime is not liveness.** Among live sessions that had one, the oldest write measured was over 9 hours old — so a write time is only ever a write time.
 
-The counts behind these move as sessions start and exit; `packages/sessions/test/fixtures/` pins them, re-recordable with `node test/fixtures/record.js`. The probe is not among them — a probe directory cannot be recorded from a machine it no longer exists on, so it is asserted directly in `packages/sessions/test/activity.test.ts`.
+The counts behind these move as sessions start and exit; `packages/sessions/test/fixtures/` pins them, re-recordable with `node test/fixtures/record.js`. The probe is not among them — a probe directory cannot be recorded from a machine it no longer exists on, so it is asserted directly in `packages/sessions/test/transcripts.test.ts`.
 
 `meta.json` contents: `{"agentType","description","toolUseId","spawnDepth"}` — enough to attribute a subagent to the parent tool call that spawned it.
 
@@ -857,3 +859,84 @@ Also proven: auto-handback on an **operator's manual tab close** · the **cold p
 | 13 | Does `claude respawn` re-drive a stopped station or only restart the process? | Decides whether the factory ever auto-recovers. |
 | 14 | How are stopped-but-not-removed sessions reclaimed? | `claude rm` is banned (§1); they accumulate. |
 | 15 | Is `gemini` worth installing? | Multi-model review is codex-only today. Decide after #6. |
+| 16 | Does a session already running pick up hooks added to ~/.claude/settings.json after it started? | Decides whether the board install notice has to name the sessions that cannot report yet. ConfigChange has a user_settings source, which implies the files are watched — an inference, not a measurement (§20). |
+| 17 | Does async: true still deliver the payload on stdin? | The schema asserts it; the board writer depends on it. Dropping the flag would put a node start on the critical path of every event — the cost of that is unmeasured (§20). |
+| 18 | What are matcher alternation semantics for the exact-match event set (Notification, SessionStart, PermissionRequest)? | The board matchers are an optimisation only — the mapping handles every value — so a wrong matcher costs a wasted spawn, but a confirmed rule would let more events be filtered (§20). |
+| 19 | Does `createFileSystemWatcher` with an absolute `RelativePattern` outside the workspace actually fire? | The board's phases would fall back to the 30 s session poll — correct, but not the sub-second update §20 describes. Only F5 can answer it; vitest cannot reach the extension host. |
+| 20 | Is there any ordering signal in a hook payload — a sequence number, or the time the event fired? | Without one, two concurrent hooks can only be ordered by when their processes happened to run, so an earlier event that runs later still wins (§20). |
+
+## 20. Hooks are the only session-activity signal
+
+Measured 2026-09-02 against the installed CLI, **2.1.258**. **Version-fragile** — the event set and every payload field below were read out of the zod schemas the binary ships, so a CLI upgrade re-verifies this whole section.
+
+**Why it exists.** `claude agents --json` cannot say what an interactive session is doing. Of the 17 live sessions listed that day, 16 carried no `status` and no `state` at all and one carried `status: "idle"`; none carried `state`. So §2's list proves a session is alive and nothing more, and §3 already forbids deriving activity from a transcript write. Hooks are the only remaining signal.
+
+**The event set is 33 events, not the 9 the plugin-dev skill's table lists:**
+
+```
+PreToolUse, PostToolUse, PostToolUseFailure, PostToolBatch, Notification,
+UserPromptSubmit, UserPromptExpansion, SessionStart, SessionEnd, Stop, StopFailure,
+SubagentStart, SubagentStop, PreCompact, PostCompact, PreModelSwitch, PostModelSwitch,
+PermissionRequest, PermissionDenied, Setup, TeammateIdle, TaskCreated, TaskCompleted,
+Elicitation, ElicitationResult, ConfigChange, WorktreeCreate, WorktreeRemove,
+InstructionsLoaded, CwdChanged, FileChanged, DirectoryAdded, MessageDisplay
+```
+
+`PermissionRequest` and `PermissionDenied` are first-class, each with its own input schema and decision protocol. The skill's table is a curated subset, not the contract.
+
+**Every event carries** `session_id`, `transcript_path`, `cwd`, and optionally `prompt_id`, `permission_mode`, `agent_id`, `agent_type`. `agent_id` is the subagent discriminator — "Present only when the hook fires from within a subagent… Use this field (not agent_type) to distinguish subagent calls from main-thread calls." Confirmed present on recorded `PreToolUse`, `PostToolUse`, `PostToolBatch` and `SubagentStop` payloads from inside a `Task` call.
+
+**`PostToolBatch` is the affordable heartbeat.** "Fired once after every tool call in a batch has resolved, before the next model request. PostToolUse fires per-tool and may run concurrently for parallel tool calls; PostToolBatch fires exactly once with the full batch." One spawn per model round trip, the same order as `UserPromptSubmit` — not the spawn-per-tool-call that `PostToolUse` costs. It is what clears a waiting marker after a human approves a permission, since approving fires no `UserPromptSubmit`.
+
+**`Notification` is not "the agent needs you".** `notification_type` values observed in the binary: `permission_prompt`, `worker_permission_prompt`, `agent_needs_input`, `idle_prompt`, `agent_completed`, `elicitation_complete`, `elicitation_response`, `auth_success`, `push_notification`, `computer_use_exit`. Mapping the event wholesale to "waiting" paints a *finished* session as needing attention, and `idle_prompt` is the nag fired at a session that is already idle.
+
+**`SessionStart.source` is `startup | resume | clear | compact | fork`.** Compaction fires `SessionStart` mid-turn on a hard-working session, so mapping the event to idle is a bug. Only `startup` means idle.
+
+**`Stop` carries `background_tasks`** — "Lets hooks distinguish 'session is done' from 'session is paused waiting for background work to wake it'. Empty array when nothing is in flight." It also carries `last_assistant_message` and `session_crons`. **`SessionEnd.reason` is `clear | resume | logout | prompt_input_exit | other`**; a pid kill fires none of them (§10), so markers orphan and something has to sweep them.
+
+**A settings `deny` rule is not a denial event.** Measured: a `-p` run whose command matched `permissions.deny` fired `PreToolUse` then `PostToolBatch` and nothing else. `PermissionDenied` is a human saying no in an interactive session.
+
+**Matchers are matched against a per-event query string:**
+
+| Events | Query |
+|---|---|
+| `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `PermissionDenied` | `tool_name` |
+| `Notification` | `notification_type` |
+| `SessionStart` | `source` |
+| `SessionEnd` | `reason` |
+| `SubagentStop` | `agent_type` |
+| `Stop`, `PostToolBatch`, `UserPromptSubmit` | none — a matcher is silently ignored |
+
+**A comma is a list separator only on the five tool events.** Read out of the binary: the matcher is first tried as a plain alternation list, and the accepted character class differs by whether the event is a tool event —
+
+```js
+function Unr(e,n,r){if(!(n?/^[a-zA-Z0-9_|, -]+$/:/^[a-zA-Z0-9_|]+$/).test(e))return;
+  return e.split(n?/[|,]/:"|")…}
+```
+
+with the tool-event set being `PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, PermissionDenied`. On any other event a comma fails the class, the list parse is abandoned, and the CLI falls through to `new RegExp(matcher).test(query)` — a pattern full of commas, which matches no single value. So a comma outside those five events costs a hook that **never fires**: a missing phase, not a wasted spawn. **Pipe works everywhere and is what the board writes.**
+
+**Hook entries take an exec form and an async flag.** `args: string[]` — "`command` is resolved as an executable and spawned directly with these arguments — no shell. Path placeholders are substituted per-element as plain strings, so paths with quotes, `$`, or backticks never reach a shell parser. When absent, `command` runs through a shell (bash on POSIX, PowerShell on Windows without Git Bash)." `async: true` — "hook runs in background without blocking." Also available: `timeout` (seconds), `statusMessage`, `once`, `if`, `shell`, `asyncRewake`.
+
+**What the board installs.** Nine entries in `~/.claude/settings.json`, each `{type: 'command', command: 'node', args: ['<home>/.claude/ground-control/hook.mjs'], async: true, timeout: 5}` — `UserPromptSubmit`, `PostToolBatch`, `PermissionRequest`, `PermissionDenied`, `PreToolUse` (matcher `AskUserQuestion|ExitPlanMode`), `Elicitation`, `Notification` (matcher `permission_prompt|worker_permission_prompt|agent_needs_input|agent_completed`), `Stop`, `SessionEnd`. The writer lives at a **stable** path because a versioned extension install directory would break the settings file on every upgrade.
+
+**`SubagentStop` is deliberately not installed, and a payload carrying `agent_id` is deliberately ignored.** A subagent's hooks carry the *parent's* `session_id`, so a backgrounded subagent's `PostToolBatch` would land on the parent as `running` — clearing a `waiting` on a session actually parked on a permission prompt, which is the one case R6 exists for. The parent's own `PostToolBatch` fires when the `Task` call resolves, so nothing is lost.
+
+**Writing settings.json is an in-place write, not a temp file plus rename.** Measured 2026-09-02: `renameSync` over `~/.claude/settings.json` failed with `EPERM: operation not permitted` on the first board open with 15 sessions live — and the same rename, retried minutes later under the same session count, succeeded. So the failure is **transient**, not structural: on Windows a rename over a path some other process has momentarily open fails outright where a write to the same path does not, and the CLI's own configuration file has many readers. The board therefore backs the file up and writes in place, and retries a locked write rather than reporting it. `hook.mjs` is written temp-then-rename, with an in-place fallback, because nothing else reads it. Writing this file in place is also what the Claude Notifier extension does, which is the working precedent on this machine.
+
+**Two markers can race, and only wall-clock order is recoverable.** Hooks run `async`, so `PostToolBatch` and `Stop` are spawned concurrently at a turn boundary and the later `rename` wins whatever it observed. The writer reads the marker already there and declines to replace one stamped later than its own write, which fixes the common case: a writer that stalls on `mkdir` and lands after a faster one. It does **not** fix the case where the *earlier* event is the *later* process — no payload carries an event timestamp or a sequence number, so that ordering cannot be recovered at all (open question #20). The bound is the same 60 s the reader tolerates, or a backward clock step would leave a marker no writer will replace and no reader will accept.
+
+**The marker.** One file per session at `~/.claude/ground-control/activity/<sessionId>.json`, written temp-then-rename so a reader polling the directory never sees a partial file:
+
+```json
+{"v":1,"sessionId":"…","event":"PermissionRequest","at":1788358738179,"cwd":"d:/x",
+ "notificationType":null,"source":null,"toolName":"Bash","reason":null,"backgroundTasks":0}
+```
+
+It is a transcription and nothing more: the event-to-phase mapping lives in `packages/sessions/src/phase.ts`, so a mapping bug ships as an extension update rather than a rewrite of a file in the developer's home directory, and vitest can reach it.
+
+**The writer's exit-code contract: always 0, and never a byte on stdout.** Exit 2 is *deny* on `PermissionRequest` and *block* on `UserPromptSubmit`; stdout is parsed as a decision on the one and injected into the model's context on the other. A crashing activity writer must not be able to veto the developer's work.
+
+**Liveness still comes from §2.** A `running` marker is trusted only while the session is still listed. The board never downgrades `running` to idle on age — a twenty-minute test run produces no events at all — so it reports the last phase it observed and how long ago, and a stuck marker reads as an implausible duration.
+
+**How the board learns of a change** is the board's own design, not a measurement: a VS Code file watcher on the activity directory re-reads the markers for the sessions it already knows and redraws, rather than re-running `claude agents --json`, which costs a process spawn and would tell it nothing new. Events are debounced 150 ms, because a turn boundary writes several markers together. That a `createFileSystemWatcher` on a path outside the workspace fires at all is unverified here — open question #19.

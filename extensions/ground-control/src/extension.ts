@@ -1,8 +1,34 @@
 import * as vscode from 'vscode';
 import { BoardPanel, VIEW_TYPE } from './boardPanel.js';
+import { hookNotice } from '@ground-control/sessions';
+import { SECTION } from './config.js';
+import { pruneMarkers, syncHooks } from './hooks.js';
 
 export function activate(context: vscode.ExtensionContext): void {
+  // On activation, which for this extension means the developer opened the board or ran one of its commands — or
+  // reopened a window that had the board tab in it. A developer who never opens it is never activated (PRD §2).
+  syncHooks();
+  pruneMarkers();
+
   context.subscriptions.push(
+    // The setting has to take effect when it is changed, or "turn this off to remove those entries" is a claim the
+    // extension does not honour until the next reload (R34).
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration(`${SECTION}.installSessionHooks`)) {
+        return;
+      }
+
+      const state = syncHooks();
+
+      // What it observed, never what it intended: `up-to-date` means there was nothing of ours to change.
+      void vscode.window.showInformationMessage(
+        state.failure?.message ??
+          hookNotice({ plan: state.plan, wanted: state.wanted, unreported: 0 }) ??
+          `Session activity hooks are already ${state.wanted === 'install' ? 'installed' : 'absent'}.`,
+      );
+
+      void BoardPanel.current?.refresh();
+    }),
     vscode.commands.registerCommand('groundControl.openBoard', () => {
       BoardPanel.show(context);
     }),
@@ -14,6 +40,13 @@ export function activate(context: vscode.ExtensionContext): void {
         void panel.refresh();
       }
     }),
+    // Turns the setting off and stops there: the configuration listener above owns the removal and its message, so
+    // there is one path that changes the hooks rather than two that have to agree.
+    vscode.commands.registerCommand('groundControl.removeSessionHooks', () =>
+      vscode.workspace
+        .getConfiguration(SECTION)
+        .update('installSessionHooks', false, vscode.ConfigurationTarget.Global),
+    ),
     vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
       async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
         BoardPanel.revive(panel, context);

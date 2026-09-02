@@ -95,6 +95,7 @@ function agentMark(agent) {
 function sessionLine(session) {
   const el = document.createElement('span');
   el.className = 'session';
+  el.dataset.sessionId = session.sessionId;
 
   const agent = agentMark(session.agent);
 
@@ -104,17 +105,105 @@ function sessionLine(session) {
 
   el.append(agent, label);
 
-  // The provider's own words for what the session is doing. R23 - the board reports state, it does not infer it.
+  const activity = session.activity;
+
+  if (activity) {
+    el.dataset.phase = activity.phase;
+  }
+
+  const state = document.createElement('span');
+  state.className = 'state';
+
+  // One state per row, never two. The board's own observation where it has one, the CLI's own word where it does
+  // not - a row reading "idle" beside a shimmering label is two of the board's claims disagreeing (R24).
+  if (activity) {
+    state.dataset.activityAt = String(activity.at);
+    state.textContent = phaseText(activity);
+    state.title = stateTitle(activity);
+    el.appendChild(state);
+
+    return el;
+  }
+
   const reported = session.state ?? session.status;
 
   if (reported) {
-    const state = document.createElement('span');
-    state.className = 'state';
     state.textContent = reported;
     el.appendChild(state);
   }
 
   return el;
+}
+
+const PHASE_WORDS = { running: 'running', waiting: 'needs you', idle: 'idle' };
+
+const PHASE_TITLES = {
+  running: 'The board last saw this session take a step.',
+  waiting: 'This session is waiting on you.',
+  idle: 'The board last saw this session finish.',
+};
+
+/**
+ * How long ago, coarsely, and never rounded up. Overstating is the one direction that matters: a session working
+ * steadily must not read older than it is, because that is what a stuck one is supposed to look like.
+ */
+function ago(ms) {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+
+  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${minutes % 60 === 0 ? '' : ` ${minutes % 60}m`}`;
+}
+
+/** The phase and how long since the board observed it. Not since the session started - R5 and R13 turn on that. */
+function phaseText(activity) {
+  return `${PHASE_WORDS[activity.phase] ?? activity.phase} ${ago(Date.now() - activity.at)}`;
+}
+
+/** What the row says on hover: what the board concluded, and the hook event it concluded it from. */
+function stateTitle(activity) {
+  const what = PHASE_TITLES[activity.phase] ?? '';
+
+  return activity.event ? `${what} Last seen at the ${activity.event} hook.`.trim() : what;
+}
+
+/**
+ * Advances every rendered duration where it stands. A rebuild would cost the lane's scroll and the keyboard focus,
+ * and the phase itself only changes when a hook fires - so the text is rewritten and the elements are left alone.
+ */
+function tickDurations() {
+  for (const el of document.querySelectorAll('[data-activity-at]')) {
+    const at = Number(el.dataset.activityAt);
+    const phase = el.closest('.session')?.dataset.phase;
+
+    if (Number.isFinite(at) && phase) {
+      el.textContent = phaseText({ phase, at });
+    }
+  }
+}
+
+/**
+ * Carries a newer observation onto a card that was not rebuilt. `signature` ignores `at` on purpose, so a session working steadily keeps its
+ * element - and would otherwise show the age of its first heartbeat forever, which is the one thing R5 says the duration must not be.
+ */
+function syncActivity(el, boardCard) {
+  const by = new Map(boardCard.sessions.map((session) => [session.sessionId, session.activity]));
+
+  for (const row of el.querySelectorAll('.session')) {
+    const activity = by.get(row.dataset.sessionId);
+    const state = activity ? row.querySelector('.state') : null;
+
+    if (state) {
+      state.dataset.activityAt = String(activity.at);
+      // The event too, not only the time: a tooltip naming what the board saw two events ago beside a duration
+      // that just refreshed is two of the board's own claims about one session disagreeing (R24).
+      state.title = stateTitle(activity);
+    }
+  }
 }
 
 /** The status without the emoji the project board prefixes it with, and without the variation selector after it. */
@@ -306,6 +395,17 @@ function card(boardCard, avatarPool, placeable) {
     badges.appendChild(mark);
   }
 
+  // R6: on the card, not only on the session row, so it reads from across a full board. Three channels - the word,
+  // the border, and the row's own weight - because colour alone is not unmistakable to everyone who uses this.
+  const waiting = boardCard.sessions.filter((session) => session.activity?.phase === 'waiting');
+
+  if (waiting.length > 0) {
+    el.dataset.waiting = '';
+    badges.appendChild(
+      badge('waiting', 'Needs you', 'YELLOW', waiting.map((s) => `${sessionLabel(s)} is waiting on you.`).join(' ')),
+    );
+  }
+
   for (const session of boardCard.sessions) {
     el.appendChild(sessionLine(session));
   }
@@ -417,7 +517,19 @@ function signature(boardCard) {
     boardCard.lane,
     boardCard.returned,
     boardCard.issue,
-    boardCard.sessions.map((s) => [s.agent, s.sessionId, s.title, s.name, s.shortId, s.cwd, s.state, s.status]),
+    // The phase, not the activity: `at` moves on every heartbeat, and including it would rebuild every card on
+    // every turn - losing the scroll, the avatars and the focus this whole mechanism exists to keep.
+    boardCard.sessions.map((s) => [
+      s.agent,
+      s.sessionId,
+      s.title,
+      s.name,
+      s.shortId,
+      s.cwd,
+      s.state,
+      s.status,
+      s.activity?.phase ?? null,
+    ]),
   ]);
 }
 
@@ -442,6 +554,8 @@ function cardFor(boardCard, placeable) {
   const known = cardEls.get(boardCard.key);
 
   if (known && known.sig === sig) {
+    syncActivity(known.el, boardCard);
+
     return known.el;
   }
 
@@ -551,6 +665,10 @@ function render(payload) {
     notice(failure.message, failure.remedy, true);
   }
 
+  if (payload.hooks) {
+    notice(payload.hooks.notice, null, false);
+  }
+
   if (payload.sessions?.patternError) {
     notice(payload.sessions.patternError, 'Fix groundControl.branchIssuePattern in Settings.', true);
   }
@@ -600,6 +718,9 @@ function render(payload) {
     lanesEl,
     shown.map((lane) => syncLane(lane, placeable)),
   );
+
+  // After the cards, never before: a reused card is handed its newer observation time as it is reconciled.
+  tickDurations();
 }
 
 archivedEl.addEventListener('change', () => {
@@ -624,6 +745,10 @@ window.addEventListener('message', (event) => {
     }
   }
 });
+
+// A duration is the only thing on a card that goes stale without anything happening, so it is the only thing on a
+// clock of its own. The board's own reads are driven by the extension host.
+setInterval(tickDurations, 15_000);
 
 const restored = vscode.getState();
 

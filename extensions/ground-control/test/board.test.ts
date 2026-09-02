@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANE_ORDER, LANE_TITLES, boardStatuses } from '@ground-control/board';
 import type { Lane, LaneId, LanedCard } from '@ground-control/board';
+import type { Session } from '@ground-control/sessions';
 import type { BoardMessage } from '../src/boardPanel.js';
 
 const api = {
@@ -11,7 +12,7 @@ const api = {
   getState: vi.fn(() => undefined),
 };
 
-const session = {
+const session: Session = {
   agent: 'claude',
   sessionId: 'session-1',
   shortId: null,
@@ -25,6 +26,7 @@ const session = {
   branch: '18953-cache-remediation',
   issueNumber: 18953,
   transcriptWrittenAt: null,
+  activity: null,
 };
 
 /** Every lane, always, so a payload here has the shape `assignLanes` produces rather than a hand-picked subset. */
@@ -45,6 +47,7 @@ function message(overrides: Partial<BoardMessage> = {}): BoardMessage {
       fetchedAt: '2026-09-01T20:00:00Z',
     },
     sessions: { count: 0, patternError: null, fetchedAt: '2026-09-01T20:00:01Z' },
+    hooks: null,
     failures: [],
     ...overrides,
   };
@@ -399,6 +402,227 @@ describe('board webview', () => {
   });
 });
 
+describe('reported activity', () => {
+  const withPhase = (phase: 'running' | 'waiting' | 'idle', at = Date.now(), over: Partial<Session> = {}) => ({
+    ...session,
+    ...over,
+    activity: { phase, at, event: 'PostToolBatch' },
+  });
+
+  const cardWith = (sessions: Session[]): LanedCard => ({ ...liveCard, sessions });
+
+  const sendCard = (sessions: Session[]): HTMLElement => {
+    send(message({ lanes: lanes({ unstarted: [cardWith(sessions)] }) }));
+
+    return document.querySelector<HTMLElement>('.card')!;
+  };
+
+  it('shimmers the running session and only the running session', () => {
+    const card = sendCard([
+      withPhase('running', Date.now(), { sessionId: 's-run' }),
+      withPhase('waiting', Date.now(), { sessionId: 's-wait' }),
+      withPhase('idle', Date.now(), { sessionId: 's-idle' }),
+    ]);
+
+    const rows = Array.from(card.querySelectorAll<HTMLElement>('.session'));
+
+    expect(rows.map((row) => row.dataset.phase)).toEqual(['running', 'waiting', 'idle']);
+
+    const names = rows.map((row) => getComputedStyle(row.querySelector('.session-label')!));
+
+    // jsdom leaves an unanimated element's animation-name empty rather than at its 'none' initial value.
+    expect(names.map((style) => style.animationName)).toEqual(['gc-shimmer', '', '']);
+  });
+
+  // A gradient that is not clipped to the glyphs paints a solid block over the name, which is how this breaks.
+  it('clips the gradient to the text rather than painting a block', () => {
+    const label = sendCard([withPhase('running')]).querySelector('.session-label')!;
+    const style = getComputedStyle(label);
+
+    expect(style.backgroundClip).toBe('text');
+    expect(style.backgroundImage).toContain('linear-gradient');
+    expect(style.backgroundRepeat).toBe('no-repeat');
+    expect(style.color).toBe('rgba(0, 0, 0, 0)');
+  });
+
+  /**
+   * The two halves of "one band, one pass": the image must not tile, and the position must not travel further than
+   * one traverse of it. A repeating background or a range past 0% puts a second highlight on screen behind the first.
+   */
+  it('sweeps one highlight across once, left to right', () => {
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+    const frames = /@keyframes gc-shimmer \{([\s\S]*?)\n\}/.exec(css)?.[1];
+
+    expect(frames).toBeTruthy();
+    expect(/from \{\s*background-position: 100% 0;/.test(frames!)).toBe(true);
+    expect(/to \{\s*background-position: 0% 0;/.test(frames!)).toBe(true);
+    expect(frames).not.toContain('-100%');
+
+    const style = getComputedStyle(sendCard([withPhase('running')]).querySelector('.session-label')!);
+
+    expect(style.backgroundSize).toBe('300% 100%');
+    expect(style.backgroundRepeat).toBe('no-repeat');
+
+    // With a 3x image the visible window at each endpoint is the outer third, so both outer stops must sit inside
+    // the middle third or the band is partly on screen when the cycle wraps - which is a visible jump.
+    const stops = Array.from(style.backgroundImage.matchAll(/(\d+(?:\.\d+)?)%/g), (m) => Number(m[1]));
+
+    expect(stops.length).toBeGreaterThanOrEqual(3);
+    expect(Math.min(...stops)).toBeGreaterThan(100 / 3);
+    expect(Math.max(...stops)).toBeLessThan(200 / 3);
+  });
+
+  it('marks the card, not only the row, when a session is waiting on the developer', () => {
+    const card = sendCard([withPhase('idle'), withPhase('waiting', Date.now(), { sessionId: 's-2' })]);
+
+    expect(card.dataset.waiting).toBe('');
+    expect(card.querySelector('.badge.waiting')?.textContent).toBe('Needs you');
+    expect(card.querySelector<HTMLElement>('.badge.waiting')?.title).toContain('waiting on you');
+  });
+
+  it('marks nothing when no session is waiting', () => {
+    const card = sendCard([withPhase('running'), withPhase('idle', Date.now(), { sessionId: 's-2' })]);
+
+    expect(card.dataset.waiting).toBeUndefined();
+    expect(card.querySelector('.badge.waiting')).toBeNull();
+  });
+
+  it('shows one state per row, and it is the board own observation', () => {
+    const row = sendCard([withPhase('running', Date.now(), { status: 'idle', state: 'editing tests' })])
+      .querySelector<HTMLElement>('.session')!;
+
+    expect(row.querySelectorAll('.state')).toHaveLength(1);
+    expect(row.querySelector('.state')?.textContent).toContain('running');
+    expect(row.textContent).not.toContain('editing tests');
+    expect(row.textContent).not.toContain('idle');
+  });
+
+  it('falls back to the CLI own word when no hook has reported', () => {
+    const row = sendCard([{ ...session, activity: null }]).querySelector<HTMLElement>('.session')!;
+
+    expect(row.dataset.phase).toBeUndefined();
+    expect(row.querySelector('.state')?.textContent).toBe('editing tests');
+    expect(getComputedStyle(row.querySelector('.session-label')!).animationName).toBeFalsy();
+  });
+
+  it('rebuilds the card when a phase changes', () => {
+    const before = sendCard([withPhase('idle', 1)]);
+    const after = sendCard([withPhase('running', 1)]);
+
+    expect(after).not.toBe(before);
+    expect(after.querySelector<HTMLElement>('.session')?.dataset.phase).toBe('running');
+  });
+
+  // Without this the test above passes on a renderer that rebuilds everything, which is not what it claims to prove.
+  it('leaves the card alone when nothing about it changed', () => {
+    const before = sendCard([withPhase('running', 1)]);
+
+    expect(sendCard([withPhase('running', 1)])).toBe(before);
+  });
+
+  it('advances the duration in place, without rebuilding the card', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-02T12:00:00Z'));
+
+    try {
+      const at = Date.now() - 90_000;
+      const card = sendCard([withPhase('running', at)]);
+
+      expect(card.querySelector('.state')?.textContent).toBe('running 1m');
+
+      vi.advanceTimersByTime(10 * 60 * 1000);
+      sendCard([withPhase('running', at)]);
+
+      expect(document.querySelector('.card')).toBe(card);
+      expect(card.querySelector('.state')?.textContent).toBe('running 11m');
+
+      // A newer heartbeat resets the age on the very same element, which is the whole point of the duration.
+      sendCard([withPhase('running', Date.now())]);
+
+      expect(document.querySelector('.card')).toBe(card);
+      expect(card.querySelector('.state')?.textContent).toBe('running 0s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never rounds a duration up', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-02T12:00:00Z'));
+
+    try {
+      const card = sendCard([
+        withPhase('idle', Date.now() - 59_900, { sessionId: 's-a' }),
+        withPhase('idle', Date.now() - 3_599_000, { sessionId: 's-b' }),
+      ]);
+
+      expect(Array.from(card.querySelectorAll('.state')).map((el) => el.textContent)).toEqual([
+        'idle 59s',
+        'idle 59m',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reads a duration under a minute in seconds and one over an hour in hours', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-02T12:00:00Z'));
+
+    try {
+      const card = sendCard([
+        withPhase('idle', Date.now() - 4_000, { sessionId: 's-seconds' }),
+        withPhase('idle', Date.now() - 5_400_000, { sessionId: 's-hours' }),
+        withPhase('idle', Date.now() - 7_200_000, { sessionId: 's-round-hours' }),
+      ]);
+
+      expect(Array.from(card.querySelectorAll('.state')).map((el) => el.textContent)).toEqual([
+        'idle 4s',
+        'idle 1h 30m',
+        'idle 2h',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * jsdom does not honour prefers-reduced-motion, so the stylesheet is read instead. The assertion that matters is
+   * that the block still paints a colour: reduced motion must not mean less information.
+   */
+  it('keeps a running session marked when motion is reduced', () => {
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+    const block = /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/.exec(css)?.[0];
+
+    expect(block).toBeTruthy();
+    expect(block).toContain('animation-name: none');
+    expect(block).toMatch(/color: var\(--vscode-foreground\)/);
+  });
+
+  it('states once above the lanes what it did about the hooks', () => {
+    send(message({ hooks: { notice: 'Session activity hooks installed. 3 sessions started before that and will not report until restarted.' } }));
+
+    const notices = Array.from(document.querySelectorAll('#notices .notice'));
+
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.classList).not.toContain('error');
+    expect(notices[0]?.textContent).toContain('3 sessions started before that');
+  });
+
+  it('reports a failed install as an error, and says nothing when there is nothing to say', () => {
+    send(
+      message({
+        failures: [{ source: 'hooks', kind: 'hooks-failed', message: 'could not be installed', remedy: 'Fix it.' }],
+      }),
+    );
+
+    expect(document.querySelector('#notices .notice.error')?.textContent).toContain('could not be installed');
+
+    send(message());
+    expect(document.querySelectorAll('#notices .notice')).toHaveLength(0);
+  });
+});
+
 describe('the manifest and the code agree on every default', () => {
   const manifest = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
     contributes: { configuration: { properties: Record<string, { default: unknown }> } };
@@ -413,6 +637,10 @@ describe('the manifest and the code agree on every default', () => {
   it('ships the intervals the extension falls back to', () => {
     expect(declared('sessionRefreshSeconds')).toBe(30);
     expect(declared('refreshIntervalSeconds')).toBe(300);
+  });
+
+  it('ships the hook install default the extension falls back to', () => {
+    expect(declared('installSessionHooks')).toBe(true);
   });
 });
 

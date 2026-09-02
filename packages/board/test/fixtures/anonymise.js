@@ -26,19 +26,21 @@ function slug(number) {
 }
 
 /**
- * Session ids, timings and links are kept — they carry no names and the tests turn on them. Everything that spells
- * out real work is rebuilt: a branch, the checkout path it sits in, and the display name derived from both.
+ * Session ids, timings, links and reported activity are kept — they carry no names and the tests turn on them.
+ * Everything that spells out real work is rebuilt: a branch, the checkout path it sits in, the display name derived
+ * from both, and the session's own title, which is a sentence about the work and so the most identifying of all.
  */
 function anonymiseSessions(sessions) {
   const roots = new Map();
 
-  return sessions.map((session) => {
+  return sessions.map((session, index) => {
     if (session.issueNumber !== null) {
       const name = slug(session.issueNumber);
 
       return {
         ...session,
         name: session.name === null ? null : `${name}-${session.sessionId.slice(0, 2)}`,
+        title: session.title === null ? null : title(session.issueNumber),
         cwd: `d:/checkouts/${name}`,
         branch: session.branch === null ? null : name,
       };
@@ -51,6 +53,7 @@ function anonymiseSessions(sessions) {
     return {
       ...session,
       name: session.name === null ? null : `${root.split('/').pop()}-${session.sessionId.slice(0, 2)}`,
+      title: session.title === null ? null : title(index),
       cwd: root,
       branch: session.branch === null ? null : 'main',
     };
@@ -89,7 +92,7 @@ function assertScrubbed(recorded, written) {
 
   const real = [
     ...recorded.issues.flatMap((i) => [i.title, i.url, ...i.assignees, i.avatar?.login, i.avatar?.url, i.pullRequest?.url]),
-    ...recorded.sessions.flatMap((s) => [s.cwd, s.name, s.branch]),
+    ...recorded.sessions.flatMap((s) => [s.cwd, s.name, s.branch, s.title]),
   ].filter((value) => typeof value === 'string' && value.length > 4 && value !== 'main');
 
   const leaked = [...new Set(real)].filter((value) => json.includes(value));
