@@ -9,7 +9,7 @@ project number; the recorded values are scrubbed before the fixture is saved, be
 
 | File | Command |
 |---|---|
-| `avatars.json` | `$Q` with `cards` and `all` set to a focused issue-number search; preserves a recorded Dev Review card where the issue assignee and linked PR author differ |
+| `avatars.json` | `$Q` with `cards` and `all` set to a focused issue-number search; preserves a recorded Dev Review card where the issue assignee and linked PR author differ, and a Dev card whose linked PR is older, so the newest-first rule can be tested from a recording |
 | `project-mode.json` | `gh api graphql -f query="$Q" -f cards='repo:$REPO is:issue is:open assignee:$LOGIN project:$REPO_OWNER/$PROJECT' -f all='repo:$REPO is:issue is:open assignee:$LOGIN'` |
 | `not-on-project.json` | same, with a project number the assigned issues are not on — a real response where the filter excludes every one |
 | `paged-page1.json` | `-f cards='repo:$REPO is:issue is:open' -f all='…'`, nodes trimmed to 3 |
@@ -26,7 +26,7 @@ GC_SELF_LOGINS=<your gh logins, comma-separated> node test/fixtures/anonymise.js
 ```
 
 Titles are rebuilt from `tools/fixture-words.js`, keyed by issue number, so re-recording the same issue produces the
-same text and the diff stays readable. The repository becomes `example-org/example-repo`, the logins you pass become
+same text and the diff stays readable. A pull request's `url` is rebuilt the same way from its number. The repository becomes `example-org/example-repo`, the logins you pass become
 `dev-1` and `dev-1-bot`, and every other account becomes `dev-2`, `dev-3` … in the order it is met. Issue numbers,
 timestamps and cursors are kept: the tests turn on them and an integer names nobody. The script refuses to write a
 file that still contains a recorded title, repository or login — the tests cannot catch that, because they only ever

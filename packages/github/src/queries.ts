@@ -9,16 +9,16 @@ query($cards:String!, $all:String!, $after:String){
     pageInfo{ hasNextPage endCursor }
     nodes{ ... on Issue{
       number title url updatedAt
-      issueType{ name }
+      issueType{ name color }
       repository{ nameWithOwner }
       assignees(first:10){ nodes{ login avatarUrl(size:40) } }
       pullRequests: closedByPullRequestsReferences(first:100){ nodes{
-        updatedAt
+        number url state updatedAt
         author{ login avatarUrl(size:40) }
       }}
       projectItems(first:20){ nodes{
         project{ number }
-        fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name } }
+        fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name color } }
       }}
     }}
   }

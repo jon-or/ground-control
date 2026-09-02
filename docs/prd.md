@@ -52,25 +52,36 @@ A card waiting on a decision must not look like a card that is working. This is 
 
 ### Lanes
 
-**R7. Lanes represent broad stages of the user's own work, named in the team's existing vocabulary.**
-A developer who already thinks in the project board's statuses should not have to learn a second set of words. Working proposal, to be settled in use:
+**R7. Lanes are the board's own stages, independent of the tracker's statuses.**
+A GitHub status says whether a piece of work is the user's; it does not say what stage the user is at with it. ⚒️ Dev covers planning, building and checking alike, and 🔖 Planned or 👀 Tasking Review describe steps that happen before the work is theirs at all. So the board keeps its own lanes and does not try to read them out of a status. Every lane names one action the card is asking for; a lane holding two unlike jobs should be two lanes or none.
 
-| Lane | Meaning |
+| Lane | The action it asks for |
 |---|---|
-| **Plan** | scope or tasking not yet agreed; nothing being built |
-| **Build** | work in progress |
-| **Review** | work exists and is being checked |
-| **Blocked** | waiting on something outside the user's control |
+| **Unstarted** | pick it up, or leave it |
+| **Plan** | agree what to build |
+| **Build** | nothing, unless it stopped |
+| **Review** | read a diff and judge it |
+| **Done** | confirm and let go |
+| **Icebox** | nothing, deliberately |
 
-Where a lane corresponds to a status on the team's board, it says so, so that "what lane is this in" and "what status is this in" are never in conflict.
+The lane is called **Unstarted** rather than New so it is never confused with the 🆕 New status, which is a different thing and is not on the board at all.
 
-**R8. A card sits in exactly one lane.** Its lane reflects where the *user's* attention is needed, not the issue's status in GitHub.
+**Review holds both kinds of review.** Checking an agent's diff before it ships and reviewing another developer's PR are the same process — read a diff, judge it — so they are one lane, and the card says whose work it is. Answering comments on the user's own PR is not review: there is code to change, so it returns to **Build**.
+
+**Done and Icebox are ends, not stages,** so an empty one is hidden. Both reappear the moment a card is picked up, or a card could never be dropped into an empty one.
+
+There is no Blocked lane. Its three would-be members are unlike: a session stopped by a usage limit recovers on its own (R20), a failed read is already a notice, and "I am avoiding this" is the Icebox. A card that is genuinely waiting says so on the card, in whatever lane it sits.
+
+**R8. A card sits in exactly one lane, and the user puts it there.**
+A card arrives in **Unstarted**, except one with no issue of its own: ad-hoc work is on the board only while its agent is running, so it arrives in **Build** rather than claiming to be unstarted. After that it moves only when the user moves it — by dragging it between columns, or with Alt and an arrow key on the focused card, which is the same move without a mouse. The board remembers the placement across refreshes and restarts. Nothing else moves a card: not a status change, not a session starting or stopping. When the factory's stations exist they will move cards, and that is the one thing that will ever join the user in doing so.
 
 **R9. Work that has left the user's hands leaves the board.**
-Once an issue is with another reviewer, a tester, or a release, its card disappears. It returns when it comes back to the user. The board is a to-do list, not a record.
+A status decides board membership and nothing else. The statuses that keep a card are the ones where the work is the user's; everything else — before it reaches them, or once it is with a reviewer, a tester, a release or another team — takes the card off. Those cards are archived rather than deleted: a toggle in the header reveals them, with a count, in an Archived column at the end, so nothing is hidden without saying so. A card that comes back after being archived returns to the lane the user last had it in, marked as returned and sorted to the top of it — R6's "unmistakable" is a marker on the card, never a lane of its own, because a returned PR and a bounced issue ask for different work. The mark clears when the user moves the card, which is the only evidence the board has that they have seen it.
+
+An archived status cannot hide a card that still has a live agent on it. R2 outranks R9: no session is ever invisible, so the card stays where the user put it and says on its face what its status is.
 
 **R10. Each lane shows how full it is.**
-The user should be able to see at a glance that they have too much in flight. (Whether the board *enforces* a limit is an open question — see §5.)
+The lane header carries its card count, so the user can see at a glance that they have too much in flight. The board does not enforce a limit and has nothing to refuse yet — it does not start work (R32). Limits become a requirement when it does.
 
 ### Watching
 
@@ -131,7 +142,7 @@ A developer installs it, opens the board, and sees their assigned issues and run
 | Which repository and project board work is tracked on | Their GitHub account(s) |
 | The set of statuses and what they mean | Where their checkout(s) live, and whether they use worktrees |
 | The branch-naming convention | Their local site hostname(s) |
-| The default lane set and lane→status mapping | Which extra AI CLIs they have installed |
+| The default lane set, and which statuses keep a card on the board | Which extra AI CLIs they have installed |
 | | How much work they want in flight at once |
 | | How much the board is allowed to do on its own |
 | | What agents it starts are allowed to do without asking |
@@ -155,7 +166,7 @@ A developer who has not thought about it gets the conservative behavior. Anyone 
 Out of the box the board shows and intervenes; it does not start work. A developer opts in to more autonomy, in steps, at their own pace.
 
 **R33. How much work is allowed in flight is the developer's number.**
-Limits vary with how a person works and with what their account can sustain. The board suggests a starting value and the developer changes it.
+Limits vary with how a person works and with what their account can sustain. There is no such setting yet, because nothing enforces a limit (R10) — the board suggests a starting value and the developer changes it when the board starts work of its own (R32).
 
 **R34. Settings are changeable without editing files.**
 Anything a developer is expected to set, they can set from the board or from normal editor settings.
@@ -179,8 +190,8 @@ In their own terms: what is missing, or what failed.
 
 ## 5. Open questions
 
-1. **Lane set.** The Plan / Build / Review / Blocked proposal in R7 is untested. Does "Review" need splitting by *who* is reviewing — the user checking an agent's work, the user answering someone else's review, the user reviewing another developer's code? All three are things the user does, and they may want separate lanes.
-2. **Does the board enforce limits or only display them?** Enforcement changes it from an information tool to a process tool.
+1. **Whether the lane set survives use.** *Settled for now.* R7's seven lanes and R8's manual movement are decided, and the statuses that keep a card on the board ship as a default the developer can change. What is untested is whether Plan and Review earn their columns once the factory's stations start moving cards, or whether the stations turn out to be the finer-grained thing and the lanes should coarsen.
+2. **When the board starts enforcing limits.** Deferred, not decided against. R10 displays a count today because the board has nothing to refuse; enforcement becomes a question the moment the board starts work of its own (R32).
 3. **How much of the pipeline is automatic?** Does the board only surface and intervene, or does it also start work on its own? This is the largest open question and it determines whether "unattended overnight" is a goal.
 4. **What links a session to an issue?** Branch name, working directory, something the user sets by hand, or a mixture. Affects how often R3 guesses wrong.
 5. **Sessions on other machines.** Out of scope for v1, but the board's value grows if it is the one place to look.

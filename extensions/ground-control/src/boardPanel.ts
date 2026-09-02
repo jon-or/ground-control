@@ -1,14 +1,15 @@
 import * as vscode from 'vscode';
-import { mergeBoard } from '@ground-control/board';
-import type { BoardCard } from '@ground-control/board';
+import { assignLanes, mergeBoard, nextMemory, readMemory, withPlacement } from '@ground-control/board';
+import type { CardMemory, Lane, LaneId } from '@ground-control/board';
 import { fetchAssignedIssues } from '@ground-control/github';
 import type { AssignedIssues, Failure as GithubFailure } from '@ground-control/github';
 import { fetchSessions } from '@ground-control/sessions';
 import type { SessionsSnapshot } from '@ground-control/sessions';
-import { readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
+import { readBoardStatuses, readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
 import { promptForLogins } from './identity.js';
 
 export const VIEW_TYPE = 'groundControl.board';
+const MEMORY_KEY = 'groundControl.cardMemory';
 
 export interface SourceFailure {
   source: 'issues' | 'sessions';
@@ -19,7 +20,7 @@ export interface SourceFailure {
 
 export interface BoardMessage {
   type: 'board';
-  cards: BoardCard[];
+  lanes: Lane[];
   issues: {
     count: number;
     matched: number;
@@ -32,7 +33,12 @@ export interface BoardMessage {
   failures: SourceFailure[];
 }
 
-type Outbound = { type: 'loading' } | BoardMessage;
+export type Outbound = { type: 'loading' } | BoardMessage;
+
+type Inbound =
+  | { type: 'refresh' }
+  | { type: 'openIssue'; number: number }
+  | { type: 'moveCard'; key: string; lane: LaneId };
 
 function nonce(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -43,6 +49,7 @@ export class BoardPanel {
 
   readonly #panel: vscode.WebviewPanel;
   readonly #extensionUri: vscode.Uri;
+  readonly #memento: vscode.Memento;
   readonly #disposables: vscode.Disposable[] = [];
   readonly #timers: NodeJS.Timeout[] = [];
   #disposed = false;
@@ -56,8 +63,10 @@ export class BoardPanel {
   #sessionsInFlight: Promise<void> | undefined;
   /** A dismissed identity prompt stays dismissed, or the refresh timer reopens the box every interval. */
   #promptDismissed = false;
+  /** The webview is torn down when hidden, so polling stops with it. Tracked because the event also fires on focus. */
+  #visible = true;
 
-  static show(extensionUri: vscode.Uri): { panel: BoardPanel; created: boolean } {
+  static show(context: vscode.ExtensionContext): { panel: BoardPanel; created: boolean } {
     const existing = BoardPanel.current;
 
     if (existing) {
@@ -68,36 +77,37 @@ export class BoardPanel {
     const panel = vscode.window.createWebviewPanel(VIEW_TYPE, 'Ground Control', vscode.ViewColumn.One, {
       enableScripts: true,
       retainContextWhenHidden: false,
-      localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
     });
 
-    return { panel: new BoardPanel(panel, extensionUri), created: true };
+    return { panel: new BoardPanel(panel, context.extensionUri, context.globalState), created: true };
   }
 
   /**
    * VS Code defers deserialization until a restored tab is materialized, so a board can be opened before its
    * restored twin appears. The older instance is disposed here rather than left holding a refresh timer.
    */
-  static revive(panel: vscode.WebviewPanel, extensionUri: vscode.Uri): void {
+  static revive(panel: vscode.WebviewPanel, context: vscode.ExtensionContext): void {
     BoardPanel.current?.dispose();
 
     panel.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
     };
 
-    new BoardPanel(panel, extensionUri);
+    new BoardPanel(panel, context.extensionUri, context.globalState);
   }
 
-  constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+  constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, memento: vscode.Memento) {
     this.#panel = panel;
     this.#extensionUri = extensionUri;
+    this.#memento = memento;
     this.#panel.webview.html = this.#html();
 
     BoardPanel.current = this;
 
     this.#panel.webview.onDidReceiveMessage(
-      (msg: { type: string; number?: unknown }) => {
+      (msg: Inbound) => {
         if (msg.type === 'refresh') {
           void this.refresh();
         }
@@ -109,6 +119,10 @@ export class BoardPanel {
             void vscode.env.openExternal(vscode.Uri.parse(card.url));
           }
         }
+
+        if (msg.type === 'moveCard') {
+          this.#moveCard(msg.key, msg.lane);
+        }
       },
       undefined,
       this.#disposables,
@@ -116,9 +130,26 @@ export class BoardPanel {
 
     this.#panel.onDidChangeViewState(
       () => {
-        if (this.#panel.visible && this.#lastBoard) {
+        // The event also fires when the tab merely gains or loses focus. Only a change of visibility is acted on:
+        // re-reading GitHub on every focus toggle would restart the interval and the periodic read would never fire.
+        if (this.#panel.visible === this.#visible) {
+          return;
+        }
+
+        this.#visible = this.#panel.visible;
+
+        if (!this.#visible) {
+          this.#stopPolling();
+
+          return;
+        }
+
+        if (this.#lastBoard) {
           void this.#panel.webview.postMessage(this.#lastBoard);
         }
+
+        void this.refresh();
+        this.#startPolling();
       },
       undefined,
       this.#disposables,
@@ -126,15 +157,28 @@ export class BoardPanel {
 
     this.#panel.onDidDispose(() => this.dispose(), undefined, this.#disposables);
 
-    // Two cadences, because the two sources move at different speeds: a session's state changes in seconds, and
-    // `claude agents --json` costs a quarter of a second locally, while the GitHub read costs a network round trip.
+    this.#startPolling();
+    this.#post({ type: 'loading' });
+    void this.refresh();
+  }
+
+  /**
+   * Two cadences, because the sources move at different speeds and cost different amounts: the GitHub read is a
+   * network round trip, and each session read spawns a CLI that takes about a fifth of a second.
+   */
+  #startPolling(): void {
+    this.#stopPolling();
+
     this.#timers.push(
       setInterval(() => void this.#refreshIssues(), refreshIntervalMs()),
       setInterval(() => void this.#refreshSessions(), sessionIntervalMs()),
     );
+  }
 
-    this.#post({ type: 'loading' });
-    void this.refresh();
+  #stopPolling(): void {
+    while (this.#timers.length > 0) {
+      clearInterval(this.#timers.pop());
+    }
   }
 
   /** Reads both sources. Each coalesces on its own, so the button and the two timers never stack up. */
@@ -213,6 +257,17 @@ export class BoardPanel {
     this.#render();
   }
 
+  #memory(): CardMemory {
+    return readMemory(this.#memento.get(MEMORY_KEY));
+  }
+
+  /** A lane is the developer's own placement. This and the render's own bookkeeping are all the board ever stores. */
+  #moveCard(key: string, lane: LaneId): void {
+    // Not awaited: the memento's own read already sees this write, so the render below stores the newer memory back.
+    void this.#memento.update(MEMORY_KEY, withPlacement(this.#memory(), key, lane));
+    this.#render();
+  }
+
   /**
    * One message carries the whole board. A source that failed keeps its last good read on screen and contributes a
    * failure instead of an empty list — R24 forbids implying a fetch succeeded, and equally forbids erasing a board
@@ -229,9 +284,21 @@ export class BoardPanel {
       failures.push({ source: 'sessions', ...failure });
     }
 
+    const memory = this.#memory();
+    const lanes = assignLanes(
+      mergeBoard(this.#issues?.cards ?? [], this.#sessions?.sessions ?? []),
+      readBoardStatuses(),
+      memory,
+    );
+
+    // Only a clean session read proves a session is gone; a failed one reports none, and would discard its placement.
+    const sessionsRead = this.#sessions !== undefined && this.#sessions.failures.length === 0;
+
+    void this.#memento.update(MEMORY_KEY, nextMemory(lanes, memory, sessionsRead));
+
     this.#post({
       type: 'board',
-      cards: mergeBoard(this.#issues?.cards ?? [], this.#sessions?.sessions ?? []),
+      lanes,
       issues: this.#issues
         ? {
             count: this.#issues.cards.length,
@@ -283,10 +350,11 @@ export class BoardPanel {
 <header>
   <h1>Ground Control</h1>
   <div id="meta"></div>
+  <label id="archived-toggle" hidden><input id="show-archived" type="checkbox"> Show archived (<span id="archived-count">0</span>)</label>
   <button id="refresh" type="button">Refresh</button>
 </header>
 <div id="notices"></div>
-<main id="cards" aria-live="polite"></main>
+<main id="lanes" aria-live="polite"></main>
 <script nonce="${n}" src="${media('board.js')}"></script>
 </body>
 </html>`;
@@ -303,9 +371,7 @@ export class BoardPanel {
       BoardPanel.current = undefined;
     }
 
-    while (this.#timers.length > 0) {
-      clearInterval(this.#timers.pop());
-    }
+    this.#stopPolling();
 
     while (this.#disposables.length > 0) {
       this.#disposables.pop()?.dispose();

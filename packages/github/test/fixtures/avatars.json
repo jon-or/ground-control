@@ -2,44 +2,111 @@
   "data": {
     "cards": {
       "issueCount": 2,
-      "pageInfo": { "hasNextPage": false, "endCursor": "Y3Vyc29yOjI=" },
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": "Y3Vyc29yOjI="
+      },
       "nodes": [
         {
-          "number": 16976,
-          "title": "Calendar feed overwrites a manual edit",
-          "url": "https://github.com/example-org/example-repo/issues/16976",
-          "updatedAt": "2026-09-01T21:57:41Z",
-          "issueType": { "name": "Feature" },
-          "repository": { "nameWithOwner": "example-org/example-repo" },
-          "assignees": { "nodes": [
-            { "login": "dev-2", "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40" }
-          ] },
-          "pullRequests": { "nodes": [
-            { "updatedAt": "2026-09-01T21:57:39Z", "author": { "login": "dev-2", "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40" } }
-          ] },
-          "projectItems": { "nodes": [
-            { "project": { "number": 3 }, "fieldValueByName": { "name": "⚒️ Dev" } }
-          ] }
+          "number": 18954,
+          "title": "Tax rule counts archived records twice",
+          "url": "https://github.com/example-org/example-repo/issues/18954",
+          "updatedAt": "2026-09-01T22:01:13Z",
+          "issueType": {
+            "name": "Bug",
+            "color": "RED"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-1?s=40"
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": [
+              {
+                "number": 19299,
+                "url": "https://github.com/example-org/example-repo/pull/19299",
+                "state": "OPEN",
+                "updatedAt": "2026-09-01T22:02:50Z",
+                "author": {
+                  "login": "dev-1-bot",
+                  "avatarUrl": "https://avatars.githubusercontent.com/dev-1-bot?s=40"
+                }
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "⚒️ Dev",
+                  "color": "GRAY"
+                }
+              }
+            ]
+          }
         },
         {
-          "number": 17356,
-          "title": "Quote email overwrites a manual edit",
-          "url": "https://github.com/example-org/example-repo/issues/17356",
-          "updatedAt": "2026-09-01T19:53:19Z",
-          "issueType": { "name": "Bug" },
-          "repository": { "nameWithOwner": "example-org/example-repo" },
-          "assignees": { "nodes": [
-            { "login": "dev-1", "avatarUrl": "https://avatars.githubusercontent.com/dev-1?s=40" }
-          ] },
-          "pullRequests": { "nodes": [
-            { "updatedAt": "2026-09-01T18:58:00Z", "author": { "login": "dev-2", "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40" } }
-          ] },
-          "projectItems": { "nodes": [
-            { "project": { "number": 3 }, "fieldValueByName": { "name": "🔍 Dev Review" } }
-          ] }
+          "number": 19400,
+          "title": "Guest portal reads across the tenant boundary",
+          "url": "https://github.com/example-org/example-repo/issues/19400",
+          "updatedAt": "2026-09-02T01:06:24Z",
+          "issueType": {
+            "name": "Feature",
+            "color": "BLUE"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-2",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40"
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": [
+              {
+                "number": 19403,
+                "url": "https://github.com/example-org/example-repo/pull/19403",
+                "state": "OPEN",
+                "updatedAt": "2026-09-02T00:52:30Z",
+                "author": {
+                  "login": "dev-3",
+                  "avatarUrl": "https://avatars.githubusercontent.com/dev-3?s=40"
+                }
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3
+                },
+                "fieldValueByName": {
+                  "name": "🔍 Dev Review",
+                  "color": "GRAY"
+                }
+              }
+            ]
+          }
         }
       ]
     },
-    "assignedTotal": { "issueCount": 2 }
+    "assignedTotal": {
+      "issueCount": 2
+    }
   }
 }

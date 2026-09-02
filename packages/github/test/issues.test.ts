@@ -16,32 +16,53 @@ describe('fetchAssignedIssues', () => {
   it('maps a recorded response to cards', async () => {
     const value = await unwrap(config(), runnerOf(fixture('project-mode')));
 
-    expect(value.cards).toHaveLength(13);
+    expect(value.cards).toHaveLength(15);
     expect(value.cards.find((c) => c.number === 18953)).toEqual({
       number: 18953,
-      title: 'Guest portal drops rows past the first page',
+      title: "Guest portal drops rows past the first page",
       type: 'Bug',
+      typeColor: 'RED',
       url: 'https://github.com/example-org/example-repo/issues/18953',
       status: '⚒️ Dev',
+      statusColor: 'GRAY',
       assignees: ['dev-1', 'dev-1-bot'],
-      avatar: null,
-      updatedAt: '2026-08-31T20:51:27Z',
+      avatar: { login: 'dev-1', url: 'https://avatars.githubusercontent.com/dev-1?s=40', source: 'issue' },
+      pullRequest: { number: 19296, url: "https://github.com/example-org/example-repo/pull/19296", state: "OPEN" },
+      updatedAt: "2026-08-31T20:51:27Z",
     });
   });
 
   it('uses the linked pull request author for a review card', async () => {
-    const value = await unwrap(config({ logins: ['dev-1'] }), runnerOf(fixture('avatars')));
-    const review = value.cards.find((card) => card.number === 17356);
+    const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(fixture('avatars')));
+    const review = value.cards.find((card) => card.number === 19400);
 
-    expect(review?.assignees).toEqual(['dev-1']);
+    expect(review?.assignees).toEqual(['dev-2']);
     expect(review?.avatar).toEqual({
-      login: 'dev-2',
-      url: 'https://avatars.githubusercontent.com/dev-2?s=40',
+      login: 'dev-3',
+      url: 'https://avatars.githubusercontent.com/dev-3?s=40',
       source: 'pull-request',
     });
   });
 
-  it('uses the most recently updated author when several pull requests are linked', async () => {
+  it('names the pull request that would close the issue', async () => {
+    const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(fixture('avatars')));
+
+    expect(value.cards.find((card) => card.number === 19400)?.pullRequest).toEqual({
+      number: 19403,
+      url: 'https://github.com/example-org/example-repo/pull/19403',
+      state: 'OPEN',
+    });
+  });
+
+  it('carries GitHub own colour for the type and the status', async () => {
+    const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(fixture('avatars')));
+    const review = value.cards.find((card) => card.number === 19400);
+
+    expect([review?.type, review?.typeColor]).toEqual(['Feature', 'BLUE']);
+    expect([review?.status, review?.statusColor]).toEqual(['🔍 Dev Review', 'GRAY']);
+  });
+
+  it('keeps the most recently updated author when an older pull request is also linked', async () => {
     const response = structuredClone(fixture('avatars')) as {
       data: {
         cards: {
@@ -49,6 +70,9 @@ describe('fetchAssignedIssues', () => {
             assignees: { nodes: Array<{ login: string; avatarUrl: string }> };
             pullRequests: {
               nodes: Array<{
+                number: number;
+                url: string;
+                state: string;
                 updatedAt: string;
                 author: { login: string; avatarUrl: string } | null;
               }>;
@@ -57,21 +81,21 @@ describe('fetchAssignedIssues', () => {
         };
       };
     };
-    const [newer, review] = response.data.cards.nodes;
+    const [older, review] = response.data.cards.nodes;
 
-    expect(newer).toBeDefined();
+    expect(older).toBeDefined();
     expect(review).toBeDefined();
 
-    // Recombine recorded timestamp and actor values so the newer linked PR has a different author.
-    review!.pullRequests.nodes.push({
-      updatedAt: newer!.pullRequests.nodes[0]!.updatedAt,
-      author: review!.assignees.nodes[0]!,
-    });
-    const value = await unwrap(config({ logins: ['dev-1'] }), runnerOf(response));
+    // Both pull requests are recorded; the older one is given the assignee as its author, so only the sort can decide.
+    review!.pullRequests.nodes.push({ ...older!.pullRequests.nodes[0]!, author: review!.assignees.nodes[0]! });
 
-    expect(value.cards.find((card) => card.number === 17356)?.avatar).toEqual({
-      login: 'dev-1',
-      url: 'https://avatars.githubusercontent.com/dev-1?s=40',
+    expect(older!.pullRequests.nodes[0]!.updatedAt < review!.pullRequests.nodes[0]!.updatedAt).toBe(true);
+
+    const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(response));
+
+    expect(value.cards.find((card) => card.number === 19400)?.avatar).toEqual({
+      login: 'dev-3',
+      url: 'https://avatars.githubusercontent.com/dev-3?s=40',
       source: 'pull-request',
     });
   });
@@ -81,7 +105,7 @@ describe('fetchAssignedIssues', () => {
       data: {
         cards: {
           nodes: Array<{
-            projectItems: { nodes: Array<{ fieldValueByName: { name: string } | null }> };
+            projectItems: { nodes: Array<{ fieldValueByName: { name: string; color: string | null } | null }> };
           }>;
         };
       };
@@ -93,11 +117,11 @@ describe('fetchAssignedIssues', () => {
 
     // Both values are recorded: apply the recording's Dev status to its review case to isolate avatar precedence.
     review!.projectItems.nodes[0]!.fieldValueByName = structuredClone(dev!.projectItems.nodes[0]!.fieldValueByName);
-    const value = await unwrap(config({ logins: ['dev-1'] }), runnerOf(response));
+    const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(response));
 
-    expect(value.cards.find((card) => card.number === 17356)?.avatar).toEqual({
-      login: 'dev-1',
-      url: 'https://avatars.githubusercontent.com/dev-1?s=40',
+    expect(value.cards.find((card) => card.number === 19400)?.avatar).toEqual({
+      login: 'dev-2',
+      url: 'https://avatars.githubusercontent.com/dev-2?s=40',
       source: 'issue',
     });
   });
@@ -108,13 +132,14 @@ describe('fetchAssignedIssues', () => {
       data: { cards: { nodes: Array<{ pullRequests: { nodes: unknown[] } }> } };
     };
     response.data.cards.nodes[0]!.pullRequests.nodes = [];
-    const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(response));
+    const value = await unwrap(config({ logins: ['dev-1'] }), runnerOf(response));
 
     expect(value.cards[0]?.avatar).toEqual({
-      login: 'dev-2',
-      url: 'https://avatars.githubusercontent.com/dev-2?s=40',
+      login: 'dev-1',
+      url: 'https://avatars.githubusercontent.com/dev-1?s=40',
       source: 'issue',
     });
+    expect(value.cards[0]?.pullRequest).toBeNull();
   });
 
   it('uses config order rather than GitHub order when several of my accounts are assigned', async () => {
@@ -162,8 +187,8 @@ describe('fetchAssignedIssues', () => {
 
     expect(value.cards).toHaveLength(0);
     expect(value.matched).toBe(0);
-    expect(value.totalAssigned).toBe(13);
-    expect(value.notOnProject).toBe(13);
+    expect(value.totalAssigned).toBe(15);
+    expect(value.notOnProject).toBe(15);
     expect(value.truncated).toBe(false);
   });
 
@@ -189,8 +214,8 @@ describe('fetchAssignedIssues', () => {
     const value = await unwrap(config({ maxPages: 1 }), runnerOf(fixture('project-truncated')));
 
     expect(value.cards).toHaveLength(3);
-    expect(value.matched).toBe(1225);
-    expect(value.totalAssigned).toBe(1755);
+    expect(value.matched).toBe(1223);
+    expect(value.totalAssigned).toBe(1753);
     expect(value.notOnProject).toBe(530);
     expect(value.truncated).toBe(true);
   });
@@ -199,7 +224,7 @@ describe('fetchAssignedIssues', () => {
     const runner = runnerOf(fixture('project-mode'));
     const value = await unwrap(config({ cardSource: 'issueSearch' }), runner);
 
-    expect(value.cards).toHaveLength(13);
+    expect(value.cards).toHaveLength(15);
     expect(value.notOnProject).toBe(0);
     expect(runner.calls[0]?.some((a) => a.startsWith('cards=') && a.includes('project:'))).toBe(false);
   });
@@ -227,7 +252,7 @@ describe('fetchAssignedIssues', () => {
     const runner = runnerOf(fixture('paged-page1'), fixture('paged-page2'));
     const value = await unwrap(config({ maxPages: 2 }), runner);
 
-    expect(value.cards.map((c) => c.number)).toEqual([19398, 19395, 19394, 19082, 19078]);
+    expect(value.cards.map((c) => c.number)).toEqual([19405, 19404, 19400, 19090, 19086]);
     expect(runner.calls[1]).toContain('after=Y3Vyc29yOjEwMA==');
   });
 
@@ -236,7 +261,7 @@ describe('fetchAssignedIssues', () => {
 
     expect(value.truncated).toBe(true);
     expect(value.cards).toHaveLength(5);
-    expect(value.matched).toBe(1754);
+    expect(value.matched).toBe(1753);
   });
 
   it('does not report truncation when the last page said there was no next', async () => {

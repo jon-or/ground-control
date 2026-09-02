@@ -36,6 +36,7 @@ One call returns every live session on the machine, **interactive and background
 - `--all` also returns exited/stopped sessions (`state: "stopped"`), with `cwd` preserved.
 - `--cwd <path>` filters by directory.
 - Requires no TTY; the bare `claude agents` does.
+- **Costs about 215 ms a call** — measured 2026-09-01, three consecutive runs at 218/217/212 ms returning 3,450 bytes for 17 sessions. It spawns a Node process, so a board polling it every few seconds spawns one every few seconds. That is what sets the board's session cadence, not how fast a session's state changes: the board reads sessions every 30 s and GitHub every 300 s, and stops both while its tab is not the visible one.
 
 **This is the board's liveness source.** Do not derive liveness from transcripts — see §3.
 
@@ -679,7 +680,39 @@ That settles task 1 open decision #2: **no filter.** A targeted subset saves not
 
 **Unmeasured:** what `<ResultSummary outcome>` reads on a genuinely failing run (presumably `Failed`), and whether `error` / `aborted` populate on a crash or hang. The gate above treats any nonzero in those four counters as failure, so it is safe either way, but the exact strings are unconfirmed.
 
-## 17. Open questions
+## 17. The tracker's Status field
+
+Read from the live `ownerrez/orez` project (Planning / Development, number 3) on 2026-09-01. The 17 options, in the board's own order, with the descriptions the project carries:
+
+| Status | Description |
+|---|---|
+| 🆕 New | — |
+| 🧊 On Ice | Valid, but no intention of fixing/changing |
+| 📋 Backlog | Stuff we never got to long ago |
+| 📥 Product Backlog | Backlog of product review needs |
+| 🎯 Product Review | Needs product lead(s) feedback |
+| 🔖 Planned | Roadmapped, possibly tasked, want to do |
+| 📋 Automation To Do | Up next for automation |
+| 🤖 Automation | Current automation work |
+| 🎨 Design Assigned | To design (Figma-based or markup-based) |
+| 📱 In Design | Design underway |
+| 🎁 Assigned | Items assigned to devs |
+| 👀 Tasking Review | Cards that were tasked by the engineer and need to be checked before moving to Dev |
+| ⚒️ Dev | Currently in progress or waiting on dev |
+| 🔍 Dev Review | Awaiting dev review |
+| 👟 Ready For Testing | Awaiting tester assignment or deployment |
+| 🏃 Testing | Currently being tested |
+| 🚀 Releasable | Closed and ready for release |
+
+Only 🎁 Assigned and ⚒️ Dev are statuses where the work is the developer's own, which is why those two are the board's default membership set. None of them is a stage: ⚒️ Dev covers planning, building and checking alike, so a status can never be read as a lane.
+
+Re-read with:
+
+```bash
+gh api graphql -f query='{ organization(login:"ownerrez"){ projectV2(number:3){ field(name:"Status"){ ... on ProjectV2SingleSelectField { options { name description } } } } } }'
+```
+
+## 18. Open questions
 
 ### Ledger
 

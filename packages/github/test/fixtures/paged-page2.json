@@ -1,19 +1,20 @@
 {
   "data": {
     "cards": {
-      "issueCount": 1754,
+      "issueCount": 1753,
       "pageInfo": {
         "hasNextPage": true,
         "endCursor": "Y3Vyc29yOjIwMA=="
       },
       "nodes": [
         {
-          "number": 19082,
-          "title": "Channel mapping sends before the template renders",
-          "url": "https://github.com/example-org/example-repo/issues/19082",
-          "updatedAt": "2026-08-27T18:20:51Z",
+          "number": 19090,
+          "title": "Listing sync retries a settled charge",
+          "url": "https://github.com/example-org/example-repo/issues/19090",
+          "updatedAt": "2026-08-28T16:09:35Z",
           "issueType": {
-            "name": "Bug"
+            "name": "Epic",
+            "color": "GRAY"
           },
           "repository": {
             "nameWithOwner": "example-org/example-repo"
@@ -21,6 +22,20 @@
           "assignees": {
             "nodes": []
           },
+          "pullRequests": {
+            "nodes": [
+              {
+                "number": 19091,
+                "url": "https://github.com/example-org/example-repo/pull/19091",
+                "state": "OPEN",
+                "updatedAt": "2026-09-01T14:19:04Z",
+                "author": {
+                  "login": "dev-8",
+                  "avatarUrl": "https://avatars.githubusercontent.com/dev-8?s=40"
+                }
+              }
+            ]
+          },
           "projectItems": {
             "nodes": [
               {
@@ -28,19 +43,21 @@
                   "number": 3
                 },
                 "fieldValueByName": {
-                  "name": "🔖 Planned"
+                  "name": "👟 Ready For Testing",
+                  "color": "GRAY"
                 }
               }
             ]
           }
         },
         {
-          "number": 19078,
-          "title": "Refund ledger fails silently on an empty result",
-          "url": "https://github.com/example-org/example-repo/issues/19078",
-          "updatedAt": "2026-09-01T20:12:24Z",
+          "number": 19086,
+          "title": "Payment retry reads across the tenant boundary",
+          "url": "https://github.com/example-org/example-repo/issues/19086",
+          "updatedAt": "2026-09-01T21:03:36Z",
           "issueType": {
-            "name": "Task"
+            "name": "Task",
+            "color": "YELLOW"
           },
           "repository": {
             "nameWithOwner": "example-org/example-repo"
@@ -48,7 +65,22 @@
           "assignees": {
             "nodes": [
               {
-                "login": "dev-4"
+                "login": "dev-4",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-4?s=40"
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": [
+              {
+                "number": 19087,
+                "url": "https://github.com/example-org/example-repo/pull/19087",
+                "state": "OPEN",
+                "updatedAt": "2026-09-01T21:02:06Z",
+                "author": {
+                  "login": "dev-6",
+                  "avatarUrl": "https://avatars.githubusercontent.com/dev-6?s=40"
+                }
               }
             ]
           },
@@ -59,7 +91,8 @@
                   "number": 3
                 },
                 "fieldValueByName": {
-                  "name": "🔍 Dev Review"
+                  "name": "🔍 Dev Review",
+                  "color": "GRAY"
                 }
               }
             ]
@@ -68,7 +101,7 @@
       ]
     },
     "assignedTotal": {
-      "issueCount": 1754
+      "issueCount": 1753
     }
   }
 }
