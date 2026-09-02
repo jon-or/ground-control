@@ -11,7 +11,11 @@ query($cards:String!, $all:String!, $after:String){
       number title url updatedAt
       issueType{ name }
       repository{ nameWithOwner }
-      assignees(first:10){ nodes{ login } }
+      assignees(first:10){ nodes{ login avatarUrl(size:40) } }
+      pullRequests: closedByPullRequestsReferences(first:100){ nodes{
+        updatedAt
+        author{ login avatarUrl(size:40) }
+      }}
       projectItems(first:20){ nodes{
         project{ number }
         fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name } }

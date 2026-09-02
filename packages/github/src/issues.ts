@@ -1,7 +1,7 @@
 import { ASSIGNED_ISSUES_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
 import { makeGhRunner } from './gh.js';
-import type { AssignedIssues, GithubConfig, IssueCard, Result, SearchNode } from './types.js';
+import type { AssignedIssues, CardAvatar, GithubConfig, IssueCard, Result, SearchNode } from './types.js';
 import { searchResponse } from './types.js';
 
 /**
@@ -18,16 +18,39 @@ export function buildSearchQuery(cfg: GithubConfig, withProject: boolean): strin
   return parts.join(' ');
 }
 
-function toCard(node: SearchNode, projectNumber: number): IssueCard {
-  const item = node.projectItems.nodes.find((i) => i.project.number === projectNumber);
+function selectCardAvatar(
+  node: Pick<SearchNode, 'assignees' | 'pullRequests'>,
+  logins: string[],
+  status: string | null,
+): CardAvatar | null {
+  const pullRequest = status?.trim().endsWith('Dev Review')
+    ? [...(node.pullRequests?.nodes ?? [])]
+        .filter((pr) => pr.author)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+    : undefined;
+
+  if (pullRequest?.author) {
+    return { login: pullRequest.author.login, url: pullRequest.author.avatarUrl, source: 'pull-request' };
+  }
+
+  const assignees = new Map(node.assignees.nodes.map((actor) => [actor.login.toLowerCase(), actor]));
+  const assignee = logins.map((login) => assignees.get(login.toLowerCase())).find(Boolean) ?? node.assignees.nodes[0];
+
+  return assignee?.avatarUrl ? { login: assignee.login, url: assignee.avatarUrl, source: 'issue' } : null;
+}
+
+function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
+  const item = node.projectItems.nodes.find((i) => i.project.number === cfg.projectNumber);
+  const status = item?.fieldValueByName?.name ?? null;
 
   return {
     number: node.number,
     title: node.title,
     type: node.issueType?.name ?? null,
     url: node.url,
-    status: item?.fieldValueByName?.name ?? null,
+    status,
     assignees: node.assignees.nodes.map((a) => a.login),
+    avatar: selectCardAvatar(node, cfg.logins, status),
     updatedAt: node.updatedAt,
   };
 }
@@ -91,7 +114,7 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
     hasNextPage = cards.pageInfo.hasNextPage;
 
     for (const node of cards.nodes) {
-      seen.set(node.number, toCard(node, cfg.projectNumber));
+      seen.set(node.number, toCard(node, cfg));
     }
 
     // The schema allows a null cursor alongside hasNextPage; without this the next request drops `after`

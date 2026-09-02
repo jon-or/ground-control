@@ -24,7 +24,124 @@ describe('fetchAssignedIssues', () => {
       url: 'https://github.com/example-org/example-repo/issues/18953',
       status: '⚒️ Dev',
       assignees: ['dev-1', 'dev-1-bot'],
+      avatar: null,
       updatedAt: '2026-08-31T20:51:27Z',
+    });
+  });
+
+  it('uses the linked pull request author for a review card', async () => {
+    const value = await unwrap(config({ logins: ['dev-1'] }), runnerOf(fixture('avatars')));
+    const review = value.cards.find((card) => card.number === 17356);
+
+    expect(review?.assignees).toEqual(['dev-1']);
+    expect(review?.avatar).toEqual({
+      login: 'dev-2',
+      url: 'https://avatars.githubusercontent.com/dev-2?s=40',
+      source: 'pull-request',
+    });
+  });
+
+  it('uses the most recently updated author when several pull requests are linked', async () => {
+    const response = structuredClone(fixture('avatars')) as {
+      data: {
+        cards: {
+          nodes: Array<{
+            assignees: { nodes: Array<{ login: string; avatarUrl: string }> };
+            pullRequests: {
+              nodes: Array<{
+                updatedAt: string;
+                author: { login: string; avatarUrl: string } | null;
+              }>;
+            };
+          }>;
+        };
+      };
+    };
+    const [newer, review] = response.data.cards.nodes;
+
+    expect(newer).toBeDefined();
+    expect(review).toBeDefined();
+
+    // Recombine recorded timestamp and actor values so the newer linked PR has a different author.
+    review!.pullRequests.nodes.push({
+      updatedAt: newer!.pullRequests.nodes[0]!.updatedAt,
+      author: review!.assignees.nodes[0]!,
+    });
+    const value = await unwrap(config({ logins: ['dev-1'] }), runnerOf(response));
+
+    expect(value.cards.find((card) => card.number === 17356)?.avatar).toEqual({
+      login: 'dev-1',
+      url: 'https://avatars.githubusercontent.com/dev-1?s=40',
+      source: 'pull-request',
+    });
+  });
+
+  it('keeps the configured issue assignee while a linked pull request is still in Dev', async () => {
+    const response = structuredClone(fixture('avatars')) as {
+      data: {
+        cards: {
+          nodes: Array<{
+            projectItems: { nodes: Array<{ fieldValueByName: { name: string } | null }> };
+          }>;
+        };
+      };
+    };
+    const [dev, review] = response.data.cards.nodes;
+
+    expect(dev).toBeDefined();
+    expect(review).toBeDefined();
+
+    // Both values are recorded: apply the recording's Dev status to its review case to isolate avatar precedence.
+    review!.projectItems.nodes[0]!.fieldValueByName = structuredClone(dev!.projectItems.nodes[0]!.fieldValueByName);
+    const value = await unwrap(config({ logins: ['dev-1'] }), runnerOf(response));
+
+    expect(value.cards.find((card) => card.number === 17356)?.avatar).toEqual({
+      login: 'dev-1',
+      url: 'https://avatars.githubusercontent.com/dev-1?s=40',
+      source: 'issue',
+    });
+  });
+
+  it('uses the configured issue assignee when no pull request exists', async () => {
+    // Derived from the recording by removing whole connection nodes: the same issue before its PR was linked.
+    const response = structuredClone(fixture('avatars')) as {
+      data: { cards: { nodes: Array<{ pullRequests: { nodes: unknown[] } }> } };
+    };
+    response.data.cards.nodes[0]!.pullRequests.nodes = [];
+    const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(response));
+
+    expect(value.cards[0]?.avatar).toEqual({
+      login: 'dev-2',
+      url: 'https://avatars.githubusercontent.com/dev-2?s=40',
+      source: 'issue',
+    });
+  });
+
+  it('uses config order rather than GitHub order when several of my accounts are assigned', async () => {
+    const response = structuredClone(fixture('avatars')) as {
+      data: {
+        cards: {
+          nodes: Array<{
+            assignees: { nodes: Array<{ login: string; avatarUrl: string }> };
+            pullRequests: { nodes: unknown[] };
+          }>;
+        };
+      };
+    };
+    const [issue, other] = response.data.cards.nodes;
+
+    expect(issue).toBeDefined();
+    expect(other).toBeDefined();
+
+    // Both actors are from the recording; put GitHub's order opposite the configured account preference.
+    issue!.pullRequests.nodes = [];
+    issue!.assignees.nodes = [issue!.assignees.nodes[0]!, other!.assignees.nodes[0]!];
+    const value = await unwrap(config({ logins: ['dev-1', 'dev-2'] }), runnerOf(response));
+
+    expect(value.cards[0]?.avatar).toEqual({
+      login: 'dev-1',
+      url: 'https://avatars.githubusercontent.com/dev-1?s=40',
+      source: 'issue',
     });
   });
 
@@ -63,7 +180,9 @@ describe('fetchAssignedIssues', () => {
     await unwrap(config(), runner);
 
     expect(runner.calls[0]?.[0]).toBe('api');
-    expect(runner.calls[0]?.some((a) => a.startsWith('query=') && a.includes('projectItems'))).toBe(true);
+    expect(
+      runner.calls[0]?.some((a) => a.startsWith('query=') && a.includes('closedByPullRequestsReferences(first:100)')),
+    ).toBe(true);
   });
 
   it('reports what the board matched, not the wider assigned set, when a page budget cuts the list', async () => {

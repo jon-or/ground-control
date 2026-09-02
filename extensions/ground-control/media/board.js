@@ -61,6 +61,29 @@ function sessionLine(session) {
   return el;
 }
 
+function avatar(actor) {
+  const el = document.createElement('span');
+  el.className = 'avatar';
+  el.textContent = actor.login.slice(0, 2).toUpperCase();
+
+  const role = actor.source === 'pull-request' ? 'pull request author' : 'issue assignee';
+  el.title = `${actor.login} · ${role}`;
+  el.setAttribute('role', 'img');
+  el.setAttribute('aria-label', `${actor.login}, ${role}`);
+
+  const image = document.createElement('img');
+  image.src = actor.url;
+  image.alt = '';
+  image.addEventListener('error', () => {
+    image.remove();
+    el.classList.remove('has-image');
+  });
+  image.addEventListener('load', () => el.classList.add('has-image'));
+  el.appendChild(image);
+
+  return el;
+}
+
 function card(boardCard) {
   const el = document.createElement('button');
   el.type = 'button';
@@ -88,7 +111,14 @@ function card(boardCard) {
 
   el.title = boardCard.issueNumber === null ? title.textContent : `#${boardCard.issueNumber} ${title.textContent}`;
 
-  el.append(number, title);
+  const avatarSlot = document.createElement('span');
+  avatarSlot.className = 'avatar-slot';
+
+  if (issue?.avatar) {
+    avatarSlot.appendChild(avatar(issue.avatar));
+  }
+
+  el.append(number, avatarSlot, title);
 
   if (issue?.status) {
     const status = document.createElement('span');
