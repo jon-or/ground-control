@@ -37,9 +37,9 @@ Seize is also **window-addressed**, not global: a Claude tab's working directory
 
 ## What is on the board
 
-**Only work the factory or the operator currently owns.** When an item is handed to an external reviewer or to QA, its card leaves the board. It returns when review comments arrive.
+**Only work the factory or the operator currently owns.** When an item is handed to QA, a release or another team, its card leaves the board. It returns when the work comes back. An item out for review is still owned: the operator answers the comments, so its card stays, in the Review lane.
 
-One item is never in two lanes at once. Lane is the operator's own — `Unstarted · Plan · Build · Review · Done · Icebox`, moved by hand and remembered by the board. One Review lane holds both station 6 and station 9: checking an agent's diff and reviewing another developer's PR are the same act. The tracker's status decides only whether a card is on the board at all; it never sets a lane, because a status like ⚒️ Dev spans planning, building and checking alike. When stations exist they become the second thing that may move a card, and the lane is then a function of the item's current station.
+One item is never in two lanes at once. Lane is the operator's own — `Unstarted · Plan · Build · Review · Done · Icebox`, moved by hand and remembered by the board. One Review lane holds both station 6 and station 9: checking an agent's diff and reviewing another developer's PR are the same act. The tracker's status decides whether a card is on the board at all, and for a status that names a stage it also says where the card arrives; it never sets the lane a card stays in, because a status like ⚒️ Dev spans planning, building and checking alike. When stations exist they become the second thing that may move a card, and the lane is then a function of the item's current station.
 
 ## Stations
 
@@ -53,7 +53,7 @@ Nine stations, three of them operator-owned. Reviewing another developer's PR is
 | 4 | `cross-review` | **other-model agent** | `evidence/findings-{model}.json` | findings exist; every finding adjudicated |
 | 5 | `remediate` | agent | commits, updated findings | re-dispatch station 4 until it returns dry |
 | 6 | `self-review` | **operator** | `review-notes.md` | operator approves, or sends back to `remediate` |
-| 7 | `handoff` | agent | push, PR, tracker status write | PR exists — **card leaves the board** |
+| 7 | `handoff` | agent | push, PR, tracker status write | PR exists — **card is the operator's to land**, in Review unless they have parked it elsewhere |
 | 8 | `respond` | agent + operator | `threads.json` | all external threads resolved — back to `handoff` |
 | 9 | `review-theirs` | agent + operator | draft review, then posted review | operator approves and posts — card leaves |
 

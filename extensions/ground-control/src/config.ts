@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { boardStatuses } from '@ground-control/board';
+import { boardStatuses, statusLanes } from '@ground-control/board';
+import type { BoardRules } from '@ground-control/board';
 import type { CardSource, GithubConfig } from '@ground-control/github';
 import { providers } from '@ground-control/sessions';
 import type { AgentConfig, SessionsConfig } from '@ground-control/sessions';
@@ -49,6 +50,15 @@ export function readSessionsConfig(): SessionsConfig {
 
 export function readBoardStatuses(): string[] {
   return boardStatuses(vscode.workspace.getConfiguration(SECTION).get<unknown>('boardStatuses'));
+}
+
+/** What a card arriving is judged against. The logins come from the GitHub config, so a PR is only the developer's own by the same name. */
+export function readBoardRules(logins: readonly string[]): BoardRules {
+  return {
+    boardStatuses: readBoardStatuses(),
+    statusLanes: statusLanes(vscode.workspace.getConfiguration(SECTION).get<unknown>('statusLanes')),
+    logins: [...logins],
+  };
 }
 
 /** A hand-edited settings.json can hold a string here, and setInterval(NaN) fires every millisecond. */

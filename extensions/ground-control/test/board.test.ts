@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANE_ORDER, LANE_TITLES, boardStatuses } from '@ground-control/board';
-import type { Lane, LaneId, LanedCard } from '@ground-control/board';
+import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
 import type { Session } from '@ground-control/sessions';
 import type { BoardMessage } from '../src/boardPanel.js';
 
@@ -66,6 +66,7 @@ const liveCard: LanedCard = {
   issueNumber: 18953,
   lane: 'unstarted',
   returned: false,
+  attention: null,
   reason: '⚒️ Dev',
   issue: {
     number: 18953,
@@ -76,7 +77,14 @@ const liveCard: LanedCard = {
     status: '🔍 Dev Review',
     statusColor: 'GRAY',
     assignees: ['dev-1'],
-    pullRequest: { number: 19403, url: 'https://github.com/example-org/example-repo/pull/19403', state: 'OPEN' },
+    pullRequest: {
+      number: 19403,
+      url: 'https://github.com/example-org/example-repo/pull/19403',
+      state: 'OPEN',
+      author: 'dev-1',
+      isDraft: false,
+      reviewDecision: null,
+    },
     avatar: {
       login: 'dev-2',
       url: 'https://avatars.githubusercontent.com/dev-2?s=40',
@@ -174,6 +182,7 @@ describe('board webview', () => {
               issueNumber: 42,
               lane: 'unstarted',
               returned: false,
+              attention: null,
               reason: 'Not among your assigned issues.',
               sessions: [{ ...session, name: null, shortId: 'short-1' }],
             },
@@ -183,6 +192,7 @@ describe('board webview', () => {
               issueNumber: null,
               lane: 'unstarted',
               returned: false,
+              attention: null,
               reason: 'Ad-hoc work with no issue.',
               sessions: [
                 { ...session, sessionId: 'session-2', name: null, shortId: null, issueNumber: null, state: null },
@@ -252,6 +262,7 @@ describe('board webview', () => {
       issueNumber: null,
       lane: 'build',
       returned: false,
+      attention: null,
       reason: 'Ad-hoc work with no issue.',
       sessions: [
         { ...session, sessionId: 'a', title: 'Grouping orphan sessions', cwd: 'c:/work/scratch', issueNumber: null },
@@ -274,6 +285,7 @@ describe('board webview', () => {
       issueNumber: null,
       lane: 'build',
       returned: false,
+      attention: null,
       reason: 'Ad-hoc work with no issue.',
       sessions: [
         { ...session, sessionId: 'a', name: null, shortId: null, cwd: win, issueNumber: null },
@@ -300,6 +312,7 @@ describe('board webview', () => {
       issueNumber: null,
       lane: 'build',
       returned: false,
+      attention: null,
       reason: 'Ad-hoc work with no issue.',
       sessions: [
         { ...session, sessionId: 'a', name: 'reading logs', cwd: 'c:/work/scratch', issueNumber: null },
@@ -328,6 +341,7 @@ describe('board webview', () => {
               issueNumber: null,
               lane: 'unstarted',
               returned: false,
+              attention: null,
               reason: 'Ad-hoc work with no issue.',
               sessions: [session],
             },
@@ -419,10 +433,15 @@ describe('reported activity', () => {
     activity: { phase, since, event: 'PostToolBatch' },
   });
 
-  const cardWith = (sessions: Session[]): LanedCard => ({ ...liveCard, sessions });
+  const cardWith = (sessions: Session[], attention: Attention | null = null): LanedCard => ({
+    ...liveCard,
+    sessions,
+    attention,
+  });
 
-  const sendCard = (sessions: Session[]): HTMLElement => {
-    send(message({ lanes: lanes({ unstarted: [cardWith(sessions)] }) }));
+  // The mark is the board's decision, not the webview's, so a test states it the way `assignLanes` would have.
+  const sendCard = (sessions: Session[], attention: Attention | null = null): HTMLElement => {
+    send(message({ lanes: lanes({ unstarted: [cardWith(sessions, attention)] }) }));
 
     return document.querySelector<HTMLElement>('.card')!;
   };
@@ -482,19 +501,71 @@ describe('reported activity', () => {
     expect(Math.max(...stops)).toBeLessThan(200 / 3);
   });
 
-  it('marks the card, not only the row, when a session is waiting on the developer', () => {
-    const card = sendCard([withPhase('idle'), withPhase('waiting', Date.now(), { sessionId: 's-2' })]);
+  it('marks the card, not only the row, when an agent is blocked on the developer', () => {
+    const card = sendCard([withPhase('idle'), withPhase('waiting', Date.now(), { sessionId: 's-2' })], 'blocked');
 
-    expect(card.dataset.waiting).toBe('');
-    expect(card.querySelector('.badge.waiting')?.textContent).toBe('Needs you');
-    expect(card.querySelector<HTMLElement>('.badge.waiting')?.title).toContain('waiting on you');
+    expect(card.dataset.attention).toBe('blocked');
+    expect(card.querySelector('.badge.blocked')?.textContent).toBe('Needs you');
+    expect(card.querySelector<HTMLElement>('.badge.blocked')?.title).toContain('waiting on you');
   });
 
-  it('marks nothing when no session is waiting', () => {
+  /** The mark refuses a finished agent (R23), so the words under it must refuse the same session rather than name it as blocked. */
+  it('leaves a finished session out of the blocked mark, whatever its last event was', () => {
+    const card = sendCard(
+      [
+        withPhase('waiting', Date.now(), { sessionId: 's-1', name: 'still asking', state: 'working' }),
+        withPhase('waiting', Date.now(), { sessionId: 's-2', name: 'long gone', state: 'stopped' }),
+      ],
+      'blocked',
+    );
+    const said = card.querySelector<HTMLElement>('.badge.blocked')?.title ?? '';
+
+    expect(said).toContain('still asking');
+    expect(said).not.toContain('long gone');
+  });
+
+  it('marks the card when an agent ended its turn and nothing has replied', () => {
+    const card = sendCard([withPhase('running'), withPhase('idle', Date.now(), { sessionId: 's-2' })], 'your-turn');
+
+    expect(card.dataset.attention).toBe('your-turn');
+    expect(card.querySelector('.badge.your-turn')?.textContent).toBe('Your turn');
+    expect(card.querySelector<HTMLElement>('.badge.your-turn')?.title).toContain('finished its turn');
+  });
+
+  it('names in the mark only the sessions the mark is about', () => {
+    const card = sendCard(
+      [
+        withPhase('idle', Date.now(), { sessionId: 's-1', name: 'reading logs' }),
+        withPhase('running', Date.now(), { sessionId: 's-2', name: 'drafting notes' }),
+      ],
+      'your-turn',
+    );
+    const said = card.querySelector<HTMLElement>('.badge.your-turn')?.title ?? '';
+
+    expect(said).toContain('reading logs');
+    expect(said).not.toContain('drafting notes');
+  });
+
+  it('marks nothing when the board asked nothing of the developer', () => {
     const card = sendCard([withPhase('running'), withPhase('idle', Date.now(), { sessionId: 's-2' })]);
 
-    expect(card.dataset.waiting).toBeUndefined();
-    expect(card.querySelector('.badge.waiting')).toBeNull();
+    expect(card.dataset.attention).toBeUndefined();
+    expect(card.querySelector('.badge.blocked')).toBeNull();
+    expect(card.querySelector('.badge.your-turn')).toBeNull();
+  });
+
+  /** Colour alone is not the mark: the ring is the second channel, and under forced colours it is the only one left. */
+  it('rings the card for either mark, forced colours included', () => {
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+
+    const forced = /@media \(forced-colors: active\) \{([\s\S]*?)\n\}/.exec(css)?.[1];
+
+    expect(css).toContain("card[data-attention='blocked']");
+    expect(css).toContain("card[data-attention='your-turn']");
+    expect(css).toContain("card[data-attention='blocked'] .session[data-phase='waiting'] .session-label");
+    expect(css).toContain("card[data-attention='your-turn'] .session[data-phase='idle'] .session-label");
+    expect(forced).toContain('card[data-attention]');
+    expect(/@media \(forced-colors: active\)[\s\S]*card\[data-attention\]/.test(css)).toBe(true);
   });
 
   it('shows one state per row, and it is the board own observation', () => {
@@ -949,6 +1020,7 @@ describe('lanes', () => {
       issueNumber: null,
       lane: 'plan',
       returned: false,
+      attention: null,
       reason: 'Ad-hoc work with no issue.',
       sessions: [{ ...session, issueNumber: null }],
     };

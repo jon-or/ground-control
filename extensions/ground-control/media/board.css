@@ -295,14 +295,25 @@ main.dragging .lane-idle {
  * The type accent is an inset shadow, so a border does not collide with it. `:hover` is matched too, and both rules
  * are declared here rather than left to source order — the ring must not disappear at the moment it is pointed at.
  */
-.card[data-waiting],
-.card[data-waiting]:hover {
+.card[data-attention='blocked'],
+.card[data-attention='blocked']:hover {
   border-color: var(--vscode-charts-yellow);
   background: color-mix(in srgb, var(--vscode-charts-yellow) 7%, var(--vscode-editorWidget-background, transparent));
 }
 
-.card[data-waiting]:hover {
+.card[data-attention='blocked']:hover {
   background: color-mix(in srgb, var(--vscode-charts-yellow) 14%, var(--vscode-editorWidget-background, transparent));
+}
+
+/* A finished turn is the developer's move too, but it is not an agent stuck on them - so it is marked, and marked more quietly. */
+.card[data-attention='your-turn'],
+.card[data-attention='your-turn']:hover {
+  border-color: var(--vscode-charts-blue);
+  background: color-mix(in srgb, var(--vscode-charts-blue) 5%, var(--vscode-editorWidget-background, transparent));
+}
+
+.card[data-attention='your-turn']:hover {
+  background: color-mix(in srgb, var(--vscode-charts-blue) 11%, var(--vscode-editorWidget-background, transparent));
 }
 
 /* Number left, avatar right, its labels between - the card says what it is and who has it before the title is read. */
@@ -458,9 +469,16 @@ main.dragging .lane-idle {
   animation-iteration-count: infinite;
 }
 
-.session[data-phase='waiting'] .session-label,
-.session[data-phase='waiting'] .state {
+.card[data-attention='blocked'] .session[data-phase='waiting'] .session-label,
+.card[data-attention='blocked'] .session[data-phase='waiting'] .state {
   color: var(--vscode-charts-yellow);
+  font-weight: 600;
+}
+
+/* Scoped to the marked card: an idle row on a card asking nothing - one parked in Done - must not be painted as if it were. */
+.card[data-attention='your-turn'] .session[data-phase='idle'] .session-label,
+.card[data-attention='your-turn'] .session[data-phase='idle'] .state {
+  color: var(--vscode-charts-blue);
   font-weight: 600;
 }
 
@@ -484,8 +502,8 @@ main.dragging .lane-idle {
     animation-name: none;
   }
 
-  .card[data-waiting],
-  .card[data-waiting]:hover {
+  .card[data-attention],
+  .card[data-attention]:hover {
     border-color: Highlight;
   }
 }

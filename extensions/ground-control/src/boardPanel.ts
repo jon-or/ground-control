@@ -6,7 +6,7 @@ import type { AssignedIssues, Failure as GithubFailure } from '@ground-control/g
 import { fetchSessions, hookNotice, readActivity, rosterIsStale, unreportedSessions } from '@ground-control/sessions';
 import type { ActivityChange, Session, SessionsSnapshot } from '@ground-control/sessions';
 import { homedir } from 'node:os';
-import { readBoardStatuses, readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
+import { readBoardRules, readBoardStatuses, readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
 import { promptForLogins } from './identity.js';
 import { hookState, read, watchActivity } from './hooks.js';
 
@@ -316,6 +316,9 @@ export class BoardPanel {
     return this.#sessionsInFlight;
   }
 
+  /** The logins the issues on the board were actually read with, which is not the setting when the developer was just prompted for them. */
+  #logins: string[] = [];
+
   async #readIssues(): Promise<void> {
     let cfg = readConfig();
 
@@ -341,6 +344,8 @@ export class BoardPanel {
       this.#promptDismissed = false;
       cfg = { ...cfg, logins };
     }
+
+    this.#logins = cfg.logins;
 
     const result = await fetchAssignedIssues(cfg);
 
@@ -374,7 +379,7 @@ export class BoardPanel {
   }
 
   #memory(): CardMemory {
-    return readMemory(this.#memento.get(MEMORY_KEY));
+    return readMemory(this.#memento.get(MEMORY_KEY), readBoardStatuses());
   }
 
   /** A lane is the developer's own placement. This and the render's own bookkeeping are all the board ever stores. */
@@ -409,7 +414,7 @@ export class BoardPanel {
     const memory = this.#memory();
     const lanes = assignLanes(
       mergeBoard(this.#issues?.cards ?? [], this.#sessions?.sessions ?? []),
-      readBoardStatuses(),
+      readBoardRules(this.#logins),
       memory,
     );
 

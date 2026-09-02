@@ -728,13 +728,17 @@ Read from the live `ownerrez/orez` project (Planning / Development, number 3) on
 | 🏃 Testing | Currently being tested |
 | 🚀 Releasable | Closed and ready for release |
 
-Only 🎁 Assigned and ⚒️ Dev are statuses where the work is the developer's own, which is why those two are the board's default membership set. None of them is a stage: ⚒️ Dev covers planning, building and checking alike, so a status can never be read as a lane.
+🎁 Assigned, ⚒️ Dev and 🔍 Dev Review are the statuses where the work is the developer's own, which is why those three are the board's default membership set. Only 🔍 Dev Review also names a stage, so it is the one entry in the default status-to-lane map; ⚒️ Dev covers planning, building and checking alike, and a status that spans stages can never be read as a lane.
 
 Re-read with:
 
 ```bash
 gh api graphql -f query='{ organization(login:"ownerrez"){ projectV2(number:3){ field(name:"Status"){ ... on ProjectV2SingleSelectField { options { name description } } } } } }'
 ```
+
+### What the card query reads off a pull request
+
+`closedByPullRequestsReferences` carries `isDraft` and `reviewDecision` alongside `state` and `author`, so the board's one issue query answers which lane a card arrives in with no second request. `reviewDecision` is `null` until a review is requested, is one of `APPROVED`, `CHANGES_REQUESTED` or `REVIEW_REQUIRED` after that, and reflects only the latest review per reviewer — so it says what the pull request is waiting for, never how many reviews it has had.
 
 ## 18. Steering — a message can be injected into a live session
 

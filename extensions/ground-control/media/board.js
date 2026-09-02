@@ -232,6 +232,20 @@ const BADGE_COLORS = {
   GRAY: 'foreground',
 };
 
+/**
+ * How each kind of attention reads on a card. `blocked` is an agent that cannot go on without the developer; `your-turn` is one that ended
+ * its turn and handed control back. `phase` is the session phase whose rows the badge names, so the tooltip says which session it means.
+ */
+const ATTENTION = {
+  blocked: { text: 'Needs you', color: 'YELLOW', phase: 'waiting', said: 'is waiting on you.' },
+  'your-turn': { text: 'Your turn', color: 'BLUE', phase: 'idle', said: 'finished its turn — you have not replied since.' },
+};
+
+/** The agent's own word for finished. A session that said it is blocked cannot still be blocked on anybody. */
+function isTerminal(session) {
+  return session.state === 'done' || session.state === 'stopped';
+}
+
 /** A pull request's own state colours, matching what GitHub paints them. */
 const PR_COLORS = { OPEN: 'GREEN', MERGED: 'PURPLE', CLOSED: 'RED' };
 
@@ -403,12 +417,21 @@ function card(boardCard, avatarPool, placeable) {
 
   // R6: on the card, not only on the session row, so it reads from across a full board. Three channels - the word,
   // the border, and the row's own weight - because colour alone is not unmistakable to everyone who uses this.
-  const waiting = boardCard.sessions.filter((session) => session.activity?.phase === 'waiting');
+  const attention = ATTENTION[boardCard.attention];
 
-  if (waiting.length > 0) {
-    el.dataset.waiting = '';
+  if (attention) {
+    const named = boardCard.sessions.filter(
+      (session) => session.activity?.phase === attention.phase && !(attention.phase === 'waiting' && isTerminal(session)),
+    );
+
+    el.dataset.attention = boardCard.attention;
     badges.appendChild(
-      badge('waiting', 'Needs you', 'YELLOW', waiting.map((s) => `${sessionLabel(s)} is waiting on you.`).join(' ')),
+      badge(
+        boardCard.attention,
+        attention.text,
+        attention.color,
+        named.map((s) => `${sessionLabel(s)} ${attention.said}`).join(' '),
+      ),
     );
   }
 

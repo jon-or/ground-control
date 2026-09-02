@@ -47,11 +47,24 @@ function selectCardAvatar(
   return assignee?.avatarUrl ? { login: assignee.login, url: assignee.avatarUrl, source: 'issue' } : null;
 }
 
-/** The pull request the card speaks for: the most recently updated one that would close the issue. */
+/**
+ * The pull request the card speaks for: the most recently updated open one that would close the issue, or the most recently updated of any
+ * state when none is open. An open one outranks a merged one, because a comment on something already landed must not mask work in flight.
+ */
 function selectPullRequest(node: Pick<SearchNode, 'pullRequests'>): CardPullRequest | null {
-  const latest = [...(node.pullRequests?.nodes ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  const byRecency = [...(node.pullRequests?.nodes ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const latest = byRecency.find((pr) => pr.state === 'OPEN') ?? byRecency[0];
 
-  return latest ? { number: latest.number, url: latest.url, state: latest.state } : null;
+  return latest
+    ? {
+        number: latest.number,
+        url: latest.url,
+        state: latest.state,
+        author: latest.author?.login ?? null,
+        isDraft: latest.isDraft,
+        reviewDecision: latest.reviewDecision,
+      }
+    : null;
 }
 
 function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
