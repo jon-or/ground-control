@@ -38,6 +38,8 @@ One card per issue, with its number, title, and type. Issues nobody has assigned
 **R2. The board shows every active agent session on the machine.**
 No session is invisible. A session the user forgot about is exactly what this board exists to surface. Claude Code is the agent the board reads today; a developer running a second agent CLI sees its sessions on the same board, labelled by which agent reported them, rather than a second board.
 
+A session arrives on the board within a second of the first thing it does, and leaves within a second of ending: a session reports its own work and its own end, so neither edge waits on the board's next read of the machine. What reports nothing — a session killed outright, a renamed one — the board notices on that read instead.
+
 A session that has never been prompted is not on it. An editor tab opened and left alone is a running process and nothing else — no transcript, no turn, no work — and a board of them is a board the user learns to ignore. The board omits a session only when all three of its independent signals are silent: no transcript, no reported activity, and no status of its own from the agent. Any one of them means the session has begun, so the cost of a transcript the board fails to locate is a card without a title, never a session it hides.
 
 **R3. A session linked to an issue appears under that issue's card.**
@@ -49,7 +51,9 @@ Ad-hoc work is first-class. It is not hidden, and it is not forced into an issue
 **R5. Each card shows enough to decide whether to act, without opening it.**
 At minimum: what stage it is in, whether anything is running, whether anything needs the user, and how long it has been in that state.
 
-A running session's own name shimmers, so a board of ten cards shows which ones are moving without being read. The duration beside it is the time since the board last *observed* the session take a step, not the time since the prompt was submitted — an hour on a working session and an hour on a stuck one have to look different, and only an observation can tell them apart.
+A running session's own name shimmers, so a board of ten cards shows which ones are moving without being read. The duration beside it is how long the reported phase has held: a running session counts the stretch of work it is in, from the prompt that began it, and every other phase counts from the event that reported it. It is not the age of the last observation: a heartbeat lands on every tool batch, so that number holds at zero for the whole of a busy turn and tells the developer nothing. Liveness is not its job either — a session its CLI no longer lists is off the board — so the question the duration answers is how long this has been going on. The number advances on the board's own clock, once a second: an anchor does not move, so its age needs no read of the machine to stay current, and a card never shows a duration that stopped when the last refresh did.
+
+Work that resumes with no prompt behind it — a background task waking a session, a cron, a session already running when the board installed its hooks — counts from where the board first saw it resume. That is a floor rather than the true start, and it is the honest one: the board never reports a stretch as older than what it observed. A stretch's age does include time it spent parked on the developer, because what is reported is how long the work has been open, not how much of it happened.
 
 A GitHub reference the board read itself is the way to that page: the issue number and the title open the issue in the browser, and the pull-request chip opens that pull request. The board resolves the address from its own read, so the card never carries a URL the webview hands back — which is also why an issue number the board only learned from a session's branch is shown but not linked. It has no read for that issue and will not guess its URL.
 
@@ -104,7 +108,7 @@ Looking at a session never interrupts it, slows it, or changes its state.
 **R13. The user can tell a working session from a stuck one.**
 "Thinking" and "waiting on a 5-minute command" must not look the same as "stopped 40 minutes ago".
 
-The board reports two facts and never a third: the last thing it observed a session do, and how long ago. It never turns a running session idle because time passed — a twenty-minute test run produces nothing to observe, and calling that stopped is the same lie in the other direction. A session stuck with a stale report reads as an implausible duration instead.
+The board reports two facts and never a third: the last phase it observed a session in, and how long that phase has held. It never turns a running session idle because time passed — a twenty-minute test run produces nothing to observe, and calling that stopped is the same lie in the other direction. A wedged session is a turn that has been running implausibly long for the work; the hover names the hook the board last saw it at.
 
 ### Taking over
 

@@ -13,13 +13,13 @@ export interface SessionsConfig {
 export type ActivityPhase = 'running' | 'waiting' | 'idle';
 
 /**
- * The last phase a hook reported, and when. Never a guarantee the session is in it now — `claude agents --json` does not say what an interactive
- * session is doing, which is why hooks exist at all (`docs/mechanics.md` §20). The board reports what it observed and how long ago.
+ * The last phase a hook reported, and when it began. Never a guarantee the session is in it now — `claude agents --json` does not say what an
+ * interactive session is doing, which is why hooks exist at all (`docs/mechanics.md` §20).
  */
 export interface SessionActivity {
   phase: ActivityPhase;
-  /** Epoch milliseconds the hook fired, not when the board read it. */
-  at: number;
+  /** Epoch milliseconds the duration counts from: the turn's own prompt for a running session, the reporting event for the rest. */
+  since: number;
   /** The hook event the phase came from, so a card can say what it saw. */
   event: string;
 }

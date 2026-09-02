@@ -1,6 +1,9 @@
 import { normalize } from './paths.js';
 
-/** Bumped only when the marker's field set changes; the extension rewrites the writer whenever its bytes differ. */
+/**
+ * Bumped when a field's meaning changes, not when one is added: two extension versions share one `~/.claude`, and an added field is absent to the
+ * older reader and defaulted by the newer one. The extension rewrites the writer whenever its bytes differ.
+ */
 export const HOOK_MARKER_VERSION = 1;
 
 export const GROUND_CONTROL_DIR = '.claude/ground-control';
@@ -73,16 +76,39 @@ try {
       mkdirSync(DIR, { recursive: true });
 
       const now = Date.now();
-      let held = 0;
+      let prior = null;
+
+      try {
+        prior = JSON.parse(readFileSync(marker, 'utf8'));
+      } catch {}
+
+      const held = prior && prior.at;
 
       // Hooks run async, so two race at a turn boundary and the slower one would otherwise land last with the older
       // observation. Bounded, because a marker further ahead than a reader will believe must stay replaceable.
-      try {
-        held = JSON.parse(readFileSync(marker, 'utf8')).at;
-      } catch {}
-
       if (typeof held === 'number' && held > now && held <= now + ${FUTURE_TOLERANCE_MS}) {
         process.exit(0);
+      }
+
+      const event = typeof payload.hook_event_name === 'string' ? payload.hook_event_name : null;
+      const backgroundTasks = Array.isArray(payload.background_tasks) ? payload.background_tasks.length : 0;
+      let turnAt = prior && typeof prior.turnAt === 'number' ? prior.turnAt : null;
+
+      // When the stretch of work in flight began - the writer's one piece of state, because a running card counts the stretch and an event-time
+      // anchor holds that count at zero on every tool batch. A prompt starts one.
+      if (event === 'UserPromptSubmit') {
+        turnAt = now;
+      } else if (
+        // The session saying it has finished ends the stretch, and so does a new run. Nothing after this point belongs to the work before it.
+        (event === 'Stop' && backgroundTasks === 0) ||
+        (event === 'Notification' && payload.notification_type === 'agent_completed') ||
+        (event === 'SessionStart' && payload.source !== 'compact')
+      ) {
+        turnAt = null;
+      } else if (turnAt === null) {
+        // Work resuming with no prompt behind it: a background wake, a cron, a session already running when the hooks were installed. The
+        // stretch starts here, because the alternative is a card that reports the age of its last heartbeat and reads zero all the way through.
+        turnAt = now;
       }
 
       const tmp = marker + '.' + process.pid + '.tmp';
@@ -92,14 +118,15 @@ try {
         JSON.stringify({
           v: ${HOOK_MARKER_VERSION},
           sessionId: id,
-          event: typeof payload.hook_event_name === 'string' ? payload.hook_event_name : null,
+          event,
           at: now,
+          turnAt,
           cwd: typeof payload.cwd === 'string' ? payload.cwd : null,
           notificationType: typeof payload.notification_type === 'string' ? payload.notification_type : null,
           source: typeof payload.source === 'string' ? payload.source : null,
           toolName: typeof payload.tool_name === 'string' ? payload.tool_name : null,
           reason: typeof payload.reason === 'string' ? payload.reason : null,
-          backgroundTasks: Array.isArray(payload.background_tasks) ? payload.background_tasks.length : 0,
+          backgroundTasks,
         }),
       );
 

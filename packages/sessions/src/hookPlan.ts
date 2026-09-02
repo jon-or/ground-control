@@ -28,6 +28,9 @@ const ALTERNATION = '|';
  * `Stop`, `PostToolBatch` and `UserPromptSubmit` carry no query string, so a matcher on them would be ignored and none is written.
  */
 const WANTED: readonly (readonly [event: string, alternatives: string[] | null])[] = [
+  // Installed for the roster, not for a phase: a new session reaches the board on the event instead of the next poll. Unfiltered, because a
+  // `startup` matcher is a regex against `source` whose semantics are unconfirmed, and a matcher that misses is a hook that never fires.
+  ['SessionStart', null],
   ['UserPromptSubmit', null],
   ['PostToolBatch', null],
   ['PermissionRequest', null],

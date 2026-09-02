@@ -174,9 +174,9 @@ function toSession(entry: AgentEntry, deps: ProviderDeps): Session {
 }
 
 /**
- * A session that has never been prompted — an editor tab opened and left alone. The CLI creates the transcript at
- * the first user turn, not at process start (`docs/mechanics.md` §3), no hook fires before one either, and a
- * background session reports its own status: three independent signals, all silent only for work that never began.
+ * A session that has never been prompted — an editor tab opened and left alone. The CLI creates the transcript at the
+ * first user turn, not at process start (`docs/mechanics.md` §3), the one hook that fires before a turn claims no phase,
+ * and a background session reports its own status: three independent signals, all silent only for work that never began.
  */
 export function neverPrompted(session: Session): boolean {
   return (

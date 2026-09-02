@@ -17,6 +17,7 @@ describe('the package public surface', () => {
       'planHookInstall',
       'providers',
       'readActivity',
+      'rosterIsStale',
       'unreportedSessions',
     ]);
   });

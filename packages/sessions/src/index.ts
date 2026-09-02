@@ -1,6 +1,7 @@
 export { fetchSessions } from './sessions.js';
 export { providers } from './providers.js';
-export { readActivity, unreportedSessions } from './phase.js';
+export { readActivity, rosterIsStale, unreportedSessions } from './phase.js';
+export type { ActivityChange } from './phase.js';
 export { backupsToDelete, hookNotice, lockIsStale, markerIsOrphaned, planHookInstall } from './hookPlan.js';
 export {
   HOOK_SOURCE,

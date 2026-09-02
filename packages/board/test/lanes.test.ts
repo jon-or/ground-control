@@ -175,7 +175,7 @@ describe('assignLanes', () => {
       ...sessions[0]!,
       issueNumber: 19072,
       state: 'working',
-      activity: { phase, at: 1, event: 'Stop' },
+      activity: { phase, since: 1, event: 'Stop' },
     };
 
     expect(issueIn(lanes(restatus(19072, '🏃 Testing'), [live]), 19072)).toBe('unstarted');
@@ -184,7 +184,7 @@ describe('assignLanes', () => {
   // R8: nothing but the developer moves a card. A phase flips on its own every few minutes.
   it.each(['running', 'waiting', 'idle'] as const)('puts a %s session in the lane the developer chose', (phase) => {
     const memory: CardMemory = { placements: { 'issue:18954': 'review' }, seenPastMyHands: [] };
-    const session: Session = { ...sessions[0]!, issueNumber: 18954, activity: { phase, at: 1, event: 'Stop' } };
+    const session: Session = { ...sessions[0]!, issueNumber: 18954, activity: { phase, since: 1, event: 'Stop' } };
     const board = lanes(issues, [session], memory);
 
     expect(issueIn(board, 18954)).toBe('review');

@@ -52,6 +52,7 @@ const ours = (groups: unknown): unknown[] =>
   );
 
 const EVENTS = [
+  'SessionStart',
   'UserPromptSubmit',
   'PostToolBatch',
   'PermissionRequest',
