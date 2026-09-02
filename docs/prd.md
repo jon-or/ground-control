@@ -41,11 +41,13 @@ No session is invisible. A session the user forgot about is exactly what this bo
 **R3. A session linked to an issue appears under that issue's card.**
 An issue card can hold several sessions. The card is the unit of work; sessions are attempts at it.
 
-**R4. A session with no linked issue gets its own card.**
-Ad-hoc work is first-class. It is not hidden, and it is not forced into an issue it does not belong to.
+**R4. Sessions with no linked issue get a card per directory.**
+Ad-hoc work is first-class. It is not hidden, and it is not forced into an issue it does not belong to. The directory such a session runs in is what it has in common with the others there, so one checkout is one card however many agents are in it, and the card is named for the directory. The card appears only while something runs there — and because the card is the directory, the lane the developer put it in belongs to the directory too: it outlives any one session and new ad-hoc work in that checkout joins the card where they left it.
 
 **R5. Each card shows enough to decide whether to act, without opening it.**
 At minimum: what stage it is in, whether anything is running, whether anything needs the user, and how long it has been in that state.
+
+A GitHub reference the board read itself is the way to that page: the issue number and the title open the issue in the browser, and the pull-request chip opens that pull request. The board resolves the address from its own read, so the card never carries a URL the webview hands back — which is also why an issue number the board only learned from a session's branch is shown but not linked. It has no read for that issue and will not guess its URL.
 
 **R6. Cards that need the user are visually unmistakable.**
 A card waiting on a decision must not look like a card that is working. This is the board's primary job — a parked agent the user never noticed is the failure mode being designed against.
@@ -87,6 +89,8 @@ The lane header carries its card count, so the user can see at a glance that the
 
 **R11. The user can see what a session is doing right now.**
 The current action, in plain language, updating live while it runs — not a log to read, and not a stale snapshot.
+
+A session is named by its own title: the one the developer set where they set one, otherwise the one the agent wrote for itself. The name the CLI reports is the fallback, not the label — for a session started without one it is derived from the directory, so two sessions in one checkout would otherwise read as the same work twice.
 
 **R12. Watching costs nothing.**
 Looking at a session never interrupts it, slows it, or changes its state.
@@ -177,7 +181,7 @@ Anything a developer is expected to set, they can set from the board or from nor
 If an action may not have worked, the board says so rather than assuming success.
 
 **R25. The user can see why a card cannot move forward.**
-In their own terms: what is missing, or what failed.
+In their own terms: what is missing, or what failed. Where that fits a badge, the badge carries it; a condition that belongs to the whole board — a status set matching nothing, a source that failed to read — is stated once above the lanes rather than on every card. A card carries no explanation of its own: the per-card hover that held one was removed, and nothing has replaced it.
 
 ## 4. What success looks like
 
@@ -196,5 +200,5 @@ In their own terms: what is missing, or what failed.
 4. **What links a session to an issue?** Branch name, working directory, something the user sets by hand, or a mixture. Affects how often R3 guesses wrong.
 5. **Sessions on other machines.** Out of scope for v1, but the board's value grows if it is the one place to look.
 6. **Where shared defaults come from.** Checked into the repo so a new developer inherits them by pulling, or shipped inside the extension so they update with it. The first keeps them reviewable alongside the code they describe; the second keeps them working before a checkout exists.
-7. **What links a session to an issue when the branch does not say.** *Partly settled.* The board reads the branch of the checkout the session runs in, searching upward so a session started in a subdirectory still finds it, and falls back to the checkout directory's own name. A session it cannot link gets its own card (R4) rather than a guess. What is still open is the case the branch genuinely cannot answer — a session started before a branch exists, or a single clone carrying several issues — where asking the developer once per session may beat guessing. There is no way for a developer to set the link by hand today.
+7. **What links a session to an issue when the branch does not say.** *Partly settled.* The board reads the branch of the checkout the session runs in, searching upward so a session started in a subdirectory still finds it, and falls back to the checkout directory's own name. A session it cannot link joins the card for the directory it runs in (R4) rather than a guess. What is still open is the case the branch genuinely cannot answer — a session started before a branch exists, or a single clone carrying several issues — where asking the developer once per session may beat guessing. There is no way for a developer to set the link by hand today.
 8. **Whether a developer can see the board without the extension changing anything.** A read-only first run would let someone evaluate it with no risk, which matters for adoption across a team.

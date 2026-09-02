@@ -333,17 +333,19 @@ main.dragging .lane-idle {
   opacity: 0.4;
 }
 
-.lane.drop-target {
-  outline: 1px dashed var(--vscode-focusBorder);
-  outline-offset: 3px;
+.lane.drop-target .lane-cards {
+  outline: 2px dashed var(--vscode-focusBorder);
+  outline-offset: -2px;
+  border-radius: 3px;
+  background: var(--vscode-list-dropBackground, rgba(255, 255, 255, 0.06));
 }
 
 .avatar-slot,
 .avatar {
   display: grid;
   place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.4rem;
+  height: 1.4rem;
 }
 
 .avatar {
@@ -353,6 +355,7 @@ main.dragging .lane-idle {
   background: var(--vscode-badge-background);
   border-radius: 50%;
   font-size: 0.62rem;
+  letter-spacing: 0.02em;
   font-weight: 600;
   line-height: 1;
 }
@@ -411,12 +414,42 @@ main.dragging .lane-idle {
   border-color: var(--vscode-panel-border);
 }
 
+/*
+ * The issue number and the pull-request chip open their own page on GitHub, so both carry a link's affordance.
+ * Declared before either, so the button reset here does not clobber the font and padding each sets for itself.
+ */
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0;
+  font: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.link:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
 .number {
   flex: none;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   color: var(--vscode-descriptionForeground);
+}
+
+/* Kept optically flush with the card's left edge, since the link's own padding is what makes it a 24px target. */
+.number.link {
+  padding-inline: 0.25rem;
+  margin-inline-start: -0.25rem;
+}
+
+.number.link:hover {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
 }
 
 /* Badges ----------------------------------------------------------------- */
@@ -443,6 +476,12 @@ main.dragging .lane-idle {
   background: color-mix(in srgb, var(--gc-badge, var(--vscode-foreground)) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--gc-badge, var(--vscode-foreground)) 45%, transparent);
   border-radius: 999px;
+}
+
+/* A solid border as well as the tint: a translucent background alone is faint against a high-contrast theme. */
+.badge.link:hover {
+  background: color-mix(in srgb, var(--gc-badge, var(--vscode-foreground)) 28%, transparent);
+  border-color: var(--gc-badge, var(--vscode-foreground));
 }
 
 .pr-mark {

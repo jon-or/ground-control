@@ -29,7 +29,7 @@ export const DEFAULT_BOARD_STATUSES: readonly string[] = ['🎁 Assigned', '⚒�
 export interface CardMemory {
   /** Card key to the lane the developer moved it into. A card absent here has never been moved, and starts Unstarted. */
   placements: Record<string, LaneId>;
-  /** Card keys seen archived, so a later return can be marked. Issue keys only — session keys are not stable. */
+  /** Card keys seen archived, so a later return can be marked. Issue keys only — work with no issue never left. */
   seenPastMyHands: string[];
 }
 
@@ -40,7 +40,7 @@ function emptyMemory(): CardMemory {
   return { placements: {}, seenPastMyHands: [] };
 }
 
-/** `mergeBoard` keys a card with no issue by its session. R4 cards therefore have keys that die with the session. */
+/** `mergeBoard` keys a card with no issue by the directory its sessions run in. R4 cards exist only while one does. */
 const SESSION_KEY_PREFIX = 'session:';
 
 const laneId = z.enum(LANE_ORDER as [LaneId, ...LaneId[]]);
@@ -76,7 +76,7 @@ export function readMemory(stored: unknown): CardMemory {
 export interface LanedCard extends BoardCard {
   lane: LaneId;
   returned: boolean;
-  /** What the card's status says about it being on the board — R25. Never why it is in its lane; that was the developer. */
+  /** What the card's status says about it being on the board. Never why it is in its lane; that was the developer. */
   reason: string;
 }
 
@@ -178,8 +178,8 @@ export function boardStatuses(configured: unknown): string[] {
 }
 
 /**
- * The memory to store after a render. An issue's placement survives the issue leaving the board; a session's is dropped
- * once a successful read shows the session gone, because its key names one process and can never match again.
+ * The memory to store after a render. An issue's placement survives the issue leaving the board; a directory's is
+ * dropped once a successful read shows nothing running there, because the card itself is gone until something is.
  */
 export function nextMemory(lanes: Lane[], memory: CardMemory, sessionsRead: boolean): CardMemory {
   const seen = new Set(memory.seenPastMyHands);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { assignLanes, mergeBoard, nextMemory, readMemory, withPlacement, EMPTY_MEMORY, LANE_ORDER } from '../src/index.js';
 import { DEFAULT_BOARD_STATUSES, PLACEABLE_LANES, boardStatuses, isTerminal } from '../src/lanes.js';
+import { cwdKey } from '../src/merge.js';
 import type { CardMemory, Lane, LaneId } from '../src/index.js';
 import type { IssueCard, Session } from '../src/types.js';
 import { issues, sessions } from './helpers.js';
@@ -154,18 +155,19 @@ describe('assignLanes', () => {
     expect(issueIn(lanes(restatus(19072, '🏃 Testing'), [finished]), 19072)).toBe('archived');
   });
 
-  it('gives ad-hoc work a card of its own rather than hiding it — R4', () => {
+  it('gives ad-hoc work a card per directory rather than hiding it — R4', () => {
     const adHoc = sessions.filter((session) => session.issueNumber === null);
+    const directories = new Set(adHoc.map((session) => cwdKey(session.cwd)));
     const only = lanes([], adHoc);
 
-    expect(adHoc.length).toBeGreaterThan(0);
-    expect(lane(only, 'build').cards).toHaveLength(adHoc.length);
+    expect(adHoc.length).toBeGreaterThan(directories.size);
+    expect(lane(only, 'build').cards).toHaveLength(directories.size);
     expect(lane(only, 'build').cards.every((c) => c.reason === 'Ad-hoc work with no issue.')).toBe(true);
   });
 
   it('keeps a card with no issue where the developer dragged it, entry lane notwithstanding', () => {
     const adHoc = sessions.find((session) => session.issueNumber === null)!;
-    const key = `session:${adHoc.agent}:${adHoc.sessionId}`;
+    const key = `session:${cwdKey(adHoc.cwd)}`;
     const memory: CardMemory = { placements: { [key]: 'unstarted' }, seenPastMyHands: [] };
     const moved = lanes([], [adHoc], memory);
 
@@ -226,9 +228,9 @@ describe('the returned badge', () => {
     expect(card?.returned).toBe(false);
   });
 
-  it('never marks a session-only card — its key does not survive a restart', () => {
+  it('never marks a card with no issue — it was never on the board to leave it', () => {
     const adHoc = sessions.find((s) => s.issueNumber === null)!;
-    const key = `session:${adHoc.agent}:${adHoc.sessionId}`;
+    const key = `session:${cwdKey(adHoc.cwd)}`;
     const marked = lanes([], [adHoc], { placements: {}, seenPastMyHands: [key] });
 
     expect(marked.flatMap((l) => l.cards).find((c) => c.key === key)?.returned).toBe(false);
@@ -352,9 +354,9 @@ describe('nextMemory', () => {
     expect(nextMemory(lanes(issues, sessions, memory), memory, true).placements).toEqual({});
   });
 
-  it('keeps a placement for a session that is still running', () => {
+  it('keeps a placement for a directory that still has a session running', () => {
     const adHoc = sessions.find((s) => s.issueNumber === null)!;
-    const key = `session:${adHoc.agent}:${adHoc.sessionId}`;
+    const key = `session:${cwdKey(adHoc.cwd)}`;
     const memory: CardMemory = { placements: { [key]: 'build' }, seenPastMyHands: [] };
 
     expect(nextMemory(lanes(issues, sessions, memory), memory, true).placements).toEqual({ [key]: 'build' });

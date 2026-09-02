@@ -17,6 +17,11 @@ export interface Session {
   /** Only some sessions carry a short id; Claude gives one to `--bg` sessions and not to interactive ones. */
   shortId: string | null;
   name: string | null;
+  /**
+   * What the session calls itself: the developer's own title where they set one, else the one the agent wrote for
+   * itself. Null when it has neither. `name` is no substitute — Claude derives that from the directory.
+   */
+  title: string | null;
   cwd: string;
   kind: string;
   startedAt: number;

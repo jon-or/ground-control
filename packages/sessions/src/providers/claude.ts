@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { linkOf } from '../link.js';
 import { normalize } from '../paths.js';
-import type { ListDir, ProviderDeps, ProviderReading, SessionProvider, StatMtime } from '../provider.js';
+import type { ListDir, ProviderDeps, ProviderReading, ReadTail, SessionProvider, StatMtime } from '../provider.js';
 import type { Failure, Session } from '../types.js';
 import { runJsonCli } from './exec-json.js';
 import type { ExecJson } from './exec-json.js';
@@ -45,6 +45,13 @@ interface TranscriptDeps {
 }
 
 /**
+ * How much of a transcript's end is read to find its title — twice the measured worst in-reach case, which is the
+ * margin a turn's writes can grow by before the title leaves the window. `docs/mechanics.md` §3b carries the
+ * measurement and why no window catches every session. Exported so a fixture recording uses the same one.
+ */
+export const TITLE_TAIL_BYTES = 64 * 1024;
+
+/**
  * Every directory that could hold this session, exact case first: a project directory's case is fixed by whichever
  * path first created it, and the CLI reports one checkout under either drive-letter case (`docs/mechanics.md` §3).
  */
@@ -64,20 +71,77 @@ export function transcriptCandidates(home: string, cwd: string, sessionId: strin
   return [...exact, ...variants].map((name) => `${root}/${name}/${sessionId}.jsonl`);
 }
 
-/**
- * When the session's transcript was last written, in epoch milliseconds, or null when there is none. Never
- * liveness: a live session's transcript can be hours old, or absent entirely.
- */
-export function transcriptWrittenAt(home: string, cwd: string, sessionId: string, deps: TranscriptDeps): number | null {
-  for (const candidate of transcriptCandidates(home, cwd, sessionId, deps.listDir)) {
-    const written = deps.mtime(candidate);
+export interface Transcript {
+  path: string;
+  /** Epoch milliseconds. Never liveness: a live session's transcript can be hours old, or absent entirely. */
+  writtenAt: number;
+}
 
-    if (written !== null) {
-      return written;
+/** The session's transcript, or null when it has none anywhere under the projects root. */
+export function findTranscript(
+  home: string,
+  cwd: string,
+  sessionId: string,
+  deps: TranscriptDeps,
+): Transcript | null {
+  for (const candidate of transcriptCandidates(home, cwd, sessionId, deps.listDir)) {
+    const writtenAt = deps.mtime(candidate);
+
+    if (writtenAt !== null) {
+      return { path: candidate, writtenAt };
     }
   }
 
   return null;
+}
+
+const titleRecord = z.object({
+  type: z.enum(['ai-title', 'custom-title']),
+  sessionId: z.string(),
+  aiTitle: z.string().optional(),
+  customTitle: z.string().optional(),
+});
+
+/**
+ * The session's title from the end of its transcript. A title the developer set outranks whatever came last, because
+ * the CLI goes on writing its own after one is set (`docs/mechanics.md` §3b); a tail short of that record reads as
+ * automatic.
+ */
+export function titleFrom(tail: string, sessionId: string): string | null {
+  let automatic: string | null = null;
+  let manual: string | null = null;
+
+  for (const line of tail.split('\n')) {
+    // A conversation line rarely holds the word, and parsing 64 kB of one per session per refresh is the cost avoided.
+    if (!line.includes('title')) {
+      continue;
+    }
+
+    let record;
+
+    try {
+      record = titleRecord.safeParse(JSON.parse(line));
+    } catch {
+      // The first line of a tail is a fragment of whatever the read cut through.
+      continue;
+    }
+
+    if (!record.success || record.data.sessionId !== sessionId) {
+      continue;
+    }
+
+    manual = record.data.customTitle?.trim() || manual;
+    automatic = record.data.aiTitle?.trim() || automatic;
+  }
+
+  return manual ?? automatic;
+}
+
+/** The title of the session's transcript, or null when it has no transcript or no title in the tail that was read. */
+export function transcriptTitle(transcript: Transcript | null, sessionId: string, readTail: ReadTail): string | null {
+  const tail = transcript && readTail(transcript.path, TITLE_TAIL_BYTES);
+
+  return tail ? titleFrom(tail, sessionId) : null;
 }
 
 function failure(kind: Failure['kind'], message: string, remedy: string): Failure {
@@ -88,12 +152,14 @@ const PATH_SETTING = `the "${CLAUDE_AGENT_ID}" entry in groundControl.agents`;
 
 function toSession(entry: AgentEntry, deps: ProviderDeps): Session {
   const link = linkOf(entry.cwd, deps.readText, deps.pattern);
+  const transcript = findTranscript(deps.home, entry.cwd, entry.sessionId, deps);
 
   return {
     agent: CLAUDE_AGENT_ID,
     sessionId: entry.sessionId,
     shortId: entry.id ?? null,
     name: entry.name ?? null,
+    title: transcriptTitle(transcript, entry.sessionId, deps.readTail),
     cwd: entry.cwd,
     kind: entry.kind,
     startedAt: entry.startedAt,
@@ -101,7 +167,7 @@ function toSession(entry: AgentEntry, deps: ProviderDeps): Session {
     state: entry.state ?? null,
     branch: link.branch,
     issueNumber: link.issueNumber,
-    transcriptWrittenAt: transcriptWrittenAt(deps.home, entry.cwd, entry.sessionId, deps),
+    transcriptWrittenAt: transcript?.writtenAt ?? null,
   };
 }
 

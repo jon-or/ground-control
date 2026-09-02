@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { mergeBoard } from '../src/index.js';
+import { cwdKey } from '../src/merge.js';
 import type { Session } from '../src/types.js';
-import { issues, linkedOffBoard, linkedOnBoard, onBoard, sessions, unlinked } from './helpers.js';
+import { issues, linkedOffBoard, linkedOnBoard, onBoard, sessions, unlinked, unlinkedCwds } from './helpers.js';
 
 const board = mergeBoard(issues, sessions);
 
@@ -10,6 +11,11 @@ describe('the recording these tests rest on', () => {
     expect(linkedOnBoard.length).toBeGreaterThan(0);
     expect(linkedOffBoard.length).toBeGreaterThan(0);
     expect(unlinked.length).toBeGreaterThan(0);
+  });
+
+  it('covers two directories of issue-less work, one of them holding several sessions', () => {
+    expect(unlinkedCwds.size).toBeGreaterThan(1);
+    expect(unlinked.length).toBeGreaterThan(unlinkedCwds.size);
   });
 
   it('covers an issue card holding more than one session', () => {
@@ -81,20 +87,25 @@ describe('mergeBoard', () => {
     expect(onBoard.has(off.issueNumber!)).toBe(false);
   });
 
-  it('gives a session with no issue a card of its own', () => {
-    for (const session of unlinked) {
-      const card = board.find((c) => c.key === `session:${session.agent}:${session.sessionId}`);
+  it('gives each directory of issue-less work one card, holding every session running there', () => {
+    const cards = board.filter((c) => c.issueNumber === null);
 
-      expect(card?.issue).toBeNull();
-      expect(card?.issueNumber).toBeNull();
-      expect(card?.sessions).toEqual([session]);
+    expect(cards).toHaveLength(unlinkedCwds.size);
+
+    for (const card of cards) {
+      const running = unlinked.filter((s) => cwdKey(s.cwd) === cwdKey(card.sessions[0]!.cwd));
+
+      expect(card.issue).toBeNull();
+      expect(card.key).toBe(`session:${cwdKey(card.sessions[0]!.cwd)}`);
+      expect(card.sessions).toHaveLength(running.length);
+      expect(card.sessions.map((s) => s.startedAt)).toEqual([...running.map((s) => s.startedAt)].sort((a, b) => b - a));
     }
   });
 
   it('orders the board as issues, then issues the developer does not own, then sessions alone', () => {
     const offBoardNumbers = new Set(linkedOffBoard.map((s) => s.issueNumber));
 
-    expect(board).toHaveLength(issues.length + offBoardNumbers.size + unlinked.length);
+    expect(board).toHaveLength(issues.length + offBoardNumbers.size + unlinkedCwds.size);
     expect(board.slice(issues.length, issues.length + offBoardNumbers.size).every((c) => c.issueNumber !== null)).toBe(
       true,
     );
@@ -125,12 +136,34 @@ describe('mergeBoard', () => {
     expect(cards[0]?.sessions.map((s) => s.sessionId)).toEqual([twin.sessionId, off.sessionId]);
   });
 
-  it('keeps two agents sessions apart even when they share a session id', () => {
+  it('puts two agents in one directory on one card — the directory is the work, not the CLI', () => {
     const mine = unlinked[0]!;
-    const twin: Session = { ...mine, agent: 'other-cli' };
+    const twin: Session = { ...mine, agent: 'other-cli', startedAt: mine.startedAt + 1000 };
     const cards = mergeBoard([], [mine, twin]);
 
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.sessions.map((s) => s.agent)).toEqual(['other-cli', mine.agent]);
+  });
+
+  it('groups a directory reported with a trailing separator, a backslash, or another case as one', () => {
+    const mine = unlinked[0]!;
+    const variants: Session[] = [
+      mine,
+      { ...mine, sessionId: 'trailing', cwd: `${mine.cwd}/` },
+      { ...mine, sessionId: 'backslash', cwd: mine.cwd.split('/').join('\\') },
+      { ...mine, sessionId: 'upper', cwd: mine.cwd.toUpperCase() },
+    ];
+    const cards = mergeBoard([], variants);
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.sessions).toHaveLength(4);
+  });
+
+  it('keeps two directories apart', () => {
+    const mine = unlinked[0]!;
+    const elsewhere: Session = { ...mine, sessionId: 'elsewhere', cwd: `${mine.cwd}-other` };
+    const cards = mergeBoard([], [mine, elsewhere]);
+
     expect(cards).toHaveLength(2);
-    expect(new Set(cards.map((c) => c.key)).size).toBe(2);
   });
 });

@@ -47,6 +47,22 @@ function pick(list, seed, salt) {
   return list[hash % list.length];
 }
 
+/**
+ * A session title says outright what the work is, so a recording's titles are replaced wholesale. The two kinds stay
+ * distinguishable — a manual title reads as one — because the precedence between them is what the tests turn on.
+ */
+function titlesFor(records, sessionId) {
+  return records.map((record) =>
+    record.type === 'custom-title'
+      ? { type: 'custom-title', customTitle: `my ${pick(SUBJECTS, sessionId, 3)}`, sessionId }
+      : {
+          type: 'ai-title',
+          aiTitle: `${pick(SUBJECTS, sessionId, 17)} ${pick(PROBLEMS, sessionId, 23)}`,
+          sessionId,
+        },
+  );
+}
+
 function branchFor(number) {
   const words = `${pick(SUBJECTS, number, 7)} ${pick(PROBLEMS, number, 13)}`;
 
@@ -147,6 +163,8 @@ function anonymiseTranscripts(recorded, map) {
       sessionId: entry.sessionId,
       dir: entry.dir === null ? null : wasCaseOnly ? slug.charAt(0).toUpperCase() + slug.slice(1) : slug,
       writtenAt: entry.writtenAt,
+      titles: titlesFor(entry.titles, entry.sessionId),
+      titleBytesFromEnd: entry.titleBytesFromEnd,
     };
   });
 
@@ -172,7 +190,12 @@ function identifying({ active, all, reads, transcripts }) {
     transcripts.home,
     ...[...active, ...all].flatMap((s) => [s.cwd, s.name]),
     ...transcripts.projectDirs,
-    ...transcripts.entries.flatMap((e) => [e.cwd, e.name, e.dir]),
+    ...transcripts.entries.flatMap((e) => [
+      e.cwd,
+      e.name,
+      e.dir,
+      ...e.titles.map((t) => t.aiTitle ?? t.customTitle),
+    ]),
     ...Object.keys(reads),
     ...branches,
   ].filter((value) => typeof value === 'string' && value.length > 3 && !UNIVERSAL.has(value));
