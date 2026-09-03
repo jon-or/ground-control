@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANE_ORDER, LANE_TITLES } from '@ground-control/board';
-import type { Lane } from '@ground-control/board';
+import type { Session, SnapshotMessage } from '@ground-control/core';
 
 /**
  * The board a panel comes back to after a reload, which is the one payload the webview reads that it did not just
@@ -10,12 +10,12 @@ import type { Lane } from '@ground-control/board';
  * whatever that version wrote — the reason this is its own file is that the script reads the state once, at import.
  */
 
-/** A card carrying one session, with whatever session shape the test is reviving. */
-function payloadWith(session: Record<string, unknown>): Record<string, unknown> {
+/** A card carrying one session, built from the protocol's own type so a field renamed in `core` fails here. */
+function payloadWith(session: Session): SnapshotMessage {
   const card = {
     key: 'issue:18953',
     issueNumber: 18953,
-    lane: 'unstarted',
+    lane: 'unstarted' as const,
     returned: false,
     attention: null,
     reason: '⚒️ Dev',
@@ -25,20 +25,29 @@ function payloadWith(session: Record<string, unknown>): Record<string, unknown> 
 
   return {
     type: 'board',
-    lanes: LANE_ORDER.map((id) => ({
-      id,
-      title: LANE_TITLES[id],
-      cards: id === 'unstarted' ? [card] : [],
-    })) as unknown as Lane[],
-    openable: [session['sessionId']],
+    lanes: LANE_ORDER.map((id) => ({ id, title: LANE_TITLES[id], cards: id === 'unstarted' ? [card] : [] })),
+    openable: [session.sessionId],
+    stale: false,
     issues: null,
     sessions: null,
     hooks: null,
     failures: [],
+    needs: null,
+    fetchedAt: '2026-09-03T12:00:00Z',
   };
 }
 
-const CURRENT = {
+/** The same board with a session shape no current type describes, which is the whole point of the second test. */
+function legacyPayload(session: Record<string, unknown>): Record<string, unknown> {
+  const current = payloadWith(CURRENT) as unknown as { lanes: { cards: { sessions: unknown[] }[] }[] };
+  const board = structuredClone(current);
+
+  board.lanes.flatMap((lane) => lane.cards).forEach((card) => (card.sessions = [session]));
+
+  return board as unknown as Record<string, unknown>;
+}
+
+const CURRENT: Session = {
   agent: 'claude',
   sessionId: 'session-1',
   pid: 4242,
@@ -91,7 +100,7 @@ describe('reviving a stored board', () => {
   });
 
   it('draws nothing from a board stored by a version whose sessions predate the details bag', async () => {
-    await revive({ payload: payloadWith(LEGACY), showArchived: false });
+    await revive({ payload: legacyPayload(LEGACY), showArchived: false });
 
     // Not a caught exception: the render must never be attempted, because a half-drawn lane is what the developer
     // would be left looking at until the first live message arrives.

@@ -283,3 +283,25 @@ describe('the notice', () => {
     expect(activityNotice({ plan: 'write', wanted: 'remove', unreported: 0 })).toContain('were removed');
   });
 });
+
+describe('the notice', () => {
+  it('says how many sessions cannot report yet, because a silent board looks like an idle one', () => {
+    expect(activityNotice({ plan: 'write', wanted: 'install', unreported: 3 })).toContain('3 sessions started before');
+    expect(activityNotice({ plan: 'write', wanted: 'install', unreported: 1 })).toContain('1 session started before');
+  });
+
+  it('says only that they are installed when every session already reports', () => {
+    expect(activityNotice({ plan: 'write', wanted: 'install', unreported: 0 })).toBe('Session activity hooks installed.');
+  });
+
+  // It is an announcement, not a status: a run that changed nothing has nothing to announce, however many sessions
+  // cannot report. The failure of a refused run is reported as a failure, not as a state.
+  it.each(['up-to-date', 'refuse', 'busy'] as const)('says nothing when the plan was %s', (plan) => {
+    expect(activityNotice({ plan, wanted: 'install', unreported: 4 })).toBeNull();
+    expect(activityNotice({ plan, wanted: 'remove', unreported: 4 })).toBeNull();
+  });
+
+  it('says they were removed', () => {
+    expect(activityNotice({ plan: 'write', wanted: 'remove', unreported: 0 })).toContain('were removed');
+  });
+});

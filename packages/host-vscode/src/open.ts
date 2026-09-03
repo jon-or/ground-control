@@ -64,7 +64,11 @@ export function sessionName(session: Session): string {
  * Where to open a session, or why the board will not. The window holding it decides where it opens, and the surface
  * decides how: asking for a session the sidebar holds as a tab opens a second agent on it rather than the first.
  */
-export function planOpen(request: OpenRequest, placements: Readonly<Record<string, AgentPlacement>>): OpenPlan {
+export function planOpen(
+  request: OpenRequest,
+  placements: Readonly<Record<string, AgentPlacement>>,
+  mayOpenWindow: boolean,
+): OpenPlan {
   const session = request.sessions.find((candidate) => candidate.sessionId === request.sessionId);
 
   if (!session) {
@@ -130,7 +134,7 @@ export function planOpen(request: OpenRequest, placements: Readonly<Record<strin
     };
   }
 
-  if (!here && !request.mayOpenWindow) {
+  if (!here && !mayOpenWindow) {
     return {
       refusal: 'elsewhere-not-allowed',
       message: `${sessionName(session)} is open in the window on ${root}, and the board is not allowed to bring it forward.`,

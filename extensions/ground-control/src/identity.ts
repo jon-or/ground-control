@@ -1,21 +1,11 @@
-import { execFile } from 'node:child_process';
 import * as vscode from 'vscode';
-import { parseAuthStatusLogins } from '@ground-control/github';
 import { saveLogins, splitLogins } from './config.js';
 
-function ghAuthStatus(ghPath: string): Promise<string> {
-  return new Promise((resolve) => {
-    execFile(ghPath, ['auth', 'status'], (err, stdout, stderr) => resolve(`${stdout}${stderr}`));
-  });
-}
-
 /**
- * Asks once, in place, seeded with whatever `gh` already knows (R26/R28). Returns the logins the developer
+ * Asks once, in place, seeded with what the hub already detected (R26, R28). Returns the logins the developer
  * confirmed, or an empty list if they dismissed the box — the board then explains itself rather than querying.
  */
-export async function promptForLogins(ghPath: string): Promise<string[]> {
-  const detected = parseAuthStatusLogins(await ghAuthStatus(ghPath));
-
+export async function promptForLogins(detected: readonly string[]): Promise<string[]> {
   const answer = await vscode.window.showInputBox({
     title: 'Ground Control — whose issues is this board for?',
     prompt: 'GitHub username. Comma-separate several if you work under more than one account.',

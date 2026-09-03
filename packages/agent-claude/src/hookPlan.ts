@@ -302,35 +302,3 @@ export const MARKER_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export function markerIsOrphaned(mtimeMs: number, now: number): boolean {
   return now - mtimeMs > MARKER_MAX_AGE_MS;
 }
-
-export interface HookNoticeInput {
-  /** `busy` is another window holding the install lock: not a state of the settings file, so nothing is claimed. */
-  plan: ActivityPlan['kind'] | 'busy';
-  wanted: ActivityPlanInput['wanted'];
-  /** Listed sessions that started before the install and so cannot report a phase yet. */
-  unreported: number;
-}
-
-/**
- * The one sentence the board puts above the lanes, and only when it has something new to say: a run that changed
- * nothing announces nothing. It is an announcement, not a status — the caller shows it once (R25).
- */
-export function hookNotice({ plan, wanted, unreported }: HookNoticeInput): string | null {
-  // Only an actual write is news. A refusal is reported as a failure instead: saying "installed" beside the reason
-  // it could not be is the board contradicting itself on one screen (R24).
-  if (plan !== 'write') {
-    return null;
-  }
-
-  if (wanted === 'remove') {
-    return 'Session activity hooks were removed. Sessions no longer report what they are doing.';
-  }
-
-  if (unreported > 0) {
-    const sessions = unreported === 1 ? '1 session' : `${unreported} sessions`;
-
-    return `Session activity hooks installed. ${sessions} started before that and will not report until restarted.`;
-  }
-
-  return 'Session activity hooks installed.';
-}

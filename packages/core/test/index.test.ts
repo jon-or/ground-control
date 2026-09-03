@@ -5,6 +5,9 @@ describe('the package public surface', () => {
   it('exposes the helpers every adapter and the hub share, and names no adapter', () => {
     expect(Object.keys(api).sort()).toEqual([
       'GROUND_CONTROL_DIR',
+      'LANE_ORDER',
+      'LANE_TITLES',
+      'PROTOCOL',
       'basename',
       'compilePattern',
       'dirKey',
@@ -12,6 +15,7 @@ describe('the package public surface', () => {
       'fetchSessions',
       'findCheckout',
       'groundControlDirOf',
+      'hubConfig',
       'isAbsolute',
       'issueNumberFrom',
       'join',
@@ -20,10 +24,14 @@ describe('the package public surface', () => {
       'mtimeFromDisk',
       'normalize',
       'parent',
+      'parseHubConfig',
       'readTailFromDisk',
       'readTextFromDisk',
       'resolveOnDisk',
+      'rosterIsStale',
       'runJsonCli',
+      'spawnable',
+      'unreportedSessions',
     ]);
   });
 });

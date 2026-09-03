@@ -670,7 +670,7 @@ function render(payload) {
 
   // A failed source keeps its last good read on screen, dimmed. Clearing it would imply the board verified there is
   // nothing to show; leaving it bright would imply the read succeeded.
-  const stale = payload.failures.length > 0;
+  const stale = payload.stale === true;
   lanesEl.classList.toggle('stale', stale);
   metaEl.classList.toggle('stale', stale);
 

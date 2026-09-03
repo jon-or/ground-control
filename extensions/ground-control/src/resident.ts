@@ -1,10 +1,7 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
-import { diskReaders, fetchSessions } from '@ground-control/core';
 import type { OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
-import { PLACEMENTS, liveRootsOf, sessionName, strayFrom, verifyOpen } from '@ground-control/host-vscode';
-import { mayOpenWindow, readSessionsConfig, vscodeSettings } from './config.js';
-import { agents, host } from './registry.js';
+import { PLACEMENTS, sessionName, strayFrom, verifyOpen } from '@ground-control/host-vscode';
 
 /** The Claude placement in VS Code: its ids, and the commands that reach a session without side effects (§6, §7). */
 const CLAUDE = PLACEMENTS['claude']!;
@@ -17,6 +14,9 @@ const FOCUS_TIMEOUT_MS = 12_000;
 const LANDING_TIMEOUT_MS = 20_000;
 /** Each pass is a full roster read, so this is paced to cost a handful of them rather than one every quarter second. */
 const LANDING_POLL_MS = 2000;
+
+/** How the resident half reads the machine: it asks the hub, which is the only thing here that reads it at all. */
+export type Roster = () => Promise<readonly Session[]>;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -81,7 +81,7 @@ async function focusLeft(timeoutMs: number): Promise<boolean> {
 }
 
 /** Whether the agent's own extension is here and activated, which is what performs a reveal in this window. */
-async function agentExtensionReady(): Promise<boolean> {
+export async function agentExtensionReady(): Promise<boolean> {
   const extension = vscode.extensions.getExtension(CLAUDE.extensionId);
 
   if (!extension) {
@@ -99,16 +99,11 @@ async function agentExtensionReady(): Promise<boolean> {
   ]).catch(() => false);
 }
 
-/** The live roster, read the one way the board reads it, so a row here is the same `Session` a card was built from. */
-async function roster(): Promise<Session[]> {
-  return (await fetchSessions(readSessionsConfig(), agents, diskReaders())).sessions;
-}
-
 /**
  * This window's own root, chosen the way a recorded one is (§21): its workspace file where it has one, else its first
  * folder. A multi-root window's folder equals no recorded root, so that alone would place every session elsewhere.
  */
-function boardRoot(): string | null {
+export function boardRoot(): string | null {
   const file = vscode.workspace.workspaceFile;
 
   return (file?.scheme === 'file' ? file.fsPath : undefined) ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
@@ -154,7 +149,7 @@ async function revealHere(sessionId: string): Promise<string | null> {
  * Watches, after the fact, for the session to appear where it was aimed. Not awaited: the developer has already been
  * taken to the window, and the only thing worth interrupting them for is a fire that missed (`docs/mechanics.md` §7).
  */
-async function confirmLanding(root: string, before: readonly Session[]): Promise<void> {
+async function confirmLanding(roster: Roster, root: string, before: readonly Session[]): Promise<void> {
   for (let waited = 0; waited < LANDING_TIMEOUT_MS; waited += LANDING_POLL_MS) {
     await delay(LANDING_POLL_MS);
 
@@ -174,7 +169,7 @@ async function confirmLanding(root: string, before: readonly Session[]): Promise
  * Reveals a session whose tab is in another window. The URI reaches whichever window has focus and nothing else
  * (`docs/mechanics.md` §7), so focus is taken first, deliberately, and the fire is checked afterwards.
  */
-async function revealElsewhere(session: Session, root: string): Promise<string | null> {
+async function revealElsewhere(roster: Roster, session: Session, root: string): Promise<string | null> {
   if (!(await raise(root))) {
     return `Could not bring the window on ${root} forward, so nothing was opened. Is the \`code\` command on your PATH?`;
   }
@@ -185,16 +180,9 @@ async function revealElsewhere(session: Session, root: string): Promise<string |
 
   await run('code', ['--open-url', quoted(CLAUDE.openUri(session.sessionId))]);
 
-  void confirmLanding(root, before);
+  void confirmLanding(roster, root, before);
 
   return null;
-}
-
-export interface Machine {
-  /** The `User` directory of the running VS Code, which is where every window's persisted state lives. */
-  userDir: string;
-  /** The home directory Claude Code writes under, which is where the windows announce themselves. */
-  home: string;
 }
 
 /**
@@ -205,13 +193,13 @@ export interface Machine {
  * The switch is exhaustive on purpose: a route added to the plan and not handled here fails the typecheck rather
  * than falling through to another.
  */
-export async function performRoute(plan: OpenRoute): Promise<string | null> {
+export async function performRoute(plan: OpenRoute, roster: Roster): Promise<string | null> {
   switch (plan.route) {
     case 'reveal-here':
       return revealHere(plan.session.sessionId);
 
     case 'reveal-elsewhere':
-      return revealElsewhere(plan.session, plan.root);
+      return revealElsewhere(roster, plan.session, plan.root);
 
     case 'sidebar-here':
       if (!(await focusSidebar())) {
@@ -276,62 +264,23 @@ export async function refuse(refusal: OpenRefusal, message: string): Promise<voi
 const opening = new Set<string>();
 
 /**
- * Fills both caches an open needs — the process table and every window's persisted state — before the developer asks,
- * which is what leaves a click paying tens of milliseconds rather than the best part of a second.
+ * Carries out a route the hub planned, and says what went wrong when it did not land. One at a time per session:
+ * a second fire at a tab already on its way is a second agent on one transcript (`docs/mechanics.md` §11).
  */
-export function primeOpen(where: Machine): void {
-  host.configure(vscodeSettings(where.userDir));
-  host.prime(diskReaders(where.home));
-}
-
-/**
- * Opens a session (R14), wherever it runs. Which window holds it comes from its own process, and which surface from
- * VS Code's per-window state — a tab is revealed by id, and a sidebar has no such command (`docs/mechanics.md` §21).
- */
-export async function openSession(sessionId: string, sessions: readonly Session[], where: Machine): Promise<void> {
-  host.configure(vscodeSettings(where.userDir));
-
-  const deps = diskReaders(where.home);
-  const [windows, surfaces, extensionReady] = await Promise.all([
-    host.windows(
-      sessions.find((session) => session.sessionId === sessionId),
-      deps,
-    ),
-    host.surfaces(deps),
-    agentExtensionReady(),
-  ]);
-
-  const plan = host.plan({
-    sessionId,
-    sessions,
-    surfaces,
-    window: windows.holding,
-    liveRoots: liveRootsOf(windows.live),
-    workspaceRoot: boardRoot(),
-    mayOpenWindow: mayOpenWindow(),
-    extensionReady,
-    now: Date.now(),
-  });
-
-  if ('refusal' in plan) {
-    void refuse(plan.refusal, plan.message);
-
+export async function perform(route: OpenRoute, roster: Roster): Promise<void> {
+  if (opening.has(route.session.sessionId)) {
     return;
   }
 
-  if (opening.has(plan.session.sessionId)) {
-    return;
-  }
-
-  opening.add(plan.session.sessionId);
+  opening.add(route.session.sessionId);
 
   try {
-    const failure = await performRoute(plan);
+    const failure = await performRoute(route, roster);
 
     if (failure) {
       void vscode.window.showErrorMessage(failure);
     }
   } finally {
-    opening.delete(plan.session.sessionId);
+    opening.delete(route.session.sessionId);
   }
 }

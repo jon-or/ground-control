@@ -68,12 +68,12 @@ The full rules are in [docs/testing.md](docs/testing.md). The short version:
 
 | Directory | Purpose |
 | --- | --- |
-| `packages/core` | The seams every adapter implements (`AgentAdapter`, `HostAdapter`), the neutral `Session`, and the helpers they share. Names no adapter. **Must not import `vscode`.** |
+| `packages/core` | The seams every adapter implements (`AgentAdapter`, `HostAdapter`), the neutral `Session`, the lane and card types, the client protocol, and the helpers they share. Names no adapter. **Must not import `vscode`.** |
 | `packages/agent-claude` | The Claude Code agent adapter: `claude agents --json`, transcript titles, the activity hook. **Must not import `vscode`.** |
 | `packages/host-vscode` | The VS Code host adapter's headless half: lock files, window stores, the placement table, the open plan. **Must not import `vscode`.** |
 | `packages/github` | GitHub reads via the `gh` CLI. **Must not import `vscode`.** |
 | `packages/board` | Merges assigned issues and live sessions into board cards. **Must not import `vscode`.** |
-| `packages/hub` | The background process the boards are clients of: the registries and defaults, activity install, the marker watcher, lane memory. **Must not import `vscode`.** |
+| `packages/hub` | The background process the boards are clients of: the registries and defaults, the loop, activity install, the marker watcher, lane memory. **Must not import `vscode`.** |
 | `extensions/ground-control` | The extension — activation, config, webview board panel. Imports `vscode`. |
 | `extensions/seize-probe` | Probe extension that proves window-scoped command targeting for `docs/mechanics.md`. Not a workspace, not shipped. |
 

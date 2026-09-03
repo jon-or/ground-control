@@ -15,7 +15,6 @@ function request(over: Partial<OpenRequest> = {}): OpenRequest {
     window: null,
     liveRoots: [held.cwd],
     workspaceRoot: held.cwd,
-    mayOpenWindow: true,
     extensionReady: true,
     now: held.startedAt + 1,
     ...over,

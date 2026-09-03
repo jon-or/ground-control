@@ -1,20 +1,10 @@
 import { z } from 'zod';
+import { LANE_ORDER, LANE_TITLES } from '@ground-control/core';
+import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/core';
 import type { BoardCard, Session } from './types.js';
 
-export type LaneId = 'unstarted' | 'plan' | 'build' | 'review' | 'done' | 'icebox' | 'archived';
-
-/** Left to right on the board. `archived` is last and renders only behind the toggle. */
-export const LANE_ORDER: readonly LaneId[] = ['unstarted', 'plan', 'build', 'review', 'done', 'icebox', 'archived'];
-
-export const LANE_TITLES: Readonly<Record<LaneId, string>> = {
-  unstarted: 'Unstarted',
-  plan: 'Plan',
-  build: 'Build',
-  review: 'Review',
-  done: 'Done',
-  icebox: 'Icebox',
-  archived: 'Archived',
-};
+export { LANE_ORDER, LANE_TITLES };
+export type { Attention, Lane, LaneId, LanedCard };
 
 /** The lanes a developer may move a card into. `archived` is not one: only a status takes a card off the board. */
 export const PLACEABLE_LANES: readonly LaneId[] = LANE_ORDER.filter((id) => id !== 'archived');
@@ -105,22 +95,6 @@ export function readMemory(stored: unknown, statuses: readonly string[]): CardMe
   return { placements, seenPastMyHands: parsed.data.seenPastMyHands, statuses: [...statuses] };
 }
 
-export type Attention = 'blocked' | 'your-turn';
-
-export interface LanedCard extends BoardCard {
-  lane: LaneId;
-  returned: boolean;
-  /** What the card asks of the developer, or null when it asks nothing. */
-  attention: Attention | null;
-  /** What the card's status says about it being on the board. Never why it is in its lane. */
-  reason: string;
-}
-
-export interface Lane {
-  id: LaneId;
-  title: string;
-  cards: LanedCard[];
-}
 
 /** Lanes where the developer has already said the card is not theirs to push on, so an agent finishing there asks nothing of them. */
 const SETTLED_LANES: readonly LaneId[] = ['done', 'icebox', 'archived'];

@@ -11,15 +11,12 @@ describe('the package public surface', () => {
       'backupsToDelete',
       'claudeActivity',
       'claudeSettingsPathOf',
-      'hookNotice',
       'hookPathOf',
       'lockIsStale',
       'makeClaudeAdapter',
       'markerIsOrphaned',
       'planHookInstall',
       'readActivity',
-      'rosterIsStale',
-      'unreportedSessions',
     ]);
   });
 });

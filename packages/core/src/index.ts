@@ -1,4 +1,12 @@
 export { fetchSessions } from './sessions.js';
+export { rosterIsStale, unreportedSessions } from './roster.js';
+export { LANE_ORDER, LANE_TITLES } from './board.js';
+export type { Attention, BoardCard, Lane, LaneId, LanedCard } from './board.js';
+export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
+export { hubConfig, parseHubConfig, spawnable } from './config.js';
+export type { HubConfig } from './config.js';
+export { PROTOCOL } from './protocol.js';
+export type { ClientHello, ClientMessage, HubMessage, Snapshot, SnapshotMessage } from './protocol.js';
 export { basename, dirKey, groundControlDirOf, isAbsolute, join, normalize, parent, GROUND_CONTROL_DIR } from './paths.js';
 export { compilePattern, findCheckout, issueNumberFrom, linkOf } from './link.js';
 export type { CompiledPattern, Link } from './link.js';

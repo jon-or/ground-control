@@ -1,5 +1,5 @@
 export { configureHosts, defaultConfig, makeRegistries } from './registry.js';
-export type { HubConfig, Registries } from './registry.js';
+export type { Registries } from './registry.js';
 export {
   BACKUPS_KEPT,
   MARKER_MAX_AGE_MS,
@@ -18,3 +18,6 @@ export type { MarkStore, Marks } from './marks.js';
 export { BATCH_MS, watchDir } from './watch.js';
 export { LOCK_STALE_MS, lockIsStale, read, releaseLock, takeLock, writeAtomic, writeIfChanged, writeInPlace } from './fs.js';
 export { backupPathOf, installLockPathOf, lanesPathOf, marksPathOf } from './paths.js';
+export { Hub, realHubDeps } from './hub.js';
+export type { Client, HubClock, HubDeps } from './hub.js';
+export { readGithubConfig } from './sources.js';

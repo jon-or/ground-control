@@ -37,21 +37,25 @@
       "title": "Ground Control",
       "properties": {
         "groundControl.github.logins": {
+          "scope": "application",
           "type": "string",
           "default": "",
           "markdownDescription": "Your GitHub username. Comma-separate several if you work under more than one account, such as a personal and a bot account. Left empty, the board offers to detect them from `gh auth status`."
         },
         "groundControl.github.repo": {
+          "scope": "application",
           "type": "string",
           "default": "ownerrez/orez",
           "description": "The repository work is tracked in, as owner/name."
         },
         "groundControl.github.projectNumber": {
+          "scope": "application",
           "type": "number",
           "default": 3,
           "description": "The GitHub project board work is tracked on. Used when Card Source is 'project'."
         },
         "groundControl.cardSource": {
+          "scope": "application",
           "type": "string",
           "enum": [
             "project",
@@ -65,6 +69,7 @@
           "description": "Which assigned issues become cards."
         },
         "groundControl.github.ghPath": {
+          "scope": "application",
           "type": "string",
           "default": "gh",
           "description": "Path to the GitHub CLI, if it is not on PATH."
@@ -102,12 +107,14 @@
           "markdownDescription": "Which lane a card arrives in — and stays in until you move it — for the statuses that carry one. Most statuses say nothing about stage, so leave them out. Your own **open** pull request outranks this; a merged or closed one is read as nothing. A card you have moved yourself is never moved again, until it goes past your hands and comes back."
         },
         "groundControl.sessionRefreshSeconds": {
+          "scope": "application",
           "type": "number",
           "default": 30,
           "minimum": 2,
           "description": "How often the board re-reads the agent sessions on this machine, while it is the visible tab. Each read spawns the agent CLI, so a short interval costs a process every few seconds."
         },
         "groundControl.agents": {
+          "scope": "application",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -116,22 +123,26 @@
           "markdownDescription": "The agent CLIs to read sessions from, as id to command or full path. Left empty, the board reads the ones that ship enabled."
         },
         "groundControl.branchIssuePattern": {
+          "scope": "application",
           "type": "string",
           "default": "^(\\d+)-",
           "markdownDescription": "Matches the issue number in a branch or directory name, as a regular expression whose first capture group is the number. The team convention ships as the default."
         },
         "groundControl.refreshIntervalSeconds": {
+          "scope": "application",
           "type": "number",
           "default": 300,
           "minimum": 30,
           "description": "How often the board refreshes while it is open."
         },
         "groundControl.installSessionHooks": {
+          "scope": "application",
           "type": "boolean",
           "default": true,
           "markdownDescription": "Let the board tell when a session is running. Claude Code's own `claude agents --json` does not report what an interactive session is doing, so the board writes a small activity hook to `~/.claude/ground-control/hook.mjs` and adds entries pointing at it to your `~/.claude/settings.json` the first time you open the board. It backs the file up first, adds only its own entries, and refuses to write at all if it cannot read the file. Turn this off to remove those entries — sessions still appear, they just cannot report what they are doing."
         },
         "groundControl.openWindowsForSessions": {
+          "scope": "application",
           "type": "boolean",
           "default": true,
           "markdownDescription": "Whether opening a session may bring another VS Code window forward. A session is only reachable from the window showing it, so this is what lets the board cross windows — at the cost of moving your focus. The board never opens a window that is not already open: where no window holds the session, it says so. Off, a session held elsewhere is named and refused instead."
@@ -148,7 +159,6 @@
     "vscode:uninstall": "node ./dist/uninstall.js"
   },
   "dependencies": {
-    "@ground-control/agent-claude": "*",
     "@ground-control/board": "*",
     "@ground-control/core": "*",
     "@ground-control/github": "*",
