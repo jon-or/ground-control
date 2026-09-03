@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { cwdKey } from '../src/merge.js';
+import { dirKey } from '@ground-control/sessions';
 import type { CardPullRequest } from '@ground-control/github';
 import type { IssueCard, Session } from '../src/types.js';
 
@@ -42,6 +42,7 @@ export const issues = completed(fixture('issues') as RecordedCard[]);
 const SESSION_KEYS = {
   agent: true,
   sessionId: true,
+  pid: true,
   shortId: true,
   name: true,
   title: true,
@@ -56,16 +57,19 @@ const SESSION_KEYS = {
   activity: true,
 } satisfies Record<keyof Session, true>;
 
+/** The recording predates `pid`, which names the process holding a session and which no board card reads. */
+const RECORDED_MISSING = new Set(['pid']);
+
 function checked(rows: unknown[]): Session[] {
   rows.forEach((row, index) => {
     for (const key of Object.keys(SESSION_KEYS)) {
-      if (!Object.hasOwn(row as object, key)) {
+      if (!Object.hasOwn(row as object, key) && !RECORDED_MISSING.has(key)) {
         throw new Error(`sessions.json row ${index} has no "${key}" — re-record it with test/fixtures/record.js`);
       }
     }
   });
 
-  return rows as Session[];
+  return rows.map((row) => ({ ...(row as Session), pid: (row as Session).pid ?? null }));
 }
 
 export const sessions = checked(fixture('sessions') as unknown[]);
@@ -77,4 +81,4 @@ export const linkedOffBoard = sessions.filter((s) => s.issueNumber !== null && !
 export const unlinked = sessions.filter((s) => s.issueNumber === null);
 
 /** The directories the unlinked sessions run in — one card each, so the count the board produces is this set's size. */
-export const unlinkedCwds = new Set(unlinked.map((s) => cwdKey(s.cwd)));
+export const unlinkedCwds = new Set(unlinked.map((s) => dirKey(s.cwd)));

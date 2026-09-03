@@ -1,6 +1,6 @@
 # ground-control — PRD
 
-User-facing requirements only. Mechanisms, schemas, and APIs live in `docs/mechanics.md`, `docs/task1.md`, `docs/task2.md`.
+User-facing requirements only. Mechanisms, schemas, and APIs live in `docs/mechanics.md`.
 
 ## 1. Purpose
 
@@ -138,8 +138,28 @@ The board reports two facts and never a third: the last phase it observed a sess
 **R14. The user can open a session in a Claude Code tab and drive it by hand.**
 The tab shows the full prior conversation and runs in that work's own directory, so anything typed operates on the right code.
 
+A session's own row on its card is the control, and it names the session by id — the board never hands out a path or a command line, the same rule the issue and pull-request buttons follow. Every Claude session is offered wherever it runs: the board exists to hold many worktrees at once, so where a session is held decides how it is reached, never whether it may be.
+
+**Where a session is held is read, not inferred.** VS Code records, per window, which session each of its Claude tabs is showing and which one its sidebar is showing. That record names both the window and the surface, and the two are reached differently: a tab is revealed by its session id, and no command reveals one session in the sidebar. Asking for a sidebar-held session as a tab builds a second surface on it, which is a second agent on one piece of work (R18) — so the board never does. The directory a session reports is not the answer either: a session sent to a worktree keeps the window it started in and reports the worktree.
+
+**A session in the sidebar is brought to, not opened.** Its window comes forward already showing it, and the board says which session that is — in this window as well as another, because the record is a minute old and the view that comes forward may be showing different work. That is the whole of what can be done for one, and saying so beats opening something that looks right and is not.
+
+**Which window holds a session is read from the session's own process**, not guessed from where it is working: the process belongs to one window, and that window is the one still listening on its own port. So a session sent to a worktree is found in the window it actually runs in, and a window that has closed — which leaves its record behind — is told from one still open. Bringing another window forward is a permission the developer holds, because it moves their focus. It is granted by default, since a board spanning worktrees is useless without it. Revoking it refuses a session elsewhere by name rather than disabling the board, and the refusal offers to grant it there and then — R34 asks that a setting be changeable without editing a file, and this is the one refusal a setting fixes. Where no open window holds the session, the board says so rather than opening a fresh one the session is not in — and the same where the window holding it has no folder open, or several, because `code` is given one path and a folder of a multi-root window opens a second window rather than raising the first.
+
+**Where the window is known and the surface is not, the board takes the developer to the window and says so.** That is common rather than exotic — a tab's record can go missing, and the sidebar remembers only what it is showing now — and it is the honest answer: firing would be a guess, and the wrong guess runs a second agent on one piece of work.
+
+**The record is written on a cycle rather than on change**, about a minute behind. A session younger than that has not been placed yet, and the board says it is still settling rather than that it cannot be reached — the two have different remedies, and one of them is waiting. A session no window has ever shown is neither: it was started from a terminal, or its surface has since been given other work, and the board says that plainly.
+
+Aiming still has to be checked rather than assumed. A request that lands in the wrong window does not fail quietly; it starts a fresh, empty agent under that window's directory. So the board confirms focus actually left before it fires, and watches afterwards for a session that should not have appeared — comparing against the roster as it stood when the request went out, so work the developer starts themselves in the meantime is not reported as a miss.
+
+Everything the board cannot do, it names. A session another CLI reported, a clicked row the roster no longer carries, and a missing Claude Code extension are each refused in their own words, because each has a different remedy — the general rule of R25, applied to the one place the board acts rather than reads.
+
+The Claude Code extension stores where the developer prefers Claude to appear, and some of its commands rewrite that setting as a side effect of being called. The board never does: for a tab it uses the one command that leaves the setting alone, and for the sidebar it focuses the view directly rather than through the extension's own opener.
+
 **R15. Taking over stops the session, and the user is told so before it happens.**
 The cost is stated in specific terms — including how much in-flight work will be discarded — with the option to watch or redirect instead.
+
+There is a stop to quote only for a session the board dispatched. A session already running in an editor tab is the developer's to type into, and opening it takes nothing away — which is also why nothing is pre-filled for one: a prompt supplied to a tab that already exists is dropped, and the developer is told to type it in themselves, so the seeded reply R16 asks for is reliable only on the sessions R15 has to stop.
 
 **R16. Taking over pre-fills the most likely next message.**
 When a session stopped to ask something, the reply the user probably wants is already in the box. One keystroke should be the whole interaction.
@@ -149,6 +169,10 @@ No separate "give it back" step. When the user is done, they close the tab and t
 
 **R18. The user cannot accidentally create two agents on the same work.**
 If a session is already open somewhere, the board says so and refuses to start a second one rather than silently splitting the work in two.
+
+A session that already has a tab is revealed rather than opened again, in whichever window holds it, and the identity that decides it is the session id. The surface it is on matters as much as the window: a session the sidebar is showing has no tab to reveal, and asking for one builds a second surface on a session already held — two agents on one transcript, reached without anyone resuming anything. So the board reads the surface before it fires, and refuses that case outright rather than opening something that looks right.
+
+Two windows rooted at one directory is the case it still cannot separate, because the two share one record of what they are showing. A tab label is no substitute for telling them apart: a label is a lagging, renameable projection of a session, not a handle on one.
 
 ### Redirecting without taking over
 

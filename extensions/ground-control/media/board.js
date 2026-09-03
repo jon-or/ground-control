@@ -59,6 +59,9 @@ function sessionLabel(session) {
   return session.title ?? session.name ?? session.shortId ?? basename(session.cwd);
 }
 
+/** The sessions this window can open, named by the extension - the webview never compares directories itself. */
+let openable = new Set();
+
 const SVG = 'http://www.w3.org/2000/svg';
 // Claude's own mark, verbatim from the official extension's resources/claude-logo.svg, at its brand colour.
 const CLAUDE_MARK =
@@ -99,9 +102,23 @@ function sessionLine(session) {
 
   const agent = agentMark(session.agent);
 
-  const label = document.createElement('span');
+  // A control only where there is a command to run: another CLI's session has none, and a button that could only ever
+  // refuse is worse than no button - it also costs the card a strip it could be dragged by.
+  const name = sessionLabel(session);
+  const label = document.createElement(openable.has(session.sessionId) ? 'button' : 'span');
   label.className = 'session-label';
-  label.textContent = sessionLabel(session);
+  label.textContent = name;
+
+  if (label.tagName === 'BUTTON') {
+    label.type = 'button';
+    // The label ellipsises, so the tooltip is where the whole name stays readable.
+    label.title = `${name} - go to this session`;
+    // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
+    label.draggable = false;
+    label.addEventListener('click', () => vscode.postMessage({ type: 'openSession', sessionId: session.sessionId }));
+  } else {
+    label.title = name;
+  }
 
   el.append(agent, label);
 
@@ -558,6 +575,8 @@ function signature(boardCard) {
       s.state,
       s.status,
       s.activity?.phase ?? null,
+      // Whether the row is a button. A restored payload renders before the live read, and the two can disagree.
+      openable.has(s.sessionId),
     ]),
   ]);
 }
@@ -649,6 +668,7 @@ function countCards(lanes) {
 
 function render(payload) {
   board = payload;
+  openable = new Set(payload.openable ?? []);
 
   noticesEl.replaceChildren();
 

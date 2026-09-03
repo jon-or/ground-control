@@ -220,6 +220,7 @@ describe('unreportedSessions', () => {
   const base: Session = {
     agent: 'claude',
     sessionId: SESSION,
+    pid: 4242,
     shortId: null,
     name: null,
     title: null,

@@ -130,6 +130,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Let the board tell when a session is running. Claude Code's own `claude agents --json` does not report what an interactive session is doing, so the board writes a small activity hook to `~/.claude/ground-control/hook.mjs` and adds entries pointing at it to your `~/.claude/settings.json` the first time you open the board. It backs the file up first, adds only its own entries, and refuses to write at all if it cannot read the file. Turn this off to remove those entries — sessions still appear, they just cannot report what they are doing."
+        },
+        "groundControl.openWindowsForSessions": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Whether opening a session may bring another VS Code window forward. A session is only reachable from the window showing it, so this is what lets the board cross windows — at the cost of moving your focus. The board never opens a window that is not already open: where no window holds the session, it says so. Off, a session held elsewhere is named and refused instead."
         }
       }
     }

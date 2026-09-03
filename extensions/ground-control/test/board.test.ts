@@ -15,6 +15,7 @@ const api = {
 const session: Session = {
   agent: 'claude',
   sessionId: 'session-1',
+  pid: 4242,
   shortId: null,
   name: 'cache-remediation',
   title: null,
@@ -34,10 +35,14 @@ function lanes(cards: Partial<Record<LaneId, LanedCard[]>>): Lane[] {
   return LANE_ORDER.map((id) => ({ id, title: LANE_TITLES[id], cards: cards[id] ?? [] }));
 }
 
+/** Openable by default: most tests are not about which sessions this window can open, and none may be. */
 function message(overrides: Partial<BoardMessage> = {}): BoardMessage {
+  const shown = overrides.lanes ?? lanes({});
+
   return {
     type: 'board',
-    lanes: lanes({}),
+    lanes: shown,
+    openable: shown.flatMap((lane) => lane.cards).flatMap((card) => card.sessions).map((s) => s.sessionId),
     issues: {
       count: 0,
       matched: 0,
@@ -241,11 +246,11 @@ describe('board webview', () => {
     expect(number.title).toBe('Open issue #18953 on GitHub');
     // The button's own text is a bare number, so without this a screen reader announces only "18953, button".
     expect(number.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
-    expect(number.draggable).toBe(false);
+    expect(number.getAttribute('draggable')).toBe('false');
     expect(pr.tagName).toBe('BUTTON');
     expect(pr.title).toBe('Pull request #19403 — open');
     expect(pr.getAttribute('aria-label')).toBe('Open pull request #19403, open, on GitHub');
-    expect(pr.draggable).toBe(false);
+    expect(pr.getAttribute('draggable')).toBe('false');
     expect(getComputedStyle(pr).cursor).toBe('pointer');
 
     number.click();
@@ -253,6 +258,101 @@ describe('board webview', () => {
 
     pr.click();
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'openPullRequest', number: 18953 });
+  });
+
+  it('opens a session from its own row, naming the session and never its directory', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    const label = document.querySelector<HTMLButtonElement>('.session .session-label')!;
+
+    expect(label.tagName).toBe('BUTTON');
+    // The whole name, because the label ellipsises - and the action, because the label alone does not imply it.
+    expect(label.title).toBe('cache-remediation - go to this session');
+    expect(getComputedStyle(label).cursor).toBe('pointer');
+    // A button brings its own colour, and on a dark card the UA default is the wrong one.
+    expect(getComputedStyle(label).color).toBe('inherit');
+    // Without this, a few pixels of drift on the way to a click drags the card and the click never fires. The
+    // attribute, not the property: a button reads false either way, so only the attribute proves the line is there.
+    expect(label.getAttribute('draggable')).toBe('false');
+
+    label.click();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openSession', sessionId: 'session-1' });
+  });
+
+  it('offers no control for a session no command can open, such as another agent’s', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }), openable: [] }));
+
+    const label = document.querySelector<HTMLElement>('.session .session-label')!;
+
+    expect(label.tagName).toBe('SPAN');
+    expect(label.title).toBe('cache-remediation');
+    expect(getComputedStyle(label).cursor).not.toBe('pointer');
+
+    label.click();
+
+    expect(api.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('marks only the openable rows on a card whose sessions run in different places', () => {
+    const mixed: LanedCard = {
+      ...liveCard,
+      sessions: [
+        { ...session, sessionId: 'here', name: 'in this window' },
+        { ...session, sessionId: 'elsewhere', name: 'in another worktree' },
+      ],
+    };
+
+    send(message({ lanes: lanes({ build: [mixed] }), openable: ['here'] }));
+
+    const labels = Array.from(document.querySelectorAll<HTMLElement>('.session .session-label'));
+
+    expect(labels.map((el) => el.tagName)).toEqual(['BUTTON', 'SPAN']);
+
+    labels[0]!.click();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openSession', sessionId: 'here' });
+  });
+
+  it('rebuilds a card when a session stops being openable, rather than leaving a dead button', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    expect(document.querySelector('.session .session-label')!.tagName).toBe('BUTTON');
+
+    send(message({ lanes: lanes({ build: [liveCard] }), openable: [] }));
+    expect(document.querySelector('.session .session-label')!.tagName).toBe('SPAN');
+  });
+
+  it('opens the session whose row was clicked, not the first on the card', () => {
+    const two: LanedCard = {
+      ...liveCard,
+      sessions: [
+        { ...session, sessionId: 'newest', name: 'reading logs' },
+        { ...session, sessionId: 'older', name: 'drafting notes' },
+      ],
+    };
+
+    send(message({ lanes: lanes({ build: [two] }) }));
+
+    const labels = document.querySelectorAll<HTMLButtonElement>('.session .session-label');
+
+    labels[1]!.click();
+
+    expect(api.postMessage).toHaveBeenCalledTimes(1);
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openSession', sessionId: 'older' });
+  });
+
+  it('keeps the name clipped to the card rather than widening it, even though the label is a button', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    const style = getComputedStyle(document.querySelector<HTMLElement>('.session .session-label')!);
+
+    expect(style.textOverflow).toBe('ellipsis');
+    expect(style.overflow).toBe('hidden');
+    expect(style.whiteSpace).toBe('nowrap');
+    // The declaration that actually lets it clip: a flex item defaults to min-width auto and refuses to shrink.
+    expect(style.minWidth).toBe('0');
+    // The row owns the height, so a card mixing an openable label with a plain one does not step between the two.
+    expect(getComputedStyle(document.querySelector<HTMLElement>('.session')!).minHeight).toBe('1.5rem');
   });
 
   it('labels a session with its own title, falling back to the name Claude derived from the directory', () => {
@@ -566,6 +666,30 @@ describe('reported activity', () => {
     expect(css).toContain("card[data-attention='your-turn'] .session[data-phase='idle'] .session-label");
     expect(forced).toContain('card[data-attention]');
     expect(/@media \(forced-colors: active\)[\s\S]*card\[data-attention\]/.test(css)).toBe(true);
+  });
+
+  it('names the colours the button reset would otherwise lose, which jsdom cannot compute', () => {
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+    const forced = /@media \(forced-colors: active\) \{([\s\S]*?)\n\}/.exec(css)?.[1];
+
+    // A running label paints from a gradient clipped to its text, so its own colour is transparent: an underline is
+    // the only hover that shows, and its colour has to be named because currentColor there is transparent too.
+    expect(/button\.session-label:hover \{[^}]*text-decoration: underline/.test(css)).toBe(true);
+    expect(/button\.session-label:hover \{[^}]*text-decoration-color:/.test(css)).toBe(true);
+
+    // A forced button surface pairs with ButtonText; CanvasText is the card's pairing, kept for a label that is text.
+    expect(/button\.session-label \{\s*color: ButtonText/.test(forced ?? '')).toBe(true);
+    expect(forced).toContain('color: CanvasText');
+  });
+
+  it('paints the marked label its attention colour even though the label is a button', () => {
+    const waiting = sendCard([withPhase('waiting', Date.now())], 'blocked');
+    const label = waiting.querySelector<HTMLElement>('.session-label')!;
+
+    // A button carries its own colour, so the reset on it must lose to the attention rule rather than win.
+    expect(label.tagName).toBe('BUTTON');
+    expect(getComputedStyle(label).color).toBe('var(--vscode-charts-yellow)');
+    expect(getComputedStyle(label).fontWeight).toBe('600');
   });
 
   it('shows one state per row, and it is the board own observation', () => {

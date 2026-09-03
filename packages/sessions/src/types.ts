@@ -28,6 +28,12 @@ export interface Session {
   /** The provider that reported it — what tells two CLIs' sessions apart on one board. */
   agent: string;
   sessionId: string;
+  /**
+   * The session's own process, where the CLI reports one. It is what ties a session to the VS Code window holding it:
+   * the process is a child of that window's extension host, and `cwd` cannot say, because a session moves with the
+   * work. A background session carries a pid too, but its parent is a shell rather than a window.
+   */
+  pid: number | null;
   /** Only some sessions carry a short id; Claude gives one to `--bg` sessions and not to interactive ones. */
   shortId: string | null;
   name: string | null;

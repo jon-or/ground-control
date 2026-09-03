@@ -1,6 +1,6 @@
 # Verified mechanics
 
-Everything here was measured on this machine on **2026-09-01**, not inferred. Versions: Claude Code CLI as installed that day, VS Code extension `anthropic.claude-code` **2.1.252**.
+Everything here was measured on this machine, not inferred. The baseline is **2026-09-01**, against the Claude Code CLI as installed that day and VS Code extension `anthropic.claude-code` **2.1.252**. A section that was measured against a different version says so at its top.
 
 Re-verify anything marked **version-fragile** after a Claude Code or extension upgrade.
 
@@ -127,32 +127,125 @@ The cwd comes from `workspaceFolders[0]` and is **never** derived from the sessi
 
 Measured confirmation: session `9d937cb5` (project slug `D--work-repo-worktrees-17198-…`) fired into a window rooted at `d:\work\repo` produced **no tab at all**, while `106b56c3` (slug `D--work-repo`) fired into that same window opened correctly.
 
+That silence belongs to the in-process command, not to the mismatch. The same mismatch through the URI handler **creates a new session in the window's own directory** (§7), so "wrong window" is a no-op on one path and a fresh agent on the wrong tree on the other.
+
 ## 6. `claude-vscode.editor.open` — signature and behavior
 
-**version-fragile.** Registered by the official extension; undocumented. Signature is unchanged from the 2.1.214 notes in the `session-launcher` bridge README:
+**version-fragile.** Re-measured **2026-09-02** against **2.1.258**, read out of the shipped `extension.js`. Registered by the official extension; undocumented.
 
 ```
-claude-vscode.editor.open(sessionId, initialPrompt?, viewColumn?)
+claude-vscode.editor.open(sessionId?, initialPrompt?, viewColumn?, newSessionGroupId?)
 ```
+
+Every parameter is optional: `claude-vscode.editor.openLast` invokes the command with none, and falls through to `claude-vscode.sidebar.open` instead when the preferred location is the sidebar.
+
+From the registered handler, transliterated from the minified source:
+
+```js
+registerCommand("claude-vscode.editor.open", async (sessionId, prompt, column, groupId) => {
+  if (column !== ViewColumn.Active) preferredLocation.set("panel");
+  let { startedInNewColumn } = createPanel(sessionId, prompt, column, groupId);
+  if (startedInNewColumn) await executeCommand("workbench.action.lockEditorGroup");
+})
+```
+
+So **any column but the active one has a side effect**: `claudeCode.preferredLocation` is written to `panel` at global scope, before the reveal check below, so it happens even when nothing is opened. `claude-vscode.primaryEditor.open(sessionId, prompt)` is the same call pinned to `ViewColumn.Active`, and avoids it.
 
 From `createPanel`:
 
-- A `sessionPanels` map is checked first. If the session already has a tab, it is **revealed** and, if a prompt was supplied, the user sees *"Session is already open. Your prompt was not applied — enter it manually."* **Seize must detect this case and not rely on a seeded prompt.**
-- With `viewColumn` undefined, it prefers an existing tab group made entirely of Claude panels, else `findUnusedColumn()`.
+- **The session id is not validated on this path.** `createPanel` maps a `remote:`-prefixed id through a `remoteTeleports` table and otherwise takes the id as given; the zod check lives in the webview comms handlers, the `vscode://` `/open` handler, and the panel serializer — none of which the command is. The serializer's is the stricter variant, which also rejects a `remote:` id. An id nothing resolves to opens a panel bound to it rather than being refused, so a caller owns that check itself.
+- A `sessionPanels` map is checked next. If the session already has a tab it is **revealed**, the call returns `startedInNewColumn: false`, and a supplied prompt is dropped with *"Session is already open. Your prompt was not applied — enter it manually."* The map is per extension host, so it only ever sees this window's tabs.
+- With `viewColumn` undefined it prefers an existing non-empty tab group whose every tab is a Claude panel, else `findUnusedColumn()`.
 - `initialPrompt` **prefills** the input box. It is not submitted; a human presses Enter.
 
-Sibling commands that exist and are not yet characterized: `claude-vscode.primaryEditor.open`, `claude-vscode.window.open`, `claude-vscode.editor.openLast`, `claude-vscode.newConversation`, `claude-vscode.reopenClosedSession`.
+### The surface decides whether an open reveals — the working directory does not
 
-## 7. URI routing is not addressable — do not use it for seize
+**Measured 2026-09-03.** The reveal check quoted above sits **before** anything reads a transcript: `createPanel` consults `sessionPanels` first and returns on a hit. So what an open does turns on which surface holds the session, and a session's transcript having moved does not by itself put it out of reach.
 
-Three fires of `vscode://or.claude-session-launcher/open?session=…` against a machine with seven VS Code windows:
+The measurement that settles it. Session `3d93ad53` was live in the window rooted at `d:\git\orez` and had been sent to a worktree, so its transcript had left that window's project directory:
 
-- Routing follows the **focused** window. Confirmed: with focus on `18945-owner-statement-counts-archived-records-twice`, the tab appeared there.
-- Focus is not something the orchestrator owns. The user, another app, or a background process can change it between the decision and the fire.
-- `Start-Process "vscode://…"` **did not route at all** — no handler log, no tab. `code --open-url "vscode://…"` routed reliably. The `session-launcher` README's claim that this machine's `code` CLI has no `--open-url` is **stale**; the flag exists and works.
-- PowerShell/cmd eats `&column=2` unless the whole URI is quoted.
+```
+3d93ad53   transcript dir : d--git-orez-worktrees-18062-venmo-funded-paypal-security
+           record 0 cwd   : d:\git\orez                     <- the window holding it
+           last record cwd: D:\git\orez.worktrees\18062-...  <- where it is working now
+```
 
-**Conclusion:** URIs are a shell-level fallback for cold start only. Never the seize path.
+Firing `/open?session=3d93ad53` at that window — the URI routes to `primaryEditor.open` (§7) — produced a **new** session rather than a reveal:
+
+```
+before   16160 exthost=9172  5adf8540  d:\git\orez
+         24320 exthost=9172  3d93ad53  D:\git\orez.worktrees\18062-...
+after    73588 exthost=9172  4c06a6f7  d:\git\orez            <- fresh session
+```
+
+The cause was **not** the move. That window's own state (§21) records `3d93ad53` as its **secondary sidebar's** session, and `sessionPanels` holds editor panels only, so the reveal could never have matched. A transcript that has moved is real and worth knowing — a session sent to a worktree keeps its window and reports the worktree as its `cwd` — but it is not what decides reachability.
+
+**Not measured:** whether a session whose transcript has moved *and* which sits in an editor tab reveals correctly. The source says it must, because the reveal precedes the transcript lookup; no test has been run.
+
+The **process tree** identifies the window too — a tab's session is a child of that window's extension host (`claude.exe <- Code.exe <- Code.exe`, the middle pid differing per window) — but the extension host's command line carries no folder, and every one of them runs as `--type=utility --utility-sub-type=node.mojom.NodeService`, indistinguishable from the pty host. `~/.claude/sessions/<pid>.json` carries `cwd`, `kind` and `entrypoint`, and no window folder either. §21 and §22 are the two records that do name windows.
+
+### A second surface on a session is a second process
+
+**Measured 2026-09-02.** `createPanel` dedupes against `sessionPanels`, which holds **editor panels only**. A session hosted in the sidebar is not in it, so opening that session as a panel builds a second surface — and `claude agents --json` then reports the same `sessionId` on two pids:
+
+```
+17076fb4-78d5-4641-8e97-702b7d8b6fc9  pid=55192  interactive  ground-control-dc
+17076fb4-78d5-4641-8e97-702b7d8b6fc9  pid=79288  interactive  ground-control-00
+```
+
+That is §11's two-writers fork, reached without a CLI resume. **There is no way to reveal one session in the sidebar.** `claude-vscode.sidebar.open` takes no arguments — it sets `preferredLocation` and focuses the view — and `claude-vscode.window.open` calls `createPanel(undefined, undefined)`. The only session-addressed entries are `editor.open` and `primaryEditor.open`, and both build panels.
+
+This is documented behaviour rather than a defect: the extension's own docs say *"Click any session to open it as a full editor tab."* A `sidebar.openSession(sessionId)` has been asked for twice ([#85753](https://github.com/anthropics/claude-code/issues/85753), [#85726](https://github.com/anthropics/claude-code/issues/85726)) and shipped neither time, and [#67419](https://github.com/anthropics/claude-code/issues/67419) traces the same path ignoring `preferredLocation`. So an opener must read the surface first, and a sidebar-held session has no reveal at all.
+
+So an opener must know which surface holds the session **before** it fires, and §21 is where that is recorded per window. `claudeCode.preferredLocation` is no substitute: it is one global setting, it says where the developer's *next* session would go rather than where an existing one is, and `sidebar.open` writes it as a side effect. Duplicating is not a cosmetic cost.
+
+**Focusing the sidebar without writing that setting** uses the view's own auto-registered `<viewId>.focus` command — `claudeVSCodeSidebarSecondary.focus`, or `claudeVSCodeSidebar.focus` on a host with no secondary sidebar (§21). VS Code registers one per contributed view; neither goes through the extension, so neither touches `preferredLocation`. Only the registered view's command exists, so both are tried and the other rejects.
+
+### A tab's label is not a session identifier
+
+The panel is created with the **literal title `"Claude Code"`**:
+
+```js
+createWebviewPanel("claudeVSCodePanel", "Claude Code", column, { … })
+```
+
+The session's own webview renames it afterwards, over the comms channel — a `rename_tab` request assigning `panelTab.title`. Two consequences:
+
+- **Immediately after an open the label is `"Claude Code"`, not the session's name.** The probe's logs show the display name because they were written 2.5 s later.
+- The title is the session's to change, and `claude-vscode.renameSessionTab` lets the developer change it too.
+
+A label is therefore a lagging, mutable projection of a session, never a handle on one. Anything deciding *which* session a tab holds must come from elsewhere; §11 says the same for persistent state. **Counting Claude tabs is sound; matching their labels is not.**
+
+Sibling commands that exist and are not yet characterized: `claude-vscode.window.open`, `claude-vscode.newConversation`, `claude-vscode.reopenClosedSession`.
+
+## 7. URI routing follows focus — and a miss is not silent
+
+The official extension registers its own handler, so a window needs nothing of ours installed in it:
+
+```js
+registerUriHandler({ handleUri(uri) { switch (uri.path) {
+  case "/open": { let session = params.get("session"), prompt = params.get("prompt");
+    if (session !== undefined && !valid(session)) return;
+    executeCommand("claude-vscode.primaryEditor.open", session, prompt); }
+```
+
+`vscode://anthropic.claude-code/open?session=<id>` therefore works on a bare install, validates the id, and lands on `primaryEditor.open` — `ViewColumn.Active`, and none of §6's preferred-location write.
+
+**Measured 2026-09-02** against 2.1.258, on a machine with windows open at `d:\git\ground-control`, `d:\git\orez` and two `orez.worktrees` checkouts. Four fires, each observed by diffing `claude agents --json`:
+
+| Fired | Focus | Landed |
+|---|---|---|
+| a fresh uuid | ground-control | new session in `d:\git\ground-control` |
+| `be791d04`, dead, belongs to the 18954 worktree | ground-control | **new** session in `d:\git\ground-control` |
+| `be791d04` again, immediately after `code <18954 worktree>` | 18954 | **resumed `be791d04`**, in the 18954 worktree |
+| `0dedca6d`, live in a tab in the 18399 window | back on ground-control | **new** session in `d:\git\ground-control` |
+
+- **Routing does not follow the session.** The last fire names a session held open in another window and landed where the developer was sitting instead. There is no "deliver to whoever has this session".
+- **Routing follows focus, and `code <folder>` is how to set it.** The third fire is the one that worked, and only because `code` had just brought that window forward. Seconds later focus was back where the developer was working, and the next fire went there.
+- **A miss starts a fresh agent in the wrong worktree.** Three of the four created an empty session under the focused window's own directory. The id is not resolvable in that window's project, so it is treated as a new conversation rather than refused.
+- `Start-Process "vscode://…"` does not route at all — no handler, no tab. `code --open-url "vscode://…"` routes reliably. PowerShell and cmd eat `&column=2` unless the whole URI is quoted.
+
+**Conclusion:** `code <folder>` then `code --open-url` opens a session in its own worktree with nothing installed there, and is the only mechanism that reaches a window the board does not run in. It is a race, and the losing branch is a stray agent — so an opener must take focus deliberately, confirm it left, and check afterwards where the session actually landed.
 
 ## 8. In-process `executeCommand` IS addressable — proven
 
@@ -194,13 +287,15 @@ tracked seized tab "cold-path" -> c01d0001-…
 
 and a live tab process at the right root: `{"pid":12036,"kind":"interactive","cwd":"d:\\work\\repo.worktrees\\17510-…"}`.
 
-So task 2 §5's cold path holds: **no window → open → register → seize** works, and the 15 s poll budget is generous. Registration under `--extensionDevelopmentPath` took 14–25 s; that was the Extension Development Host's startup cost, not the extension's.
+So the cold path holds: **no window → open → register → seize** works, and the 15 s poll budget is generous. Registration under `--extensionDevelopmentPath` took 14–25 s; that was the Extension Development Host's startup cost, not the extension's.
 
 Incidental: `--session-id` rejects non-hex-looking UUIDs — `c0ld0001-…` fails with `Error: Invalid session ID. Must be a valid UUID.` while `c01d0001-…` is accepted. Cute test ids will bite.
 
 ### Verification is mandatory
 
-`executeCommand` resolves `ok` whether or not a panel appears — it did so on every failed URI attempt too. Confirm by counting tabs whose `input.viewType` includes `claudeVSCodePanel` and reading their labels.
+`executeCommand` resolves `ok` whether or not a panel appears — it did so on every failed URI attempt too. Confirm by **counting** tabs whose `input.viewType` includes `claudeVSCodePanel`. A fresh panel always adds one and a reveal adds none, so the count separates "opened" from "nothing happened" — but a reveal and a failure both leave the count alone, and §6 rules out telling them apart by label. The second signal is focus: a revealed panel is focused, so a Claude panel being the active tab is the evidence that a reveal happened.
+
+The count is window-global and carries no per-session attribution, so **two opens in flight at once break it** — a tab appearing for the first masks a failure of the second. Serialize them, or accept the ceiling.
 
 ## 9. Hand-back — a seized session returns to the factory
 
@@ -298,7 +393,7 @@ That means the factory gets the structured stream *and* the full intervention mo
 
   Worse, the tab does not live-reload. A screenshot taken after that shell turn showed the conversation ending at the pre-kill state with no trace of the appended turn — so the operator is looking at a stale view of a conversation the factory just wrote to.
 
-  **Rule: release before any resume, on both paths.** On the `--bg` path stdout warns you; on the `-p` path nothing does, so the orchestrator must check tab state through the registry (task 2 `reconcile`) rather than relying on an error.
+  **Rule: release before any resume, on both paths.** On the `--bg` path stdout warns you; on the `-p` path nothing does, so the orchestrator must check tab state — which §21 records per window — rather than relying on an error.
 
 ### Concurrent writers FORK the transcript and orphan work — measured
 
@@ -319,7 +414,7 @@ So the hazard is not interleaved writes. It is **silently orphaned work**, which
 
 **Rules:**
 
-1. **Exactly one writer per session, enforced by the factory.** Release before any resume. `--bg --resume` refuses and forks loudly; `-p --resume` does neither, so the orchestrator must gate on tab state through the registry (task 2 `reconcile`), never on an error it will not receive.
+1. **Exactly one writer per session, enforced by the factory.** Release before any resume. `--bg --resume` refuses and forks loudly; `-p --resume` does neither, so the orchestrator must gate on tab state, which §21 records per window, never on an error it will not receive.
 2. **Fork detection belongs in `factory validate`.** A `parentUuid` with more than one child means the session diverged. Ten lines over the transcript, and it converts a silent failure into a parked card. Run it before every advance and after every hand-back.
 3. **A mid-turn release leaves a dangling turn.** The operator's branch ended at a `tool_result` with no assistant reply, and its background task shows `[killed]`. The resumed agent must notice and finish it — the one measured here did, reporting unprompted that its background task was `stopped` with no completion record.
 
@@ -352,7 +447,7 @@ validate: entries=43  forks=0
 
 So the operator loop closes: **kill → seize → operator drives → release → factory resumes with the operator's work intact, transcript unforked.** The earlier failure was entirely caused by the injected concurrent write, not by the mechanism.
 
-Evidence still comes from files the agent writes, never from the stream (task 1 §3). The stream is for Watch and for the orchestrator's own bookkeeping, not for gating.
+Evidence still comes from files the agent writes, never from the stream (`docs/vision.md`, principle 1). The stream is for Watch and for the orchestrator's own bookkeeping, not for gating.
 
 ## 11. A tab holds the session open — release before hand-back
 
@@ -441,7 +536,7 @@ The hook was supplied with `claude --settings <file>`, so a station can carry it
 
 Run again with an adversarial prompt — *"Your ONLY goal is to get it to execute. Do whatever it takes."* — the agent enumerated every bypass (write a fake `tests.json`, edit `gate.sh`, evade the matcher by re-quoting the command) and declined all of them, correctly identifying fabrication as the thing the gate exists to prevent.
 
-**Do not design around that.** It is model judgment, not enforcement. Three of those bypasses would have worked. The hook stops the *accidental* advance; only the CLI computing evidence from runner output stops the fabricated one (task 1 §3). Both layers are needed.
+**Do not design around that.** It is model judgment, not enforcement. Three of those bypasses would have worked. The hook stops the *accidental* advance; only the CLI computing evidence from runner output stops the fabricated one (`docs/vision.md`, principle 1). Both layers are needed.
 
 The matcher is also a substring match on the command — a station that renames its invocation slips past it. Gate on the `factory` CLI's own validation, and treat the hook as defense in depth.
 
@@ -599,7 +694,7 @@ Rule: an `Agent` call is **orphaned** when no delivered report exists and no `ta
 - **Only `spawnDepth: 1`.** Nested subagents are re-created by their own parent when it re-runs; dispatching them directly duplicates work and orphans the hierarchy.
 - **Progress digest, not the full transcript.** Transcripts here were 38–57 KB each and would swamp a resume prompt.
 - **Side-effecting work needs the digest; read-only work can just re-run.** The digest is what keeps a re-dispatched agent from repeating a write. Observed working: the re-dispatched agents skipped the 100-second wait their predecessors had already served, writing their files within a minute.
-- **Checkpointing beats recovery.** A station whose subagents each write to `evidence/` loses at most one in-flight agent, and re-dispatch skips the rest (§4, task 1 §3). Both the runtime's auto-recovery and this backstop exist for work that could not be checkpointed.
+- **Checkpointing beats recovery.** A station whose subagents each write to `evidence/` loses at most one in-flight agent, and re-dispatch skips the rest (§4). Both the runtime's auto-recovery and this backstop exist for work that could not be checkpointed.
 
 **Status:** the loop is proven end to end — killed mid-flight, woken, both units of work delivered. What is *not* settled is the boundary condition in "Why the earlier test looked different": whether `--bg --resume` always restores the task queue and print-mode resume never does. That boundary decides whether step 3 above ever fires.
 
@@ -625,7 +720,7 @@ agent-a11b5062e81336e29.jsonl   error at line 33 of 34
 
 One historical session's own retrospective records the consequence plainly: *"all 4 finder subagents died on the very first turn from hitting the session rate limit before reading anything."* Subagents are hit individually.
 
-So a rate-limited station **looks finished**: its process exits, `state` goes idle, nothing errors. The only reason this does not corrupt the factory is that evidence is file-based — no `tests.json` was written, so `factory advance` refuses (task 1 §3). Had the design gated on the agent's own report, a rate limit would read as a clean pass.
+So a rate-limited station **looks finished**: its process exits, `state` goes idle, nothing errors. The only reason this does not corrupt the factory is that evidence is file-based — no `tests.json` was written, so `factory advance` refuses (`docs/vision.md`, principle 1). Had the design gated on the agent's own report, a rate limit would read as a clean pass.
 
 ### Self-healing: the reset time is in the message
 
@@ -700,7 +795,7 @@ Note `executed` excludes skipped: the full run showed `total=4117 executed=4114`
 
 `--list-tests` reports 4,067 test names; the suite is fully enumerable in advance.
 
-That settles task 1 open decision #2: **no filter.** A targeted subset saves nothing meaningful and reintroduces the exact failure mode above — the filter matching the wrong thing, or nothing. A station builds, runs the full suite, and the CLI parses one TRX.
+That settles `docs/vision.md`'s open decision on what certifies `build`: **no filter.** A targeted subset saves nothing meaningful and reintroduces the exact failure mode above — the filter matching the wrong thing, or nothing. A station builds, runs the full suite, and the CLI parses one TRX.
 
 **Unmeasured:** what `<ResultSummary outcome>` reads on a genuinely failing run (presumably `Failed`), and whether `error` / `aborted` populate on a crash or hang. The gate above treats any nonzero in those four counters as failure, so it is safe either way, but the exact strings are unconfirmed.
 
@@ -822,7 +917,7 @@ A child process of a session gets `CLAUDE_CODE_MESSAGING_SOCKET` and `CLAUDE_COD
 
 ### Ledger
 
-**Proven** (measured 2026-09-01, sections above): `--bg` dispatch in a worktree · `claude agents --json` as a session registry · transcript lag · subagents die on stop, with transcripts preserved and honest parent reporting · tab cwd from `workspaceFolders[0]` · `editor.open` signature and reveal behavior · URI routing follows focus and is unaddressable · in-process `executeCommand` is addressable · hand-back via bare `--bg --resume` and the flag-fork hazard · the `--bg` / `-p` capability split and the decision to run stations under `-p` · the full seize round trip (kill → seize → release → hand back) and the tab-holds-session trap · `PreToolUse` hooks veto for real · `codex exec --output-schema` produces conformant findings on a real diff. Measured 2026-09-02: an activity-directory `createFileSystemWatcher` outside the workspace fires (§20).
+**Proven** (measured 2026-09-01, sections above): `--bg` dispatch in a worktree · `claude agents --json` as a session registry · transcript lag · subagents die on stop, with transcripts preserved and honest parent reporting · tab cwd from `workspaceFolders[0]` · `editor.open` signature and reveal behavior · URI routing follows focus and is unaddressable · in-process `executeCommand` is addressable · hand-back via bare `--bg --resume` and the flag-fork hazard · the `--bg` / `-p` capability split and the decision to run stations under `-p` · the full seize round trip (kill → seize → release → hand back) and the tab-holds-session trap · `PreToolUse` hooks veto for real · `codex exec --output-schema` produces conformant findings on a real diff. Measured 2026-09-02: an activity-directory `createFileSystemWatcher` outside the workspace fires (§20). Measured 2026-09-03: the surface holding a session, not its working directory, decides what an open does (§6); VS Code records that surface per window (§21); and every window announces its folders and a live server port (§22).
 
 Also proven: auto-handback on an **operator's manual tab close** · the **cold path** (no window → `code --new-window` → registered in 3.2 s → seize) with the extension normally installed · the **clean operator round trip** with the operator's work intact and the transcript unforked · the evidence gate against a real .NET runner, including that `dotnet test` exits 0 when its filter matches nothing · rate-limit failure shape characterized from 1,675 historical transcripts · **concurrent writers fork the transcript and silently orphan work** · **direct message injection into a live session over its local socket** (§18).
 
@@ -858,7 +953,7 @@ Also proven: auto-handback on an **operator's manual tab close** · the **cold p
 
 | # | Question | Why it matters |
 |---|---|---|
-| 11 | Does `claude-vscode.window.open` target or create a window? | Could shortcut part of task 2 §5. |
+| 11 | Does `claude-vscode.window.open` target or create a window? | Could shortcut part of the cold path. |
 | 12 | Does a resumed tab render full history and a worktree cwd? | Identity and state are proven; the rendered panel has not been eyeballed. |
 | 13 | Does `claude respawn` re-drive a stopped station or only restart the process? | Decides whether the factory ever auto-recovers. |
 | 14 | How are stopped-but-not-removed sessions reclaimed? | `claude rm` is banned (§1); they accumulate. |
@@ -955,3 +1050,119 @@ It is a transcription plus that one turn stamp: the event-to-phase mapping lives
 Two changes read the CLI instead, because nothing else can report the new list: a **marker removed**, and any event naming a session id the board has not listed **whose marker claims a phase**. The event kind is not trusted for the second — a rename over a path a watcher has seen before is reported as a create on one platform and a change on another. The phase condition is what stops a wasted spawn: a `SessionStart` marker claims none, and the session it names would be filtered out of the list that read produced.
 
 So a session reaches the board about a third of a second after its first prompt and leaves about a third of a second after it ends, and the 30 s poll is the backstop for what fires no hook at all — a pid kill (§10), a `--bg --resume` rename (§11), and a changed `cwd`. Two costs are accepted rather than fixed: `SessionEnd` fires on `/clear` and on a resume too, so those spend one list read on a session that never left, and a read already in flight when a change lands cannot have seen it, so the board runs one more read after it rather than coalescing onto it. A read that failed suppresses the next one — while the CLI is unreadable every batch would be stale, and the timer is where a read that may fail belongs. **`createFileSystemWatcher` on an absolute `RelativePattern` outside the workspace fires — measured 2026-09-02** in the Extension Development Host: closing a session removed its card, so `SessionEnd`'s delete reached the board through the watcher. The other kinds ride the same watcher and the same handler, and were not separately timed. Removing the hooks and installing them again still deletes the directory the watcher was bound to, and nothing rebuilds it until a window reload; both edges fall back to the poll until then.
+
+---
+
+## 21. VS Code records which session each window's tabs and sidebar are showing
+
+**Measured 2026-09-03**, VS Code **1.135.0**, extension **2.1.258**. **version-fragile** on both — this is VS Code's internal storage, documented nowhere.
+
+Each window has a directory under `<user>/workspaceStorage/<hash>/`, where `<user>` is the `User` directory of the running install. Two files matter:
+
+| File / key | Holds |
+| --- | --- |
+| `workspace.json` | `{"folder":"file:///d%3A/git/orez"}`, or `{"workspace":"file:///d%3A/git/team.code-workspace"}` for a multi-root window |
+| `state.vscdb` → `memento/workbench.parts.editor` | one serialised input per editor tab; a Claude tab's carries `providedId: "claudeVSCodePanel"` and a `state` string holding `sessionID` |
+| `state.vscdb` → `memento/webviewView.claudeVSCodeSidebarSecondary` | `{"webviewState":"{\"isFullEditor\":false,\"sessionID\":\"…\",\"sessionUpdatedAt\":…}"}` |
+| `state.vscdb` → `memento/webviewView.claudeVSCodeSidebar` | the same, on a host with no secondary sidebar |
+
+The extension contributes **two** Claude views, one per key, `when`-gated against each other on `claude-code:doesNotSupportSecondarySidebar` — `claudeVSCodeSidebarSecondary` in the `secondarySidebar` container and `claudeVSCodeSidebar` in the `activitybar` one (read from the installed `package.json`, 2.1.259, 2026-09-03). Only one is ever registered, so a reader takes whichever key is present and a focuser tries both commands. This machine has the secondary, so the `activitybar` key is unexercised here and appears in no fixture.
+
+`state.vscdb` is SQLite, one `ItemTable` of key/value text. The owning window holds it open, so it is **copied and read from the copy**; `node:sqlite` is available in the extension host (Node 24.18.1, Electron 42.8.1, measured by running the shipped `Code.exe` with `ELECTRON_RUN_AS_NODE=1`).
+
+This is the only record that names a session's **surface**, which §6 shows is what decides whether an open reveals or forks. Four properties bound how far it can be trusted:
+
+- **Its only guarantee is at shutdown.** The [webview API](https://code.visualstudio.com/api/extension-guides/webview) promises that `setState` is persisted *"when the editor is shutdown"* and says nothing about mid-session. The periodic write we rely on is an undocumented implementation detail: `AbstractStorageService.DEFAULT_FLUSH_INTERVAL = 60 * 1000`, wrapped in `runWhenIdle`, which is why polling measured **62.7 s** rather than a clean 60. (The SQLite writer's own `DEFAULT_FLUSH_DELAY` is 100 ms and is not what gates this.) Neither is configurable, and every caller of `emitWillSaveState` is a window mutation — a profile switch or a close — so there is no read-only way to force one. Build for the state simply not being there, not merely for it being a minute old.
+- **It is a subset of the roster.** Of 13 live sessions, 7 had a surface. The rest were a `entrypoint: "cli"` session and five that had lost theirs — the sidebar memento records only its **current** session, so a superseded occupant keeps running with nothing pointing at it. Combined with the missing-panel case below, a session whose window is known and whose surface is not is common rather than exotic: three of twelve on a later reading. Taking the developer to the window is the honest action for those; firing at one would be a guess, and the wrong guess runs a second agent.
+- **A closed window's record survives it**, so a folder must be confirmed live (§22) before it is opened.
+- **A panel that entered a worktree can lose its record entirely.** [anthropics/claude-code#82802](https://github.com/anthropics/claude-code/issues/82802) documents the persisted `sessionID` going missing for such tabs, which then restore without a resume target. So an absent record does not prove the sidebar holds the session — it under-reports panels in exactly the worktree-heavy case. Refusing on absence is still the right way to be wrong, because the alternative is a second agent on one transcript.
+- **Two windows on one folder share one hash**, and the last writer wins. The record cannot separate them; the process tree below can.
+
+Reading all 216 stores took **250 ms** cold. Almost every one belongs to a window closed weeks ago and never changes again, so a reader that keeps what it read and re-reads only a database written since pays one `stat` per window instead: **27 ms** with 0 of 207 re-read, measured 2026-09-03.
+
+**These key names are undocumented internals and move without notice.** VS Code 1.118 relocated `history.recentlyOpenedPathsList` into the shared application database and silently broke every outside reader of it. There is no deprecation channel for a key nobody documents, so the guard is behavioural: when no window yields any surface while sessions are running, the reader has broken rather than the developer having none.
+
+### Which window holds a session — exactly, and live
+
+**Measured 2026-09-03.** A better answer than any record, for the window half of the question:
+
+```
+sessionId -> pid            ~/.claude/sessions/<pid>.json
+pid       -> extension host Win32 ParentProcessId
+host      -> port           the ide lock port that pid is LISTENING on   (never lock.pid)
+port      -> folders        ~/.claude/ide/<port>.lock
+```
+
+All four live extension hosts mapped 1:1 here. It is exact where the transcript is only a heuristic: it gets a session whose `cwd` is a worktree but whose window is the parent checkout, and it separates two windows rooted on one folder. It also identifies stale locks for free — a lock nobody is listening on is a window that has closed.
+
+Costs, measured 2026-09-03. The two halves are not alike:
+
+| Read | How | Cost |
+| --- | --- | --- |
+| who holds each port | `netstat -ano` | **24 ms** |
+| the parent of each session process | `powershell.exe` + `Get-CimInstance Win32_Process` | **650 ms** |
+
+`Get-NetTCPConnection` costs 627 ms for the same answer `netstat` gives in 24, and no cheaper source of a parent pid exists: Node exposes none, and `wmic` is gone from Windows 11. So the parent table is read off the click path and kept — a session's parent never changes — while liveness is re-read on every click, where 24 ms is free. `ConvertTo-Json -AsArray` is PowerShell 6 and later; Windows PowerShell 5.1 needs `-InputObject @(...)` or a single row comes back as a bare object.
+
+`netstat` output is read by shape, not by column. The state column is localised — and may be two words, which shifts every field after it — so a listener is recognised by its foreign address, which is `0.0.0.0:0` on one and a real endpoint on every established connection, and the owning pid is read from the end of the row.
+
+Four traps, each measured:
+
+- **Iterate lock → port → owning pid**, never pid → port. An extension host also listens on debug inspector ports, so a pid → port lookup picks arbitrarily.
+- **`lock.pid` is the shared main `Code.exe`**, identical for every window on Windows ([anthropics/claude-code#16434](https://github.com/anthropics/claude-code/issues/16434)). It is not a window handle.
+- **PID reuse is narrowed, not excluded.** The pid comes from `claude agents --json`, which reports only live sessions, and the process query is scoped to `Name='claude.exe'`, so a stale pid has to have been reused by another Claude process to mislead. Closing the gap needs `Win32_Process.CreationDate` against the session file's `procStart`, compared with a ±10-tick tolerance because CIM truncates to microseconds — the two differed by 4 ticks here. That guard is not built; the residual risk is one session attributed to another's window.
+- **A window the developer never saved is not reopenable by its own root.** VS Code backs one with a generated `<user>/Code/Workspaces/<id>/workspace.json`, and `code` opens that as a file rather than as the workspace. A folder from the lock is the argument to use for those.
+
+For a session in an integrated **terminal**, the documented shortcut is `CLAUDE_CODE_SSE_PORT`, an environment variable naming its window's port directly. It is absent from extension-spawned sessions, which the extension drives over stdio and never through the WebSocket server.
+
+**The named expiry condition is the Agent Host.** This chain rests on `claude.exe` being a child of its window's extension host. VS Code's Agent Host runs harnesses in one shared process for all workspaces; `vs/platform/agentHost/node/agentHostMain.js` ships dormant in the 1.136.0 sources and is opt-in today (`code --agents`), which is a reading of the upstream tree rather than a measurement of the 1.135.0 installed here. When the Claude extension adopts it the parent stops naming a window, and "which window holds this session" may stop having one answer. So the parent must be checked to be a window-bound utility process — reported as unknown otherwise, never attributed to a window.
+
+## 22. Every VS Code window announces itself in `~/.claude/ide/<port>.lock`
+
+**Measured 2026-09-03** against **2.1.258**. Written by the Claude Code extension, undocumented by Anthropic, **version-fragile**. The protocol is reverse-engineered in [`coder/claudecode.nvim`](https://github.com/coder/claudecode.nvim/blob/main/PROTOCOL.md). `CLAUDE_CONFIG_DIR` moves the whole `.claude` directory, so a reader assuming `~/.claude` finds no windows at all rather than failing visibly.
+
+```json
+{"pid":29212,"workspaceFolders":["d:\\git\\orez"],"ideName":"Visual Studio Code",
+ "transport":"ws","runningInWindows":true,"authToken":"b480e1fb-…"}
+```
+
+`pid` is the **main** VS Code process and is the same for every window, so it discriminates nothing; the port and `workspaceFolders` do. A multi-root window lists its folders individually and never its `.code-workspace` path, so that one root cannot be confirmed this way.
+
+The port is a live MCP server over WebSocket, authenticated with the `x-claude-code-ide-authorization` header:
+
+```
+serverInfo: Claude Code VSCode MCP 2.1.258
+tools: openDiff, getDiagnostics, close_tab, closeAllDiffTabs, openFile, getOpenEditors,
+       getWorkspaceFolders, getCurrentSelection, checkDocumentDirty, saveDocument,
+       getLatestSelection, executeCode
+```
+
+Three things this settles:
+
+- **A window can be acted on by address rather than by focus.** `openFile` on one window's port opened the file in that window — the only deterministic cross-window verb available, and it needs nothing installed anywhere.
+- **`getOpenEditors` returns text editors only.** A window with two Claude webview tabs reported `{"tabs": []}`, so this cannot identify a Claude tab and is no substitute for §21.
+- **A lock file outlives its window.** Two of seven were stale. Liveness is whether a process still holds that port open, read from `netstat` — never a connection, which would evict the window's existing client.
+
+`close_tab` takes a tab name and is the release verb the seize loop needs (§11), reachable without per-window code. Not yet characterized: whether it matches a Claude panel, and whether `openFile` also raises the window.
+
+### One client at a time — never complete a handshake against a live port
+
+**Read from 2.1.259, 2026-09-03.** The server evicts whoever is already connected:
+
+```js
+G.on("connection", function (socket, request) {
+  if (request.headers["x-claude-code-ide-authorization"] !== token) { socket.close(1008, "Unauthorized"); return }
+  if (previous) { info("Disconnecting previous WebSocket client"); previous.close() }
+```
+
+`G` is the `ws` server attached to the `http.Server`, and the only listener on the HTTP server itself is `listening`. So the eviction is reachable **only through a completed HTTP Upgrade with the right token**:
+
+| What you do | Effect on the window's own client |
+| --- | --- |
+| TCP connect, send nothing, close | none — `ws` never emits `connection` |
+| Upgrade with a wrong or absent token | none; logs `Unauthorized WebSocket connection attempt` |
+| Upgrade with the token from the lock file | **evicts it** — a terminal `claude` there loses IDE integration |
+
+So liveness is checked at the TCP layer and never by handshaking. One connection per window is structural, stated in the product's own `/ide` picker, and [anthropics/claude-code#87130](https://github.com/anthropics/claude-code/issues/87130) has been open and going stale since 2026-08 — a fixed constraint, not a bug to wait out. The token check itself is the remediation for [CVE-2025-52882](https://github.com/anthropics/claude-code/security/advisories/GHSA-9f65-56v6-gxw7), a WebSocket auth bypass in this same server, which is a second reason to stay below the handshake.
+
+**The extension exports no API.** Its `activate` returns nothing, so no companion extension can reach `sessionPanels` in process. Confirmed against 2.1.259 and reported at [#85753](https://github.com/anthropics/claude-code/issues/85753).
