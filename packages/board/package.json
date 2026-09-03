@@ -13,13 +13,13 @@
   },
   "devDependencies": {
     "@ground-control/github": "*",
-    "@ground-control/sessions": "*",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^3.0.0",
     "typescript": "^5.9.0",
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@ground-control/sessions": "*",
     "zod": "^3.25.0"
   }
 }

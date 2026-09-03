@@ -14,6 +14,7 @@ Read the diff before committing — a fixture is evidence, and the counts move a
 | `agents-all.json` | `claude agents --all --json` — the same sessions plus finished background ones. The only fixture carrying a short `id` or a `state`, so it is what proves those two fields are mapped rather than hardcoded |
 | `git-reads.json` | each recorded checkout's `.git` and its `HEAD`, keyed by forward-slash path. A `null` is a real read failure: a plain `.git` is a directory, so reading it as text fails, which is how a clone is told from a worktree |
 | `hook-payloads.json` | real Claude Code hook payloads, captured through `claude --settings <file>` so the developer's own `~/.claude/settings.json` is never involved. Re-record with `node test/fixtures/record-hooks.js` |
+| `window-stores.json` | VS Code's own per-window state — each window's `workspace.json`, its serialised editor grid, and its Claude sidebar's webview state, taken verbatim so every layer of the JSON-inside-JSON unwrapping is exercised. Non-Claude editors are dropped as whole nodes, one `gettingStartedInput` kept so the walk is still proved to step over an editor that is not ours. Re-record with `node test/fixtures/record-window-stores.js` |
 | `transcripts.json` | the project-directory listing, plus each live session's cwd, the directory its transcript was found in (`dir`), that transcript's write time, the title records inside the window the reader reads (`titles`), and how far from the transcript's end its last title sat (`titleBytesFromEnd`) |
 
 ## Anonymised, and why that makes the tests stronger
@@ -21,6 +22,10 @@ Read the diff before committing — a fixture is evidence, and the counts move a
 This repo is public, so `anonymise.js` rewrites every checkout path, branch, session name and home directory on each recording. A branch name spells out the work it is for, so leaving them in would leak issue titles through a field nobody thinks of as one.
 
 Every structural property the tests turn on survives: which sessions share a checkout, which branches carry an issue number, which checkouts are worktrees rather than clones, which project directories differ from their slug only by case, and which sessions have no transcript. Only the names change.
+
+`record-window-stores.js` carries its own anonymiser, because the shapes it records are not the ones `anonymise.js` knows: an editor grid names files from anywhere the developer has opened one, not only the checkouts a window is rooted at. It takes `REPO` and `WORKTREES` from `anonymise.js` so the two fixtures cannot drift apart, and keeps a Windows-shaped home of its own, since a POSIX home inside a recorded Windows path is incoherent.
+
+It scrubs three ways — the values it set out to replace must be gone, no absolute path outside the synthetic prefixes may survive on any platform, and every recorded tab title is replaced with `recorded session` and asserted to be nothing else. Each caught leaks the others passed over: the path sweep found files from checkouts no window was rooted at, and the title rule found a real issue number that no path or id would ever have matched.
 
 The paths are also **deliberately not paths that exist on this machine**, and that is load-bearing. While the fixtures named real checkouts, a reader that ignored its injected `readText`, `mtime`, `listDir` or `home` and read the real disk instead got identical answers and the suite stayed green — four mutations of `fetchSessions`'s dependency wiring survived. Against synthetic paths all four fail.
 

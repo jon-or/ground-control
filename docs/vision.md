@@ -31,9 +31,11 @@ Neither form interrupts. A message queues until the station finishes the tool ca
 
 Seize is the whole argument for a VS Code extension rather than a web dashboard: one keystroke from watching to driving, in a real terminal, with full conversation history intact. It is not free, though — stopping a session SIGKILLs its subagents and discards their results (`docs/mechanics.md` §4). The board must quote that price before the operator pays it, and offer Steer instead.
 
-**Seize is inherently stop-and-take-over, and the tab arrives idle.** The kill is structural, not incidental: a live session plus an open tab is two writers, which forks the transcript and silently orphans one branch's work. And `editor.open`'s seeded prompt *prefills* the input box without submitting — so the operator always presses Enter. That is right for "the station parked on a decision": seed the prompt from the park reason and one keystroke is the whole interaction. It is wrong for "let me see it work" — that is **Watch**, which costs nothing and leaves the station running. If the operator only wants to look, Seize is the wrong verb.
+**Seize is stop-and-take-over for a station the line dispatched, and the tab arrives idle.** The kill is structural there, not incidental: a live background session plus an open tab is two writers, which forks the transcript and silently orphans one branch's work. A session already running in an editor tab is a different case — it is the developer's to type into, and going to it takes nothing away. And `editor.open`'s seeded prompt *prefills* the input box without submitting — so the operator always presses Enter. That is right for "the station parked on a decision": seed the prompt from the park reason and one keystroke is the whole interaction. It is wrong for "let me see it work" — that is **Watch**, which costs nothing and leaves the station running. If the operator only wants to look, Seize is the wrong verb.
 
-Seize is also **window-addressed**, not global: a Claude tab's working directory is always its host window's first workspace folder, so the session must be opened in a window rooted at its own worktree (`docs/mechanics.md` §5, §8).
+Seize is **surface-addressed** before it is window-addressed. A session is reachable only from the surface showing it, and the two surfaces differ absolutely: an editor tab is revealed by session id, and the sidebar has no such command at all — asking for a sidebar-held session as a tab builds a second agent on one transcript. VS Code records which surface holds which session, per window, so that is read before anything is fired (`docs/mechanics.md` §21).
+
+Which window is a separate read, and both records are needed: the lock file each window writes says which folders it has open and offers a port that answers, so a window recorded but since closed is told from one still open (`docs/mechanics.md` §22). A session in the board's own window needs no addressing — that extension host is already the right one. Every other tab is reached by taking focus and firing the official extension's own `vscode://` handler, which needs nothing installed in the target window but must be aimed and then checked, because a miss starts an agent in the wrong worktree (`docs/mechanics.md` §7).
 
 ## What is on the board
 
@@ -117,14 +119,14 @@ The operator's gates are the bottleneck, not the agents. Per-lane WIP limits plu
 
 | Task | Scope | Doc |
 |---|---|---|
-| **1** | `state.json` schema, `factory` CLI, evidence rules. Headless, no UI. Stations run by hand. | `task1.md` |
-| **2** | Window registry and the seize channel — address a VS Code window by worktree and open a session in it. | `task2.md` |
+| **1** | `state.json` schema, `factory` CLI, evidence rules. Headless, no UI. Stations run by hand. | — |
+| **2** | Reach a session in the window showing it: which window, which surface, and the channel to act on it. | — |
 | **3** | Read-only board: webview over `factory list --json`, Watch and Seize wired to the channel. | — |
 | **4** | Orchestrator loop (poll → dispatch → advance/park), WIP limits, gate UI. The line runs. | — |
 | **5** | `cross-review` with Codex, work-type templates, hook-enforced gates. | — |
 | **6** | Gemini as second reviewer, `respond` and `review-theirs` templates, headless daemon, multi-repo. | — |
 
-Task 2 comes before the board because seize turned out to be infrastructure rather than a button — see `docs/mechanics.md`.
+Task 2 needs no registry of our own. Two records already name every window: VS Code stores which session each window's tabs and sidebar are showing, and the Claude Code extension writes a lock file per window carrying its folders and a port that answers (`docs/mechanics.md` §21, §22). Together they say where a session is and on which surface, which is what routing needed a registry for. The board still reaches a window by taking focus, so the aim is checked after the fact rather than addressed — the lock file's port is the addressable channel, and `close_tab` on it is the release verb the seize loop needs.
 
 ## Open decisions
 

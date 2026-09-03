@@ -402,6 +402,8 @@ main.dragging .lane-idle {
   display: flex;
   align-items: center;
   gap: 0.3rem;
+  /* The click target on an openable label is 24px, and the row owns that height so a plain label does not sit lower. */
+  min-height: 1.5rem;
   min-width: 0;
   color: var(--vscode-descriptionForeground);
   font-size: 0.78rem;
@@ -426,6 +428,40 @@ main.dragging .lane-idle {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * Reset here rather than reusing `.link`, whose flex line box would stop the name ellipsising. The line box and the
+ * inline padding are the click target, and every session row pays the 24px height so a mixed card does not step.
+ */
+button.session-label {
+  padding: 0 0.25rem;
+  margin-inline-start: -0.25rem;
+  font: inherit;
+  line-height: 1.5rem;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  /*
+   * It has to be the underline: a phase colour already claims the text colour, and a running label is painted by a
+   * gradient clipped to its text — which is why the decoration colour is named rather than left as `currentColor`.
+   */
+  text-decoration: underline;
+  text-decoration-color: var(--vscode-descriptionForeground);
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+button.session-label:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+}
+
+button.session-label:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
 }
 
 .state {
@@ -500,6 +536,12 @@ main.dragging .lane-idle {
     background-image: none;
     color: CanvasText;
     animation-name: none;
+  }
+
+  /* An openable label is a button, and a forced button surface pairs with ButtonText, not the card's CanvasText. */
+  .session[data-phase='running'] button.session-label,
+  button.session-label {
+    color: ButtonText;
   }
 
   .card[data-attention],

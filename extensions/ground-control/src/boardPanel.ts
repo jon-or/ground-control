@@ -3,12 +3,15 @@ import { assignLanes, mergeBoard, nextMemory, readMemory, withPlacement } from '
 import type { CardMemory, Lane, LaneId } from '@ground-control/board';
 import { fetchAssignedIssues } from '@ground-control/github';
 import type { AssignedIssues, Failure as GithubFailure } from '@ground-control/github';
-import { fetchSessions, hookNotice, readActivity, rosterIsStale, unreportedSessions } from '@ground-control/sessions';
+import { fetchSessions, hookNotice, openableSessions, readActivity, rosterIsStale, unreportedSessions } from '@ground-control/sessions';
 import type { ActivityChange, Session, SessionsSnapshot } from '@ground-control/sessions';
 import { homedir } from 'node:os';
+import { dirname } from 'node:path';
 import { readBoardRules, readBoardStatuses, readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
 import { promptForLogins } from './identity.js';
 import { hookState, read, watchActivity } from './hooks.js';
+import { openSession, primeOpen } from './sessionTab.js';
+import type { Machine } from './sessionTab.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 const MEMORY_KEY = 'groundControl.cardMemory';
@@ -34,6 +37,8 @@ export interface BoardMessage {
     fetchedAt: string;
   } | null;
   sessions: { count: number; patternError: string | null; fetchedAt: string } | null;
+  /** Ids of the sessions the board offers to open (R14). Another CLI's session has no command to open it with. */
+  openable: string[];
   /** What the board did about its activity hooks, when there is something the developer has to know (R25). */
   hooks: { notice: string } | null;
   failures: SourceFailure[];
@@ -45,7 +50,17 @@ type Inbound =
   | { type: 'refresh' }
   | { type: 'openIssue'; number: number }
   | { type: 'openPullRequest'; number: number }
-  | { type: 'moveCard'; key: string; lane: LaneId };
+  | { type: 'moveCard'; key: string; lane: LaneId }
+  | { type: 'openSession'; sessionId: string };
+
+/**
+ * Where this VS Code keeps its state. `globalStorageUri` is `<user>/User/globalStorage/<extension>`, so the `User`
+ * directory two levels above it is the one the running install writes to — assuming the default location would read
+ * another install's windows on a portable or Insiders one.
+ */
+function machineOf(context: vscode.ExtensionContext): Machine {
+  return { userDir: dirname(dirname(context.globalStorageUri.fsPath)), home: homedir() };
+}
 
 function nonce(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -74,7 +89,8 @@ export class BoardPanel {
   #promptDismissed = false;
   /** The webview is torn down when hidden, so polling stops with it. Tracked because the event also fires on focus. */
   #visible = true;
-  readonly #home = homedir();
+  /** Where this VS Code and Claude Code keep their state — the two directories every read outside the workspace uses. */
+  readonly #machine: Machine;
   /** Stored, not per-panel: a session that predates the install still cannot report after a reload (R25). */
   #installedAt: number;
 
@@ -92,7 +108,7 @@ export class BoardPanel {
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
     });
 
-    return { panel: new BoardPanel(panel, context.extensionUri, context.globalState), created: true };
+    return { panel: new BoardPanel(panel, context.extensionUri, context.globalState, machineOf(context)), created: true };
   }
 
   /**
@@ -107,13 +123,14 @@ export class BoardPanel {
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
     };
 
-    new BoardPanel(panel, context.extensionUri, context.globalState);
+    new BoardPanel(panel, context.extensionUri, context.globalState, machineOf(context));
   }
 
-  constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, memento: vscode.Memento) {
+  constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, memento: vscode.Memento, machine: Machine) {
     this.#panel = panel;
     this.#extensionUri = extensionUri;
     this.#memento = memento;
+    this.#machine = machine;
     this.#panel.webview.html = this.#html();
 
     this.#installedAt = this.#rememberInstall();
@@ -145,6 +162,13 @@ export class BoardPanel {
 
         if (msg.type === 'moveCard') {
           this.#moveCard(msg.key, msg.lane);
+        }
+
+        // The webview names the session, never a path or a command line - the same rule as the issue above.
+        if (msg.type === 'openSession') {
+          openSession(msg.sessionId, this.#sessions?.sessions ?? [], this.#machine).catch((error: unknown) => {
+            void vscode.window.showErrorMessage(`Opening the session failed unexpectedly: ${String(error)}`);
+          });
         }
       },
       undefined,
@@ -179,7 +203,7 @@ export class BoardPanel {
     );
 
     this.#panel.onDidDispose(() => this.dispose(), undefined, this.#disposables);
-    this.#disposables.push(watchActivity(this.#home, (changes) => this.#onActivity(changes)));
+    this.#disposables.push(watchActivity(this.#machine.home, (changes) => this.#onActivity(changes)));
 
     this.#startPolling();
     this.#post({ type: 'loading' });
@@ -258,7 +282,7 @@ export class BoardPanel {
     }
 
     const known = new Set(this.#sessions?.sessions.map((session) => session.sessionId) ?? []);
-    const stale = rosterIsStale(changes, known, (id) => readActivity(this.#home, id, read) !== null);
+    const stale = rosterIsStale(changes, known, (id) => readActivity(this.#machine.home, id, read) !== null);
 
     // Not while the CLI is unreadable: it lists nothing, so every batch would be stale and spawn a read that fails
     // again. The timer keeps retrying, which is the one place a read that may fail belongs.
@@ -284,7 +308,7 @@ export class BoardPanel {
   }
 
   #withActivity(session: Session): Session {
-    return { ...session, activity: readActivity(this.#home, session.sessionId, read) };
+    return { ...session, activity: readActivity(this.#machine.home, session.sessionId, read) };
   }
 
   /** Reads both sources. Each coalesces on its own, so the button and the two timers never stack up. */
@@ -364,6 +388,10 @@ export class BoardPanel {
   }
 
   async #readSessions(): Promise<void> {
+    // Off the click path on purpose: what an open needs costs the best part of a second cold and almost nothing once
+    // read, and none of it changes on the developer's click. So it is read on the refresh instead.
+    primeOpen(this.#machine);
+
     const snapshot = await fetchSessions(readSessionsConfig());
 
     if (this.#disposed) {
@@ -448,6 +476,7 @@ export class BoardPanel {
           }
         : null,
       hooks: notice === null ? null : { notice },
+      openable: openableSessions(this.#sessions?.sessions ?? []),
       failures,
     });
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeBoard } from '../src/index.js';
-import { cwdKey } from '../src/merge.js';
+import { dirKey } from '@ground-control/sessions';
 import type { Session } from '../src/types.js';
 import { issues, linkedOffBoard, linkedOnBoard, onBoard, sessions, unlinked, unlinkedCwds } from './helpers.js';
 
@@ -93,10 +93,10 @@ describe('mergeBoard', () => {
     expect(cards).toHaveLength(unlinkedCwds.size);
 
     for (const card of cards) {
-      const running = unlinked.filter((s) => cwdKey(s.cwd) === cwdKey(card.sessions[0]!.cwd));
+      const running = unlinked.filter((s) => dirKey(s.cwd) === dirKey(card.sessions[0]!.cwd));
 
       expect(card.issue).toBeNull();
-      expect(card.key).toBe(`session:${cwdKey(card.sessions[0]!.cwd)}`);
+      expect(card.key).toBe(`session:${dirKey(card.sessions[0]!.cwd)}`);
       expect(card.sessions).toHaveLength(running.length);
       expect(card.sessions.map((s) => s.startedAt)).toEqual([...running.map((s) => s.startedAt)].sort((a, b) => b - a));
     }

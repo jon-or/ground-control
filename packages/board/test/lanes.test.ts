@@ -9,7 +9,7 @@ import {
   isTerminal,
   statusLanes,
 } from '../src/lanes.js';
-import { cwdKey } from '../src/merge.js';
+import { dirKey } from '@ground-control/sessions';
 import type { CardPullRequest } from '@ground-control/github';
 import type { ActivityPhase } from '@ground-control/sessions';
 import type { BoardRules, CardMemory, Lane, LaneId } from '../src/index.js';
@@ -243,7 +243,7 @@ describe('assignLanes', () => {
 
   it('gives ad-hoc work a card per directory rather than hiding it — R4', () => {
     const adHoc = sessions.filter((session) => session.issueNumber === null);
-    const directories = new Set(adHoc.map((session) => cwdKey(session.cwd)));
+    const directories = new Set(adHoc.map((session) => dirKey(session.cwd)));
     const only = lanes([], adHoc);
 
     expect(adHoc.length).toBeGreaterThan(directories.size);
@@ -253,7 +253,7 @@ describe('assignLanes', () => {
 
   it('keeps a card with no issue where the developer dragged it, entry lane notwithstanding', () => {
     const adHoc = sessions.find((session) => session.issueNumber === null)!;
-    const key = `session:${cwdKey(adHoc.cwd)}`;
+    const key = `session:${dirKey(adHoc.cwd)}`;
     const moved = lanes([], [adHoc], remember({ [key]: 'unstarted' }));
 
     expect(lane(moved, 'unstarted').cards.map((c) => c.key)).toEqual([key]);
@@ -315,7 +315,7 @@ describe('the returned badge', () => {
 
   it('never marks a card with no issue — it was never on the board to leave it', () => {
     const adHoc = sessions.find((s) => s.issueNumber === null)!;
-    const key = `session:${cwdKey(adHoc.cwd)}`;
+    const key = `session:${dirKey(adHoc.cwd)}`;
     const marked = lanes([], [adHoc], remember({}, [key]));
 
     expect(marked.flatMap((l) => l.cards).find((c) => c.key === key)?.returned).toBe(false);
@@ -512,7 +512,7 @@ describe('nextMemory', () => {
 
   it('keeps a placement for a directory that still has a session running', () => {
     const adHoc = sessions.find((s) => s.issueNumber === null)!;
-    const key = `session:${cwdKey(adHoc.cwd)}`;
+    const key = `session:${dirKey(adHoc.cwd)}`;
     const memory = remember({ [key]: 'build' });
 
     expect(nextMemory(lanes(issues, sessions, memory), memory, true).placements).toEqual({ [key]: 'build' });

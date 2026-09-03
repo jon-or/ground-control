@@ -15,6 +15,7 @@ export const CLAUDE_DISPLAY_NAME = 'Claude Code';
  * `kind` stays a string so an unfamiliar kind shows up rather than dropping the session.
  */
 const agentEntry = z.object({
+  pid: z.number().optional(),
   cwd: z.string(),
   kind: z.string(),
   /** Epoch milliseconds, as `claude agents --json` reports it. */
@@ -158,6 +159,7 @@ function toSession(entry: AgentEntry, deps: ProviderDeps): Session {
   return {
     agent: CLAUDE_AGENT_ID,
     sessionId: entry.sessionId,
+    pid: entry.pid ?? null,
     shortId: entry.id ?? null,
     name: entry.name ?? null,
     title: transcriptTitle(transcript, entry.sessionId, deps.readTail),

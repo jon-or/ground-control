@@ -85,6 +85,14 @@ export function installSessionHooks(): boolean {
 }
 
 /**
+ * R27: whether the board may bring another window forward. Off, a session held in another window is refused by name
+ * rather than reached by moving the developer's focus.
+ */
+export function mayOpenWindow(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>('openWindowsForSessions', true);
+}
+
+/**
  * Writes to the scope that already carries a value, defaulting to Global. Writing Global unconditionally is
  * invisible when a workspace or folder setting shadows it, and the developer gets asked again every refresh.
  */

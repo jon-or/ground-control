@@ -1,13 +1,5 @@
+import { dirKey } from '@ground-control/sessions';
 import type { BoardCard, IssueCard, Session } from './types.js';
-
-/**
- * The directory a session runs in, as a comparable key. Case is folded because two CLIs can report the same Windows
- * path with a different drive-letter case. The cost lands only on a case-sensitive filesystem, where two directories
- * differing just in case become one card named after whichever session is newest.
- */
-export function cwdKey(cwd: string): string {
-  return cwd.split('\\').join('/').replace(/\/+$/, '').toLowerCase();
-}
 
 /** Sessions bucketed by whatever they have in common, each bucket newest first. */
 function groupSessions<K>(sessions: Session[], keyOf: (session: Session) => K): Map<K, Session[]> {
@@ -44,7 +36,7 @@ export function mergeBoard(issues: IssueCard[], sessions: Session[]): BoardCard[
   // A session naming no issue belongs to its directory rather than to itself: the checkout is what such work shares.
   const byCwd = groupSessions(
     sessions.filter((session) => session.issueNumber === null),
-    (session) => cwdKey(session.cwd),
+    (session) => dirKey(session.cwd),
   );
 
   const onBoard = new Set(issues.map((issue) => issue.number));
