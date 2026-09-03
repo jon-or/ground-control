@@ -2,20 +2,9 @@ import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
 import { diskReaders, fetchSessions } from '@ground-control/core';
 import type { OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
-import {
-  PLACEMENTS,
-  liveRootsOf,
-  planOpen,
-  primeWindows,
-  readWindowStores,
-  readWindows,
-  sessionName,
-  strayFrom,
-  surfacesFrom,
-  verifyOpen,
-} from '@ground-control/host-vscode';
-import { mayOpenWindow, readSessionsConfig } from './config.js';
-import { agents } from './registry.js';
+import { PLACEMENTS, liveRootsOf, sessionName, strayFrom, verifyOpen } from '@ground-control/host-vscode';
+import { mayOpenWindow, readSessionsConfig, vscodeSettings } from './config.js';
+import { agents, host } from './registry.js';
 
 /** The Claude placement in VS Code: its ids, and the commands that reach a session without side effects (§6, §7). */
 const CLAUDE = PLACEMENTS['claude']!;
@@ -209,10 +198,14 @@ export interface Machine {
 }
 
 /**
- * Carries out one route, returning what to tell the developer when it did not land. The switch is exhaustive on
- * purpose: a route added to the plan and not handled here fails the typecheck rather than falling through to another.
+ * Carries out one route in this window, returning what to tell the developer when it did not land. Every route the
+ * host can plan is one only a client inside the host can perform: each fires a URI or a command, and both follow
+ * focus (`docs/mechanics.md` §7, §8), which a headless process has no way to confirm.
+ *
+ * The switch is exhaustive on purpose: a route added to the plan and not handled here fails the typecheck rather
+ * than falling through to another.
  */
-async function act(plan: OpenRoute): Promise<string | null> {
+export async function performRoute(plan: OpenRoute): Promise<string | null> {
   switch (plan.route) {
     case 'reveal-here':
       return revealHere(plan.session.sessionId);
@@ -263,7 +256,7 @@ async function act(plan: OpenRoute): Promise<string | null> {
 }
 
 /** R34: the one refusal the developer fixes by changing a setting is offered the setting rather than told its name. */
-async function refuse(refusal: OpenRefusal, message: string): Promise<void> {
+export async function refuse(refusal: OpenRefusal, message: string): Promise<void> {
   if (refusal !== 'elsewhere-not-allowed') {
     void vscode.window.showWarningMessage(message);
 
@@ -287,8 +280,8 @@ const opening = new Set<string>();
  * which is what leaves a click paying tens of milliseconds rather than the best part of a second.
  */
 export function primeOpen(where: Machine): void {
-  primeWindows();
-  void readWindowStores(where.userDir, PLACEMENTS);
+  host.configure(vscodeSettings(where.userDir));
+  host.prime(diskReaders(where.home));
 }
 
 /**
@@ -296,23 +289,29 @@ export function primeOpen(where: Machine): void {
  * VS Code's per-window state — a tab is revealed by id, and a sidebar has no such command (`docs/mechanics.md` §21).
  */
 export async function openSession(sessionId: string, sessions: readonly Session[], where: Machine): Promise<void> {
-  const [windows, stores, extensionReady] = await Promise.all([
-    readWindows(where.home, sessions.find((session) => session.sessionId === sessionId), PLACEMENTS),
-    readWindowStores(where.userDir, PLACEMENTS),
+  host.configure(vscodeSettings(where.userDir));
+
+  const deps = diskReaders(where.home);
+  const [windows, surfaces, extensionReady] = await Promise.all([
+    host.windows(
+      sessions.find((session) => session.sessionId === sessionId),
+      deps,
+    ),
+    host.surfaces(deps),
     agentExtensionReady(),
   ]);
 
-  const plan = planOpen({
+  const plan = host.plan({
     sessionId,
     sessions,
-    surfaces: surfacesFrom(stores, PLACEMENTS),
+    surfaces,
     window: windows.holding,
     liveRoots: liveRootsOf(windows.live),
     workspaceRoot: boardRoot(),
     mayOpenWindow: mayOpenWindow(),
     extensionReady,
     now: Date.now(),
-  }, PLACEMENTS);
+  });
 
   if ('refusal' in plan) {
     void refuse(plan.refusal, plan.message);
@@ -327,7 +326,7 @@ export async function openSession(sessionId: string, sessions: readonly Session[
   opening.add(plan.session.sessionId);
 
   try {
-    const failure = await act(plan);
+    const failure = await performRoute(plan);
 
     if (failure) {
       void vscode.window.showErrorMessage(failure);

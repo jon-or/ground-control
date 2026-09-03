@@ -84,29 +84,31 @@ interface HostAdapter {
   /** Parses this host's entry in the configuration, or names what is wrong with it. */
   configure(raw: unknown): ReadFailure | null;
   /** Warms whatever `windows` and `surfaces` read, once per session poll. */
-  prime(deps: MachineDeps): Promise<void>;
-  /** Windows that answer now, with the roots each has open. A record that outlived its window is not a window. */
-  windows(deps: MachineDeps): Promise<HostWindow[]>;
+  prime(deps: MachineReaders): void;
+  /** Which windows are open, and which one is running this session. */
+  windows(session: Session | undefined, deps: MachineReaders): Promise<HostWindows>;
   /** Which surface in which window holds each session, from the host's own records. */
-  surfaces(deps: MachineDeps): Promise<SessionSurface[]>;
+  surfaces(deps: MachineReaders): Promise<SessionSurface[]>;
   /** A route to the session, or a named refusal with its remedy. Pure. */
   plan(request: OpenRequest): OpenPlan;
-  /** Routes this adapter can perform from a headless process. */
-  open(route: OpenRoute, deps: MachineDeps): Promise<OpenOutcome>;
-  /** Closes the surface holding a session so it can be handed back (§1, Seize). */
-  release(session: Session, deps: MachineDeps): Promise<void>;
   /** Routes only a client resident in the host can perform, named so the hub can forward them. */
   readonly residentRoutes: readonly OpenRoute['route'][];
+  /** Routes this adapter can perform from a headless process. Absent where every route is resident. */
+  open?(route: OpenRoute, deps: MachineReaders): Promise<OpenOutcome>;
+  /** Closes the surface holding a session so it can be handed back (§1, Seize). Absent where the host cannot. */
+  release?(session: Session, deps: MachineReaders): Promise<void>;
 }
 ```
+
+A host adapter takes `MachineReaders` rather than the full `MachineDeps`: linking a branch to an issue is an agent's job, and a host never does it.
 
 Two rules keep the seams from bleeding into each other.
 
 **Placement knowledge lives in the host adapter, keyed by agent.** A session's location inside a host is recorded by that agent's integration with the host: a Claude tab in VS Code is a webview with `providedId` `claudeVSCodePanel`, and a Claude window announces itself in `~/.claude/ide/<port>.lock` (`mechanics.md` §21, §22). A Codex session in the same VS Code is recorded under Codex's ids. The `vscode` host adapter holds `PLACEMENTS`, a table per agent id of the webview id, the sidebar memento keys, the state key carrying the session id, the lock directory, the extension id, the reveal and focus commands, and the open URI, because the host owns the storage format and the agent owns the identifiers. A session whose agent has no row is refused by name. An agent adapter knows nothing about any host.
 
-**A host adapter has a headless half and, where needed, a resident half.** Locating a session is reachable from the hub. Reaching it is not always: every route into VS Code that fires a URI or a command must first confirm that the target window has focus, because the URI follows focus and a miss starts a fresh agent in the wrong window (`mechanics.md` §7, §8), and a headless process has no focus signal. So today every `vscode` route is resident, and its `open` performs nothing. The adapter names such routes in `residentRoutes`; a client that can perform them says so when it connects, and the hub forwards those actions to it. A host with no resident half, such as a terminal, lists none, and its `plan` never returns one.
+**A host adapter has a headless half and, where needed, a resident half.** Locating a session is reachable from the hub. Reaching it is not always: every route into VS Code that fires a URI or a command must first confirm that the target window has focus, because the URI follows focus and a miss starts a fresh agent in the wrong window (`mechanics.md` §7, §8), and a headless process has no focus signal. So today every `vscode` route is resident, and the adapter offers no `open` at all rather than one that performs nothing. The adapter names such routes in `residentRoutes`; a client that can perform them says so when it connects, and the hub forwards those actions to it. A host with no resident half, such as a terminal, lists none, and its `plan` never returns one.
 
-`release` over a window's own port is unbuilt. Closing the surface costs the window its IDE connection (`mechanics.md` §22), and until §22 characterizes what reopening one costs, no host performs a release.
+`release` over a window's own port is unbuilt, so the `vscode` adapter omits it too. Closing the surface costs the window its IDE connection (`mechanics.md` §22), and until §22 characterizes what reopening one costs, no host performs a release. Both verbs are optional on the interface rather than stubs, so a host cannot claim a capability it does not have.
 
 ### Work source
 

@@ -136,6 +136,6 @@ export function liveWindows(windows: readonly IdeWindow[], listening: readonly L
 }
 
 /** Every folder some live window has open — what tells a surface still on screen from one recorded before a close. */
-export function liveRootsOf(windows: readonly IdeWindow[]): string[] {
+export function liveRootsOf(windows: readonly HostWindow[]): string[] {
   return [...new Set(windows.flatMap((window) => window.folders.map((folder) => dirKey(folder))))];
 }
