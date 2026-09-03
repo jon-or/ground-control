@@ -57,7 +57,7 @@ function windowRoot(recorded: string | null, window: HostWindow): string | null 
 
 /** How a session is named to the developer. The ladder is the one a session row on a card uses, so the two agree. */
 export function sessionName(session: Session): string {
-  return session.title ?? session.name ?? session.shortId ?? basename(session.cwd);
+  return session.title ?? session.details['name'] ?? session.details['shortId'] ?? basename(session.cwd);
 }
 
 /**

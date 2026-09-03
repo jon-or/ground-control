@@ -221,18 +221,15 @@ describe('unreportedSessions', () => {
     agent: 'claude',
     sessionId: SESSION,
     pid: 4242,
-    shortId: null,
-    name: null,
     title: null,
     cwd: '/nowhere/checkout',
-    kind: 'interactive',
     startedAt: 0,
-    status: null,
-    state: null,
     branch: null,
     issueNumber: null,
     transcriptWrittenAt: null,
     activity: null,
+    finished: false,
+    details: {},
   };
 
   const session = (over: Partial<Session>): Session => ({ ...base, ...over });

@@ -16,19 +16,24 @@ const session: Session = {
   agent: 'claude',
   sessionId: 'session-1',
   pid: 4242,
-  shortId: null,
-  name: 'cache-remediation',
   title: null,
   cwd: 'c:/work/18953-cache-remediation',
-  kind: 'interactive',
   startedAt: 1,
-  status: 'working',
-  state: 'editing tests',
   branch: '18953-cache-remediation',
   issueNumber: 18953,
   transcriptWrittenAt: null,
   activity: null,
+  finished: false,
+  details: { kind: 'interactive', name: 'cache-remediation', status: 'working', state: 'editing tests' },
 };
+
+/** The bag is a whole field, so an override that names one key would otherwise drop the rest of it. */
+function withDetails(over: Record<string, string>): Record<string, string> {
+  return { ...session.details, ...over };
+}
+
+/** Every key the session's own words are read from, cleared, for a row that must fall back past all of them. */
+const NO_WORDS = { kind: 'interactive' };
 
 /** Every lane, always, so a payload here has the shape `assignLanes` produces rather than a hand-picked subset. */
 function lanes(cards: Partial<Record<LaneId, LanedCard[]>>): Lane[] {
@@ -189,7 +194,7 @@ describe('board webview', () => {
               returned: false,
               attention: null,
               reason: 'Not among your assigned issues.',
-              sessions: [{ ...session, name: null, shortId: 'short-1' }],
+              sessions: [{ ...session, details: { ...NO_WORDS, shortId: 'short-1' } }],
             },
             {
               key: 'session:c:/work/18953-cache-remediation',
@@ -200,7 +205,8 @@ describe('board webview', () => {
               attention: null,
               reason: 'Ad-hoc work with no issue.',
               sessions: [
-                { ...session, sessionId: 'session-2', name: null, shortId: null, issueNumber: null, state: null },
+                // No `state`, so the row falls through to the agent's own `status` — the pair the ladder is for.
+                { ...session, sessionId: 'session-2', issueNumber: null, details: { ...NO_WORDS, status: 'working' } },
               ],
             },
           ],
@@ -298,8 +304,8 @@ describe('board webview', () => {
     const mixed: LanedCard = {
       ...liveCard,
       sessions: [
-        { ...session, sessionId: 'here', name: 'in this window' },
-        { ...session, sessionId: 'elsewhere', name: 'in another worktree' },
+        { ...session, sessionId: 'here', details: withDetails({ name: 'in this window' }) },
+        { ...session, sessionId: 'elsewhere', details: withDetails({ name: 'in another worktree' }) },
       ],
     };
 
@@ -326,8 +332,8 @@ describe('board webview', () => {
     const two: LanedCard = {
       ...liveCard,
       sessions: [
-        { ...session, sessionId: 'newest', name: 'reading logs' },
-        { ...session, sessionId: 'older', name: 'drafting notes' },
+        { ...session, sessionId: 'newest', details: withDetails({ name: 'reading logs' }) },
+        { ...session, sessionId: 'older', details: withDetails({ name: 'drafting notes' }) },
       ],
     };
 
@@ -366,7 +372,7 @@ describe('board webview', () => {
       reason: 'Ad-hoc work with no issue.',
       sessions: [
         { ...session, sessionId: 'a', title: 'Grouping orphan sessions', cwd: 'c:/work/scratch', issueNumber: null },
-        { ...session, sessionId: 'b', title: null, name: 'scratch-7b', cwd: 'c:/work/scratch', issueNumber: null },
+        { ...session, sessionId: 'b', title: null, cwd: 'c:/work/scratch', issueNumber: null, details: withDetails({ name: 'scratch-7b' }) },
       ],
     };
 
@@ -388,8 +394,8 @@ describe('board webview', () => {
       attention: null,
       reason: 'Ad-hoc work with no issue.',
       sessions: [
-        { ...session, sessionId: 'a', name: null, shortId: null, cwd: win, issueNumber: null },
-        { ...session, sessionId: 'b', name: null, shortId: null, cwd: win, issueNumber: null },
+        { ...session, sessionId: 'a', cwd: win, issueNumber: null, details: NO_WORDS },
+        { ...session, sessionId: 'b', cwd: win, issueNumber: null, details: NO_WORDS },
       ],
     };
 
@@ -415,8 +421,8 @@ describe('board webview', () => {
       attention: null,
       reason: 'Ad-hoc work with no issue.',
       sessions: [
-        { ...session, sessionId: 'a', name: 'reading logs', cwd: 'c:/work/scratch', issueNumber: null },
-        { ...session, sessionId: 'b', name: 'drafting notes', cwd: 'c:/work/scratch', issueNumber: null },
+        { ...session, sessionId: 'a', cwd: 'c:/work/scratch', issueNumber: null, details: withDetails({ name: 'reading logs' }) },
+        { ...session, sessionId: 'b', cwd: 'c:/work/scratch', issueNumber: null, details: withDetails({ name: 'drafting notes' }) },
       ],
     };
 
@@ -613,8 +619,8 @@ describe('reported activity', () => {
   it('leaves a finished session out of the blocked mark, whatever its last event was', () => {
     const card = sendCard(
       [
-        withPhase('waiting', Date.now(), { sessionId: 's-1', name: 'still asking', state: 'working' }),
-        withPhase('waiting', Date.now(), { sessionId: 's-2', name: 'long gone', state: 'stopped' }),
+        withPhase('waiting', Date.now(), { sessionId: 's-1', details: withDetails({ name: 'still asking' }) }),
+        withPhase('waiting', Date.now(), { sessionId: 's-2', finished: true, details: withDetails({ name: 'long gone' }) }),
       ],
       'blocked',
     );
@@ -635,8 +641,8 @@ describe('reported activity', () => {
   it('names in the mark only the sessions the mark is about', () => {
     const card = sendCard(
       [
-        withPhase('idle', Date.now(), { sessionId: 's-1', name: 'reading logs' }),
-        withPhase('running', Date.now(), { sessionId: 's-2', name: 'drafting notes' }),
+        withPhase('idle', Date.now(), { sessionId: 's-1', details: withDetails({ name: 'reading logs' }) }),
+        withPhase('running', Date.now(), { sessionId: 's-2', details: withDetails({ name: 'drafting notes' }) }),
       ],
       'your-turn',
     );
@@ -693,7 +699,7 @@ describe('reported activity', () => {
   });
 
   it('shows one state per row, and it is the board own observation', () => {
-    const row = sendCard([withPhase('running', Date.now(), { status: 'idle', state: 'editing tests' })])
+    const row = sendCard([withPhase('running', Date.now(), { details: withDetails({ status: 'idle', state: 'editing tests' }) })])
       .querySelector<HTMLElement>('.session')!;
 
     expect(row.querySelectorAll('.state')).toHaveLength(1);

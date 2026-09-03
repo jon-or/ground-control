@@ -34,19 +34,13 @@ export interface Session {
    * work. A background session carries a pid too, but its parent is a shell rather than a window.
    */
   pid: number | null;
-  /** Only some sessions carry a short id; Claude gives one to `--bg` sessions and not to interactive ones. */
-  shortId: string | null;
-  name: string | null;
   /**
    * What the session calls itself: the developer's own title where they set one, else the one the agent wrote for
-   * itself. Null when it has neither. `name` is no substitute — Claude derives that from the directory.
+   * itself. Null when it has neither. `details.name` is no substitute — Claude derives that from the directory.
    */
   title: string | null;
   cwd: string;
-  kind: string;
   startedAt: number;
-  status: string | null;
-  state: string | null;
   branch: string | null;
   issueNumber: number | null;
   /**
@@ -56,6 +50,17 @@ export interface Session {
   transcriptWrittenAt: number | null;
   /** Null when no signal has reported on this session, or reported nothing the board recognises. */
   activity: SessionActivity | null;
+  /**
+   * The agent's own word that this session has ended. Never inferred from silence or from a transcript's age
+   * (R24, `docs/mechanics.md` §3), and false for every agent whose CLI does not report an end.
+   */
+  finished: boolean;
+  /**
+   * Words only one agent reports, kept for display so a field like Claude's background-session `status` never becomes
+   * a column every adapter has to fake. The board reads `name` and `shortId` in the label ladder after `title`, and
+   * `state` or `status` as the CLI's own word where no phase was reported. An adapter may carry any others.
+   */
+  details: Record<string, string>;
 }
 
 /**

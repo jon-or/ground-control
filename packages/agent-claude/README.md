@@ -27,7 +27,11 @@ The package owns the Claude Code hook contract as well as the session reads, bec
 
 ## What a session carries, and what it does not
 
-`status` and `state` are reported only where the CLI supplied them — for Claude those are the `--bg` shape, and an interactive session carries neither, nor a short `id`. `transcriptWrittenAt` is a write time in epoch milliseconds, not liveness: a live session's transcript can be many hours old, or absent entirely. R24 forbids the board claiming a state it has not verified, so absence is `null` here and stays `null` all the way to the card.
+`Session` is neutral, so Claude's own words go in `details`: `kind` always, and `name`, `shortId`, `status` and `state` where the CLI supplied them — the last three are the `--bg` shape, and an interactive session carries none of them. A key absent from the bag is a word the CLI did not report, which is why they are left out rather than set to null.
+
+`finished` is the one thing read from that vocabulary and promoted to a field of its own, because the lane rules turn on it: a session the agent itself called `done` or `stopped`. `status: "idle"` is not that — an interactive session is idle whenever nobody is typing — and an exited session is never listed at all. R24 forbids a finish the board did not observe, so every other agent's sessions are simply never finished.
+
+`transcriptWrittenAt` is a write time in epoch milliseconds, not liveness: a live session's transcript can be many hours old, or absent entirely. R24 forbids the board claiming a state it has not verified, so absence is `null` here and stays `null` all the way to the card.
 
 `startedAt` is epoch **milliseconds**. Claude reports it that way; another CLI reporting seconds must multiply, or every one of its sessions lands in 1970 and the board sorts wrong in silence.
 

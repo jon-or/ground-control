@@ -93,21 +93,21 @@ describe('planOpen refuses, by name', () => {
   });
 
   it('falls back to the agent’s own name for a session the developer has not titled', () => {
-    const unnamed = { ...live, title: null, name: 'repo-37' };
+    const unnamed = session({ title: null, details: { name: 'repo-37' } });
     const plan = decide(request(unnamed, { sessions: [unnamed], surfaces: [] }));
 
     expect('refusal' in plan && plan.message).toContain('repo-37');
   });
 
   it('falls back to the short id where the agent gave one, as a session row does', () => {
-    const background = { ...live, title: null, name: null, shortId: 'ab12cd' };
+    const background = session({ title: null, details: { shortId: 'ab12cd' } });
     const plan = decide(request(background, { sessions: [background], surfaces: [] }));
 
     expect('refusal' in plan && plan.message).toContain('ab12cd');
   });
 
   it('falls back last to the directory, never to a session id no row would ever show', () => {
-    const nameless = { ...live, title: null, name: null, shortId: null };
+    const nameless = session({ title: null, details: {} });
     const plan = decide(request(nameless, { sessions: [nameless], surfaces: [] }));
 
     expect('refusal' in plan && plan.message).toContain(basename(nameless.cwd));

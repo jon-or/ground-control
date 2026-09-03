@@ -122,14 +122,6 @@ export interface Lane {
   cards: LanedCard[];
 }
 
-/**
- * A session the agent itself reported as finished. `status: "idle"` is not that — an interactive session is idle whenever nobody is typing — and
- * exited sessions are never listed, so a listed session with no state is a running one. R24 forbids a finish the board did not observe.
- */
-export function isTerminal(session: Session): boolean {
-  return session.state === 'done' || session.state === 'stopped';
-}
-
 /** Lanes where the developer has already said the card is not theirs to push on, so an agent finishing there asks nothing of them. */
 const SETTLED_LANES: readonly LaneId[] = ['done', 'icebox', 'archived'];
 
@@ -140,7 +132,7 @@ const SETTLED_LANES: readonly LaneId[] = ['done', 'icebox', 'archived'];
 export function attentionOf(sessions: readonly Session[], lane: LaneId): Attention | null {
   // A finished agent cannot be blocked on anybody. Its last event can still be a prompt it never got past, and reading that as blocked
   // would leave a dead session saying "needs you" for as long as the CLI keeps listing it.
-  if (sessions.some((session) => session.activity?.phase === 'waiting' && !isTerminal(session))) {
+  if (sessions.some((session) => session.activity?.phase === 'waiting' && !session.finished)) {
     return 'blocked';
   }
 
@@ -202,7 +194,7 @@ function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>,
   }
 
   // R2 outranks R9: a status that would archive the card cannot hide a session still running on it.
-  return card.sessions.some((session) => !isTerminal(session))
+  return card.sessions.some((session) => !session.finished)
     ? { ...base, reason: `${status} — past your hands, but an agent is still running.` }
     : {
         ...base,

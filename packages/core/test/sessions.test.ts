@@ -10,18 +10,15 @@ const SESSION: Session = {
   agent: 'fake',
   sessionId: 'a1b2c3d4-0000-4000-8000-000000000000',
   pid: 4242,
-  shortId: null,
-  name: null,
   title: null,
   cwd: '/nowhere/checkout',
-  kind: 'interactive',
   startedAt: 0,
-  status: null,
-  state: null,
   branch: null,
   issueNumber: null,
   transcriptWrittenAt: null,
   activity: null,
+  finished: false,
+  details: {},
 };
 
 const readers: MachineReaders = {

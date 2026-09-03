@@ -56,7 +56,7 @@ function basename(dir) {
 
 /** What a session calls itself. `name` is the CLI's own and often derived from the directory — the weakest of the three. */
 function sessionLabel(session) {
-  return session.title ?? session.name ?? session.shortId ?? basename(session.cwd);
+  return session.title ?? session.details.name ?? session.details.shortId ?? basename(session.cwd);
 }
 
 /** The sessions this window can open, named by the extension - the webview never compares directories itself. */
@@ -142,7 +142,7 @@ function sessionLine(session) {
     return el;
   }
 
-  const reported = session.state ?? session.status;
+  const reported = session.details.state ?? session.details.status;
 
   if (reported) {
     state.textContent = reported;
@@ -257,11 +257,6 @@ const ATTENTION = {
   blocked: { text: 'Needs you', color: 'YELLOW', phase: 'waiting', said: 'is waiting on you.' },
   'your-turn': { text: 'Your turn', color: 'BLUE', phase: 'idle', said: 'finished its turn — you have not replied since.' },
 };
-
-/** The agent's own word for finished. A session that said it is blocked cannot still be blocked on anybody. */
-function isTerminal(session) {
-  return session.state === 'done' || session.state === 'stopped';
-}
 
 /** A pull request's own state colours, matching what GitHub paints them. */
 const PR_COLORS = { OPEN: 'GREEN', MERGED: 'PURPLE', CLOSED: 'RED' };
@@ -438,7 +433,7 @@ function card(boardCard, avatarPool, placeable) {
 
   if (attention) {
     const named = boardCard.sessions.filter(
-      (session) => session.activity?.phase === attention.phase && !(attention.phase === 'waiting' && isTerminal(session)),
+      (session) => session.activity?.phase === attention.phase && !(attention.phase === 'waiting' && session.finished),
     );
 
     el.dataset.attention = boardCard.attention;
@@ -569,11 +564,12 @@ function signature(boardCard) {
       s.agent,
       s.sessionId,
       s.title,
-      s.name,
-      s.shortId,
+      s.details.name,
+      s.details.shortId,
       s.cwd,
-      s.state,
-      s.status,
+      s.details.state,
+      s.details.status,
+      s.finished,
       s.activity?.phase ?? null,
       // Whether the row is a button. A restored payload renders before the live read, and the two can disagree.
       openable.has(s.sessionId),

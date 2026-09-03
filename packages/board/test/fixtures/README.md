@@ -13,10 +13,14 @@ npm run build --workspaces && node test/fixtures/record.js
 
 The tests assert the merge's invariants — every session on exactly one card, issue order preserved, keys unique — against whatever this recording holds, plus that the recording still covers all three ways a session reaches the board (linked to an issue on the board, linked to one that is not, and unlinked), an issue card holding more than one session, and an issue with no session at all. A re-recording that loses a case fails rather than passing quietly.
 
-`helpers.ts` asserts every row of `sessions.json` carries every field of `Session`. It has to: this file predated the `title` field, and `as Session[]` handed every test `undefined` where the type promised `string | null` without a single failure. A recording that has gone stale against the type now fails the run and names the missing field.
+`helpers.ts` asserts every row of `sessions.json` carries every field of `Session`. It has to: this file once predated the `title` field, and `as Session[]` handed every test `undefined` where the type promised `string | null` without a single failure. A recording that has gone stale against the type now fails the run and names the missing field.
+
+The two files are separate recordings and `record.js` writes both. Re-record only what changed: nothing about `IssueCard` moves when the session shape does, and a fresh issue recording changes which issue numbers the lane tests can name.
+
+`details` is an open bag, so the anonymiser asserts twice over it: the values under `name` and `shortId` are rebuilt and must be gone, and every key it holds must be one this file knows — `kind`, `status` and `state` are the agent's own vocabulary and are kept, anything else fails the recording. Without the second assertion the next field an adapter adds to the bag would ship whatever it says about the developer's work.
 
 `issues.json` predates the pull-request `author`, `isDraft` and `reviewDecision` fields, which is why the recorded rules carry no login: nothing may read a field the recording does not hold. A test that turns on one derives the whole pull request and says so there.
 
-Reported activity is `null` on every row of the current recording — the hooks that write it were not installed when it was made. The lane tests derive each phase and say so where they do it.
+The current recording carries reported activity on some rows and none on others, which is what makes the attention mark testable as something that follows the phases rather than as a constant. Where a lane test needs a specific phase it derives one and says so there.
 
 Where the machine will not produce a shape on demand — two sessions naming the same absent issue, an empty board — the test derives it from these fixtures and says so there; nothing derived is saved back here.

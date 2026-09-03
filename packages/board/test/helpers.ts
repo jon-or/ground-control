@@ -43,33 +43,27 @@ const SESSION_KEYS = {
   agent: true,
   sessionId: true,
   pid: true,
-  shortId: true,
-  name: true,
   title: true,
   cwd: true,
-  kind: true,
   startedAt: true,
-  status: true,
-  state: true,
   branch: true,
   issueNumber: true,
   transcriptWrittenAt: true,
   activity: true,
+  finished: true,
+  details: true,
 } satisfies Record<keyof Session, true>;
-
-/** The recording predates `pid`, which names the process holding a session and which no board card reads. */
-const RECORDED_MISSING = new Set(['pid']);
 
 function checked(rows: unknown[]): Session[] {
   rows.forEach((row, index) => {
     for (const key of Object.keys(SESSION_KEYS)) {
-      if (!Object.hasOwn(row as object, key) && !RECORDED_MISSING.has(key)) {
+      if (!Object.hasOwn(row as object, key)) {
         throw new Error(`sessions.json row ${index} has no "${key}" — re-record it with test/fixtures/record.js`);
       }
     }
   });
 
-  return rows.map((row) => ({ ...(row as Session), pid: (row as Session).pid ?? null }));
+  return rows as Session[];
 }
 
 export const sessions = checked(fixture('sessions') as unknown[]);
