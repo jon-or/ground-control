@@ -13,8 +13,8 @@ import { readBoardRules, readBoardStatuses, readConfig, readSessionsConfig, refr
 import { promptForLogins } from './identity.js';
 import { hookState, read, watchActivity } from './hooks.js';
 import { agents } from './registry.js';
-import { openSession, primeOpen } from './sessionTab.js';
-import type { Machine } from './sessionTab.js';
+import { openSession, primeOpen } from './resident.js';
+import type { Machine } from './resident.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 const MEMORY_KEY = 'groundControl.cardMemory';

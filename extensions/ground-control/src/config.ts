@@ -90,6 +90,11 @@ export function mayOpenWindow(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('openWindowsForSessions', true);
 }
 
+/** The `vscode` host's own settings. `userDir` is the running install's, which is not the default one on a portable install. */
+export function vscodeSettings(userDir: string): Record<string, unknown> {
+  return { userDir, mayOpenWindow: mayOpenWindow() };
+}
+
 /**
  * Writes to the scope that already carries a value, defaulting to Global. Writing Global unconditionally is
  * invisible when a workspace or folder setting shadows it, and the developer gets asked again every refresh.

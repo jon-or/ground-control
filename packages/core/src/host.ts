@@ -1,5 +1,5 @@
-import type { MachineDeps } from './machine.js';
-import type { Session } from './types.js';
+import type { MachineReaders } from './machine.js';
+import type { ReadFailure, Session } from './types.js';
 
 /** One window of a host application, with the roots it has open. The host adapter decides what else a window carries. */
 export interface HostWindow {
@@ -66,21 +66,37 @@ export type OpenPlan = OpenRoute | { refusal: OpenRefusal; message: string };
 
 export type OpenOutcome = 'opened' | 'no-tab';
 
+/** The windows a host has open now, and the one holding a given session where the host can say. */
+export interface HostWindows {
+  /** Windows that answer now. A record that outlived its window is not a window. */
+  live: HostWindow[];
+  /** The window holding the session that was asked about, or null where the host cannot tie one to it. */
+  holding: HostWindow | null;
+}
+
 /**
  * One application a session can show in. It owns the host's persisted state, its window enumeration, and the verbs
  * for reaching a session in it. Routes only a client resident in the host can perform are named in `residentRoutes`.
  */
 export interface HostAdapter {
   readonly id: string;
-  /** Windows that answer now, with the roots each has open. A record that outlived its window is not a window. */
-  windows(deps: MachineDeps): Promise<HostWindow[]>;
+  /** Parses this host's entry in the configuration, or names what is wrong with it. */
+  configure(raw: unknown): ReadFailure | null;
+  /** Warms whatever `windows` and `surfaces` read, so an open pays the cheap half only. */
+  prime(deps: MachineReaders): void;
+  /** Which windows are open, and which one is running this session. */
+  windows(session: Session | undefined, deps: MachineReaders): Promise<HostWindows>;
   /** Which surface in which window holds each session, from the host's own records. */
-  surfaces(deps: MachineDeps): Promise<SessionSurface[]>;
+  surfaces(deps: MachineReaders): Promise<SessionSurface[]>;
   /** A route to the session, or a named refusal with its remedy. Pure. */
   plan(request: OpenRequest): OpenPlan;
-  /** Routes this adapter can perform from a headless process. */
-  open(route: OpenRoute, deps: MachineDeps): Promise<OpenOutcome>;
-  /** Closes the surface holding a session so it can be handed back. */
-  release(session: Session, deps: MachineDeps): Promise<void>;
+  /**
+   * Routes only a client resident in the host can perform, named so the hub forwards them rather than attempting
+   * them. A host whose every route is resident performs none itself, and omits `open`.
+   */
   readonly residentRoutes: readonly OpenRoute['route'][];
+  /** Routes this adapter can perform from a headless process. Absent where every route is resident. */
+  open?(route: OpenRoute, deps: MachineReaders): Promise<OpenOutcome>;
+  /** Closes the surface holding a session so it can be handed back. Absent where the host cannot do it yet. */
+  release?(session: Session, deps: MachineReaders): Promise<void>;
 }

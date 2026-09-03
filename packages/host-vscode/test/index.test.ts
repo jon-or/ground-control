@@ -6,6 +6,7 @@ describe('the package public surface', () => {
     expect(Object.keys(api).sort()).toEqual([
       'PLACEMENTS',
       'SETTLING_MS',
+      'VSCODE_HOST_ID',
       'VSCODE_ROUTES',
       'claudeDirOf',
       'defaultUserDir',
@@ -13,6 +14,7 @@ describe('the package public surface', () => {
       'listeningFrom',
       'liveRootsOf',
       'liveWindows',
+      'makeVscodeHost',
       'openableSessions',
       'planOpen',
       'primeWindows',

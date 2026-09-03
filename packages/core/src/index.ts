@@ -10,6 +10,7 @@ export type { ActivityChange, ActivityPlan, ActivityPlanInput, ActivitySignal, A
 export type {
   HostAdapter,
   HostWindow,
+  HostWindows,
   OpenOutcome,
   OpenPlan,
   OpenRefusal,
