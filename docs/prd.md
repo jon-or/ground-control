@@ -4,7 +4,7 @@ User-facing requirements only. Mechanisms, schemas, and APIs live in `docs/mecha
 
 ## 1. Purpose
 
-A VS Code extension that gives one developer a single place to see, and intervene in, every piece of work they own — the GitHub issues assigned to them and every Claude Code session running on their machine — on one Kanban board.
+A VS Code extension and an optional browser overlay, over one background process, that give one developer a single place to see, and intervene in, every piece of work they own — the GitHub issues assigned to them and every Claude Code session running on their machine — on one Kanban board.
 
 Today those live in three disconnected places: GitHub's project board, a fleet of VS Code windows across many worktrees, and a set of terminal sessions whose state is only visible by attaching to them. Nothing shows what an agent is doing right now, and nothing shows which agent belongs to which issue.
 
@@ -104,7 +104,7 @@ A card arrives in the lane its evidence names, and the board re-reads that evide
 
 The pull request outranks the status because a review asking for changes is code to change whatever the tracker says (R7). A merged or closed pull request is read as nothing — the status is the authority once it has landed — and one that is not the user's own says nothing about the user's stage, so it is read as nothing too. Whose it is comes from the same logins R28 identifies them by. Ad-hoc work with no issue arrives in **Build** rather than claiming to be unstarted: it is on the board only while its agent is running. Which statuses name a stage is a setting, shipped with the one that does.
 
-Once the user moves a card — by dragging it between columns, or with Alt and an arrow key on the focused card, which is the same move without a mouse — that placement *is* the lane, and nothing moves it again: not a status change, not a pull request opening, not a session starting or stopping. The board remembers it across refreshes and restarts. R9 holds the one exception. When the factory's stations exist they will move cards, and that is the one thing that will ever join the user in doing so.
+Once the user moves a card — by dragging it between columns, or with Alt and an arrow key on the focused card, which is the same move without a mouse — that placement *is* the lane, and nothing moves it again: not a status change, not a pull request opening, not a session starting or stopping. The board remembers it across refreshes and restarts, and the memory is one record per machine: a card moved on one board, in one window or in the browser, sits in that lane on every board. R9 holds the one exception. When the factory's stations exist they will move cards, and that is the one thing that will ever join the user in doing so.
 
 **R9. Work that has left the user's hands leaves the board.**
 A status decides board membership. The statuses that keep a card are the ones where the work is the user's; everything else — before it reaches them, or once it is with a tester, a release or another team — takes the card off. 🔍 Dev Review keeps the card: the user answers the comments, so the work is still theirs, and it is the one status that also names a stage (R8). Cards that leave are archived rather than deleted: a toggle in the header reveals them, with a count, in an Archived column at the end, so nothing is hidden without saying so.
@@ -208,6 +208,7 @@ Telling a running session from an idle one is part of that. The agent CLI does n
 | The set of statuses and what they mean | Where their checkout(s) live, and whether they use worktrees |
 | The branch-naming convention | Their local site hostname(s) |
 | The default lane set, which statuses keep a card on the board, and which of them name a stage | Which extra AI CLIs they have installed |
+| Which work sources the board reads | Which editor applications the board reaches into |
 | | How much work they want in flight at once |
 | | How much the board is allowed to do on its own |
 | | What agents it starts are allowed to do without asking |
@@ -237,6 +238,12 @@ Limits vary with how a person works and with what their account can sustain. The
 Anything a developer is expected to set, they can set from the board or from normal editor settings.
 
 Anything the board writes outside its own storage is reversible the same way, and reversible when the developer says so rather than at the next restart. Turning off the activity hooks removes the entries it added, on the change itself, rather than merely declining to add them again; the command is the same switch in one step. Uninstalling the extension removes them too — hook entries naming a writer nobody maintains would otherwise go on firing forever. The writer file itself is the one thing left behind, because sessions that already read the old settings go on spawning it and a deleted script makes each of them report a failure on every event.
+
+**R35. The board's tracking runs in one background process per machine.**
+Reading the machine — the issues, the sessions, what each is doing, where each is showing — happens once, in a process every board shares, so two windows and a browser tab never read the same machine three times and never disagree about it. It starts the first time the developer opens a board, stops polling while no board is watching, and exits after half an hour with nobody watching; the next board open starts it again. It can be stopped without editing a file, and uninstalling the extension stops and removes it. A developer who never opens a board never has one running, which is what §2 asks.
+
+**R36. The board is also available as an overlay on the team's GitHub project board.**
+A developer looking at the project board in the browser sees, on each of their cards, the sessions on it and what each is doing, and the same conditions R25 states above the lanes. The overlay watches and moves cards; it does not take a session over. Taking over needs the editor (R14, R15), so that stays the editor's, and the overlay says so rather than opening something that looks right.
 
 ### Honesty
 

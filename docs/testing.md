@@ -1,6 +1,6 @@
 # Testing discipline
 
-The factory's central rule is that a station advances on evidence, not on a claim (`vision.md` — "Evidence not claims"; `prd.md` R23 — "Nothing advances on an agent's word alone"). This repo holds itself to the same rule. A commit is green because a runner said so, never because a person or an agent said so.
+The board's central rule is that nothing advances on a claim, only on evidence (`prd.md` R23 — "Nothing advances on an agent's word alone"; `architecture.md` §1, "Evidence over claims"). This repo holds itself to the same rule. A commit is green because a runner said so, never because a person or an agent said so.
 
 ## The gate
 

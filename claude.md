@@ -1,6 +1,6 @@
 # Ground Control
 
-A VS Code extension: one board for the GitHub issues you own and the Claude Code sessions running on your machine.
+A VS Code extension and a browser overlay, over one background process: one board for the GitHub issues you own and the Claude Code sessions running on your machine.
 
 ## Planning Artifacts
 
@@ -9,7 +9,7 @@ Source-of-truth planning docs live in [docs/](docs/). Read the relevant one befo
 | Document | When to consult | What gets written back to it |
 | --- | --- | --- |
 | [prd.md](docs/prd.md) | User-facing requirements (R-numbers), scope, audience | Every decision made about a feature — what it does, what it refuses, what is out of scope |
-| [vision.md](docs/vision.md) | Where it is going — the factory model, station/gate/evidence stance | The results of brainstorming and higher-level thinking we do together |
+| [architecture.md](docs/architecture.md) | How the pieces fit — the hub, the agent/host/source seams, the client protocol, package boundaries, and the stance the design leans on | Any decision about where logic lives, a new seam, a change to the protocol, and the results of higher-level thinking we do together |
 | [mechanics.md](docs/mechanics.md) | Verified mechanisms — CLI flags, session files, extension APIs, with the date each was measured | Any mechanism that changed, and anything newly measured, with the date it was measured |
 | [testing.md](docs/testing.md) | The gate every commit passes, what earns a test, fixture rules | Testing guidance that emerged from implementation — a layer that turned out testable, a class of bug tests missed |
 
@@ -27,7 +27,7 @@ The docs are updated as part of the work that changed them, in the same commit �
 
 ## Development Methodology
 
-- Plan first. Read the PRD, vision, mechanics, and existing code, then write a plan that includes how you will verify the change — before coding.
+- Plan first. Read the PRD, architecture, mechanics, and existing code, then write a plan that includes how you will verify the change — before coding.
 - All new functionality is verified by tests. `docs/testing.md` is the contract; it decides what earns a test and what does not.
 - After developing a feature, use subagents to review it. Where appropriate, run several from different angles (spec adherence, regression, correctness, UX).
 - Manually exercise UI-visible changes in the Extension Development Host (F5) before calling them done.
