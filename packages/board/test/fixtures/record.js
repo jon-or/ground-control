@@ -3,7 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { fetchAssignedIssues } = require('@ground-control/github');
-const { fetchSessions } = require('@ground-control/sessions');
+const { diskReaders, fetchSessions } = require('@ground-control/core');
+const { makeClaudeAdapter } = require('@ground-control/agent-claude');
 const { anonymiseIssues, anonymiseSessions, assertScrubbed } = require('./anonymise.js');
 
 const here = __dirname;
@@ -28,13 +29,14 @@ async function main() {
     throw new Error(`${issues.error.kind}: ${issues.error.message}`);
   }
 
-  const sessions = await fetchSessions({
-    agents: [{ id: 'claude', path: 'claude' }],
-    branchIssuePattern: '^(\\d+)-',
-  });
+  const sessions = await fetchSessions(
+    { agents: [{ id: 'claude', path: 'claude' }], branchIssuePattern: '^(\\d+)-' },
+    [makeClaudeAdapter()],
+    diskReaders(),
+  );
 
   if (sessions.failures.length > 0) {
-    throw new Error(sessions.failures.map((f) => `${f.agent}/${f.kind}: ${f.message}`).join('; '));
+    throw new Error(sessions.failures.map((f) => `${f.subject}/${f.kind}: ${f.message}`).join('; '));
   }
 
   const clean = {

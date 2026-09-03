@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANE_ORDER, LANE_TITLES, boardStatuses } from '@ground-control/board';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
-import type { Session } from '@ground-control/sessions';
+import type { Session } from '@ground-control/core';
 import type { BoardMessage } from '../src/boardPanel.js';
 
 const api = {

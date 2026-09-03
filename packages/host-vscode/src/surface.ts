@@ -1,0 +1,155 @@
+import { dirKey } from '@ground-control/core';
+import type { SessionSurface } from '@ground-control/core';
+import type { AgentPlacement } from './placements.js';
+
+/**
+ * One VS Code window's persisted state, from its `workspaceStorage` directory. Taken verbatim rather than parsed by
+ * the reader, so every layer of the unwrapping is testable without a database (`docs/mechanics.md` §21).
+ */
+export interface WindowStore {
+  /** `workspace.json`, naming the window's folder or its `.code-workspace` file. */
+  workspaceJson: string | null;
+  /** `memento/workbench.parts.editor`, holding one serialised input per editor tab. */
+  editor: string | null;
+  /** The agent sidebar view's memento, holding the session the sidebar shows now. */
+  sidebar: string | null;
+  /** When the store was last written. A closed window's state survives it, so recency is what settles a conflict. */
+  updatedAt: number;
+}
+
+const FILE_URI = 'file://';
+
+function parse(text: string | null | undefined): unknown {
+  if (typeof text !== 'string') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/** A webview's own state, which is where the agent's extension records the session the surface is showing. */
+function sessionIn(state: unknown, stateKey: string): string | null {
+  const parsed = parse(typeof state === 'string' ? state : null) as Record<string, unknown> | null;
+  const id = parsed?.[stateKey];
+
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+/**
+ * The path `code` is given to raise the window. Stored as a percent-encoded file URI, and a Windows drive arrives
+ * behind a leading slash that has to go. A window with neither key is one `code` has no argument for.
+ */
+export function rootFrom(workspaceJson: string | null): string | null {
+  const parsed = parse(workspaceJson) as { folder?: unknown; workspace?: unknown } | null;
+  const uri = typeof parsed?.folder === 'string' ? parsed.folder : parsed?.workspace;
+
+  if (typeof uri !== 'string' || !uri.startsWith(FILE_URI)) {
+    return null;
+  }
+
+  let rest: string;
+
+  try {
+    rest = decodeURIComponent(uri.slice(FILE_URI.length));
+  } catch {
+    return null;
+  }
+
+  if (rest.length === 0) {
+    return null;
+  }
+
+  // What follows `file://` is a path only when it starts with a slash; anything else is an authority, which is how a
+  // network share is written and has to keep both leading slashes to stay absolute.
+  const path = rest.startsWith('/') ? rest : `//${rest}`;
+
+  return /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
+}
+
+/** The session the window's agent sidebar is showing, or null where it has never shown one. */
+export function sidebarSession(sidebar: string | null, stateKey: string): string | null {
+  return sessionIn((parse(sidebar) as { webviewState?: unknown } | null)?.webviewState, stateKey);
+}
+
+/**
+ * Every one of the agent's tabs' sessions in one window. The editor grid nests to whatever depth the developer has
+ * split their editors to, so it is walked rather than indexed, and a tab opened but never bound contributes nothing.
+ */
+export function tabSessions(editor: string | null, placement: Pick<AgentPlacement, 'webviewId' | 'stateKey'>): string[] {
+  const found: string[] = [];
+
+  walk(parse(editor), placement, found);
+
+  return found;
+}
+
+function walk(node: unknown, placement: Pick<AgentPlacement, 'webviewId' | 'stateKey'>, found: string[]): void {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      walk(child, placement, found);
+    }
+
+    return;
+  }
+
+  if (typeof node !== 'object' || node === null) {
+    return;
+  }
+
+  const record = node as Record<string, unknown>;
+  const value = record['value'];
+  const input = parse(typeof value === 'string' ? value : null) as { providedId?: unknown; state?: unknown } | null;
+
+  if (input?.providedId === placement.webviewId) {
+    const sessionId = sessionIn(input.state, placement.stateKey);
+
+    if (sessionId !== null) {
+      found.push(sessionId);
+    }
+  }
+
+  for (const child of Object.values(record)) {
+    walk(child, placement, found);
+  }
+}
+
+/**
+ * Where each session is held, across every window and every agent placed in the host. Two rules settle a session
+ * more than one record names: the window that wrote most recently wins, and within one window a tab beats the
+ * sidebar, being the only surface reachable by id.
+ */
+export function surfacesFrom(
+  stores: readonly WindowStore[],
+  placements: Readonly<Record<string, AgentPlacement>>,
+): SessionSurface[] {
+  const surfaces = new Map<string, SessionSurface>();
+  const rooted = stores.flatMap((store) => {
+    const root = rootFrom(store.workspaceJson);
+
+    return root === null ? [] : [{ store, root }];
+  });
+
+  // Windows are flushed on a shared cycle, so two stores can carry the same timestamp; the root breaks the tie, which
+  // keeps the answer off the order the storage directories happened to be listed in.
+  rooted.sort((a, b) => a.store.updatedAt - b.store.updatedAt || dirKey(a.root).localeCompare(dirKey(b.root)));
+
+  for (const { store, root } of rooted) {
+    for (const [agent, placement] of Object.entries(placements)) {
+      const sidebar = sidebarSession(store.sidebar, placement.stateKey);
+
+      if (sidebar !== null) {
+        surfaces.set(sidebar, { agent, sessionId: sidebar, root, surface: 'sidebar' });
+      }
+
+      for (const sessionId of tabSessions(store.editor, placement)) {
+        surfaces.set(sessionId, { agent, sessionId, root, surface: 'tab' });
+      }
+    }
+  }
+
+  return [...surfaces.values()];
+}

@@ -1,6 +1,6 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { activityDirOf, claudeSettingsPathOf, planHookInstall } from '@ground-control/sessions';
+import { activityDirOf, claudeSettingsPathOf, planHookInstall } from '@ground-control/agent-claude';
 
 /**
  * Runs on `vscode:uninstall`, outside the extension host, so it imports nothing from `vscode` and shares nothing with a module that does.

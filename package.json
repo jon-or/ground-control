@@ -7,8 +7,10 @@
     "node": ">=20"
   },
   "workspaces": [
+    "packages/core",
+    "packages/agent-claude",
+    "packages/host-vscode",
     "packages/github",
-    "packages/sessions",
     "packages/board",
     "extensions/ground-control"
   ],

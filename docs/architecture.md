@@ -59,16 +59,16 @@ interface AgentAdapter {
 }
 
 interface ActivitySignal {
-  /** Puts the signal in place, or takes it away. Returns a plan the hub applies; it never writes itself. */
-  plan(state: MachineState, wanted: 'install' | 'remove'): ActivityPlan;
+  /** What to write to put the signal in place, or take it away. Pure: the hub does the file system. */
+  plan(input: { settingsText: string | null; home: string; wanted: 'install' | 'remove' }): ActivityPlan;
   /** The directory whose changes mean a phase may have moved, watched by the hub. */
   watchDir(home: string): string;
   /** The last phase reported for a session, or null to claim nothing. */
-  read(home: string, sessionId: string, deps: MachineDeps, now: number): SessionActivity | null;
+  read(home: string, sessionId: string, readText: ReadText, now?: number): SessionActivity | null;
 }
 ```
 
-`MachineDeps` is the hub's view of the machine handed to every adapter: `readText`, `mtime`, `listDir`, `readTail`, `home`, and the compiled branch pattern. An adapter never touches `node:fs` directly, which is what makes it testable against recorded reads.
+`MachineDeps` is the hub's view of the machine handed to every adapter: the `MachineReaders` (`readText`, `mtime`, `listDir`, `readTail`, `home`) plus the compiled branch pattern. `fetchSessions(config, adapters, readers)` in `core` compiles the pattern and fans out to the adapters named in the configuration; an unknown id is a named failure. An adapter never touches `node:fs` directly, which is what makes it testable against recorded reads.
 
 `activity` is optional because the signal is the least portable part of an agent. Claude's is a hook script writing a marker per session (`mechanics.md` §20); another CLI may offer a status file, a socket, or nothing. An adapter with no signal produces sessions with `activity: null`, which the board already renders as no phase (R24).
 
@@ -102,7 +102,7 @@ interface HostAdapter {
 
 Two rules keep the seams from bleeding into each other.
 
-**Placement knowledge lives in the host adapter, keyed by agent.** A session's location inside a host is recorded by that agent's integration with the host: a Claude tab in VS Code is a webview with `providedId` `claudeVSCodePanel`, and a Claude window announces itself in `~/.claude/ide/<port>.lock` (`mechanics.md` §21, §22). A Codex session in the same VS Code is recorded under Codex's ids. The `vscode` host adapter holds a table of these per agent id, because the host owns the storage format and the agent owns the identifiers. An agent adapter knows nothing about any host.
+**Placement knowledge lives in the host adapter, keyed by agent.** A session's location inside a host is recorded by that agent's integration with the host: a Claude tab in VS Code is a webview with `providedId` `claudeVSCodePanel`, and a Claude window announces itself in `~/.claude/ide/<port>.lock` (`mechanics.md` §21, §22). A Codex session in the same VS Code is recorded under Codex's ids. The `vscode` host adapter holds `PLACEMENTS`, a table per agent id of the webview id, the sidebar memento keys, the state key carrying the session id, the lock directory, the extension id, the reveal and focus commands, and the open URI, because the host owns the storage format and the agent owns the identifiers. A session whose agent has no row is refused by name. An agent adapter knows nothing about any host.
 
 **A host adapter has a headless half and, where needed, a resident half.** Locating a session is reachable from the hub. Reaching it is not always: every route into VS Code that fires a URI or a command must first confirm that the target window has focus, because the URI follows focus and a miss starts a fresh agent in the wrong window (`mechanics.md` §7, §8), and a headless process has no focus signal. So today every `vscode` route is resident, and its `open` performs nothing. The adapter names such routes in `residentRoutes`; a client that can perform them says so when it connects, and the hub forwards those actions to it. A host with no resident half, such as a terminal, lists none, and its `plan` never returns one.
 

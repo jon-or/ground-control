@@ -1,33 +1,24 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
+import { diskReaders, fetchSessions } from '@ground-control/core';
+import type { OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
 import {
-  fetchSessions,
+  PLACEMENTS,
   liveRootsOf,
   planOpen,
+  primeWindows,
+  readWindowStores,
+  readWindows,
   sessionName,
   strayFrom,
   surfacesFrom,
   verifyOpen,
-} from '@ground-control/sessions';
-import type { OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/sessions';
+} from '@ground-control/host-vscode';
 import { mayOpenWindow, readSessionsConfig } from './config.js';
-import { primeWindows, readWindows } from './ideWindows.js';
-import { readWindowStores } from './windowStore.js';
+import { agents } from './registry.js';
 
-const EXTENSION_ID = 'Anthropic.claude-code';
-const PANEL_VIEW_TYPE = 'claudeVSCodePanel';
-/**
- * `primaryEditor.open` rather than `editor.open`: the two reveal alike, but `editor.open` writes the developer's
- * `claudeCode.preferredLocation` whenever the column is not the active one (`docs/mechanics.md` §6).
- */
-const OPEN_COMMAND = 'claude-vscode.primaryEditor.open';
-/**
- * The views' own auto-registered focus commands: `claude-vscode.sidebar.open` writes `claudeCode.preferredLocation` as
- * a side effect (§6). Only one view is registered at a time, gated on whether the host has a secondary sidebar.
- */
-const SIDEBAR_COMMANDS = ['claudeVSCodeSidebarSecondary.focus', 'claudeVSCodeSidebar.focus'];
-/** Handled by the official extension itself, so a window needs nothing of ours in it (`docs/mechanics.md` §7). */
-const OPEN_URI = 'vscode://anthropic.claude-code/open?session=';
+/** The Claude placement in VS Code: its ids, and the commands that reach a session without side effects (§6, §7). */
+const CLAUDE = PLACEMENTS['claude']!;
 const VERIFY_TIMEOUT_MS = 2500;
 const POLL_MS = 250;
 const FOCUS_POLL_MS = 50;
@@ -57,7 +48,7 @@ function quoted(value: string): string {
 function isClaudePanel(tab: vscode.Tab | undefined): boolean {
   const viewType = (tab?.input as { viewType?: unknown } | undefined)?.viewType;
 
-  return typeof viewType === 'string' && viewType.includes(PANEL_VIEW_TYPE);
+  return typeof viewType === 'string' && viewType.includes(CLAUDE.webviewId);
 }
 
 function claudeTabCount(): number {
@@ -100,8 +91,9 @@ async function focusLeft(timeoutMs: number): Promise<boolean> {
   return false;
 }
 
-async function claudeExtensionReady(): Promise<boolean> {
-  const extension = vscode.extensions.getExtension(EXTENSION_ID);
+/** Whether the agent's own extension is here and activated, which is what performs a reveal in this window. */
+async function agentExtensionReady(): Promise<boolean> {
+  const extension = vscode.extensions.getExtension(CLAUDE.extensionId);
 
   if (!extension) {
     return false;
@@ -120,7 +112,7 @@ async function claudeExtensionReady(): Promise<boolean> {
 
 /** The live roster, read the one way the board reads it, so a row here is the same `Session` a card was built from. */
 async function roster(): Promise<Session[]> {
-  return (await fetchSessions(readSessionsConfig())).sessions;
+  return (await fetchSessions(readSessionsConfig(), agents, diskReaders())).sessions;
 }
 
 /**
@@ -142,7 +134,7 @@ async function raise(root: string): Promise<boolean> {
 
 /** Focuses whichever of the two Claude views this VS Code registered; the other rejects rather than doing nothing. */
 async function focusSidebar(): Promise<boolean> {
-  for (const command of SIDEBAR_COMMANDS) {
+  for (const command of CLAUDE.sidebarFocusCommands) {
     try {
       await vscode.commands.executeCommand(command);
 
@@ -159,9 +151,9 @@ async function revealHere(sessionId: string): Promise<string | null> {
   const before = claudeTabCount();
 
   try {
-    await vscode.commands.executeCommand(OPEN_COMMAND, sessionId);
+    await vscode.commands.executeCommand(CLAUDE.revealCommand, sessionId);
   } catch (error) {
-    return `${OPEN_COMMAND} failed: ${error instanceof Error ? error.message : String(error)}`;
+    return `${CLAUDE.revealCommand} failed: ${error instanceof Error ? error.message : String(error)}`;
   }
 
   return (await watchForTab(before)) === 'opened'
@@ -202,7 +194,7 @@ async function revealElsewhere(session: Session, root: string): Promise<string |
   // own work, and reporting it as a stray would tell them to close a session they had just started themselves.
   const before = await roster();
 
-  await run('code', ['--open-url', quoted(`${OPEN_URI}${encodeURIComponent(session.sessionId)}`)]);
+  await run('code', ['--open-url', quoted(CLAUDE.openUri(session.sessionId))]);
 
   void confirmLanding(root, before);
 
@@ -296,7 +288,7 @@ const opening = new Set<string>();
  */
 export function primeOpen(where: Machine): void {
   primeWindows();
-  void readWindowStores(where.userDir);
+  void readWindowStores(where.userDir, PLACEMENTS);
 }
 
 /**
@@ -304,23 +296,23 @@ export function primeOpen(where: Machine): void {
  * VS Code's per-window state — a tab is revealed by id, and a sidebar has no such command (`docs/mechanics.md` §21).
  */
 export async function openSession(sessionId: string, sessions: readonly Session[], where: Machine): Promise<void> {
-  const [windows, stores, claudeExtension] = await Promise.all([
-    readWindows(where.home, sessions.find((session) => session.sessionId === sessionId)),
-    readWindowStores(where.userDir),
-    claudeExtensionReady(),
+  const [windows, stores, extensionReady] = await Promise.all([
+    readWindows(where.home, sessions.find((session) => session.sessionId === sessionId), PLACEMENTS),
+    readWindowStores(where.userDir, PLACEMENTS),
+    agentExtensionReady(),
   ]);
 
   const plan = planOpen({
     sessionId,
     sessions,
-    surfaces: surfacesFrom(stores),
+    surfaces: surfacesFrom(stores, PLACEMENTS),
     window: windows.holding,
     liveRoots: liveRootsOf(windows.live),
     workspaceRoot: boardRoot(),
     mayOpenWindow: mayOpenWindow(),
-    claudeExtension,
+    extensionReady,
     now: Date.now(),
-  });
+  }, PLACEMENTS);
 
   if ('refusal' in plan) {
     void refuse(plan.refusal, plan.message);

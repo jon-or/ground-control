@@ -1,0 +1,10 @@
+export { PLACEMENTS, claudeDirOf } from './placements.js';
+export type { AgentPlacement } from './placements.js';
+export { SETTLING_MS, VSCODE_ROUTES, openableSessions, planOpen, sessionName, strayFrom, verifyOpen } from './open.js';
+export { ideWindowsFrom, listeningFrom, liveRootsOf, liveWindows, processesFrom, windowForProcess } from './ide.js';
+export type { IdeLock, IdeWindow, ListeningPort, ProcessEntry } from './ide.js';
+export { rootFrom, sidebarSession, surfacesFrom, tabSessions } from './surface.js';
+export type { WindowStore } from './surface.js';
+export { primeWindows, readWindows } from './windows.js';
+export type { Windows } from './windows.js';
+export { defaultUserDir, readWindowStores } from './stores.js';
