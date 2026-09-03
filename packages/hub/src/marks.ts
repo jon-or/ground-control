@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { z } from 'zod';
 import { groundControlDirOf } from '@ground-control/core';
-import { read, writeAtomic } from './fs.js';
+import { read, writeIfChanged } from './fs.js';
 import { marksPathOf } from './paths.js';
 
 const marks = z.object({
@@ -47,7 +47,7 @@ export function makeMarkStore(home: string): MarkStore {
     write(next: Marks): void {
       try {
         mkdirSync(groundControlDirOf(home), { recursive: true });
-        writeAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
+        writeIfChanged(path, `${JSON.stringify(next, null, 2)}\n`);
       } catch {
         // A mark that could not be stored costs one repeated notice, not a render.
       }

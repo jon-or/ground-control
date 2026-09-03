@@ -31,6 +31,7 @@ describe('the package public surface', () => {
       'uninstallActivity',
       'watchDir',
       'writeAtomic',
+      'writeIfChanged',
       'writeInPlace',
     ]);
   });

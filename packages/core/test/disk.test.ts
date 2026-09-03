@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { diskReaders, listDirFromDisk, mtimeFromDisk, readTailFromDisk, readTextFromDisk } from '../src/machine.js';
@@ -80,7 +80,9 @@ describe('diskReaders', () => {
     expect(readers.readText(manifest)).toContain('@ground-control/core');
     expect(readers.mtime(manifest)).toBe(statSync(manifest).mtimeMs);
     expect(readers.listDir(pkg)).toContain('package.json');
-    expect(readers.readTail(manifest, 1_000_000)).toBe(readers.readText(manifest));
+    // Against the file, not against this object's other reader: two fields wired to one broken reader would agree.
+    expect(readers.readTail(manifest, 1_000_000)).toBe(readFileSync(manifest, 'utf8'));
+    expect(readers.readTail(manifest, 8)).toBe(readFileSync(manifest, 'utf8').slice(-8));
   });
 
   it('defaults the home to the machine own', () => {

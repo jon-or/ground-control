@@ -72,9 +72,9 @@ export function watchDir(
       present.delete(sessionId);
     }
 
-    // First kind wins: a `deleted` this batch observed is the expensive, load-bearing one, and a later event on the
-    // same session must not quietly downgrade it to a phase the board can read from a file.
-    if (!batch.has(sessionId)) {
+    // A `deleted` wins whenever it is seen, because it is the only kind `rosterIsStale` acts on: a session that ends
+    // just after a tool completes writes then unlinks inside one batch, and first-kind-wins would drop the end.
+    if (kind === 'deleted' || !batch.has(sessionId)) {
       batch.set(sessionId, kind);
     }
 

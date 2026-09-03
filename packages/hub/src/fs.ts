@@ -107,7 +107,7 @@ export function writeAtomic(path: string, text: string): void {
   try {
     attempt(() => renameSync(temp, path));
   } catch {
-    attempt(() => writeFileSync(path, text));
+    writeInPlace(path, text);
   } finally {
     rmSync(temp, { force: true });
   }
@@ -119,4 +119,14 @@ export function writeAtomic(path: string, text: string): void {
  */
 export function writeInPlace(path: string, text: string): void {
   attempt(() => writeFileSync(path, text));
+}
+
+/**
+ * For a file rewritten on every render: a board that changed nothing must not churn a write, a rename and an unlink
+ * several times a second on the thread the editor draws on.
+ */
+export function writeIfChanged(path: string, text: string): void {
+  if (read(path) !== text) {
+    writeAtomic(path, text);
+  }
 }

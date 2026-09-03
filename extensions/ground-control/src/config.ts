@@ -3,7 +3,7 @@ import { boardStatuses, statusLanes } from '@ground-control/board';
 import type { BoardRules } from '@ground-control/board';
 import type { CardSource, GithubConfig } from '@ground-control/github';
 import type { AgentConfig, SessionsConfig } from '@ground-control/core';
-import { agents } from './registry.js';
+import { defaultConfig } from '@ground-control/hub';
 
 export const SECTION = 'groundControl';
 const LOGINS = 'github.logins';
@@ -38,7 +38,7 @@ export function readSessionsConfig(): SessionsConfig {
   const entries: AgentConfig[] =
     Object.keys(configured).length > 0
       ? Object.entries(configured).map(([id, path]) => ({ id, path }))
-      : agents.filter((adapter) => adapter.defaultEnabled).map((adapter) => ({ id: adapter.id, path: adapter.defaultPath }));
+      : defaultConfig().agents;
 
   return {
     agents: entries,

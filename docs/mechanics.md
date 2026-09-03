@@ -66,7 +66,7 @@ Layout:
 
 **A transcript's mtime is not liveness.** Among live sessions that had one, the oldest write measured was over 9 hours old — so a write time is only ever a write time.
 
-The counts behind these move as sessions start and exit; `packages/sessions/test/fixtures/` pins them, re-recordable with `node test/fixtures/record.js`. The probe is not among them — a probe directory cannot be recorded from a machine it no longer exists on, so it is asserted directly in `packages/sessions/test/transcripts.test.ts`.
+The counts behind these move as sessions start and exit; `packages/agent-claude/test/fixtures/` pins them, re-recordable with `node test/fixtures/record.js`. The probe is not among them — a probe directory cannot be recorded from a machine it no longer exists on, so it is asserted directly in `packages/agent-claude/test/transcripts.test.ts`.
 
 `meta.json` contents: `{"agentType","description","toolUseId","spawnDepth"}` — enough to attribute a subagent to the parent tool call that spawned it.
 
@@ -1037,7 +1037,7 @@ with the tool-event set being `PreToolUse, PostToolUse, PostToolUseFailure, Perm
 
 **The carry is order-sensitive, and open question #20 bounds how well it can be.** Two async hooks at a turn's first tool call: a `PostToolBatch` that reads the marker before `UserPromptSubmit`'s rename lands and writes after it restores the previous turn's stamp, and a `Stop` that lands after the next turn's prompt clears a fresh one. Both windows are tens of milliseconds wide, both are corrected at the next turn boundary, and neither is fixable without a sequence number in the payload. The same bound covers a prompt the writer never sees at all — a hook `timeout`, or a marker sitting inside the 60 s future tolerance after a backward clock step: that turn counts from the previous prompt, and the next turn end resets it.
 
-It is a transcription plus that one turn stamp: the event-to-phase mapping lives in `packages/sessions/src/phase.ts`, so a mapping bug ships as an extension update rather than a rewrite of a file in the developer's home directory, and vitest can reach it.
+It is a transcription plus that one turn stamp: the event-to-phase mapping lives in `packages/agent-claude/src/phase.ts`, so a mapping bug ships as an extension update rather than a rewrite of a file in the developer's home directory, and vitest can reach it.
 
 **`SessionStart` claims a phase only for `compact`, and `compact` is load-bearing twice** — the phase mapping and the turn carry both test it, so a renamed source blanks a compacting session's phase *and* ends its turn. Compaction fires mid-turn on a working session, so a null there would blank a running card; `startup`, `resume`, `clear` and `fork` prove a session exists, not that it is doing anything, and a card reading idle says "the board last saw this session finish". That null is also what keeps an opened-and-abandoned tab off the board: `neverPrompted` hides a session with no transcript, no phase and no status, so the event that fires before the first turn must not manufacture one. **So `SessionStart` is not what puts a card up** — a session reaches the board on its first prompt, via `UserPromptSubmit`. It is installed unfiltered: a `startup` matcher would be a regex tested against `source`, whose semantics are open question #18, and a matcher that misses is a hook that never fires.
 
@@ -1183,3 +1183,22 @@ That is a directory whose delete has been accepted but not completed: Windows ke
 **Which handle it was is not established.** A `node:fs.watch` on a directory releases its own handle when the directory is removed — armed in the same process and in another, before and after the removal, `rmSync` then `mkdirSync` succeeded every time across several attempts. So the holder was something outside this code: a live session's hook writer, a scanner, or the search indexer. Nothing here can prevent another process from being mid-read when a directory goes.
 
 **So the directory is not removed.** Turning the activity signal off empties it, file by file, and leaves the directory in place. Nothing then has to create it back, and the watcher — which dies with the directory and takes up to a second to re-arm — never loses it. An empty directory costs a developer nothing; a name they cannot use until they close every window costs them the signal entirely.
+
+## 24. `fs.watch` reports what happened to a marker only as a hint
+
+**Measured 2026-09-03, Node 24.14.0 on Windows 11 (win32).** A `node:fs.watch` over a directory delivers `(event, filename)` where `event` is `rename` or `change`, and neither maps to what the board needs to know. One file operation is several events, and the count varies with the operation:
+
+| Operation | Events delivered |
+| --- | --- |
+| create a file | `rename` then `change` |
+| rewrite it in place | `change`, `change` |
+| write a `.tmp` and rename it over the file | `rename:tmp`, `change:tmp`, `rename:file`, `rename:tmp`, `rename:file` — five |
+| unlink it | `rename` |
+
+So the kind is decided by asking the file system, not by reading `event`. It is decided per path with one `existsSync` against a membership set seeded by `readdir` when the watcher arms: gone means `deleted`, present-and-known means `changed`, present-and-unknown means `created`. Re-listing the directory on each event instead reads every marker whose own event has not arrived yet as a rewrite, because a turn boundary writes several at once.
+
+**Events are delivered after the fact, and the file system is read at delivery.** A file written and unlinked with nothing awaited in between still produces three events, but by the time the first is delivered the file is already gone, so all three read as `deleted`. Wait 40 ms between the write and the unlink and the create is delivered while the file is still there, so the batch sees `created` then `deleted`. This is why `deleted` wins over any kind already recorded for that session in the same batch rather than the first kind winning: it is the only kind `rosterIsStale` acts on, and a session that ends just after a tool completes produces exactly that sequence.
+
+**Version-fragile, and platform-fragile.** These counts are Windows' `ReadDirectoryChangesW` through libuv. macOS (`FSEvents`) and Linux (`inotify`) coalesce differently, and neither has been measured here. Nothing in the board reads the event kind, which is what makes the difference not matter.
+
+`fs.watch` throws `ENOENT` on a directory that does not exist and its watcher dies when the directory is removed under it. The activity directory is created by the install and removed when the signal is turned off, so a watcher armed once is deaf for the life of the process; it re-arms on `error` and on `close`, and polls for the directory to appear when it is not there yet.

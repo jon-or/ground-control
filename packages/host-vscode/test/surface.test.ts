@@ -102,18 +102,26 @@ describe('sidebarSession', () => {
 });
 
 describe('tabSessions', () => {
+  /** Written out rather than selected by the same call: a predicate that picks the row cannot then check it. */
   it('finds every Claude tab in a recorded window, in the order the grid holds them', () => {
-    const many = stores.find((store) => tabSessions(store.editor, CLAUDE).length > 1)!;
-
-    expect(tabSessions(many.editor, CLAUDE).length).toBeGreaterThan(1);
-    expect(new Set(tabSessions(many.editor, CLAUDE)).size).toBe(tabSessions(many.editor, CLAUDE).length);
+    expect(tabSessions(stores[3]!.editor, CLAUDE)).toEqual([
+      '00000000-0000-4000-8000-000000000014',
+      '00000000-0000-4000-8000-000000000015',
+    ]);
   });
 
-  it('steps over an editor that is not ours, which every recorded window has', () => {
-    const withOthers = stores.find((store) => (store.editor ?? '').includes('gettingStartedInput'))!;
+  /**
+   * Counted, not merely non-empty: `[].every(...)` is `true`, so a reader that gave up at the first foreign editor
+   * would satisfy the shape this test is named for.
+   */
+  it('steps over an editor that is not ours and keeps reading past it', () => {
+    const withOthers = stores[5]!;
 
-    expect(withOthers).toBeDefined();
-    expect(tabSessions(withOthers.editor, CLAUDE).every((id) => id.length > 0)).toBe(true);
+    expect(withOthers.editor).toContain('gettingStartedInput');
+    expect(tabSessions(withOthers.editor, CLAUDE)).toEqual([
+      '00000000-0000-4000-8000-000000000017',
+      '00000000-0000-4000-8000-000000000018',
+    ]);
   });
 
   /**
@@ -198,7 +206,10 @@ describe('surfacesFrom', () => {
       { ...BOTH, editor: null, workspaceJson: '{"folder":"file:///d%3A/b"}', updatedAt: 5 },
     ];
 
-    expect(surfaceOf(shared, surfacesFrom(pair, PLACEMENTS))?.root).toBe(surfaceOf(shared, surfacesFrom([...pair].reverse(), PLACEMENTS))?.root);
+    const first = surfaceOf(shared, surfacesFrom(pair, PLACEMENTS))?.root;
+
+    expect(first).toBe('d:/b');
+    expect(surfaceOf(shared, surfacesFrom([...pair].reverse(), PLACEMENTS))?.root).toBe(first);
   });
 
   it('drops a window it has no root for rather than placing its sessions nowhere', () => {
@@ -210,6 +221,10 @@ describe('surfacesFrom', () => {
   it('drops one unreadable window without losing the rest', () => {
     const broken: WindowStore = { workspaceJson: 'not json', editor: 'not json', sidebar: 'not json', updatedAt: 0 };
 
-    expect(surfacesFrom([broken, ...stores], PLACEMENTS)).toEqual(surfacesFrom(stores, PLACEMENTS));
+    const kept = surfacesFrom(stores, PLACEMENTS);
+
+    // Pinned, because two empty lists are equal: a reader that dropped every window would satisfy the comparison.
+    expect(kept.length).toBeGreaterThan(0);
+    expect(surfacesFrom([broken, ...stores], PLACEMENTS)).toEqual(kept);
   });
 });

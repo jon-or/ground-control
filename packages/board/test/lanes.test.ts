@@ -707,14 +707,27 @@ describe('the attention on a card', () => {
     expect(cardFor(board, 19072)?.attention).toBe('blocked');
   });
 
-  /** The recording carries both, which is what makes this the mark following the phases rather than a constant. */
+  /**
+   * Written out, never recomputed: an expectation that calls `attentionOf` again is the source agreeing with itself,
+   * and passes whatever that function returns. The recording carries phased and silent sessions on both sides.
+   */
   it('marks the recorded board exactly where a session reported a phase that asks something', () => {
     expect(sessions.some((s) => s.activity === null)).toBe(true);
     expect(sessions.some((s) => s.activity !== null)).toBe(true);
 
-    for (const card of board.flatMap((l) => l.cards)) {
-      expect(card.attention).toBe(attentionOf(card.sessions, card.lane));
-    }
+    const marked = board
+      .flatMap((l) => l.cards)
+      .filter((c) => c.sessions.length > 0)
+      .map((c) => [c.key, c.attention]);
+
+    expect(marked).toEqual([
+      ['issue:19072', 'your-turn'],
+      ['issue:19357', 'your-turn'],
+      ['session:d:/checkouts/project-1', null],
+      ['session:d:/checkouts/project-2', 'your-turn'],
+      ['session:d:/checkouts/project-3', 'your-turn'],
+      ['session:d:/checkouts/project-4', null],
+    ]);
   });
 
   it('asks nothing of a card whose sessions all reported no phase', () => {

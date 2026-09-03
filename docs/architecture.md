@@ -61,10 +61,14 @@ interface AgentAdapter {
 interface ActivitySignal {
   /** What to write to put the signal in place, or take it away. Pure: the hub does the file system. */
   plan(input: { settingsText: string | null; home: string; wanted: 'install' | 'remove' }): ActivityPlan;
+  /** The agent's own settings file, which the plan is written into. */
+  settingsPath(home: string): string;
   /** The directory whose changes mean a phase may have moved, watched by the hub. */
   watchDir(home: string): string;
   /** The last phase reported for a session, or null to claim nothing. */
   read(home: string, sessionId: string, readText: ReadText, now?: number): SessionActivity | null;
+  /** A script the signal needs on disk, where it needs one. The hub writes it and never reads it. */
+  readonly writer?: { path(home: string): string; source: string };
 }
 ```
 
@@ -188,6 +192,8 @@ A client renders the snapshot and forwards actions. It holds no state the hub do
 | `apps/hub` | the daemon entry point and the Chrome bridge; `ground-control-hub` | `core`, `hub` |
 | `extensions/ground-control` | the VS Code client and the `vscode` resident half; bundles `apps/hub` as `dist/hub.js` | `core`, `host-vscode`, `hub`; the only package that imports `vscode` |
 | `extensions/chrome-github-board` | the Chrome client | `core`; the only package that imports `chrome` |
+
+The extension's row is where the boundary settles. It also imports `agent-claude`, `board` and `github` for as long as it does the reading itself; those three go when the hub owns the loop.
 
 One package per adapter is what makes the seams enforceable. The boundary rule and the coverage floor apply per package, so `agent-claude` cannot reach `host-vscode`, and an adapter that arrives without tests fails on its own number rather than hiding in a larger one. `core` names no adapter; the registries are the hub's.
 
