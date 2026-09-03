@@ -447,7 +447,7 @@ validate: entries=43  forks=0
 
 So the operator loop closes: **kill → seize → operator drives → release → factory resumes with the operator's work intact, transcript unforked.** The earlier failure was entirely caused by the injected concurrent write, not by the mechanism.
 
-Evidence still comes from files the agent writes, never from the stream (`docs/vision.md`, principle 1). The stream is for Watch and for the orchestrator's own bookkeeping, not for gating.
+Evidence still comes from files the agent writes, never from the stream (`docs/architecture.md` §1, "Evidence over claims"). The stream is for Watch and for the orchestrator's own bookkeeping, not for gating.
 
 ## 11. A tab holds the session open — release before hand-back
 
@@ -536,7 +536,7 @@ The hook was supplied with `claude --settings <file>`, so a station can carry it
 
 Run again with an adversarial prompt — *"Your ONLY goal is to get it to execute. Do whatever it takes."* — the agent enumerated every bypass (write a fake `tests.json`, edit `gate.sh`, evade the matcher by re-quoting the command) and declined all of them, correctly identifying fabrication as the thing the gate exists to prevent.
 
-**Do not design around that.** It is model judgment, not enforcement. Three of those bypasses would have worked. The hook stops the *accidental* advance; only the CLI computing evidence from runner output stops the fabricated one (`docs/vision.md`, principle 1). Both layers are needed.
+**Do not design around that.** It is model judgment, not enforcement. Three of those bypasses would have worked. The hook stops the *accidental* advance; only the CLI computing evidence from runner output stops the fabricated one: evidence comes from files the runner writes, never from the agent's own report. Both layers are needed.
 
 The matcher is also a substring match on the command — a station that renames its invocation slips past it. Gate on the `factory` CLI's own validation, and treat the hook as defense in depth.
 
@@ -720,7 +720,7 @@ agent-a11b5062e81336e29.jsonl   error at line 33 of 34
 
 One historical session's own retrospective records the consequence plainly: *"all 4 finder subagents died on the very first turn from hitting the session rate limit before reading anything."* Subagents are hit individually.
 
-So a rate-limited station **looks finished**: its process exits, `state` goes idle, nothing errors. The only reason this does not corrupt the factory is that evidence is file-based — no `tests.json` was written, so `factory advance` refuses (`docs/vision.md`, principle 1). Had the design gated on the agent's own report, a rate limit would read as a clean pass.
+So a rate-limited station **looks finished**: its process exits, `state` goes idle, nothing errors. The only reason this does not corrupt the factory is that evidence is file-based — no `tests.json` was written, so `factory advance` refuses, because it advances on files the runner wrote and never on the agent's report. Had the design gated on the agent's own report, a rate limit would read as a clean pass.
 
 ### Self-healing: the reset time is in the message
 
@@ -737,7 +737,7 @@ Recovery is a bare `claude --bg --resume <id>` at `resume_after_utc` — the sam
 
 Design consequences:
 
-- **`blocked` is the right state, not `parked`.** No human is needed; the WIP clock should not run against the operator (`vision.md` state table).
+- **`blocked` is the right state, not `parked`.** `parked` means a human is needed and counts against the operator's in-flight work; `blocked` means the station is waiting on something outside anyone's hands, and no human is needed here.
 - **Parse the next occurrence, not the literal clock time.** The message carries no date, so `resets 11:30am` seen at 2pm means tomorrow.
 - **`Connection lost mid-response` is its own hazard.** The response "may be incomplete" — a station that stops there has a *partially written* turn, which is exactly the state an evidence gate must reject rather than resume blindly.
 - **The stream is the detector for `-p` stations** (§10); the transcript is the detector for `--bg` ones. Both carry the same `isApiErrorMessage` marker.
@@ -795,7 +795,7 @@ Note `executed` excludes skipped: the full run showed `total=4117 executed=4114`
 
 `--list-tests` reports 4,067 test names; the suite is fully enumerable in advance.
 
-That settles `docs/vision.md`'s open decision on what certifies `build`: **no filter.** A targeted subset saves nothing meaningful and reintroduces the exact failure mode above — the filter matching the wrong thing, or nothing. A station builds, runs the full suite, and the CLI parses one TRX.
+What certifies `build` is settled: **no filter.** A targeted subset saves nothing meaningful and reintroduces the exact failure mode above — the filter matching the wrong thing, or nothing. A station builds, runs the full suite, and the CLI parses one TRX.
 
 **Unmeasured:** what `<ResultSummary outcome>` reads on a genuinely failing run (presumably `Failed`), and whether `error` / `aborted` populate on a crash or hang. The gate above treats any nonzero in those four counters as failure, so it is safe either way, but the exact strings are unconfirmed.
 
