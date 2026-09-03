@@ -4,7 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANE_ORDER, LANE_TITLES, boardStatuses } from '@ground-control/board';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
 import type { Session } from '@ground-control/core';
-import type { BoardMessage } from '../src/boardPanel.js';
+import type { SnapshotMessage } from '@ground-control/core';
 
 const api = {
   postMessage: vi.fn(),
@@ -41,7 +41,7 @@ function lanes(cards: Partial<Record<LaneId, LanedCard[]>>): Lane[] {
 }
 
 /** Openable by default: most tests are not about which sessions this window can open, and none may be. */
-function message(overrides: Partial<BoardMessage> = {}): BoardMessage {
+function message(overrides: Partial<SnapshotMessage> = {}): SnapshotMessage {
   const shown = overrides.lanes ?? lanes({});
 
   return {
@@ -58,12 +58,15 @@ function message(overrides: Partial<BoardMessage> = {}): BoardMessage {
     },
     sessions: { count: 0, patternError: null, fetchedAt: '2026-09-01T20:00:01Z' },
     hooks: null,
+    needs: null,
+    fetchedAt: '2026-09-01T20:00:01Z',
     failures: [],
+    stale: false,
     ...overrides,
   };
 }
 
-function send(data: BoardMessage | { type: 'loading' }): void {
+function send(data: SnapshotMessage | { type: 'loading' }): void {
   window.dispatchEvent(new MessageEvent('message', { data }));
 }
 
@@ -502,7 +505,8 @@ describe('board webview', () => {
           fetchedAt: '2026-09-01T20:00:00Z',
         },
         sessions: { count: 0, patternError: 'Pattern is invalid.', fetchedAt: '2026-09-01T20:00:01Z' },
-        failures: [{ source: 'issues', kind: 'query-failed', message: 'GitHub failed.', remedy: 'Refresh.' }],
+        failures: [{ subject: 'issues', kind: 'query-failed', message: 'GitHub failed.', remedy: 'Refresh.' }],
+        stale: true,
       }),
     );
 
@@ -511,6 +515,25 @@ describe('board webview', () => {
     expect(document.getElementById('lanes')?.classList).toContain('stale');
     expect(document.getElementById('meta')?.textContent).toContain('could not refresh');
     expect(document.querySelector('.empty')?.textContent).toBe('None of your assigned issues match the current card source.');
+  });
+
+  it('states a settings failure without claiming the read failed', () => {
+    send(
+      message({
+        failures: [
+          {
+            subject: 'userDir',
+            kind: 'unknown-host',
+            message: 'The board does not know how to reach into "userDir".',
+            remedy: 'Remove it from groundControl.hosts, or check the spelling.',
+          },
+        ],
+      }),
+    );
+
+    expect(document.querySelector('.notice.error')?.textContent).toContain('does not know how to reach');
+    expect(document.getElementById('meta')?.textContent).not.toContain('could not refresh');
+    expect(document.getElementById('lanes')?.classList).not.toContain('stale');
   });
 
   it('reports each empty state honestly and handles loading and refresh', () => {
@@ -861,7 +884,7 @@ describe('reported activity', () => {
   it('reports a failed install as an error, and says nothing when there is nothing to say', () => {
     send(
       message({
-        failures: [{ source: 'hooks', kind: 'hooks-failed', message: 'could not be installed', remedy: 'Fix it.' }],
+        failures: [{ subject: 'hooks', kind: 'hooks-failed', message: 'could not be installed', remedy: 'Fix it.' }],
       }),
     );
 

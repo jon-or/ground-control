@@ -12,7 +12,7 @@ One headless hub owns what every board needs to render and act: which issues the
                  ┌──────────────── hub (node, headless) ────────────────────┐
  work sources ──►│  poll · coalesce · watch activity · merge · lane memory  │──► snapshot + change events
  agent adapters ►│                                                          │◄── actions: refresh · move · open
- host adapters ─►│  serves 127.0.0.1:<ephemeral port>, token in hub.json    │
+ host adapters ─►│  one loop, one snapshot, one record of what is where     │
                  └──────────────────────────────────────────────────────────┘
                               ▲                                ▲
                    VS Code board (webview)          GitHub project overlay (Chrome, via a stdio bridge)
@@ -93,8 +93,10 @@ interface HostAdapter {
   windows(session: Session | undefined, deps: MachineReaders): Promise<HostWindows>;
   /** Which surface in which window holds each session, from the host's own records. */
   surfaces(deps: MachineReaders): Promise<SessionSurface[]>;
-  /** A route to the session, or a named refusal with its remedy. Pure. */
+  /** A route to the session, or a named refusal with its remedy. Pure, and judged against this host's own settings. */
   plan(request: OpenRequest): OpenPlan;
+  /** Which of these sessions this host offers to open. Another host's answer is its own (R14). */
+  openable(sessions: readonly Session[]): string[];
   /** Routes only a client resident in the host can perform, named so the hub can forward them. */
   readonly residentRoutes: readonly OpenRoute['route'][];
   /** Routes this adapter can perform from a headless process. Absent where every route is resident. */
@@ -104,7 +106,7 @@ interface HostAdapter {
 }
 ```
 
-A host adapter takes `MachineReaders` rather than the full `MachineDeps`: linking a branch to an issue is an agent's job, and a host never does it.
+A host adapter takes `MachineReaders` rather than the full `MachineDeps`: linking a branch to an issue is an agent's job, and a host never does it. Its own permissions stay inside it: whether the board may bring another window forward is R27's rule about one application's windows, so `configure` parses it and `plan` applies it, and the hub carries no setting whose meaning is a host's.
 
 Two rules keep the seams from bleeding into each other.
 
@@ -125,7 +127,7 @@ The hub is the loop that was the board panel's, made headless and made one per m
 - **Two cadences.** Work sources are a network round trip and poll on the long interval. Agent adapters spawn a CLI and poll on the short one. Each source keeps its last good read and its last failure, so one failing never blanks another.
 - **Activity is event-driven.** The hub watches each activity signal's directory. A change on a listed session is one marker read; a marker removed, or one naming an unlisted session, is a roster change that only the CLI can settle, so it triggers a session read. Changes batch for 150 ms. The directory comes and goes with the install and `node:fs.watch` cannot be armed on a missing path, so the watcher re-arms until it appears and again whenever it is removed underneath. A marker's kind is decided from one `exists` on that path against the set the watcher held before the batch: a listing taken mid-batch already holds markers whose own events have not arrived, which would read every one of them as a rewrite.
 - **Coalescing.** A read in flight absorbs a timer or a button. A change the in-flight read cannot have seen queues one more read behind it. A refresh within a second of the last read is ignored.
-- **Idle when unwatched.** A client says whether it is watching: the VS Code panel reports hidden, and the Chrome bridge disconnects when no project-board tab exists. With no client watching, the hub stops polling. Each session poll costs about a fifth of a second of CLI time (`mechanics.md` §2), which nobody is looking at. At zero clients for 30 minutes the hub exits; the next board open starts it again in about a second.
+- **Idle when unwatched.** A client says whether it is watching: the VS Code panel reports hidden, and the Chrome bridge disconnects when no project-board tab exists. With no client watching, the hub stops polling and an activity event costs nothing. Each session poll costs about a fifth of a second of CLI time (`mechanics.md` §2), which nobody would be looking at. A hub in its own process exits after 30 minutes at zero clients, and the next board open starts it again in about a second; a hub inside an extension host ends with it.
 - **Lane memory is a file.** `~/.claude/ground-control/lanes.json`, written atomically, read by every client through the snapshot. A client never stores placement of its own.
 - **Activity install is the hub's.** It applies each agent's `ActivityPlan` under the existing install lock and reports what it observed, never what it intended (R25). The install and announce marks live in `hub-marks.json`; the announce is per client, so a second window still sees the notice once.
 - **The hub owns the defaults.** Its configuration is built from each adapter's `defaultPath` and `defaultEnabled` (R30) plus the shipped statuses and lanes (R27). A client pushes its settings on connect and on every change, and they merge over the defaults, so a hub started by the Chrome bridge alone polls with sane settings. Every setting that reaches the hub is application-scoped in VS Code: one board's memory is shared by every window (R9), so two windows can never disagree.
@@ -136,20 +138,24 @@ The snapshot and the actions are one typed contract in `packages/core`, and ever
 
 | Direction | Message | Carries |
 | --- | --- | --- |
-| client → hub | `hello` | client id, the host it lives in or none, its workspace root, the resident routes it can perform, whether the agent's own extension is ready, whether it is watching |
+| client → hub | `hello` | client id, the host it lives in or none, its workspace root, the resident routes it can perform, whether it is watching |
 | client → hub | `configure` | the client's settings, merged over the hub's defaults |
 | client → hub | `watching` | whether the client is looking at the board now |
 | client → hub | `refresh` | — |
 | client → hub | `move` | card key, lane id |
-| client → hub | `open` | session id |
+| client → hub | `open` | session id, and whether the agent's own extension is ready — read on the click, because an extension activates while a board is up |
 | hub → client | `snapshot` | lanes, per-source counts and failures, which sessions are openable, the hook notice, what the hub needs from the developer, when it was read |
 | hub → client | `changed` | the same, sent on any change; clients replace, never patch |
 | hub → client | `perform` | a resident route, forwarded to the one client that offered it |
 | hub → client | `notice` | a message for the developer, with the refusal it came from where there is one |
 
+A configuration is parsed before it is taken, and a bad one is refused whole and named above the lanes rather than half-applied: one field of it becomes a process, and a client is not necessarily this editor.
+
 `needs` on the snapshot is what the hub cannot detect and must ask for once, in place (R26): today, the developer's GitHub logins when none are configured. The client that can ask does, saves the answer to settings, and pushes `configure`.
 
 ### Transport
+
+The hub runs inside the extension host, and clients connect to it in process. The protocol is the same either way — a client sends `ClientMessage`s and receives `HubMessage`s — so what follows in this section, and the Lifecycle and Privacy sections below it, describe the process it becomes rather than what runs today: there is no server, no `hub.json`, no `hub.log` and no spawn.
 
 The hub serves HTTP on `127.0.0.1` on an ephemeral port: the snapshot and the actions as requests, changes as Server-Sent Events with a comment heartbeat every 20 s. Every request carries a bearer token, except `GET /hub`, which answers with the hub's name, protocol version, and a fingerprint of its configuration directory, and nothing else. A client reads `~/.claude/ground-control/hub.json` for the port and the token, probes `GET /hub`, and sends the token only to a listener that answers as a hub with the same fingerprint. Liveness is that probe, never the file's existence; a stale `hub.json` is the normal state after a hub is killed, not an error.
 
@@ -193,7 +199,7 @@ A client renders the snapshot and forwards actions. It holds no state the hub do
 | `extensions/ground-control` | the VS Code client and the `vscode` resident half; bundles `apps/hub` as `dist/hub.js` | `core`, `host-vscode`, `hub`; the only package that imports `vscode` |
 | `extensions/chrome-github-board` | the Chrome client | `core`; the only package that imports `chrome` |
 
-The extension's row is where the boundary settles. It also imports `agent-claude`, `board` and `github` for as long as it does the reading itself; those three go when the hub owns the loop.
+The extension also imports `board` and `github` for the two settings readers that turn a raw value into one the hub takes; both follow the reading into the hub when the hub is its own process. `apps/hub` and `extensions/chrome-github-board` are the two rows nothing occupies yet.
 
 One package per adapter is what makes the seams enforceable. The boundary rule and the coverage floor apply per package, so `agent-claude` cannot reach `host-vscode`, and an adapter that arrives without tests fails on its own number rather than hiding in a larger one. `core` names no adapter; the registries are the hub's.
 

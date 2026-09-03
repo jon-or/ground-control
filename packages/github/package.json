@@ -12,6 +12,7 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
+    "@ground-control/core": "*",
     "zod": "^3.25.0"
   },
   "devDependencies": {

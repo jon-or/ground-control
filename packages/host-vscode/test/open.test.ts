@@ -37,14 +37,13 @@ function request(session: Session, over: Partial<OpenRequest> = {}): OpenRequest
     liveRoots: [session.cwd],
     window: null,
     workspaceRoot: session.cwd,
-    mayOpenWindow: true,
     extensionReady: true,
     now: session.startedAt + SETTLING_MS + 1,
     ...over,
   };
 }
 
-const decide = (req: OpenRequest): OpenPlan => planOpen(req, PLACEMENTS);
+const decide = (req: OpenRequest, mayOpenWindow = true): OpenPlan => planOpen(req, PLACEMENTS, mayOpenWindow);
 
 function refusalOf(plan: OpenPlan): string | undefined {
   return 'refusal' in plan ? plan.refusal : undefined;
@@ -116,7 +115,8 @@ describe('planOpen refuses, by name', () => {
 
   it('refuses another window when it may not bring one forward, naming the directory', () => {
     const plan = decide(
-      request(live, { surfaces: [tabIn(live, away.cwd)], liveRoots: [away.cwd], mayOpenWindow: false }),
+      request(live, { surfaces: [tabIn(live, away.cwd)], liveRoots: [away.cwd] }),
+      false,
     );
 
     expect(refusalOf(plan)).toBe('elsewhere-not-allowed');
@@ -125,7 +125,7 @@ describe('planOpen refuses, by name', () => {
 
   /** The permission is about moving the developer's focus, so it has nothing to say about the window they are in. */
   it('still opens a session in this window when it may not bring another forward', () => {
-    expect(routeOf(decide(request(live, { mayOpenWindow: false })))).toBe('reveal-here');
+    expect(routeOf(decide(request(live), false))).toBe('reveal-here');
   });
 
   it('refuses a window with no folder open, which `code` has no argument for', () => {
@@ -287,10 +287,9 @@ describe('planOpen routes by the surface holding the session', () => {
       liveRoots: roster.map((session) => session.cwd),
       window: null,
       workspaceRoot: live.cwd,
-      mayOpenWindow: true,
       extensionReady: true,
       now: away.startedAt + SETTLING_MS + 1,
-    }, PLACEMENTS);
+    }, PLACEMENTS, true);
 
     expect(routeOf(plan)).toBe('reveal-elsewhere');
     expect('session' in plan && plan.session.sessionId).toBe(away.sessionId);

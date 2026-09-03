@@ -54,8 +54,6 @@ export interface OpenRequest {
   liveRoots: readonly string[];
   /** The board window's own root, chosen as a recorded one is: its workspace file where it has one, else its folder. */
   workspaceRoot: string | null;
-  /** R27: whether the board may bring another window forward, which moves the developer's focus. */
-  mayOpenWindow: boolean;
   /** Whether the agent's own extension is available in the host to perform a reveal. */
   extensionReady: boolean;
   /** Epoch milliseconds, which is what a session's age is measured against. */
@@ -88,8 +86,10 @@ export interface HostAdapter {
   windows(session: Session | undefined, deps: MachineReaders): Promise<HostWindows>;
   /** Which surface in which window holds each session, from the host's own records. */
   surfaces(deps: MachineReaders): Promise<SessionSurface[]>;
-  /** A route to the session, or a named refusal with its remedy. Pure. */
+  /** A route to the session, or a named refusal with its remedy. Pure, and judged against this host's own settings. */
   plan(request: OpenRequest): OpenPlan;
+  /** Which of these sessions this host offers to open. Another host's answer is its own (R14). */
+  openable(sessions: readonly Session[]): string[];
   /**
    * Routes only a client resident in the host can perform, named so the hub forwards them rather than attempting
    * them. A host whose every route is resident performs none itself, and omits `open`.

@@ -1,7 +1,6 @@
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
-import type { LaneId } from '@ground-control/board';
-import type { AgentAdapter, AgentConfig, HostAdapter, ReadFailure } from '@ground-control/core';
+import type { AgentAdapter, HostAdapter, HubConfig, ReadFailure } from '@ground-control/core';
 import { makeVscodeHost } from '@ground-control/host-vscode';
 
 /**
@@ -15,18 +14,6 @@ export interface Registries {
 
 export function makeRegistries(): Registries {
   return { agents: [makeClaudeAdapter()], hosts: [makeVscodeHost()] };
-}
-
-/** What the hub polls with, and what a client's own settings merge over. */
-export interface HubConfig {
-  agents: AgentConfig[];
-  branchIssuePattern: string;
-  hosts: Record<string, unknown>;
-  boardStatuses: string[];
-  statusLanes: Record<string, LaneId>;
-  refreshIntervalMs: number;
-  sessionIntervalMs: number;
-  installActivity: boolean;
 }
 
 /** The team's convention, so it ships as a default rather than as something a new developer has to set (R27). */
@@ -48,6 +35,7 @@ export function defaultConfig(registries: Registries = makeRegistries()): HubCon
       .map((agent) => ({ id: agent.id, path: agent.defaultPath })),
     branchIssuePattern: BRANCH_ISSUE_PATTERN,
     hosts: Object.fromEntries(registries.hosts.map((host) => [host.id, {}])),
+    sources: {},
     boardStatuses: [...DEFAULT_BOARD_STATUSES],
     statusLanes: { ...DEFAULT_STATUS_LANES },
     refreshIntervalMs: REFRESH_INTERVAL_MS,

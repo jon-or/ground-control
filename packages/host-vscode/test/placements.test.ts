@@ -29,11 +29,11 @@ describe('the placement table', () => {
         window: null,
         liveRoots: [],
         workspaceRoot: null,
-        mayOpenWindow: true,
         extensionReady: true,
         now: codex.startedAt,
       },
       PLACEMENTS,
+      true,
     );
 
     expect('refusal' in plan && plan.refusal).toBe('other-agent');

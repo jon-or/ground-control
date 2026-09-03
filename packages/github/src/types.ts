@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import type { CardAvatar, CardPullRequest, IssueCard } from '@ground-control/core';
+
+export type { CardAvatar, CardPullRequest, IssueCard };
 
 /** How the board is allowed to narrow the search. `project` adds a `project:` qualifier; `issueSearch` does not. */
 export type CardSource = 'project' | 'issueSearch';
@@ -10,39 +13,6 @@ export interface GithubConfig {
   projectNumber: number;
   cardSource: CardSource;
   maxPages: number;
-}
-
-export interface IssueCard {
-  number: number;
-  title: string;
-  type: string | null;
-  /** GitHub's own colour name for the type and the status — `RED`, `BLUE`, `GRAY` … — or null when there is none. */
-  typeColor: string | null;
-  url: string;
-  status: string | null;
-  statusColor: string | null;
-  assignees: string[];
-  avatar: CardAvatar | null;
-  /** The most recently updated pull request that would close this issue, or null when none is linked. */
-  pullRequest: CardPullRequest | null;
-  updatedAt: string;
-}
-
-export interface CardPullRequest {
-  number: number;
-  url: string;
-  state: string;
-  /** Who opened it, or null when GitHub reports no author — a deleted account. What tells the developer's own PR from a colleague's. */
-  author: string | null;
-  isDraft: boolean;
-  /** `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or null when no review has been asked for. */
-  reviewDecision: string | null;
-}
-
-export interface CardAvatar {
-  login: string;
-  url: string;
-  source: 'pull-request' | 'issue';
 }
 
 export interface AssignedIssues {

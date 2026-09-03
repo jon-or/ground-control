@@ -6,6 +6,7 @@ describe('the package public surface', () => {
     expect(Object.keys(api).sort()).toEqual([
       'BACKUPS_KEPT',
       'BATCH_MS',
+      'Hub',
       'LOCK_STALE_MS',
       'MARKER_MAX_AGE_MS',
       'activityNotice',
@@ -25,6 +26,8 @@ describe('the package public surface', () => {
       'marksPathOf',
       'pruneMarkers',
       'read',
+      'readGithubConfig',
+      'realHubDeps',
       'releaseLock',
       'syncActivity',
       'takeLock',

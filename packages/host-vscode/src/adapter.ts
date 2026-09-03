@@ -10,7 +10,7 @@ import type {
   SessionSurface,
   Session,
 } from '@ground-control/core';
-import { VSCODE_ROUTES, planOpen } from './open.js';
+import { VSCODE_ROUTES, openableSessions, planOpen } from './open.js';
 import { PLACEMENTS } from './placements.js';
 import type { AgentPlacement } from './placements.js';
 import { defaultUserDir, readWindowStores } from './stores.js';
@@ -89,7 +89,13 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
     },
 
     plan(request: OpenRequest): OpenPlan {
-      return planOpen(request, placements);
+      // R27 is this host's own rule, applied where its settings were parsed: the hub has no business holding a
+      // permission whose meaning is "may this application bring one of its windows forward".
+      return planOpen(request, placements, settings.mayOpenWindow);
+    },
+
+    openable(sessions: readonly Session[]): string[] {
+      return openableSessions(sessions, placements);
     },
   };
 }
