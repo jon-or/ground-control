@@ -20,19 +20,19 @@ import {
   activityDirOf,
   backupsToDelete,
   claudeSettingsPathOf,
-  groundControlDirOf,
   hookPathOf,
   lockIsStale,
   markerIsOrphaned,
   planHookInstall,
-} from '@ground-control/sessions';
-import type { ActivityChange, HookPlan } from '@ground-control/sessions';
+} from '@ground-control/agent-claude';
+import { groundControlDirOf } from '@ground-control/core';
+import type { ActivityChange, ActivityPlan } from '@ground-control/core';
 import { installSessionHooks } from './config.js';
 
 export interface HookState {
   wanted: 'install' | 'remove';
   /** `busy` is another window holding the lock — not a state of the settings file, so nothing is claimed about it. */
-  plan: HookPlan['kind'] | 'busy';
+  plan: ActivityPlan['kind'] | 'busy';
   /** How many entries this run actually added. Zero means nothing was installed, whatever else it did. */
   added: number;
   failure: { message: string; remedy: string } | null;
@@ -172,7 +172,7 @@ function backup(dir: string, settings: string): void {
 
 /**
  * Writes the activity hook and points the developer's own Claude Code settings at it, or takes the entries away again. Every decision — what to
- * write, what to refuse, what to sweep — belongs to `@ground-control/sessions`; this is the file system and nothing else.
+ * write, what to refuse, what to sweep — belongs to `@ground-control/agent-claude`; this is the file system and nothing else.
  */
 export function syncHooks(home = homedir()): HookState {
   const wanted = installSessionHooks() ? 'install' : 'remove';

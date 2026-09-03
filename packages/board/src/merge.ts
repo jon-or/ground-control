@@ -1,4 +1,4 @@
-import { dirKey } from '@ground-control/sessions';
+import { dirKey } from '@ground-control/core';
 import type { BoardCard, IssueCard, Session } from './types.js';
 
 /** Sessions bucketed by whatever they have in common, each bucket newest first. */

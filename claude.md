@@ -68,13 +68,15 @@ The full rules are in [docs/testing.md](docs/testing.md). The short version:
 
 | Directory | Purpose |
 | --- | --- |
+| `packages/core` | The seams every adapter implements (`AgentAdapter`, `HostAdapter`), the neutral `Session`, and the helpers they share. Names no adapter. **Must not import `vscode`.** |
+| `packages/agent-claude` | The Claude Code agent adapter: `claude agents --json`, transcript titles, the activity hook. **Must not import `vscode`.** |
+| `packages/host-vscode` | The VS Code host adapter's headless half: lock files, window stores, the placement table, the open plan. **Must not import `vscode`.** |
 | `packages/github` | GitHub reads via the `gh` CLI. **Must not import `vscode`.** |
-| `packages/sessions` | Claude Code session reads via the `claude` CLI. **Must not import `vscode`.** |
 | `packages/board` | Merges assigned issues and live sessions into board cards. **Must not import `vscode`.** |
 | `extensions/ground-control` | The extension — activation, config, webview board panel. Imports `vscode`. |
 | `extensions/seize-probe` | Probe extension that proves window-scoped command targeting for `docs/mechanics.md`. Not a workspace, not shipped. |
 
-That boundary is what makes the logic testable in vitest: a module importing `vscode` can only be verified by hand, so decisions belong in a `packages/*` module and the extension stays thin.
+That boundary is what makes the logic testable in vitest: a module importing `vscode` can only be verified by hand, so decisions belong in a `packages/*` module and the extension stays thin. One package per adapter is what makes the seams enforceable: `agent-claude` cannot reach `host-vscode`, and each carries its own coverage floor. Root `package.json` lists the workspaces in build order, and every script fans out in that order; run `npm install` after changing the list.
 
 ## Essential Commands
 

@@ -1,5 +1,5 @@
+import type { Session } from '@ground-control/core';
 import type { IssueCard } from '@ground-control/github';
-import type { Session } from '@ground-control/sessions';
 
 /**
  * One card. An issue with the sessions attempting it (R3), or a session with no issue of its own (R4).

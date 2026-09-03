@@ -9,9 +9,9 @@ import {
   isTerminal,
   statusLanes,
 } from '../src/lanes.js';
-import { dirKey } from '@ground-control/sessions';
+import { dirKey } from '@ground-control/core';
 import type { CardPullRequest } from '@ground-control/github';
-import type { ActivityPhase } from '@ground-control/sessions';
+import type { ActivityPhase } from '@ground-control/core';
 import type { BoardRules, CardMemory, Lane, LaneId } from '../src/index.js';
 import type { IssueCard, Session } from '../src/types.js';
 import { issues, sessions } from './helpers.js';

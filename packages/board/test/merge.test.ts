@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeBoard } from '../src/index.js';
-import { dirKey } from '@ground-control/sessions';
+import { dirKey } from '@ground-control/core';
 import type { Session } from '../src/types.js';
 import { issues, linkedOffBoard, linkedOnBoard, onBoard, sessions, unlinked, unlinkedCwds } from './helpers.js';
 

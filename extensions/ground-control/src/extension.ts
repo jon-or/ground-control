@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { BoardPanel, VIEW_TYPE } from './boardPanel.js';
-import { hookNotice } from '@ground-control/sessions';
+import { hookNotice } from '@ground-control/agent-claude';
 import { SECTION } from './config.js';
 import { pruneMarkers, syncHooks } from './hooks.js';
 

@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import { boardStatuses, statusLanes } from '@ground-control/board';
 import type { BoardRules } from '@ground-control/board';
 import type { CardSource, GithubConfig } from '@ground-control/github';
-import { providers } from '@ground-control/sessions';
-import type { AgentConfig, SessionsConfig } from '@ground-control/sessions';
+import type { AgentConfig, SessionsConfig } from '@ground-control/core';
+import { agents } from './registry.js';
 
 export const SECTION = 'groundControl';
 const LOGINS = 'github.logins';
@@ -33,14 +33,12 @@ export function readSessionsConfig(): SessionsConfig {
 
   const configured = cfg.get<Record<string, string>>('agents', {});
 
-  // R30: only the CLIs named here are read. An empty map means the defaults, so a provider that ships enabled works
+  // R30: only the CLIs named here are read. An empty map means the defaults, so an adapter that ships enabled works
   // without the developer editing settings, and one that ships off stays off until they name it.
   const entries: AgentConfig[] =
     Object.keys(configured).length > 0
       ? Object.entries(configured).map(([id, path]) => ({ id, path }))
-      : providers()
-          .filter((provider) => provider.defaultEnabled)
-          .map((provider) => ({ id: provider.id, path: provider.defaultPath }));
+      : agents.filter((adapter) => adapter.defaultEnabled).map((adapter) => ({ id: adapter.id, path: adapter.defaultPath }));
 
   return {
     agents: entries,

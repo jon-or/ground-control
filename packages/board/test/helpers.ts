@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { dirKey } from '@ground-control/sessions';
+import { dirKey } from '@ground-control/core';
 import type { CardPullRequest } from '@ground-control/github';
 import type { IssueCard, Session } from '../src/types.js';
 

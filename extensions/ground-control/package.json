@@ -148,7 +148,11 @@
     "vscode:uninstall": "node ./dist/uninstall.js"
   },
   "dependencies": {
-    "@ground-control/github": "*"
+    "@ground-control/agent-claude": "*",
+    "@ground-control/board": "*",
+    "@ground-control/core": "*",
+    "@ground-control/github": "*",
+    "@ground-control/host-vscode": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

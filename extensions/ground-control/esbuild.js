@@ -1,6 +1,6 @@
 const esbuild = require('esbuild');
 
-// Bundling is not an optimisation: `@ground-control/github` lives outside this folder and vsce copies only what is beneath it, so an unbundled
+// Bundling is not an optimisation: the `@ground-control/*` packages live outside this folder and vsce copies only what is beneath it, so an unbundled
 // .vsix throws MODULE_NOT_FOUND on activate. `src/uninstall.ts` is separate because `vscode:uninstall` runs outside the host, without `vscode`.
 const options = {
   entryPoints: ['src/extension.ts', 'src/uninstall.ts'],

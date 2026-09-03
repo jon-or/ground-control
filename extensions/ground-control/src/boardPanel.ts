@@ -3,13 +3,16 @@ import { assignLanes, mergeBoard, nextMemory, readMemory, withPlacement } from '
 import type { CardMemory, Lane, LaneId } from '@ground-control/board';
 import { fetchAssignedIssues } from '@ground-control/github';
 import type { AssignedIssues, Failure as GithubFailure } from '@ground-control/github';
-import { fetchSessions, hookNotice, openableSessions, readActivity, rosterIsStale, unreportedSessions } from '@ground-control/sessions';
-import type { ActivityChange, Session, SessionsSnapshot } from '@ground-control/sessions';
+import { hookNotice, readActivity, rosterIsStale, unreportedSessions } from '@ground-control/agent-claude';
+import { diskReaders, fetchSessions } from '@ground-control/core';
+import type { ActivityChange, Session, SessionsSnapshot } from '@ground-control/core';
+import { PLACEMENTS, openableSessions } from '@ground-control/host-vscode';
 import { homedir } from 'node:os';
 import { dirname } from 'node:path';
 import { readBoardRules, readBoardStatuses, readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
 import { promptForLogins } from './identity.js';
 import { hookState, read, watchActivity } from './hooks.js';
+import { agents } from './registry.js';
 import { openSession, primeOpen } from './sessionTab.js';
 import type { Machine } from './sessionTab.js';
 
@@ -392,7 +395,7 @@ export class BoardPanel {
     // read, and none of it changes on the developer's click. So it is read on the refresh instead.
     primeOpen(this.#machine);
 
-    const snapshot = await fetchSessions(readSessionsConfig());
+    const snapshot = await fetchSessions(readSessionsConfig(), agents, diskReaders(this.#machine.home));
 
     if (this.#disposed) {
       return;
@@ -476,7 +479,7 @@ export class BoardPanel {
           }
         : null,
       hooks: notice === null ? null : { notice },
-      openable: openableSessions(this.#sessions?.sessions ?? []),
+      openable: openableSessions(this.#sessions?.sessions ?? [], PLACEMENTS),
       failures,
     });
   }
