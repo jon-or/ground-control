@@ -95,7 +95,7 @@ function clearMarkers(dir: string): void {
  * One state, not one per agent: only Claude offers a signal today, and a per-agent notice would be a board saying
  * two things at once about one act. The first agent that refuses is what the board reports.
  */
-export function syncActivity(agents: readonly AgentAdapter[], wanted: Wanted, home: string): ActivityState {
+export function syncActivity(agents: readonly AgentAdapter[], wanted: Wanted, home: string, insist = false): ActivityState {
   const signals = agents.flatMap((agent) => (agent.activity ? [{ id: agent.id, activity: agent.activity }] : []));
   const lockPath = installLockPathOf(home);
   let held = false;
@@ -110,7 +110,14 @@ export function syncActivity(agents: readonly AgentAdapter[], wanted: Wanted, ho
     mkdirSync(groundControlDirOf(home), { recursive: true });
     held = takeLock(lockPath);
 
-    // Another process is mid-install. Its write is the one this would make, so nothing is claimed either way.
+    // An uninstall runs once and is never retried, so it breaks a lock rather than leaving entries that name a
+    // writer nobody maintains firing forever (R34). Everything else defers: the holder's write is the one this
+    // would make, so nothing is claimed either way.
+    if (!held && insist) {
+      rmSync(lockPath, { force: true });
+      held = takeLock(lockPath);
+    }
+
     if (!held) {
       return { wanted, plan: 'busy', added: 0, failure: null };
     }
@@ -196,10 +203,10 @@ export function pruneMarkers(agents: readonly AgentAdapter[], home: string, now:
 
 /**
  * Takes every agent's signal away and removes the markers, without consulting a setting. This is what an uninstall
- * runs: entries naming a writer nobody maintains would otherwise go on firing forever (R34).
+ * runs: it insists on the lock, because `vscode:uninstall` fires once and a deferral here is entries left forever.
  */
 export function uninstallActivity(agents: readonly AgentAdapter[], home: string): ActivityState {
-  return syncActivity(agents, 'remove', home);
+  return syncActivity(agents, 'remove', home, true);
 }
 
 export interface ActivityNoticeInput {

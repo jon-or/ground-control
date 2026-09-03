@@ -1,8 +1,12 @@
 // This repo is going public, so recorded fixtures carry no real issue text, repository, or account names. Applied
 // by `record.js` on every recording: a hand-scrub would be undone by the next one.
 const { title } = require('../../../../tools/fixture-words.js');
+const { assertNoAbsolutePaths } = require('../../../../tools/fixture-scrub.js');
 
 const REPO = 'example-org/example-repo';
+
+/** The one synthetic root every scrubbed session sits under, so the path sweep has exactly one prefix to strike out. */
+const CHECKOUTS = 'd:/checkouts';
 
 /** One synthetic login per real one, so two cards assigned to the same person still look like it. */
 function logins(assignees, seen) {
@@ -68,14 +72,14 @@ function anonymiseSessions(sessions) {
       return {
         ...session,
         title: session.title === null ? null : title(session.issueNumber),
-        cwd: `d:/checkouts/${name}`,
+        cwd: `${CHECKOUTS}/${name}`,
         branch: session.branch === null ? null : name,
         details: detailsFor(session.details, name, session.sessionId),
       };
     }
 
     // An unlinked session still runs somewhere real. One synthetic checkout per distinct one keeps them distinct.
-    const root = roots.get(session.cwd) ?? `d:/checkouts/project-${roots.size + 1}`;
+    const root = roots.get(session.cwd) ?? `${CHECKOUTS}/project-${roots.size + 1}`;
     roots.set(session.cwd, root);
 
     return {
@@ -158,6 +162,10 @@ function assertScrubbed(recorded, written) {
   if (unknown.length > 0) {
     throw new Error(`anonymise does not know how to scrub these session details: ${unknown.join(', ')}`);
   }
+
+  // The second assertion: a recording of this machine carries paths nothing above enumerated — a checkout no session
+  // is rooted at, a drive letter cased the other way — and the list of values to replace passes cleanly over them.
+  assertNoAbsolutePaths(json, [CHECKOUTS]);
 }
 
-module.exports = { REPO, anonymiseIssues, anonymiseSessions, assertScrubbed };
+module.exports = { CHECKOUTS, REPO, anonymiseIssues, anonymiseSessions, assertScrubbed };

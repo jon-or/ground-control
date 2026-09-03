@@ -124,6 +124,26 @@ describe('watchDir', () => {
     expect(await arrived).toEqual([{ kind: 'changed', sessionId: 'a' }]);
   });
 
+  /**
+   * A session that ends just after a tool completes writes its marker and unlinks it inside one batch. `deleted` is
+   * the only kind `rosterIsStale` acts on, so it has to win wherever it lands — keeping the first kind seen would
+   * report the create and leave the ended session on the board until the next poll.
+   */
+  it('reports a marker created and then removed inside one batch as deleted', async () => {
+    mkdirSync(dir(), { recursive: true });
+
+    const watcher = watching();
+    const arrived = watcher.next();
+
+    writeFileSync(marker('brief'), '{}');
+    // Long enough for the create to reach the watcher while the file is still there, and well inside the batch:
+    // removing it in the same breath is delivered as one event that already sees it gone, which proves nothing.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    rmSync(marker('brief'));
+
+    expect(await arrived).toEqual([{ kind: 'deleted', sessionId: 'brief' }]);
+  });
+
   it('batches a turn boundary into one call rather than one per marker', async () => {
     mkdirSync(dir(), { recursive: true });
     const watcher = watching();

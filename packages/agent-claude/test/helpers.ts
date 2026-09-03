@@ -47,7 +47,34 @@ export interface TranscriptFixture {
   entries: TranscriptEntry[];
 }
 
-const recorded = fixture('transcripts') as TranscriptFixture;
+/**
+ * Every field a recorded entry must carry. A cast is not a check: a row missing one reads `undefined` where the type
+ * promised a value, and nothing fails until something reads it. `satisfies` fails the typecheck the day
+ * `TranscriptEntry` grows a field, and the row check fails the run until the recording is refreshed.
+ */
+const ENTRY_KEYS = {
+  name: true,
+  cwd: true,
+  sessionId: true,
+  dir: true,
+  writtenAt: true,
+  titles: true,
+  titleBytesFromEnd: true,
+} satisfies Record<keyof TranscriptEntry, true>;
+
+const recorded = ((): TranscriptFixture => {
+  const read = fixture('transcripts') as TranscriptFixture;
+
+  read.entries.forEach((entry, index) => {
+    for (const key of Object.keys(ENTRY_KEYS)) {
+      if (!Object.hasOwn(entry as object, key)) {
+        throw new Error(`transcripts.json entry ${index} has no "${key}" — re-record it with record.js`);
+      }
+    }
+  });
+
+  return read;
+})();
 
 /**
  * Deliberately not the machine's own home: a reader ignoring its injected home would land on the real directory

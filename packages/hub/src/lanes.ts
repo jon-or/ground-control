@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { groundControlDirOf } from '@ground-control/core';
 import { EMPTY_MEMORY, readMemory } from '@ground-control/board';
 import type { CardMemory } from '@ground-control/board';
-import { read, writeAtomic } from './fs.js';
+import { read, writeIfChanged } from './fs.js';
 import { lanesPathOf } from './paths.js';
 
 /**
@@ -12,7 +12,8 @@ import { lanesPathOf } from './paths.js';
  */
 export interface LaneStore {
   read(statuses: readonly string[]): CardMemory;
-  write(memory: CardMemory): void;
+  /** Whether the file now holds this memory. A caller that is about to discard its own copy has to know. */
+  write(memory: CardMemory): boolean;
 }
 
 export function makeLaneStore(home: string): LaneStore {
@@ -35,12 +36,15 @@ export function makeLaneStore(home: string): LaneStore {
       }
     },
 
-    write(memory: CardMemory): void {
+    write(memory: CardMemory): boolean {
       try {
         mkdirSync(groundControlDirOf(home), { recursive: true });
-        writeAtomic(path, `${JSON.stringify(memory, null, 2)}\n`);
+        writeIfChanged(path, `${JSON.stringify(memory, null, 2)}\n`);
+
+        return true;
       } catch {
         // A placement that could not be stored is one the developer makes again. Failing the render is worse.
+        return false;
       }
     },
   };

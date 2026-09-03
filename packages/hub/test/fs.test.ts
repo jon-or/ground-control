@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
-import { LOCK_STALE_MS, lockIsStale, read, releaseLock, takeLock, writeAtomic, writeInPlace } from '../src/fs.js';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { LOCK_STALE_MS, lockIsStale, read, releaseLock, takeLock, writeAtomic, writeIfChanged, writeInPlace } from '../src/fs.js';
 import { tempHome } from './helpers.js';
 
 let home: string;
@@ -97,12 +97,36 @@ describe('writeAtomic', () => {
   });
 
   /**
-   * A rename over a path another process holds open fails on Windows where a write does not, so the file has to
-   * land either way. Here the destination is a directory, which makes the rename fail on every platform.
+   * The temporary has to go even when nothing lands, and it is named after the destination — so the destination
+   * must be inside the directory being listed, or the sweep is of a directory the temporary was never in.
    */
-  it('leaves nothing behind when it cannot write at all', () => {
-    expect(() => writeAtomic(home, 'not a directory')).toThrow();
-    expect(readdirSync(home)).toEqual([]);
+  it('leaves no temporary behind when it cannot write at all', () => {
+    mkdirSync(`${home}/occupied`);
+
+    expect(() => writeAtomic(`${home}/occupied`, 'not a directory')).toThrow();
+    expect(readdirSync(home)).toEqual(['occupied']);
+  });
+});
+
+describe('writeIfChanged', () => {
+  it('writes a file that is absent or holds something else', () => {
+    writeIfChanged(`${home}/lanes.json`, 'first');
+    expect(readFileSync(`${home}/lanes.json`, 'utf8')).toBe('first');
+
+    writeIfChanged(`${home}/lanes.json`, 'second');
+    expect(readFileSync(`${home}/lanes.json`, 'utf8')).toBe('second');
+  });
+
+  /** The board rewrites these files on every render, so an unchanged one must not touch the disk at all. */
+  it('does not touch a file that already holds the text', () => {
+    writeIfChanged(`${home}/lanes.json`, 'same');
+    const before = statSync(`${home}/lanes.json`).mtimeMs;
+
+    utimesSync(`${home}/lanes.json`, new Date(0), new Date(0));
+    writeIfChanged(`${home}/lanes.json`, 'same');
+
+    expect(statSync(`${home}/lanes.json`).mtimeMs).toBe(0);
+    expect(before).toBeGreaterThan(0);
   });
 });
 

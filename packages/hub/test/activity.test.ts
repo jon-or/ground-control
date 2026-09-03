@@ -153,6 +153,21 @@ describe('syncActivity', () => {
     expect(existsSync(signal.watchDir(home))).toBe(true);
   });
 
+  /**
+   * `vscode:uninstall` fires once and is never retried, so deferring to a lock — a live window's, or one a crash left
+   * behind inside the stale window — leaves entries naming a writer nobody maintains firing forever (R34).
+   */
+  it('takes the signal away even while something else holds the install lock', () => {
+    const signal = fakeSignal(written);
+    syncActivity([fakeAgent('fake', signal)], 'install', home);
+    writeFileSync(installLockPathOf(home), 'another-process');
+
+    const state = uninstallActivity([fakeAgent('fake', signal)], home);
+
+    expect(state).toMatchObject({ wanted: 'remove', plan: 'write' });
+    expect(readdirSync(signal.watchDir(home))).toEqual([]);
+  });
+
   it('names the failure when the file system refuses outright', () => {
     const signal = fakeSignal(written);
     // A file where the settings directory has to be, so every write under it fails on both platforms.

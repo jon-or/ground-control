@@ -797,7 +797,20 @@ setInterval(tickDurations, 1_000);
 
 const restored = vscode.getState();
 
-if (restored?.payload?.lanes) {
+/**
+ * Whether a revived payload is the shape this script reads. A panel revived after an upgrade holds the payload the
+ * previous version stored, and rendering one whose sessions predate `details` throws before the first live message.
+ */
+function isCurrentPayload(payload) {
+  return (
+    Array.isArray(payload?.lanes) &&
+    payload.lanes.every((lane) =>
+      (lane.cards ?? []).every((card) => (card.sessions ?? []).every((session) => session.details !== undefined)),
+    )
+  );
+}
+
+if (isCurrentPayload(restored?.payload)) {
   archivedEl.checked = restored.showArchived === true;
   render(restored.payload);
 }

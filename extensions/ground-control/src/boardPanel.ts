@@ -246,8 +246,11 @@ export class BoardPanel {
       return;
     }
 
-    this.#lanes.write(readMemory(stored, readBoardStatuses()));
-    void this.#memento.update(MEMORY_KEY, undefined);
+    // Only once the file holds them. Clearing on a write that failed — a read-only home, a full disk — loses every
+    // placement the developer ever made, silently and for good.
+    if (this.#lanes.write(readMemory(stored, readBoardStatuses()))) {
+      void this.#memento.update(MEMORY_KEY, undefined);
+    }
   }
 
   /**
