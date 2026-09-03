@@ -6,6 +6,8 @@ export {
   readMemory,
   statusLanes,
   withPlacement,
+  DEFAULT_BOARD_STATUSES,
+  DEFAULT_STATUS_LANES,
   EMPTY_MEMORY,
   LANE_ORDER,
   LANE_TITLES,

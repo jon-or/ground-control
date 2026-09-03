@@ -1,0 +1,28 @@
+{
+  "name": "@ground-control/hub",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The background process the boards are clients of: the registries, the poll loop, lane memory, activity install, and the watcher. Must not import vscode.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "watch": "tsc -b -w",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@ground-control/agent-claude": "*",
+    "@ground-control/board": "*",
+    "@ground-control/core": "*",
+    "@ground-control/github": "*",
+    "@ground-control/host-vscode": "*",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}

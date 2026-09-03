@@ -1166,3 +1166,20 @@ G.on("connection", function (socket, request) {
 So liveness is checked at the TCP layer and never by handshaking. One connection per window is structural, stated in the product's own `/ide` picker, and [anthropics/claude-code#87130](https://github.com/anthropics/claude-code/issues/87130) has been open and going stale since 2026-08 — a fixed constraint, not a bug to wait out. The token check itself is the remediation for [CVE-2025-52882](https://github.com/anthropics/claude-code/security/advisories/GHSA-9f65-56v6-gxw7), a WebSocket auth bypass in this same server, which is a second reason to stay below the handshake.
 
 **The extension exports no API.** Its `activate` returns nothing, so no companion extension can reach `sessionPanels` in process. Confirmed against 2.1.259 and reported at [#85753](https://github.com/anthropics/claude-code/issues/85753).
+
+## 23. A deleted directory something still holds keeps its name and refuses everything
+
+**Measured 2026-09-03, Windows 11 (win32).** `~/.claude/ground-control/activity` was left in a state where it appeared in a directory listing of its parent, and every operation on the path itself failed:
+
+| Asked | Answer |
+| --- | --- |
+| `Get-ChildItem` on it | Access to the path is denied |
+| `Get-Acl` on it | Attempted to perform an unauthorized operation |
+| `CreateFileW` with `FILE_FLAG_BACKUP_SEMANTICS` | Win32 error 5, `ERROR_ACCESS_DENIED` |
+| `fs.mkdirSync(path, { recursive: true })` | `EPERM: operation not permitted, mkdir` |
+
+That is a directory whose delete has been accepted but not completed: Windows keeps the name until the last handle on it closes, and refuses every operation in the meantime. `mkdirSync` with `recursive: true` does not treat it as an existing directory — it raises `EPERM` rather than returning quietly, so a board that removed the directory could not create it back for as long as the state lasted, which was minutes rather than milliseconds.
+
+**Which handle it was is not established.** A `node:fs.watch` on a directory releases its own handle when the directory is removed — armed in the same process and in another, before and after the removal, `rmSync` then `mkdirSync` succeeded every time across several attempts. So the holder was something outside this code: a live session's hook writer, a scanner, or the search indexer. Nothing here can prevent another process from being mid-read when a directory goes.
+
+**So the directory is not removed.** Turning the activity signal off empties it, file by file, and leaves the directory in place. Nothing then has to create it back, and the watcher — which dies with the directory and takes up to a second to re-arm — never loses it. An empty directory costs a developer nothing; a name they cannot use until they close every window costs them the signal entirely.

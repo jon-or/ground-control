@@ -35,10 +35,18 @@ export interface ActivityChange {
 export interface ActivitySignal {
   /** What to write to put the signal in place, or take it away. Pure: the caller does the file system. */
   plan(input: ActivityPlanInput): ActivityPlan;
-  /** The directory whose changes mean a phase may have moved. */
+  /** The agent's own settings file, which `plan` rewrites and the caller backs up first. */
+  settingsPath(home: string): string;
+  /** The directory whose changes mean a phase may have moved. Created on install and removed on uninstall. */
   watchDir(home: string): string;
   /** The last phase reported for a session, or null to claim nothing. */
   read(home: string, sessionId: string, readText: ReadText, now?: number): SessionActivity | null;
+  /**
+   * A file the agent has to be able to spawn, and its exact contents. Written when the bytes differ and left behind
+   * on removal: a session that already read the old settings goes on spawning it, and a deleted script makes each of
+   * them report a failure on every event. Absent where the signal needs no file of its own.
+   */
+  readonly writer?: { path(home: string): string; source: string };
 }
 
 /**
