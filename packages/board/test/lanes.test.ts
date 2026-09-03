@@ -6,7 +6,6 @@ import {
   PLACEABLE_LANES,
   attentionOf,
   boardStatuses,
-  isTerminal,
   statusLanes,
 } from '../src/lanes.js';
 import { dirKey } from '@ground-control/core';
@@ -85,25 +84,7 @@ describe('the recording these tests rest on', () => {
 
   it('carries live sessions whose agent never reported a finish', () => {
     expect(sessions.length).toBeGreaterThan(0);
-    expect(sessions.every((session) => !isTerminal(session))).toBe(true);
-  });
-});
-
-describe('isTerminal', () => {
-  it('reads the agent own word for finished', () => {
-    const live = sessions[0]!;
-
-    expect(isTerminal({ ...live, state: 'done' })).toBe(true);
-    expect(isTerminal({ ...live, state: 'stopped' })).toBe(true);
-    expect(isTerminal({ ...live, state: 'working' })).toBe(false);
-  });
-
-  it('refuses to read idle as finished — an interactive session is idle whenever nobody is typing', () => {
-    const idle = sessions.find((session) => session.status === 'idle');
-
-    expect(idle).toBeDefined();
-    expect(isTerminal(idle!)).toBe(false);
-    expect(isTerminal({ ...idle!, state: null })).toBe(false);
+    expect(sessions.every((session) => !session.finished)).toBe(true);
   });
 });
 
@@ -203,7 +184,7 @@ describe('assignLanes', () => {
   });
 
   it('holds an archiving card on the board while an agent is still running on it — R2 outranks R9', () => {
-    const live: Session = { ...sessions[0]!, issueNumber: 19072, state: 'working' };
+    const live: Session = { ...sessions[0]!, issueNumber: 19072, finished: false };
     const held = lanes(restatus(19072, '🏃 Testing'), [live]);
 
     expect(issueIn(held, 19072)).toBe('unstarted');
@@ -211,7 +192,7 @@ describe('assignLanes', () => {
   });
 
   it('archives that same card once its agents have finished', () => {
-    const finished: Session = { ...sessions[0]!, issueNumber: 19072, state: 'done' };
+    const finished: Session = { ...sessions[0]!, issueNumber: 19072, finished: true };
 
     expect(issueIn(lanes(restatus(19072, '🏃 Testing'), [finished]), 19072)).toBe('archived');
   });
@@ -224,7 +205,7 @@ describe('assignLanes', () => {
     const live: Session = {
       ...sessions[0]!,
       issueNumber: 19072,
-      state: 'working',
+      finished: false,
       activity: { phase, since: 1, event: 'Stop' },
     };
 
@@ -262,8 +243,8 @@ describe('assignLanes', () => {
 
   it('leaves a placed card alone when a session starts or stops — R8 says only the developer moves a card', () => {
     const memory = remember({ 'issue:18954': 'plan' });
-    const running: Session = { ...sessions[0]!, issueNumber: 18954, state: 'working' };
-    const finished: Session = { ...running, state: 'done' };
+    const running: Session = { ...sessions[0]!, issueNumber: 18954, finished: false };
+    const finished: Session = { ...running, finished: true };
 
     expect(issueIn(lanes(issues, [], memory), 18954)).toBe('plan');
     expect(issueIn(lanes(issues, [running], memory), 18954)).toBe('plan');
@@ -541,7 +522,7 @@ describe('nextMemory', () => {
   });
 
   it('keeps the placement while an agent holds the card on the board — it has not gone past anything yet', () => {
-    const live: Session = { ...sessions[0]!, issueNumber: 19072, state: 'working' };
+    const live: Session = { ...sessions[0]!, issueNumber: 19072, finished: false };
     const memory = remember({ 'issue:19072': 'done' });
     const held = lanes(restatus(19072, '🏃 Testing'), [live], memory);
 
@@ -674,8 +655,8 @@ describe('attentionOf', () => {
   });
 
   it('asks nothing for a finished agent whose last event was a prompt — it is not blocked on anybody', () => {
-    expect(attentionOf([withPhase('waiting', { state: 'stopped' })], 'build')).toBeNull();
-    expect(attentionOf([withPhase('waiting', { state: 'done' })], 'build')).toBeNull();
+    expect(attentionOf([withPhase('waiting', { finished: true })], 'build')).toBeNull();
+    expect(attentionOf([withPhase('waiting', { finished: false })], 'build')).toBe('blocked');
   });
 
   it('reads blocked over a finished turn when one card carries both', () => {
@@ -711,7 +692,7 @@ describe('the attention on a card', () => {
   });
 
   it('asks nothing on an archived card whose agent finished', () => {
-    const finished = withPhase('idle', { issueNumber: 19072, state: 'done' });
+    const finished = withPhase('idle', { issueNumber: 19072, finished: true });
     const board = lanes(restatus(19072, '🏃 Testing'), [finished]);
 
     expect(cardFor(board, 19072)?.lane).toBe('archived');
@@ -719,15 +700,27 @@ describe('the attention on a card', () => {
   });
 
   it('still asks for the developer on a card an archiving status only held by a blocked agent', () => {
-    const blocked = withPhase('waiting', { issueNumber: 19072, state: 'working' });
+    const blocked = withPhase('waiting', { issueNumber: 19072, finished: false });
     const board = lanes(restatus(19072, '🏃 Testing'), [blocked]);
 
     expect(cardFor(board, 19072)?.lane).toBe('unstarted');
     expect(cardFor(board, 19072)?.attention).toBe('blocked');
   });
 
-  it('asks nothing across a whole board whose sessions reported no phase', () => {
-    expect(sessions.every((s) => s.activity === null)).toBe(true);
-    expect(board.flatMap((l) => l.cards).every((c) => c.attention === null)).toBe(true);
+  /** The recording carries both, which is what makes this the mark following the phases rather than a constant. */
+  it('marks the recorded board exactly where a session reported a phase that asks something', () => {
+    expect(sessions.some((s) => s.activity === null)).toBe(true);
+    expect(sessions.some((s) => s.activity !== null)).toBe(true);
+
+    for (const card of board.flatMap((l) => l.cards)) {
+      expect(card.attention).toBe(attentionOf(card.sessions, card.lane));
+    }
+  });
+
+  it('asks nothing of a card whose sessions all reported no phase', () => {
+    const silent = board.flatMap((l) => l.cards).filter((c) => c.sessions.every((s) => s.activity === null));
+
+    expect(silent.length).toBeGreaterThan(0);
+    expect(silent.every((c) => c.attention === null)).toBe(true);
   });
 });

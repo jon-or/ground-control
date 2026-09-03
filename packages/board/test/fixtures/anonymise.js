@@ -26,6 +26,34 @@ function slug(number) {
 }
 
 /**
+ * The `details` keys an agent may report whose value names no work of the developer's: a vocabulary word the CLI
+ * chose, not a sentence about what is being built. Anything else is rebuilt below or fails the assertion, so the
+ * next field an adapter adds to the bag cannot leak by being unknown to this file.
+ */
+const NEUTRAL_DETAIL_KEYS = new Set(['kind', 'status', 'state']);
+
+/** The two `details` keys that name real work: Claude derives `name` from the directory, and `shortId` is its own id. */
+function detailsFor(details, replacement, sessionId) {
+  const written = {};
+
+  for (const [key, value] of Object.entries(details)) {
+    if (key === 'name') {
+      written[key] = `${replacement}-${sessionId.slice(0, 2)}`;
+      continue;
+    }
+
+    if (key === 'shortId') {
+      written[key] = sessionId.slice(0, 6);
+      continue;
+    }
+
+    written[key] = value;
+  }
+
+  return written;
+}
+
+/**
  * Session ids, timings, links and reported activity are kept — they carry no names and the tests turn on them.
  * Everything that spells out real work is rebuilt: a branch, the checkout path it sits in, the display name derived
  * from both, and the session's own title, which is a sentence about the work and so the most identifying of all.
@@ -39,10 +67,10 @@ function anonymiseSessions(sessions) {
 
       return {
         ...session,
-        name: session.name === null ? null : `${name}-${session.sessionId.slice(0, 2)}`,
         title: session.title === null ? null : title(session.issueNumber),
         cwd: `d:/checkouts/${name}`,
         branch: session.branch === null ? null : name,
+        details: detailsFor(session.details, name, session.sessionId),
       };
     }
 
@@ -52,10 +80,10 @@ function anonymiseSessions(sessions) {
 
     return {
       ...session,
-      name: session.name === null ? null : `${root.split('/').pop()}-${session.sessionId.slice(0, 2)}`,
       title: session.title === null ? null : title(index),
       cwd: root,
       branch: session.branch === null ? null : 'main',
+      details: detailsFor(session.details, root.split('/').pop(), session.sessionId),
     };
   });
 }
@@ -105,13 +133,30 @@ function assertScrubbed(recorded, written) {
       i.pullRequest?.url,
       i.pullRequest?.author,
     ]),
-    ...recorded.sessions.flatMap((s) => [s.cwd, s.name, s.branch, s.title]),
+    // Only the detail values that name real work. A neutral key's value is the CLI's own vocabulary word and is
+    // kept deliberately, so asserting it is gone would fail every recording.
+    ...recorded.sessions.flatMap((s) => [
+      s.cwd,
+      s.branch,
+      s.title,
+      ...Object.entries(s.details).flatMap(([key, value]) => (NEUTRAL_DETAIL_KEYS.has(key) ? [] : [value])),
+    ]),
   ].filter((value) => typeof value === 'string' && value.length > 4 && value !== 'main');
 
   const leaked = [...new Set(real)].filter((value) => json.includes(value));
 
   if (leaked.length > 0) {
     throw new Error(`anonymise left ${leaked.length} identifying value(s) in the fixtures: ${leaked.slice(0, 5).join(', ')}`);
+  }
+
+  // The bag is open, so a key this file has never seen is one nothing above rebuilt. Failing the recording is the
+  // only thing that catches the next agent-reported field: the tests only ever see scrubbed output.
+  const unknown = [
+    ...new Set(written.sessions.flatMap((s) => Object.keys(s.details))),
+  ].filter((key) => key !== 'name' && key !== 'shortId' && !NEUTRAL_DETAIL_KEYS.has(key));
+
+  if (unknown.length > 0) {
+    throw new Error(`anonymise does not know how to scrub these session details: ${unknown.join(', ')}`);
   }
 }
 

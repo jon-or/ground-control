@@ -139,13 +139,13 @@ describe('the Claude adapter', () => {
     const { sessions } = await read(config(), deps());
 
     for (const [i, entry] of prompted.entries()) {
-      expect(sessions[i]?.status).toBe(entry.status ?? null);
-      expect(sessions[i]?.state).toBe(entry.state ?? null);
-      expect(sessions[i]?.shortId).toBe(entry.id ?? null);
-      expect(sessions[i]?.name).toBe(entry.name ?? null);
+      expect(sessions[i]?.details.status).toBe(entry.status);
+      expect(sessions[i]?.details.state).toBe(entry.state);
+      expect(sessions[i]?.details.shortId).toBe(entry.id);
+      expect(sessions[i]?.details.name).toBe(entry.name);
       expect(sessions[i]?.cwd).toBe(entry.cwd);
       expect(sessions[i]?.startedAt).toBe(entry.startedAt);
-      expect(sessions[i]?.kind).toBe(entry.kind);
+      expect(sessions[i]?.details.kind).toBe(entry.kind);
     }
   });
 
@@ -154,8 +154,38 @@ describe('the Claude adapter', () => {
     const background = all.find((e) => e.id !== undefined && e.state !== undefined)!;
     const mapped = sessions.find((s) => s.sessionId === background.sessionId);
 
-    expect(mapped?.shortId).toBe(background.id);
-    expect(mapped?.state).toBe(background.state);
+    expect(mapped?.details.shortId).toBe(background.id);
+    expect(mapped?.details.state).toBe(background.state);
+  });
+
+  /**
+   * The one field the lane rules read that no other agent may have to fake. `--all` is the only response that carries
+   * a finished session, so the mapping is proved against it and against the active list, which carries none.
+   */
+  it('calls a session finished only where the CLI said so in its own words', async () => {
+    const { sessions } = await read(config(), deps(all));
+    const ended = new Set(all.filter((e) => e.state === 'done' || e.state === 'stopped').map((e) => e.sessionId));
+
+    expect(ended.size).toBeGreaterThan(0);
+    expect(sessions.filter((s) => s.finished).map((s) => s.sessionId).sort()).toEqual([...ended].sort());
+  });
+
+  it('calls nothing finished on a list of live sessions, however each of them reports', async () => {
+    const { sessions } = await read(config(), deps());
+
+    expect(sessions.length).toBeGreaterThan(0);
+    expect(sessions.every((s) => !s.finished)).toBe(true);
+  });
+
+  /** `idle` is an interactive session with nobody typing, not an ended one — R24 forbids reading a finish into it. */
+  it('does not read an idle status as a finish', async () => {
+    const idling = structuredClone(all);
+    const entry = idling.find((e) => e.state !== undefined)!;
+    entry.state = 'idle';
+
+    const { sessions } = await read(config(), deps(idling));
+
+    expect(sessions.find((s) => s.sessionId === entry.sessionId)?.finished).toBe(false);
   });
 
   it('links a worktree session by the branch its checkout is on', async () => {
@@ -205,7 +235,7 @@ describe('the Claude adapter', () => {
 
     const snapshot = await read(config(), deps(unknown));
 
-    expect(snapshot.sessions[0]?.kind).toBe('something-new');
+    expect(snapshot.sessions[0]?.details.kind).toBe('something-new');
   });
 
   it('keeps a session with no display name', async () => {
@@ -214,7 +244,7 @@ describe('the Claude adapter', () => {
 
     const snapshot = await read(config(), deps(unnamed));
 
-    expect(snapshot.sessions[0]?.name).toBeNull();
+    expect(snapshot.sessions[0]?.details).not.toHaveProperty('name');
   });
 
   it('says why nothing linked when the pattern is unusable, rather than linking silently', async () => {

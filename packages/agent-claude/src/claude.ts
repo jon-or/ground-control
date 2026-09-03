@@ -161,6 +161,30 @@ function failure(kind: FailureKind, message: string, remedy: string): ReadFailur
 
 const PATH_SETTING = `the "${CLAUDE_AGENT_ID}" entry in groundControl.agents`;
 
+/**
+ * The words only Claude reports. `id` is its short id, given to `--bg` sessions and not to interactive ones; `kind`,
+ * `status` and `state` are the `--bg` shape. Undefined ones are left out, so a reader can tell absent from empty.
+ */
+function detailsOf(entry: AgentEntry): Record<string, string> {
+  const details: Record<string, string> = { kind: entry.kind };
+
+  for (const [key, value] of [
+    ['name', entry.name],
+    ['shortId', entry.id],
+    ['status', entry.status],
+    ['state', entry.state],
+  ] as const) {
+    if (value !== undefined) {
+      details[key] = value;
+    }
+  }
+
+  return details;
+}
+
+/** The states the CLI reports for a background session that has stopped. Anything else is a session still in play. */
+const FINISHED_STATES = new Set(['done', 'stopped']);
+
 function toSession(entry: AgentEntry, deps: MachineDeps): Session {
   const link = linkOf(entry.cwd, deps.readText, deps.pattern);
   const transcript = findTranscript(deps.home, entry.cwd, entry.sessionId, deps);
@@ -169,18 +193,17 @@ function toSession(entry: AgentEntry, deps: MachineDeps): Session {
     agent: CLAUDE_AGENT_ID,
     sessionId: entry.sessionId,
     pid: entry.pid ?? null,
-    shortId: entry.id ?? null,
-    name: entry.name ?? null,
     title: transcriptTitle(transcript, entry.sessionId, deps.readTail),
     cwd: entry.cwd,
-    kind: entry.kind,
     startedAt: entry.startedAt,
-    status: entry.status ?? null,
-    state: entry.state ?? null,
     branch: link.branch,
     issueNumber: link.issueNumber,
     transcriptWrittenAt: transcript?.writtenAt ?? null,
     activity: readActivity(deps.home, entry.sessionId, deps.readText),
+    // `status: "idle"` is not this: an interactive session is idle whenever nobody is typing, and an exited one is
+    // never listed at all, so only the CLI's own end word counts (R24).
+    finished: entry.state !== undefined && FINISHED_STATES.has(entry.state),
+    details: detailsOf(entry),
   };
 }
 
@@ -189,12 +212,12 @@ function toSession(entry: AgentEntry, deps: MachineDeps): Session {
  * first user turn, not at process start (`docs/mechanics.md` §3), the one hook that fires before a turn claims no phase,
  * and a background session reports its own status: three independent signals, all silent only for work that never began.
  */
-export function neverPrompted(session: Session): boolean {
+export function neverPrompted(session: Session, entry: AgentEntry): boolean {
   return (
     session.transcriptWrittenAt === null &&
     session.activity === null &&
-    session.status === null &&
-    session.state === null
+    entry.status === undefined &&
+    entry.state === undefined
   );
 }
 
@@ -281,7 +304,7 @@ export function makeClaudeAdapter(run: ExecJson = runJsonCli): AgentAdapter {
         if (parsed.success) {
           const session = toSession(parsed.data, deps);
 
-          if (!neverPrompted(session)) {
+          if (!neverPrompted(session, parsed.data)) {
             sessions.push(session);
           }
 
