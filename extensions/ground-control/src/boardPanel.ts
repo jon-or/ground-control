@@ -3,23 +3,25 @@ import { assignLanes, mergeBoard, nextMemory, readMemory, withPlacement } from '
 import type { CardMemory, Lane, LaneId } from '@ground-control/board';
 import { fetchAssignedIssues } from '@ground-control/github';
 import type { AssignedIssues, Failure as GithubFailure } from '@ground-control/github';
-import { hookNotice, readActivity, rosterIsStale, unreportedSessions } from '@ground-control/agent-claude';
+import { readActivity, rosterIsStale, unreportedSessions } from '@ground-control/agent-claude';
 import { diskReaders, fetchSessions } from '@ground-control/core';
 import type { ActivityChange, Session, SessionsSnapshot } from '@ground-control/core';
 import { PLACEMENTS, openableSessions } from '@ground-control/host-vscode';
+import { activityNotice, afterInstall, announce, lanesPathOf, makeLaneStore, makeMarkStore, read, watchDir } from '@ground-control/hub';
+import type { ActivityState, LaneStore, MarkStore } from '@ground-control/hub';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname } from 'node:path';
 import { readBoardRules, readBoardStatuses, readConfig, readSessionsConfig, refreshIntervalMs, sessionIntervalMs } from './config.js';
 import { promptForLogins } from './identity.js';
-import { hookState, read, watchActivity } from './hooks.js';
+import { activityState } from './activity.js';
 import { agents } from './registry.js';
 import { openSession, primeOpen } from './resident.js';
 import type { Machine } from './resident.js';
 
 export const VIEW_TYPE = 'groundControl.board';
+/** Where the lane placements used to live, before they became one record per machine (R8). Migrated once, then cleared. */
 const MEMORY_KEY = 'groundControl.cardMemory';
-const INSTALLED_KEY = 'groundControl.hooksInstalledAt';
-const ANNOUNCED_KEY = 'groundControl.hooksAnnouncedAt';
 
 export interface SourceFailure {
   source: 'issues' | 'sessions' | 'hooks';
@@ -94,6 +96,12 @@ export class BoardPanel {
   #visible = true;
   /** Where this VS Code and Claude Code keep their state — the two directories every read outside the workspace uses. */
   readonly #machine: Machine;
+  /** One record per machine, so a card the developer moved on one board is in that lane on every board (R8). */
+  readonly #lanes: LaneStore;
+  /** What the hub has already done and already said, so an install is announced once per board (R25). */
+  readonly #marks: MarkStore;
+  /** This board's own name in the marks, so a second window still sees the notice. */
+  readonly #client = `vscode-${process.pid}`;
   /** Stored, not per-panel: a session that predates the install still cannot report after a reload (R25). */
   #installedAt: number;
 
@@ -134,8 +142,11 @@ export class BoardPanel {
     this.#extensionUri = extensionUri;
     this.#memento = memento;
     this.#machine = machine;
+    this.#lanes = makeLaneStore(machine.home);
+    this.#marks = makeMarkStore(machine.home);
     this.#panel.webview.html = this.#html();
 
+    this.#migrateMemory();
     this.#installedAt = this.#rememberInstall();
 
     BoardPanel.current = this;
@@ -206,7 +217,12 @@ export class BoardPanel {
     );
 
     this.#panel.onDidDispose(() => this.dispose(), undefined, this.#disposables);
-    this.#disposables.push(watchActivity(this.#machine.home, (changes) => this.#onActivity(changes)));
+
+    for (const agent of agents) {
+      if (agent.activity) {
+        this.#disposables.push(watchDir(agent.activity.watchDir(this.#machine.home), (c) => this.#onActivity(c)));
+      }
+    }
 
     this.#startPolling();
     this.#post({ type: 'loading' });
@@ -214,46 +230,59 @@ export class BoardPanel {
   }
 
   /**
-   * What the board has not already said. Installing the hooks is something that happened, not a condition, so it is said once and is then old
-   * news. Keyed on the install itself, so removing the hooks and putting them back says it again.
+   * The lane placements this window stored before they became one record per machine. Moved once, so a developer
+   * upgrading keeps the lanes they put their cards in, and cleared so nothing reads two memories again.
    */
-  #announce(hooks: ReturnType<typeof hookState>): string | null {
-    const notice = hookNotice({
-      plan: hooks.plan,
-      wanted: hooks.wanted,
+  #migrateMemory(): void {
+    const stored = this.#memento.get<unknown>(MEMORY_KEY);
+
+    if (stored === undefined) {
+      return;
+    }
+
+    if (existsSync(lanesPathOf(this.#machine.home))) {
+      void this.#memento.update(MEMORY_KEY, undefined);
+
+      return;
+    }
+
+    this.#lanes.write(readMemory(stored, readBoardStatuses()));
+    void this.#memento.update(MEMORY_KEY, undefined);
+  }
+
+  /**
+   * What the board has not already said. Installing the signal is something that happened, not a condition, so it is said once and is then old
+   * news. Keyed on the install itself, so removing it and putting it back says it again, and per board, because a second window has not read it.
+   */
+  #announce(state: ActivityState): string | null {
+    const notice = activityNotice({
+      plan: state.plan,
+      wanted: state.wanted,
       unreported: unreportedSessions(this.#sessions?.sessions ?? [], this.#installedAt),
     });
 
-    if (notice === null || this.#memento.get<number>(ANNOUNCED_KEY) === this.#installedAt) {
+    if (notice === null) {
       return null;
     }
 
-    void this.#memento.update(ANNOUNCED_KEY, this.#installedAt);
+    const { say, next } = announce(this.#marks.read(), this.#client);
+
+    if (!say) {
+      return null;
+    }
+
+    this.#marks.write(next);
 
     return notice;
   }
 
   #rememberInstall(): number {
-    const hooks = hookState();
-    const stored = this.#memento.get<number>(INSTALLED_KEY);
+    const state = activityState();
+    const next = afterInstall(this.#marks.read(), state.wanted, state.added, Date.now());
 
-    if (hooks.wanted === 'remove') {
-      void this.#memento.update(INSTALLED_KEY, undefined);
-      void this.#memento.update(ANNOUNCED_KEY, undefined);
+    this.#marks.write(next);
 
-      return 0;
-    }
-
-    // Only a run that actually added entries starts the clock. Stamping one that added nothing would make the board
-    // claim that every session listed before this moment cannot report, of sessions that report on their next event.
-    if (typeof stored === 'number' || hooks.added === 0) {
-      return stored ?? 0;
-    }
-
-    const now = Date.now();
-    void this.#memento.update(INSTALLED_KEY, now);
-
-    return now;
+    return next.installedAt ?? 0;
   }
 
   /**
@@ -410,13 +439,12 @@ export class BoardPanel {
   }
 
   #memory(): CardMemory {
-    return readMemory(this.#memento.get(MEMORY_KEY), readBoardStatuses());
+    return this.#lanes.read(readBoardStatuses());
   }
 
   /** A lane is the developer's own placement. This and the render's own bookkeeping are all the board ever stores. */
   #moveCard(key: string, lane: LaneId): void {
-    // Not awaited: the memento's own read already sees this write, so the render below stores the newer memory back.
-    void this.#memento.update(MEMORY_KEY, withPlacement(this.#memory(), key, lane));
+    this.#lanes.write(withPlacement(this.#memory(), key, lane));
     this.#render();
   }
 
@@ -428,10 +456,10 @@ export class BoardPanel {
   #render(): void {
     const failures: SourceFailure[] = [];
 
-    const hooks = hookState();
+    const activity = activityState();
 
-    if (hooks.failure) {
-      failures.push({ source: 'hooks', kind: 'hooks-failed', ...hooks.failure });
+    if (activity.failure) {
+      failures.push({ source: 'hooks', kind: activity.failure.kind, message: activity.failure.message, remedy: activity.failure.remedy });
     }
 
     if (this.#issuesError) {
@@ -452,11 +480,11 @@ export class BoardPanel {
     // Only a clean session read proves a session is gone; a failed one reports none, and would discard its placement.
     const sessionsRead = this.#sessions !== undefined && this.#sessions.failures.length === 0;
 
-    void this.#memento.update(MEMORY_KEY, nextMemory(lanes, memory, sessionsRead));
+    this.#lanes.write(nextMemory(lanes, memory, sessionsRead));
 
     this.#installedAt = this.#rememberInstall();
 
-    const notice = this.#announce(hooks);
+    const notice = this.#announce(activity);
 
     this.#post({
       type: 'board',

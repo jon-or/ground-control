@@ -12,6 +12,7 @@
     "packages/host-vscode",
     "packages/github",
     "packages/board",
+    "packages/hub",
     "extensions/ground-control"
   ],
   "scripts": {
