@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs';
 import { PROTOCOL } from '@ground-control/core';
-import { liveHub, recordedHub, stopThisHub, unprovenHub } from './discover.js';
-import type { HubRecord, LiveHub } from './discover.js';
+import { findHub, liveHub, recordedHub, stopThisHub } from './discover.js';
+import type { Found, HubMiss, LiveHub } from './discover.js';
 import { read } from './fs.js';
 import { bundlePathOf, exitPathOf, hubJsonPathOf, logPathOf } from './paths.js';
 
@@ -23,8 +23,8 @@ export interface EnsureDeps {
   stop(hub: LiveHub): Promise<boolean>;
   /** Whether the hub on disk was written after the running one started, and is therefore a copy nothing is running. */
   bundleIsNewer(): boolean;
-  /** The record of a listener answering for this home that `find` would not accept, so a failure can name it. */
-  unproven(home: string): Promise<HubRecord | null>;
+  /** A last look, taken only once a start has come to nothing, so the failure can say what it ran into. */
+  lastLook(home: string): Promise<Found>;
 }
 
 export type Ensured = { hub: LiveHub } | { failed: string };
@@ -61,6 +61,40 @@ function lastExit(home: string): string {
 
 function tellThem(home: string, what: string): string {
   return `${what} ${lastExit(home)} Its log is at ${logPathOf(home)}.`;
+}
+
+/**
+ * What a start that came to nothing ran into. Every branch but the first is a process that is up and did not become
+ * this client's hub, and the remedy for all of them is ending it — there is no route that stops a hub whose token
+ * this client could not prove, and the pid is what the developer has to work with.
+ */
+function whatIsThere(home: string, miss: HubMiss): string {
+  if (miss.why === 'no-record') {
+    return tellThem(home, 'The board started its background process and it never answered.');
+  }
+
+  const held = miss.why === 'another-protocol' ? miss.hub.record : miss.record;
+  const it = `pid ${held.pid}, on port ${held.port}`;
+
+  switch (miss.why) {
+    case 'unreachable':
+      return tellThem(home, `The board started its background process and nothing came to hold port ${held.port}.`);
+
+    case 'silent':
+      return `Something holds this board's port and will not answer this window (${it}). Stop that process and open the board again. Its log is at ${logPathOf(home)}.`;
+
+    case 'not-a-hub':
+      return `Port ${held.port} is held by something that is not Ground Control, and ${hubJsonPathOf(home)} still names it. Stop that process, or delete that file, and open the board again.`;
+
+    case 'another-home':
+      return `The hub on port ${held.port} is tracking a different home, and this board cannot use it. Stop that process (${it}) and open the board again.`;
+
+    case 'unproven':
+      return `Something is already serving this board's home (${it}) holding a token this window cannot verify. Stop that process and open the board again.`;
+
+    case 'another-protocol':
+      return `A Ground Control of another version is running (${it}) and would not give up this machine. Stop that process and open the board again.`;
+  }
 }
 
 /**
@@ -138,17 +172,19 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
       }
     }
 
-    // A hub that is up and would not take this client is what the spawn stood down for, and from here that looks
-    // exactly like a hub that never started. Naming the port is the difference between a log to read and a mystery.
-    const held = await deps.unproven(deps.home);
+    // The spawn stands down when anything is already serving the home and says so only in its own log, so from
+    // here a hub that turned this client away and a hub that never started are the same silence.
+    const last = await deps.lastLook(deps.home);
 
-    if (held !== null) {
-      return {
-        failed: `Something is already serving this board's home on port ${held.port}, and this window could not connect to it. Stop that process — ${hubJsonPathOf(deps.home)} names it as pid ${held.pid} — and open the board again.`,
-      };
+    // A hub that turned up while this was giving up on it. Rare, and the board is better off connected to it than
+    // told about a race it cannot see.
+    if ('hub' in last) {
+      started.length = 0;
+
+      return { hub: last.hub };
     }
 
-    return { failed: tellThem(deps.home, 'The board started its background process and it never answered.') };
+    return { failed: whatIsThere(deps.home, last.miss) };
   }
 
   return () => {
@@ -215,6 +251,6 @@ export function realEnsureDeps(home: string, start: () => void): EnsureDeps {
     findAny: (where) => recordedHub(where),
     stop: (hub) => stopThisHub(hub),
     bundleIsNewer: () => bundleIsNewer(home),
-    unproven: (where) => unprovenHub(where),
+    lastLook: (where) => findHub(where),
   };
 }
