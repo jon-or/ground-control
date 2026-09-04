@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { PROTOCOL } from '@ground-control/core';
-import type { Client, ClientHello, ClientMessage, HubMessage, Snapshot } from '@ground-control/core';
+import type { Client, ClientHello, ClientMessage, HubMessage, Session, Snapshot } from '@ground-control/core';
 
 /**
  * What the server needs of the hub, and nothing more. Narrow so the server's own tests drive a fake: whether a
@@ -13,6 +13,8 @@ export interface ServableHub {
   disconnect(client: Client): void;
   receive(client: Client, message: ClientMessage): void;
   snapshot(): Snapshot;
+  /** A fresh read of the sessions on this machine. The resident half polls it while it carries out an open route. */
+  roster(): Promise<readonly Session[]>;
 }
 
 export interface ServerClock {
@@ -303,6 +305,14 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
 
     if (path === '/snapshot' && request.method === 'GET') {
       send(response, 200, deps.hub.snapshot());
+
+      return;
+    }
+
+    // A read, not an action, because the client that asks is carrying out a route rather than changing anything —
+    // and it asks repeatedly while it waits for a session to land, which no event stream can answer.
+    if (path === '/roster' && request.method === 'GET') {
+      send(response, 200, { sessions: await deps.hub.roster() });
 
       return;
     }

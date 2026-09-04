@@ -239,3 +239,20 @@ export function activityNotice({ plan, wanted, unreported }: ActivityNoticeInput
 
   return 'Session activity hooks installed.';
 }
+
+/**
+ * What to tell the developer who just turned the signal on or off. Unlike `activityNotice`, which announces only
+ * news, this always says something: it answers an action, and an action that produced no change is worth saying so.
+ */
+export function activityAcknowledgement(state: ActivityState): { level: 'info' | 'error'; message: string } {
+  if (state.failure) {
+    return { level: 'error', message: state.failure.message };
+  }
+
+  const said = activityNotice({ plan: state.plan, wanted: state.wanted, unreported: 0 });
+
+  return {
+    level: 'info',
+    message: said ?? `Session activity hooks are already ${state.wanted === 'install' ? 'installed' : 'absent'}.`,
+  };
+}

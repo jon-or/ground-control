@@ -17,7 +17,7 @@ import type {
   SessionsSnapshot,
   Snapshot,
 } from '@ground-control/core';
-import { activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
+import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import type { ActivityState } from './activityInstall.js';
 import { read } from './fs.js';
 import type { LaneStore } from './lanes.js';
@@ -165,10 +165,25 @@ export class Hub {
 
         return;
 
-      case 'configure':
-        this.configure(message.config);
+      case 'configure': {
+        const resynced = this.configure(message.config);
+
+        // Only where a developer changed the setting themselves. Every client pushes its configuration on connect,
+        // and a hub that answered each of those would pop a message on every board that opened (R34).
+        if (!message.acknowledge) {
+          return;
+        }
+
+        // A refusal returns nothing to acknowledge, and is the one answer the developer most needs: the change they
+        // just made did not happen, and the board it is named on may not be open (R34).
+        connected.send(
+          resynced
+            ? { type: 'notice', ...activityAcknowledgement(resynced) }
+            : { type: 'notice', level: 'error', message: this.#configFailures[0]?.message ?? 'The board could not read those settings.' },
+        );
 
         return;
+      }
 
       case 'watching':
         connected.watching = message.watching;
@@ -247,6 +262,9 @@ export class Hub {
       this.#retime();
     }
 
+    // Said before the read rather than left to it: the read has a floor, so a setting corrected within a second of
+    // being made wrong would leave every board showing the complaint until the next poll.
+    this.#broadcast();
     void this.refresh();
 
     return resynced;

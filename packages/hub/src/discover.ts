@@ -155,11 +155,12 @@ export interface LiveHub {
 }
 
 /**
- * The hub this home already has, if one is answering. Liveness is the probe and never the file: a hub killed on
- * Windows gets no chance to remove `hub.json`, so a stale record is the normal state rather than an error. A
- * listener that is not a hub, or is a hub for another home, is not one to send a token to.
+ * The hub this home's record names, proven to be this developer's whatever protocol it speaks. Liveness is the probe
+ * and never the file: a hub killed on Windows gets no chance to remove `hub.json`, so a stale record is the normal
+ * state rather than an error. A listener that is not a hub, or is a hub for another home, is not one to send a
+ * token to.
  */
-export async function liveHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<LiveHub | null> {
+export async function recordedHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<LiveHub | null> {
   const record = readHubRecord(home);
 
   if (record === null) {
@@ -171,16 +172,18 @@ export async function liveHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promi
 
   // The fingerprint says which home; the proof says it is the hub that minted this record. A home path is guessable,
   // so without the proof any local process could stand up a listener, be handed the token, and be believed.
-  if (
-    identity === null ||
-    identity.fingerprint !== fingerprintOf(home) ||
-    !protocolMatches(identity) ||
-    !proves(identity, record, nonce)
-  ) {
+  if (identity === null || identity.fingerprint !== fingerprintOf(home) || !proves(identity, record, nonce)) {
     return null;
   }
 
   return { record, identity };
+}
+
+/** The hub this home already has and this client can talk to. A different protocol is a hub, but not one of ours. */
+export async function liveHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<LiveHub | null> {
+  const found = await recordedHub(home, timeoutMs);
+
+  return found && protocolMatches(found.identity) ? found : null;
 }
 
 function proves(identity: HubIdentity, record: HubRecord, nonce: string): boolean {
@@ -190,15 +193,18 @@ function proves(identity: HubIdentity, record: HubRecord, nonce: string): boolea
   return offered.length === wanted.length && timingSafeEqual(offered, wanted);
 }
 
-/** Stops the hub this home has. False means there was nothing answering to stop, which is not a failure. */
+/**
+ * Stops the hub this home has, whatever protocol it speaks: stopping one is the same route in every version, and a
+ * hub a client cannot talk to is exactly the one it may need to replace.
+ */
 export async function stopHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
-  const live = await liveHub(home, timeoutMs);
+  const held = await recordedHub(home, timeoutMs);
 
-  if (live === null) {
+  if (held === null) {
     return false;
   }
 
-  const answer = await call(live.record.port, 'POST', '/shutdown', live.record.token, timeoutMs);
+  const answer = await call(held.record.port, 'POST', '/shutdown', held.record.token, timeoutMs);
 
   return answer?.status === 200;
 }

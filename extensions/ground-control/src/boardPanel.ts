@@ -1,13 +1,10 @@
 import * as vscode from 'vscode';
-import type { Hub } from '@ground-control/hub';
-import type { Client, ClientMessage, HubMessage, LaneId, Snapshot, SnapshotMessage } from '@ground-control/core';
-import { homedir } from 'node:os';
-import { dirname } from 'node:path';
+import type { ClientMessage, LaneId, Snapshot, SnapshotMessage } from '@ground-control/core';
 import { readHubConfig, vscodeSettings, userDirOf } from './config.js';
 import { promptForLogins } from './identity.js';
-import { hub } from './hubClient.js';
-import { agentExtensionReady, boardRoot, perform, refuse } from './resident.js';
-import { host } from './registry.js';
+import { client } from './hubClient.js';
+import type { HubClient } from './hubClient.js';
+import { agentExtensionReady } from './resident.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 
@@ -47,10 +44,8 @@ export class BoardPanel {
   readonly #panel: vscode.WebviewPanel;
   readonly #extensionUri: vscode.Uri;
   readonly #disposables: vscode.Disposable[] = [];
-  readonly #hub: Hub;
-  readonly #home = homedir();
+  readonly #client: HubClient;
   readonly #userDir: string;
-  #client: Client | undefined;
   #disposed = false;
   /** The webview is torn down when the tab goes background, so the last snapshot is replayed on return. */
   #last: Snapshot | undefined;
@@ -100,7 +95,7 @@ export class BoardPanel {
     this.#panel = panel;
     this.#extensionUri = extensionUri;
     this.#userDir = userDir;
-    this.#hub = hub(this.#home);
+    this.#client = client()!;
     this.#panel.webview.html = this.#html();
 
     BoardPanel.current = this;
@@ -116,7 +111,7 @@ export class BoardPanel {
         }
 
         this.#visible = this.#panel.visible;
-        this.#tell({ type: 'watching', watching: this.#visible });
+        this.#client.watching(this.#visible);
 
         // A board only draws while it is visible, so the wait for its first render starts and stops with the tab.
         if (this.#visible) {
@@ -137,26 +132,22 @@ export class BoardPanel {
   }
 
   #connect(): void {
-    this.#client = this.#hub.connect(
-      {
-        // Stable per extension host, not per panel: the install notice is said once per board, and a fresh id on
-        // every reopen would say it again and leave a mark nothing ever clears (R25).
-        id: `vscode-${process.pid}`,
-        hostId: host.id,
-        workspaceRoot: boardRoot(),
-        residentRoutes: [...host.residentRoutes],
-        watching: this.#visible,
-      },
-      (message) => this.#onHub(message),
-    );
+    this.#disposables.push(this.#client.onSnapshot((snapshot) => this.#render(snapshot)));
 
-    this.#tell({ type: 'configure', config: readHubConfig(vscodeSettings(this.#userDir)) });
+    const known = this.#client.snapshot;
+
+    // What the window already knows, before the read this board's arrival triggers lands. A board opened second in
+    // a long-running window would sit on its loading line for a whole refresh interval otherwise.
+    if (known) {
+      this.#render(known);
+    }
+
+    this.#client.configure(readHubConfig(vscodeSettings(this.#userDir)));
+    this.#client.watching(this.#visible);
   }
 
   #tell(message: ClientMessage): void {
-    if (this.#client) {
-      this.#hub.receive(this.#client, message);
-    }
+    this.#client.send(message);
   }
 
   #onWebview(msg: Inbound): void {
@@ -252,36 +243,14 @@ export class BoardPanel {
     }
   }
 
-  #onHub(message: HubMessage): void {
+  #render(snapshot: Snapshot): void {
     if (this.#disposed) {
       return;
     }
 
-    switch (message.type) {
-      case 'snapshot':
-      case 'changed':
-        this.#last = message.snapshot;
-        this.#post({ type: 'board', ...message.snapshot });
-        void this.#askForLogins(message.snapshot);
-
-        return;
-
-      case 'perform':
-        void perform(message.route, () => this.#hub.roster());
-
-        return;
-
-      case 'notice':
-        if (message.refusal) {
-          void refuse(message.refusal, message.message);
-
-          return;
-        }
-
-        void vscode.window.showInformationMessage(message.message);
-
-        return;
-    }
+    this.#last = snapshot;
+    this.#post({ type: 'board', ...snapshot });
+    void this.#askForLogins(snapshot);
   }
 
   /**
@@ -359,10 +328,9 @@ export class BoardPanel {
       BoardPanel.current = undefined;
     }
 
-    if (this.#client) {
-      this.#hub.disconnect(this.#client);
-      this.#client = undefined;
-    }
+    // The connection outlives the board: this window stays a client so a setting still reaches the hub with no
+    // board open (R34). What ends with the board is the watching, and so the polling (R35).
+    this.#client.watching(false);
 
     while (this.#disposables.length > 0) {
       this.#disposables.pop()?.dispose();

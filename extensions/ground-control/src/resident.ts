@@ -15,8 +15,12 @@ const LANDING_TIMEOUT_MS = 20_000;
 /** Each pass is a full roster read, so this is paced to cost a handful of them rather than one every quarter second. */
 const LANDING_POLL_MS = 2000;
 
-/** How the resident half reads the machine: it asks the hub, which is the only thing here that reads it at all. */
-export type Roster = () => Promise<readonly Session[]>;
+/**
+ * How the resident half reads the machine: it asks the hub, which is the only thing here that reads it at all.
+ * Null is a read that did not happen. Never an empty list — every caller here compares against what was running
+ * before, and reading a failure as "nothing was running" turns the developer's own sessions into strays.
+ */
+export type Roster = () => Promise<readonly Session[] | null>;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -153,7 +157,15 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
   for (let waited = 0; waited < LANDING_TIMEOUT_MS; waited += LANDING_POLL_MS) {
     await delay(LANDING_POLL_MS);
 
-    const stray = strayFrom(before, await roster());
+    const now = await roster();
+
+    // A read that did not happen says nothing about where the session landed, and this watch exists only to
+    // interrupt the developer when it went wrong. Giving up quietly is the honest end (R24).
+    if (now === null) {
+      return;
+    }
+
+    const stray = strayFrom(before, now);
 
     if (stray) {
       void vscode.window.showErrorMessage(
@@ -180,7 +192,11 @@ async function revealElsewhere(roster: Roster, session: Session, root: string): 
 
   await run('code', ['--open-url', quoted(CLAUDE.openUri(session.sessionId))]);
 
-  void confirmLanding(roster, root, before);
+  // Only with something to compare against. Without it the watch below would call every session already running a
+  // stray, which is worse than saying nothing: the fire itself is unaffected either way.
+  if (before !== null) {
+    void confirmLanding(roster, root, before);
+  }
 
   return null;
 }

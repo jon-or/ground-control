@@ -127,7 +127,7 @@ The hub is the loop that was the board panel's, made headless and made one per m
 - **Two cadences.** Work sources are a network round trip and poll on the long interval. Agent adapters spawn a CLI and poll on the short one. Each source keeps its last good read and its last failure, so one failing never blanks another.
 - **Activity is event-driven.** The hub watches each activity signal's directory. A change on a listed session is one marker read; a marker removed, or one naming an unlisted session, is a roster change that only the CLI can settle, so it triggers a session read. Changes batch for 150 ms. The directory comes and goes with the install and `node:fs.watch` cannot be armed on a missing path, so the watcher re-arms until it appears and again whenever it is removed underneath. A marker's kind is decided from one `exists` on that path against the set the watcher held before the batch: a listing taken mid-batch already holds markers whose own events have not arrived, which would read every one of them as a rewrite.
 - **Coalescing.** A read in flight absorbs a timer or a button. A change the in-flight read cannot have seen queues one more read behind it. A refresh within a second of the last read is ignored.
-- **Idle when unwatched.** A client says whether it is watching: the VS Code panel reports hidden, and the Chrome bridge disconnects when no project-board tab exists. With no client watching, the hub stops polling and an activity event costs nothing. Each session poll costs about a fifth of a second of CLI time (`mechanics.md` §2), which nobody would be looking at. A hub in its own process exits after 30 minutes at zero clients, and the next board open starts it again in about a second; a hub inside an extension host ends with it.
+- **Idle when unwatched.** A client says whether it is watching: the VS Code panel reports hidden, and the Chrome bridge disconnects when no project-board tab exists. With no client watching, the hub stops polling and an activity event costs nothing. Each session poll costs about a fifth of a second of CLI time (`mechanics.md` §2), which nobody would be looking at. The hub exits after 30 minutes at zero clients, and the next board open starts it again in about a second. A window that has activated the extension stays connected whether or not a board is open, because a setting changed with no board on screen still has to reach it (R34).
 - **Lane memory is a file.** `~/.claude/ground-control/lanes.json`, written atomically, read by every client through the snapshot. A client never stores placement of its own.
 - **Activity install is the hub's.** It applies each agent's `ActivityPlan` under the existing install lock and reports what it observed, never what it intended (R25). The install and announce marks live in `hub-marks.json`; the announce is per client, so a second window still sees the notice once.
 - **The hub owns the defaults.** Its configuration is built from each adapter's `defaultPath` and `defaultEnabled` (R30) plus the shipped statuses and lanes (R27). A client pushes its settings on connect and on every change, and they merge over the defaults, so a hub started by the Chrome bridge alone polls with sane settings. Every setting that reaches the hub is application-scoped in VS Code: one board's memory is shared by every window (R9), so two windows can never disagree.
@@ -139,7 +139,7 @@ The snapshot and the actions are one typed contract in `packages/core`, and ever
 | Direction | Message | Carries |
 | --- | --- | --- |
 | client → hub | `hello` | client id, the host it lives in or none, its workspace root, the resident routes it can perform, whether it is watching |
-| client → hub | `configure` | the client's settings, merged over the hub's defaults |
+| client → hub | `configure` | the client's settings, merged over the hub's defaults, and whether the developer asked to be told what the activity install did |
 | client → hub | `watching` | whether the client is looking at the board now |
 | client → hub | `refresh` | — |
 | client → hub | `move` | card key, lane id |
@@ -149,18 +149,19 @@ The snapshot and the actions are one typed contract in `packages/core`, and ever
 | hub → client | `perform` | a resident route, forwarded to the one client that offered it |
 | hub → client | `notice` | a message for the developer, with the refusal it came from where there is one |
 
-A configuration is parsed before it is taken, and a bad one is refused whole and named above the lanes rather than half-applied: one field of it becomes a process, and a client is not necessarily this editor.
+A configuration is parsed before it is taken, and a bad one is refused whole and named above the lanes rather than half-applied: one field of it becomes a process, and a client is not necessarily this editor. What it settled on is broadcast before the read it triggers, because that read has a floor: a setting corrected within a second of being made wrong would otherwise leave every board showing the complaint until the next poll. A client restates its configuration after every `hello`, since a hub it has just started knows nothing about it.
 
 `needs` on the snapshot is what the hub cannot detect and must ask for once, in place (R26): today, the developer's GitHub logins when none are configured. The client that can ask does, saves the answer to settings, and pushes `configure`.
 
 ### Transport
 
-The hub serves HTTP on `127.0.0.1` on an ephemeral port, and `ground-control-hub` runs one as its own process: the snapshot and the actions as requests, changes as Server-Sent Events with a comment heartbeat every 20 s. The VS Code board still connects to a hub inside its own extension host, so what this section says about a client starting one, and the bundle and the Chrome bridge under Lifecycle, is what it becomes; the protocol is the same either way, which is what makes that a transport rather than a redesign.
+The hub serves HTTP on `127.0.0.1` on an ephemeral port: the snapshot and the actions as requests, changes as Server-Sent Events with a comment heartbeat every 20 s. Every client reaches it the same way, whether it is a VS Code window or the Chrome bridge.
 
 | Route | Carries |
 | --- | --- |
 | `GET /hub` | the hub's name, protocol version, a fingerprint of its configuration directory, and, when the caller supplies a nonce, an HMAC of that nonce under the token. No token, and nothing else — not the pid, not the version of the code |
 | `GET /snapshot` | the snapshot as it stands |
+| `GET /roster` | a fresh read of the sessions on the machine, for a client carrying out an open route |
 | `GET /events?client=<id>` | that client's stream: `snapshot`, `changed`, `perform`, `notice`, and a `: ping` comment every 20 s |
 | `POST /actions?client=<id>` | one `ClientMessage`. `hello` is the first, and it must name the client its stream belongs to |
 | `POST /shutdown` | the stop |
@@ -173,9 +174,19 @@ The server refuses any request carrying an `Origin` header, any `Host` other tha
 
 ### Lifecycle
 
-The extension writes the hub bundle to `~/.claude/ground-control/hub.js` on activation when the version it carries is newer than the one on disk, and never when older, the way it writes the hook script. The spawn command, the native-messaging manifest, and the uninstall all point at that one path, so an extension update never orphans a running hub.
+The extension writes the hub bundle to `~/.claude/ground-control/hub.js` on activation when the version it carries is newer than the one on disk, and never when older, the way it writes the hook script. Each copy carries its version on its first line, so which is newer is read without running either. Equal versions compare bytes, which is the case every development build hits — every build in a source tree carries the same version, and without that rule a rebuilt hub would never reach the disk. A bundle that cannot be written is said out loud and nothing else in the window is lost: the hub already on disk from an earlier run still starts.
 
-A client starts the hub when `GET /hub` does not answer. VS Code spawns its own executable as node (`ELECTRON_RUN_AS_NODE`, the Node measured in `mechanics.md` §21), with `node` from the PATH as the fallback, detached and unreferenced so it outlives the window, with output appended to `hub.log`. The hub scrubs `ELECTRON_*`, `VSCODE_*`, and `NODE_OPTIONS` from its own environment at startup, or the `code` it spawns to raise a window would run as node too. Single instance is the record, not the socket: `listen(0)` cannot collide, so binding decides nothing. A hub probes the recorded port before binding, and afterwards claims `hub.json` by exclusive create; the one that loses that create closes and stands down, and a record naming a port that answers as nothing is a hub that was killed and is taken over. Only a hub whose own pid is still in the record ever removes it, so an orphan cannot take the winner's record away with it. A newer client shuts an older-protocol hub down and starts its own; an older client connects when the protocol matches and shows a notice when it does not. A cold start costs about 90 ms (`mechanics.md` §25).
+Writing the file replaces the hub that *would* be started, never the one already running. A rebuilt bundle takes effect the next time no hub is answering, so during development it wants a `--stop` after `npm run build`.
+
+The spawn command, the native-messaging manifest, and the uninstall all point at that one path, so an extension update never orphans a running hub.
+
+A client starts the hub when `GET /hub` does not answer. VS Code spawns its own executable as node (`ELECTRON_RUN_AS_NODE`, the Node measured in `mechanics.md` §21), detached and unreferenced so it outlives the window, with output appended to `hub.log`. There is no search for an interpreter: the extension host's PATH is the launcher's rather than the shell's, and the Electron it is already running is the one Node that is certainly there. A child spawned that way survives the editor closing (`mechanics.md` §26), which is what lets the browser overlay keep working after VS Code is gone.
+
+The hub scrubs `ELECTRON_*`, `VSCODE_*`, and `NODE_OPTIONS` from its own environment at startup. Not for the `code` CLI's sake — that sets `ELECTRON_RUN_AS_NODE` itself and clears it before launching the app (`mechanics.md` §26) — but because `VSCODE_IPC_HOOK` names the pipe of the window that started the hub, and every CLI the hub spawns would inherit it.
+
+Single instance is the record, not the socket: `listen(0)` cannot collide, so binding decides nothing. A hub probes the recorded port before binding, and afterwards claims `hub.json` by exclusive create; the one that loses that create closes and stands down, and a record naming a port that answers as nothing is a hub that was killed and is taken over. Only a hub whose own pid is still in the record ever removes it, so an orphan cannot take the winner's record away with it. A client talks only to a hub on its own protocol. One answering a different number is a hub, but not one it can speak to, and which of them gives way is the same rule the bundle follows: newer wins. A newer client stops the older hub over `/shutdown` — the record's token proves it is the developer's own, and stopping is one route in every version — and starts its own. An older client stops nothing and starts nothing, because the bundle it would run is the newer hub's; it says so and asks to be updated. A cold start of the bundle costs 60 ms (`mechanics.md` §26).
+
+A client that cannot reach its hub retries with a doubling backoff from one second to thirty, starting one again each time none answers. What bounds that is a budget on **consecutive** starts that never answered: one a minute, three in five minutes, and then the developer is told, with the reason the last hub stopped and the path of its log. The budget is one client's, not the machine's — two windows each hold their own, which is what keeps a window's own retries paced without one window's trouble silencing another's board. A start that produced a live hub clears the count, so killing a working hub gets it back at once rather than after a minute — only a hub that will not come up at all is one the board stops making.
 
 There is no orderly signal on Windows for a process without a console (`mechanics.md` §25), so the stop is `POST /shutdown` with the token, or `ground-control-hub --stop`, which does the same over the same route. An orderly stop removes `hub.json` and writes `hub-exit.json` with the reason; a hub that was killed leaves the first behind and never writes the second, which is what a client whose spawn did not come up has to go on. Uninstalling the extension shuts the hub down, removes the activity hooks and the Chrome registration, and removes the bundle.
 
@@ -187,7 +198,7 @@ The snapshot is the developer's work in the open: session titles derived from th
 
 A client renders the snapshot and forwards actions. It holds no state the hub does not, except what its own display needs to draw.
 
-**VS Code board.** The webview panel, the commands, the settings UI, and the resident half of the `vscode` host adapter: it offers every route in `residentRoutes` on `hello`, and performs one with `executeCommand` when the hub forwards it. It is also the client that asks for what the hub `needs`. Everything else it did lives in the hub.
+**VS Code board.** The webview panel, the commands, the settings UI, and the resident half of the `vscode` host adapter: it offers every route in `residentRoutes` on `hello`, and performs one with `executeCommand` when the hub forwards it. It is also the client that asks for what the hub `needs`. Everything else it did lives in the hub, the transport included — what stays in the extension is spawning the process and writing the bundle, which are the two things only something inside VS Code can do.
 
 **GitHub project overlay.** A Chrome extension whose content script runs on project board pages, finds the issue number in each card's link, and paints a badge from the matching snapshot card: session count, phase, duration since the phase began. Above the board it renders what R25 asks to be stated once: the source failures, the hook notice, and how old the snapshot is, because a bridge that lost the hub must not leave a badge that looks current. Its actions are `refresh` and `move`. `open` from the browser is off unless `hosts.vscode.allowBrowserOpen` is set, because a route that raises an editor window from a browser tab moves the developer's focus without a board of theirs in sight. A seize lands in VS Code, because the resident half is there.
 
@@ -202,12 +213,12 @@ A client renders the snapshot and forwards actions. It holds no state the hub do
 | `packages/host-vscode` | the `vscode` adapter's headless half: lock files, window stores, surfaces, the placement table, the open plan | `core` |
 | `packages/github` | the `github` work source | `core` |
 | `packages/board` | merge and lane rules | `core`, `github` |
-| `packages/hub` | the registries and defaults, the loop, lane memory, activity install, the watcher, the server, and starting a hub from a client | everything above |
+| `packages/hub` | the registries and defaults, the loop, lane memory, activity install, the watcher, the server, and the client half: finding or starting a hub, and the transport that rides its event stream | everything above |
 | `apps/hub` | the daemon entry point and the Chrome bridge; `ground-control-hub` | `core`, `hub` |
 | `extensions/ground-control` | the VS Code client and the `vscode` resident half; bundles `apps/hub` as `dist/hub.js` | `core`, `host-vscode`, `hub`; the only package that imports `vscode` |
 | `extensions/chrome-github-board` | the Chrome client | `core`; the only package that imports `chrome` |
 
-The extension also imports `board` and `github` for the two settings readers that turn a raw value into one the hub takes; both follow the reading into the hub when the hub is its own process. `extensions/chrome-github-board` is the one row nothing occupies yet.
+The extension also imports `board` and `github` for the two settings readers that turn a raw value into one the hub takes. Those stay in the client: what they read is VS Code's own settings, which only something inside VS Code can see. `extensions/chrome-github-board` is the one row nothing occupies yet.
 
 One package per adapter is what makes the seams enforceable. The boundary rule and the coverage floor apply per package, so `agent-claude` cannot reach `host-vscode`, and an adapter that arrives without tests fails on its own number rather than hiding in a larger one. `core` names no adapter; the registries are the hub's.
 

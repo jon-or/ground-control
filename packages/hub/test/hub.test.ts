@@ -531,6 +531,99 @@ describe('what the developer does', () => {
 
 describe('the activity signal', () => {
   /** Nothing is written to an agent's settings on the hub's own default, before a client has said what it wants. */
+  /**
+   * A developer who makes a setting wrong and puts it back does both inside the refresh floor, and what they see is
+   * the broadcast rather than the read that the floor swallowed.
+   */
+  it('shows a setting put back, even when the read it asked for was inside the floor', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const named = (): boolean => latest(inbox).failures.some((failure) => failure.kind === 'bad-config');
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ agents: [{ id: 'claude', path: 'nowhere/at/all' }] }) });
+    await settle();
+
+    expect(named()).toBe(true);
+
+    // No clock movement at all, so the read this triggers is refused by the floor and the broadcast is all there is.
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(named()).toBe(false);
+  });
+
+  /**
+   * The message a developer gets back for turning the signal off. It rides on the configure that carried the change,
+   * because a client pushes its whole configuration on every connect and a hub that answered each of those would
+   * pop a message on every board that opened (R34).
+   */
+  it('answers a configure the developer asked to be told about, and only that one', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(inbox.filter((message) => message.type === 'notice')).toEqual([]);
+
+    h.activity = { wanted: 'remove', plan: 'write', added: 0, failure: null };
+    h.hub.receive(client, { type: 'configure', config: h.config({ installActivity: false }), acknowledge: true });
+    await settle();
+
+    expect(inbox.filter((message) => message.type === 'notice')).toEqual([
+      { type: 'notice', level: 'info', message: 'Session activity hooks were removed. Sessions no longer report what they are doing.' },
+    ]);
+  });
+
+  /** A run that changed nothing still answers: it answers an action, and "nothing to do" is the answer. */
+  it('says the signal was already where the developer put it, whichever way that is', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    h.hub.receive(client, { type: 'configure', config: h.config(), acknowledge: true });
+    await settle();
+
+    expect(inbox.filter((message) => message.type === 'notice')).toEqual([
+      { type: 'notice', level: 'info', message: 'Session activity hooks are already installed.' },
+    ]);
+
+    const off = harness();
+    const second = connect(off);
+
+    off.hub.receive(second.client, { type: 'configure', config: off.config({ installActivity: false }) });
+    off.hub.receive(second.client, { type: 'configure', config: off.config({ installActivity: false }), acknowledge: true });
+    await settle();
+
+    expect(second.inbox.filter((message) => message.type === 'notice')).toEqual([
+      { type: 'notice', level: 'info', message: 'Session activity hooks are already absent.' },
+    ]);
+  });
+
+  it('answers with the reason when the install refused, rather than claiming it happened', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+
+    h.activity = {
+      wanted: 'install',
+      plan: 'refuse',
+      added: 0,
+      failure: { subject: 'claude', kind: 'unreadable-settings', message: 'settings.json is not JSON', remedy: 'Fix the file and turn it back on.' },
+    };
+    h.hub.receive(client, { type: 'configure', config: h.config({ installActivity: false }), acknowledge: true });
+    await settle();
+
+    expect(inbox.filter((message) => message.type === 'notice')).toEqual([
+      { type: 'notice', level: 'error', message: 'settings.json is not JSON' },
+    ]);
+  });
+
   it('installs nothing until a client has configured it', async () => {
     const h = harness();
 

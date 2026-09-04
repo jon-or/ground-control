@@ -54,7 +54,9 @@ export interface Client {
 
 export type ClientMessage =
   | { type: 'hello'; hello: ClientHello }
-  | { type: 'configure'; config: HubConfig }
+  // `acknowledge` asks for the activity install's outcome back as a notice. Set only where a developer changed the
+  // setting themselves: a client pushes its configuration on every connect, and those must pass in silence.
+  | { type: 'configure'; config: HubConfig; acknowledge?: boolean }
   | { type: 'watching'; watching: boolean }
   | { type: 'refresh' }
   | { type: 'move'; key: string; lane: LaneId }

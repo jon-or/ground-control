@@ -3,7 +3,7 @@ import { connect } from 'node:net';
 import type { IncomingMessage } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PROTOCOL } from '@ground-control/core';
-import type { Client, ClientHello, ClientMessage, HubMessage, Snapshot } from '@ground-control/core';
+import type { Client, ClientHello, ClientMessage, HubMessage, Session, Snapshot } from '@ground-control/core';
 import { BODY_LIMIT_BYTES, HEARTBEAT_MS, MAX_EVENT_STREAMS, createHubServer } from '../src/server.js';
 import type { HubServer, ServerClock } from '../src/server.js';
 
@@ -30,11 +30,14 @@ function fakeHub() {
   const connected = new Map<string, (message: HubMessage) => void>();
   const received: { id: string; message: ClientMessage }[] = [];
   const disconnected: string[] = [];
+  const roster: Session[] = [];
 
   return {
     connected,
     received,
     disconnected,
+    roster: () => Promise.resolve(roster),
+    listing: roster,
     connect(who: ClientHello, send: (message: HubMessage) => void): Client {
       connected.set(who.id, send);
 
@@ -217,6 +220,38 @@ describe('what the hub answers over loopback', () => {
     expect(JSON.parse(answer.body)).toEqual({ hub: 'ground-control', protocol: PROTOCOL, fingerprint: 'abc123' });
     expect(answer.headers['x-content-type-options']).toBe('nosniff');
     expect(answer.headers['cache-control']).toBe('no-store');
+  });
+
+  /**
+   * The one read that is not the snapshot: the resident half polls it while it carries out an open route, and a
+   * roster served without a token would tell any local process every cwd and branch on the machine.
+   */
+  it('hands the roster to a client with the token, and to nobody without one', async () => {
+    const { hub, server } = await serving();
+
+    hub.listing.push({
+      agent: 'claude',
+      sessionId: 'a1',
+      pid: 1,
+      title: null,
+      cwd: 'd:/checkouts/project-1',
+      branch: null,
+      issueNumber: null,
+      startedAt: 0,
+      transcriptWrittenAt: null,
+      activity: null,
+      finished: false,
+      details: {},
+    });
+
+    const answer = await call(server, { path: '/roster' });
+
+    expect(answer.status).toBe(200);
+    expect((JSON.parse(answer.body) as { sessions: Session[] }).sessions.map((one) => one.sessionId)).toEqual(['a1']);
+    expect((await call(server, { path: '/roster', token: 'not-the-token' })).status).toBe(401);
+
+    // A read route, and only a read: anything else falls through to the action routes, which take a body.
+    expect((await call(server, { path: '/roster', method: 'DELETE' })).status).toBe(405);
   });
 
   it('hands the snapshot to a client with the token', async () => {
