@@ -1240,3 +1240,42 @@ describe('lanes', () => {
     expect(sent()).toEqual([]);
   });
 });
+
+/**
+ * The ladder is duplicated into every board: `media/board.js` is a classic script and the Chrome overlay is plain
+ * JavaScript, so neither can import `core`'s `sessionLabel`. This table is the same one asserted in
+ * `packages/core/test/roster.test.ts` and in the overlay's suite, against literal strings rather than a computed
+ * expectation — a copy that drifts fails here rather than quietly naming a session something else.
+ */
+describe('the session label ladder', () => {
+  const rows: [string, Partial<Session>, string][] = [
+    ['the title derived from the first prompt', { title: 'Fix the lane divider' }, 'Fix the lane divider'],
+    ['what the CLI called it', { title: null, details: { name: 'plucky-otter' } }, 'plucky-otter'],
+    ['the short id', { title: null, details: { shortId: 'a1b2c3d4' } }, 'a1b2c3d4'],
+    ['the directory it is working in', { title: null, details: {}, cwd: 'd:/git/orez' }, 'orez'],
+    ['the directory, past a trailing separator', { title: null, details: {}, cwd: 'd:/git/orez/' }, 'orez'],
+  ];
+
+  it.each(rows)('names a session by %s', (_rung, over, expected) => {
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, ...over }] }] }) }));
+
+    expect(document.querySelector('.session .session-label')!.textContent).toBe(expected);
+  });
+
+  // The rows above each set one rung, so only this pins the order: a ladder that read the bag first would pass them.
+  it('prefers each rung over the one below it', () => {
+    const rungs: Partial<Session>[] = [
+      { title: 'Fix the lane divider', cwd: 'd:/git/orez', details: { name: 'plucky-otter', shortId: 'a1b2c3d4' } },
+      { title: null, cwd: 'd:/git/orez', details: { name: 'plucky-otter', shortId: 'a1b2c3d4' } },
+      { title: null, cwd: 'd:/git/orez', details: { shortId: 'a1b2c3d4' } },
+    ];
+
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: rungs.map((over, i) => ({ ...session, ...over, sessionId: `s${i}` })) }] }) }));
+
+    expect(Array.from(document.querySelectorAll('.session .session-label')).map((el) => el.textContent)).toEqual([
+      'Fix the lane divider',
+      'plucky-otter',
+      'a1b2c3d4',
+    ]);
+  });
+});

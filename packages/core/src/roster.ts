@@ -1,3 +1,4 @@
+import { basename } from './paths.js';
 import type { ActivityChange } from './agent.js';
 import type { Session } from './types.js';
 
@@ -24,4 +25,12 @@ export function rosterIsStale(
  */
 export function unreportedSessions(sessions: readonly Session[], installedAt: number): number {
   return sessions.filter((session) => session.activity === null && session.startedAt < installedAt).length;
+}
+
+/**
+ * How a session is named to the developer, in one place because every board draws it: the title derived from the
+ * first prompt, then whatever the CLI called it, then the directory it is working in.
+ */
+export function sessionLabel(session: Session): string {
+  return session.title ?? session.details['name'] ?? session.details['shortId'] ?? basename(session.cwd);
 }

@@ -1,4 +1,4 @@
-import { basename, dirKey } from '@ground-control/core';
+import { basename, dirKey, sessionLabel } from '@ground-control/core';
 import type { HostWindow, OpenOutcome, OpenPlan, OpenRequest, OpenRoute, Session } from '@ground-control/core';
 import type { AgentPlacement } from './placements.js';
 
@@ -55,11 +55,6 @@ function windowRoot(recorded: string | null, window: HostWindow): string | null 
   return only !== undefined && second === undefined ? only : null;
 }
 
-/** How a session is named to the developer. The ladder is the one a session row on a card uses, so the two agree. */
-export function sessionName(session: Session): string {
-  return session.title ?? session.details['name'] ?? session.details['shortId'] ?? basename(session.cwd);
-}
-
 /**
  * Where to open a session, or why the board will not. The window holding it decides where it opens, and the surface
  * decides how: asking for a session the sidebar holds as a tab opens a second agent on it rather than the first.
@@ -102,18 +97,18 @@ export function planOpen(
     if (request.window !== null) {
       return {
         refusal: 'unnamed-window',
-        message: `${sessionName(session)} is in a VS Code window the board has no path to — it has no folder open, or several. Switch to that window yourself.`,
+        message: `${sessionLabel(session)} is in a VS Code window the board has no path to — it has no folder open, or several. Switch to that window yourself.`,
       };
     }
 
     return request.now - session.startedAt < SETTLING_MS
       ? {
           refusal: 'settling',
-          message: `${sessionName(session)} started moments ago and VS Code has not recorded which window holds it yet. Try again in a minute.`,
+          message: `${sessionLabel(session)} started moments ago and VS Code has not recorded which window holds it yet. Try again in a minute.`,
         }
       : {
           refusal: 'no-surface',
-          message: `${sessionName(session)} is running in ${session.cwd}, but no VS Code window is showing it — it was started from a terminal, or its tab has since been given another session.`,
+          message: `${sessionLabel(session)} is running in ${session.cwd}, but no VS Code window is showing it — it was started from a terminal, or its tab has since been given another session.`,
         };
   }
 
@@ -130,14 +125,14 @@ export function planOpen(
   if (!live) {
     return {
       refusal: 'window-closed',
-      message: `${sessionName(session)} was last seen in a window on ${root}, and no open window has that folder. Refresh the board, or open the session from the window running it.`,
+      message: `${sessionLabel(session)} was last seen in a window on ${root}, and no open window has that folder. Refresh the board, or open the session from the window running it.`,
     };
   }
 
   if (!here && !mayOpenWindow) {
     return {
       refusal: 'elsewhere-not-allowed',
-      message: `${sessionName(session)} is open in the window on ${root}, and the board is not allowed to bring it forward.`,
+      message: `${sessionLabel(session)} is open in the window on ${root}, and the board is not allowed to bring it forward.`,
     };
   }
 

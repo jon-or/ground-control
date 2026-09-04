@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rosterIsStale, unreportedSessions } from '../src/roster.js';
+import { rosterIsStale, sessionLabel, unreportedSessions } from '../src/roster.js';
 import type { Session } from '../src/types.js';
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
@@ -41,25 +41,53 @@ describe('rosterIsStale', () => {
   });
 });
 
+/** Whole, not cast: a partial literal would go on compiling the day `Session` grows a field. */
+const base: Session = {
+  agent: 'claude',
+  sessionId: SESSION,
+  pid: 4242,
+  title: null,
+  cwd: '/nowhere/checkout',
+  startedAt: 0,
+  branch: null,
+  issueNumber: null,
+  transcriptWrittenAt: null,
+  activity: null,
+  finished: false,
+  details: {},
+};
+
+const session = (over: Partial<Session>): Session => ({ ...base, ...over });
+
+/**
+ * The ladder, as literal strings. Both boards draw it from a copy they cannot import — `media/board.js` and the
+ * Chrome overlay are plain scripts — so the same table is asserted in each of their suites. Change one, change all.
+ */
+const LADDER: [string, Partial<Session>, string][] = [
+  ['the title derived from the first prompt', { title: 'Fix the lane divider' }, 'Fix the lane divider'],
+  ['what the CLI called it', { details: { name: 'plucky-otter' } }, 'plucky-otter'],
+  ['the short id', { details: { shortId: 'a1b2c3d4' } }, 'a1b2c3d4'],
+  ['the directory it is working in', { cwd: 'd:/git/orez' }, 'orez'],
+  ['the directory, past a trailing separator', { cwd: 'd:/git/orez/' }, 'orez'],
+];
+
+describe('sessionLabel', () => {
+  it.each(LADDER)('names a session by %s', (_rung, over, expected) => {
+    expect(sessionLabel(session(over))).toBe(expected);
+  });
+
+  it('prefers the title over everything the CLI reported', () => {
+    expect(sessionLabel(session({ title: 'Fix the lane divider', details: { name: 'plucky-otter', shortId: 'a1b2c3d4' } }))).toBe(
+      'Fix the lane divider',
+    );
+  });
+
+  it('prefers the CLI name over its short id', () => {
+    expect(sessionLabel(session({ details: { name: 'plucky-otter', shortId: 'a1b2c3d4' } }))).toBe('plucky-otter');
+  });
+});
+
 describe('unreportedSessions', () => {
-  /** Whole, not cast: a partial literal would go on compiling the day `Session` grows a field. */
-  const base: Session = {
-    agent: 'claude',
-    sessionId: SESSION,
-    pid: 4242,
-    title: null,
-    cwd: '/nowhere/checkout',
-    startedAt: 0,
-    branch: null,
-    issueNumber: null,
-    transcriptWrittenAt: null,
-    activity: null,
-    finished: false,
-    details: {},
-  };
-
-  const session = (over: Partial<Session>): Session => ({ ...base, ...over });
-
   it('counts the sessions that were already running when the hooks were installed', () => {
     const sessions = [
       session({ startedAt: 10 }),

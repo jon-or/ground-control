@@ -33,6 +33,7 @@ describe('the package public surface', () => {
       'resolveOnDisk',
       'rosterIsStale',
       'runJsonCli',
+      'sessionLabel',
       'spawnable',
       'unreportedSessions',
     ]);

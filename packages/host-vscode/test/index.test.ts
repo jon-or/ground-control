@@ -22,7 +22,6 @@ describe('the package public surface', () => {
       'readWindowStores',
       'readWindows',
       'rootFrom',
-      'sessionName',
       'sidebarSession',
       'strayFrom',
       'surfacesFrom',
