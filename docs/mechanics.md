@@ -1219,3 +1219,17 @@ Node's `process.kill` on Windows is `TerminateProcess` for every signal it accep
 Two things follow. A hub killed with `/F` never removes `hub.json`, so **a stale record is the normal state rather than an error**: a client's liveness check is `GET /hub` on the recorded port, never the file's existence. And `hub-exit.json` is written only on an orderly stop, which is what makes it worth quoting to a developer whose hub is not answering — its absence says the hub was killed.
 
 **Startup.** Spawn to a readable `hub.json` was 85, 90, 91, 96 and 93 ms across five cold starts of the unbundled `tsc` output, which is the whole cost a board pays when it finds no hub answering.
+
+## 26. A hub spawned by the extension host outlives the editor, and can open windows it cannot raise
+
+**Measured 2026-09-04, VS Code 1.136.1 on Windows 11 (win32), from inside a real extension host.**
+
+**It survives.** A child spawned from the extension host as `process.execPath` (`Code.exe`) with `ELECTRON_RUN_AS_NODE=1`, `detached: true`, `windowsHide: true` and `unref()`ed was still running 3 s after VS Code and its extension host had exited — the parent pid was gone, the child kept writing its heartbeat, and `MainWindowHandle` was `0`. Electron does not hold its children in a job object that dies with it, so the hub's lifetime is its own: closing the last window leaves it serving for the browser overlay, and the idle rule is what ends it.
+
+**It can open a window.** From that child, `code <folder>` through `cmd.exe /d /s /c` returned `0` in about 1.1 s and the workbench was up by the time it returned, both with the extension host's environment inherited whole and with `ELECTRON_*`, `VSCODE_*` and `NODE_OPTIONS` stripped. Inheriting `ELECTRON_RUN_AS_NODE=1` does not break the CLI, because `code.cmd` sets that variable itself and `cli.js` clears it before launching the app. The hub sanitizes anyway: `VSCODE_IPC_HOOK` names the pipe of the window that started it, and every other CLI the hub spawns inherits the same environment.
+
+`code.cmd` is a batch file, so it must be invoked through the command processor. `spawnSync` on the `.cmd` directly fails with no status and no output.
+
+**Starting it costs 60 ms.** Spawn to a readable `hub.json`, five cold starts of the esbuild bundle the extension carries: 64, 61, 61, 60, 63 ms. That is the whole wait a board pays when it finds no hub answering.
+
+**It cannot raise one.** With one window already showing the folder and another window in front, `code <folder>` at that folder returned in 1109 ms and the target **never** reached the foreground — not at return, and not in the four seconds after. A process the user has not interacted with cannot take focus on Windows; it gets a taskbar flash. So the CLI's return says a window exists, never that it is in front, and every `-elsewhere` route stays resident: only an extension inside the target window can confirm it came forward (§7, §8).

@@ -13,13 +13,14 @@ async function untilSnapshot(matches, why, within = 20_000) {
   const read = await api();
 
   for (;;) {
+    // Undefined until the hub has answered this window for the first time, which is a wait rather than a failure.
     const snapshot = read.snapshot();
 
-    if (matches(snapshot)) {
+    if (snapshot && matches(snapshot)) {
       return snapshot;
     }
 
-    assert.ok(Date.now() < deadline, `${why}; last snapshot: ${JSON.stringify(snapshot.failures)}`);
+    assert.ok(Date.now() < deadline, `${why}; last snapshot: ${JSON.stringify(snapshot?.failures ?? null)}`);
     await new Promise((done) => setTimeout(done, 100));
   }
 }
@@ -37,7 +38,12 @@ describe('what this window pushes to the hub', () => {
    * host's own settings was once handed over as a host id, and the board said it could not reach into "userDir".
    */
   it('is taken whole, with nothing in it read as a target the board cannot reach', async () => {
-    const { failures } = (await api()).snapshot();
+    // A snapshot that proves this window's settings arrived, not merely the first one to turn up: the repo it
+    // names is the one seeded into this run's profile, and no default would produce it.
+    const { failures } = await untilSnapshot(
+      (s) => s.issues !== null || s.failures.some((f) => f.subject === 'issues'),
+      'no snapshot carrying this window\'s settings ever arrived',
+    );
 
     assert.deepStrictEqual(
       failures.filter((failure) => failure.kind === 'unknown-host' || failure.kind === 'bad-config'),

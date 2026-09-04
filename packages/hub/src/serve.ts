@@ -10,15 +10,15 @@ import { makeMarkStore } from './marks.js';
 import { openLog } from './log.js';
 import { exitPathOf, hubJsonPathOf, logPathOf } from './paths.js';
 import { makeRegistries } from './registry.js';
-import { fingerprintOf, liveHub, readHubRecord } from './discover.js';
+import { fingerprintOf, readHubRecord, recordedHub } from './discover.js';
 import type { LiveHub } from './discover.js';
 import { createHubServer } from './server.js';
 import type { HubServer } from './server.js';
 import { watchDir } from './watch.js';
 
 /**
- * What a hub must not inherit. VS Code spawns the hub as its own executable running as node, and every one of these
- * would then be read by whatever the hub spawns itself — a `code <folder>` would run `Code.exe` as node and exit.
+ * What a hub must not inherit. VS Code spawns it as its own executable running as node, and `VSCODE_IPC_HOOK` then
+ * names the window that started it to every CLI the hub spawns (`mechanics.md` §26).
  */
 export function sanitizeEnvironment(env: NodeJS.ProcessEnv = process.env): string[] {
   const removed = Object.keys(env).filter(
@@ -115,7 +115,9 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   mkdirSync(groundControlDirOf(home), { recursive: true });
 
   const log = options.log ?? fileLogger(home);
-  const already = await liveHub(home);
+  // Any hub, not just one this build can talk to: two of them polling one home both rewrite `lanes.json` whole.
+  // Which protocol wins is a client's decision, made before it spawns anything, by stopping the one it displaces.
+  const already = await recordedHub(home);
 
   if (already) {
     log(`a hub is already serving this home on port ${already.record.port}; nothing to do`);
@@ -187,7 +189,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   );
 
   for (let attempts = 2; !claimRecord(home, text); attempts--) {
-    const other = await liveHub(home);
+    const other = await recordedHub(home);
 
     if (other || attempts === 1) {
       await server.close();

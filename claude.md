@@ -74,9 +74,9 @@ The full rules are in [docs/testing.md](docs/testing.md). The short version:
 | `packages/host-vscode` | The VS Code host adapter's headless half: lock files, window stores, the placement table, the open plan. **Must not import `vscode`.** |
 | `packages/github` | GitHub reads via the `gh` CLI. **Must not import `vscode`.** |
 | `packages/board` | Merges assigned issues and live sessions into board cards. **Must not import `vscode`.** |
-| `packages/hub` | The background process the boards are clients of: the registries and defaults, the loop, activity install, the marker watcher, lane memory, and the loopback server. **Must not import `vscode`.** |
+| `packages/hub` | The background process the boards are clients of, and how a client reaches it: the registries and defaults, the loop, activity install, the marker watcher, lane memory, the loopback server, and the client's own transport — finding or starting a hub, and the event stream it then rides. **Must not import `vscode`.** |
 | `apps/hub` | The hub as its own process: `ground-control-hub`, an argument parser over `packages/hub`. **Must not import `vscode`.** |
-| `extensions/ground-control` | The extension — activation, config, webview board panel. Imports `vscode`. |
+| `extensions/ground-control` | The extension — activation, config, the webview board panel, and the client that starts the hub and talks to it. Carries the hub as `dist/hub.js`. Imports `vscode`. |
 | `extensions/seize-probe` | Probe extension that proves window-scoped command targeting for `docs/mechanics.md`. Not a workspace, not shipped. |
 
 That boundary is what makes the logic testable in vitest: a module importing `vscode` can only be verified by hand, so decisions belong in a `packages/*` module and the extension stays thin. One package per adapter is what makes the seams enforceable: `agent-claude` cannot reach `host-vscode`, and each carries its own coverage floor. Root `package.json` lists the workspaces in build order, and every script fans out in that order; run `npm install` after changing the list.
@@ -107,3 +107,5 @@ npm run package     # vsce package --no-dependencies --allow-missing-repository
 `npm run test:integration` launches a VS Code of its own, loads the extension into it, and runs the tests in `extensions/ground-control/test-integration/` inside its extension host — against a temporary home, so it never touches the board you are using. That is how the extension is exercised.
 
 `npm run hub` runs the hub as its own process against your real home. It prints the port; `~/.claude/ground-control/hub.json` carries the token, and `hub.log` its own lines. `node apps/hub/dist/main.js --stop` stops it — there is no signal that will (`docs/mechanics.md` §25). `--home=<path>` points it at a home of its own, which is how to run one without touching your board's.
+
+The extension does not use that copy. It writes the hub it carries to `~/.claude/ground-control/hub.js` on activation and starts that, and writing the file does not disturb a hub already running — so a rebuilt hub reaches a board only after `npm run build` **and** stopping the one that is up (`node apps/hub/dist/main.js --stop`). The integration run starts a hub of its own against a temporary home and stops it on the way out; a run that crashes leaves one, which a later run's sweep takes once the home is an hour old.

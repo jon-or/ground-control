@@ -157,7 +157,7 @@
     "test": "vitest run --coverage",
     "package": "vsce package --no-dependencies --allow-missing-repository",
     "vscode:uninstall": "node ./dist/uninstall.js",
-    "test:integration": "vscode-test"
+    "test:integration": "node test-integration/run.mjs"
   },
   "dependencies": {
     "@ground-control/board": "*",

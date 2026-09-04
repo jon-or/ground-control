@@ -1,21 +1,20 @@
 import { homedir } from 'node:os';
-import { dirname } from 'node:path';
 import * as vscode from 'vscode';
-import { activityNotice } from '@ground-control/hub';
 import { BoardPanel, VIEW_TYPE } from './boardPanel.js';
 import type { Drawn } from './boardPanel.js';
+import { bundlePathOf } from '@ground-control/hub';
+import { writeBundle } from './bundle.js';
 import { SECTION, readHubConfig, vscodeSettings, userDirOf } from './config.js';
-import { hub, disposeHub } from './hubClient.js';
-import type { Snapshot } from '@ground-control/core';
+import { disposeClient, startClient } from './hubClient.js';
 import { migrateLaneMemory } from './migrate.js';
-
+import type { Snapshot } from '@ground-control/core';
 
 /**
  * What `vscode.extensions.getExtension(...).exports` hands back. Readable by any extension in the window, so it is
  * two reads and nothing that acts: the snapshot this window's board renders, and what the board reports drawing.
  */
 export interface GroundControl {
-  snapshot(): Snapshot;
+  snapshot(): Snapshot | undefined;
   drew(): Drawn | null;
 }
 
@@ -23,28 +22,32 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   // On activation, which for this extension means the developer opened the board or ran one of its commands — or
   // reopened a window that had the board tab in it. A developer who never opens it is never activated (PRD §2).
   const home = homedir();
+  const version = String((context.extension.packageJSON as { version?: unknown }).version ?? '0.0.0');
 
   migrateLaneMemory(context.globalState, home);
-  hub(home).configure(readHubConfig(vscodeSettings(userDirOf(context))));
+
+  const bundle = bundlePathOf(home);
+
+  try {
+    writeBundle(home, context.extensionPath, version, bundle);
+  } catch (error) {
+    // Everything else in this window still works, and a hub already on disk from an earlier run still starts. What
+    // must not happen is the commands, the board, and the settings listener going with it.
+    void vscode.window.showErrorMessage(`The board could not write its background process to ${bundle}: ${String(error)}`);
+  }
+
+  // Connected on activation rather than when a board opens, because turning the signal off has to take effect with
+  // no board on screen (R34). Nothing is polled until a board says it is watching (R35).
+  const client = startClient(home, bundle);
+
+  client.configure(readHubConfig(vscodeSettings(userDirOf(context))));
 
   context.subscriptions.push(
-    // One path for settings, and it runs whether or not a board is open: "turn this off to remove those entries" is
-    // a claim the extension does not honour until the next reload otherwise (R34).
+    // One path for settings, and it runs whether or not a board is open. The hub answers a change the developer
+    // made with what its install observed, which is the only thing here worth a message of its own.
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (!event.affectsConfiguration(SECTION)) {
-        return;
-      }
-
-      const resynced = hub(home).configure(readHubConfig(vscodeSettings(userDirOf(context))));
-
-      // What it observed, never what it intended: `up-to-date` means there was nothing of ours to change. Only the
-      // signal earns a message here — every other setting shows its effect on the board itself.
-      if (resynced) {
-        void vscode.window.showInformationMessage(
-          resynced.failure?.message ??
-            activityNotice({ plan: resynced.plan, wanted: resynced.wanted, unreported: 0 }) ??
-            `Session activity hooks are already ${resynced.wanted === 'install' ? 'installed' : 'absent'}.`,
-        );
+      if (event.affectsConfiguration(SECTION)) {
+        client.configure(readHubConfig(vscodeSettings(userDirOf(context))), true);
       }
     }),
     vscode.commands.registerCommand('groundControl.openBoard', () => {
@@ -71,12 +74,12 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
       },
     }),
     { dispose: () => BoardPanel.current?.dispose() },
-    { dispose: disposeHub },
+    { dispose: disposeClient },
   );
 
-  // The window's own hub, so an integration test running inside this host can read the snapshot a board renders
+  // What this window has, so an integration test running inside this host reads the board a developer would see
   // rather than a screenshot of one. Nothing in the product reads it.
-  return { snapshot: () => hub(home).snapshot(), drew: () => BoardPanel.current?.drew ?? null };
+  return { snapshot: () => client.snapshot, drew: () => BoardPanel.current?.drew ?? null };
 }
 
 export function deactivate(): void {}

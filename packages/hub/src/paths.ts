@@ -35,3 +35,7 @@ export function exitPathOf(home: string): string {
   return `${groundControlDirOf(home)}/hub-exit.json`;
 }
 
+/** The hub a client carries, written here so an extension update never orphans the path a manifest already names. */
+export function bundlePathOf(home: string): string {
+  return `${groundControlDirOf(home)}/hub.js`;
+}

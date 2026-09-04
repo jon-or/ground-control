@@ -79,9 +79,10 @@ process.on('uncaughtException', (error) => {
 // developer's tracking down, and an exit here skips `stop()`, so it would leave a stale reason behind as well.
 process.on('unhandledRejection', (error) => report('unhandledRejection', error));
 
-const code = await main(process.argv.slice(2));
-
-// -1 means the server is holding the loop open; anything else is a mode that has finished.
-if (code >= 0) {
-  process.exit(code);
-}
+// Not top-level await: this file is bundled to CommonJS to be carried inside a client, which has no such thing.
+void main(process.argv.slice(2)).then((code) => {
+  // -1 means the server is holding the loop open; anything else is a mode that has finished.
+  if (code >= 0) {
+    process.exit(code);
+  }
+});
