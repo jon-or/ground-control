@@ -16,8 +16,16 @@ let native = null;
 /** The last thing the hub said, replayed to a tab that opens while the worker already has it. */
 let last = null;
 
-/** Whether the hub has answered since this native port opened. What the overlay's staleness line turns on. */
-let answering = false;
+/**
+ * What the overlay's staleness line says now. One string rather than a message sent from each place that changes
+ * it: a tab connects while the port is opening, so whichever of the two spoke last would otherwise be what it sees.
+ */
+let trouble = 'Ground Control has not answered yet.';
+
+function troubled(message) {
+  trouble = message;
+  broadcast({ type: 'trouble', message });
+}
 
 function broadcast(message) {
   for (const board of boards) {
@@ -45,7 +53,7 @@ function connectNative() {
   try {
     native = chrome.runtime.connectNative(NATIVE_HOST);
   } catch (error) {
-    broadcast({ type: 'trouble', message: `Ground Control is not registered with this browser: ${String(error)}` });
+    troubled(`Ground Control is not registered with this browser: ${String(error)}`);
 
     return;
   }
@@ -53,9 +61,8 @@ function connectNative() {
   native.onMessage.addListener((message) => {
     // Cleared here rather than by the tab that receives the snapshot: what a tab is handed may be a replay from
     // storage, which is a real reading and an old one. Only the port answering says the board is live (R24).
-    if (!answering) {
-      answering = true;
-      broadcast({ type: 'trouble', message: null });
+    if (trouble !== null) {
+      troubled(null);
     }
 
     if (message.type === 'snapshot' || message.type === 'changed') {
@@ -68,19 +75,13 @@ function connectNative() {
 
   native.onDisconnect.addListener(() => {
     native = null;
-    answering = false;
-    broadcast({
-      type: 'trouble',
-      message: 'Ground Control is not running. Enable the GitHub overlay from VS Code, or open the board there.',
-    });
+    troubled('Ground Control is not running. Enable the GitHub overlay from VS Code, or open the board there.');
   });
 }
 
 /** What a tab is shown before the hub has answered: the last reading, and the fact that it is only that. */
 function replay(port) {
-  if (!answering) {
-    port.postMessage({ type: 'trouble', message: 'Ground Control has not answered yet.' });
-  }
+  port.postMessage({ type: 'trouble', message: trouble });
 
   if (last !== null) {
     port.postMessage(last);
@@ -112,7 +113,7 @@ chrome.runtime.onConnect.addListener((port) => {
       toNative({ type: 'watching', watching: false });
       native?.disconnect();
       native = null;
-      answering = false;
+      trouble = 'Ground Control has not answered yet.';
     }
   });
 

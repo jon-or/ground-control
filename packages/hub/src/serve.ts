@@ -5,6 +5,7 @@ import { writeAtomic } from './fs.js';
 import { Hub, realHubDeps } from './hub.js';
 import { makeLaneStore } from './lanes.js';
 import { makeMarkStore } from './marks.js';
+import { makeSettingsStore } from './settings.js';
 import { openLog } from './log.js';
 import { exitPathOf, hubJsonPathOf, logPathOf } from './paths.js';
 import { makeRegistries } from './registry.js';
@@ -44,7 +45,9 @@ export function spawnEnvironment(env: NodeJS.ProcessEnv = { ...process.env }): N
 
 /** A hub reading the given home, wired to the real machine. The same object whether it is served or held in process. */
 export function makeHub(home: string = homedir()): Hub {
-  return new Hub(realHubDeps(makeRegistries(), makeLaneStore(home), makeMarkStore(home), home, watchDir));
+  return new Hub(
+    realHubDeps(makeRegistries(), makeLaneStore(home), makeMarkStore(home), makeSettingsStore(home), home, watchDir),
+  );
 }
 
 /** Half an hour with nobody connected. The next board open starts one again in about a second (R35). */

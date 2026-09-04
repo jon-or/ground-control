@@ -7,6 +7,7 @@ import type { ActivityState } from '../src/activityInstall.js';
 import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
+import { makeSettingsStore } from '../src/settings.js';
 import { makeMarkStore } from '../src/marks.js';
 import { lanesPathOf } from '../src/paths.js';
 import { defaultConfig } from '../src/registry.js';
@@ -80,9 +81,14 @@ interface Harness {
   activity: ActivityState | null;
   detected: string[];
   config(over?: Partial<HubConfig>): HubConfig;
+  /** Every configuration the hub decided to remember. A refused one must never reach it. */
+  wrote: HubConfig[];
 }
 
-function harness(over: Partial<HubDeps> = {}, extra: { fetch?: Fetch; sources?: WorkSource[] } = {}): Harness {
+function harness(
+  over: Partial<HubDeps> = {},
+  extra: { fetch?: Fetch; sources?: WorkSource[]; remembered?: Partial<HubConfig> } = {},
+): Harness {
   const agent = reportingAgent();
   const host = fakeHost();
   const clock = fakeClock();
@@ -124,6 +130,7 @@ function harness(over: Partial<HubDeps> = {}, extra: { fetch?: Fetch; sources?: 
     installs: [],
     activity: null,
     detected,
+    wrote: [],
     config: (part = {}) => ({
       ...defaultConfig(registries),
       agents: [{ id: agent.adapter.id, path: agent.adapter.defaultPath }],
@@ -150,6 +157,14 @@ function harness(over: Partial<HubDeps> = {}, extra: { fetch?: Fetch; sources?: 
     registries,
     lanes: makeLaneStore(home),
     marks: makeMarkStore(home),
+    // A hub built over a store that already holds a configuration is the browser-started case: nobody is here to
+    // push one, and the developer set theirs in an editor that is not open.
+    settings: {
+      read: () => (extra.remembered ? shape.config(extra.remembered) : null),
+      write: (config) => {
+        shape.wrote.push(config);
+      },
+    },
     // Never the real one: it writes an agent's settings file, and none of these tests is about that. What it was
     // asked for is recorded, because "turn this off and the entries go" is a claim only the argument proves.
     syncActivity: (_registries, wanted) => {
@@ -627,6 +642,44 @@ describe('what the snapshot says', () => {
     const notices = inbox.filter((message) => message.type === 'notice');
 
     expect(notices.at(-1)).toMatchObject({ message: expect.stringContaining('not running inside an application') });
+  });
+
+  /**
+   * The developer's settings live in an editor that need not be open, and which repository work is tracked in
+   * cannot be guessed — so a hub the browser started would report itself unconfigured however long ago they set it
+   * (R35, R36). It starts on the last configuration a client gave it instead.
+   */
+  /**
+   * The developer's settings live in an editor that need not be open, and which repository work is tracked in
+   * cannot be guessed — so a hub the browser started would report itself unconfigured however long ago they set it
+   * (R35, R36). It starts on the last configuration a client gave it instead.
+   */
+  it('starts on the configuration a client last gave it, with no client here to give one', async () => {
+    const h = harness({}, { remembered: {} });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    expect(latest(inbox).failures).toEqual([]);
+    expect(latest(inbox).issues).not.toBeNull();
+    expect(h.issueReads).toBe(1);
+  });
+
+  /** A refused configuration is one no hub should start on: remembering it would carry the mistake across restarts. */
+  it('remembers the configuration it accepted, and remembers nothing it refused', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ refreshIntervalMs: 60_000 }) });
+    await settle();
+
+    expect(h.wrote.map((config) => config.refreshIntervalMs)).toEqual([60_000]);
+
+    h.hub.receive(client, { type: 'configure', config: { nothing: 'the hub can read' } as unknown as HubConfig });
+    await settle();
+
+    expect(h.wrote).toHaveLength(1);
   });
 
   it('names a source id no registry carries', async () => {

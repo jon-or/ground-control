@@ -24,6 +24,7 @@ import { read } from './fs.js';
 import type { LaneStore } from './lanes.js';
 import { afterInstall, announce } from './marks.js';
 import type { MarkStore } from './marks.js';
+import type { SettingsStore } from './settings.js';
 import { configureHosts, configureSources, defaultConfig } from './registry.js';
 import type { Registries } from './registry.js';
 
@@ -42,6 +43,8 @@ export interface HubDeps {
   registries: Registries;
   lanes: LaneStore;
   marks: MarkStore;
+  /** The configuration a client last pushed. A hub starts on it, because the browser has none of its own to give. */
+  settings: SettingsStore;
   /** The activity install, which is also the thing a test replaces to keep its hands off any settings file. */
   syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string): ActivityState;
 }
@@ -65,6 +68,7 @@ export function realHubDeps(
   registries: Registries,
   lanes: LaneStore,
   marks: MarkStore,
+  settings: SettingsStore,
   home: string,
   watch: HubDeps['watch'],
 ): HubDeps {
@@ -75,6 +79,7 @@ export function realHubDeps(
     registries,
     lanes,
     marks,
+    settings,
     syncActivity: (regs, wanted, where) => syncActivity(regs.agents, wanted, where),
   };
 }
@@ -114,7 +119,10 @@ export class Hub {
 
   constructor(deps: HubDeps) {
     this.#deps = deps;
-    this.#config = defaultConfig(deps.registries);
+    // What a client last pushed, where there is one. Which repository work is tracked in cannot be guessed, so a
+    // hub started by the browser alone would otherwise be permanently unconfigured however long ago the developer
+    // set it — and the settings live in an editor that need not be open (R35, R36).
+    this.#config = deps.settings.read() ?? defaultConfig(deps.registries);
     // Applied here rather than as each client turns up: a second window connecting would otherwise overwrite what
     // the board is saying about the first one's settings, while the hub is still running on the older ones.
     this.#configFailures = this.#applyConfig();
@@ -225,6 +233,7 @@ export class Hub {
 
     this.#config = parsed.config;
     this.#configFailures = this.#applyConfig();
+    this.#deps.settings.write(parsed.config);
 
     const first = !this.#configured;
     this.#configured = true;
