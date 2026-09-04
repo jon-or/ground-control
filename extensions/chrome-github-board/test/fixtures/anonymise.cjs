@@ -27,6 +27,8 @@ const ALLOWED = new Set([
   'Project board',
   'Click a value to filter the view',
   'Fields',
+  'View',
+  'View filters',
 ]);
 
 /** Every attribute and text node a person could have written into. Anything not enumerated is a leak by default. */

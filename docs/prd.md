@@ -243,7 +243,7 @@ Anything the board writes outside its own storage is reversible the same way, an
 Reading the machine — the issues, the sessions, what each is doing, where each is showing — happens once, in a process every board shares, so two windows and a browser tab never read the same machine three times and never disagree about it. It starts the first time the developer reaches for the board, stops polling while no board is watching, and exits half an hour after the last window and browser tab that could show a board has gone; the next board open starts it again in about a second. It remembers the settings it was last given, so a browser tab that starts it while every editor window is closed tracks the same repository and the same sources the developer chose, rather than reporting itself unconfigured. It can be stopped without editing a file, and uninstalling the extension stops and removes it. A developer who never opens a board never has one running, which is what §2 asks.
 
 **R36. The board is also available as an overlay on the team's GitHub project board.**
-A developer looking at the project board in the browser sees, on each of their cards, the sessions on it and what each is doing, and the same conditions R25 states above the lanes. The overlay watches and moves cards; it does not take a session over. Taking over needs the editor (R14, R15), so that stays the editor's, and the overlay says so rather than opening something that looks right.
+A developer looking at the project board in the browser sees, inside each of their cards, the sessions on it and what each is doing, and the same conditions R25 asks be stated once. The overlay watches and moves cards; it does not take a session over. Taking over needs the editor (R14, R15), so that stays the editor's, and the overlay says so rather than opening something that looks right.
 
 ### Honesty
 
@@ -254,6 +254,8 @@ A session reports what it is doing through the board's own hooks, and anything t
 
 **R25. The user can see why a card cannot move forward.**
 In their own terms: what is missing, or what failed. Where that fits a badge, the badge carries it; a condition that belongs to the whole board — a status set matching nothing, a source that failed to read, hooks that could not be installed — is stated once above the lanes rather than on every card. A card carries no explanation of its own: the per-card hover that held one was removed, and nothing has replaced it.
+
+Where the board is an overlay on a page that is not its own, "once" is once per board rather than a line above the lanes: what failed is put in front of the developer, and what is merely true — how old the reading is, what an install did — is a click away in the overlay’s own menu. A condition a developer has to go looking for is one they never see; a fact that is not a problem, restated every few seconds, is noise.
 
 Newly installed hooks are one of those conditions: sessions already running cannot report what they are doing until they restart, and a board showing no state for any of them looks like a board where nothing is happening. The board says how many, **once** — an install is something that happened, not a condition of the board, and a line the developer has already read and cannot act on is noise on every subsequent refresh. Removing the hooks and installing them again says it again.
 

@@ -131,18 +131,18 @@ describe('the overlay as Chrome loads it', () => {
     expect(worker.url()).toBe(`chrome-extension://${CHROME_EXTENSION_ID}/src/worker.js`);
   });
 
-  it('paints its banner onto a project board and says it cannot reach the hub', async () => {
+  it('paints itself onto a project board and says it cannot reach the hub', async () => {
     const page = await context.newPage();
 
     await page.goto(BOARD_URL);
 
-    const banner = page.locator('#gc-banner');
+    const toast = page.locator('#gc-toasts .gc-toast');
 
-    await expect.poll(() => banner.count(), { timeout: 20_000 }).toBe(1);
+    await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
 
     // The worker cannot open its port to the bridge here. What the developer must see is that the badges are
     // missing because nothing answered — never a board that looks empty (R24, R25).
-    await expect.poll(() => banner.textContent(), { timeout: 20_000 }).toMatch(/Ground Control is not/);
+    await expect.poll(() => toast.textContent(), { timeout: 20_000 }).toMatch(/Ground Control is not/);
 
     expect(await page.locator('.gc-badge').count()).toBe(0);
     expect(await page.locator('[data-gc-issue]').count()).toBe(3);
@@ -158,7 +158,8 @@ describe('the overlay as Chrome loads it', () => {
     await page.goto(ISSUE_URL);
     await page.waitForTimeout(2000);
 
-    expect(await page.locator('#gc-banner').count()).toBe(0);
+    expect(await page.locator('#gc-menu').count()).toBe(0);
+    expect(await page.locator('#gc-toasts').count()).toBe(0);
     expect(await page.locator('[data-gc-issue]').count()).toBe(0);
   });
 });

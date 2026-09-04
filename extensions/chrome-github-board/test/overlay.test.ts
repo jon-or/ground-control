@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { ago, cardsByIssue, clear, issueRefOf, paint } from '../src/overlay.js';
+import { ago, agentIcon, cardsByIssue, clear, issueRefOf, paint } from '../src/overlay.js';
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
@@ -151,7 +151,7 @@ describe('painting the board', () => {
   it('badges the cards the snapshot knows and leaves the rest alone', () => {
     const drew = paint(document, state(), NOW, actions);
 
-    expect(drew).toMatchObject({ scanned: 3, badges: 1, banner: true });
+    expect(drew).toMatchObject({ scanned: 3, badges: 1, menu: true });
     expect(badges()).toHaveLength(1);
     expect(badges()[0]!.closest('[data-gc-issue]')?.getAttribute('data-gc-issue')).toBe(`${REPO}#4501`);
   });
@@ -200,13 +200,10 @@ describe('painting the board', () => {
     ]);
   });
 
-  it('says the phase and how long it has held', () => {
+  it('says the phase it is in', () => {
     paint(document, state(), NOW, actions);
 
-    const chip = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
-
-    expect(chip.textContent).toBe('needs you 2m');
-    expect(chip.dataset.phase).toBe('waiting');
+    expect(badges()[0]!.querySelector<HTMLElement>('.gc-session')!.dataset.phase).toBe('waiting');
   });
 
   it('names the agent for a session no signal has reported on', () => {
@@ -222,14 +219,6 @@ describe('painting the board', () => {
     expect(chip.dataset.phase).toBe('none');
   });
 
-  it('names the lane the board has the card in', () => {
-    const only = snapshot({ lanes: [{ id: 'review', title: 'Review', cards: [card(4501, { lane: 'review' })] }] });
-
-    paint(document, state({ snapshot: only }), NOW, actions);
-
-    expect(badges()[0]!.querySelector('.gc-lane')?.textContent).toBe('Review');
-  });
-
   /**
    * A view switch replaces every card node and takes the badge with it (`mechanics.md` §27), and a repaint over
    * nodes that survived would leave two. Rewriting from scratch is what makes both cases one badge.
@@ -240,7 +229,7 @@ describe('painting the board', () => {
     paint(document, state(), NOW, actions);
 
     expect(badges()).toHaveLength(1);
-    expect(document.querySelectorAll('#gc-banner')).toHaveLength(1);
+    expect(document.querySelectorAll('#gc-menu')).toHaveLength(1);
     expect(document.querySelectorAll('#gc-style')).toHaveLength(1);
   });
 
@@ -257,7 +246,7 @@ describe('painting the board', () => {
   it('paints nothing where the page is not a board', () => {
     document.documentElement.innerHTML = '<body><p>Not a project board</p></body>';
 
-    expect(paint(document, state(), NOW, actions)).toEqual({ scanned: 0, badges: 0, banner: false });
+    expect(paint(document, state(), NOW, actions)).toEqual({ scanned: 0, badges: 0, menu: false });
   });
 
   /** Navigating off a board is something the overlay handles: the content script is injected across github.com. */
@@ -266,74 +255,226 @@ describe('painting the board', () => {
     clear(document);
 
     expect(badges()).toHaveLength(0);
-    expect(document.getElementById('gc-banner')).toBeNull();
+    expect(document.getElementById('gc-menu')).toBeNull();
+    expect(document.getElementById('gc-toasts')).toBeNull();
     expect(document.querySelectorAll('[data-gc-issue]')).toHaveLength(0);
   });
 });
 
-describe('the banner above the board', () => {
-  function bannerText(): string {
-    return document.getElementById('gc-banner')?.textContent ?? '';
+describe('the footer on a card', () => {
+  function box(): Element {
+    return document.querySelector(`[data-gc-issue="${REPO}#4501"]`)!.firstElementChild!;
   }
+
+  /**
+   * The card element is GitHub's drag handle wrapped around the bordered box that is drawn as the card. A footer
+   * appended to the handle hangs below that border, reading as something dropped under the card rather than part of
+   * it — which is what the developer sees, and the whole reason this is measured rather than assumed.
+   */
+  it('goes inside the card\u2019s own box, as its last line', () => {
+    paint(document, state(), NOW, actions);
+
+    expect(badges()[0]!.parentElement).toBe(box());
+    expect(box().lastElementChild).toBe(badges()[0]);
+  });
+
+  it('names the lane the board has the card in', () => {
+    const only = snapshot({ lanes: [{ id: 'review', title: 'Review', cards: [card(4501, { lane: 'review' })] }] });
+
+    paint(document, state({ snapshot: only }), NOW, actions);
+
+    expect(badges()[0]!.querySelector('.gc-lane')?.textContent).toBe('Review');
+  });
+
+  it('marks a Claude session with Claude\u2019s own mark, and says the phase beside it', () => {
+    paint(document, state(), NOW, actions);
+
+    const chip = badges()[0]!.querySelector('.gc-session')!;
+
+    expect(chip.querySelector('svg.gc-agent-icon')).not.toBeNull();
+    expect(chip.textContent).toBe('needs you 2m');
+  });
+
+  /** One mark, drawn for one agent. A second agent showing Claude's would be worse than showing none. */
+  it('draws no mark for an agent it has none for', () => {
+    const codex = snapshot({
+      lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [session({ agent: 'codex' })] })] }],
+    });
+
+    paint(document, state({ snapshot: codex }), NOW, actions);
+
+    expect(badges()[0]!.querySelector('svg')).toBeNull();
+    expect(agentIcon(document, 'codex')).toBeNull();
+  });
+});
+
+describe('the menu in the board’s own filter bar', () => {
+  function open(): void {
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, state(), NOW, actions);
+  }
+
+  function panelText(): string {
+    return document.querySelector('#gc-menu .gc-popover')?.textContent ?? '';
+  }
+
+  /** GitHub's own buttons are the only source of the classes that make one look like GitHub's: they are hashed. */
+  it('sits after the View button, wearing its classes', () => {
+    paint(document, state(), NOW, actions);
+
+    const bar = document.querySelector('[role="region"][aria-label="View filters"]')!;
+    const button = document.querySelector<HTMLElement>('#gc-menu button')!;
+
+    expect(bar.lastElementChild?.id).toBe('gc-menu');
+    expect(button.textContent).toBe('Ground Control');
+    expect(button.className).toBe(bar.querySelector('button[data-component="Button"]')!.className);
+    expect(button.className).not.toBe('');
+  });
+
+  /** Losing the age of the reading and the refresh without a word is what R25 rules out, bar or no bar. */
+  it('hangs itself above the columns when the filter bar is not there', () => {
+    document.querySelector('[role="region"][aria-label="View filters"]')!.remove();
+
+    expect(paint(document, state(), NOW, actions)).toMatchObject({ menu: true });
+    expect(document.getElementById('gc-perch')?.contains(document.getElementById('gc-menu'))).toBe(true);
+    expect(document.getElementById('gc-perch')!.nextElementSibling?.id).toBe('project-items-region');
+  });
+
+  it('says nothing until it is opened', () => {
+    paint(document, state(), NOW, actions);
+
+    expect(document.querySelectorAll('.gc-popover')).toHaveLength(0);
+    expect(document.querySelector('#gc-menu button')?.getAttribute('aria-expanded')).toBe('false');
+  });
 
   it('states how old the reading is', () => {
     paint(document, state(), NOW, actions);
+    open();
 
-    expect(bannerText()).toContain('read this machine 1m ago');
-    expect(document.getElementById('gc-banner')?.dataset.stale).toBe('false');
+    expect(panelText()).toContain('Read this machine 1m ago');
+    expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('false');
   });
 
-  it('states each failure with what to do about it', () => {
-    const failing = snapshot({
-      stale: true,
-      failures: [
-        { subject: 'github', kind: 'gh-missing', message: 'The GitHub CLI is not installed.', remedy: 'Install gh.' },
-      ],
-    });
-
-    paint(document, state({ snapshot: failing }), NOW, actions);
-
-    expect(bannerText()).toContain('The GitHub CLI is not installed.');
-    expect(bannerText()).toContain('Install gh.');
-    expect(document.getElementById('gc-banner')?.dataset.stale).toBe('true');
-  });
-
-  it('states the hook notice once, above the board rather than on every card', () => {
+  it('states the hook notice once, in the menu rather than on every card', () => {
     const installed = snapshot({ hooks: { notice: '2 sessions are not reporting yet.' } });
 
     paint(document, state({ snapshot: installed }), NOW, actions);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, state({ snapshot: installed }), NOW, actions);
 
-    expect(bannerText()).toContain('2 sessions are not reporting yet.');
+    expect(panelText()).toContain('2 sessions are not reporting yet.');
+  });
+
+  it('says so before the first snapshot has arrived', () => {
+    paint(document, state({ snapshot: null }), NOW, actions);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, state({ snapshot: null }), NOW, actions);
+
+    expect(panelText()).toContain('has not read this machine yet');
+    expect(badges()).toHaveLength(0);
+  });
+
+  /** The button carries the one thing worth seeing without opening it: that what is on the board may be old. */
+  it('marks itself when the reading is stale', () => {
+    paint(document, state({ trouble: 'Ground Control is not running.' }), NOW, actions);
+
+    expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('true');
+  });
+
+  it('asks the hub to read again, and closes', () => {
+    paint(document, state(), NOW, actions);
+    open();
+    document.querySelector<HTMLElement>('.gc-popover button[role="menuitem"]')!.click();
+    paint(document, state(), NOW, actions);
+
+    expect(actions.refresh).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('.gc-popover')).toHaveLength(0);
+  });
+
+  it('closes when the next click lands anywhere else', () => {
+    paint(document, state(), NOW, actions);
+    open();
+
+    expect(document.querySelectorAll('.gc-popover')).toHaveLength(1);
+
+    document.body.click();
+    paint(document, state(), NOW, actions);
+
+    expect(document.querySelectorAll('.gc-popover')).toHaveLength(0);
+  });
+});
+
+describe('what went wrong, as a toast', () => {
+  function toasts(): HTMLElement[] {
+    return [...document.querySelectorAll<HTMLElement>('#gc-toasts .gc-toast')];
+  }
+
+  const failing = snapshot({
+    stale: true,
+    failures: [
+      { subject: 'github', kind: 'gh-missing', message: 'The GitHub CLI is not installed.', remedy: 'Install gh.' },
+    ],
+  });
+
+  it('states each failure with what to do about it', () => {
+    paint(document, state({ snapshot: failing }), NOW, actions);
+
+    expect(toasts()).toHaveLength(1);
+    expect(toasts()[0]!.textContent).toContain('The GitHub CLI is not installed.');
+    expect(toasts()[0]!.textContent).toContain('Install gh.');
+    expect(toasts()[0]!.dataset.tone).toBe('danger');
+  });
+
+  /** A bridge that lost its hub must not leave badges that look current. */
+  it('says when it cannot reach the board at all', () => {
+    paint(document, state({ trouble: 'Ground Control is not running.' }), NOW, actions);
+
+    expect(toasts()[0]!.textContent).toContain('Ground Control is not running.');
+    expect(toasts()[0]!.textContent).toContain('showing what it last read');
   });
 
   /** The bridge refuses what the browser may not ask for. A refusal nobody renders is a button that does nothing. */
   it('states what the hub last said back', () => {
     paint(document, state({ notice: 'Taking a session over happens in the editor.' }), NOW, actions);
 
-    expect(bannerText()).toContain('Taking a session over happens in the editor.');
+    expect(toasts()[0]!.textContent).toContain('Taking a session over happens in the editor.');
+    expect(toasts()[0]!.dataset.tone).toBe('default');
   });
 
-  /** A bridge that lost its hub must not leave badges that look current: the banner says so and marks it stale. */
-  it('says when it cannot reach the board at all', () => {
-    paint(document, state({ trouble: 'Ground Control is not running.' }), NOW, actions);
-
-    expect(bannerText()).toContain('Ground Control is not running.');
-    expect(bannerText()).toContain('showing what it last read');
-    expect(document.getElementById('gc-banner')?.dataset.stale).toBe('true');
-  });
-
-  it('says so before the first snapshot has arrived', () => {
-    paint(document, state({ snapshot: null }), NOW, actions);
-
-    expect(bannerText()).toContain('has not read this machine yet');
-    expect(badges()).toHaveLength(0);
-  });
-
-  it('asks the hub to read again', () => {
+  /** How old the reading is belongs in the menu: a toast for it would be one every few seconds, saying nothing. */
+  it('leaves what is merely true out of the toasts', () => {
     paint(document, state(), NOW, actions);
-    document.getElementById('gc-refresh')!.click();
 
-    expect(actions.refresh).toHaveBeenCalledTimes(1);
+    expect(toasts()).toHaveLength(0);
+  });
+
+  /** A scan runs every few seconds and after every board mutation. One failure is one toast, however many scans. */
+  it('shows one toast per failure however many times it paints', () => {
+    paint(document, state({ snapshot: failing }), NOW, actions);
+    paint(document, state({ snapshot: failing }), NOW, actions);
+    paint(document, state({ snapshot: failing }), NOW, actions);
+
+    expect(toasts()).toHaveLength(1);
+  });
+
+  it('takes a toast away once what it said stopped being true', () => {
+    paint(document, state({ snapshot: failing }), NOW, actions);
+    paint(document, state(), NOW, actions);
+
+    expect(toasts()).toHaveLength(0);
+  });
+
+  it('leaves one the developer closed closed, and brings it back if the trouble returns', () => {
+    paint(document, state({ snapshot: failing }), NOW, actions);
+    document.querySelector<HTMLElement>('.gc-dismiss')!.click();
+    paint(document, state({ snapshot: failing }), NOW, actions);
+
+    expect(toasts()).toHaveLength(0);
+
+    paint(document, state(), NOW, actions);
+    paint(document, state({ snapshot: failing }), NOW, actions);
+
+    expect(toasts()).toHaveLength(1);
   });
 });
 
