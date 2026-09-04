@@ -19,3 +19,19 @@ export function installLockPathOf(home: string): string {
 export function backupPathOf(home: string, at: Date): string {
   return `${groundControlDirOf(home)}/settings-backup-${at.toISOString().replace(/[:.]/g, '-')}.json`;
 }
+
+/** Where a running hub says how to reach it. Discovery, never liveness: a killed hub leaves this behind. */
+export function hubJsonPathOf(home: string): string {
+  return `${groundControlDirOf(home)}/hub.json`;
+}
+
+/** Everything the hub writes to stdout and stderr, including the cwds and titles the snapshot carries. */
+export function logPathOf(home: string): string {
+  return `${groundControlDirOf(home)}/hub.log`;
+}
+
+/** Why the last hub stopped, so a client whose spawn never came up has something to quote. */
+export function exitPathOf(home: string): string {
+  return `${groundControlDirOf(home)}/hub-exit.json`;
+}
+

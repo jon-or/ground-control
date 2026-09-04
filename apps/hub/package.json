@@ -1,0 +1,26 @@
+{
+  "name": "@ground-control/hub-app",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The hub as its own process: the daemon entry point and, later, the Chrome native-messaging bridge.",
+  "type": "module",
+  "bin": {
+    "ground-control-hub": "./dist/main.js"
+  },
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -b",
+    "watch": "tsc -b -w",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ground-control/core": "*",
+    "@ground-control/hub": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}

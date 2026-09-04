@@ -1,17 +1,5 @@
-import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
-import { parseAuthStatusLogins } from '@ground-control/github';
-import { Hub, makeLaneStore, makeMarkStore, realHubDeps, watchDir } from '@ground-control/hub';
-import { registries } from './registry.js';
-
-/** Whose issues these are, seeded from what the CLI already knows. The hub has no screen, so it only detects (R26). */
-function detectLogins(ghPath: string): Promise<string[]> {
-  return new Promise((resolve) => {
-    execFile(ghPath, ['auth', 'status'], (_error, stdout, stderr) =>
-      resolve(parseAuthStatusLogins(`${stdout}${stderr}`)),
-    );
-  });
-}
+import { Hub, makeHub } from '@ground-control/hub';
 
 let current: Hub | undefined;
 
@@ -20,9 +8,7 @@ let current: Hub | undefined;
  * so where the hub runs is a transport rather than a shape.
  */
 export function hub(home: string = homedir()): Hub {
-  current ??= new Hub(
-    realHubDeps(registries, makeLaneStore(home), makeMarkStore(home), home, watchDir, detectLogins),
-  );
+  current ??= makeHub(home);
 
   return current;
 }

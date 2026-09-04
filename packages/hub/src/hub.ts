@@ -4,6 +4,7 @@ import type { AssignedIssues, GithubConfig, Result } from '@ground-control/githu
 import { diskReaders, fetchSessions, parseHubConfig, rosterIsStale, unreportedSessions } from '@ground-control/core';
 import type {
   ActivityChange,
+  Client,
   ClientHello,
   ClientMessage,
   HubConfig,
@@ -47,11 +48,6 @@ export interface HubDeps {
   readIssues(config: GithubConfig): Promise<Result<AssignedIssues>>;
   /** The activity install, which is also the thing a test replaces to keep its hands off any settings file. */
   syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string): ActivityState;
-}
-
-/** A connected board. The hub never holds the transport, only what to call to reach it. */
-export interface Client {
-  readonly id: string;
 }
 
 interface Connected {

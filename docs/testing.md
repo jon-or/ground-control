@@ -28,7 +28,9 @@ Do not write the test for: pass-through property bags, a config reader that retu
 
 ## Rules
 
-**No network in tests.** Every test runs offline, against fixtures in `packages/*/test/fixtures/`. A test that hits GitHub is not a test — it fails on a plane, it fails in CI without a token, and it changes its answer when someone reassigns an issue.
+**No network in tests.** Every test runs offline, against fixtures in `packages/*/test/fixtures/`. A test that hits GitHub is not a test — it fails on a plane, it fails in CI without a token, and it changes its answer when someone reassigns an issue. Loopback to a listener the test itself started is not network: the hub's server is only what it refuses and what it forwards, and both are read off a real socket on `127.0.0.1` bound to port 0. Nothing binds a fixed port, and nothing reaches a listener the test did not create.
+
+**An entry point is covered by spawning it.** `apps/hub` is an argument parser and a spawn; every decision under it is in `packages/hub`, and it carries no coverage floor. What it earns instead is a test that runs the built `dist/main.js` against a temporary home with the developer's CLIs off the `PATH`, and asserts what a client sees: the record it wrote, the failures it classified, and that it stopped when asked.
 
 **Fixtures are recorded, not invented.** Capture a real response with `gh api graphql`, save it verbatim, and trim it only by deleting whole nodes. A hand-written fixture tests the fixture author's belief about the API, which is the thing most likely to be wrong. Record the command that produced each fixture in the fixtures directory's own `README.md` so it can be refreshed. A test may null a scalar the GraphQL schema declares nullable when the live API will not serve that shape on demand — derive it in the test and say so there, rather than saving a derived shape as a fixture.
 

@@ -47,6 +47,11 @@ export interface ClientHello {
   watching: boolean;
 }
 
+/** A connected board, as the hub and its transport both hold it. The hub keeps no transport, only what to call. */
+export interface Client {
+  readonly id: string;
+}
+
 export type ClientMessage =
   | { type: 'hello'; hello: ClientHello }
   | { type: 'configure'; config: HubConfig }
