@@ -31,6 +31,8 @@ describe('what this window pushes to the hub', () => {
 
   afterEach(async () => {
     await settings().update('agents', OFFLINE_AGENTS, vscode.ConfigurationTarget.Global);
+    await settings().update('hosts', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('sources', undefined, vscode.ConfigurationTarget.Global);
   });
 
   /**
@@ -38,17 +40,53 @@ describe('what this window pushes to the hub', () => {
    * host's own settings was once handed over as a host id, and the board said it could not reach into "userDir".
    */
   it('is taken whole, with nothing in it read as a target the board cannot reach', async () => {
-    // A snapshot that proves this window's settings arrived, not merely the first one to turn up: the repo it
-    // names is the one seeded into this run's profile, and no default would produce it.
+    // A snapshot that proves this window's settings arrived, not merely the first one to turn up: the hub carries
+    // no repository of its own, so anything but a refusal of the GitHub settings is a read made with this window's.
     const { failures } = await untilSnapshot(
-      (s) => s.issues !== null || s.failures.some((f) => f.subject === 'issues'),
+      (s) => s.failures.some((f) => f.subject === 'github' && f.kind !== 'bad-config'),
       'no snapshot carrying this window\'s settings ever arrived',
     );
 
     assert.deepStrictEqual(
-      failures.filter((failure) => failure.kind === 'unknown-host' || failure.kind === 'bad-config'),
+      failures.filter((f) => f.kind === 'unknown-host' || f.kind === 'unknown-source' || f.kind === 'bad-config'),
       [],
       `settings were refused: ${failures.map((f) => f.message).join(' | ')}`,
+    );
+  });
+
+  /**
+   * The two id lists are the whole of how a target is added or removed, so a typo in one has to arrive at the hub
+   * as something the developer can read — a host that quietly reaches nothing looks like a board that is broken.
+   */
+  it('carries an editor id the board does not know through to the lanes', async () => {
+    await settings().update('hosts', ['not-an-editor'], vscode.ConfigurationTarget.Global);
+
+    const { failures } = await untilSnapshot(
+      (s) => s.failures.some((f) => f.kind === 'unknown-host'),
+      'a host id nothing carries was never named',
+    );
+
+    assert.strictEqual(failures.find((f) => f.kind === 'unknown-host').subject, 'not-an-editor');
+  });
+
+  it('carries a work source the board does not know through to the lanes', async () => {
+    await settings().update('sources', ['jira'], vscode.ConfigurationTarget.Global);
+
+    const { failures } = await untilSnapshot(
+      (s) => s.failures.some((f) => f.kind === 'unknown-source'),
+      'a source id nothing carries was never named',
+    );
+
+    assert.strictEqual(failures.find((f) => f.kind === 'unknown-source').subject, 'jira');
+  });
+
+  /** A hand-edited settings.json holds whatever was typed. Read as a list, a bare string is a crash out of activation. */
+  it('falls back to the shipped ids when the setting is not a list at all', async () => {
+    await settings().update('hosts', 'vscode', vscode.ConfigurationTarget.Global);
+
+    await untilSnapshot(
+      (s) => !s.failures.some((f) => f.kind === 'unknown-host'),
+      'a setting that is not a list took the board with it',
     );
   });
 

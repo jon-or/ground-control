@@ -33,6 +33,15 @@ export const spawnable = z
     message: 'must be a command name on PATH or a file that exists',
   });
 
+/**
+ * The ids naming a registry's targets, out of whatever a settings file holds. A hand-edited one holds what was
+ * typed: a bare string where a list belongs, or an entry that is not a name. Nothing here is a target, so nothing
+ * here can be refused by name — an unreadable list is the shipped one, and a list is exactly what it names.
+ */
+export function idsFrom(raw: unknown, fallback: readonly string[]): string[] {
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.trim().length > 0) : [...fallback];
+}
+
 const laneId = z.enum(LANE_ORDER as [LaneId, ...LaneId[]]);
 
 /** Floors, not defaults: a hand-edited settings file can ask for a zero-second poll, which is a spin. */

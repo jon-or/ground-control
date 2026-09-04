@@ -4,7 +4,7 @@ import { BoardPanel, VIEW_TYPE } from './boardPanel.js';
 import type { Drawn } from './boardPanel.js';
 import { bundlePathOf } from '@ground-control/hub';
 import { writeBundle } from './bundle.js';
-import { SECTION, readHubConfig, vscodeSettings, userDirOf } from './config.js';
+import { SECTION, readHubConfig, userDirOf } from './config.js';
 import { disposeClient, startClient } from './hubClient.js';
 import { migrateLaneMemory } from './migrate.js';
 import type { Snapshot } from '@ground-control/core';
@@ -40,14 +40,14 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   // no board on screen (R34). Nothing is polled until a board says it is watching (R35).
   const client = startClient(home, bundle);
 
-  client.configure(readHubConfig(vscodeSettings(userDirOf(context))));
+  client.configure(readHubConfig(userDirOf(context)));
 
   context.subscriptions.push(
     // One path for settings, and it runs whether or not a board is open. The hub answers a change the developer
     // made with what its install observed, which is the only thing here worth a message of its own.
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(SECTION)) {
-        client.configure(readHubConfig(vscodeSettings(userDirOf(context))), true);
+        client.configure(readHubConfig(userDirOf(context)), true);
       }
     }),
     vscode.commands.registerCommand('groundControl.openBoard', () => {

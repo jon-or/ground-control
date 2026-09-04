@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { ClientMessage, LaneId, Snapshot, SnapshotMessage } from '@ground-control/core';
-import { readHubConfig, vscodeSettings, userDirOf } from './config.js';
+import { readHubConfig, userDirOf } from './config.js';
 import { promptForLogins } from './identity.js';
 import { client } from './hubClient.js';
 import type { HubClient } from './hubClient.js';
@@ -142,7 +142,7 @@ export class BoardPanel {
       this.#render(known);
     }
 
-    this.#client.configure(readHubConfig(vscodeSettings(this.#userDir)));
+    this.#client.configure(readHubConfig(this.#userDir));
     this.#client.watching(this.#visible);
   }
 

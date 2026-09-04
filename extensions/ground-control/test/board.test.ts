@@ -510,7 +510,7 @@ describe('board webview', () => {
           fetchedAt: '2026-09-01T20:00:00Z',
         },
         sessions: { count: 0, patternError: 'Pattern is invalid.', fetchedAt: '2026-09-01T20:00:01Z' },
-        failures: [{ subject: 'issues', kind: 'query-failed', message: 'GitHub failed.', remedy: 'Refresh.' }],
+        failures: [{ subject: 'github', kind: 'query-failed', message: 'GitHub failed.', remedy: 'Refresh.' }],
         stale: true,
       }),
     );
@@ -532,7 +532,7 @@ describe('board webview', () => {
     send(
       message({
         lanes: lanes({ build: [liveCard] }),
-        failures: [{ subject: 'issues', kind: 'query-failed', message: 'GitHub failed.', remedy: 'Refresh.' }],
+        failures: [{ subject: 'github', kind: 'query-failed', message: 'GitHub failed.', remedy: 'Refresh.' }],
         stale: true,
       }),
     );

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
+import { GITHUB_SOURCE_ID, makeGithubSource } from '@ground-control/github';
 import type { AssignedIssues, GithubConfig, Result } from '@ground-control/github';
-import type { ClientHello, HubConfig, HubMessage, Snapshot } from '@ground-control/core';
+import type { ClientHello, HubConfig, HubMessage, IssueCard, Snapshot, WorkSource } from '@ground-control/core';
 import type { ActivityState } from '../src/activityInstall.js';
 import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
@@ -31,6 +32,36 @@ const ISSUES: AssignedIssues = {
   sourceQuery: 'assignee:dev-1',
 };
 
+/** What the GitHub source is given to read with, so a test drives a failed read without a network or a CLI. */
+type Fetch = (config: GithubConfig) => Promise<Result<AssignedIssues>>;
+
+/** One issue as a source reports it. `author` opens a pull request on it, which is what lanes a card to review. */
+function card(number: number, author: string | null = null): IssueCard {
+  return {
+    number,
+    title: `Issue ${number}`,
+    type: null,
+    typeColor: null,
+    url: `https://example.invalid/issues/${number}`,
+    status: null,
+    statusColor: null,
+    assignees: [],
+    avatar: null,
+    pullRequest:
+      author === null
+        ? null
+        : {
+            number: number + 1,
+            url: `https://example.invalid/pull/${number + 1}`,
+            state: 'OPEN',
+            author,
+            isDraft: false,
+            reviewDecision: null,
+          },
+    updatedAt: '2026-09-03T08:00:00Z',
+  };
+}
+
 interface Harness {
   hub: Hub;
   /** Whether a watcher is armed. A batch delivered to nothing is indistinguishable from one nothing acted on. */
@@ -51,14 +82,27 @@ interface Harness {
   config(over?: Partial<HubConfig>): HubConfig;
 }
 
-function harness(over: Partial<HubDeps> = {}): Harness {
+function harness(over: Partial<HubDeps> = {}, extra: { fetch?: Fetch; sources?: WorkSource[] } = {}): Harness {
   const agent = reportingAgent();
   const host = fakeHost();
   const clock = fakeClock();
   const sent = new Map<string, HubMessage[]>();
+  const counts = { issues: 0 };
+  const detected = ['detected-dev'];
   let onChange: ((changes: { kind: 'created' | 'changed' | 'deleted'; sessionId: string }[]) => void) | undefined;
 
-  const registries = { agents: [agent.adapter], hosts: [host.adapter] };
+  // The shipped source, reading through an injected fetch: what the hub does with a configuration, a refusal, and
+  // the accounts it has none of is the source's own answer, and a fake here would be a second implementation of it.
+  const github = makeGithubSource({
+    fetch: (config) => {
+      counts.issues += 1;
+
+      return extra.fetch ? extra.fetch(config) : Promise.resolve({ ok: true, value: ISSUES });
+    },
+    detectLogins: async () => detected,
+  });
+
+  const registries = { agents: [agent.adapter], hosts: [host.adapter], sources: [github, ...(extra.sources ?? [])] };
 
   const shape: Harness = {
     hub: undefined as unknown as Hub,
@@ -74,10 +118,12 @@ function harness(over: Partial<HubDeps> = {}): Harness {
 
       onChange(changes);
     },
-    issueReads: 0,
+    get issueReads() {
+      return counts.issues;
+    },
     installs: [],
     activity: null,
-    detected: ['detected-dev'],
+    detected,
     config: (part = {}) => ({
       ...defaultConfig(registries),
       agents: [{ id: agent.adapter.id, path: agent.adapter.defaultPath }],
@@ -104,12 +150,6 @@ function harness(over: Partial<HubDeps> = {}): Harness {
     registries,
     lanes: makeLaneStore(home),
     marks: makeMarkStore(home),
-    detectLogins: async () => shape.detected,
-    readIssues: async (_config: GithubConfig): Promise<Result<AssignedIssues>> => {
-      shape.issueReads += 1;
-
-      return { ok: true, value: ISSUES };
-    },
     // Never the real one: it writes an agent's settings file, and none of these tests is about that. What it was
     // asked for is recorded, because "turn this off and the entries go" is a claim only the argument proves.
     syncActivity: (_registries, wanted) => {
@@ -310,12 +350,15 @@ describe('what an activity event costs', () => {
 describe('what the snapshot says', () => {
   it('keeps the last good read of a source that has since failed, and names the failure', async () => {
     let ok = true;
-    const h = harness({
-      readIssues: async () =>
-        ok
-          ? { ok: true, value: { ...ISSUES, matched: 7 } }
-          : { ok: false, error: { kind: 'query-failed', message: 'GitHub failed.', remedy: 'Try again.' } },
-    });
+    const h = harness(
+      {},
+      {
+        fetch: async () =>
+          ok
+            ? { ok: true, value: { ...ISSUES, matched: 7 } }
+            : { ok: false, error: { kind: 'query-failed', message: 'GitHub failed.', remedy: 'Try again.' } },
+      },
+    );
 
     const { client, inbox } = connect(h);
     h.hub.receive(client, { type: 'configure', config: h.config() });
@@ -363,6 +406,239 @@ describe('what the snapshot says', () => {
     expect(h.issueReads).toBe(0);
   });
 
+  /** The registry is reached by id: a source the developer has not named costs no read, and neither does a typo. */
+  it('reads the sources the configuration names, and only those', async () => {
+    const reads: string[] = [];
+    const other: WorkSource = {
+      id: 'other-source',
+      displayName: 'Another source',
+      configure: () => null,
+      read: async () => {
+        reads.push('other-source');
+
+        return { items: null, failure: null, needs: null };
+      },
+    };
+
+    const h = harness({}, { sources: [other] });
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(reads).toEqual([]);
+    expect(h.issueReads).toBe(1);
+
+    h.clock.advance(2000);
+    h.hub.receive(client, {
+      type: 'configure',
+      config: h.config({ sources: { 'other-source': {} } }),
+    });
+    await settle();
+
+    expect(reads).toEqual(['other-source']);
+    expect(h.issueReads).toBe(1);
+  });
+
+  /** A repository the developer stopped tracking keeping its cards on the board is the board naming work as theirs. */
+  it('drops what a source read, and what it was complaining about, once the configuration stops naming it', async () => {
+    let ok = true;
+    const h = harness(
+      {},
+      {
+        fetch: async () =>
+          ok
+            ? { ok: true, value: ISSUES }
+            : { ok: false, error: { kind: 'query-failed', message: 'GitHub failed.', remedy: 'Try again.' } },
+      },
+    );
+
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(latest(inbox).issues).not.toBeNull();
+
+    ok = false;
+    h.clock.advance(2000);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    expect(latest(inbox).stale).toBe(true);
+
+    h.clock.advance(2000);
+    h.hub.receive(client, { type: 'configure', config: h.config({ sources: {} }) });
+    await settle();
+
+    expect(latest(inbox).issues).toBeNull();
+    expect(latest(inbox).failures.map((f) => f.subject)).not.toContain(GITHUB_SOURCE_ID);
+    expect(latest(inbox).stale).toBe(false);
+  });
+
+  /**
+   * One board out of several sources: the counts add up, the age is the source that has not been read since, and
+   * the lane rules read the accounts the sources were read for rather than the accounts a setting names.
+   */
+  it('merges what every source read, and is as old as the oldest of them', async () => {
+    const other: WorkSource = {
+      id: 'other-source',
+      displayName: 'Another source',
+      configure: () => null,
+      read: async () => ({
+        items: {
+          // Its pull request is by the account this source read for, which is what puts the card in review.
+          cards: [card(4521, 'dev-2')],
+          owners: ['dev-2'],
+          matched: 2,
+          totalAssigned: 3,
+          notOnProject: 1,
+          truncated: true,
+          fetchedAt: '2026-09-03T08:00:00Z',
+        },
+        failure: null,
+        needs: null,
+      }),
+    };
+
+    const h = harness(
+      {},
+      {
+        sources: [other],
+        fetch: async () => ({
+          ok: true,
+          value: { ...ISSUES, cards: [card(4400)], matched: 5, totalAssigned: 6, notOnProject: 2 },
+        }),
+      },
+    );
+
+    const { client } = connect(h);
+
+    h.hub.receive(client, {
+      type: 'configure',
+      config: h.config({
+        sources: { [GITHUB_SOURCE_ID]: { repo: 'example-org/example-repo', logins: ['dev-1'] }, 'other-source': {} },
+      }),
+    });
+    await settle();
+
+    const { issues, lanes } = h.hub.snapshot();
+
+    expect(issues).toMatchObject({ count: 2, matched: 7, totalAssigned: 9, notOnProject: 3, truncated: true });
+    // ISSUES was read four hours later, and the board is as old as the source that has not been read since.
+    expect(issues?.fetchedAt).toBe('2026-09-03T08:00:00Z');
+    expect(lanes.find((lane) => lane.cards.some((c) => c.issueNumber === 4521))?.id).toBe('review');
+  });
+
+  /** Cards read for a repository whose settings the developer has since broken are not cards they can act on. */
+  it('takes down what a source read once its settings are refused', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(latest(inbox).issues).not.toBeNull();
+
+    // No clock advance: inside the refresh floor there is no read to take them down, so what does is the refusal.
+    h.hub.receive(client, { type: 'configure', config: h.config({ sources: { github: { repo: '' } } }) });
+    await settle();
+
+    expect(latest(inbox).issues).toBeNull();
+    expect(latest(inbox).failures.map((f) => f.kind)).toContain('bad-config');
+  });
+
+  /**
+   * A board with no source it can read is stale, whether the read failed or the settings for it were refused. The
+   * dimming is what says the cards on screen are not what the world says now (R24, R25).
+   */
+  it('calls the board stale while a source it cannot read is configured', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(latest(inbox).stale).toBe(false);
+
+    h.clock.advance(2000);
+    h.hub.receive(client, { type: 'configure', config: h.config({ sources: { github: { repo: '' } } }) });
+    await settle();
+
+    expect(latest(inbox).stale).toBe(true);
+  });
+
+  /** A second window opening must not take down what the board is telling the developer about the first one. */
+  it('leaves a refused configuration named when another client connects', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: { nothing: 'the hub can read' } as unknown as HubConfig });
+    await settle();
+
+    const refusal = () => h.hub.snapshot().failures.map((f) => f.message);
+
+    expect(refusal()).toContainEqual(expect.stringContaining("The board's settings could not be read"));
+
+    connect(h, hello({ id: 'board-2' }));
+
+    expect(refusal()).toContainEqual(expect.stringContaining("The board's settings could not be read"));
+  });
+
+  /** A source is a seam anyone may implement. One that throws must land like one that failed, not take the pass. */
+  it('names a source that threw, and reads the others anyway', async () => {
+    const boom: WorkSource = {
+      id: 'other-source',
+      displayName: 'Another source',
+      configure: () => null,
+      read: () => Promise.reject(new Error('it fell over')),
+    };
+
+    const h = harness({}, { sources: [boom] });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, {
+      type: 'configure',
+      config: h.config({
+        sources: { [GITHUB_SOURCE_ID]: { repo: 'example-org/example-repo', logins: ['dev-1'] }, 'other-source': {} },
+      }),
+    });
+    await settle();
+
+    expect(latest(inbox).failures.map((f) => f.kind)).toContain('source-failed');
+    expect(latest(inbox).failures.find((f) => f.kind === 'source-failed')?.message).toContain('it fell over');
+    expect(latest(inbox).issues).not.toBeNull();
+  });
+
+  /**
+   * A host left out of the configuration was handed no settings of its own. Reaching into an editor on defaults
+   * nobody chose reads another install's windows and brings the wrong one forward (R27, R34).
+   */
+  it('will not open a session for a host the configuration does not name', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ hosts: {} }) });
+    await settle();
+
+    h.hub.receive(client, { type: 'open', sessionId: 'a-session', extensionReady: true });
+    await settle();
+
+    const notices = inbox.filter((message) => message.type === 'notice');
+
+    expect(notices.at(-1)).toMatchObject({ message: expect.stringContaining('not running inside an application') });
+  });
+
+  it('names a source id no registry carries', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ sources: { jira: {} } }) });
+    await settle();
+
+    expect(latest(inbox).failures.map((f) => f.kind)).toContain('unknown-source');
+  });
+
   it('names a host id no registry carries', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
@@ -379,12 +655,15 @@ describe('what the snapshot says', () => {
    */
   it('calls the board stale only when a read of a source failed', async () => {
     let ok = true;
-    const h = harness({
-      readIssues: async () =>
-        ok
-          ? { ok: true, value: ISSUES }
-          : { ok: false, error: { kind: 'query-failed', message: 'GitHub failed.', remedy: 'Try again.' } },
-    });
+    const h = harness(
+      {},
+      {
+        fetch: async () =>
+          ok
+            ? { ok: true, value: ISSUES }
+            : { ok: false, error: { kind: 'query-failed', message: 'GitHub failed.', remedy: 'Try again.' } },
+      },
+    );
 
     const { client } = connect(h);
     h.hub.receive(client, { type: 'configure', config: h.config() });

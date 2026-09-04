@@ -16,6 +16,7 @@ describe('the package public surface', () => {
       'findCheckout',
       'groundControlDirOf',
       'hubConfig',
+      'idsFrom',
       'isAbsolute',
       'issueNumberFrom',
       'join',

@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process';
 import { appendFileSync, closeSync, mkdirSync, openSync, rmSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { PROTOCOL, groundControlDirOf } from '@ground-control/core';
-import { parseAuthStatusLogins } from '@ground-control/github';
 import { writeAtomic } from './fs.js';
 import { Hub, realHubDeps } from './hub.js';
 import { makeLaneStore } from './lanes.js';
@@ -32,18 +30,9 @@ export function sanitizeEnvironment(env: NodeJS.ProcessEnv = process.env): strin
   return removed;
 }
 
-/** Whose issues these are, seeded from what the CLI already knows. The hub has no screen, so it only detects (R26). */
-export function detectLogins(ghPath: string): Promise<string[]> {
-  return new Promise((resolve) => {
-    execFile(ghPath, ['auth', 'status'], (_error, stdout, stderr) =>
-      resolve(parseAuthStatusLogins(`${stdout}${stderr}`)),
-    );
-  });
-}
-
 /** A hub reading the given home, wired to the real machine. The same object whether it is served or held in process. */
 export function makeHub(home: string = homedir()): Hub {
-  return new Hub(realHubDeps(makeRegistries(), makeLaneStore(home), makeMarkStore(home), home, watchDir, detectLogins));
+  return new Hub(realHubDeps(makeRegistries(), makeLaneStore(home), makeMarkStore(home), home, watchDir));
 }
 
 /** Half an hour with nobody connected. The next board open starts one again in about a second (R35). */
