@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
+import { sessionLabel } from '@ground-control/core';
 import type { OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
-import { PLACEMENTS, sessionName, strayFrom, verifyOpen } from '@ground-control/host-vscode';
+import { PLACEMENTS, strayFrom, verifyOpen } from '@ground-control/host-vscode';
 
 /** The Claude placement in VS Code: its ids, and the commands that reach a session without side effects (§6, §7). */
 const CLAUDE = PLACEMENTS['claude']!;
@@ -225,7 +226,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       // Said out loud because the sidebar shows one session and the record of which is up to a minute old: the view
       // that comes forward may be showing different work than the row that was clicked (`docs/mechanics.md` §21).
       void vscode.window.showInformationMessage(
-        `The Claude sidebar should be showing ${sessionName(plan.session)}.`,
+        `The Claude sidebar should be showing ${sessionLabel(plan.session)}.`,
       );
 
       return null;
@@ -236,14 +237,14 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       // Nothing else is safe: the sidebar has no reveal-by-id, and opening a panel for a session it already holds is
       // a second process on one transcript (`docs/mechanics.md` §11).
       void vscode.window.showInformationMessage(
-        `${sessionName(plan.session)} is in the Claude sidebar of the window on ${plan.root}.`,
+        `${sessionLabel(plan.session)} is in the Claude sidebar of the window on ${plan.root}.`,
       );
 
       return null;
 
     case 'unknown-surface-here':
       void vscode.window.showInformationMessage(
-        `${sessionName(plan.session)} is somewhere in this window. VS Code has not recorded which tab or sidebar holds it, and guessing would run a second agent on it.`,
+        `${sessionLabel(plan.session)} is somewhere in this window. VS Code has not recorded which tab or sidebar holds it, and guessing would run a second agent on it.`,
       );
 
       return null;
@@ -252,7 +253,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       await raise(plan.root);
 
       void vscode.window.showInformationMessage(
-        `${sessionName(plan.session)} is in the window on ${plan.root}. VS Code has not recorded which tab or sidebar holds it, so this is as close as the board can take you.`,
+        `${sessionLabel(plan.session)} is in the window on ${plan.root}. VS Code has not recorded which tab or sidebar holds it, so this is as close as the board can take you.`,
       );
 
       return null;
