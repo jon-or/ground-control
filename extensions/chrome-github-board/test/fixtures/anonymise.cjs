@@ -11,6 +11,10 @@ const ISSUES = [4501, 4502, 4503];
 /** Neutral names for the two columns kept. The overlay reads neither; a recorded one would still name a real board. */
 const COLUMNS = ['Backlog', 'In progress'];
 
+/** What the recorded project and its view tabs are called. A real board's name and views are the team's own words. */
+const PROJECT = 'Example project';
+const VIEWS = ['Board', 'Table'];
+
 /** What each synthetic issue is called. One vocabulary across packages, so 4501 reads the same everywhere. */
 function titles() {
   return ISSUES.map((number) => title(number));
@@ -22,6 +26,8 @@ function titles() {
  */
 const ALLOWED = new Set([
   ...COLUMNS,
+  ...VIEWS,
+  PROJECT,
   ...titles(),
   ...ISSUES.map((number) => `${REPO.split('/')[1]} #${number}`),
   'Project board',
@@ -29,6 +35,9 @@ const ALLOWED = new Set([
   'Fields',
   'View',
   'View filters',
+  'Discard',
+  'Project',
+  'Select view',
 ]);
 
 /** Every attribute and text node a person could have written into. Anything not enumerated is a leak by default. */
@@ -78,4 +87,4 @@ function assertScrubbed(html, recorded) {
   assertNoAbsolutePaths(html, []);
 }
 
-module.exports = { COLUMNS, ISSUES, REPO, assertScrubbed, titles };
+module.exports = { COLUMNS, ISSUES, PROJECT, REPO, VIEWS, assertScrubbed, titles };
