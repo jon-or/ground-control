@@ -1269,3 +1269,24 @@ Measured end to end, with the host registered under `HKCU\Software\Chromium\Nati
 **The MV3 worker stayed up for three minutes, and that is not the same as a port keeping it up.** With one board tab open, a content-script port held, and nothing sent on it, `context.serviceWorkers()` held a responsive worker at every 15-second check from 0 s to 180 s. The confound is in the method: reaching a worker with `worker.evaluate` is itself activity on it, so what this shows is that nothing tears the worker down on its own, not that the open port is what keeps it alive. Chrome's own rule has changed more than once across versions, so treating a held port as a keep-alive would be reading a version-fragile behaviour as a contract.
 
 So the overlay does not rely on it. `chrome.alarms` fires every minute; if a board tab is open and the native port is gone, the worker opens it again. A worker Chrome stopped is restarted by the next port message or the next alarm, and the state it needs across a restart — the last snapshot — is in `chrome.storage.session`. **Version-fragile**: re-verify after a Chrome upgrade.
+
+## 28. A debugged extension host aborts on this extension's event stream
+
+**Measured 2026-09-04, VS Code 1.136.1 with js-debug 1.117.0 on Windows 11, from the editor's own logs.**
+
+Pressing F5 often opens the Extension Development Host and then loses it. What the logs show is the extension host process aborting: `Extension host with pid 27856 exited with code: 134` and `crashed with code 134 and reason 'crashed'`, five times in ninety seconds. Code 134 is `SIGABRT` — the host does not exit, it dies.
+
+What precedes it, in the same window's `exthost.log` and immediately after `ExtensionService#_doActivateExtension ownerrez.ground-control`:
+
+```
+TypeError: Missing dataLength in event
+    at broadcastToFrontend (node:inspector:212:3)
+    at Object.dataReceived (node:inspector:221:29)
+    at IncomingMessage.<anonymous> (node:internal/inspector/network_http:140:13)
+```
+
+That is Node's inspector reporting HTTP traffic to the debugger's Network view, and it throws on every response it sees: 570 of them in one window's log. `node:internal/inspector/network_http` only instruments while a debugger has the network domain enabled, which is why this happens under F5 and never in an installed extension. This extension is the one that makes the traffic — the transport's `/events` stream and its POSTs are the only HTTP the extension host does — so it is the one that hits the bug.
+
+What turns it on is the debugger, not a flag on the runtime: js-debug sends the debuggee an `enableNetworking` request as each session starts, and only when `debug.javascript.enableNetworkView` is on — which it is by default. That request is a CDP `Network.enable`, and Node instruments `http` the moment it arrives. `.vscode/settings.json` turns the setting off for this workspace, so the request is never sent. The launch attribute named for this, `experimentalNetworking`, is not the lever: it only adds `--experimental-network-inspection` to a launched Node's arguments, and the `extensionHost` debug type does not accept it.
+
+**Version-fragile**: a Node or js-debug upgrade may fix the throw, at which point the setting is only a Network view nobody here uses.
