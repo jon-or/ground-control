@@ -3,7 +3,7 @@ import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { PROTOCOL } from '@ground-control/core';
 import { bundleIsNewer, makeEnsure } from '../src/ensure.js';
 import type { EnsureDeps } from '../src/ensure.js';
-import type { HubRecord, LiveHub } from '../src/discover.js';
+import type { Found, LiveHub } from '../src/discover.js';
 import { dirname } from 'node:path';
 import { bundlePathOf, exitPathOf, hubJsonPathOf, logPathOf } from '../src/paths.js';
 import { tempHome } from './helpers.js';
@@ -46,7 +46,7 @@ function harness(over: Partial<EnsureDeps> = {}) {
     startsWith: null as LiveHub | null,
     /** Whether the bundle on disk was written after the running hub bound, and what a client that got nowhere finds. */
     bundleIsNewer: false,
-    unproven: null as HubRecord | null,
+    lastLook: { miss: { why: 'no-record' } } as Found,
   };
 
   const deps: EnsureDeps = {
@@ -72,7 +72,7 @@ function harness(over: Partial<EnsureDeps> = {}) {
       return Promise.resolve(true);
     },
     bundleIsNewer: () => shape.bundleIsNewer,
-    unproven: () => Promise.resolve(shape.unproven),
+    lastLook: () => Promise.resolve(shape.lastLook),
     now: () => shape.now,
     sleep: (ms) => {
       shape.now += ms;
@@ -319,16 +319,61 @@ describe('a hub still running an older copy of itself', () => {
  * log describing neither.
  */
 describe('something serving this home that will not take this client', () => {
-  it('is named, by the port it holds and the pid to stop', async () => {
+  const held = { ...LIVE.record, port: 4321, pid: 6789 };
+
+  /**
+   * Every one of these is a process that is up and did not become this client's hub. The remedy is the same for all
+   * of them — end it — and which one it was is the whole of what a developer has to go on.
+   */
+  const misses: [string, Found, string[]][] = [
+    [
+      'a hub holding a token this client cannot prove',
+      { miss: { why: 'unproven', record: held } },
+      ['cannot verify', '6789'],
+    ],
+    ['a listener that will not answer', { miss: { why: 'silent', record: held } }, ['will not answer', '6789']],
+    // Its pid is deliberately not named: the record describes the hub that died, not whatever took the port after.
+    ['something that is not a hub', { miss: { why: 'not-a-hub', record: held } }, ['not Ground Control']],
+    ['a hub tracking another home', { miss: { why: 'another-home', record: held } }, ['different home', '6789']],
+    [
+      'a hub of another version',
+      { miss: { why: 'another-protocol', hub: { ...LIVE, record: held } } },
+      ['another version', '6789'],
+    ],
+  ];
+
+  it.each(misses)('names %s, by the port it holds', async (_what, look, said) => {
     const { shape, ensure } = harness();
 
-    shape.unproven = { ...LIVE.record, port: 4321, pid: 6789 };
+    shape.lastLook = look;
 
     const answer = await ensure();
 
-    expect('failed' in answer && answer.failed).toContain('4321');
-    expect('failed' in answer && answer.failed).toContain('6789');
+    for (const phrase of [...said, '4321']) {
+      expect('failed' in answer && answer.failed).toContain(phrase);
+    }
+
     expect('failed' in answer && answer.failed).not.toContain('never answered');
+  });
+
+  /** Nothing came to hold the port the record names, which is a hub that started and died rather than one in the way. */
+  it('says the port was never taken when the record names a port nothing holds', async () => {
+    const { shape, ensure } = harness();
+
+    shape.lastLook = { miss: { why: 'unreachable', record: held } };
+
+    const answer = await ensure();
+
+    expect('failed' in answer && answer.failed).toContain('nothing came to hold port 4321');
+  });
+
+  /** The start ran long rather than failing. Connecting beats telling the developer about a race they cannot see. */
+  it('takes the hub that turned up while this was giving up on it', async () => {
+    const { shape, ensure } = harness();
+
+    shape.lastLook = { hub: LIVE };
+
+    expect(await ensure()).toEqual({ hub: LIVE });
   });
 
   /**

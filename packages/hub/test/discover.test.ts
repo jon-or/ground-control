@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PROTOCOL, groundControlDirOf } from '@ground-control/core';
-import { fingerprintOf, liveHub, probeHub, readHubRecord, recordedHub, stopHub, stopThisHub, unprovenHub } from '../src/discover.js';
+import { findHub, fingerprintOf, liveHub, probeHub, readHubRecord, recordedHub, stopHub, stopThisHub } from '../src/discover.js';
 import { proofOf } from '../src/server.js';
 import { hubJsonPathOf } from '../src/paths.js';
 import { tempHome } from './helpers.js';
@@ -324,11 +324,29 @@ describe('stopping the hub a home has', () => {
 });
 
 /**
- * A hub that is up and holds a token this client's record cannot prove is invisible to `liveHub`, and a client that
- * spawns one of its own then watches it stand down learns nothing. This is what lets the failure name it instead.
+ * Seven things come to the same nothing at a client, and only one of them is "there is no hub". A board that names
+ * the wrong one sends the developer to a log describing none of it, because whatever turned the client away keeps
+ * no record of having done so.
  */
-describe('something answering for this home that a client cannot prove', () => {
-  it('is named by the record it left, and never sent the token', async () => {
+describe('why this home has no hub to talk to', () => {
+  it('is the hub itself when the record and the listener agree', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      const listener = await hubListener(home, { token: TOKEN });
+
+      writeRecord(home, { port: listener.port });
+
+      const found = await findHub(home);
+
+      expect('hub' in found && found.hub.record.port).toBe(listener.port);
+    } finally {
+      dispose();
+    }
+  });
+
+  /** The hub that is up holds a token this record cannot prove: reachable, this developer's, and unusable. */
+  it('is unproven when the listener will not prove the record it left', async () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -336,17 +354,18 @@ describe('something answering for this home that a client cannot prove', () => {
 
       writeRecord(home, { port: listener.port, pid: 4242 });
 
-      expect(await liveHub(home)).toBeNull();
-      expect(await unprovenHub(home)).toMatchObject({ port: listener.port, pid: 4242 });
-      // No nonce either: a proof this client has nothing to check against is one it has no business asking for.
-      expect(listener.asked).toEqual(['GET /hub?nonce=… no-token', 'GET /hub no-token']);
+      const found = await findHub(home);
+
+      expect('miss' in found && found.miss.why).toBe('unproven');
+      expect('miss' in found && 'record' in found.miss && found.miss.record.pid).toBe(4242);
+      // No token, and no nonce on the second ask either: what is asked for is only what a client may be told.
+      expect(listener.asked).toEqual(['GET /hub?nonce=… no-token']);
     } finally {
       dispose();
     }
   });
 
-  /** Something else on the port is not a hub in the way, and saying it is would send the developer after nothing. */
-  it('is nothing when the port is held by something else', async () => {
+  it('is not-a-hub when the port is held by something else', async () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -354,14 +373,13 @@ describe('something answering for this home that a client cannot prove', () => {
 
       writeRecord(home, { port: listener.port });
 
-      expect(await unprovenHub(home)).toBeNull();
+      expect(await findHub(home)).toEqual({ miss: { why: 'not-a-hub', record: readHubRecord(home) } });
     } finally {
       dispose();
     }
   });
 
-  /** A hub for another home is another developer's. Naming it would send this one to stop a board that is not theirs. */
-  it('is nothing when the hub answering runs against another home', async () => {
+  it('is another home when the hub answering runs against one', async () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -369,18 +387,96 @@ describe('something answering for this home that a client cannot prove', () => {
 
       writeRecord(home, { port: listener.port });
 
-      expect(await unprovenHub(home)).toBeNull();
+      const found = await findHub(home);
+
+      expect('miss' in found && found.miss.why).toBe('another-home');
     } finally {
       dispose();
     }
   });
 
-  /** No record is no port to probe. A hub that never started is not something standing in this client's way. */
-  it('is nothing when no hub has left a record at all', async () => {
+  /** A hub of another version is still a hub: a client may have to stop it, and a starting one must stand down. */
+  it('is another protocol when the hub answering speaks a different one, and still a hub to stop', async () => {
     const { home, dispose } = tempHome();
 
     try {
-      expect(await unprovenHub(home)).toBeNull();
+      const listener = await hubListener(home, { token: TOKEN, protocol: PROTOCOL + 1 });
+
+      writeRecord(home, { port: listener.port });
+
+      const found = await findHub(home);
+
+      expect('miss' in found && found.miss.why).toBe('another-protocol');
+      expect(await liveHub(home)).toBeNull();
+      expect((await recordedHub(home))?.record.port).toBe(listener.port);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('is nothing at all when no hub has left a record', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      expect(await findHub(home)).toEqual({ miss: { why: 'no-record' } });
+    } finally {
+      dispose();
+    }
+  });
+
+  /** Nothing holds the port the record names, which is the ordinary state after a hub is killed. */
+  it('is unreachable when nothing holds the port the record names', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      const listener = await foreignListener({});
+      const port = listener.port;
+
+      shut.pop()?.();
+      writeRecord(home, { port });
+
+      const found = await findHub(home);
+
+      expect('miss' in found && found.miss.why).toBe('unreachable');
+    } finally {
+      dispose();
+    }
+  });
+
+  /**
+   * The half-second deadline is spent on the client's own event loop, so a window that has just activated can miss
+   * an answer a hub did send. Giving up there is what makes a board start a second hub against a working one.
+   */
+  it('asks a second time, with room, before calling a quiet listener gone', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      let asked = 0;
+      const listener = await listening((incoming, response) => {
+        asked += 1;
+
+        // Quiet the first time, the way a client too busy to read the answer in half a second experiences it.
+        if (asked === 1) {
+          return;
+        }
+
+        const nonce = new URL(incoming.url ?? '/', 'http://127.0.0.1').searchParams.get('nonce');
+
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            hub: 'ground-control',
+            protocol: PROTOCOL,
+            fingerprint: fingerprintOf(home),
+            ...(nonce ? { proof: proofOf(TOKEN, nonce) } : {}),
+          }),
+        );
+      });
+
+      writeRecord(home, { port: listener.port });
+
+      expect('hub' in (await findHub(home))).toBe(true);
+      expect(asked).toBe(2);
     } finally {
       dispose();
     }

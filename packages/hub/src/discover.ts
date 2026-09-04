@@ -70,6 +70,9 @@ export function readHubRecord(home: string): HubRecord | null {
 
 const PROBE_TIMEOUT_MS = 500;
 
+/** What a probe that went quiet is given on the second ask, wide enough for a client that was busy rather than lost. */
+const SECOND_LOOK_MS = 3000;
+
 /** A hub's answers are a few hundred bytes. Anything that keeps writing is something else, and is not read to the end. */
 const ANSWER_LIMIT_BYTES = 256 * 1024;
 
@@ -77,6 +80,9 @@ interface Answer {
   status: number;
   body: string;
 }
+
+/** Why a call did not come back. Kept apart because a port nothing holds and a port that went quiet are not one state. */
+type Unanswered = 'unreachable' | 'silent';
 
 /**
  * Null for anything that is not a whole answer inside the deadline. The deadline is absolute rather than the socket's
@@ -89,7 +95,7 @@ function call(
   path: string,
   token: string | null,
   timeoutMs: number,
-): Promise<Answer | null> {
+): Promise<Answer | Unanswered> {
   return new Promise((resolve) => {
     const headers: Record<string, string> = { Host: `127.0.0.1:${port}` };
 
@@ -100,7 +106,9 @@ function call(
 
     let settled = false;
 
-    const outbound = request({ host: '127.0.0.1', port, method, path, headers }, (response) => {
+    // Never a pooled socket, the rule every request this package makes follows: the agent belongs to whatever
+    // process the client runs in, and a hub probe must not queue behind whatever else that process is doing.
+    const outbound = request({ host: '127.0.0.1', port, method, path, headers, agent: false }, (response) => {
       let body = '';
 
       response.setEncoding('utf8');
@@ -108,13 +116,13 @@ function call(
         body += chunk;
 
         if (body.length > ANSWER_LIMIT_BYTES) {
-          done(null);
+          done('silent');
         }
       });
       response.on('end', () => done({ status: response.statusCode ?? 0, body }));
     });
 
-    function done(answer: Answer | null): void {
+    function done(answer: Answer | Unanswered): void {
       if (settled) {
         return;
       }
@@ -125,27 +133,38 @@ function call(
       resolve(answer);
     }
 
-    const deadline = setTimeout(() => done(null), timeoutMs);
+    const deadline = setTimeout(() => done('silent'), timeoutMs);
 
-    outbound.on('error', () => done(null));
+    outbound.on('error', () => done('unreachable'));
     outbound.end(token === null ? undefined : '{}');
   });
 }
 
 /** Asks whatever holds the port what it is. Anything but a hub answering as one is `null`, including a hung socket. */
 export async function probeHub(port: number, timeoutMs = PROBE_TIMEOUT_MS, nonce?: string): Promise<HubIdentity | null> {
+  const answered = await probe(port, timeoutMs, nonce);
+
+  return typeof answered === 'string' ? null : answered;
+}
+
+/** The same probe, keeping why it came to nothing: a port nothing holds is a different fact from a port gone quiet. */
+async function probe(port: number, timeoutMs: number, nonce?: string): Promise<HubIdentity | Unanswered | 'not-a-hub'> {
   const answer = await call(port, 'GET', nonce ? `/hub?nonce=${nonce}` : '/hub', null, timeoutMs);
 
-  if (answer === null || answer.status !== 200) {
-    return null;
+  if (typeof answer === 'string') {
+    return answer;
+  }
+
+  if (answer.status !== 200) {
+    return 'not-a-hub';
   }
 
   try {
     const parsed = hubIdentity.safeParse(JSON.parse(answer.body));
 
-    return parsed.success ? parsed.data : null;
+    return parsed.success ? parsed.data : 'not-a-hub';
   } catch {
-    return null;
+    return 'not-a-hub';
   }
 }
 
@@ -161,22 +180,15 @@ export interface LiveHub {
  * token to.
  */
 export async function recordedHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<LiveHub | null> {
-  const record = readHubRecord(home);
+  const found = await findHub(home, timeoutMs);
 
-  if (record === null) {
-    return null;
+  if ('hub' in found) {
+    return found.hub;
   }
 
-  const nonce = randomBytes(16).toString('base64url');
-  const identity = await probeHub(record.port, timeoutMs, nonce);
-
-  // The fingerprint says which home; the proof says it is the hub that minted this record. A home path is guessable,
-  // so without the proof any local process could stand up a listener, be handed the token, and be believed.
-  if (identity === null || identity.fingerprint !== fingerprintOf(home) || !proves(identity, record, nonce)) {
-    return null;
-  }
-
-  return { record, identity };
+  // A hub of another protocol is still this developer's hub, proven and running. It is the one a client may have to
+  // stop, and the one a starting hub must stand down against, so only the protocol check treats it as absent.
+  return found.miss.why === 'another-protocol' ? found.miss.hub : null;
 }
 
 /** The hub this home already has and this client can talk to. A different protocol is a hub, but not one of ours. */
@@ -184,6 +196,62 @@ export async function liveHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promi
   const found = await recordedHub(home, timeoutMs);
 
   return found && protocolMatches(found.identity) ? found : null;
+}
+
+/**
+ * Why this home has no hub to talk to. Seven things come to the same nothing at a client, and a board that says the
+ * wrong one of them sends the developer to a log that describes none of it — which is the whole of what there is to
+ * go on, because the hub that was in the way keeps no record of having turned anyone away.
+ */
+export type HubMiss =
+  | { why: 'no-record' }
+  | { why: 'unreachable'; record: HubRecord }
+  | { why: 'silent'; record: HubRecord }
+  | { why: 'not-a-hub'; record: HubRecord }
+  | { why: 'another-home'; record: HubRecord }
+  | { why: 'unproven'; record: HubRecord }
+  | { why: 'another-protocol'; hub: LiveHub };
+
+export type Found = { hub: LiveHub } | { miss: HubMiss };
+
+/**
+ * The hub this home's record names, proven to be this developer's, or the reason there is none. Liveness is the
+ * probe and never the file: a hub killed on Windows gets no chance to remove `hub.json`, so a stale record is the
+ * normal state rather than an error.
+ */
+export async function findHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<Found> {
+  const record = readHubRecord(home);
+
+  if (record === null) {
+    return { miss: { why: 'no-record' } };
+  }
+
+  const nonce = randomBytes(16).toString('base64url');
+  let identity = await probe(record.port, timeoutMs, nonce);
+
+  // A hub that did not finish answering inside half a second is asked once more, with room: the deadline is spent
+  // on the client's own event loop, and a window that has just woken up or just activated is not a hub that is gone.
+  if (identity === 'silent') {
+    identity = await probe(record.port, SECOND_LOOK_MS, nonce);
+  }
+
+  if (typeof identity === 'string') {
+    return { miss: { why: identity, record } };
+  }
+
+  // The fingerprint says which home; the proof says it is the hub that minted this record. A home path is guessable,
+  // so without the proof any local process could stand up a listener, be handed the token, and be believed.
+  if (identity.fingerprint !== fingerprintOf(home)) {
+    return { miss: { why: 'another-home', record } };
+  }
+
+  if (!proves(identity, record, nonce)) {
+    return { miss: { why: 'unproven', record } };
+  }
+
+  return protocolMatches(identity)
+    ? { hub: { record, identity } }
+    : { miss: { why: 'another-protocol', hub: { record, identity } } };
 }
 
 function proves(identity: HubIdentity, record: HubRecord, nonce: string): boolean {
@@ -211,24 +279,7 @@ export async function stopHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promi
 export async function stopThisHub(hub: LiveHub, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
   const answer = await call(hub.record.port, 'POST', '/shutdown', hub.record.token, timeoutMs);
 
-  return answer?.status === 200;
-}
-
-/**
- * A listener answering as this home's hub that `liveHub` would not accept: the record it left, so a client that got
- * nowhere can name what is in its way. Never sent a token — being answered by the right home is not proof of holding
- * one, so what comes back is what the developer can act on and nothing this client would itself believe.
- */
-export async function unprovenHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<HubRecord | null> {
-  const record = readHubRecord(home);
-
-  if (record === null) {
-    return null;
-  }
-
-  const identity = await probeHub(record.port, timeoutMs);
-
-  return identity !== null && identity.fingerprint === fingerprintOf(home) ? record : null;
+  return typeof answer !== 'string' && answer.status === 200;
 }
 
 /** Whether a client speaking this protocol can talk to that hub. Equal, because the number moves only on a break. */
