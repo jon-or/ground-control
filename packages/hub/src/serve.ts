@@ -161,6 +161,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
     hub,
     fingerprint,
     onShutdown: () => void stop('a client asked it to stop').then(() => exit(0)),
+    log,
   });
 
   try {

@@ -373,7 +373,29 @@ describe('why this home has no hub to talk to', () => {
 
       writeRecord(home, { port: listener.port });
 
-      expect(await findHub(home)).toEqual({ miss: { why: 'not-a-hub', record: readHubRecord(home) } });
+      // No status: it answered, and what it answered was not a hub. A number here would be one worth acting on.
+      expect(await findHub(home)).toEqual({ miss: { why: 'not-a-hub', record: readHubRecord(home), status: null } });
+    } finally {
+      dispose();
+    }
+  });
+
+  /**
+   * The hub refuses a request that carries an `Origin`, names another `Host`, or asks in proxy form — and a client
+   * turned away that way sees a status and nothing else. Reading it as "something else holds the port" would send
+   * the developer to stop their own hub.
+   */
+  it('keeps the status when the listener answered and refused', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      const listener = await foreignListener({ error: 'This hub does not answer requests from a browser.' }, 403);
+
+      writeRecord(home, { port: listener.port });
+
+      const found = await findHub(home);
+
+      expect('miss' in found && found.miss.why === 'not-a-hub' && found.miss.status).toBe(403);
     } finally {
       dispose();
     }

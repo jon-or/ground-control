@@ -29,6 +29,12 @@ export interface HubServerDeps {
   clock?: ServerClock;
   /** Called by `POST /shutdown`. Windows has no signal that reaches a console-less process, so this is the stop. */
   onShutdown(): void;
+  /**
+   * Where a refused request is recorded. A client that is turned away sees only a status, and the three refusals
+   * before any route reads as "this is not a hub" from there — so if the hub does not write them down, a board that
+   * cannot reach the hub it can see leaves no evidence anywhere on the machine.
+   */
+  log?(line: string): void;
 }
 
 export interface HubServer {
@@ -256,10 +262,31 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
     send(response, 200, { ok: true });
   }
 
+  /**
+   * Refused, and written down. The answer stays what it was — a client is told no more than that it was turned away
+   * — while the log carries the header that decided it, which is the only copy of that fact anywhere.
+   */
+  function turnAway(
+    request: IncomingMessage,
+    response: ServerResponse,
+    status: number,
+    message: string,
+    detail = message,
+  ): void {
+    deps.log?.(`refused ${request.method ?? '?'} ${request.url ?? '?'}: ${detail}`);
+    refuse(response, status, message);
+  }
+
   async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
     // Anything a browser sends carries this, and nothing the hub answers is for a browser.
     if (request.headers.origin !== undefined) {
-      refuse(response, 403, 'This hub does not answer requests from a browser.');
+      turnAway(
+        request,
+        response,
+        403,
+        'This hub does not answer requests from a browser.',
+        `an Origin header, ${request.headers.origin}`,
+      );
 
       return;
     }
@@ -269,13 +296,19 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
     // An absolute-form target is a proxy request; the `Host` check below reads the header, which such a request may
     // set to anything.
     if (!target.startsWith('/')) {
-      refuse(response, 400, 'Unsupported request target.');
+      turnAway(request, response, 400, 'Unsupported request target.');
 
       return;
     }
 
     if (request.headers.host !== `127.0.0.1:${port}`) {
-      refuse(response, 403, 'This hub answers only on its own loopback address.');
+      turnAway(
+        request,
+        response,
+        403,
+        'This hub answers only on its own loopback address.',
+        `a Host of ${request.headers.host ?? 'nothing'}, not 127.0.0.1:${port}`,
+      );
 
       return;
     }
