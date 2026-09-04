@@ -140,18 +140,10 @@ function call(
   });
 }
 
-/** Asks whatever holds the port what it is. Anything but a hub answering as one is `null`, including a hung socket. */
-export async function probeHub(port: number, timeoutMs = PROBE_TIMEOUT_MS, nonce?: string): Promise<HubIdentity | null> {
-  const answered = await probe(port, timeoutMs, nonce);
+/** Asks whatever holds the port what it is: what it said it was, or how the asking came to nothing. */
+type Probed = HubIdentity | Unanswered | 'not-a-hub';
 
-  return typeof answered === 'string' || 'notAHub' in answered ? null : answered;
-}
-
-/** What the listener said it was, or how the asking came to nothing. A status is kept: a hub that refuses this
- * client answers one, and a port something else has taken answers something else entirely. */
-type Probed = HubIdentity | Unanswered | { notAHub: number | null };
-
-async function probe(port: number, timeoutMs: number, nonce?: string): Promise<Probed> {
+export async function probe(port: number, timeoutMs = PROBE_TIMEOUT_MS, nonce?: string): Promise<Probed> {
   const answer = await call(port, 'GET', nonce ? `/hub?nonce=${nonce}` : '/hub', null, timeoutMs);
 
   if (typeof answer === 'string') {
@@ -159,16 +151,15 @@ async function probe(port: number, timeoutMs: number, nonce?: string): Promise<P
   }
 
   if (answer.status !== 200) {
-    return { notAHub: answer.status };
+    return 'not-a-hub';
   }
 
   try {
     const parsed = hubIdentity.safeParse(JSON.parse(answer.body));
 
-    // Answered, and not as a hub: a status of its own would say nothing, so what is kept is that there was one.
-    return parsed.success ? parsed.data : { notAHub: null };
+    return parsed.success ? parsed.data : 'not-a-hub';
   } catch {
-    return { notAHub: null };
+    return 'not-a-hub';
   }
 }
 
@@ -195,13 +186,6 @@ export async function recordedHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): P
   return found.miss.why === 'another-protocol' ? found.miss.hub : null;
 }
 
-/** The hub this home already has and this client can talk to. A different protocol is a hub, but not one of ours. */
-export async function liveHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<LiveHub | null> {
-  const found = await recordedHub(home, timeoutMs);
-
-  return found && protocolMatches(found.identity) ? found : null;
-}
-
 /**
  * Why this home has no hub to talk to. Seven things come to the same nothing at a client, and a board that says the
  * wrong one of them sends the developer to a log that describes none of it — which is the whole of what there is to
@@ -211,8 +195,7 @@ export type HubMiss =
   | { why: 'no-record' }
   | { why: 'unreachable'; record: HubRecord }
   | { why: 'silent'; record: HubRecord }
-  /** What answered, so a hub that turned this client away can be told from a port something else has taken. */
-  | { why: 'not-a-hub'; record: HubRecord; status: number | null }
+  | { why: 'not-a-hub'; record: HubRecord }
   | { why: 'another-home'; record: HubRecord }
   | { why: 'unproven'; record: HubRecord }
   | { why: 'another-protocol'; hub: LiveHub };
@@ -242,10 +225,6 @@ export async function findHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promi
 
   if (typeof identity === 'string') {
     return { miss: { why: identity, record } };
-  }
-
-  if ('notAHub' in identity) {
-    return { miss: { why: 'not-a-hub', record, status: identity.notAHub } };
   }
 
   // The fingerprint says which home; the proof says it is the hub that minted this record. A home path is guessable,

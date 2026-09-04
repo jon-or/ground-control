@@ -1,6 +1,6 @@
 import { request } from 'node:http';
 import type { ClientRequest } from 'node:http';
-import type { ClientHello, ClientMessage, HubMessage, Session, Snapshot } from '@ground-control/core';
+import type { ClientHello, ClientMessage, HubMessage, Session } from '@ground-control/core';
 import type { HubRecord } from './discover.js';
 import type { Ensured } from './ensure.js';
 
@@ -90,10 +90,6 @@ export class HubTransport {
     const answer = (await this.#get('/roster')) as { sessions?: Session[] } | null;
 
     return answer?.sessions ?? null;
-  }
-
-  async snapshot(): Promise<Snapshot | null> {
-    return (await this.#get('/snapshot')) as Snapshot | null;
   }
 
   dispose(): void {

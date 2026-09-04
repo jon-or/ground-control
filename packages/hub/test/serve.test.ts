@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { groundControlDirOf } from '@ground-control/core';
 import { LOGS_KEPT, rotateLog } from '../src/log.js';
 import { exitPathOf, hubJsonPathOf, logPathOf } from '../src/paths.js';
-import { fingerprintOf, probeHub } from '../src/discover.js';
+import { fingerprintOf, probe } from '../src/discover.js';
 import { sanitizeEnvironment, serveHub } from '../src/serve.js';
 import type { ServeResult } from '../src/serve.js';
 import { tempHome } from './helpers.js';
@@ -133,7 +133,7 @@ describe('starting a hub for a home', () => {
     expect(record.version).toBe('1.2.3');
     expect(record.pid).toBe(process.pid);
     expect(record.fingerprint).toBe(fingerprintOf(home));
-    expect(await probeHub(hub.port)).toMatchObject({ hub: 'ground-control', fingerprint: fingerprintOf(home) });
+    expect(await probe(hub.port)).toMatchObject({ hub: 'ground-control', fingerprint: fingerprintOf(home) });
   });
 
   /** Single instance is the record, claimed by exclusive create: the second process has nothing to do. */
@@ -183,7 +183,7 @@ describe('starting a hub for a home', () => {
       code: 0,
       reason: 'the developer asked',
     });
-    expect(await probeHub(hub.port, 200)).toBeNull();
+    expect(await probe(hub.port, 200)).toBe('unreachable');
   });
 
   /** R35: a hub nobody is watching costs a developer nothing, so it goes rather than polling for nobody. */
@@ -196,7 +196,7 @@ describe('starting a hub for a home', () => {
 
     expect(exits).toEqual([0]);
     expect(lines.join(' ')).toContain('nobody has been watching');
-    expect(await probeHub(hub.port, 200)).toBeNull();
+    expect(await probe(hub.port, 200)).toBe('unreachable');
   });
 
   /** The other half of R35, and the one a regression would cost a developer: a board open must keep the hub alive. */
@@ -210,7 +210,7 @@ describe('starting a hub for a home', () => {
     await new Promise((done) => setTimeout(done, 900));
 
     expect(exits).toEqual([]);
-    expect(await probeHub(hub.port)).not.toBeNull();
+    expect(await probe(hub.port)).toMatchObject({ hub: 'ground-control' });
 
     leave();
     await new Promise((done) => setTimeout(done, 900));

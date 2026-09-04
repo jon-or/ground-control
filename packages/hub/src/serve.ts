@@ -6,7 +6,7 @@ import { Hub, realHubDeps } from './hub.js';
 import { makeLaneStore } from './lanes.js';
 import { makeMarkStore } from './marks.js';
 import { makeSettingsStore } from './settings.js';
-import { openLog } from './log.js';
+import { LOG_LIMIT_BYTES, openLog, rotateLog } from './log.js';
 import { exitPathOf, hubJsonPathOf, logPathOf } from './paths.js';
 import { makeRegistries } from './registry.js';
 import { fingerprintOf, readHubRecord, recordedHub } from './discover.js';
@@ -76,11 +76,26 @@ export interface Served {
 export type ServeResult = { served: Served } | { existing: LiveHub };
 
 function fileLogger(home: string): (line: string) => void {
-  const fd = openLog(logPathOf(home));
+  const path = logPathOf(home);
+
+  let fd = openLog(path);
+  let written = 0;
 
   return (line) => {
+    const text = `${new Date().toISOString()} ${line}\n`;
+
     try {
-      appendFileSync(fd, `${new Date().toISOString()} ${line}\n`);
+      appendFileSync(fd, text);
+      written += text.length;
+
+      // Rotated by what this run has written rather than by a stat on every line: one long-lived hub can outwrite
+      // its own limit many times over, and the file it leaves is the one a developer opens.
+      if (written >= LOG_LIMIT_BYTES) {
+        written = 0;
+        closeSync(fd);
+        rotateLog(path);
+        fd = openSync(path, 'a');
+      }
     } catch {
       // A log that cannot be written is not a reason to stop tracking.
     }

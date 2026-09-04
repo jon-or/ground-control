@@ -31,10 +31,10 @@ export interface HubServerDeps {
   onShutdown(): void;
   /**
    * Where a refused request is recorded. A client that is turned away sees only a status, and the three refusals
-   * before any route reads as "this is not a hub" from there — so if the hub does not write them down, a board that
+   * before any route read as "this is not a hub" from there — so if the hub does not write them down, a board that
    * cannot reach the hub it can see leaves no evidence anywhere on the machine.
    */
-  log?(line: string): void;
+  log(line: string): void;
 }
 
 export interface HubServer {
@@ -63,6 +63,21 @@ export const MAX_EVENT_STREAMS = 8;
 
 /** A comment line down each stream, so a proxy or a client's own idle timeout never mistakes quiet for dead. */
 export const HEARTBEAT_MS = 20_000;
+
+/**
+ * What a minute of refusals may write. Any page the developer visits can make the hub refuse it — a `fetch` at the
+ * loopback port is refused for its `Origin`, needing no preflight — and each refusal is a synchronous append on the
+ * hub's own event loop. Without a bound, a page in a background tab is both an unbounded file and a slow board.
+ */
+export const REFUSALS_PER_MINUTE = 20;
+const REFUSAL_WINDOW_MS = 60_000;
+
+/** Enough of a target or a header to recognise it. The rest is whoever sent it choosing what the log looks like. */
+const REFUSAL_DETAIL_LIMIT = 120;
+
+function clipped(text: string): string {
+  return text.length > REFUSAL_DETAIL_LIMIT ? `${text.slice(0, REFUSAL_DETAIL_LIMIT)}…` : text;
+}
 
 /**
  * Both bound the arrival of a request, not the life of a response, so an event stream held open for hours is not
@@ -155,6 +170,10 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
   const clock = deps.clock ?? REAL_CLOCK;
   const token = newToken();
   const streams = new Map<string, Stream>();
+
+  /** The refusals written this minute, and when that minute began. Whoever is refused does not get to fill a disk. */
+  let refusals = 0;
+  let refusedSince = 0;
 
   let port = 0;
 
@@ -264,7 +283,8 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
 
   /**
    * Refused, and written down. The answer stays what it was — a client is told no more than that it was turned away
-   * — while the log carries the header that decided it, which is the only copy of that fact anywhere.
+   * — while the log carries the header that decided it, which is the only copy of that fact anywhere. What the
+   * refused party chose is clipped and rationed: it is the one thing here that a web page gets to put in a file.
    */
   function turnAway(
     request: IncomingMessage,
@@ -273,7 +293,21 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
     message: string,
     detail = message,
   ): void {
-    deps.log?.(`refused ${request.method ?? '?'} ${request.url ?? '?'}: ${detail}`);
+    const now = Date.now();
+
+    if (now - refusedSince > REFUSAL_WINDOW_MS) {
+      refusedSince = now;
+      refusals = 0;
+    }
+
+    refusals += 1;
+
+    if (refusals <= REFUSALS_PER_MINUTE) {
+      deps.log(`refused ${request.method ?? '?'} ${clipped(request.url ?? '?')}: ${detail}`);
+    } else if (refusals === REFUSALS_PER_MINUTE + 1) {
+      deps.log('refusing more than this log will carry; saying no more about it this minute');
+    }
+
     refuse(response, status, message);
   }
 
@@ -285,7 +319,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
         response,
         403,
         'This hub does not answer requests from a browser.',
-        `an Origin header, ${request.headers.origin}`,
+        `an Origin header, ${clipped(String(request.headers.origin))}`,
       );
 
       return;
@@ -307,7 +341,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
         response,
         403,
         'This hub answers only on its own loopback address.',
-        `a Host of ${request.headers.host ?? 'nothing'}, not 127.0.0.1:${port}`,
+        `a Host of ${clipped(request.headers.host ?? 'nothing')}, not 127.0.0.1:${port}`,
       );
 
       return;

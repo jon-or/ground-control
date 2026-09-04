@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { PROTOCOL } from '@ground-control/core';
-import { bundleIsNewer, makeEnsure } from '../src/ensure.js';
+import { START_POLL_MS, START_TIMEOUT_MS, bundleIsNewer, makeEnsure } from '../src/ensure.js';
 import type { EnsureDeps } from '../src/ensure.js';
 import type { Found, LiveHub } from '../src/discover.js';
 import { dirname } from 'node:path';
@@ -36,17 +36,16 @@ function harness(over: Partial<EnsureDeps> = {}) {
     asked: 0,
     answers: null as LiveHub | null,
     answersAfter: 0,
-    /** What is running that this client cannot talk to, and whether it was asked to stop. */
+    /** A hub of another protocol: running, this developer's, and not one this client can speak to. */
     other: null as LiveHub | null,
     stops: 0,
-    stopWorks: true,
     /** Which hub each stop was aimed at, so a stop of whatever the record names now is not mistaken for a hit. */
     stopped: [] as number[],
     /** What answers once a hub has been started, so a restart is a different hub from the one stood down. */
     startsWith: null as LiveHub | null,
-    /** Whether the bundle on disk was written after the running hub bound, and what a client that got nowhere finds. */
+    /** Whether the bundle on disk was written after the running hub bound, and what a look finds when none does. */
     bundleIsNewer: false,
-    lastLook: { miss: { why: 'no-record' } } as Found,
+    miss: { miss: { why: 'no-record' } } as Found,
   };
 
   const deps: EnsureDeps = {
@@ -58,31 +57,31 @@ function harness(over: Partial<EnsureDeps> = {}) {
         shape.answers = shape.startsWith;
       }
     },
-    findAny: () => Promise.resolve(shape.other ?? shape.answers),
     stop: (hub) => {
       shape.stops += 1;
       shape.stopped.push(hub.record.port);
-
-      if (!shape.stopWorks) {
-        return Promise.resolve(false);
-      }
 
       shape.other = null;
 
       return Promise.resolve(true);
     },
     bundleIsNewer: () => shape.bundleIsNewer,
-    lastLook: () => Promise.resolve(shape.lastLook),
     now: () => shape.now,
     sleep: (ms) => {
       shape.now += ms;
 
       return Promise.resolve();
     },
-    find: () => {
+    look: () => {
       shape.asked += 1;
 
-      return Promise.resolve(shape.asked > shape.answersAfter ? shape.answers : null);
+      if (shape.other !== null) {
+        return Promise.resolve({ miss: { why: 'another-protocol', hub: shape.other } } as Found);
+      }
+
+      const hub = shape.asked > shape.answersAfter ? shape.answers : null;
+
+      return Promise.resolve(hub ? { hub } : shape.miss);
     },
     ...over,
   };
@@ -236,6 +235,27 @@ describe('getting a hub to talk to', () => {
     expect(both[0]).toBe(both[1]);
   });
 
+  /**
+   * The wait is five seconds of waiting, not fifty sleeps of a tenth. A look can spend its own deadline twice over
+   * against a port held by something that never answers, and counting the sleeps would stretch this into minutes.
+   */
+  it('gives the start five seconds of the clock however long each look takes', async () => {
+    // Each look spends its own deadline twice, the way a port held by something that never answers makes it.
+    const { shape, ensure } = harness({
+      look: () => {
+        shape.asked += 1;
+        shape.now += 3500;
+
+        return Promise.resolve({ miss: { why: 'silent', record: LIVE.record } } as Found);
+      },
+    });
+
+    await ensure();
+
+    // One look before the start, two inside the wait, one after it. Counting sleeps would have made it fifty-two.
+    expect(shape.asked).toBe(4);
+  });
+
   it('reports a start that threw rather than waiting on it', async () => {
     const { ensure } = harness({
       start: () => {
@@ -265,16 +285,6 @@ describe('a hub still running an older copy of itself', () => {
     // The hub that was found, by its own record — never whatever the record names by the time the stop goes out.
     expect(shape.stopped).toEqual([LIVE.record.port]);
     expect(shape.starts).toBe(1);
-  });
-
-  it('is left alone when the bundle has not moved since it bound', async () => {
-    const { shape, ensure } = harness();
-
-    shape.answers = LIVE;
-
-    expect(await ensure()).toEqual({ hub: LIVE });
-    expect(shape.stops).toBe(0);
-    expect(shape.starts).toBe(0);
   });
 
   /** A stop with no start left behind it would leave the board with nothing, which is worse than an older hub. */
@@ -325,58 +335,65 @@ describe('something serving this home that will not take this client', () => {
    * Every one of these is a process that is up and did not become this client's hub. The remedy is the same for all
    * of them — end it — and which one it was is the whole of what a developer has to go on.
    */
-  const misses: [string, Found, string[]][] = [
-    [
-      'a hub holding a token this client cannot prove',
-      { miss: { why: 'unproven', record: held } },
-      ['cannot verify', '6789'],
-    ],
-    ['a listener that will not answer', { miss: { why: 'silent', record: held } }, ['will not answer', '6789']],
-    // Its pid is deliberately not named: the record describes the hub that died, not whatever took the port after.
-    ['something that is not a hub', { miss: { why: 'not-a-hub', record: held, status: null } }, ['not Ground Control']],
-    [
-      'a hub that answered and refused this window',
-      { miss: { why: 'not-a-hub', record: held, status: 403 } },
-      ['refused this window', '403'],
-    ],
-    ['a hub tracking another home', { miss: { why: 'another-home', record: held } }, ['different home', '6789']],
-    [
-      'a hub of another version',
-      { miss: { why: 'another-protocol', hub: { ...LIVE, record: held } } },
-      ['another version', '6789'],
-    ],
+  const misses: [string, Found, string][] = [
+    ['a hub holding a token this client cannot prove', { miss: { why: 'unproven', record: held } }, 'cannot verify'],
+    ['a listener that will not answer', { miss: { why: 'silent', record: held } }, 'will not answer'],
+    ['something that is not a hub', { miss: { why: 'not-a-hub', record: held } }, 'not Ground Control'],
+    ['a hub tracking another home', { miss: { why: 'another-home', record: held } }, 'different home'],
   ];
 
-  it.each(misses)('names %s, by the port it holds', async (_what, look, said) => {
+  /**
+   * The port is the record's in every case. The pid is not: only a listener that proved it holds the token wrote
+   * the record being read, and naming a pid from any other miss points at a hub that is gone — or, once the number
+   * has been handed out again, at something else entirely.
+   */
+  it.each(misses)('names %s by the port it holds, and never by a pid', async (_what, look, said) => {
     const { shape, ensure } = harness();
 
-    shape.lastLook = look;
+    shape.miss = look;
 
     const answer = await ensure();
 
-    for (const phrase of [...said, '4321']) {
-      expect('failed' in answer && answer.failed).toContain(phrase);
-    }
-
+    expect('failed' in answer && answer.failed).toContain(said);
+    expect('failed' in answer && answer.failed).toContain('4321');
+    expect('failed' in answer && answer.failed).not.toContain('6789');
     expect('failed' in answer && answer.failed).not.toContain('never answered');
   });
 
-  /** Nothing came to hold the port the record names, which is a hub that started and died rather than one in the way. */
-  it('says the port was never taken when the record names a port nothing holds', async () => {
+  /** The one listener that proved it wrote the record, so the one whose pid is the process to stop. */
+  it('names a hub of another version by its pid as well, because that one proved the record is its own', async () => {
     const { shape, ensure } = harness();
 
-    shape.lastLook = { miss: { why: 'unreachable', record: held } };
+    shape.miss = { miss: { why: 'another-protocol', hub: { ...LIVE, record: held } } };
 
     const answer = await ensure();
 
-    expect('failed' in answer && answer.failed).toContain('nothing came to hold port 4321');
+    expect('failed' in answer && answer.failed).toContain('another version');
+    expect('failed' in answer && answer.failed).toContain('pid 6789');
+  });
+
+  /**
+   * Nothing holds the port the record names, which is a hub that died rather than one in the way. The port it left
+   * is not one a new hub would take — every hub binds whatever is free — so the failure does not name it.
+   */
+  it('says the hub it started never recorded itself when nothing holds the recorded port', async () => {
+    const { shape, ensure } = harness();
+
+    shape.miss = { miss: { why: 'unreachable', record: held } };
+
+    const answer = await ensure();
+
+    expect('failed' in answer && answer.failed).toContain('never recorded itself');
+    expect('failed' in answer && answer.failed).not.toContain('4321');
   });
 
   /** The start ran long rather than failing. Connecting beats telling the developer about a race they cannot see. */
   it('takes the hub that turned up while this was giving up on it', async () => {
     const { shape, ensure } = harness();
 
-    shape.lastLook = { hub: LIVE };
+    shape.answers = LIVE;
+    // One look before the start, then one per poll of the wait: the hub turns up on the look after all of those.
+    shape.answersAfter = 1 + START_TIMEOUT_MS / START_POLL_MS;
 
     expect(await ensure()).toEqual({ hub: LIVE });
   });
@@ -386,14 +403,14 @@ describe('something serving this home that will not take this client', () => {
    * copy that replaced it does not run. Nothing else on the machine says so, so the failure has to.
    */
   it('is not what is said when the hub this client stopped never came back', async () => {
-    let up: LiveHub | null = LIVE;
+    let up: Found = { hub: LIVE };
     let stops = 0;
 
     const { shape, ensure } = harness({
-      find: () => Promise.resolve(up),
+      look: () => Promise.resolve(up),
       stop: () => {
         stops += 1;
-        up = null;
+        up = { miss: { why: 'no-record' } };
 
         return Promise.resolve(true);
       },
@@ -447,6 +464,14 @@ describe('whether the hub on disk is newer than the hub that is running', () => 
   /** No record is no hub to displace, and the start that follows is the ordinary one. */
   it('is false when no hub has left a record', () => {
     write(bundlePathOf(home), NOON);
+
+    expect(bundleIsNewer(home)).toBe(false);
+  });
+
+  /** The stable state after a restart: the hub wrote its record from the bundle it is running. Nothing to replace. */
+  it('is false when the two were written at the same moment', () => {
+    write(bundlePathOf(home), NOON);
+    write(hubJsonPathOf(home), NOON);
 
     expect(bundleIsNewer(home)).toBe(false);
   });
