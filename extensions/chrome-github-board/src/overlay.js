@@ -49,9 +49,23 @@ const PHASE_WORDS = { running: 'running', waiting: 'needs you', idle: 'idle' };
 
 /**
  * The card's own box pads 8px above and 12px below its content and nothing at the sides (`mechanics.md` §27), so a
- * footer reaches the card's three edges by cancelling that bottom padding alone.
+ * footer reaches the card's three edges by cancelling that bottom padding alone. The columns are pulled together
+ * over the attribute GitHub's own drag-and-drop needs rather than the hashed class beside it, and by 1px rather
+ * than to 0: each column draws a 1px border, so meeting at 0 would draw the divider between two of them twice.
+ *
+ * The dividers between them are then drawn as two 1px background strips over transparent borders, rather than as
+ * the borders themselves: only that way do they fade, and `border-image` — the one property that gradients a real
+ * border — would take the column's 6px radius with it. `border-box` origin puts each strip on the border it
+ * replaces, the radius clips them, and the token carries the colour into GitHub's dark theme.
  */
 const CSS = `
+${COLUMN} { margin-right: -1px !important;
+  border-left-color: transparent !important; border-right-color: transparent !important;
+  border-bottom-color: transparent !important;
+  background-origin: border-box !important; background-repeat: no-repeat !important;
+  background-position: left top, right top !important; background-size: 1px 100%, 1px 100% !important;
+  background-image: linear-gradient(to bottom, var(--borderColor-default, #d0d7de), transparent),
+    linear-gradient(to bottom, var(--borderColor-default, #d0d7de), transparent) !important; }
 .${BADGE_CLASS} { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin: 8px 0 -12px;
   padding: 6px 8px; border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 0 0 5px 5px;
   background: var(--bgColor-muted, #f6f8fa); }
