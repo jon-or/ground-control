@@ -140,8 +140,27 @@ function call(
   });
 }
 
+/**
+ * What a listener that is not this home's hub answered. Kept and shown, because the alternative is telling a
+ * developer that a stranger holds the port on no evidence — and the answer is the only evidence there is: a hub
+ * that turned this client away logs it, and anything else on that port keeps no record of having been asked.
+ */
+export interface Saw {
+  status: number;
+  said: string;
+}
+
+/** Enough of an answer to recognise what gave it. One line, because this goes in a notification. */
+const SAID_LIMIT = 60;
+
+function saw(answer: Answer): Saw {
+  const said = answer.body.replace(/\s+/g, ' ').trim();
+
+  return { status: answer.status, said: said.length > SAID_LIMIT ? `${said.slice(0, SAID_LIMIT)}\u2026` : said };
+}
+
 /** Asks whatever holds the port what it is: what it said it was, or how the asking came to nothing. */
-type Probed = HubIdentity | Unanswered | 'not-a-hub';
+type Probed = HubIdentity | Unanswered | { notAHub: Saw };
 
 export async function probe(port: number, timeoutMs = PROBE_TIMEOUT_MS, nonce?: string): Promise<Probed> {
   const answer = await call(port, 'GET', nonce ? `/hub?nonce=${nonce}` : '/hub', null, timeoutMs);
@@ -151,15 +170,15 @@ export async function probe(port: number, timeoutMs = PROBE_TIMEOUT_MS, nonce?: 
   }
 
   if (answer.status !== 200) {
-    return 'not-a-hub';
+    return { notAHub: saw(answer) };
   }
 
   try {
     const parsed = hubIdentity.safeParse(JSON.parse(answer.body));
 
-    return parsed.success ? parsed.data : 'not-a-hub';
+    return parsed.success ? parsed.data : { notAHub: saw(answer) };
   } catch {
-    return 'not-a-hub';
+    return { notAHub: saw(answer) };
   }
 }
 
@@ -195,7 +214,7 @@ export type HubMiss =
   | { why: 'no-record' }
   | { why: 'unreachable'; record: HubRecord }
   | { why: 'silent'; record: HubRecord }
-  | { why: 'not-a-hub'; record: HubRecord }
+  | { why: 'not-a-hub'; record: HubRecord; saw: Saw }
   | { why: 'another-home'; record: HubRecord }
   | { why: 'unproven'; record: HubRecord }
   | { why: 'another-protocol'; hub: LiveHub };
@@ -225,6 +244,10 @@ export async function findHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promi
 
   if (typeof identity === 'string') {
     return { miss: { why: identity, record } };
+  }
+
+  if ('notAHub' in identity) {
+    return { miss: { why: 'not-a-hub', record, saw: identity.notAHub } };
   }
 
   // The fingerprint says which home; the proof says it is the hub that minted this record. A home path is guessable,

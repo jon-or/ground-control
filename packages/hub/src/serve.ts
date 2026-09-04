@@ -103,6 +103,16 @@ function fileLogger(home: string): (line: string) => void {
 }
 
 /**
+ * Why this process is not the hub, left where a client's failure message reads it: a spawn that stood down and a
+ * spawn that died are the same silence to whoever asked for it, and only one of them means a hub is running.
+ */
+function standDown(home: string, port: number): void {
+  const reason = `a hub was already serving this home on port ${port}`;
+
+  writeAtomic(exitPathOf(home), JSON.stringify({ code: 0, at: new Date().toISOString(), reason }, null, 2));
+}
+
+/**
  * Claims this home for this process. Exclusive create rather than a plain write: two hubs racing each other both
  * bind — `listen(0)` cannot collide, so binding decides nothing — and the second overwriting the first would leave
  * two live hubs polling, both rewriting `lanes.json` whole.
@@ -140,6 +150,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
 
   if (already) {
     log(`a hub is already serving this home on port ${already.record.port}; nothing to do`);
+    standDown(home, already.record.port);
 
     return { existing: already };
   }
@@ -220,6 +231,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
       }
 
       log(`another hub claimed this home first, on port ${other.record.port}; standing down`);
+      standDown(home, other.record.port);
 
       return { existing: other };
     }

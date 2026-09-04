@@ -151,12 +151,26 @@ describe('asking a port what it is', () => {
     const wrongShape = await foreignListener({ hub: 'something-else', protocol: 1, fingerprint: 'abc' });
     const refusing = await foreignListener({ hub: 'ground-control', protocol: 1, fingerprint: 'abc' }, 500);
 
-    expect(await probe(notJson.port)).toBe('not-a-hub');
-    expect(await probe(wrongShape.port)).toBe('not-a-hub');
+    // What it answered is kept, and it is the whole of the evidence: telling a developer a stranger holds the
+    // port is a claim, and the status and the first line of the body are what backs it.
+    expect(await probe(notJson.port)).toEqual({ notAHub: { status: 200, said: '<html>a dev server</html>' } });
+    expect(await probe(wrongShape.port)).toMatchObject({ notAHub: { status: 200 } });
     // A hub answers `/hub` before it reads a token, and a client's own probe carries nothing it would refuse, so
     // an answer that says no is a listener that is not one — never this developer's hub turning them away.
-    expect(await probe(refusing.port)).toBe('not-a-hub');
+    expect(await probe(refusing.port)).toMatchObject({ notAHub: { status: 500 } });
     expect(await probe(1, 200)).toBe('unreachable');
+  });
+
+  /** A notification is one line. What a listener that keeps talking said is cut down to something that fits one. */
+  it('keeps only enough of the answer to recognise what gave it', async () => {
+    const chatty = await foreignListener(`a dev server ${'x'.repeat(400)}`);
+    const answer = await probe(chatty.port);
+
+    const said = typeof answer !== 'string' && 'notAHub' in answer ? answer.notAHub.said : '';
+
+    expect(answer).toMatchObject({ notAHub: { status: 200 } });
+    expect(said).toHaveLength(61);
+    expect(said.endsWith('\u2026')).toBe(true);
   });
 
   /** The deadline is what a hub waits on before it binds, so a listener that never finishes must not hold it there. */
@@ -331,7 +345,9 @@ describe('why this home has no hub to talk to', () => {
 
       writeRecord(home, { port: listener.port });
 
-      expect(await findHub(home)).toEqual({ miss: { why: 'not-a-hub', record: readHubRecord(home) } });
+      expect(await findHub(home)).toEqual({
+        miss: { why: 'not-a-hub', record: readHubRecord(home), saw: { status: 200, said: '{"hub":"something-else"}' } },
+      });
     } finally {
       dispose();
     }

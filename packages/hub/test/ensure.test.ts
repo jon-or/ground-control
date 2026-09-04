@@ -338,7 +338,11 @@ describe('something serving this home that will not take this client', () => {
   const misses: [string, Found, string][] = [
     ['a hub holding a token this client cannot prove', { miss: { why: 'unproven', record: held } }, 'cannot verify'],
     ['a listener that will not answer', { miss: { why: 'silent', record: held } }, 'will not answer'],
-    ['something that is not a hub', { miss: { why: 'not-a-hub', record: held } }, 'not Ground Control'],
+    [
+      'something that is not a hub',
+      { miss: { why: 'not-a-hub', record: held, saw: { status: 502, said: 'Proxy Error' } } },
+      'not as Ground Control',
+    ],
     ['a hub tracking another home', { miss: { why: 'another-home', record: held } }, 'different home'],
   ];
 
@@ -358,6 +362,41 @@ describe('something serving this home that will not take this client', () => {
     expect('failed' in answer && answer.failed).toContain('4321');
     expect('failed' in answer && answer.failed).not.toContain('6789');
     expect('failed' in answer && answer.failed).not.toContain('never answered');
+  });
+
+  /**
+   * Saying a stranger holds the port is a claim about someone else's process. What the port answered is the only
+   * evidence for it, and without that a developer has nothing to tell a proxy from a dev server from a stale record.
+   */
+  it('says what the port answered, rather than only that it was not the hub', async () => {
+    const { shape, ensure } = harness();
+
+    shape.miss = { miss: { why: 'not-a-hub', record: held, saw: { status: 502, said: 'Proxy Error' } } };
+
+    const answer = await ensure();
+
+    expect('failed' in answer && answer.failed).toContain('HTTP 502');
+    expect('failed' in answer && answer.failed).toContain('Proxy Error');
+  });
+
+  /**
+   * The spawn stands down when a hub is already serving, and says so in `hub-exit.json`. Without that sentence the
+   * message tells a developer to go stop a stranger while their own hub is up and only this window cannot see it.
+   */
+  it('says a hub is running when the one it started stood down for it', async () => {
+    const { shape, ensure } = harness();
+
+    mkdirSync(dirname(exitPathOf(home)), { recursive: true });
+    writeFileSync(
+      exitPathOf(home),
+      JSON.stringify({ code: 0, at: '', reason: 'a hub was already serving this home on port 4321' }),
+    );
+
+    shape.miss = { miss: { why: 'not-a-hub', record: held, saw: { status: 404, said: '' } } };
+
+    const answer = await ensure();
+
+    expect('failed' in answer && answer.failed).toContain('a hub is running that this window cannot reach');
   });
 
   /** The one listener that proved it wrote the record, so the one whose pid is the process to stop. */
