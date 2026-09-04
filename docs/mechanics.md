@@ -1249,8 +1249,12 @@ Two things follow. A hub killed with `/F` never removes `hub.json`, so **a stale
 | `[data-board-card-id]` | one card | the project item id, and `data-hovercard-subject-tag="issue:<node id>"` |
 | `a[href*="/issues/"]` inside a card | the issue link | the issue number, in the href |
 | `[role="region"][aria-label="View filters"]` | the filter bar | GitHub’s own View button; the overlay’s menu goes after it |
+| `[role="navigation"][aria-label="Project"]` | the project's title bar | the project name, in an `h1` |
+| `nav[aria-label="Select view"]` | the view tabs | one `[role="tab"]` per view |
 
 So the overlay reads the issue number off the link and nothing off a class. A draft item has no such link, which is how a card with no issue is told from one whose issue is not on the developer's board.
+
+**The rows above the board are found by attribute and then climbed.** Both header rows sit in wrappers whose classes are hashed, so the overlay locates each by the attribute above and climbs to the last ancestor that still does not contain `#project-items-region`: for the title bar that is the bar itself, and for the tabs it is the container holding the row and its new-view button, whose parent is `#memex-project-view-root`. Hiding the `nav` alone leaves that container as a stripe of empty page. The Save and Discard of an unsaved filter are in a third wrapper, a child of the filter bar, and it is found by the words on its buttons — nothing else in it is stable, and GitHub draws Save only for someone who can write to the board.
 
 **A card is a drag handle wrapped around a box.** `[data-board-card-id]` draws no border of its own: its first element child is what the developer sees as the card — a 1px border, a 6px radius, and padding of 8px above its content and 12px below, with none at the sides. So the overlay's footer goes in that child, where cancelling the 12px reaches the card's bottom, left and right edges; appended to the card element itself it hangs below the border instead. And the one native-looking button GitHub will lend is its own: the View button in the filter bar carries `data-component="Button"` and per-build hashed classes, so the overlay copies the class list off it rather than writing one down.
 

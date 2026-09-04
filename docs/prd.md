@@ -245,6 +245,8 @@ Reading the machine — the issues, the sessions, what each is doing, where each
 **R36. The board is also available as an overlay on the team's GitHub project board.**
 A developer looking at the project board in the browser sees, inside each of their cards, the sessions on it and what each is doing, and the same conditions R25 asks be stated once. The overlay watches and moves cards; it does not take a session over. Taking over needs the editor (R14, R15), so that stays the editor's, and the overlay says so rather than opening something that looks right.
 
+The overlay also gives the board back the height GitHub's own header takes: a button beside its own folds the project's title bar, the row of view tabs, and the Save and Discard an unsaved filter puts in the bar. The choice is the developer's and it sticks — remembered in the browser, so it holds across a reload and across every board they open, rather than resetting each time the tab does.
+
 ### Honesty
 
 **R24. The board never shows a state it has not verified.**

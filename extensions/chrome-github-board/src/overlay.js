@@ -19,6 +19,8 @@ export const BOARD_REGION = '#project-items-region';
 export const CARD = '[data-board-card-id]';
 export const COLUMN = '[data-board-column]';
 export const TOOLBAR = '[role="region"][aria-label="View filters"]';
+export const PROJECT_NAV = '[role="navigation"][aria-label="Project"]';
+export const VIEW_TABS = 'nav[aria-label="Select view"]';
 
 const MENU_ID = 'gc-menu';
 const PERCH_ID = 'gc-perch';
@@ -26,6 +28,10 @@ const TOASTS_ID = 'gc-toasts';
 const STYLE_ID = 'gc-style';
 const BADGE_CLASS = 'gc-badge';
 const POPOVER_CLASS = 'gc-popover';
+const HIDDEN_ATTR = 'data-gc-hidden';
+
+/** Where the collapse is remembered. Page-origin storage, so it is per developer and per browser rather than per tab. */
+const COLLAPSE_KEY = 'ground-control:header-collapsed';
 
 /** @type {Record<string, string>} */
 export const LANE_TITLES = {
@@ -70,7 +76,9 @@ const CSS = `
 .${POPOVER_CLASS} button[role]:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
 .${POPOVER_CLASS} .gc-tick { width: 16px; flex: none; }
 .${POPOVER_CLASS} .gc-actions { display: flex; justify-content: flex-end; padding: 4px 12px 8px; }
-#${MENU_ID} { display: inline-flex; }
+[${HIDDEN_ATTR}] { display: none !important; }
+#${MENU_ID} { display: inline-flex; gap: 4px; }
+#${MENU_ID} .gc-collapse { padding-left: 6px; padding-right: 6px; }
 #${MENU_ID} button[data-stale="true"]::after { content: ""; width: 6px; height: 6px; margin-left: 6px;
   border-radius: 50%; background: var(--bgColor-attention-emphasis, #bf8700); }
 #${PERCH_ID} { display: flex; justify-content: flex-end; margin: 8px 16px; }
@@ -94,6 +102,15 @@ const CSS = `
  */
 let openMenu = null;
 let panelOpen = false;
+
+/**
+ * Whether the project's own header is folded away, cached from page storage on first read: the collapse is applied
+ * on every scan, and a board that read storage a few times a second would be doing it for an answer that changes
+ * when the developer clicks. Null until the first read.
+ *
+ * @type {boolean | null}
+ */
+let collapsed = null;
 
 /** Toasts the developer has closed, by key. Dropped again once the thing they were about is no longer true. */
 const dismissed = new Set();
@@ -394,6 +411,164 @@ function nativeButton(doc, host) {
   return button;
 }
 
+/** What the buttons in the filter bar that belong to an unsaved filter say. Every class in that bar is hashed. */
+const FILTER_ACTIONS = ['Save', 'Discard'];
+
+/**
+ * The container GitHub puts those buttons in, which is a child of the bar rather than the bar itself — hiding the
+ * buttons one at a time would leave the gap they sat in.
+ *
+ * @param {Document} doc
+ * @returns {Element[]}
+ */
+function filterActions(doc) {
+  for (const child of doc.querySelector(TOOLBAR)?.children ?? []) {
+    const acts = [...child.querySelectorAll('button')].some((button) =>
+      FILTER_ACTIONS.includes((button.textContent ?? '').trim()),
+    );
+
+    if (acts) {
+      return [child];
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Everything the collapse folds away: the project's title bar, the row of view tabs, and the Save and Discard an
+ * unsaved filter puts in the bar. Each row is found by an attribute GitHub gives it and then climbed to the last
+ * ancestor that still does not hold the board — the wrappers are hashed per build, and hiding the tab list alone
+ * would leave the container it sits in as a stripe of empty page.
+ *
+ * @param {Document} doc
+ * @returns {Element[]}
+ */
+export function foldedRows(doc) {
+  const region = doc.querySelector(BOARD_REGION);
+
+  // No board on the page yet: a climb with nothing to stop it would run to the page's own root and fold the site away.
+  if (region === null) {
+    return [];
+  }
+
+  /** @type {Element[]} */
+  const rows = [];
+
+  for (const selector of [PROJECT_NAV, VIEW_TABS]) {
+    let row = doc.querySelector(selector);
+
+    while (row?.parentElement != null && !row.parentElement.contains(region) && row.parentElement !== doc.body) {
+      row = row.parentElement;
+    }
+
+    if (row !== null && !rows.some((held) => held.contains(row))) {
+      rows.push(row);
+    }
+  }
+
+  return [...rows, ...filterActions(doc)];
+}
+
+/**
+ * A browser told to block site data throws on the storage itself, not only on the write, and the overlay still has
+ * a board to paint. An unreadable choice is the same as one never made.
+ *
+ * @param {Document} doc
+ * @returns {boolean}
+ */
+function isCollapsed(doc) {
+  if (collapsed === null) {
+    try {
+      collapsed = doc.defaultView?.localStorage.getItem(COLLAPSE_KEY) === 'true';
+    } catch {
+      collapsed = false;
+    }
+  }
+
+  return collapsed;
+}
+
+/**
+ * @param {Document} doc
+ * @param {boolean} wanted
+ */
+function setCollapsed(doc, wanted) {
+  collapsed = wanted;
+
+  try {
+    doc.defaultView?.localStorage.setItem(COLLAPSE_KEY, String(wanted));
+  } catch {
+    // Storage full or refused. The collapse still holds for this tab; it just will not survive a reload.
+  }
+}
+
+/**
+ * Folds the header away, or puts it back. Reapplied on every scan rather than once, because a view switch replaces
+ * those rows along with the cards (`mechanics.md` §27) and the replacement arrives unhidden.
+ *
+ * @param {Document} doc
+ */
+function applyCollapse(doc) {
+  const wanted = isCollapsed(doc) ? foldedRows(doc) : [];
+
+  for (const stale of doc.querySelectorAll(`[${HIDDEN_ATTR}]`)) {
+    if (!wanted.includes(stale)) {
+      stale.removeAttribute(HIDDEN_ATTR);
+    }
+  }
+
+  for (const row of wanted) {
+    row.setAttribute(HIDDEN_ATTR, 'true');
+  }
+}
+
+/** Octicons `chevron-up` and `chevron-down`, drawn rather than fetched — the same rule the agent mark follows. */
+const CHEVRONS = {
+  up: 'M3.22 10.53a.749.749 0 0 1 0-1.06l4.25-4.25a.749.749 0 0 1 1.06 0l4.25 4.25a.749.749 0 1 1-1.06 1.06L8 6.811 4.28 10.53a.749.749 0 0 1-1.06 0Z',
+  down: 'M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z',
+};
+
+/**
+ * The button beside Ground Control's, which folds the project's title and view tabs away to give the board the
+ * height. The choice is remembered in page storage, so it holds across a reload and across every board the
+ * developer opens rather than resetting each time the tab does.
+ *
+ * @param {Document} doc
+ * @param {Element} host
+ * @param {Actions} actions
+ * @returns {HTMLElement}
+ */
+function collapseButton(doc, host, actions) {
+  const button = nativeButton(doc, host);
+  const folded = isCollapsed(doc);
+  const svg = doc.createElementNS(SVG_NS, 'svg');
+  const mark = doc.createElementNS(SVG_NS, 'path');
+
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('width', '16');
+  svg.setAttribute('height', '16');
+  svg.setAttribute('fill', 'currentColor');
+  svg.setAttribute('aria-hidden', 'true');
+  mark.setAttribute('d', folded ? CHEVRONS.down : CHEVRONS.up);
+  svg.appendChild(mark);
+
+  button.className = `${button.className} gc-collapse`.trim();
+  button.id = 'gc-collapse';
+  button.appendChild(svg);
+  button.setAttribute('aria-pressed', String(folded));
+  button.title = folded ? 'Show the project header' : 'Hide the project header';
+  button.setAttribute('aria-label', button.title);
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    setCollapsed(doc, !folded);
+    actions.repaint();
+  });
+
+  return button;
+}
+
 /**
  * What R25 asks be said once rather than on every card, in the place a developer goes looking for it: how old the
  * reading is, what the install did, and the refresh. What went wrong is a toast instead — a failure a developer has
@@ -433,6 +608,7 @@ export function renderMenu(doc, state, now, actions) {
     actions.repaint();
   });
   holder.appendChild(button);
+  holder.appendChild(collapseButton(doc, host, actions));
   host.appendChild(holder);
 
   if (!panelOpen) {
@@ -726,8 +902,13 @@ function renderBadge(doc, element, card, now, actions) {
 export function clear(doc) {
   openMenu = null;
   panelOpen = false;
+  collapsed = null;
   dismissed.clear();
   closeOnOutsideClick(doc, [], () => {});
+
+  for (const row of doc.querySelectorAll(`[${HIDDEN_ATTR}]`)) {
+    row.removeAttribute(HIDDEN_ATTR);
+  }
 
   for (const id of [MENU_ID, PERCH_ID, TOASTS_ID]) {
     doc.getElementById(id)?.remove();
@@ -763,6 +944,7 @@ export function paint(doc, state, now, actions) {
 
   const menu = renderMenu(doc, state, now, actions);
 
+  applyCollapse(doc);
   renderToasts(doc, state);
 
   const index = state.snapshot === null ? null : cardsByIssue(state.snapshot);

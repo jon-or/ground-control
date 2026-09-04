@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { ago, agentIcon, cardsByIssue, clear, issueRefOf, paint } from '../src/overlay.js';
+import { ago, agentIcon, cardsByIssue, clear, foldedRows, issueRefOf, paint } from '../src/overlay.js';
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
@@ -89,6 +89,8 @@ beforeEach(() => {
   actions.repaint.mockReset();
   // The open lane list is module state, so a test that left one open would leak into the next.
   clear(document);
+  // And the collapse outlives a tab on purpose, which means it outlives a test unless the storage goes with it.
+  localStorage.clear();
 });
 
 function badges(): HTMLElement[] {
@@ -409,6 +411,151 @@ describe('the menu in the board’s own filter bar', () => {
     paint(document, state(), NOW, actions);
 
     expect(document.querySelectorAll('.gc-popover')).toHaveLength(0);
+  });
+});
+
+describe('folding the project header away', () => {
+  function collapse(): void {
+    document.querySelector<HTMLElement>('#gc-collapse')!.click();
+    paint(document, state(), NOW, actions);
+  }
+
+  /** What is folded, named by something a reader recognises rather than by the hashed class it wears. */
+  function hidden(): string[] {
+    return [...document.querySelectorAll('[data-gc-hidden]')].map(
+      (row) => row.getAttribute('aria-label') ?? (row.querySelector('[role="tablist"]') ? 'view tabs' : (row.textContent ?? '').trim()),
+    );
+  }
+
+  /** Both wrappers are hashed per build, so what is found is the row rather than the attribute that located it. */
+  it('finds the title bar and the whole tab row, not the tab list inside it', () => {
+    const rows = foldedRows(document);
+
+    expect(rows).toHaveLength(3);
+    expect(rows[0]!.getAttribute('aria-label')).toBe('Project');
+    expect(rows[1]!.contains(document.querySelector('nav[aria-label="Select view"]'))).toBe(true);
+    expect(rows[1]!.querySelector('[role="tablist"]')).not.toBe(rows[1]);
+    expect(rows[1]!.parentElement?.id).toBe('memex-project-view-root');
+    expect(rows[2]!.textContent).toBe('Discard');
+  });
+
+  it('sits to the right of the Ground Control button, and hides nothing until it is clicked', () => {
+    paint(document, state(), NOW, actions);
+
+    const holder = document.getElementById('gc-menu')!;
+
+    expect(holder.children[0]!.textContent).toBe('Ground Control');
+    expect(holder.children[1]!.id).toBe('gc-collapse');
+    expect(holder.children[1]!.getAttribute('aria-pressed')).toBe('false');
+    expect(hidden()).toEqual([]);
+  });
+
+  it('folds both rows away when it is clicked, and puts them back on the next', () => {
+    paint(document, state(), NOW, actions);
+    collapse();
+
+    expect(hidden()).toEqual(['Project', 'view tabs', 'Discard']);
+    expect(document.querySelector('#gc-collapse')?.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('#gc-collapse')?.getAttribute('aria-label')).toBe('Show the project header');
+
+    collapse();
+
+    expect(hidden()).toEqual([]);
+    expect(document.querySelector('#gc-collapse')?.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  /**
+   * An anonymous recording can only ever show Discard: Save needs write access to the board. The container is what
+   * the collapse hides, and finding it by either word is the whole of the rule.
+   */
+  it('folds the actions away when the filter is unsaved and only Save is showing', () => {
+    const discard = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Discard')!;
+
+    discard.textContent = 'Save';
+    paint(document, state(), NOW, actions);
+    collapse();
+
+    expect(hidden()).toEqual(['Project', 'view tabs', 'Save']);
+  });
+
+  it('leaves the bar alone when the filter has nothing to save', () => {
+    document.querySelector('.filter-input-actions-module__Box__oDpBc')!.remove();
+    paint(document, state(), NOW, actions);
+    collapse();
+
+    expect(hidden()).toEqual(['Project', 'view tabs']);
+    expect(document.querySelector('#gc-menu')?.closest('[data-gc-hidden]')).toBeNull();
+  });
+
+  /** The point of storing it: a reload is a fresh module and a fresh page, and the board comes back as it was left. */
+  it('is still folded after the tab is reloaded', () => {
+    paint(document, state(), NOW, actions);
+    collapse();
+
+    document.documentElement.innerHTML = BOARD;
+    clear(document);
+    paint(document, state(), NOW, actions);
+
+    expect(hidden()).toEqual(['Project', 'view tabs', 'Discard']);
+    expect(localStorage.getItem('ground-control:header-collapsed')).toBe('true');
+  });
+
+  /** A view switch replaces those rows along with the cards (`mechanics.md` §27), and the replacement arrives shown. */
+  it('folds the rows a re-render replaced', () => {
+    paint(document, state(), NOW, actions);
+    collapse();
+
+    document.documentElement.innerHTML = BOARD;
+    paint(document, state(), NOW, actions);
+
+    expect(hidden()).toEqual(['Project', 'view tabs', 'Discard']);
+  });
+
+  /** A climb with nothing to stop it runs to the page's own root, and folding the site away is the one bad outcome. */
+  it('hides nothing on a page with no board on it yet', () => {
+    document.getElementById('project-items-region')!.remove();
+
+    expect(foldedRows(document)).toEqual([]);
+
+    localStorage.setItem('ground-control:header-collapsed', 'true');
+    paint(document, state(), NOW, actions);
+
+    expect(hidden()).toEqual([]);
+  });
+
+  it('puts the header back when the overlay leaves the board', () => {
+    paint(document, state(), NOW, actions);
+    collapse();
+    clear(document);
+
+    expect(hidden()).toEqual([]);
+    expect(document.getElementById('gc-collapse')).toBeNull();
+  });
+
+  it('starts expanded when the browser refuses to be read', () => {
+    const refused = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('site data is blocked');
+    });
+
+    paint(document, state(), NOW, actions);
+
+    expect(hidden()).toEqual([]);
+    expect(document.querySelector('#gc-collapse')?.getAttribute('aria-pressed')).toBe('false');
+
+    refused.mockRestore();
+  });
+
+  it('still folds for this tab when the browser refuses to be written to', () => {
+    const refused = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage is full');
+    });
+
+    paint(document, state(), NOW, actions);
+    collapse();
+
+    expect(hidden()).toEqual(['Project', 'view tabs', 'Discard']);
+
+    refused.mockRestore();
   });
 });
 
