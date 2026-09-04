@@ -106,7 +106,7 @@ interface HostAdapter {
 }
 ```
 
-A host adapter takes `MachineReaders` rather than the full `MachineDeps`: linking a branch to an issue is an agent's job, and a host never does it. Its own permissions stay inside it: whether the board may bring another window forward is R27's rule about one application's windows, so `configure` parses it and `plan` applies it, and the hub carries no setting whose meaning is a host's.
+A host adapter takes `MachineReaders` rather than the full `MachineDeps`: linking a branch to an issue is an agent's job, and a host never does it. Its own permissions stay inside it: whether the board may bring another window forward is R27's rule about one application's windows, so `configure` parses it and `plan` applies it, and the hub carries no setting whose meaning is a host's. Only a host the configuration names is reached at all: one left out of it was handed no settings, and an editor reached on defaults nobody chose reads another install's windows and brings the wrong one forward.
 
 Two rules keep the seams from bleeding into each other.
 
@@ -118,7 +118,27 @@ Two rules keep the seams from bleeding into each other.
 
 ### Work source
 
-One per place work items come from. `github` reads the developer's assigned issues through `gh` and reports the GitHub Projects status that decides whether a card is on the board and where it arrives (`prd.md` R8, R9). The `.factory/` control plane becomes a second source when stations exist, and station state then becomes the second thing that may move a card. The interface is the existing `fetchAssignedIssues` contract generalised: a configured id, a `configure(raw)` that parses the source's own settings, a fetch returning items or a classified failure, and a status vocabulary the lane rules map.
+One per place work items come from. `github` reads the developer's assigned issues through `gh` and reports the GitHub Projects status that decides whether a card is on the board and where it arrives (`prd.md` R8, R9). The `.factory/` control plane becomes a second source when stations exist, and station state then becomes the second thing that may move a card.
+
+```ts
+interface WorkSource {
+  readonly id: string;
+  readonly displayName: string;
+  /** Takes this source's entry in the configuration and holds it, or names why it will not read with it. */
+  configure(raw: unknown): ReadFailure | null;
+  read(): Promise<SourceReading>;
+}
+```
+
+A source holds the last configuration it accepted, and a refused one leaves it holding nothing: reading with the settings from before a refusal is reading with settings nobody set, under a board that already says the settings were refused. So `SourceReading` is three nullable fields rather than a result, and the two ways of reading nothing are told apart. `items` null beside a `failure` is a read that failed, and keeps whatever the source last returned on the board (R24). All three null is a source with nothing to say at all, and its cards go: they were read for a repository the developer is no longer asking about.
+
+`needs` is what a source can work out for itself but may not adopt. GitHub reads the logged-in accounts out of `gh auth status`; every query it makes is `assignee:`, and picking one would put somebody else's issues on the board as the developer's. So it reports them as detected, reads nothing, and a client puts the question to the developer (R26, R28).
+
+`WorkItems` carries the cards, the counts R1 asks to be stated, and `owners` — who the read was actually made for, which the lane rules use to tell the developer's own pull request from a colleague's. That is a read of the source, not of the setting, so a login the developer has just typed does not change how cards are laned until the read that used it lands.
+
+The hub reads the sources its configuration names and no others, so a source in the registry that nobody asked for costs nothing. A source the configuration stops naming, and one whose settings it refuses, both lose their last read the moment that configuration lands rather than at the next poll: with nothing watching there may not be one, and cards read for settings nobody is naming any more would sit on the board for the length of a poll interval. A board with a source it cannot read is stale and dims, whether the read failed or the settings for it were refused — a misconfigured host is worth saying and is not staleness, because the cards on screen are still what the world says.
+
+Every source's last read merges into one board, and the items' `fetchedAt` is the oldest of them: the board is only as fresh as the source that has not been read since. A source that throws rather than returning a failure is named on the board like one that failed — the seam is public, and a rejection swallowed would take the whole pass's broadcast with it and say nothing anywhere the developer looks.
 
 ## 3. The hub
 
@@ -130,7 +150,7 @@ The hub is the loop that was the board panel's, made headless and made one per m
 - **Idle when unwatched.** A client says whether it is watching: the VS Code panel reports hidden, and the Chrome bridge disconnects when no project-board tab exists. With no client watching, the hub stops polling and an activity event costs nothing. Each session poll costs about a fifth of a second of CLI time (`mechanics.md` §2), which nobody would be looking at. The hub exits after 30 minutes at zero clients, and the next board open starts it again in about a second. A window that has activated the extension stays connected whether or not a board is open, because a setting changed with no board on screen still has to reach it (R34).
 - **Lane memory is a file.** `~/.claude/ground-control/lanes.json`, written atomically, read by every client through the snapshot. A client never stores placement of its own.
 - **Activity install is the hub's.** It applies each agent's `ActivityPlan` under the existing install lock and reports what it observed, never what it intended (R25). The install and announce marks live in `hub-marks.json`; the announce is per client, so a second window still sees the notice once.
-- **The hub owns the defaults.** Its configuration is built from each adapter's `defaultPath` and `defaultEnabled` (R30) plus the shipped statuses and lanes (R27). A client pushes its settings on connect and on every change, and they merge over the defaults, so a hub started by the Chrome bridge alone polls with sane settings. Every setting that reaches the hub is application-scoped in VS Code: one board's memory is shared by every window (R9), so two windows can never disagree.
+- **The hub owns the defaults.** Its configuration is built from each adapter's `defaultPath` and `defaultEnabled` (R30) plus the shipped statuses and lanes (R27). A client pushes its settings on connect and on every change, and they merge over the defaults, so a hub started by the Chrome bridge alone polls with sane settings. Every registered host and source is named in the defaults with an empty entry: a source nobody has configured then says what it is missing, where saying nothing would read as a developer with no work assigned to them. Every setting that reaches the hub is application-scoped in VS Code: one board's memory is shared by every window (R9), so two windows can never disagree.
 
 ### Protocol
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseHubConfig } from '../src/config.js';
+import { idsFrom, parseHubConfig } from '../src/config.js';
 import type { HubConfig } from '../src/config.js';
 
 let dir: string;
@@ -126,5 +126,28 @@ describe('the rest of a pushed configuration', () => {
 
     expect(carried.hosts).toEqual({ vscode: { userDir: 'd:/anything' } });
     expect(carried.sources).toEqual({ anything: 42 });
+  });
+});
+
+describe('idsFrom', () => {
+  it('names what the list names', () => {
+    expect(idsFrom(['vscode', 'intellij'], ['vscode'])).toEqual(['vscode', 'intellij']);
+  });
+
+  /** A hand-edited settings file holds whatever was typed, and reading a bare string as a list is a crash. */
+  it('falls back to the shipped ids when the value is not a list', () => {
+    expect(idsFrom('vscode', ['vscode'])).toEqual(['vscode']);
+    expect(idsFrom(undefined, ['github'])).toEqual(['github']);
+    expect(idsFrom({ vscode: true }, ['vscode'])).toEqual(['vscode']);
+  });
+
+  /** An entry that is not a name would reach the hub as a target it cannot carry, named as `[object Object]`. */
+  it('drops an entry that is not a name, and keeps the rest', () => {
+    expect(idsFrom(['vscode', 3, null, '', '   ', {}], ['nothing'])).toEqual(['vscode']);
+  });
+
+  /** Deliberate, not unreadable: a developer who lists nothing is asking for nothing, and gets the shipped ids never. */
+  it('takes an empty list as an empty list', () => {
+    expect(idsFrom([], ['vscode'])).toEqual([]);
   });
 });

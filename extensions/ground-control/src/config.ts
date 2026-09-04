@@ -2,7 +2,9 @@ import { dirname } from 'node:path';
 import * as vscode from 'vscode';
 import { boardStatuses, statusLanes } from '@ground-control/board';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
+import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubConfig } from '@ground-control/github';
+import { idsFrom } from '@ground-control/core';
 import type { AgentConfig, HubConfig } from '@ground-control/core';
 import { defaultConfig } from '@ground-control/hub';
 
@@ -34,7 +36,7 @@ export function readConfig(): GithubConfig {
  * merges one of these over its own defaults, and a client that sent half a configuration would leave the other half
  * at whatever the last client set.
  */
-export function readHubConfig(hosts: Record<string, unknown> = {}): HubConfig {
+export function readHubConfig(userDir: string): HubConfig {
   const cfg = vscode.workspace.getConfiguration(SECTION);
   const configured = cfg.get<Record<string, string>>('agents', {});
   const defaults = defaultConfig();
@@ -50,8 +52,8 @@ export function readHubConfig(hosts: Record<string, unknown> = {}): HubConfig {
     ...defaults,
     agents,
     branchIssuePattern: cfg.get<string>('branchIssuePattern', '^(\\d+)-'),
-    hosts,
-    sources: { github: readConfig() },
+    hosts: Object.fromEntries(hostIds().map((id) => [id, id === VSCODE_HOST_ID ? vscodeSettings(userDir) : {}])),
+    sources: Object.fromEntries(sourceIds().map((id) => [id, id === GITHUB_SOURCE_ID ? readConfig() : {}])),
     boardStatuses: readBoardStatuses(),
     statusLanes: statusLanes(cfg.get<unknown>('statusLanes')),
     refreshIntervalMs: refreshIntervalMs(),
@@ -105,11 +107,20 @@ export function userDirOf(context: vscode.ExtensionContext): string {
 }
 
 /**
- * The `vscode` host's settings, under the id the hub knows the host by. Keyed here rather than at each call site: a
- * caller that passed the settings object itself would have every field in it read as a host id.
+ * Which applications the board may reach into, and where it reads work from. Ids, not settings: an id the hub's
+ * registries do not carry comes back named as a failure on the board, rather than as a target that quietly reaches
+ * nothing. An entry this window has no settings for is still sent, so the hub is the one that names it (R25).
  */
-export function vscodeSettings(userDir: string): Record<string, unknown> {
-  return { [VSCODE_HOST_ID]: { userDir, mayOpenWindow: mayOpenWindow() } };
+export function hostIds(): string[] {
+  return idsFrom(vscode.workspace.getConfiguration(SECTION).get<unknown>('hosts'), [VSCODE_HOST_ID]);
+}
+
+export function sourceIds(): string[] {
+  return idsFrom(vscode.workspace.getConfiguration(SECTION).get<unknown>('sources'), [GITHUB_SOURCE_ID]);
+}
+
+function vscodeSettings(userDir: string): Record<string, unknown> {
+  return { userDir, mayOpenWindow: mayOpenWindow() };
 }
 
 /**

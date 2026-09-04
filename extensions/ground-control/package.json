@@ -135,6 +135,28 @@
           "minimum": 30,
           "description": "How often the board refreshes while it is open."
         },
+        "groundControl.hosts": {
+          "scope": "application",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "vscode"
+          ],
+          "markdownDescription": "Which editor applications the board may reach into. An id the board does not know is named above the lanes rather than silently reaching nothing."
+        },
+        "groundControl.sources": {
+          "scope": "application",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "github"
+          ],
+          "markdownDescription": "Where the board reads work from. An id the board does not know is named above the lanes rather than silently reading nothing."
+        },
         "groundControl.installSessionHooks": {
           "scope": "application",
           "type": "boolean",

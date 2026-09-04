@@ -1,6 +1,4 @@
 import { assignLanes, mergeBoard, nextMemory, withPlacement } from '@ground-control/board';
-import { fetchAssignedIssues } from '@ground-control/github';
-import type { AssignedIssues, GithubConfig, Result } from '@ground-control/github';
 import { diskReaders, fetchSessions, parseHubConfig, rosterIsStale, unreportedSessions } from '@ground-control/core';
 import type {
   ActivityChange,
@@ -16,6 +14,9 @@ import type {
   Session,
   SessionsSnapshot,
   Snapshot,
+  SourceReading,
+  WorkItems,
+  WorkSource,
 } from '@ground-control/core';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import type { ActivityState } from './activityInstall.js';
@@ -23,9 +24,8 @@ import { read } from './fs.js';
 import type { LaneStore } from './lanes.js';
 import { afterInstall, announce } from './marks.js';
 import type { MarkStore } from './marks.js';
-import { configureHosts, defaultConfig } from './registry.js';
+import { configureHosts, configureSources, defaultConfig } from './registry.js';
 import type { Registries } from './registry.js';
-import { readGithubConfig } from './sources.js';
 
 /** Injected whole, so a test drives the two cadences without waiting for them. */
 export interface HubClock {
@@ -42,10 +42,6 @@ export interface HubDeps {
   registries: Registries;
   lanes: LaneStore;
   marks: MarkStore;
-  /** Whose issues these are, when the configuration names nobody. Seeded from the CLI's own login (R26, R28). */
-  detectLogins(ghPath: string): Promise<string[]>;
-  /** Reads the work items. One function until `WorkSource` arrives, which is the same read behind a registry. */
-  readIssues(config: GithubConfig): Promise<Result<AssignedIssues>>;
   /** The activity install, which is also the thing a test replaces to keep its hands off any settings file. */
   syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string): ActivityState;
 }
@@ -71,7 +67,6 @@ export function realHubDeps(
   marks: MarkStore,
   home: string,
   watch: HubDeps['watch'],
-  detectLogins: HubDeps['detectLogins'],
 ): HubDeps {
   return {
     clock: REAL_CLOCK,
@@ -80,8 +75,6 @@ export function realHubDeps(
     registries,
     lanes,
     marks,
-    detectLogins,
-    readIssues: (config) => fetchAssignedIssues(config),
     syncActivity: (regs, wanted, where) => syncActivity(regs.agents, wanted, where),
   };
 }
@@ -102,19 +95,17 @@ export class Hub {
 
   #config: HubConfig;
   #configFailures: ReadFailure[] = [];
+  /** The source settings this configuration refused. A board with no source it can read is a board that is stale. */
+  #sourcesRefused: ReadFailure[] = [];
 
   /** Each source keeps its last good read and its last failure, so one failing never blanks the other (R24). */
-  #issues: AssignedIssues | undefined;
-  #issuesError: ReadFailure | undefined;
+  readonly #readings = new Map<string, SourceReading>();
   #sessions: SessionsSnapshot | undefined;
-  #issuesInFlight: Promise<void> | undefined;
+  #sourcesInFlight: Promise<void> | undefined;
   #sessionsInFlight: Promise<void> | undefined;
   #lastReadAt = 0;
   /** The last read listed nothing and every agent failed, so an activity event has nothing to re-read. */
   #sessionsUnreadable = false;
-  /** The logins the issues on the board were actually read with, which is not the setting the moment it changes. */
-  #logins: string[] = [];
-  #needsLogins: { detected: string[] } | null = null;
   /** Null until a client has said whether it wants the signal at all. Nothing is written to an agent before that. */
   #activity: ActivityState | null = null;
   #configured = false;
@@ -124,6 +115,9 @@ export class Hub {
   constructor(deps: HubDeps) {
     this.#deps = deps;
     this.#config = defaultConfig(deps.registries);
+    // Applied here rather than as each client turns up: a second window connecting would otherwise overwrite what
+    // the board is saying about the first one's settings, while the hub is still running on the older ones.
+    this.#configFailures = this.#applyConfig();
     pruneMarkers(deps.registries.agents, deps.home);
     this.#armWatchers();
   }
@@ -132,12 +126,6 @@ export class Hub {
 
   connect(hello: ClientHello, send: (message: HubMessage) => void): Client {
     this.#clients.set(hello.id, { hello, send, watching: hello.watching });
-
-    const failure = this.#applyHosts();
-
-    if (failure) {
-      this.#configFailures = [failure];
-    }
 
     this.#sendTo(hello.id, 'snapshot');
     this.#retime();
@@ -236,13 +224,7 @@ export class Hub {
     const before = this.#config;
 
     this.#config = parsed.config;
-    this.#configFailures = [];
-
-    const failure = this.#applyHosts();
-
-    if (failure) {
-      this.#configFailures = [failure];
-    }
+    this.#configFailures = this.#applyConfig();
 
     const first = !this.#configured;
     this.#configured = true;
@@ -270,10 +252,22 @@ export class Hub {
     return resynced;
   }
 
-  #applyHosts(): ReadFailure | null {
-    const failures = configureHosts(this.#deps.registries, this.#config.hosts);
+  /** Hands each host and each source its own entry. Every id the registries do not carry is named here (R25). */
+  #applyConfig(): ReadFailure[] {
+    const refused = configureSources(this.#deps.registries, this.#config.sources);
 
-    return failures[0] ?? null;
+    // A source this configuration does not name, and one whose settings it refused, both lose their last read here
+    // rather than at the next poll: with nothing watching there may not be one, and cards read for settings nobody
+    // is naming any more would sit on the board for as long as five minutes.
+    for (const id of [...this.#readings.keys()]) {
+      if (!Object.hasOwn(this.#config.sources, id) || refused.some((failure) => failure.subject === id)) {
+        this.#readings.delete(id);
+      }
+    }
+
+    this.#sourcesRefused = refused;
+
+    return [...configureHosts(this.#deps.registries, this.#config.hosts), ...refused];
   }
 
   /**
@@ -314,7 +308,7 @@ export class Hub {
     }
 
     this.#timers.push(
-      this.#deps.clock.setInterval(() => void this.#refreshIssues(), this.#config.refreshIntervalMs),
+      this.#deps.clock.setInterval(() => void this.#refreshSources(), this.#config.refreshIntervalMs),
       this.#deps.clock.setInterval(() => void this.#refreshSessions(), this.#config.sessionIntervalMs),
     );
   }
@@ -353,15 +347,15 @@ export class Hub {
 
     this.#lastReadAt = now;
 
-    return Promise.all([this.#refreshIssues(), this.#refreshSessions()]).then(() => undefined);
+    return Promise.all([this.#refreshSources(), this.#refreshSessions()]).then(() => undefined);
   }
 
-  #refreshIssues(): Promise<void> {
-    this.#issuesInFlight ??= this.#readIssues().finally(() => {
-      this.#issuesInFlight = undefined;
+  #refreshSources(): Promise<void> {
+    this.#sourcesInFlight ??= this.#readSources().finally(() => {
+      this.#sourcesInFlight = undefined;
     });
 
-    return this.#issuesInFlight;
+    return this.#sourcesInFlight;
   }
 
   /**
@@ -380,50 +374,65 @@ export class Hub {
     return this.#sessionsInFlight;
   }
 
-  async #readIssues(): Promise<void> {
-    const source = readGithubConfig(this.#config.sources['github']);
+  /** Every source the configuration names, read together. A source it does not name costs no read at all. */
+  async #readSources(): Promise<void> {
+    const sources = this.#deps.registries.sources.filter((source) =>
+      Object.hasOwn(this.#config.sources, source.id),
+    );
 
-    if ('failure' in source) {
-      this.#issuesError = source.failure;
-      this.#broadcast();
-
-      return;
-    }
-
-    const config = source.config;
-
-    // Nobody to read for. The hub cannot ask — it has no screen — so it says what it needs and what it could
-    // detect, and a client puts the question to the developer (R26, R28).
-    if (config.logins.length === 0) {
-      this.#needsLogins = { detected: await this.#deps.detectLogins(config.ghPath) };
-      this.#issuesError = {
-        subject: 'issues',
-        kind: 'no-logins',
-        message: 'The board does not know which GitHub account is yours, so it is showing sessions only.',
-        remedy: 'Set groundControl.github.logins in Settings, or run Ground Control: Refresh Board to be asked again.',
-      };
-      this.#broadcast();
-
-      return;
-    }
-
-    this.#needsLogins = null;
-    this.#logins = config.logins;
-
-    const result = await this.#deps.readIssues(config);
+    await Promise.all(sources.map((source) => this.#readSource(source)));
 
     if (this.#disposed) {
       return;
     }
 
-    if (result.ok) {
-      this.#issues = result.value;
-      this.#issuesError = undefined;
-    } else {
-      this.#issuesError = { ...result.error, subject: 'issues' };
+    this.#broadcast();
+  }
+
+  async #readSource(source: WorkSource): Promise<void> {
+    const reading = await source.read().catch(
+      (error: unknown): SourceReading => ({
+        items: null,
+        // A source is a seam anyone may implement, and one that throws must land on the board like one that failed
+        // — swallowed, it takes every other source's broadcast with it and says nothing anywhere the developer looks.
+        failure: {
+          subject: source.id,
+          kind: 'source-failed',
+          message: `${source.displayName} could not be read: ${String(error)}`,
+          remedy: 'Refresh the board. If it keeps happening, the hub log carries what it threw.',
+        },
+        needs: null,
+      }),
+    );
+
+    const held = this.#readings.get(source.id);
+
+    // A failed read keeps what the source last returned, and says what went wrong beside it (R24). A source with
+    // nothing to say at all had its settings refused, and its cards go with them: they were read for a repository
+    // the developer is no longer asking about, under a board that already says the settings were refused.
+    const items = reading.items ?? (reading.failure ? held?.items ?? null : null);
+
+    this.#readings.set(source.id, { ...reading, items });
+  }
+
+  /** What every source last read, as one board. A source that has read nothing contributes nothing, not an absence. */
+  #items(): WorkItems | null {
+    const read = [...this.#readings.values()].flatMap((reading) => reading.items ?? []);
+
+    if (read.length === 0) {
+      return null;
     }
 
-    this.#broadcast();
+    return {
+      cards: read.flatMap((items) => items.cards),
+      owners: read.flatMap((items) => items.owners),
+      matched: read.reduce((total, items) => total + items.matched, 0),
+      totalAssigned: read.reduce((total, items) => total + items.totalAssigned, 0),
+      notOnProject: read.reduce((total, items) => total + items.notOnProject, 0),
+      truncated: read.some((items) => items.truncated),
+      // The oldest of them: the board is only as fresh as the source that has not been read since.
+      fetchedAt: read.map((items) => items.fetchedAt).sort()[0]!,
+    };
   }
 
   async #readSessions(): Promise<void> {
@@ -523,8 +532,11 @@ export class Hub {
    * application can perform, so the plan goes back to the client that asked for it rather than being carried out here.
    */
   async #open(client: Connected, sessionId: string, extensionReady: boolean): Promise<void> {
-    const host = this.#deps.registries.hosts.find((h) => h.id === client.hello.hostId);
+    const named = client.hello.hostId !== null && Object.hasOwn(this.#config.hosts, client.hello.hostId);
+    const host = named ? this.#deps.registries.hosts.find((h) => h.id === client.hello.hostId) : undefined;
 
+    // Only a host this configuration names: one left out of it was handed no settings, and reaching into an editor
+    // on defaults nobody chose means reading another install's windows and bringing the wrong one forward.
     if (host === undefined) {
       client.send({
         type: 'notice',
@@ -590,8 +602,10 @@ export class Hub {
       failures.push(activity.failure);
     }
 
-    if (this.#issuesError) {
-      failures.push(this.#issuesError);
+    for (const reading of this.#readings.values()) {
+      if (reading.failure) {
+        failures.push(reading.failure);
+      }
     }
 
     for (const failure of this.#sessions?.failures ?? []) {
@@ -599,26 +613,28 @@ export class Hub {
     }
 
     const memory = this.#memory();
+    const items = this.#items();
     const lanes = assignLanes(
-      mergeBoard(this.#issues?.cards ?? [], this.#sessions?.sessions ?? []),
+      mergeBoard(items?.cards ?? [], this.#sessions?.sessions ?? []),
       {
         boardStatuses: this.#config.boardStatuses,
         statusLanes: this.#config.statusLanes,
-        logins: this.#logins,
+        // Who the items were actually read for, which is not the setting the moment a developer changes it.
+        logins: items?.owners ?? [],
       },
       memory,
     );
 
     return {
       lanes,
-      issues: this.#issues
+      issues: items
         ? {
-            count: this.#issues.cards.length,
-            matched: this.#issues.matched,
-            totalAssigned: this.#issues.totalAssigned,
-            notOnProject: this.#issues.notOnProject,
-            truncated: this.#issues.truncated,
-            fetchedAt: this.#issues.fetchedAt,
+            count: items.cards.length,
+            matched: items.matched,
+            totalAssigned: items.totalAssigned,
+            notOnProject: items.notOnProject,
+            truncated: items.truncated,
+            fetchedAt: items.fetchedAt,
           }
         : null,
       sessions: this.#sessions
@@ -632,10 +648,20 @@ export class Hub {
       openable: [],
       hooks: null,
       failures,
-      stale: this.#issuesError !== undefined || (this.#sessions?.failures.length ?? 0) > 0,
-      needs: this.#needsLogins === null ? null : { logins: this.#needsLogins },
+      stale:
+        this.#sourcesRefused.length > 0 ||
+        [...this.#readings.values()].some((reading) => reading.failure) ||
+        (this.#sessions?.failures.length ?? 0) > 0,
+      needs: this.#needs(),
       fetchedAt: new Date(this.#deps.clock.now()).toISOString(),
     };
+  }
+
+  /** What no client has given the hub yet, from the first source that is waiting on it (R26, R28). */
+  #needs(): Snapshot['needs'] {
+    const detected = [...this.#readings.values()].find((reading) => reading.needs)?.needs;
+
+    return detected ? { logins: detected } : null;
   }
 
   /**

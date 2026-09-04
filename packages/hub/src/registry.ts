@@ -1,6 +1,7 @@
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
-import type { AgentAdapter, HostAdapter, HubConfig, ReadFailure } from '@ground-control/core';
+import type { AgentAdapter, HostAdapter, HubConfig, ReadFailure, WorkSource } from '@ground-control/core';
+import { makeGithubSource } from '@ground-control/github';
 import { makeVscodeHost } from '@ground-control/host-vscode';
 
 /**
@@ -10,10 +11,11 @@ import { makeVscodeHost } from '@ground-control/host-vscode';
 export interface Registries {
   agents: readonly AgentAdapter[];
   hosts: readonly HostAdapter[];
+  sources: readonly WorkSource[];
 }
 
 export function makeRegistries(): Registries {
-  return { agents: [makeClaudeAdapter()], hosts: [makeVscodeHost()] };
+  return { agents: [makeClaudeAdapter()], hosts: [makeVscodeHost()], sources: [makeGithubSource()] };
 }
 
 /** The team's convention, so it ships as a default rather than as something a new developer has to set (R27). */
@@ -35,7 +37,9 @@ export function defaultConfig(registries: Registries = makeRegistries()): HubCon
       .map((agent) => ({ id: agent.id, path: agent.defaultPath })),
     branchIssuePattern: BRANCH_ISSUE_PATTERN,
     hosts: Object.fromEntries(registries.hosts.map((host) => [host.id, {}])),
-    sources: {},
+    // Named with nothing in them: a source no client has configured says what it is missing, which is what a hub
+    // the browser started alone has to do — silence there reads as a board with no work on it (R25).
+    sources: Object.fromEntries(registries.sources.map((source) => [source.id, {}])),
     boardStatuses: [...DEFAULT_BOARD_STATUSES],
     statusLanes: { ...DEFAULT_STATUS_LANES },
     refreshIntervalMs: REFRESH_INTERVAL_MS,
@@ -65,6 +69,32 @@ export function configureHosts(registries: Registries, hosts: Record<string, unk
     }
 
     const failure = host.configure(raw);
+
+    return failure ? [failure] : [];
+  });
+}
+
+/**
+ * Applies the source entries in a configuration, and names every id the registry does not carry. A source is read
+ * only once it has taken a configuration, so a refused entry is a named failure and no read at all — never a read
+ * made with whatever the last client set.
+ */
+export function configureSources(registries: Registries, sources: Record<string, unknown>): ReadFailure[] {
+  return Object.entries(sources).flatMap(([id, raw]) => {
+    const source = registries.sources.find((candidate) => candidate.id === id);
+
+    if (!source) {
+      return [
+        {
+          subject: id,
+          kind: 'unknown-source',
+          message: `The board does not know how to read work from "${id}".`,
+          remedy: 'Remove it from groundControl.sources, or check the spelling.',
+        },
+      ];
+    }
+
+    const failure = source.configure(raw);
 
     return failure ? [failure] : [];
   });
