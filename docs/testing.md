@@ -93,7 +93,9 @@ What must not end up here is anything that could have been tested a layer down. 
 const context = await chromium.launchPersistentContext(profileDir, {
   channel: 'chromium',
   headless: true,
-  args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
+  // A copy with `nativeMessaging` stripped from its manifest: a native host is registered per user, not per
+  // profile, so loading the directory itself would reach the developer's own bridge and hub.
+  args: [`--disable-extensions-except=${copy}`, `--load-extension=${copy}`],
 });
 ```
 

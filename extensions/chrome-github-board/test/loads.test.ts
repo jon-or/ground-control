@@ -67,8 +67,8 @@ describe('what the extension asks Chrome for', () => {
 });
 
 describe('the overlay as Chrome loads it', () => {
-  let profile: string;
-  let loaded: string;
+  let profile = '';
+  let loaded = '';
   let context: BrowserContext;
 
   beforeAll(async () => {
@@ -91,6 +91,12 @@ describe('the overlay as Chrome loads it', () => {
     stripped.permissions = stripped.permissions.filter((name) => name !== 'nativeMessaging');
     writeFileSync(join(loaded, 'manifest.json'), JSON.stringify(stripped, null, 2));
 
+    // Read back rather than assumed: a filter that stopped matching would leave this suite reaching the developer's
+    // own bridge, and passing everywhere else.
+    if (manifest(loaded).permissions.includes('nativeMessaging')) {
+      throw new Error('The copy under test can still reach a native host.');
+    }
+
     context = await chromium.launchPersistentContext(profile, {
       channel: 'chromium',
       headless: true,
@@ -104,8 +110,14 @@ describe('the overlay as Chrome loads it', () => {
 
   afterAll(async () => {
     await context?.close();
-    rmSync(profile, { recursive: true, force: true });
-    rmSync(loaded, { recursive: true, force: true });
+
+    // Named only once each is minted: a `beforeAll` that threw before then would otherwise take this down with it
+    // and lose whatever went wrong.
+    for (const made of [profile, loaded]) {
+      if (made !== '') {
+        rmSync(made, { recursive: true, force: true });
+      }
+    }
   });
 
   /**

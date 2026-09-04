@@ -125,8 +125,12 @@ export function writeInPlace(path: string, text: string): void {
  * For a file rewritten on every render: a board that changed nothing must not churn a write, a rename and an unlink
  * several times a second on the thread the editor draws on.
  */
-export function writeIfChanged(path: string, text: string): void {
-  if (read(path) !== text) {
-    writeAtomic(path, text);
+export function writeIfChanged(path: string, text: string): boolean {
+  if (read(path) === text) {
+    return false;
   }
+
+  writeAtomic(path, text);
+
+  return true;
 }

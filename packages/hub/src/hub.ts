@@ -114,15 +114,21 @@ export class Hub {
   /** Null until a client has said whether it wants the signal at all. Nothing is written to an agent before that. */
   #activity: ActivityState | null = null;
   #configured = false;
+  /** A stored configuration this hub would not run on. Shown until a client pushes one, which is what replaces it. */
+  #stored: ReadFailure | null = null;
   #installedAt = 0;
   #disposed = false;
 
   constructor(deps: HubDeps) {
     this.#deps = deps;
+
     // What a client last pushed, where there is one. Which repository work is tracked in cannot be guessed, so a
     // hub started by the browser alone would otherwise be permanently unconfigured however long ago the developer
     // set it — and the settings live in an editor that need not be open (R35, R36).
-    this.#config = deps.settings.read() ?? defaultConfig(deps.registries);
+    const stored = deps.settings.read();
+
+    this.#config = stored && 'config' in stored ? stored.config : defaultConfig(deps.registries);
+    this.#stored = stored && 'failure' in stored ? stored.failure : null;
     // Applied here rather than as each client turns up: a second window connecting would otherwise overwrite what
     // the board is saying about the first one's settings, while the hub is still running on the older ones.
     this.#configFailures = this.#applyConfig();
@@ -233,7 +239,14 @@ export class Hub {
 
     this.#config = parsed.config;
     this.#configFailures = this.#applyConfig();
-    this.#deps.settings.write(parsed.config);
+    this.#stored = null;
+
+    // Only a configuration nothing objected to. A host or a source refuses one the schema cannot — an unknown id,
+    // a repository with no owner — and remembering that would carry the mistake past the window that made it, to a
+    // hub the browser starts with no editor open to correct it.
+    if (this.#configFailures.length === 0) {
+      this.#deps.settings.write(parsed.config);
+    }
 
     const first = !this.#configured;
     this.#configured = true;
@@ -606,6 +619,12 @@ export class Hub {
   snapshot(): Snapshot {
     const activity = this.#ensureActivity();
     const failures: ReadFailure[] = [...this.#configFailures];
+
+    // A stored configuration this hub would not run on. Said rather than swallowed: silently falling back to
+    // defaults is how a board comes to report itself unconfigured with the developer's settings sitting on disk.
+    if (this.#stored) {
+      failures.push(this.#stored);
+    }
 
     if (activity?.failure) {
       failures.push(activity.failure);

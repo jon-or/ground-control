@@ -8,6 +8,7 @@ import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeSettingsStore } from '../src/settings.js';
+import type { StoredConfig } from '../src/settings.js';
 import { makeMarkStore } from '../src/marks.js';
 import { lanesPathOf } from '../src/paths.js';
 import { defaultConfig } from '../src/registry.js';
@@ -87,7 +88,7 @@ interface Harness {
 
 function harness(
   over: Partial<HubDeps> = {},
-  extra: { fetch?: Fetch; sources?: WorkSource[]; remembered?: Partial<HubConfig> } = {},
+  extra: { fetch?: Fetch; sources?: WorkSource[]; remembered?: Partial<HubConfig>; stored?: StoredConfig } = {},
 ): Harness {
   const agent = reportingAgent();
   const host = fakeHost();
@@ -160,7 +161,7 @@ function harness(
     // A hub built over a store that already holds a configuration is the browser-started case: nobody is here to
     // push one, and the developer set theirs in an editor that is not open.
     settings: {
-      read: () => (extra.remembered ? shape.config(extra.remembered) : null),
+      read: () => (extra.remembered ? { config: shape.config(extra.remembered) } : (extra.stored ?? null)),
       write: (config) => {
         shape.wrote.push(config);
       },
@@ -649,11 +650,6 @@ describe('what the snapshot says', () => {
    * cannot be guessed — so a hub the browser started would report itself unconfigured however long ago they set it
    * (R35, R36). It starts on the last configuration a client gave it instead.
    */
-  /**
-   * The developer's settings live in an editor that need not be open, and which repository work is tracked in
-   * cannot be guessed — so a hub the browser started would report itself unconfigured however long ago they set it
-   * (R35, R36). It starts on the last configuration a client gave it instead.
-   */
   it('starts on the configuration a client last gave it, with no client here to give one', async () => {
     const h = harness({}, { remembered: {} });
     const { client, inbox } = connect(h);
@@ -680,6 +676,51 @@ describe('what the snapshot says', () => {
     await settle();
 
     expect(h.wrote).toHaveLength(1);
+  });
+
+  /**
+   * The schema is not the only thing that refuses a configuration: a source or a host refuses ids and shapes it
+   * treats as opaque. Remembering one of those would carry the mistake past the window that made it, to a hub the
+   * browser starts with no editor open to correct it.
+   */
+  it('remembers nothing a source or a host refused, however well-formed', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ sources: { jira: {} } }) });
+    await settle();
+
+    expect(h.wrote).toEqual([]);
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ hosts: { 'not-an-editor': {} } }) });
+    await settle();
+
+    expect(h.wrote).toEqual([]);
+  });
+
+  /**
+   * A stored configuration this hub will not run on is said out loud. Falling back to defaults in silence is how a
+   * board comes to report itself unconfigured with the developer's own settings sitting on disk (R25).
+   */
+  it('names a stored configuration it would not start on, until a client pushes one', async () => {
+    const failure = {
+      subject: 'config',
+      kind: 'bad-config',
+      message: 'The settings this machine last accepted cannot be used: it names a claude that is not there.',
+      remedy: 'Open the board in an editor to push its settings again.',
+    };
+    const h = harness({}, { stored: { failure } });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    expect(latest(inbox).failures).toContainEqual(failure);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(latest(inbox).failures).not.toContainEqual(failure);
   });
 
   it('names a source id no registry carries', async () => {

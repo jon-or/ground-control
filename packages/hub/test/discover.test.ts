@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PROTOCOL, groundControlDirOf } from '@ground-control/core';
-import { findHub, fingerprintOf, liveHub, probeHub, readHubRecord, recordedHub, stopHub, stopThisHub } from '../src/discover.js';
+import { findHub, fingerprintOf, probe, readHubRecord, recordedHub, stopHub, stopThisHub } from '../src/discover.js';
 import { proofOf } from '../src/server.js';
 import { hubJsonPathOf } from '../src/paths.js';
 import { tempHome } from './helpers.js';
@@ -142,19 +142,21 @@ describe('asking a port what it is', () => {
   it('reads a hub that answers as one', async () => {
     const listener = await foreignListener({ hub: 'ground-control', protocol: PROTOCOL, fingerprint: 'abc' });
 
-    expect(await probeHub(listener.port)).toEqual({ hub: 'ground-control', protocol: PROTOCOL, fingerprint: 'abc' });
+    expect(await probe(listener.port)).toEqual({ hub: 'ground-control', protocol: PROTOCOL, fingerprint: 'abc' });
     expect(listener.asked).toEqual(['GET /hub no-token']);
   });
 
-  it('reads nothing from a listener that is not a hub, and from a port nothing holds', async () => {
+  it('tells a listener that is not a hub from a port nothing holds', async () => {
     const notJson = await foreignListener('<html>a dev server</html>');
     const wrongShape = await foreignListener({ hub: 'something-else', protocol: 1, fingerprint: 'abc' });
     const refusing = await foreignListener({ hub: 'ground-control', protocol: 1, fingerprint: 'abc' }, 500);
 
-    expect(await probeHub(notJson.port)).toBeNull();
-    expect(await probeHub(wrongShape.port)).toBeNull();
-    expect(await probeHub(refusing.port)).toBeNull();
-    expect(await probeHub(1, 200)).toBeNull();
+    expect(await probe(notJson.port)).toBe('not-a-hub');
+    expect(await probe(wrongShape.port)).toBe('not-a-hub');
+    // A hub answers `/hub` before it reads a token, and a client's own probe carries nothing it would refuse, so
+    // an answer that says no is a listener that is not one — never this developer's hub turning them away.
+    expect(await probe(refusing.port)).toBe('not-a-hub');
+    expect(await probe(1, 200)).toBe('unreachable');
   });
 
   /** The deadline is what a hub waits on before it binds, so a listener that never finishes must not hold it there. */
@@ -162,7 +164,7 @@ describe('asking a port what it is', () => {
     const silent = await listening(() => {});
     const started = Date.now();
 
-    expect(await probeHub(silent.port, 300)).toBeNull();
+    expect(await probe(silent.port, 300)).toBe('silent');
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
@@ -181,32 +183,17 @@ describe('asking a port what it is', () => {
     });
     const started = Date.now();
 
-    expect(await probeHub(trickle.port, 300)).toBeNull();
+    expect(await probe(trickle.port, 300)).toBe('silent');
     expect(Date.now() - started).toBeLessThan(2000);
   });
 });
 
-describe('the hub a home already has', () => {
-  it('is the one answering on the recorded port that proves it minted the record', async () => {
-    const { home, dispose } = tempHome();
-
-    try {
-      const listener = await hubListener(home, { token: TOKEN });
-
-      writeRecord(home, { port: listener.port });
-
-      expect((await liveHub(home))?.record.port).toBe(listener.port);
-      expect(listener.asked).toEqual(['GET /hub?nonce=… no-token']);
-    } finally {
-      dispose();
-    }
-  });
-
+describe('what a client will not send its token to', () => {
   /**
    * The token is the developer's snapshot, and the fingerprint is a hash of a path anyone on the machine can guess.
    * A listener that cannot prove it holds the token is not one to send it to, however right it looks.
    */
-  it('is nothing when the listener cannot prove it holds the token, and no token is sent', async () => {
+  it('is a listener that cannot prove it holds the token, and a stop is refused rather than sent blind', async () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -214,11 +201,11 @@ describe('the hub a home already has', () => {
       const wrong = await hubListener(home, { token: 'a-token-it-made-up' });
 
       writeRecord(home, { port: silent.port });
-      expect(await liveHub(home)).toBeNull();
+      expect(await recordedHub(home)).toBeNull();
       expect(await stopHub(home)).toBe(false);
 
       writeRecord(home, { port: wrong.port });
-      expect(await liveHub(home)).toBeNull();
+      expect(await recordedHub(home)).toBeNull();
       expect(await stopHub(home)).toBe(false);
 
       expect(silent.asked).toEqual(['GET /hub?nonce=… no-token', 'GET /hub?nonce=… no-token']);
@@ -228,44 +215,14 @@ describe('the hub a home already has', () => {
     }
   });
 
-  it('is nothing when the listener is a hub for another home', async () => {
-    const { home, dispose } = tempHome();
-
-    try {
-      const listener = await hubListener('d:/somebody-else', { token: TOKEN });
-
-      writeRecord(home, { port: listener.port });
-
-      expect(await liveHub(home)).toBeNull();
-      expect(listener.asked).toEqual(['GET /hub?nonce=… no-token']);
-    } finally {
-      dispose();
-    }
-  });
-
-  /** A hub of another protocol reads this one's messages wrong; connecting to it is worse than starting a new one. */
-  it('is nothing when the listener speaks another protocol', async () => {
-    const { home, dispose } = tempHome();
-
-    try {
-      const listener = await hubListener(home, { token: TOKEN, protocol: PROTOCOL + 1 });
-
-      writeRecord(home, { port: listener.port });
-
-      expect(await liveHub(home)).toBeNull();
-    } finally {
-      dispose();
-    }
-  });
-
   /** Liveness is the probe, never the file: a hub killed on Windows never gets to remove its own record. */
-  it('is nothing when the record is stale', async () => {
+  it('is a record naming a port nothing holds', async () => {
     const { home, dispose } = tempHome();
 
     try {
       writeRecord(home, { port: 1 });
 
-      expect(await liveHub(home, 200)).toBeNull();
+      expect(await recordedHub(home, 200)).toBeNull();
       expect(await stopHub(home, 200)).toBe(false);
     } finally {
       dispose();
@@ -340,6 +297,7 @@ describe('why this home has no hub to talk to', () => {
       const found = await findHub(home);
 
       expect('hub' in found && found.hub.record.port).toBe(listener.port);
+      expect(listener.asked).toEqual(['GET /hub?nonce=… no-token']);
     } finally {
       dispose();
     }
@@ -373,29 +331,28 @@ describe('why this home has no hub to talk to', () => {
 
       writeRecord(home, { port: listener.port });
 
-      // No status: it answered, and what it answered was not a hub. A number here would be one worth acting on.
-      expect(await findHub(home)).toEqual({ miss: { why: 'not-a-hub', record: readHubRecord(home), status: null } });
+      expect(await findHub(home)).toEqual({ miss: { why: 'not-a-hub', record: readHubRecord(home) } });
     } finally {
       dispose();
     }
   });
 
   /**
-   * The hub refuses a request that carries an `Origin`, names another `Host`, or asks in proxy form — and a client
-   * turned away that way sees a status and nothing else. Reading it as "something else holds the port" would send
-   * the developer to stop their own hub.
+   * Both asks came to nothing. A port held by something that accepts and never answers is the case that would
+   * otherwise stretch a client's five-second wait into minutes, so it has to be a state of its own.
    */
-  it('keeps the status when the listener answered and refused', async () => {
+  it('is silent when the listener will not answer either ask', async () => {
     const { home, dispose } = tempHome();
 
     try {
-      const listener = await foreignListener({ error: 'This hub does not answer requests from a browser.' }, 403);
+      const listener = await listening(() => {});
 
       writeRecord(home, { port: listener.port });
 
-      const found = await findHub(home);
+      const found = await findHub(home, 200);
 
-      expect('miss' in found && found.miss.why === 'not-a-hub' && found.miss.status).toBe(403);
+      expect('miss' in found && found.miss.why).toBe('silent');
+      expect(listener.asked).toHaveLength(2);
     } finally {
       dispose();
     }
@@ -429,7 +386,8 @@ describe('why this home has no hub to talk to', () => {
       const found = await findHub(home);
 
       expect('miss' in found && found.miss.why).toBe('another-protocol');
-      expect(await liveHub(home)).toBeNull();
+      // Not a hub this client can speak to, and still the hub a client may have to stop and a starting one must
+      // stand down against — which is the whole difference between the two questions.
       expect((await recordedHub(home))?.record.port).toBe(listener.port);
     } finally {
       dispose();

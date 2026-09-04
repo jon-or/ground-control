@@ -8,8 +8,8 @@ export const LOG_LIMIT_BYTES = 1_000_000;
 export const LOGS_KEPT = 2;
 
 /**
- * Moves the log aside when it has grown past the limit, oldest dropped first. Called once at startup rather than on
- * every write: the hub's output is a few lines per start, so the file only grows across restarts.
+ * Moves the log aside when it has grown past the limit, oldest dropped first. Called at startup and again whenever a
+ * run has written the limit itself: a hub refusing a page in a background tab writes far more than its own starts.
  */
 export function rotateLog(path: string, limit = LOG_LIMIT_BYTES, kept = LOGS_KEPT): boolean {
   try {

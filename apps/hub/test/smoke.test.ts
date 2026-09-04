@@ -74,7 +74,9 @@ interface Run {
 
 function run(home: string, ...args: string[]): Run {
   const child = spawn(process.execPath, [ENTRY, `--home=${home}`, ...args], {
-    env: { ...process.env, PATH: BARE_PATH, Path: BARE_PATH },
+    // `--home` is what points the child at this run's own directory; these are what keep a mode that forgot it
+    // from silently writing to the developer's real board instead.
+    env: { ...process.env, PATH: BARE_PATH, Path: BARE_PATH, USERPROFILE: home, HOME: home },
     windowsHide: true,
   });
 

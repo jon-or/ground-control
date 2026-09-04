@@ -16,11 +16,14 @@ let native = null;
 /** The last thing the hub said, replayed to a tab that opens while the worker already has it. */
 let last = null;
 
+/** Where every tab starts, and where the worker returns when the last board closes and it drops the native port. */
+const UNANSWERED = 'Ground Control has not answered yet.';
+
 /**
  * What the overlay's staleness line says now. One string rather than a message sent from each place that changes
  * it: a tab connects while the port is opening, so whichever of the two spoke last would otherwise be what it sees.
  */
-let trouble = 'Ground Control has not answered yet.';
+let trouble = UNANSWERED;
 
 function troubled(message) {
   trouble = message;
@@ -113,7 +116,7 @@ chrome.runtime.onConnect.addListener((port) => {
       toNative({ type: 'watching', watching: false });
       native?.disconnect();
       native = null;
-      trouble = 'Ground Control has not answered yet.';
+      troubled(UNANSWERED);
     }
   });
 

@@ -68,7 +68,7 @@ afterEach(async () => {
 
 async function serving() {
   const hub = fakeHub();
-  const created = createHubServer({ hub, fingerprint: 'abc123', onShutdown: () => {} });
+  const created = createHubServer({ hub, fingerprint: 'abc123', onShutdown: () => {}, log: () => {} });
   const server = await created.listen();
 
   shut.push(() => server.close());

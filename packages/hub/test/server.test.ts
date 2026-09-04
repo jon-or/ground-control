@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PROTOCOL } from '@ground-control/core';
 import type { Client, ClientHello, ClientMessage, HubMessage, Session, Snapshot } from '@ground-control/core';
-import { BODY_LIMIT_BYTES, HEARTBEAT_MS, MAX_EVENT_STREAMS, createHubServer } from '../src/server.js';
+import { BODY_LIMIT_BYTES, HEARTBEAT_MS, MAX_EVENT_STREAMS, REFUSALS_PER_MINUTE, createHubServer } from '../src/server.js';
 import type { HubServer, ServerClock } from '../src/server.js';
 
 const CRLF = String.fromCharCode(13, 10);
@@ -582,6 +582,35 @@ describe('what a refusal leaves behind', () => {
 
     expect(answer.status).toBe(400);
     expect(logged).toEqual(['refused GET http://somewhere.else/hub: Unsupported request target.']);
+  });
+
+  /**
+   * Any page the developer visits can make the hub refuse it, so what a refusal writes is rationed and clipped.
+   * Unbounded, a background tab is a file that grows without limit and a synchronous write per request on the
+   * hub's own loop.
+   */
+  it('stops writing them down once a minute has had its fill, and says so once', async () => {
+    const { server, logged } = await serving();
+
+    for (let n = 0; n < REFUSALS_PER_MINUTE + 4; n++) {
+      await call(server, { path: '/hub', token: null, headers: { Origin: 'https://a.page' } });
+    }
+
+    expect(logged).toHaveLength(REFUSALS_PER_MINUTE + 1);
+    expect(logged.at(-1)).toContain('saying no more about it this minute');
+  });
+
+  it('keeps only enough of what it was sent to recognise it', async () => {
+    const { server, logged } = await serving();
+
+    await call(server, {
+      path: `/hub?${'a'.repeat(4000)}`,
+      token: null,
+      headers: { Origin: `https://${'b'.repeat(4000)}` },
+    });
+
+    expect(logged[0]!.length).toBeLessThan(400);
+    expect(logged[0]).toContain('…');
   });
 
   /** A request that was answered is not a refusal, and a log that carried those would bury the ones that matter. */

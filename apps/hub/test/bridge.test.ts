@@ -120,7 +120,9 @@ function reader(child: ChildProcess): { messages: { type: string }[]; failed: st
 
 function run(command: string, args: string[], env: Record<string, string>): ChildProcess {
   const child = spawn(process.execPath, [command, ...args], {
-    env: { ...process.env, PATH: SYSTEM_PATH, Path: SYSTEM_PATH, ...env },
+    // As in the smoke test: `--home` points the child at the run's directory, and these keep a mode that forgot
+    // it from writing to the developer's real board. A caller's own `env` still wins.
+    env: { ...process.env, PATH: SYSTEM_PATH, Path: SYSTEM_PATH, USERPROFILE: tmpdir(), HOME: tmpdir(), ...env },
     windowsHide: true,
   });
 
