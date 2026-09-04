@@ -200,13 +200,35 @@ function proves(identity: HubIdentity, record: HubRecord, nonce: string): boolea
 export async function stopHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
   const held = await recordedHub(home, timeoutMs);
 
-  if (held === null) {
-    return false;
-  }
+  return held !== null && stopThisHub(held, timeoutMs);
+}
 
-  const answer = await call(held.record.port, 'POST', '/shutdown', held.record.token, timeoutMs);
+/**
+ * Stops one particular hub. The record decides where the stop goes, never the file read again: between finding a hub
+ * and standing it down, another client's replacement may already hold the record, and stopping that one would be a
+ * client killing the hub it was about to connect to.
+ */
+export async function stopThisHub(hub: LiveHub, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
+  const answer = await call(hub.record.port, 'POST', '/shutdown', hub.record.token, timeoutMs);
 
   return answer?.status === 200;
+}
+
+/**
+ * A listener answering as this home's hub that `liveHub` would not accept: the record it left, so a client that got
+ * nowhere can name what is in its way. Never sent a token — being answered by the right home is not proof of holding
+ * one, so what comes back is what the developer can act on and nothing this client would itself believe.
+ */
+export async function unprovenHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<HubRecord | null> {
+  const record = readHubRecord(home);
+
+  if (record === null) {
+    return null;
+  }
+
+  const identity = await probeHub(record.port, timeoutMs);
+
+  return identity !== null && identity.fingerprint === fingerprintOf(home) ? record : null;
 }
 
 /** Whether a client speaking this protocol can talk to that hub. Equal, because the number moves only on a break. */

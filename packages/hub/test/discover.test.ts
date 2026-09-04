@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PROTOCOL, groundControlDirOf } from '@ground-control/core';
-import { fingerprintOf, liveHub, probeHub, readHubRecord, stopHub } from '../src/discover.js';
+import { fingerprintOf, liveHub, probeHub, readHubRecord, recordedHub, stopHub, stopThisHub, unprovenHub } from '../src/discover.js';
 import { proofOf } from '../src/server.js';
 import { hubJsonPathOf } from '../src/paths.js';
 import { tempHome } from './helpers.js';
@@ -317,6 +317,102 @@ describe('stopping the hub a home has', () => {
       writeRecord(home, { port: listener.port });
 
       expect(await stopHub(home)).toBe(false);
+    } finally {
+      dispose();
+    }
+  });
+});
+
+/**
+ * A hub that is up and holds a token this client's record cannot prove is invisible to `liveHub`, and a client that
+ * spawns one of its own then watches it stand down learns nothing. This is what lets the failure name it instead.
+ */
+describe('something answering for this home that a client cannot prove', () => {
+  it('is named by the record it left, and never sent the token', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      const listener = await hubListener(home);
+
+      writeRecord(home, { port: listener.port, pid: 4242 });
+
+      expect(await liveHub(home)).toBeNull();
+      expect(await unprovenHub(home)).toMatchObject({ port: listener.port, pid: 4242 });
+      // No nonce either: a proof this client has nothing to check against is one it has no business asking for.
+      expect(listener.asked).toEqual(['GET /hub?nonce=… no-token', 'GET /hub no-token']);
+    } finally {
+      dispose();
+    }
+  });
+
+  /** Something else on the port is not a hub in the way, and saying it is would send the developer after nothing. */
+  it('is nothing when the port is held by something else', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      const listener = await foreignListener({ hub: 'something-else' });
+
+      writeRecord(home, { port: listener.port });
+
+      expect(await unprovenHub(home)).toBeNull();
+    } finally {
+      dispose();
+    }
+  });
+
+  /** A hub for another home is another developer's. Naming it would send this one to stop a board that is not theirs. */
+  it('is nothing when the hub answering runs against another home', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      const listener = await hubListener('d:/somebody/else');
+
+      writeRecord(home, { port: listener.port });
+
+      expect(await unprovenHub(home)).toBeNull();
+    } finally {
+      dispose();
+    }
+  });
+
+  /** No record is no port to probe. A hub that never started is not something standing in this client's way. */
+  it('is nothing when no hub has left a record at all', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      expect(await unprovenHub(home)).toBeNull();
+    } finally {
+      dispose();
+    }
+  });
+});
+
+/**
+ * Between finding a hub and standing it down, another client's replacement can hold the record. A stop that re-read
+ * the file would then kill the hub this client was about to connect to, which is the shape of every rebuild once a
+ * client stops one for running an older bundle.
+ */
+describe('stopping one particular hub', () => {
+  it('goes to the record it was handed, whatever the file says by then', async () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      const held = await hubListener(home, { token: TOKEN });
+      const replacement = await hubListener(home, { token: 'the-replacement-token' });
+
+      writeRecord(home, { port: held.port });
+
+      const found = await recordedHub(home);
+
+      expect(found).not.toBeNull();
+
+      // The record moves under it, the way a replacement's would.
+      writeRecord(home, { port: replacement.port, token: 'the-replacement-token' });
+
+      await stopThisHub(found!);
+
+      expect(held.asked).toContain(`POST /shutdown Bearer ${TOKEN}`);
+      expect(replacement.asked.some((line) => line.startsWith('POST /shutdown'))).toBe(false);
     } finally {
       dispose();
     }
