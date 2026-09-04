@@ -70,6 +70,11 @@ function send(data: SnapshotMessage | { type: 'loading' }): void {
   window.dispatchEvent(new MessageEvent('message', { data }));
 }
 
+/** What the board sent because someone clicked. Every render also reports what it drew, which is not that. */
+function sent(): unknown[] {
+  return api.postMessage.mock.calls.map(([message]) => message).filter((m) => (m as { type: string }).type !== 'drew');
+}
+
 function laneEl(id: LaneId): HTMLElement | null {
   return document.querySelector<HTMLElement>(`.lane-${id}`);
 }
@@ -300,7 +305,7 @@ describe('board webview', () => {
 
     label.click();
 
-    expect(api.postMessage).not.toHaveBeenCalled();
+    expect(sent()).toEqual([]);
   });
 
   it('marks only the openable rows on a card whose sessions run in different places', () => {
@@ -346,7 +351,7 @@ describe('board webview', () => {
 
     labels[1]!.click();
 
-    expect(api.postMessage).toHaveBeenCalledTimes(1);
+    expect(sent()).toHaveLength(1);
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'openSession', sessionId: 'older' });
   });
 
@@ -515,6 +520,36 @@ describe('board webview', () => {
     expect(document.getElementById('lanes')?.classList).toContain('stale');
     expect(document.getElementById('meta')?.textContent).toContain('could not refresh');
     expect(document.querySelector('.empty')?.textContent).toBe('None of your assigned issues match the current card source.');
+  });
+
+  /**
+   * The report the extension host reads to know the script ran at all. Asserted here rather than only in a real
+   * window, because it has to describe the finished screen: posted mid-render it reported an emptied notice list
+   * and the previous render's meta line, and passed in both places.
+   */
+  it('reports what it drew after the screen is finished, not during', () => {
+    api.postMessage.mockClear();
+    send(
+      message({
+        lanes: lanes({ build: [liveCard] }),
+        failures: [{ subject: 'issues', kind: 'query-failed', message: 'GitHub failed.', remedy: 'Refresh.' }],
+        stale: true,
+      }),
+    );
+
+    const drew = api.postMessage.mock.calls.map(([m]) => m).filter((m) => (m as { type: string }).type === 'drew');
+
+    expect(drew).toHaveLength(1);
+    expect(drew[0]).toEqual({
+      type: 'drew',
+      lanes: document.querySelectorAll('.lane').length,
+      cards: document.querySelectorAll('.card').length,
+      notices: document.querySelectorAll('.notice').length,
+      meta: document.getElementById('meta')?.textContent,
+    });
+    expect((drew[0] as { cards: number }).cards).toBeGreaterThan(0);
+    expect((drew[0] as { notices: number }).notices).toBeGreaterThan(0);
+    expect((drew[0] as { meta: string }).meta).toContain('could not refresh');
   });
 
   it('states a settings failure without claiming the read failed', () => {
@@ -807,7 +842,7 @@ describe('reported activity', () => {
 
       expect(document.querySelector('.card')).toBe(card);
       expect(card.querySelector('.state')?.textContent).toBe('running 7s');
-      expect(api.postMessage).not.toHaveBeenCalled();
+      expect(sent()).toEqual([]);
     } finally {
       vi.useRealTimers();
     }
@@ -1024,7 +1059,7 @@ describe('lanes', () => {
     first!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true }));
     last!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true }));
 
-    expect(api.postMessage).not.toHaveBeenCalled();
+    expect(sent()).toEqual([]);
   });
 
   it('moves a card dropped onto another lane', () => {
@@ -1163,7 +1198,7 @@ describe('lanes', () => {
     Object.defineProperty(drop, 'dataTransfer', { value: { getData: () => 'issue:99999' } });
 
     laneEl('build')!.dispatchEvent(drop);
-    expect(api.postMessage).not.toHaveBeenCalled();
+    expect(sent()).toEqual([]);
   });
 
   it('keeps a card with no issue reachable from a keyboard, since its open button is disabled', () => {
@@ -1202,6 +1237,6 @@ describe('lanes', () => {
     card.querySelector<HTMLElement>('.card-open')!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true }),
     );
-    expect(api.postMessage).not.toHaveBeenCalled();
+    expect(sent()).toEqual([]);
   });
 });

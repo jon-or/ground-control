@@ -23,9 +23,12 @@
     "test": "npm test --workspaces --if-present",
     "verify": "npm run typecheck && npm test",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || exit 0",
-    "hub": "node apps/hub/dist/main.js"
+    "hub": "node apps/hub/dist/main.js",
+    "test:integration": "npm run build && npm run test:integration --workspace ground-control",
+    "verify:full": "npm run verify && npm run test:integration"
   },
   "devDependencies": {
+    "playwright": "^1.62.1",
     "typescript": "^5.9.0"
   }
 }

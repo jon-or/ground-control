@@ -6,9 +6,12 @@ The board's central rule is that nothing advances on a claim, only on evidence (
 
 ```
 npm run verify          # typecheck + test + coverage thresholds
+npm run verify:full     # the same, plus the integration tests in a real VS Code
 ```
 
-`verify` is the whole contract. It runs on a `pre-commit` hook installed by `npm install` (the `prepare` script points `core.hooksPath` at `.githooks/`), and it is the only definition of "the tree is good". Nothing else counts — not a passing F5, not a screenshot, not an agent reporting success.
+`verify` is the whole contract for the pre-commit hook. It stays fast and opens no windows, so it can run on every commit without stealing focus from whatever the developer is typing into. `verify:full` adds the integration run and is what a change to `extensions/*/src/` owes before it is committed.
+
+The hook is installed by `npm install` (the `prepare` script points `core.hooksPath` at `.githooks/`), and a runner is the only definition of "the tree is good". Nothing else counts — not a window that looked right, not a screenshot, not an agent reporting success.
 
 `verify` is the machine half of the gate. The other half is the subagent review a feature gets before it is committed (`claude.md` — Development Methodology), which judges what a runner cannot: whether the change matches the PRD, whether it broke a neighboring behavior, whether the tests it added can fail. Neither half substitutes for the other. A reviewed change that does not pass `verify` is not committed; a green change nobody reviewed is not done.
 
@@ -64,8 +67,40 @@ Each layer has one thing that covers it. Know which layer you are changing befor
 
 **A script that only ever runs as a child process is tested by spawning it.** The activity hook is handed to Claude Code as a path and run by Claude Code, never called from TypeScript, so the only honest evidence it works is a test that writes it to a temp home, pipes a recorded payload to it, and reads what landed on disk. Its source therefore lives in `packages/*` as a string rather than as a packaged asset — a string has no packaging surface and vitest can reach it. Note what that costs: v8 counts a string constant as fully covered while proving nothing about it, so the spawn test is the evidence and the coverage number is not.
 
-**The extension host — `extensions/*/src/*.ts`.** Imports `vscode`, so vitest cannot reach it. Covered by a manual pass in the Extension Development Host (F5), and by keeping the layer thin: anything holding a decision belongs in a `packages/*` module that vitest can reach. A `src/` file growing branches is the signal to move them out, not the signal to reach for a heavier runner.
+**The extension host — `extensions/*/src/*.ts`.** Imports `vscode`, so vitest cannot reach it. Covered by `extensions/ground-control/test-integration/`: mocha running *inside* a real extension host, launched by `@vscode/test-cli` against a VS Code it downloads itself. `npm run test:integration` builds and runs it; a window opens for about five seconds and closes. Keeping the layer thin still matters — anything holding a decision belongs in a `packages/*` module — but the wiring between those modules and VS Code is now evidence rather than a claim.
 
-**Packaging.** `vsce package --no-dependencies` must succeed before a change lands, because F5 resolves workspace dependencies that the packaged `.vsix` does not — a green F5 is not evidence the extension installs.
+Three rules make that harness safe and worth having.
 
-Driving the whole VS Code window — Playwright over Electron, or a WebDriver harness — is not automated here and is not planned. It buys the seam between the host and the webview, which the typed protocol rule already covers, and pays for it in selectors that break on VS Code's release cadence rather than on ours.
+*A run touches nothing of the developer's.* `.vscode-test.mjs` mints two temp directories per run: one passed as `USERPROFILE` and `HOME`, because the extension reads `os.homedir()` and a run against the real one would rewrite the lane placements and agent settings of the board they are using; and one as `--user-data-dir`, because the default is a single directory under `.vscode-test/` that two runs at once share — the second hands its arguments to the first instance and exits, and each writes settings the other reads. Reviews run in parallel, so two at once is the normal case. Each run sweeps what earlier runs left, since VS Code still holds its own two as it exits.
+
+*The no-network rule holds here too, and is the harness's own responsibility.* The board's only outbound calls are the two CLIs, so the run's profile names commands that are not on any PATH: a bare name passes the spawn check and then fails to run, which is how an unconfigured machine fails. Left alone, `gh` resolves the developer's real token from `%APPDATA%` — which the temp home does not cover — and every run queries GitHub as them. That is why those settings are seeded into the profile's `User/settings.json` rather than the workspace's: every setting the hub reads is application-scoped, and a workspace file cannot set one (R9). The suite runs in under a second offline; against the network it took twenty seconds.
+
+*The window states what it holds.* `activate` returns two reads and nothing that acts — the snapshot this window's board renders, and what the board reports drawing. Extension exports are readable by any other extension in the window, so handing out the live `Hub` or the panel would be a far larger public surface than a test needs.
+
+What earns an integration test is the wiring, not the logic: that this window's settings arrive shaped the way the hub takes them, that a settings change reaches the hub without a reload, that a command is registered, that a toggle leaves the right thing on disk. Lane rules, merge rules, and rendering are cheaper and sharper one layer down and belong there.
+
+**The Chrome extension — `extensions/chrome-github-board/`.** Two layers, the same split as the VS Code side. The overlay's DOM logic is a pure function of a snapshot and a document, so vitest reaches it under jsdom against a recorded `project-board.html`. What jsdom cannot see is whether Chrome loads the extension at all, whether the content script's matches fire on the page, and whether the MV3 worker starts — so those are Playwright, in the repo's own suite:
+
+```js
+const context = await chromium.launchPersistentContext(profileDir, {
+  channel: 'chromium',
+  headless: true,
+  args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`],
+});
+```
+
+Measured 2026-09-03 against Playwright 1.62.1: the content script paints into the page and `context.serviceWorkers()` holds the MV3 worker, under `headless: true` and `headless: false` alike. A run opens no window, which the VS Code harness cannot say.
+
+Two rules follow from how Chrome scopes things. `page.evaluate` runs in the page's **main world**, where `chrome` is undefined — extension messaging is driven from the worker's side (`worker.evaluate`) or through the DOM the content script wrote, never by calling `chrome.runtime` from the page. And the no-network rule is unchanged: a test navigates to a recorded board fixture over `file://`, so it asserts against markup that was captured once and scrubbed, not against whatever GitHub shipped this morning.
+
+**Recording that fixture is the one place an agent drives a live page.** The Playwright MCP browser opens the real project board so its markup can be read and captured; the capture is then scrubbed and committed, and every test runs against the file. Exploring with the MCP is how a fixture is obtained, never how a behavior is verified.
+
+**Packaging.** `vsce package --no-dependencies` must succeed before a change lands, because a development launch resolves workspace dependencies that the packaged `.vsix` does not — a green integration run is not evidence the extension installs.
+
+**The webview reports what it drew, and the panel acts on its silence.** After each render the board script posts `drew` — the lanes and cards it put on screen, the notices, and its meta line. The panel keeps the last one, and a board that has reported nothing ten seconds after it was opened says so: its script did not run, which a content policy that rejects it or a bundle that is not there both cause, and which nothing else on the machine would notice. The developer would otherwise sit looking at the loading line with no reason given (R25).
+
+Every field of the report is read off the document rather than off the payload, and it wraps the render rather than sitting inside it. Both were wrong once and both passed: echoing the payload back holds for a board that drew nothing, and posting mid-render named an emptied notice list and the previous render's meta line. jsdom asserts the whole report against the DOM, with cards in the payload to lay out. The integration test asserts only what a real webview can answer that jsdom cannot — that the script ran, and that the meta line is the one the script wrote rather than the one the panel put there before it. The board it opens has no cards, because the window is pointed at CLIs that do not exist, so an assertion about layout there would hold for a board that drew nothing.
+
+**No external driver reaches the window's pixels, which was measured rather than assumed.** On 2026-09-03 against VS Code 1.136.1: `Code.exe --remote-debugging-port=<n>` opens no port — twenty seconds of polling `/json/version` returns `ECONNREFUSED`, and `--help` lists only `--inspect-extensions`, the extension host's Node inspector rather than a renderer. Playwright's `_electron.launch()` fails with "Process failed to launch!", waiting for an inspector line VS Code never prints. Both are recorded so nobody spends the afternoon again. What they would have bought — that a click lands and a drag moves a card — is instead covered by the webview's own handlers under jsdom plus the `drew` report above, and the browser board's overlay is driven directly by Playwright, which has no such limit.
+
+**Ad-hoc checking is a scratch integration test, not a session of clicking.** When a question is one-off — does this command land, what does the snapshot hold in a fresh window — write a `.test.cjs` under `test-integration/`, run `npm run test:integration`, read the output, and delete it. The loop is about five seconds, it runs against a real VS Code, and it leaves the evidence in a form that can become a kept test if the answer was worth keeping.

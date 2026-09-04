@@ -662,7 +662,26 @@ function countCards(lanes) {
   return lanes.reduce((total, lane) => total + lane.cards.length, 0);
 }
 
+/**
+ * What this webview put on screen, told to the extension after every render. Nothing else can see it: a script the
+ * content policy or a bundling mistake stopped from running leaves the board on its loading line forever, and the
+ * extension has no other way to know (R25).
+ */
 function render(payload) {
+  draw(payload);
+
+  // Every field is read off the document, never off the payload: a report that echoed what it was given would
+  // hold just as well for a board that drew nothing at all.
+  vscode.postMessage({
+    type: 'drew',
+    lanes: lanesEl.querySelectorAll('.lane').length,
+    cards: lanesEl.querySelectorAll('.card').length,
+    notices: noticesEl.childElementCount,
+    meta: metaEl.textContent,
+  });
+}
+
+function draw(payload) {
   board = payload;
   openable = new Set(payload.openable ?? []);
 

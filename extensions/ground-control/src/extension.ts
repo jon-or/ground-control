@@ -3,12 +3,23 @@ import { dirname } from 'node:path';
 import * as vscode from 'vscode';
 import { activityNotice } from '@ground-control/hub';
 import { BoardPanel, VIEW_TYPE } from './boardPanel.js';
+import type { Drawn } from './boardPanel.js';
 import { SECTION, readHubConfig, vscodeSettings, userDirOf } from './config.js';
 import { hub, disposeHub } from './hubClient.js';
+import type { Snapshot } from '@ground-control/core';
 import { migrateLaneMemory } from './migrate.js';
 
 
-export function activate(context: vscode.ExtensionContext): void {
+/**
+ * What `vscode.extensions.getExtension(...).exports` hands back. Readable by any extension in the window, so it is
+ * two reads and nothing that acts: the snapshot this window's board renders, and what the board reports drawing.
+ */
+export interface GroundControl {
+  snapshot(): Snapshot;
+  drew(): Drawn | null;
+}
+
+export function activate(context: vscode.ExtensionContext): GroundControl {
   // On activation, which for this extension means the developer opened the board or ran one of its commands — or
   // reopened a window that had the board tab in it. A developer who never opens it is never activated (PRD §2).
   const home = homedir();
@@ -62,6 +73,10 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => BoardPanel.current?.dispose() },
     { dispose: disposeHub },
   );
+
+  // The window's own hub, so an integration test running inside this host can read the snapshot a board renders
+  // rather than a screenshot of one. Nothing in the product reads it.
+  return { snapshot: () => hub(home).snapshot(), drew: () => BoardPanel.current?.drew ?? null };
 }
 
 export function deactivate(): void {}
