@@ -13,7 +13,7 @@ function runHub(bundle: string, home: string, mode: string): Promise<string> {
   const env = spawnEnvironment();
 
   return new Promise((resolve, reject) => {
-    execFile(process.execPath, [bundle, `--${mode}`, `--home=${home}`], { env }, (error, stdout, stderr) => {
+    execFile(process.execPath, [bundle, `--${mode}`, `--home=${home}`], { env, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(`${stderr || stdout || String(error)}`.trim()));
 

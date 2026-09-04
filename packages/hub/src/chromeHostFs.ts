@@ -24,7 +24,7 @@ export const realChromeHostDeps: ChromeHostDeps = {
 
   registry(args) {
     try {
-      execFileSync('reg', [...args], { stdio: 'pipe' });
+      execFileSync('reg', [...args], { stdio: 'pipe', windowsHide: true });
 
       return null;
     } catch (error) {

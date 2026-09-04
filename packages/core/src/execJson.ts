@@ -67,9 +67,10 @@ export function resolveOnDisk(path: string): string | null {
 function spawn(path: string, args: string[], timeout: number, resolved: boolean): Promise<ExecOutcome> {
   return new Promise<ExecOutcome>((resolve) => {
     // A path Windows rejects outright raises before the callback, and a rejected promise here would surface as an
-    // unhandled failure rather than a board notice.
+    // unhandled failure rather than a board notice. `windowsHide` because the hub is detached and has no console of
+    // its own: without it every poll opens a command prompt on the developer's screen.
     try {
-      execFile(path, args, { maxBuffer: 32 * 1024 * 1024, timeout }, (err, stdout, stderr) => {
+      execFile(path, args, { maxBuffer: 32 * 1024 * 1024, timeout, windowsHide: true }, (err, stdout, stderr) => {
         if (err) {
           if ('killed' in err && err.killed === true) {
             resolve({ ok: false, reason: 'failed', detail: `timed out after ${timeout / 1000}s` });

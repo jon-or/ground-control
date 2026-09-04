@@ -1232,6 +1232,8 @@ Two things follow. A hub killed with `/F` never removes `hub.json`, so **a stale
 
 **Starting it costs 60 ms.** Spawn to a readable `hub.json`, five cold starts of the esbuild bundle the extension carries: 64, 61, 61, 60, 63 ms. That is the whole wait a board pays when it finds no hub answering.
 
+**Every CLI it runs opens a console window unless told not to.** Measured 2026-09-04, Node 24.14.0 on Windows 11: a parent spawned `detached: true, windowsHide: true` has no console at all, so a console child it spawns allocates one of its own — `cmd /c ping` run from such a parent owned a visible top-level `PseudoConsoleWindow`, and the same spawn with `windowsHide: true` owned no window. The flag is not inherited and Node's default is `false`, so every spawn the hub makes passes it: without one, a poll every few seconds is a command prompt flashing on the developer's screen every few seconds.
+
 **It cannot raise one.** With one window already showing the folder and another window in front, `code <folder>` at that folder returned in 1109 ms and the target **never** reached the foreground — not at return, and not in the four seconds after. A process the user has not interacted with cannot take focus on Windows; it gets a taskbar flash. So the CLI's return says a window exists, never that it is in front, and every `-elsewhere` route stays resident: only an extension inside the target window can confirm it came forward (§7, §8).
 
 ## 27. GitHub's project board, and what an overlay may hold on to

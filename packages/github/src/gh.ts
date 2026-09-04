@@ -27,11 +27,14 @@ function classify(err: ExecFileException, stderr: string): Failure {
   return { kind: 'query-failed', message: stderr.trim() || err.message, remedy: 'Check the query and your network, then refresh.' };
 }
 
-/** Runs `gh` and parses stdout as JSON. Never throws — every failure comes back classified. */
+/**
+ * Runs `gh` and parses stdout as JSON. Never throws — every failure comes back classified. `windowsHide` because the
+ * hub that calls this is detached and has no console: without it each poll opens a command prompt on screen.
+ */
 export function makeGhRunner(ghPath: string): GhRunner {
   return (args) =>
     new Promise<Result<unknown>>((resolve) => {
-      execFile(ghPath, args, { maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+      execFile(ghPath, args, { maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
         if (err) {
           resolve({ ok: false, error: classify(err, stderr) });
           return;

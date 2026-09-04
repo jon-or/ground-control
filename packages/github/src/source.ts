@@ -61,7 +61,7 @@ export function readGithubConfig(raw: unknown): { config: GithubConfig } | { fai
 /** Whose issues these are, seeded from what the CLI already knows. Detected only — adopting one is the developer's (R26). */
 export function detectLogins(ghPath: string): Promise<string[]> {
   return new Promise((resolve) => {
-    execFile(ghPath, ['auth', 'status'], (_error, stdout, stderr) =>
+    execFile(ghPath, ['auth', 'status'], { windowsHide: true }, (_error, stdout, stderr) =>
       resolve(parseAuthStatusLogins(`${stdout}${stderr}`)),
     );
   });
