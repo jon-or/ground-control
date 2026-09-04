@@ -69,6 +69,8 @@ const LADDER: [string, Partial<Session>, string][] = [
   ['the short id', { details: { shortId: 'a1b2c3d4' } }, 'a1b2c3d4'],
   ['the directory it is working in', { cwd: 'd:/git/orez' }, 'orez'],
   ['the directory, past a trailing separator', { cwd: 'd:/git/orez/' }, 'orez'],
+  ['the directory a Windows CLI reported', { cwd: 'D:\\git\\orez' }, 'orez'],
+  ['the directory, past a trailing Windows separator', { cwd: 'D:\\git\\orez\\' }, 'orez'],
 ];
 
 describe('sessionLabel', () => {

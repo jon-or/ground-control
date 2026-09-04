@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
+import type { Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
 import { ago, agentIcon, cardsByIssue, clear, foldedRows, issueRefOf, paint, sessionLabel, tickDurations } from '../src/overlay.js';
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
@@ -9,11 +9,14 @@ const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'u
 
 const REPO = 'example-org/example-repo';
 const NOW = Date.parse('2026-09-04T12:00:00Z');
+/** A real id: the link the chip writes is only taken for one, so a fixture id of another shape proves nothing. */
+const SESSION_ID = 'a1b2c3d4-0000-4000-8000-000000000000';
+const OTHER_ID = 'b2c3d4e5-0000-4000-8000-000000000000';
 
 function session(over: Partial<Session> = {}): Session {
   return {
     agent: 'claude',
-    sessionId: 'a-session',
+    sessionId: SESSION_ID,
     pid: 4242,
     title: 'Working on it',
     cwd: 'd:/checkouts/4501-quote-email',
@@ -56,11 +59,18 @@ function card(issueNumber: number, over: Partial<LanedCard> = {}, repo = REPO): 
 }
 
 function snapshot(over: Partial<Snapshot> = {}): Snapshot {
+  const shown: Lane[] = [{ id: 'build', title: 'Build', cards: [card(4501)] }];
+
   return {
-    lanes: [{ id: 'build', title: 'Build', cards: [card(4501)] }],
+    lanes: shown,
     issues: { count: 1, matched: 1, totalAssigned: 1, notOnProject: 0, truncated: false, fetchedAt: '' },
     sessions: { count: 1, patternError: null, fetchedAt: '' },
-    openable: [],
+    // What the hub sends a browser board: every session of an agent the host is placed for, which is Claude's (R14).
+    openable: (over.lanes ?? shown)
+      .flatMap((lane) => lane.cards)
+      .flatMap((entry) => entry.sessions)
+      .filter((entry) => entry.agent === 'claude')
+      .map((entry) => entry.sessionId),
     hooks: null,
     failures: [],
     stale: false,
@@ -323,7 +333,7 @@ describe('the footer on a card', () => {
     expect(chip.querySelector('.gc-state')!.textContent).toBe('needs you 2m');
     // The whole name because the label ellipsises, and what the board saw because the duration does not say it.
     expect(chip.title).toBe(
-      'Working on it — open the board in VS Code to take this session over. This session is waiting on you. Last seen at the PermissionRequest hook.',
+      'Working on it — go to this session in VS Code. This session is waiting on you. Last seen at the PermissionRequest hook.',
     );
   });
 
@@ -852,6 +862,8 @@ describe('the session label ladder', () => {
     ['the short id', { title: null, details: { shortId: 'a1b2c3d4' } }, 'a1b2c3d4'],
     ['the directory it is working in', { title: null, details: {}, cwd: 'd:/git/orez' }, 'orez'],
     ['the directory, past a trailing separator', { title: null, details: {}, cwd: 'd:/git/orez/' }, 'orez'],
+    ['the directory a Windows CLI reported', { title: null, details: {}, cwd: 'D:\\git\\orez' }, 'orez'],
+    ['the directory, past a trailing Windows separator', { title: null, details: {}, cwd: 'D:\\git\\orez\\' }, 'orez'],
   ];
 
   it.each(rows)('names a session by %s', (_rung, over, expected) => {
@@ -999,5 +1011,69 @@ describe('durations that advance on their own', () => {
 
     expect(tickDurations(document, NOW + 600_000)).toBe(0);
     expect(badges()[0]!.querySelector('.gc-state')!.textContent).toBe('editing tests');
+  });
+});
+
+describe('going to a session from the browser', () => {
+  /**
+   * A link rather than a button: the navigation has to be the developer's own gesture in the application in front of
+   * them, because that is the only thing that gives VS Code the foreground (`mechanics.md` §26, §29).
+   */
+  it('addresses the session by id, and nothing else', () => {
+    paint(document, state(), NOW, actions);
+
+    const chip = badges()[0]!.querySelector<HTMLAnchorElement>('.gc-session')!;
+
+    expect(chip.tagName).toBe('A');
+    expect(chip.getAttribute('href')).toBe(`vscode://ownerrez.ground-control/open?session=${SESSION_ID}`);
+    // Without this, a few pixels of drift on the way to a click drag the card GitHub wraps around the footer.
+    expect(chip.getAttribute('draggable')).toBe('false');
+  });
+
+  it('offers no link for a session the hub says no editor can open', () => {
+    paint(document, state({ snapshot: snapshot({ openable: [] }) }), NOW, actions);
+
+    const chip = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
+
+    expect(chip.tagName).toBe('SPAN');
+    expect(chip.getAttribute('href')).toBeNull();
+    expect(chip.title).toContain('no editor of yours can open this one');
+  });
+
+  it('offers a link only for the sessions the hub named', () => {
+    const two = snapshot({
+      lanes: [
+        {
+          id: 'build',
+          title: 'Build',
+          cards: [
+            card(4501, {
+              sessions: [session(), session({ sessionId: OTHER_ID, agent: 'codex' })],
+            }),
+          ],
+        },
+      ],
+    });
+
+    paint(document, state({ snapshot: two }), NOW, actions);
+
+    expect(Array.from(badges()[0]!.querySelectorAll('.gc-session')).map((chip) => chip.tagName)).toEqual(['A', 'SPAN']);
+  });
+
+  /** GitHub's card is a button wrapped around the footer, so a click that reached it would open the issue instead. */
+  it('keeps the click off the card underneath it', () => {
+    paint(document, state(), NOW, actions);
+
+    const onCard = vi.fn();
+
+    document.querySelector('[data-gc-issue]')!.addEventListener('click', onCard);
+
+    // Cancelled here only to keep jsdom from trying the navigation itself; the overlay leaves that to the browser.
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+
+    click.preventDefault();
+    badges()[0]!.querySelector<HTMLElement>('.gc-session')!.dispatchEvent(click);
+
+    expect(onCard).not.toHaveBeenCalled();
   });
 });

@@ -190,7 +190,7 @@ describe('the bridge Chrome starts', () => {
       () => (seen.messages.find((message) => message.type === 'notice') as { message: string } | undefined) ?? null,
     );
 
-    expect(notice.message).toContain('happens in the editor');
+    expect(notice.message).toContain('not by asking the hub');
 
     bridge.stdin?.end();
 

@@ -71,8 +71,9 @@ export class FrameReader {
 export type BridgeMessage = HubMessage | { type: 'trouble'; message: string | null };
 
 /**
- * What the browser may ask for, and what it may not. The overlay watches and moves cards (R36); taking a session
- * over needs the editor, and a configuration carries paths the hub would spawn — neither is the browser's to send.
+ * What the browser may ask for, and what it may not. The overlay watches and moves cards, and goes to a session by
+ * navigating rather than through here (R36). A configuration carries paths the hub would spawn, and stopping a
+ * session and taking it over is the editor's (R15) — neither is the browser's to send.
  */
 export type BridgeAction = { send: ClientMessage } | { refused: string };
 
@@ -102,7 +103,7 @@ export function bridgeAction(raw: unknown): BridgeAction {
   }
 
   if (message.type === 'open') {
-    return { refused: 'Taking a session over happens in the editor. Open the board in VS Code.' };
+    return { refused: 'The browser board goes to a session by opening its link, not by asking the hub.' };
   }
 
   return { refused: `The overlay may not send ${String(message.type)}.` };

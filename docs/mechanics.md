@@ -243,7 +243,7 @@ registerUriHandler({ handleUri(uri) { switch (uri.path) {
 - **Routing does not follow the session.** The last fire names a session held open in another window and landed where the developer was sitting instead. There is no "deliver to whoever has this session".
 - **Routing follows focus, and `code <folder>` is how to set it.** The third fire is the one that worked, and only because `code` had just brought that window forward. Seconds later focus was back where the developer was working, and the next fire went there.
 - **A miss starts a fresh agent in the wrong worktree.** Three of the four created an empty session under the focused window's own directory. The id is not resolvable in that window's project, so it is treated as a new conversation rather than refused.
-- `Start-Process "vscode://…"` does not route at all — no handler, no tab. `code --open-url "vscode://…"` routes reliably. PowerShell and cmd eat `&column=2` unless the whole URI is quoted.
+- `Start-Process "vscode://…"` routes through whatever holds the scheme registration, which is not necessarily this VS Code (§29). `code --open-url "vscode://…"` routes reliably. PowerShell and cmd eat `&column=2` unless the whole URI is quoted.
 
 **Conclusion:** `code <folder>` then `code --open-url` opens a session in its own worktree with nothing installed there, and is the only mechanism that reaches a window the board does not run in. It is a race, and the losing branch is a stray agent — so an opener must take focus deliberately, confirm it left, and check afterwards where the session actually landed.
 
@@ -1298,3 +1298,23 @@ That is Node's inspector reporting HTTP traffic to the debugger's Network view, 
 What turns it on is the debugger, not a flag on the runtime: js-debug sends the debuggee an `enableNetworking` request as each session starts, and only when `debug.javascript.enableNetworkView` is on — which it is by default. That request is a CDP `Network.enable`, and Node instruments `http` the moment it arrives. `.vscode/settings.json` turns the setting off for this workspace, so the request is never sent. The launch attribute named for this, `experimentalNetworking`, is not the lever: it only adds `--experimental-network-inspection` to a launched Node's arguments, and the `extensionHost` debug type does not accept it.
 
 **Version-fragile**: a Node or js-debug upgrade may fix the throw, at which point the setting is only a Network view nobody here uses.
+
+## 29. `vscode://` is one registration per user, and the test build holds it
+
+**Measured 2026-09-04, VS Code 1.136.1, Windows 11.** A browser opens a `vscode://` link with `ShellExecute`, so it goes wherever `HKCU\Software\Classes\vscode\shell\open\command` points. On this machine, after an integration run, that is:
+
+```
+"D:\git\ground-control\extensions\ground-control\.vscode-test\vscode-win32-x64-archive-1.136.1\Code.exe" --open-url -- "%1"
+```
+
+**The archive build the integration tests download holds the scheme.** `npm run test:integration` launches it, and the key names it afterwards — so on a machine that has run those tests, a browser link is addressed to a throwaway VS Code rather than to the developer's install. The registration is per user, and the last VS Code to claim it wins.
+
+**What the launch costs was measured; what it delivers was not.** `Start-Process "vscode://ownerrez.ground-control/…"` returned in **53 ms**, and four seconds later the only `Code.exe` processes running were the developer's install — none from `.vscode-test`. So the launched build does not stay up. Whether it forwarded the URL to the running instance or dropped it was not observed, and the registered command carries no `--user-data-dir`, which is what would make forwarding possible. Treat end-to-end delivery from a browser as unestablished until a link is watched arriving.
+
+**`Code.exe --open-url` is not the same as `code --open-url`.** Called on the binary directly it is rejected — `Code.exe: bad option: --open-url` — while the `code` shim accepts it and returned in **1126 ms**. The registered command works because `ShellExecute` starts the app rather than the CLI. Only the shim form is safe to spawn, which is the form `resident.ts` uses.
+
+**A handled URI reaches the extension, and what it carries reaches the hub.** In a real extension host, `executeCommand('vscode.open', Uri.parse('vscode://ownerrez.ground-control/open?session=…'))` routes to `window.registerUriHandler`; a well-formed id came back refused by name by the hub, and a malformed one was refused by the handler without the hub hearing of it. `onUri` is **not** auto-generated from the `registerUriHandler` call — the activation event is declared in `package.json`, or a link to a window that has not already activated the extension reaches nothing.
+
+**Not measured: whether the navigation raises the window.** The rule it rests on is Windows', not VS Code's — the foreground process may pass foreground rights to a process it starts, which is why a click in Chrome can do what §26's hub child cannot. Confirming it needs the packaged extension installed and a browser genuinely in front, so it is a step in the manual checklist rather than a measurement here.
+
+**Version-fragile**, and machine-state-fragile besides: any integration run re-points the registration, and a VS Code update re-points it back.
