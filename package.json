@@ -14,14 +14,15 @@
     "packages/board",
     "packages/hub",
     "apps/hub",
-    "extensions/ground-control"
+    "extensions/ground-control",
+    "extensions/chrome-github-board"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "watch": "npm run watch --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
-    "verify": "npm run typecheck && npm test",
+    "verify": "npm run build && npm run typecheck && npm test",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || exit 0",
     "hub": "node apps/hub/dist/main.js",
     "test:integration": "npm run build && npm run test:integration --workspace ground-control",

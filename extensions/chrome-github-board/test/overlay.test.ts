@@ -1,0 +1,421 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
+import { ago, cardsByIssue, clear, issueRefOf, paint } from '../src/overlay.js';
+
+/** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
+const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
+
+const REPO = 'example-org/example-repo';
+const NOW = Date.parse('2026-09-04T12:00:00Z');
+
+function session(over: Partial<Session> = {}): Session {
+  return {
+    agent: 'claude',
+    sessionId: 'a-session',
+    pid: 4242,
+    title: 'Working on it',
+    cwd: 'd:/checkouts/4501-quote-email',
+    startedAt: NOW - 600_000,
+    branch: '4501-quote-email',
+    issueNumber: 4501,
+    transcriptWrittenAt: NOW - 30_000,
+    activity: { phase: 'waiting', since: NOW - 125_000, event: 'PermissionRequest' },
+    finished: false,
+    details: {},
+    ...over,
+  };
+}
+
+/** A card the hub knows the repository of, which is how it is told from another repository's issue of that number. */
+function card(issueNumber: number, over: Partial<LanedCard> = {}, repo = REPO): LanedCard {
+  return {
+    key: `issue-${issueNumber}`,
+    issue: {
+      number: issueNumber,
+      title: `Issue ${issueNumber}`,
+      type: null,
+      typeColor: null,
+      url: `https://github.com/${repo}/issues/${issueNumber}`,
+      status: null,
+      statusColor: null,
+      assignees: [],
+      avatar: null,
+      pullRequest: null,
+      updatedAt: '2026-09-04T08:00:00Z',
+    },
+    issueNumber,
+    sessions: [session({ issueNumber })],
+    lane: 'build',
+    returned: false,
+    attention: null,
+    reason: '',
+    ...over,
+  };
+}
+
+function snapshot(over: Partial<Snapshot> = {}): Snapshot {
+  return {
+    lanes: [{ id: 'build', title: 'Build', cards: [card(4501)] }],
+    issues: { count: 1, matched: 1, totalAssigned: 1, notOnProject: 0, truncated: false, fetchedAt: '' },
+    sessions: { count: 1, patternError: null, fetchedAt: '' },
+    openable: [],
+    hooks: null,
+    failures: [],
+    stale: false,
+    needs: null,
+    fetchedAt: new Date(NOW - 90_000).toISOString(),
+    ...over,
+  };
+}
+
+const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn() };
+
+interface State {
+  snapshot: Snapshot | null;
+  trouble: string | null;
+  notice: string | null;
+}
+
+function state(over: Partial<State> = {}): State {
+  return { snapshot: snapshot(), trouble: null, notice: null, ...over };
+}
+
+beforeEach(() => {
+  document.documentElement.innerHTML = BOARD;
+  actions.refresh.mockReset();
+  actions.move.mockReset();
+  actions.repaint.mockReset();
+  // The open lane list is module state, so a test that left one open would leak into the next.
+  clear(document);
+});
+
+function badges(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('.gc-badge')];
+}
+
+describe('reading GitHub board markup', () => {
+  it('finds the repository and issue every card links to', () => {
+    const cards = [...document.querySelectorAll('[data-board-card-id]')];
+
+    expect(cards).toHaveLength(3);
+    expect(cards.map((element) => issueRefOf(element))).toEqual([
+      { repo: REPO, number: 4501 },
+      { repo: REPO, number: 4502 },
+      { repo: REPO, number: 4503 },
+    ]);
+  });
+
+  it('reports no issue for a card that links to none', () => {
+    const draft = document.querySelector('[data-board-card-id]')!;
+
+    draft.querySelector('a[href*="/issues/"]')!.remove();
+
+    expect(issueRefOf(draft)).toBeNull();
+  });
+
+  it('gathers the cards from every lane, not only the first', () => {
+    const { byRef } = cardsByIssue(
+      snapshot({
+        lanes: [
+          { id: 'build', title: 'Build', cards: [card(4501), card(4502)] },
+          { id: 'review', title: 'Review', cards: [card(4503, { lane: 'review' })] },
+        ],
+      }),
+    );
+
+    expect([...byRef.keys()]).toEqual([`${REPO}#4501`, `${REPO}#4502`, `${REPO}#4503`]);
+    expect(byRef.get(`${REPO}#4503`)?.lane).toBe('review');
+  });
+
+  it('leaves out a card with no issue of its own, which no GitHub board carries', () => {
+    const sessionOnly = card(4501, { issueNumber: null, issue: null, key: 'dir-checkout' });
+    const index = cardsByIssue(snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [sessionOnly] }] }));
+
+    expect([...index.byRef.keys()]).toEqual([]);
+    expect([...index.byNumber.keys()]).toEqual([]);
+  });
+
+  /** A session naming an issue the developer is not assigned carries a number and no issue behind it. */
+  it('indexes a card the hub knows the number of but not the repository', () => {
+    const unknown = card(4501, { issue: null });
+    const index = cardsByIssue(snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [unknown] }] }));
+
+    expect([...index.byRef.keys()]).toEqual([]);
+    expect([...index.byNumber.keys()]).toEqual([4501]);
+  });
+});
+
+describe('painting the board', () => {
+  it('badges the cards the snapshot knows and leaves the rest alone', () => {
+    const drew = paint(document, state(), NOW, actions);
+
+    expect(drew).toMatchObject({ scanned: 3, badges: 1, banner: true });
+    expect(badges()).toHaveLength(1);
+    expect(badges()[0]!.closest('[data-gc-issue]')?.getAttribute('data-gc-issue')).toBe(`${REPO}#4501`);
+  });
+
+  /**
+   * A project board spans repositories, and two of them numbering an issue 4501 is ordinary. Matching on the number
+   * alone badges the wrong card, and its lane chip then moves a card the developer is not looking at.
+   */
+  it('does not badge another repository issue of the same number', () => {
+    const elsewhere = snapshot({
+      lanes: [{ id: 'build', title: 'Build', cards: [card(4501, {}, 'other-org/other-repo')] }],
+    });
+
+    expect(paint(document, state({ snapshot: elsewhere }), NOW, actions)).toMatchObject({ scanned: 3, badges: 0 });
+  });
+
+  it('falls back to the number where the hub knows no repository', () => {
+    const unknown = snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4502, { issue: null })] }] });
+
+    paint(document, state({ snapshot: unknown }), NOW, actions);
+
+    expect(badges()).toHaveLength(1);
+    expect(badges()[0]!.closest('[data-gc-issue]')?.getAttribute('data-gc-issue')).toBe(`${REPO}#4502`);
+  });
+
+  it('marks every card it scanned with its issue, badge or no badge', () => {
+    paint(document, state(), NOW, actions);
+
+    expect([...document.querySelectorAll('[data-gc-issue]')].map((el) => el.getAttribute('data-gc-issue'))).toEqual([
+      `${REPO}#4501`,
+      `${REPO}#4502`,
+      `${REPO}#4503`,
+    ]);
+  });
+
+  /** A draft item has no issue, so it can never match a card. Marking it would leave a mark that never clears. */
+  it('marks no issue on a card that links to none', () => {
+    document.querySelector('[data-board-card-id] a[href*="/issues/"]')!.remove();
+
+    const drew = paint(document, state(), NOW, actions);
+
+    expect(drew).toMatchObject({ scanned: 3, badges: 0 });
+    expect([...document.querySelectorAll('[data-gc-issue]')].map((el) => el.getAttribute('data-gc-issue'))).toEqual([
+      `${REPO}#4502`,
+      `${REPO}#4503`,
+    ]);
+  });
+
+  it('says the phase and how long it has held', () => {
+    paint(document, state(), NOW, actions);
+
+    const chip = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
+
+    expect(chip.textContent).toBe('needs you 2m');
+    expect(chip.dataset.phase).toBe('waiting');
+  });
+
+  it('names the agent for a session no signal has reported on', () => {
+    const only = snapshot({
+      lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [session({ activity: null })] })] }],
+    });
+
+    paint(document, state({ snapshot: only }), NOW, actions);
+
+    const chip = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
+
+    expect(chip.textContent).toBe('claude');
+    expect(chip.dataset.phase).toBe('none');
+  });
+
+  it('names the lane the board has the card in', () => {
+    const only = snapshot({ lanes: [{ id: 'review', title: 'Review', cards: [card(4501, { lane: 'review' })] }] });
+
+    paint(document, state({ snapshot: only }), NOW, actions);
+
+    expect(badges()[0]!.querySelector('.gc-lane')?.textContent).toBe('Review');
+  });
+
+  /**
+   * A view switch replaces every card node and takes the badge with it (`mechanics.md` §27), and a repaint over
+   * nodes that survived would leave two. Rewriting from scratch is what makes both cases one badge.
+   */
+  it('leaves one badge per card however many times it paints', () => {
+    paint(document, state(), NOW, actions);
+    paint(document, state(), NOW, actions);
+    paint(document, state(), NOW, actions);
+
+    expect(badges()).toHaveLength(1);
+    expect(document.querySelectorAll('#gc-banner')).toHaveLength(1);
+    expect(document.querySelectorAll('#gc-style')).toHaveLength(1);
+  });
+
+  it('takes a badge away when the snapshot stops naming the issue', () => {
+    paint(document, state(), NOW, actions);
+
+    expect(badges()).toHaveLength(1);
+
+    paint(document, state({ snapshot: snapshot({ lanes: [] }) }), NOW, actions);
+
+    expect(badges()).toHaveLength(0);
+  });
+
+  it('paints nothing where the page is not a board', () => {
+    document.documentElement.innerHTML = '<body><p>Not a project board</p></body>';
+
+    expect(paint(document, state(), NOW, actions)).toEqual({ scanned: 0, badges: 0, banner: false });
+  });
+
+  /** Navigating off a board is something the overlay handles: the content script is injected across github.com. */
+  it('takes everything it drew back off the page', () => {
+    paint(document, state(), NOW, actions);
+    clear(document);
+
+    expect(badges()).toHaveLength(0);
+    expect(document.getElementById('gc-banner')).toBeNull();
+    expect(document.querySelectorAll('[data-gc-issue]')).toHaveLength(0);
+  });
+});
+
+describe('the banner above the board', () => {
+  function bannerText(): string {
+    return document.getElementById('gc-banner')?.textContent ?? '';
+  }
+
+  it('states how old the reading is', () => {
+    paint(document, state(), NOW, actions);
+
+    expect(bannerText()).toContain('read this machine 1m ago');
+    expect(document.getElementById('gc-banner')?.dataset.stale).toBe('false');
+  });
+
+  it('states each failure with what to do about it', () => {
+    const failing = snapshot({
+      stale: true,
+      failures: [
+        { subject: 'github', kind: 'gh-missing', message: 'The GitHub CLI is not installed.', remedy: 'Install gh.' },
+      ],
+    });
+
+    paint(document, state({ snapshot: failing }), NOW, actions);
+
+    expect(bannerText()).toContain('The GitHub CLI is not installed.');
+    expect(bannerText()).toContain('Install gh.');
+    expect(document.getElementById('gc-banner')?.dataset.stale).toBe('true');
+  });
+
+  it('states the hook notice once, above the board rather than on every card', () => {
+    const installed = snapshot({ hooks: { notice: '2 sessions are not reporting yet.' } });
+
+    paint(document, state({ snapshot: installed }), NOW, actions);
+
+    expect(bannerText()).toContain('2 sessions are not reporting yet.');
+  });
+
+  /** The bridge refuses what the browser may not ask for. A refusal nobody renders is a button that does nothing. */
+  it('states what the hub last said back', () => {
+    paint(document, state({ notice: 'Taking a session over happens in the editor.' }), NOW, actions);
+
+    expect(bannerText()).toContain('Taking a session over happens in the editor.');
+  });
+
+  /** A bridge that lost its hub must not leave badges that look current: the banner says so and marks it stale. */
+  it('says when it cannot reach the board at all', () => {
+    paint(document, state({ trouble: 'Ground Control is not running.' }), NOW, actions);
+
+    expect(bannerText()).toContain('Ground Control is not running.');
+    expect(bannerText()).toContain('showing what it last read');
+    expect(document.getElementById('gc-banner')?.dataset.stale).toBe('true');
+  });
+
+  it('says so before the first snapshot has arrived', () => {
+    paint(document, state({ snapshot: null }), NOW, actions);
+
+    expect(bannerText()).toContain('has not read this machine yet');
+    expect(badges()).toHaveLength(0);
+  });
+
+  it('asks the hub to read again', () => {
+    paint(document, state(), NOW, actions);
+    document.getElementById('gc-refresh')!.click();
+
+    expect(actions.refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('moving a card from the browser', () => {
+  /** The repaint is what a click asks for, because the board is drawn from scratch rather than patched in place. */
+  function click(selector: string): void {
+    document.querySelector<HTMLElement>(selector)!.click();
+    paint(document, state(), NOW, actions);
+  }
+
+  it('offers the lanes only once asked, and moves the card to the one chosen', () => {
+    paint(document, state(), NOW, actions);
+
+    expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+
+    click('.gc-lane');
+
+    const offered = [...document.querySelectorAll<HTMLElement>('.gc-lanes button')].map((b) => b.dataset.lane);
+
+    expect(offered).toEqual(['unstarted', 'plan', 'build', 'review', 'done', 'icebox']);
+
+    click('.gc-lanes button[data-lane="review"]');
+
+    expect(actions.move).toHaveBeenCalledWith('issue-4501', 'review' satisfies LaneId);
+    expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+  });
+
+  /**
+   * Opening the list is itself a DOM change, which is what schedules the next scan — so a list the repaint does not
+   * redraw is gone about one frame after the click, before anyone can choose a lane.
+   */
+  it('keeps the lanes open across the repaints the board makes anyway', () => {
+    paint(document, state(), NOW, actions);
+    click('.gc-lane');
+
+    paint(document, state(), NOW, actions);
+    paint(document, state(), NOW, actions);
+
+    expect(document.querySelectorAll('.gc-lanes button')).toHaveLength(6);
+  });
+
+  it('asks for a repaint on every click, because that is what draws the change', () => {
+    paint(document, state(), NOW, actions);
+    document.querySelector<HTMLElement>('.gc-lane')!.click();
+
+    expect(actions.repaint).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the lanes when the badge is asked a second time', () => {
+    paint(document, state(), NOW, actions);
+    click('.gc-lane');
+    click('.gc-lane');
+
+    expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+    expect(actions.move).not.toHaveBeenCalled();
+  });
+
+  /** Every control sits inside GitHub's own card, which is a button and a drag handle. A click must go no further. */
+  it('keeps a click on its own controls off the card underneath', () => {
+    paint(document, state(), NOW, actions);
+
+    const onCard = vi.fn();
+
+    document.querySelector(`[data-gc-issue="${REPO}#4501"]`)!.addEventListener('click', onCard);
+    badges()[0]!.querySelector<HTMLElement>('.gc-session')!.click();
+    badges()[0]!.querySelector<HTMLElement>('.gc-lane')!.click();
+
+    expect(onCard).not.toHaveBeenCalled();
+  });
+});
+
+describe('how long ago', () => {
+  it('is coarse and never rounds up', () => {
+    expect(ago(0)).toBe('0s');
+    expect(ago(59_999)).toBe('59s');
+    expect(ago(60_000)).toBe('1m');
+    expect(ago(59 * 60_000 + 59_000)).toBe('59m');
+    expect(ago(60 * 60_000)).toBe('1h');
+    expect(ago(150 * 60_000)).toBe('2h 30m');
+  });
+
+  it('never reads as the future', () => {
+    expect(ago(-5000)).toBe('0s');
+  });
+});

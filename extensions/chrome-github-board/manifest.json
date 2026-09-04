@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Ground Control — GitHub board overlay",
+  "version": "0.0.0",
+  "description": "Shows the agent sessions running on your machine on your team's GitHub project board.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2Ahsf0sY43Kn+bO7OKjmMmarV/8gk6fJnKjQsbJNBMYIbWFXmUcnRDqq4wU/qyoqDpkug7UHe3ms28YxYB+lD9HRPDVv/7uvlXp27zxpx5gNbjj28O01C8q3Ev4rIrhPhyfk1Qc00cEvm6TozeEuC8HCpRmi0EU2bx8oYh5ScPVORRdhoZ5biCiuK84NsDDubIDUCcX9q9FHC/7h3EbnMgF2fpjDS6ZFq0JXrY+21vVk9Cvu4PzehI3hDZfejTt8vytGsJOlB/o8WGOK6I0a8yFGo7nqlMy7DAAh9SlXhbrZIgGuPiJIRLDZB9Rv0OU6Lfx/2CKO0IOcjioe8jEiGwIDAQAB",
+  "permissions": ["nativeMessaging", "alarms", "storage"],
+  "background": {
+    "service_worker": "src/worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/overlay.js", "src/state.js"],
+      "matches": ["https://github.com/*"]
+    }
+  ]
+}

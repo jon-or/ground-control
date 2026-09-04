@@ -22,13 +22,12 @@ export const VSCODE_HOST_ID = 'vscode';
 /**
  * What the developer may set about this host. `userDir` is the running install's own `User` directory, which a
  * portable or Insiders install moves; the two permissions are R27's, and default to what a board spanning worktrees
- * needs (`mayOpenWindow`) and to off for anything a browser tab could set in motion (`allowBrowserOpen`).
+ * needs (`mayOpenWindow`).
  */
 const config = z
   .object({
     userDir: z.string().min(1).optional(),
     mayOpenWindow: z.boolean().default(true),
-    allowBrowserOpen: z.boolean().default(false),
   })
   .strict();
 

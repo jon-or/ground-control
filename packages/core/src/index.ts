@@ -6,6 +6,7 @@ export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
 export { hubConfig, idsFrom, parseHubConfig, spawnable } from './config.js';
 export type { HubConfig } from './config.js';
 export type { SourceReading, WorkItems, WorkSource } from './source.js';
+export { CHROME_EXTENSION_ID, NATIVE_HOST_NAME } from './chrome.js';
 export { PROTOCOL } from './protocol.js';
 export type { Client, ClientHello, ClientMessage, HubMessage, Snapshot, SnapshotMessage } from './protocol.js';
 export { basename, dirKey, groundControlDirOf, isAbsolute, join, normalize, parent, GROUND_CONTROL_DIR } from './paths.js';

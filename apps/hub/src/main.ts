@@ -1,5 +1,16 @@
 import { homedir } from 'node:os';
-import { makeRegistries, serveHub, stopHub, uninstallActivity } from '@ground-control/hub';
+import {
+  bundlePathOf,
+  chromeHostPlan,
+  installChromeHost,
+  makeRegistries,
+  realChromeHostDeps,
+  serveHub,
+  stopHub,
+  uninstallActivity,
+  uninstallChromeHost,
+} from '@ground-control/hub';
+import { startBridge } from './bridgeMain.js';
 import { VERSION } from './version.js';
 
 /**
@@ -27,10 +38,34 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
+  // Chrome starts this mode through the wrapper the registration wrote, and closes stdin when the last board tab
+  // goes. It holds the loop open itself, so nothing here reports on the way out.
+  if (flag(argv, 'native-messaging') !== null) {
+    startBridge(home);
+
+    return -1;
+  }
+
+  const chrome = (): ReturnType<typeof chromeHostPlan> =>
+    chromeHostPlan({ platform: process.platform, home, bundle: bundlePathOf(home), node: process.execPath });
+
+  if (flag(argv, 'install-chrome-host') !== null) {
+    process.stdout.write(`${installChromeHost(chrome(), realChromeHostDeps)}\n`);
+
+    return 0;
+  }
+
+  if (flag(argv, 'uninstall-chrome-host') !== null) {
+    process.stdout.write(`${uninstallChromeHost(chrome(), realChromeHostDeps)}\n`);
+
+    return 0;
+  }
+
   if (flag(argv, 'uninstall') !== null) {
     await stopHub(home);
     uninstallActivity(makeRegistries().agents, home);
-    process.stdout.write('Removed the activity hooks and stopped the hub.\n');
+    uninstallChromeHost(chrome(), realChromeHostDeps);
+    process.stdout.write('Removed the activity hooks and the browser registration, and stopped the hub.\n');
 
     return 0;
   }
@@ -80,9 +115,16 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (error) => report('unhandledRejection', error));
 
 // Not top-level await: this file is bundled to CommonJS to be carried inside a client, which has no such thing.
-void main(process.argv.slice(2)).then((code) => {
-  // -1 means the server is holding the loop open; anything else is a mode that has finished.
-  if (code >= 0) {
-    process.exit(code);
-  }
-});
+void main(process.argv.slice(2))
+  .then((code) => {
+    // -1 means the caller is holding the loop open — the server, or the bridge. Anything else has finished.
+    if (code >= 0) {
+      process.exit(code);
+    }
+  })
+  .catch((error: unknown) => {
+    // Non-zero, and said on stderr: a mode that threw and exited 0 reads to its caller as a mode that worked, and
+    // the caller here is a menu item telling the developer their browser can now reach the board (R34).
+    report('the hub could not do that', error);
+    process.exit(1);
+  });

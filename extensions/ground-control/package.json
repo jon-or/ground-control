@@ -31,6 +31,16 @@
         "command": "groundControl.removeSessionHooks",
         "title": "Remove Session Hooks",
         "category": "Ground Control"
+      },
+      {
+        "command": "groundControl.enableGithubOverlay",
+        "title": "Enable GitHub Overlay",
+        "category": "Ground Control"
+      },
+      {
+        "command": "groundControl.disableGithubOverlay",
+        "title": "Disable GitHub Overlay",
+        "category": "Ground Control"
       }
     ],
     "configuration": {
