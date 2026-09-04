@@ -8,6 +8,7 @@
 /**
  * @typedef {import('@ground-control/core').Snapshot} Snapshot
  * @typedef {import('@ground-control/core').LanedCard} LanedCard
+ * @typedef {import('@ground-control/core').Session} Session
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
  * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void }} Actions
@@ -47,6 +48,27 @@ export const LANE_TITLES = {
 /** @type {Record<string, string>} */
 const PHASE_WORDS = { running: 'running', waiting: 'needs you', idle: 'idle' };
 
+/** @type {Record<string, string>} */
+const PHASE_TITLES = {
+  running: 'This session is working. The duration counts the turn it is in, from the prompt that began it where the board saw one.',
+  waiting: 'This session is waiting on you.',
+  idle: 'The board last saw this session finish.',
+};
+
+/**
+ * How each kind of attention reads on a card, matching the editor board word for word. `phase` is the session phase
+ * whose rows the mark names, so the tooltip can say which session it means.
+ *
+ * @type {Record<string, { text: string, phase: string, said: string }>}
+ */
+const ATTENTION = {
+  blocked: { text: 'Needs you', phase: 'waiting', said: 'is waiting on you.' },
+  'your-turn': { text: 'Your turn', phase: 'idle', said: 'finished its turn — you have not replied since.' },
+};
+
+/** Where a card's attention mark is written, so a scan that no longer finds one can take it off again. */
+const ATTENTION_ATTR = 'data-gc-attention';
+
 /**
  * The card's own box pads 8px above and 12px below its content and nothing at the sides (`mechanics.md` §27), so a
  * footer reaches the card's three edges by cancelling that bottom padding alone. The columns are pulled together
@@ -77,6 +99,16 @@ ${COLUMN} { margin-right: -1px !important;
 .${BADGE_CLASS} button[data-phase="waiting"] { background: var(--bgColor-attention-muted, #fff8c5); }
 .${BADGE_CLASS} button[data-phase="running"] { background: var(--bgColor-accent-muted, #ddf4ff); }
 .${BADGE_CLASS} svg { flex: none; }
+.gc-name { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
+.gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
+  color: var(--fgColor-onEmphasis, #ffffff); background: var(--fgColor-muted, #59636e); }
+.gc-mark[data-mark="blocked"] { background: var(--bgColor-attention-emphasis, #bf8700); }
+.gc-mark[data-mark="your-turn"] { background: var(--bgColor-accent-emphasis, #0969da); }
+.gc-mark[data-mark="returned"] { background: var(--bgColor-severe-emphasis, #bc4c00); }
+${CARD}[${ATTENTION_ATTR}] { outline: 2px solid var(--bgColor-attention-emphasis, #bf8700); outline-offset: -1px;
+  border-radius: 6px; }
+${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--bgColor-accent-emphasis, #0969da); }
 .${POPOVER_CLASS} { position: fixed; z-index: 100; min-width: 200px; max-width: 320px; padding: 4px 0;
   font-size: 12px; color: var(--fgColor-default, #1f2328);
   background: var(--overlay-bgColor, var(--bgColor-default, #ffffff));
@@ -150,6 +182,69 @@ export function ago(ms) {
   const minutes = Math.floor(seconds / 60);
 
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${minutes % 60 === 0 ? '' : ` ${minutes % 60}m`}`;
+}
+
+/**
+ * The last segment of a path. Both separators, because an agent CLI reports the cwd in its platform's own shape.
+ *
+ * @param {string} dir
+ * @returns {string}
+ */
+function basename(dir) {
+  const parts = dir.split(/[\/]/).filter(Boolean);
+
+  return parts[parts.length - 1] ?? dir;
+}
+
+/**
+ * What a session calls itself. The same ladder as `core`'s `sessionLabel` and the editor board's, held together by
+ * the parity table in this package's tests rather than by an import — this file is loaded by Chrome as it stands.
+ *
+ * @param {Session} session
+ * @returns {string}
+ */
+export function sessionLabel(session) {
+  return session.title ?? session.details.name ?? session.details.shortId ?? basename(session.cwd);
+}
+
+/**
+ * The phase and how long it has held (R5). Read from the element rather than the session so the tick below can
+ * rewrite it without a snapshot.
+ *
+ * @param {string} phase
+ * @param {number} since
+ * @param {number} now
+ * @returns {string}
+ */
+function phaseText(phase, since, now) {
+  return `${PHASE_WORDS[phase] ?? phase} ${ago(now - since)}`;
+}
+
+/**
+ * Advances every rendered duration where it stands, once a second (R5). A repaint would rebuild every footer and
+ * fight the observer that watches for one, and the phase itself only changes when a hook fires — so the text is
+ * rewritten and every other node is left alone.
+ *
+ * @param {Document} doc
+ * @param {number} now
+ * @returns {number} how many durations were advanced, which is what a test has to go on
+ */
+export function tickDurations(doc, now) {
+  let moved = 0;
+
+  // Scoped to the overlay's own chips rather than to the attribute: this runs over a page GitHub owns, and a bare
+  // attribute selector would rewrite the text of anything of theirs that happened to carry the same name.
+  for (const el of doc.querySelectorAll(`.${BADGE_CLASS} .gc-session[data-phase] > [data-activity-since]`)) {
+    const phase = /** @type {Element} */ (el.parentElement).getAttribute('data-phase') ?? '';
+    const text = phaseText(phase, Number(el.getAttribute('data-activity-since')), now);
+
+    if (el.textContent !== text) {
+      el.textContent = text;
+      moved += 1;
+    }
+  }
+
+  return moved;
 }
 
 const ISSUE_URL = /github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/;
@@ -830,6 +925,128 @@ function laneMenu(doc, card, actions) {
 }
 
 /**
+ * One session, as the developer reads it across a board: which agent reported it, what it calls itself, and the one
+ * state the board will claim for it — its own observation where it has one, the CLI's own word where it does not,
+ * and nothing at all where there is neither (R24).
+ *
+ * @param {Document} doc
+ * @param {Session} session
+ * @param {number} now
+ * @returns {HTMLElement}
+ */
+function sessionChip(doc, session, now) {
+  const chip = doc.createElement('button');
+
+  chip.type = 'button';
+  chip.className = 'gc-session';
+  chip.dataset.phase = session.activity?.phase ?? 'none';
+
+  const icon = agentIcon(doc, session.agent);
+
+  // R2: which agent reported a session is always said. A mark where there is one, the CLI's own name where there
+  // is not — an unnamed chip would read as Claude's.
+  if (icon === null) {
+    const named = doc.createElement('span');
+
+    named.className = 'gc-agent';
+    named.textContent = session.agent;
+    chip.appendChild(named);
+  } else {
+    chip.appendChild(icon);
+  }
+
+  const name = sessionLabel(session);
+  const label = doc.createElement('span');
+
+  label.className = 'gc-name';
+  label.textContent = name;
+  chip.appendChild(label);
+
+  const state = doc.createElement('span');
+
+  state.className = 'gc-state';
+
+  if (session.activity) {
+    // The `since` too, so the second-by-second tick can advance this without a snapshot behind it.
+    state.setAttribute('data-activity-since', String(session.activity.since));
+    state.textContent = phaseText(session.activity.phase, session.activity.since, now);
+    chip.appendChild(state);
+  } else {
+    const reported = session.details.state ?? session.details.status;
+
+    if (reported) {
+      state.textContent = reported;
+      chip.appendChild(state);
+    }
+  }
+
+  // The whole name, because the label ellipsises, and what the board saw, because the duration alone does not say.
+  const seen = session.activity ? ` ${stateTitle(session.activity)}` : '';
+
+  chip.title = `${name} — open the board in VS Code to take this session over.${seen}`;
+  chip.addEventListener('click', (event) => event.stopPropagation());
+
+  return chip;
+}
+
+/**
+ * What the row says on hover: what the board concluded, and the hook it concluded it from (R13).
+ *
+ * @param {{ phase: string, event: string | null }} activity
+ * @returns {string}
+ */
+function stateTitle(activity) {
+  const what = PHASE_TITLES[activity.phase] ?? '';
+
+  return activity.event ? `${what} Last seen at the ${activity.event} hook.`.trim() : what;
+}
+
+/**
+ * R6, on the project board's own card: the word in the footer and a mark on the card itself, because a footer chip
+ * alone is not readable from across a board of them. Written to GitHub's element rather than ours so the card
+ * carries it, and taken off again by the scan that no longer finds one.
+ *
+ * @param {Document} doc
+ * @param {Element} element
+ * @param {HTMLElement} badge
+ * @param {LanedCard} card
+ */
+function renderAttention(doc, element, badge, card) {
+  if (card.returned) {
+    const mark = doc.createElement('span');
+
+    mark.className = 'gc-mark';
+    mark.dataset.mark = 'returned';
+    mark.textContent = 'Returned';
+    mark.title = 'This card was past your hands and has come back.';
+    badge.appendChild(mark);
+  }
+
+  const attention = card.attention === null ? undefined : ATTENTION[card.attention];
+
+  if (card.attention === null || attention === undefined) {
+    element.removeAttribute(ATTENTION_ATTR);
+
+    return;
+  }
+
+  // A finished session is not waiting on anyone, whatever its last event was — the same filter the editor board runs.
+  const named = card.sessions.filter(
+    (session) => session.activity?.phase === attention.phase && !(attention.phase === 'waiting' && session.finished),
+  );
+
+  element.setAttribute(ATTENTION_ATTR, card.attention);
+
+  const mark = doc.createElement('span');
+
+  mark.className = 'gc-mark';
+  mark.dataset.mark = card.attention;
+  mark.textContent = attention.text;
+  mark.title = named.map((session) => `${sessionLabel(session)} ${attention.said}`).join(' ');
+  badge.appendChild(mark);
+}
+
+/**
  * One card's footer: the lane the board has it in, and a chip per session with its phase and how long that phase
  * has held. It goes inside the card's own box — the card element is a drag handle wrapped around it, and anything
  * appended there hangs below the border. Rebuilt from scratch every scan rather than patched: a re-render replaces
@@ -862,30 +1079,10 @@ function renderBadge(doc, element, card, now, actions) {
   });
   badge.appendChild(lane);
 
+  renderAttention(doc, element, badge, card);
+
   for (const session of card.sessions) {
-    const chip = doc.createElement('button');
-
-    chip.type = 'button';
-    chip.className = 'gc-session';
-    chip.dataset.phase = session.activity?.phase ?? 'none';
-
-    const icon = agentIcon(doc, session.agent);
-
-    if (icon !== null) {
-      chip.appendChild(icon);
-    }
-
-    const said = doc.createElement('span');
-
-    said.textContent = session.activity
-      ? `${PHASE_WORDS[session.activity.phase] ?? session.activity.phase} ${ago(now - session.activity.since)}`
-      : session.agent;
-    chip.appendChild(said);
-    // Taking a session over needs the editor (R14), and this is a browser tab. The chip says so rather than
-    // offering something that would move the developer's focus out of the window they are in.
-    chip.title = 'Open the board in VS Code to take this session over.';
-    chip.addEventListener('click', (event) => event.stopPropagation());
-    badge.appendChild(chip);
+    badge.appendChild(sessionChip(doc, session, now));
   }
 
   // Inside the card's own bordered box, so the footer reads as a line of the card rather than a chip dropped under it.
@@ -935,6 +1132,10 @@ export function clear(doc) {
   for (const card of doc.querySelectorAll('[data-gc-issue]')) {
     card.removeAttribute('data-gc-issue');
   }
+
+  for (const card of doc.querySelectorAll(`[${ATTENTION_ATTR}]`)) {
+    card.removeAttribute(ATTENTION_ATTR);
+  }
 }
 
 /**
@@ -979,6 +1180,7 @@ export function paint(doc, state, now, actions) {
 
     if (ref === null) {
       element.removeAttribute('data-gc-issue');
+      element.removeAttribute(ATTENTION_ATTR);
 
       continue;
     }
@@ -988,6 +1190,8 @@ export function paint(doc, state, now, actions) {
     const card = index?.byRef.get(`${ref.repo}#${ref.number}`) ?? index?.byNumber.get(ref.number);
 
     if (card === undefined) {
+      element.removeAttribute(ATTENTION_ATTR);
+
       continue;
     }
 

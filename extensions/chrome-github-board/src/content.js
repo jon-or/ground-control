@@ -108,6 +108,16 @@
 
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
-  // The phase durations advance on their own between hooks, and a card that has not changed produces no mutation.
+  // A card that has not changed produces no mutation, so the board is rescanned on its own clock for anything the
+  // snapshot moved. Structure only — the durations advance below, and rebuilding a footer every second to move a
+  // number would fight the observer that watches for one.
   setInterval(schedule, 10_000);
+
+  // R5: the number advances once a second, in place, so a duration never reads as though it stopped when the last
+  // scan did. Nothing else on the page is touched, so this schedules no scan of its own.
+  setInterval(() => {
+    if (overlay !== null && helpers.isBoardPath(location.pathname)) {
+      overlay.tickDurations(document, Date.now());
+    }
+  }, 1_000);
 })();

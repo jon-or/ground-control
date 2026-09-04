@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { ago, agentIcon, cardsByIssue, clear, foldedRows, issueRefOf, paint } from '../src/overlay.js';
+import { ago, agentIcon, cardsByIssue, clear, foldedRows, issueRefOf, paint, sessionLabel, tickDurations } from '../src/overlay.js';
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
@@ -208,17 +208,42 @@ describe('painting the board', () => {
     expect(badges()[0]!.querySelector<HTMLElement>('.gc-session')!.dataset.phase).toBe('waiting');
   });
 
-  it('names the agent for a session no signal has reported on', () => {
+  it('falls back to the CLI’s own word for a session no signal has reported on', () => {
     const only = snapshot({
-      lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [session({ activity: null })] })] }],
+      lanes: [
+        {
+          id: 'build',
+          title: 'Build',
+          cards: [card(4501, { sessions: [session({ activity: null, details: { state: 'editing tests' } })] })],
+        },
+      ],
     });
 
     paint(document, state({ snapshot: only }), NOW, actions);
 
     const chip = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
 
-    expect(chip.textContent).toBe('claude');
+    expect(chip.querySelector('.gc-state')!.textContent).toBe('editing tests');
     expect(chip.dataset.phase).toBe('none');
+  });
+
+  /** One state per session and never two (R24): the board's own observation, then the CLI's word, then nothing. */
+  it('reads a session’s status where it reports no state, and claims nothing where it reports neither', () => {
+    const rows: [Record<string, string>, string | null][] = [
+      [{ status: 'working' }, 'working'],
+      [{ state: 'editing tests', status: 'working' }, 'editing tests'],
+      [{}, null],
+    ];
+
+    for (const [details, expected] of rows) {
+      const only = snapshot({
+        lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [session({ activity: null, details })] })] }],
+      });
+
+      paint(document, state({ snapshot: only }), NOW, actions);
+
+      expect(badges()[0]!.querySelector('.gc-session .gc-state')?.textContent ?? null).toBe(expected);
+    }
   });
 
   /**
@@ -288,24 +313,32 @@ describe('the footer on a card', () => {
     expect(badges()[0]!.querySelector('.gc-lane')?.textContent).toBe('Review');
   });
 
-  it('marks a Claude session with Claude\u2019s own mark, and says the phase beside it', () => {
+  it('marks a Claude session with Claude’s own mark, names it, and says the phase beside it', () => {
     paint(document, state(), NOW, actions);
 
-    const chip = badges()[0]!.querySelector('.gc-session')!;
+    const chip = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
 
     expect(chip.querySelector('svg.gc-agent-icon')).not.toBeNull();
-    expect(chip.textContent).toBe('needs you 2m');
+    expect(chip.querySelector('.gc-name')!.textContent).toBe('Working on it');
+    expect(chip.querySelector('.gc-state')!.textContent).toBe('needs you 2m');
+    // The whole name because the label ellipsises, and what the board saw because the duration does not say it.
+    expect(chip.title).toBe(
+      'Working on it — open the board in VS Code to take this session over. This session is waiting on you. Last seen at the PermissionRequest hook.',
+    );
   });
 
   /** One mark, drawn for one agent. A second agent showing Claude's would be worse than showing none. */
-  it('draws no mark for an agent it has none for', () => {
+  it('names an agent it has no mark for, rather than leaving the chip unattributed — R2', () => {
     const codex = snapshot({
       lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [session({ agent: 'codex' })] })] }],
     });
 
     paint(document, state({ snapshot: codex }), NOW, actions);
 
-    expect(badges()[0]!.querySelector('svg')).toBeNull();
+    const chip = badges()[0]!.querySelector('.gc-session')!;
+
+    expect(chip.querySelector('svg')).toBeNull();
+    expect(chip.querySelector('.gc-agent')!.textContent).toBe('codex');
     expect(agentIcon(document, 'codex')).toBeNull();
   });
 });
@@ -804,5 +837,167 @@ describe('how long ago', () => {
 
   it('never reads as the future', () => {
     expect(ago(-5000)).toBe('0s');
+  });
+});
+
+/**
+ * The same table `packages/core/test/roster.test.ts` and the webview's suite assert, against literal strings: this
+ * ladder exists three times because neither client can import `core` at runtime, and a copy that drifts renames a
+ * session on one board and not the other.
+ */
+describe('the session label ladder', () => {
+  const rows: [string, Partial<Session>, string][] = [
+    ['the title derived from the first prompt', { title: 'Fix the lane divider' }, 'Fix the lane divider'],
+    ['what the CLI called it', { title: null, details: { name: 'plucky-otter' } }, 'plucky-otter'],
+    ['the short id', { title: null, details: { shortId: 'a1b2c3d4' } }, 'a1b2c3d4'],
+    ['the directory it is working in', { title: null, details: {}, cwd: 'd:/git/orez' }, 'orez'],
+    ['the directory, past a trailing separator', { title: null, details: {}, cwd: 'd:/git/orez/' }, 'orez'],
+  ];
+
+  it.each(rows)('names a session by %s', (_rung, over, expected) => {
+    expect(sessionLabel(session(over))).toBe(expected);
+  });
+
+  // The rows above each set one rung, so only this pins the order: a ladder that read the bag first would pass them.
+  it('prefers each rung over the one below it', () => {
+    const both = { name: 'plucky-otter', shortId: 'a1b2c3d4' };
+
+    expect(sessionLabel(session({ title: 'Fix the lane divider', cwd: 'd:/git/orez', details: both }))).toBe('Fix the lane divider');
+    expect(sessionLabel(session({ title: null, cwd: 'd:/git/orez', details: both }))).toBe('plucky-otter');
+    expect(sessionLabel(session({ title: null, cwd: 'd:/git/orez', details: { shortId: 'a1b2c3d4' } }))).toBe('a1b2c3d4');
+  });
+
+  it('draws the name on the chip, not the directory it is working in', () => {
+    const named = snapshot({
+      lanes: [
+        {
+          id: 'build',
+          title: 'Build',
+          cards: [card(4501, { sessions: [session({ title: null, details: { name: 'plucky-otter' } })] })],
+        },
+      ],
+    });
+
+    paint(document, state({ snapshot: named }), NOW, actions);
+
+    expect(badges()[0]!.querySelector('.gc-session .gc-name')!.textContent).toBe('plucky-otter');
+  });
+});
+
+describe('the card that wants something from you', () => {
+  function marked(attention: LanedCard['attention'], over: Partial<LanedCard> = {}): Snapshot {
+    return snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { attention, ...over })] }] });
+  }
+
+  it('says which mark, in the same words the editor board uses', () => {
+    paint(document, state({ snapshot: marked('blocked') }), NOW, actions);
+
+    const mark = badges()[0]!.querySelector<HTMLElement>('.gc-mark')!;
+
+    expect(mark.textContent).toBe('Needs you');
+    expect(mark.dataset.mark).toBe('blocked');
+    expect(mark.title).toBe('Working on it is waiting on you.');
+  });
+
+  it('names the session behind a your-turn mark, and only the sessions in that phase', () => {
+    const idle = session({ title: 'Reading the logs', activity: { phase: 'idle', since: NOW - 60_000, event: 'Stop' } });
+    const running = session({ title: 'Still going', activity: { phase: 'running', since: NOW - 10_000, event: 'Stop' } });
+
+    paint(document, state({ snapshot: marked('your-turn', { sessions: [idle, running] }) }), NOW, actions);
+
+    const mark = badges()[0]!.querySelector<HTMLElement>('.gc-mark')!;
+
+    expect(mark.textContent).toBe('Your turn');
+    expect(mark.title).toBe('Reading the logs finished its turn \u2014 you have not replied since.');
+  });
+
+  /** A session the agent says has ended is not waiting on anyone, whatever hook it was last seen at. */
+  it('leaves a finished session out of a needs-you mark', () => {
+    const done = session({ title: 'Already over', finished: true });
+
+    paint(document, state({ snapshot: marked('blocked', { sessions: [done] }) }), NOW, actions);
+
+    expect(badges()[0]!.querySelector<HTMLElement>('.gc-mark')!.title).toBe('');
+  });
+
+  // R6: the word alone is a footer chip, which is not readable from across a board. The card carries it too.
+  it('marks the card itself, and takes the mark off when the snapshot no longer has one', () => {
+    paint(document, state({ snapshot: marked('blocked') }), NOW, actions);
+
+    expect(document.querySelector(`[data-gc-issue="${REPO}#4501"]`)!.getAttribute('data-gc-attention')).toBe('blocked');
+
+    paint(document, state({ snapshot: marked(null) }), NOW, actions);
+
+    expect(document.querySelector('[data-gc-attention]')).toBeNull();
+    expect(badges()[0]!.querySelector('.gc-mark')).toBeNull();
+  });
+
+  it('says a card has been past your hands and come back', () => {
+    paint(document, state({ snapshot: marked(null, { returned: true }) }), NOW, actions);
+
+    const mark = badges()[0]!.querySelector<HTMLElement>('.gc-mark')!;
+
+    expect(mark.textContent).toBe('Returned');
+    expect(mark.dataset.mark).toBe('returned');
+  });
+
+  it('leaves nothing of itself on the page after a clear', () => {
+    paint(document, state({ snapshot: marked('blocked') }), NOW, actions);
+    clear(document);
+
+    expect(document.querySelector('[data-gc-attention]')).toBeNull();
+  });
+});
+
+describe('durations that advance on their own', () => {
+  it('rewrites the phase where it stands, without rebuilding the chip', () => {
+    paint(document, state(), NOW, actions);
+
+    const chip = badges()[0]!.querySelector('.gc-session')!;
+    const said = chip.querySelector('.gc-state')!;
+
+    expect(said.textContent).toBe('needs you 2m');
+    expect(tickDurations(document, NOW + 60_000)).toBe(1);
+    expect(said.textContent).toBe('needs you 3m');
+    // The same nodes: a rebuild would cost the keyboard focus and any menu open over the card.
+    expect(badges()[0]!.querySelector('.gc-session')).toBe(chip);
+    expect(chip.querySelector('.gc-state')).toBe(said);
+  });
+
+  it('advances nothing when the minute has not turned over', () => {
+    paint(document, state(), NOW, actions);
+
+    expect(tickDurations(document, NOW + 1_000)).toBe(0);
+  });
+
+  /** This runs over a page GitHub owns, so it may only touch what the overlay itself drew. */
+  it('leaves a node of the page carrying the same attribute alone', () => {
+    paint(document, state(), NOW, actions);
+
+    const theirs = document.createElement('span');
+
+    theirs.setAttribute('data-activity-since', String(NOW - 125_000));
+    theirs.textContent = 'GitHub own text';
+    document.body.appendChild(theirs);
+
+    expect(tickDurations(document, NOW + 60_000)).toBe(1);
+    expect(theirs.textContent).toBe('GitHub own text');
+  });
+
+  it('leaves a session with no reported phase alone', () => {
+    const only = snapshot({
+      lanes: [
+        {
+          id: 'build',
+          title: 'Build',
+          cards: [card(4501, { sessions: [session({ activity: null, details: { state: 'editing tests' } })] })],
+        },
+      ],
+    });
+
+    paint(document, state({ snapshot: only }), NOW, actions);
+
+    expect(tickDurations(document, NOW + 600_000)).toBe(0);
+    expect(badges()[0]!.querySelector('.gc-state')!.textContent).toBe('editing tests');
   });
 });
