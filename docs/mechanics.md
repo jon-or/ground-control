@@ -1244,12 +1244,15 @@ Two things follow. A hub killed with `/F` never removes `hub.json`, so **a stale
 
 | Selector | Is | Carries |
 | --- | --- | --- |
-| `#project-items-region` | the board | the columns; the banner goes in front of it |
+| `#project-items-region` | the board | the columns |
 | `[data-board-column]` | one column | the column's own name, in the attribute — `data-board-column="Shipped"` |
 | `[data-board-card-id]` | one card | the project item id, and `data-hovercard-subject-tag="issue:<node id>"` |
 | `a[href*="/issues/"]` inside a card | the issue link | the issue number, in the href |
+| `[role="region"][aria-label="View filters"]` | the filter bar | GitHub’s own View button; the overlay’s menu goes after it |
 
 So the overlay reads the issue number off the link and nothing off a class. A draft item has no such link, which is how a card with no issue is told from one whose issue is not on the developer's board.
+
+**A card is a drag handle wrapped around a box.** `[data-board-card-id]` draws no border of its own: its first element child is what the developer sees as the card — a 1px border, a 6px radius, and padding of 8px above its content and 12px below, with none at the sides. So the overlay's footer goes in that child, where cancelling the 12px reaches the card's bottom, left and right edges; appended to the card element itself it hangs below the border instead. And the one native-looking button GitHub will lend is its own: the View button in the filter bar carries `data-component="Button"` and per-build hashed classes, so the overlay copies the class list off it rather than writing one down.
 
 **No recycling at the size measured.** One column held 25 cards, all of them in the DOM at once. Scrolling that column to the bottom and back changed neither the node count nor node identity, and a `<div>` appended to a card survived it. Whether a longer board virtualizes was not measured; the overlay is written as though it does, because the rule that covers recycling covers re-rendering too and costs nothing.
 

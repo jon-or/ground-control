@@ -92,19 +92,32 @@ async function main() {
         card.querySelector('ul[aria-label="Fields"]')?.remove();
       }
 
+      // The filter bar, trimmed to the View button alone: the overlay hangs its own button beside that one and
+      // copies its classes, and the filter input beside it is the developer's own words.
+      const bar = document.querySelector('[role="region"][aria-label="View filters"]').cloneNode(true);
+      const view = [...bar.querySelectorAll('button[data-component="Button"]')].find(
+        (button) => button.textContent.trim() === 'View',
+      );
+
+      for (const child of [...bar.children]) {
+        if (!child.contains(view)) {
+          child.remove();
+        }
+      }
+
       // Icons only, and they carry paths the tests never walk. Dropping them keeps the fixture readable.
-      for (const svg of clone.querySelectorAll('svg')) {
+      for (const svg of [...clone.querySelectorAll('svg'), ...bar.querySelectorAll('svg')]) {
         svg.remove();
       }
 
-      return { html: clone.outerHTML, recorded: recorded.filter(Boolean) };
+      return { html: clone.outerHTML, bar: bar.outerHTML, recorded: recorded.filter(Boolean) };
     },
     { issues: ISSUES, names: titles(), repo: REPO, columns: COLUMNS },
   );
 
   await browser.close();
 
-  let html = captured.html;
+  let html = `${captured.bar}${captured.html}`;
 
   for (const value of captured.recorded) {
     if (String(value).length > 2) {
