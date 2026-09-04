@@ -414,6 +414,42 @@ describe('the menu in the board’s own filter bar', () => {
   });
 });
 
+describe('the gap between the lanes', () => {
+  /**
+   * GitHub puts an 8px right margin on every column, in its own stylesheet, so this needs the `!important` — and
+   * the class beside the attribute is hashed per build, which is what makes the attribute the only one to write.
+   */
+  it('pulls the columns together over the attribute rather than the hashed class', () => {
+    paint(document, state(), NOW, actions);
+
+    const columns = [...document.querySelectorAll<HTMLElement>('[data-board-column]')];
+
+    expect(columns).toHaveLength(2);
+
+    for (const column of columns) {
+      expect(getComputedStyle(column).marginRight).toBe('-1px');
+      expect(column.className).toMatch(/column-frame-module__Box__\w+/);
+    }
+  });
+
+  /** Two strips, one per side, and the bottom line gone. `border-image` would have taken the 6px radius with it. */
+  it('draws the dividers as strips that fade, over borders it has made transparent', () => {
+    paint(document, state(), NOW, actions);
+
+    const column = document.querySelector<HTMLElement>('[data-board-column]')!;
+    const painted = getComputedStyle(column);
+
+    for (const side of ['borderLeftColor', 'borderRightColor', 'borderBottomColor'] as const) {
+      expect(painted[side]).toBe('rgba(0, 0, 0, 0)');
+    }
+
+    expect(painted.backgroundImage.match(/linear-gradient/g)).toHaveLength(2);
+    expect(painted.backgroundImage).toContain('transparent');
+    expect(painted.backgroundOrigin).toBe('border-box');
+    expect(painted.backgroundSize).toBe('1px 100%, 1px 100%');
+  });
+});
+
 describe('folding the project header away', () => {
   function collapse(): void {
     document.querySelector<HTMLElement>('#gc-collapse')!.click();
