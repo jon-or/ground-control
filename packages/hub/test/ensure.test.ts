@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { PROTOCOL } from '@ground-control/core';
-import { makeEnsure } from '../src/ensure.js';
+import { bundleIsNewer, makeEnsure } from '../src/ensure.js';
 import type { EnsureDeps } from '../src/ensure.js';
-import type { LiveHub } from '../src/discover.js';
+import type { HubRecord, LiveHub } from '../src/discover.js';
 import { dirname } from 'node:path';
-import { exitPathOf, logPathOf } from '../src/paths.js';
+import { bundlePathOf, exitPathOf, hubJsonPathOf, logPathOf } from '../src/paths.js';
 import { tempHome } from './helpers.js';
 
 let home: string;
@@ -22,6 +22,9 @@ const LIVE = {
   identity: { hub: 'ground-control', protocol: 1, fingerprint: 'f' },
 } as LiveHub;
 
+/** A second hub, so a stop can be told from a stop of the one the client had actually found. */
+const OTHER = { ...LIVE, record: { ...LIVE.record, port: 5678, token: 'another' } } as LiveHub;
+
 /**
  * Time is stepped by the waiting itself: `sleep` is what advances the clock, so a test drives the whole five-second
  * wait in no time at all and the budget windows are exact rather than approximate.
@@ -36,20 +39,40 @@ function harness(over: Partial<EnsureDeps> = {}) {
     /** What is running that this client cannot talk to, and whether it was asked to stop. */
     other: null as LiveHub | null,
     stops: 0,
+    stopWorks: true,
+    /** Which hub each stop was aimed at, so a stop of whatever the record names now is not mistaken for a hit. */
+    stopped: [] as number[],
+    /** What answers once a hub has been started, so a restart is a different hub from the one stood down. */
+    startsWith: null as LiveHub | null,
+    /** Whether the bundle on disk was written after the running hub bound, and what a client that got nowhere finds. */
+    bundleIsNewer: false,
+    unproven: null as HubRecord | null,
   };
 
   const deps: EnsureDeps = {
     home,
     start: () => {
       shape.starts += 1;
+
+      if (shape.startsWith !== null) {
+        shape.answers = shape.startsWith;
+      }
     },
     findAny: () => Promise.resolve(shape.other ?? shape.answers),
-    stop: () => {
+    stop: (hub) => {
       shape.stops += 1;
+      shape.stopped.push(hub.record.port);
+
+      if (!shape.stopWorks) {
+        return Promise.resolve(false);
+      }
+
       shape.other = null;
 
       return Promise.resolve(true);
     },
+    bundleIsNewer: () => shape.bundleIsNewer,
+    unproven: () => Promise.resolve(shape.unproven),
     now: () => shape.now,
     sleep: (ms) => {
       shape.now += ms;
@@ -221,5 +244,160 @@ describe('getting a hub to talk to', () => {
     });
 
     expect(await ensure()).toEqual({ failed: 'The board could not start its background process: Error: EACCES' });
+  });
+});
+
+/**
+ * The hub runs from a file on disk, and an extension that carries a newer one replaces that file — but the hub that
+ * is already up goes on running the copy it started with. Nothing else would ever stand it down, so a fix shipped in
+ * an update would reach a machine only when the developer stopped the process by hand (R35).
+ */
+describe('a hub still running an older copy of itself', () => {
+  it('is stood down, and the newer one started in its place', async () => {
+    const { shape, ensure } = harness();
+    const fresh = { ...LIVE, record: { ...LIVE.record, port: 9999 } } as LiveHub;
+
+    shape.answers = LIVE;
+    shape.bundleIsNewer = true;
+    shape.startsWith = fresh;
+
+    expect(await ensure()).toEqual({ hub: fresh });
+    // The hub that was found, by its own record — never whatever the record names by the time the stop goes out.
+    expect(shape.stopped).toEqual([LIVE.record.port]);
+    expect(shape.starts).toBe(1);
+  });
+
+  it('is left alone when the bundle has not moved since it bound', async () => {
+    const { shape, ensure } = harness();
+
+    shape.answers = LIVE;
+
+    expect(await ensure()).toEqual({ hub: LIVE });
+    expect(shape.stops).toBe(0);
+    expect(shape.starts).toBe(0);
+  });
+
+  /** A stop with no start left behind it would leave the board with nothing, which is worse than an older hub. */
+  it('is left running once this client has spent its starts', async () => {
+    const { shape, ensure } = harness();
+
+    shape.bundleIsNewer = true;
+
+    // Two starts that answered nothing, which is what spends the budget. Only then does the older hub turn up.
+    await ensure();
+    shape.now += 61_000;
+    await ensure();
+
+    shape.answers = LIVE;
+    shape.now += 1000;
+
+    expect(await ensure()).toEqual({ hub: LIVE });
+    expect(shape.stops).toBe(0);
+  });
+
+  /** A stop that hit nothing is a hub another client has already replaced, and the replacement is the one to use. */
+  it('takes the hub answering now when its own stop found nothing to stop', async () => {
+    const { shape, ensure } = harness({
+      stop: () => {
+        shape.answers = OTHER;
+
+        return Promise.resolve(false);
+      },
+    });
+
+    shape.answers = LIVE;
+    shape.bundleIsNewer = true;
+
+    expect(await ensure()).toEqual({ hub: OTHER });
+    expect(shape.starts).toBe(0);
+  });
+});
+
+/**
+ * The spawned hub stands down when something is already serving the home, and says so only in its own log. To the
+ * client that spawned it that is indistinguishable from a hub that died on startup, and the developer is sent to a
+ * log describing neither.
+ */
+describe('something serving this home that will not take this client', () => {
+  it('is named, by the port it holds and the pid to stop', async () => {
+    const { shape, ensure } = harness();
+
+    shape.unproven = { ...LIVE.record, port: 4321, pid: 6789 };
+
+    const answer = await ensure();
+
+    expect('failed' in answer && answer.failed).toContain('4321');
+    expect('failed' in answer && answer.failed).toContain('6789');
+    expect('failed' in answer && answer.failed).not.toContain('never answered');
+  });
+
+  /**
+   * The one way this rule leaves a board worse off than leaving the old hub alone: the hub it had is stopped and the
+   * copy that replaced it does not run. Nothing else on the machine says so, so the failure has to.
+   */
+  it('is not what is said when the hub this client stopped never came back', async () => {
+    let up: LiveHub | null = LIVE;
+    let stops = 0;
+
+    const { shape, ensure } = harness({
+      find: () => Promise.resolve(up),
+      stop: () => {
+        stops += 1;
+        up = null;
+
+        return Promise.resolve(true);
+      },
+    });
+
+    shape.bundleIsNewer = true;
+
+    const answer = await ensure();
+
+    expect(stops).toBe(1);
+    expect(shape.starts).toBe(1);
+    expect('failed' in answer && answer.failed).toContain('never answered');
+  });
+});
+
+/**
+ * The one comparison that decides whether a working hub is stopped. Both times are file times from the same
+ * filesystem — the bundle against the record its hub wrote as it bound — so a machine whose clock disagrees with the
+ * one its files are stamped by cannot make every hub look out of date and churn one forever.
+ */
+describe('whether the hub on disk is newer than the hub that is running', () => {
+  function write(path: string, at: number): void {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, 'x');
+    utimesSync(path, new Date(at), new Date(at));
+  }
+
+  const NOON = Date.parse('2026-01-01T12:00:00.000Z');
+
+  it('is true when the bundle was written after the record', () => {
+    write(hubJsonPathOf(home), NOON);
+    write(bundlePathOf(home), NOON + 60_000);
+
+    expect(bundleIsNewer(home)).toBe(true);
+  });
+
+  it('is false when the hub bound after the bundle was written', () => {
+    write(bundlePathOf(home), NOON);
+    write(hubJsonPathOf(home), NOON + 60_000);
+
+    expect(bundleIsNewer(home)).toBe(false);
+  });
+
+  /** A client carrying no bundle of its own has nothing better to offer, so it displaces nothing. */
+  it('is false when there is no bundle on disk', () => {
+    write(hubJsonPathOf(home), NOON);
+
+    expect(bundleIsNewer(home)).toBe(false);
+  });
+
+  /** No record is no hub to displace, and the start that follows is the ordinary one. */
+  it('is false when no hub has left a record', () => {
+    write(bundlePathOf(home), NOON);
+
+    expect(bundleIsNewer(home)).toBe(false);
   });
 });
