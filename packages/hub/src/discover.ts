@@ -144,11 +144,14 @@ function call(
 export async function probeHub(port: number, timeoutMs = PROBE_TIMEOUT_MS, nonce?: string): Promise<HubIdentity | null> {
   const answered = await probe(port, timeoutMs, nonce);
 
-  return typeof answered === 'string' ? null : answered;
+  return typeof answered === 'string' || 'notAHub' in answered ? null : answered;
 }
 
-/** The same probe, keeping why it came to nothing: a port nothing holds is a different fact from a port gone quiet. */
-async function probe(port: number, timeoutMs: number, nonce?: string): Promise<HubIdentity | Unanswered | 'not-a-hub'> {
+/** What the listener said it was, or how the asking came to nothing. A status is kept: a hub that refuses this
+ * client answers one, and a port something else has taken answers something else entirely. */
+type Probed = HubIdentity | Unanswered | { notAHub: number | null };
+
+async function probe(port: number, timeoutMs: number, nonce?: string): Promise<Probed> {
   const answer = await call(port, 'GET', nonce ? `/hub?nonce=${nonce}` : '/hub', null, timeoutMs);
 
   if (typeof answer === 'string') {
@@ -156,15 +159,16 @@ async function probe(port: number, timeoutMs: number, nonce?: string): Promise<H
   }
 
   if (answer.status !== 200) {
-    return 'not-a-hub';
+    return { notAHub: answer.status };
   }
 
   try {
     const parsed = hubIdentity.safeParse(JSON.parse(answer.body));
 
-    return parsed.success ? parsed.data : 'not-a-hub';
+    // Answered, and not as a hub: a status of its own would say nothing, so what is kept is that there was one.
+    return parsed.success ? parsed.data : { notAHub: null };
   } catch {
-    return 'not-a-hub';
+    return { notAHub: null };
   }
 }
 
@@ -207,7 +211,8 @@ export type HubMiss =
   | { why: 'no-record' }
   | { why: 'unreachable'; record: HubRecord }
   | { why: 'silent'; record: HubRecord }
-  | { why: 'not-a-hub'; record: HubRecord }
+  /** What answered, so a hub that turned this client away can be told from a port something else has taken. */
+  | { why: 'not-a-hub'; record: HubRecord; status: number | null }
   | { why: 'another-home'; record: HubRecord }
   | { why: 'unproven'; record: HubRecord }
   | { why: 'another-protocol'; hub: LiveHub };
@@ -237,6 +242,10 @@ export async function findHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promi
 
   if (typeof identity === 'string') {
     return { miss: { why: identity, record } };
+  }
+
+  if ('notAHub' in identity) {
+    return { miss: { why: 'not-a-hub', record, status: identity.notAHub } };
   }
 
   // The fingerprint says which home; the proof says it is the hub that minted this record. A home path is guessable,

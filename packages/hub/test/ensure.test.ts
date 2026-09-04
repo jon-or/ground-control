@@ -333,7 +333,12 @@ describe('something serving this home that will not take this client', () => {
     ],
     ['a listener that will not answer', { miss: { why: 'silent', record: held } }, ['will not answer', '6789']],
     // Its pid is deliberately not named: the record describes the hub that died, not whatever took the port after.
-    ['something that is not a hub', { miss: { why: 'not-a-hub', record: held } }, ['not Ground Control']],
+    ['something that is not a hub', { miss: { why: 'not-a-hub', record: held, status: null } }, ['not Ground Control']],
+    [
+      'a hub that answered and refused this window',
+      { miss: { why: 'not-a-hub', record: held, status: 403 } },
+      ['refused this window', '403'],
+    ],
     ['a hub tracking another home', { miss: { why: 'another-home', record: held } }, ['different home', '6789']],
     [
       'a hub of another version',

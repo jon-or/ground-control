@@ -83,8 +83,12 @@ function whatIsThere(home: string, miss: HubMiss): string {
     case 'silent':
       return `Something holds this board's port and will not answer this window (${it}). Stop that process and open the board again. Its log is at ${logPathOf(home)}.`;
 
+    // A status is a listener that answered and refused; anything else answered as something that is not a hub at
+    // all. Which of the two it was decides whether the developer is looking at their own hub or at a stranger.
     case 'not-a-hub':
-      return `Port ${held.port} is held by something that is not Ground Control, and ${hubJsonPathOf(home)} still names it. Stop that process, or delete that file, and open the board again.`;
+      return miss.status === null
+        ? `Port ${held.port} is held by something that is not Ground Control, and ${hubJsonPathOf(home)} still names it. Stop that process, or delete that file, and open the board again.`
+        : `The hub on port ${held.port} refused this window (${miss.status}). Its own log says what it objected to: ${logPathOf(home)}.`;
 
     case 'another-home':
       return `The hub on port ${held.port} is tracking a different home, and this board cannot use it. Stop that process (${it}) and open the board again.`;

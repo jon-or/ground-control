@@ -197,17 +197,19 @@ function stream(server: HubServer, id: string): Promise<{ frames: string[]; next
 async function serving(clock?: ServerClock) {
   const hub = fakeHub();
   const stops: string[] = [];
+  const logged: string[] = [];
   const created = createHubServer({
     hub,
     fingerprint: 'abc123',
     onShutdown: () => stops.push('asked'),
+    log: (line) => logged.push(line),
     ...(clock ? { clock } : {}),
   });
   const server = await created.listen();
 
   open.push({ end: () => server.close() });
 
-  return { hub, server, stops };
+  return { hub, server, stops, logged };
 }
 
 describe('what the hub answers over loopback', () => {
@@ -544,5 +546,50 @@ describe('a client on the wire', () => {
     expect((await post(server, '/shutdown', {})).status).toBe(200);
     expect((await post(server, '/shutdown', {}, { token: 'wrong' })).status).toBe(401);
     expect(stops).toEqual(['asked']);
+  });
+});
+
+/**
+ * A refused client is told a status and nothing more, and the three refusals that come before any route look from
+ * there exactly like a port something else has taken. The hub is the only thing that can say what it objected to,
+ * so a board that cannot reach the hub it can see leaves evidence in one place rather than none.
+ */
+describe('what a refusal leaves behind', () => {
+  it('writes down the Origin it turned away, and says nothing of it in the answer', async () => {
+    const { server, logged } = await serving();
+
+    const answer = await call(server, { path: '/hub', token: null, headers: { Origin: 'https://github.com' } });
+
+    expect(answer.status).toBe(403);
+    expect(answer.body).not.toContain('github.com');
+    expect(logged).toEqual(['refused GET /hub: an Origin header, https://github.com']);
+  });
+
+  it('writes down a Host it does not answer on', async () => {
+    const { server, logged } = await serving();
+
+    const answer = await call(server, { path: '/hub', token: null, headers: { Host: 'evil.example' } });
+
+    expect(answer.status).toBe(403);
+    expect(logged).toEqual([`refused GET /hub: a Host of evil.example, not 127.0.0.1:${server.port}`]);
+  });
+
+  /** A proxy-form target: the only refusal whose reason is the message itself, because the target is already logged. */
+  it('writes down a target it will not read', async () => {
+    const { server, logged } = await serving();
+
+    const answer = await call(server, { path: 'http://somewhere.else/hub', token: null });
+
+    expect(answer.status).toBe(400);
+    expect(logged).toEqual(['refused GET http://somewhere.else/hub: Unsupported request target.']);
+  });
+
+  /** A request that was answered is not a refusal, and a log that carried those would bury the ones that matter. */
+  it('writes down nothing for a request it answers', async () => {
+    const { server, logged } = await serving();
+
+    await call(server, { path: '/hub', token: null });
+
+    expect(logged).toEqual([]);
   });
 });
