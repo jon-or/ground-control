@@ -91,10 +91,10 @@ describe('what the browser may ask the hub for', () => {
     });
   });
 
-  /** Taking a session over needs the editor (R14, R36), and a configuration carries paths the hub would spawn. */
-  it('refuses to open a session, and says where that happens instead', () => {
+  /** The overlay reaches a session by navigating to the editor's own link (R36), so nothing asks the hub for one. */
+  it('refuses to open a session, and says how the browser board does it instead', () => {
     expect(bridgeAction({ type: 'open', sessionId: 'a-session' })).toEqual({
-      refused: 'Taking a session over happens in the editor. Open the board in VS Code.',
+      refused: 'The browser board goes to a session by opening its link, not by asking the hub.',
     });
   });
 
@@ -168,7 +168,7 @@ describe('relaying one Chrome port', () => {
       {
         type: 'notice',
         level: 'warning',
-        message: 'Taking a session over happens in the editor. Open the board in VS Code.',
+        message: 'The browser board goes to a session by opening its link, not by asking the hub.',
       },
     ]);
   });

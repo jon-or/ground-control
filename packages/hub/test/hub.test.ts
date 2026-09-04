@@ -798,19 +798,37 @@ describe('what the snapshot says', () => {
     expect(h.hub.snapshot().stale).toBe(true);
   });
 
-  /** Openable is the answer of the host the board is running inside, so a client resident in nothing gets none. */
-  it('offers a session to a client in a host and to no client outside one', async () => {
+  /**
+   * Openable is a host's answer. A board resident in one gets its own; a browser board gets the configured host's,
+   * because it reaches an editor by asking the operating system for one rather than by being inside a window — so
+   * what it may open cannot depend on a window happening to be open (R14, R36).
+   */
+  it('offers a session to a client in a host and to a browser board alike', async () => {
     const h = harness();
     h.agent.sessions = [fakeSession()];
 
     const inside = connect(h, hello({ id: 'inside' }));
-    const outside = connect(h, hello({ id: 'outside', hostId: null }));
+    const browser = connect(h, hello({ id: 'browser', hostId: null }));
 
     h.hub.receive(inside.client, { type: 'refresh' });
     await settle();
 
     expect(latest(inside.inbox).openable).toEqual([fakeSession().sessionId]);
-    expect(latest(outside.inbox).openable).toEqual([]);
+    expect(latest(browser.inbox).openable).toEqual([fakeSession().sessionId]);
+  });
+
+  /** The same gate `#open` gives a resident client: a host the configuration does not name answers for nobody. */
+  it('offers a browser board nothing while the configuration names no host', async () => {
+    const h = harness();
+    h.agent.sessions = [fakeSession()];
+
+    const browser = connect(h, hello({ id: 'browser', hostId: null }));
+
+    h.hub.receive(browser.client, { type: 'configure', config: h.config({ hosts: {} }) });
+    h.hub.receive(browser.client, { type: 'refresh' });
+    await settle();
+
+    expect(latest(browser.inbox).openable).toEqual([]);
   });
 });
 

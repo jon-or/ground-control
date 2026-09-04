@@ -13,7 +13,8 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onWebviewPanel:groundControl.board"
+    "onWebviewPanel:groundControl.board",
+    "onUri"
   ],
   "contributes": {
     "commands": [

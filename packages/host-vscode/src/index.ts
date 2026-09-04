@@ -1,6 +1,7 @@
 export { VSCODE_HOST_ID, makeVscodeHost } from './adapter.js';
 export type { VscodeConfig, VscodeHost, VscodeRoute } from './adapter.js';
 export { PLACEMENTS, claudeDirOf } from './placements.js';
+export { sessionFromUri } from './openUri.js';
 export type { AgentPlacement } from './placements.js';
 export { SETTLING_MS, VSCODE_ROUTES, openableSessions, planOpen, strayFrom, verifyOpen } from './open.js';
 export { ideWindowsFrom, listeningFrom, liveRootsOf, liveWindows, processesFrom, windowForProcess } from './ide.js';

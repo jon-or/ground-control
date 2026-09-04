@@ -8,6 +8,7 @@ import { SECTION, readHubConfig, userDirOf } from './config.js';
 import { disposeClient, startClient } from './hubClient.js';
 import { migrateLaneMemory } from './migrate.js';
 import { registerOverlayCommands } from './overlay.js';
+import { registerUriHandler } from './openUri.js';
 import type { Snapshot } from '@ground-control/core';
 
 /**
@@ -70,6 +71,8 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
         .update('installSessionHooks', false, vscode.ConfigurationTarget.Global),
     ),
     ...registerOverlayCommands(context, home, bundle),
+    // The browser board's way in. Registered here so a link activates this window whether or not a board is open.
+    registerUriHandler(),
     vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
       async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
         BoardPanel.revive(panel, context);

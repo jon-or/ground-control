@@ -1254,6 +1254,8 @@ describe('the session label ladder', () => {
     ['the short id', { title: null, details: { shortId: 'a1b2c3d4' } }, 'a1b2c3d4'],
     ['the directory it is working in', { title: null, details: {}, cwd: 'd:/git/orez' }, 'orez'],
     ['the directory, past a trailing separator', { title: null, details: {}, cwd: 'd:/git/orez/' }, 'orez'],
+    ['the directory a Windows CLI reported', { title: null, details: {}, cwd: 'D:\\git\\orez' }, 'orez'],
+    ['the directory, past a trailing Windows separator', { title: null, details: {}, cwd: 'D:\\git\\orez\\' }, 'orez'],
   ];
 
   it.each(rows)('names a session by %s', (_rung, over, expected) => {

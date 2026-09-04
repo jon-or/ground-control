@@ -31,6 +31,12 @@ const BADGE_CLASS = 'gc-badge';
 const POPOVER_CLASS = 'gc-popover';
 const HIDDEN_ATTR = 'data-gc-hidden';
 
+/**
+ * The board's address in VS Code, written by hand: this file is what Chrome loads, so it imports nothing. The same
+ * string is built by `openSessionUri` in `@ground-control/host-vscode`, and both are asserted against the literal.
+ */
+const OPEN_SESSION_URI = 'vscode://ownerrez.ground-control/open?session=';
+
 /** Where the collapse is remembered. Page-origin storage, so it is per developer and per browser rather than per tab. */
 const COLLAPSE_KEY = 'ground-control:header-collapsed';
 
@@ -91,13 +97,16 @@ ${COLUMN} { margin-right: -1px !important;
 .${BADGE_CLASS} { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin: 8px 0 -12px;
   padding: 6px 8px; border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 0 0 5px 5px;
   background: var(--bgColor-muted, #f6f8fa); }
-.${BADGE_CLASS} button { font: inherit; font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px;
+.${BADGE_CLASS} button, .${BADGE_CLASS} .gc-session {
+  font: inherit; font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px;
   display: inline-flex; align-items: center; gap: 3px;
   border: 1px solid var(--borderColor-default, #d0d7de); background: var(--bgColor-default, #ffffff);
   color: var(--fgColor-default, #1f2328); cursor: pointer; }
-.${BADGE_CLASS} button:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
-.${BADGE_CLASS} button[data-phase="waiting"] { background: var(--bgColor-attention-muted, #fff8c5); }
-.${BADGE_CLASS} button[data-phase="running"] { background: var(--bgColor-accent-muted, #ddf4ff); }
+.${BADGE_CLASS} button:hover, .${BADGE_CLASS} a.gc-session:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
+.${BADGE_CLASS} a.gc-session { text-decoration: none; }
+.${BADGE_CLASS} span.gc-session { cursor: default; }
+.${BADGE_CLASS} [data-phase="waiting"] { background: var(--bgColor-attention-muted, #fff8c5); }
+.${BADGE_CLASS} [data-phase="running"] { background: var(--bgColor-accent-muted, #ddf4ff); }
 .${BADGE_CLASS} svg { flex: none; }
 .gc-name { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
@@ -191,7 +200,7 @@ export function ago(ms) {
  * @returns {string}
  */
 function basename(dir) {
-  const parts = dir.split(/[\/]/).filter(Boolean);
+  const parts = dir.split(/[\\/]/).filter(Boolean);
 
   return parts[parts.length - 1] ?? dir;
 }
@@ -932,14 +941,23 @@ function laneMenu(doc, card, actions) {
  * @param {Document} doc
  * @param {Session} session
  * @param {number} now
+ * @param {readonly string[]} openable
  * @returns {HTMLElement}
  */
-function sessionChip(doc, session, now) {
-  const chip = doc.createElement('button');
+function sessionChip(doc, session, now, openable) {
+  const reachable = openable.includes(session.sessionId);
+  const chip = doc.createElement(reachable ? 'a' : 'span');
 
-  chip.type = 'button';
   chip.className = 'gc-session';
   chip.dataset.phase = session.activity?.phase ?? 'none';
+
+  if (reachable) {
+    // A real link, not a button: the navigation has to read as the developer's own gesture in the application they
+    // are looking at, which is the only thing that gives VS Code the foreground (`mechanics.md` §26, §29).
+    chip.setAttribute('href', `${OPEN_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
+    // A few pixels of drift on the way to a click would otherwise drag the card GitHub wraps around this.
+    chip.setAttribute('draggable', 'false');
+  }
 
   const icon = agentIcon(doc, session.agent);
 
@@ -983,7 +1001,11 @@ function sessionChip(doc, session, now) {
   // The whole name, because the label ellipsises, and what the board saw, because the duration alone does not say.
   const seen = session.activity ? ` ${stateTitle(session.activity)}` : '';
 
-  chip.title = `${name} — open the board in VS Code to take this session over.${seen}`;
+  const does = reachable ? 'go to this session in VS Code' : 'no editor of yours can open this one';
+
+  chip.title = `${name} — ${does}.${seen}`;
+  // Only the propagation: the card underneath is GitHub's own button, and a click reaching it opens the issue
+  // instead. The navigation itself is the browser's to make, which is what gives VS Code the foreground.
   chip.addEventListener('click', (event) => event.stopPropagation());
 
   return chip;
@@ -1057,9 +1079,10 @@ function renderAttention(doc, element, badge, card) {
  * @param {LanedCard} card
  * @param {number} now
  * @param {Actions} actions
+ * @param {readonly string[]} openable
  * @returns {Element[]} the lane menu and the chip it hangs from, when this is the card whose lanes are open
  */
-function renderBadge(doc, element, card, now, actions) {
+function renderBadge(doc, element, card, now, actions, openable) {
   const badge = doc.createElement('div');
 
   badge.className = BADGE_CLASS;
@@ -1082,7 +1105,7 @@ function renderBadge(doc, element, card, now, actions) {
   renderAttention(doc, element, badge, card);
 
   for (const session of card.sessions) {
-    badge.appendChild(sessionChip(doc, session, now));
+    badge.appendChild(sessionChip(doc, session, now, openable));
   }
 
   // Inside the card's own bordered box, so the footer reads as a line of the card rather than a chip dropped under it.
@@ -1195,7 +1218,7 @@ export function paint(doc, state, now, actions) {
       continue;
     }
 
-    open.push(...renderBadge(doc, element, card, now, actions));
+    open.push(...renderBadge(doc, element, card, now, actions, state.snapshot?.openable ?? []));
 
     badges += 1;
   }

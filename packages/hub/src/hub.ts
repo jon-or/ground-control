@@ -5,6 +5,7 @@ import type {
   Client,
   ClientHello,
   ClientMessage,
+  HostAdapter,
   HubConfig,
   HubMessage,
   LaneId,
@@ -748,7 +749,23 @@ export class Hub {
   }
 
   /**
-   * One snapshot, finished per client. What a board may open is its own host's answer, and a notice is said once per
+   * The host whose answer this client gets about opening. Its own where it is resident in one. Where it is resident
+   * in nothing — a browser board — the one configured host answers instead: that board reaches an editor by asking
+   * the operating system for one rather than by being inside a window, so what it may open cannot depend on a
+   * window being open at the time (R14, R36). Its click arrives back here as that editor's own `open`.
+   */
+  #hostFor(hello: ClientHello): HostAdapter | undefined {
+    if (hello.hostId !== null) {
+      return this.#deps.registries.hosts.find((host) => host.id === hello.hostId);
+    }
+
+    const configured = this.#deps.registries.hosts.filter((host) => Object.hasOwn(this.#config.hosts, host.id));
+
+    return configured.length === 1 ? configured[0] : undefined;
+  }
+
+  /**
+   * One snapshot, finished per client. What a board may open is its host's answer, and a notice is said once per
    * board — a second window has not read the first one's (R14, R25).
    */
   #sendTo(id: string, type: 'snapshot' | 'changed', base = this.snapshot()): void {
@@ -758,13 +775,11 @@ export class Hub {
       return;
     }
 
-    const host = this.#deps.registries.hosts.find((h) => h.id === client.hello.hostId);
-
     client.send({
       type,
       snapshot: {
         ...base,
-        openable: host?.openable(this.#sessions?.sessions ?? []) ?? [],
+        openable: this.#hostFor(client.hello)?.openable(this.#sessions?.sessions ?? []) ?? [],
         hooks: this.#noticeFor(id),
       },
     } as HubMessage);
