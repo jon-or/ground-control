@@ -155,9 +155,17 @@ A configuration is parsed before it is taken, and a bad one is refused whole and
 
 ### Transport
 
-The hub runs inside the extension host, and clients connect to it in process. The protocol is the same either way — a client sends `ClientMessage`s and receives `HubMessage`s — so what follows in this section, and the Lifecycle and Privacy sections below it, describe the process it becomes rather than what runs today: there is no server, no `hub.json`, no `hub.log` and no spawn.
+The hub serves HTTP on `127.0.0.1` on an ephemeral port, and `ground-control-hub` runs one as its own process: the snapshot and the actions as requests, changes as Server-Sent Events with a comment heartbeat every 20 s. The VS Code board still connects to a hub inside its own extension host, so what this section says about a client starting one, and the bundle and the Chrome bridge under Lifecycle, is what it becomes; the protocol is the same either way, which is what makes that a transport rather than a redesign.
 
-The hub serves HTTP on `127.0.0.1` on an ephemeral port: the snapshot and the actions as requests, changes as Server-Sent Events with a comment heartbeat every 20 s. Every request carries a bearer token, except `GET /hub`, which answers with the hub's name, protocol version, and a fingerprint of its configuration directory, and nothing else. A client reads `~/.claude/ground-control/hub.json` for the port and the token, probes `GET /hub`, and sends the token only to a listener that answers as a hub with the same fingerprint. Liveness is that probe, never the file's existence; a stale `hub.json` is the normal state after a hub is killed, not an error.
+| Route | Carries |
+| --- | --- |
+| `GET /hub` | the hub's name, protocol version, a fingerprint of its configuration directory, and, when the caller supplies a nonce, an HMAC of that nonce under the token. No token, and nothing else — not the pid, not the version of the code |
+| `GET /snapshot` | the snapshot as it stands |
+| `GET /events?client=<id>` | that client's stream: `snapshot`, `changed`, `perform`, `notice`, and a `: ping` comment every 20 s |
+| `POST /actions?client=<id>` | one `ClientMessage`. `hello` is the first, and it must name the client its stream belongs to |
+| `POST /shutdown` | the stop |
+
+A client reads `~/.claude/ground-control/hub.json` for the port and the token, then probes `GET /hub` with a fresh nonce and sends the token only to a listener that answers as a hub, for the same home, on the same protocol, holding the same token. The fingerprint alone would not do: it is a hash of the home directory's path, which any process running on the machine can guess, so on its own it lets anything holding the port be believed. The proof is what the record's own token is checked against, and it never puts the token on the wire. Liveness is that probe, never the file's existence; a stale `hub.json` is the normal state after a hub is killed, not an error (`mechanics.md` §25). A stream is what a client is: an action for a client with no open stream is refused, and a stream that closes disconnects it, which is what makes "nobody is connected" something the hub can tell.
 
 The server refuses any request carrying an `Origin` header, any `Host` other than its own loopback address, any `POST` that is not `application/json`, any body over 64 KB, and more than eight event streams. A web page can reach loopback, and the request that pushes configuration carries executable paths, so nothing a browser can send is accepted. The browser board is reached another way.
 
@@ -167,9 +175,9 @@ The server refuses any request carrying an `Origin` header, any `Host` other tha
 
 The extension writes the hub bundle to `~/.claude/ground-control/hub.js` on activation when the version it carries is newer than the one on disk, and never when older, the way it writes the hook script. The spawn command, the native-messaging manifest, and the uninstall all point at that one path, so an extension update never orphans a running hub.
 
-A client starts the hub when `GET /hub` does not answer. VS Code spawns its own executable as node (`ELECTRON_RUN_AS_NODE`, the Node measured in `mechanics.md` §21), with `node` from the PATH as the fallback, detached and unreferenced so it outlives the window, with output appended to `hub.log`. The hub scrubs `ELECTRON_*`, `VSCODE_*`, and `NODE_OPTIONS` from its own environment at startup, or the `code` it spawns to raise a window would run as node too. Single instance is the listening socket: the hub binds first and writes `hub.json` after, and one that finds a live hub with the same fingerprint at startup exits. A newer client shuts an older-protocol hub down and starts its own; an older client connects when the protocol matches and shows a notice when it does not.
+A client starts the hub when `GET /hub` does not answer. VS Code spawns its own executable as node (`ELECTRON_RUN_AS_NODE`, the Node measured in `mechanics.md` §21), with `node` from the PATH as the fallback, detached and unreferenced so it outlives the window, with output appended to `hub.log`. The hub scrubs `ELECTRON_*`, `VSCODE_*`, and `NODE_OPTIONS` from its own environment at startup, or the `code` it spawns to raise a window would run as node too. Single instance is the record, not the socket: `listen(0)` cannot collide, so binding decides nothing. A hub probes the recorded port before binding, and afterwards claims `hub.json` by exclusive create; the one that loses that create closes and stands down, and a record naming a port that answers as nothing is a hub that was killed and is taken over. Only a hub whose own pid is still in the record ever removes it, so an orphan cannot take the winner's record away with it. A newer client shuts an older-protocol hub down and starts its own; an older client connects when the protocol matches and shows a notice when it does not. A cold start costs about 90 ms (`mechanics.md` §25).
 
-Windows has no signal to send a process without a console, so the stop is `POST /shutdown` with the token, or `ground-control-hub --stop`, which does the same. Uninstalling the extension shuts the hub down, removes the activity hooks and the Chrome registration, and removes the bundle.
+There is no orderly signal on Windows for a process without a console (`mechanics.md` §25), so the stop is `POST /shutdown` with the token, or `ground-control-hub --stop`, which does the same over the same route. An orderly stop removes `hub.json` and writes `hub-exit.json` with the reason; a hub that was killed leaves the first behind and never writes the second, which is what a client whose spawn did not come up has to go on. Uninstalling the extension shuts the hub down, removes the activity hooks and the Chrome registration, and removes the bundle.
 
 ### Privacy
 
@@ -199,7 +207,7 @@ A client renders the snapshot and forwards actions. It holds no state the hub do
 | `extensions/ground-control` | the VS Code client and the `vscode` resident half; bundles `apps/hub` as `dist/hub.js` | `core`, `host-vscode`, `hub`; the only package that imports `vscode` |
 | `extensions/chrome-github-board` | the Chrome client | `core`; the only package that imports `chrome` |
 
-The extension also imports `board` and `github` for the two settings readers that turn a raw value into one the hub takes; both follow the reading into the hub when the hub is its own process. `apps/hub` and `extensions/chrome-github-board` are the two rows nothing occupies yet.
+The extension also imports `board` and `github` for the two settings readers that turn a raw value into one the hub takes; both follow the reading into the hub when the hub is its own process. `extensions/chrome-github-board` is the one row nothing occupies yet.
 
 One package per adapter is what makes the seams enforceable. The boundary rule and the coverage floor apply per package, so `agent-claude` cannot reach `host-vscode`, and an adapter that arrives without tests fails on its own number rather than hiding in a larger one. `core` names no adapter; the registries are the hub's.
 

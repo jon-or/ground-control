@@ -1202,3 +1202,20 @@ So the kind is decided by asking the file system, not by reading `event`. It is 
 **Version-fragile, and platform-fragile.** These counts are Windows' `ReadDirectoryChangesW` through libuv. macOS (`FSEvents`) and Linux (`inotify`) coalesce differently, and neither has been measured here. Nothing in the board reads the event kind, which is what makes the difference not matter.
 
 `fs.watch` throws `ENOENT` on a directory that does not exist and its watcher dies when the directory is removed under it. The activity directory is created by the install and removed when the signal is turned off, so a watcher armed once is deaf for the life of the process; it re-arms on `error` and on `close`, and polls for the directory to appear when it is not there yet.
+
+## 25. Windows has no signal that reaches a console-less process
+
+**Measured 2026-09-03, Node 24.14.0 on Windows 11 (win32).** A detached child spawned with `windowsHide: true` and no console, listening for `SIGTERM`, `SIGINT`, `SIGBREAK` and `SIGHUP` and for `exit`, was sent each of them from another Node process:
+
+| Stop | What the child saw |
+| --- | --- |
+| `process.kill(pid, 'SIGTERM')` | died immediately; no handler ran, and neither did `process.on('exit')` |
+| `process.kill(pid, 'SIGINT')` | the same |
+| `process.kill(pid, 'SIGBREAK')` | the call threw `ENOSYS`; the child was untouched |
+| `taskkill /PID <pid>` | exit 1, "This process can only be terminated forcefully (with /F option)"; the child was untouched |
+
+Node's `process.kill` on Windows is `TerminateProcess` for every signal it accepts, so a signal is not a request and there is no orderly path to take. `taskkill` without `/F` posts `WM_CLOSE` to a window the hub does not have. So the hub's stop is `POST /shutdown` with the token, and `ground-control-hub --stop`, which does the same over the same route.
+
+Two things follow. A hub killed with `/F` never removes `hub.json`, so **a stale record is the normal state rather than an error**: a client's liveness check is `GET /hub` on the recorded port, never the file's existence. And `hub-exit.json` is written only on an orderly stop, which is what makes it worth quoting to a developer whose hub is not answering — its absence says the hub was killed.
+
+**Startup.** Spawn to a readable `hub.json` was 85, 90, 91, 96 and 93 ms across five cold starts of the unbundled `tsc` output, which is the whole cost a board pays when it finds no hub answering.

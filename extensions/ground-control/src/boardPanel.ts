@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import type { Client, Hub } from '@ground-control/hub';
-import type { ClientMessage, HubMessage, LaneId, Snapshot, SnapshotMessage } from '@ground-control/core';
+import type { Hub } from '@ground-control/hub';
+import type { Client, ClientMessage, HubMessage, LaneId, Snapshot, SnapshotMessage } from '@ground-control/core';
 import { homedir } from 'node:os';
 import { dirname } from 'node:path';
 import { readHubConfig, vscodeSettings, userDirOf } from './config.js';

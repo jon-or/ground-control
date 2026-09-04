@@ -29,7 +29,7 @@ The docs are updated as part of the work that changed them, in the same commit �
 
 - Plan first. Read the PRD, architecture, mechanics, and existing code, then write a plan that includes how you will verify the change — before coding.
 - All new functionality is verified by tests. `docs/testing.md` is the contract; it decides what earns a test and what does not.
-- After developing a feature, use subagents to review it. Where appropriate, run several from different angles (spec adherence, regression, correctness, UX).
+- After developing a feature, use subagents to review it before committing. Where appropriate, run several from different angles (spec adherence, regression, correctness, UX).
 - Manually exercise UI-visible changes in the Extension Development Host (F5) before calling them done.
 - One commit per story or task. Commit when a self-contained task is complete, reviewed, verified, and accepted by the user.
 - When a commit fixes a GitHub issue, put a closing reference on the first line (`fix(board): summary (fixes #123)`).
@@ -73,7 +73,8 @@ The full rules are in [docs/testing.md](docs/testing.md). The short version:
 | `packages/host-vscode` | The VS Code host adapter's headless half: lock files, window stores, the placement table, the open plan. **Must not import `vscode`.** |
 | `packages/github` | GitHub reads via the `gh` CLI. **Must not import `vscode`.** |
 | `packages/board` | Merges assigned issues and live sessions into board cards. **Must not import `vscode`.** |
-| `packages/hub` | The background process the boards are clients of: the registries and defaults, the loop, activity install, the marker watcher, lane memory. **Must not import `vscode`.** |
+| `packages/hub` | The background process the boards are clients of: the registries and defaults, the loop, activity install, the marker watcher, lane memory, and the loopback server. **Must not import `vscode`.** |
+| `apps/hub` | The hub as its own process: `ground-control-hub`, an argument parser over `packages/hub`. **Must not import `vscode`.** |
 | `extensions/ground-control` | The extension — activation, config, webview board panel. Imports `vscode`. |
 | `extensions/seize-probe` | Probe extension that proves window-scoped command targeting for `docs/mechanics.md`. Not a workspace, not shipped. |
 
@@ -87,6 +88,7 @@ npm run build       # tsc -b across packages, esbuild for the extension
 npm run watch       # incremental build for F5
 npm test            # vitest across workspaces
 npm run typecheck   # tsc -b plus each package's test tsconfig
+npm run hub         # run the hub in the foreground, after a build
 ```
 
 Package the extension from `extensions/ground-control`:
@@ -98,3 +100,5 @@ npm run package     # vsce package --no-dependencies --allow-missing-repository
 ## Running It
 
 F5 from the repo root launches the Extension Development Host (`.vscode/launch.json`). The board opens via the **Ground Control: Open Board** command.
+
+`npm run hub` runs the hub as its own process against your real home. It prints the port; `~/.claude/ground-control/hub.json` carries the token, and `hub.log` its own lines. `node apps/hub/dist/main.js --stop` stops it — there is no signal that will (`docs/mechanics.md` §25). `--home=<path>` points it at a home of its own, which is how to run one without touching your board's.
