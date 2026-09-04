@@ -65,10 +65,11 @@ const CSS = `
 .${POPOVER_CLASS} .gc-title { padding: 6px 12px; font-weight: 600; }
 .${POPOVER_CLASS} .gc-note { padding: 2px 12px 6px; color: var(--fgColor-muted, #59636e); }
 .${POPOVER_CLASS} hr { margin: 4px 0; border: 0; border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); }
-.${POPOVER_CLASS} button { display: flex; width: 100%; gap: 8px; align-items: center; padding: 6px 12px;
+.${POPOVER_CLASS} button[role] { display: flex; width: 100%; gap: 8px; align-items: center; padding: 6px 12px;
   font: inherit; text-align: left; background: none; border: 0; color: inherit; cursor: pointer; }
-.${POPOVER_CLASS} button:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
+.${POPOVER_CLASS} button[role]:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
 .${POPOVER_CLASS} .gc-tick { width: 16px; flex: none; }
+.${POPOVER_CLASS} .gc-actions { display: flex; justify-content: flex-end; padding: 4px 12px 8px; }
 #${MENU_ID} { display: inline-flex; }
 #${MENU_ID} button[data-stale="true"]::after { content: ""; width: 6px; height: 6px; margin-left: 6px;
   border-radius: 50%; background: var(--bgColor-attention-emphasis, #bf8700); }
@@ -202,18 +203,12 @@ function ensureStyle(doc) {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-/** Claude's mark: eight rays from a centre, the diagonals shorter. Drawn rather than fetched — an extension may */
-/** load only images it ships, and a node is also the one form this file can draw under jsdom. */
-const RAYS = [
-  [0, 6],
-  [45, 4.5],
-  [90, 6],
-  [135, 4.5],
-  [180, 6],
-  [225, 4.5],
-  [270, 6],
-  [315, 4.5],
-];
+/**
+ * Claude's own mark, in Claude's own orange. Drawn as a node rather than fetched: an extension may load only images
+ * it ships, and a node is also the one form this file can draw under jsdom. The path is the published logomark.
+ */
+const CLAUDE_MARK =
+  'm4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z';
 
 /**
  * @param {Document} doc
@@ -226,43 +221,32 @@ export function agentIcon(doc, agent) {
   }
 
   const svg = doc.createElementNS(SVG_NS, 'svg');
+  const mark = doc.createElementNS(SVG_NS, 'path');
 
   svg.setAttribute('class', 'gc-agent-icon');
-  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('width', '11');
   svg.setAttribute('height', '11');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('fill', '#d97757');
-
-  for (const [angle, length] of RAYS) {
-    const ray = doc.createElementNS(SVG_NS, 'rect');
-
-    ray.setAttribute('x', '7.3');
-    ray.setAttribute('y', String(8 - (length ?? 0)));
-    ray.setAttribute('width', '1.4');
-    ray.setAttribute('height', String(length));
-    ray.setAttribute('rx', '0.7');
-    ray.setAttribute('transform', `rotate(${angle} 8 8)`);
-    svg.appendChild(ray);
-  }
+  mark.setAttribute('d', CLAUDE_MARK);
+  svg.appendChild(mark);
 
   return svg;
 }
 
 /**
- * A floating panel in GitHub's own shape, hung under whatever opened it. Position is read off the anchor at render
- * rather than held: the panel is rebuilt on every scan, so it follows a board that scrolled under it.
+ * A floating panel in GitHub's own shape. Unplaced: it is `place`d once it is in the document, because where it goes
+ * depends on how wide it turned out.
  *
  * @param {Document} doc
- * @param {Element} anchor
  * @param {string} title
  * @returns {HTMLElement}
  */
-function popover(doc, anchor, title) {
+function popover(doc, title) {
   const panel = doc.createElement('div');
 
   panel.className = POPOVER_CLASS;
-  panel.setAttribute('role', 'menu');
 
   const heading = doc.createElement('div');
 
@@ -270,13 +254,33 @@ function popover(doc, anchor, title) {
   heading.textContent = title;
   panel.appendChild(heading);
 
-  const rect = anchor.getBoundingClientRect();
-  const width = doc.defaultView?.innerWidth ?? 0;
-
-  panel.style.top = `${rect.bottom + 4}px`;
-  panel.style.left = `${Math.max(8, Math.min(rect.left, width - 328))}px`;
-
   return panel;
+}
+
+/** What a panel keeps between itself and the edge it would otherwise run off. */
+const MARGIN = 8;
+
+/**
+ * Hangs a panel under what opened it: left edges aligned, shifted back only as far as the window makes necessary,
+ * and flipped above the anchor rather than off the bottom. Measured after the panel is in the document — a guess at
+ * its width puts a menu on a right-hand button hundreds of pixels from it. Read afresh on every scan, so the panel
+ * follows a board that scrolled under it.
+ *
+ * @param {HTMLElement} panel
+ * @param {Element} anchor
+ */
+function place(panel, anchor) {
+  const view = panel.ownerDocument.defaultView;
+  const rect = anchor.getBoundingClientRect();
+  const own = panel.getBoundingClientRect();
+  const right = view?.innerWidth ?? 0;
+  const bottom = view?.innerHeight ?? 0;
+
+  const below = rect.bottom + 4;
+  const overflows = below + own.height > bottom - MARGIN;
+
+  panel.style.top = `${overflows ? Math.max(MARGIN, rect.top - 4 - own.height) : below}px`;
+  panel.style.left = `${Math.max(MARGIN, Math.min(rect.left, right - own.width - MARGIN))}px`;
 }
 
 /**
@@ -435,7 +439,7 @@ export function renderMenu(doc, state, now, actions) {
     return holder;
   }
 
-  const panel = popover(doc, button, 'Ground Control');
+  const panel = popover(doc, 'Ground Control');
 
   for (const text of [
     snapshot === null
@@ -453,15 +457,25 @@ export function renderMenu(doc, state, now, actions) {
   }
 
   panel.appendChild(doc.createElement('hr'));
-  panel.appendChild(
-    item(doc, 'Refresh', () => {
-      panelOpen = false;
-      actions.refresh();
-      actions.repaint();
-    }),
-  );
+
+  const actionRow = doc.createElement('div');
+  const refresh = nativeButton(doc, host);
+
+  actionRow.className = 'gc-actions';
+  refresh.id = 'gc-refresh';
+  refresh.textContent = 'Refresh';
+  refresh.addEventListener('click', (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    panelOpen = false;
+    actions.refresh();
+    actions.repaint();
+  });
+  actionRow.appendChild(refresh);
+  panel.appendChild(actionRow);
 
   holder.appendChild(panel);
+  place(panel, button);
 
   return holder;
 }
@@ -594,14 +608,14 @@ const MOVABLE = ['unstarted', 'plan', 'build', 'review', 'done', 'icebox'];
 
 /**
  * @param {Document} doc
- * @param {Element} anchor
  * @param {LanedCard} card
  * @param {Actions} actions
  */
-function laneMenu(doc, anchor, card, actions) {
-  const menu = popover(doc, anchor, 'Move to');
+function laneMenu(doc, card, actions) {
+  const menu = popover(doc, 'Move to');
 
   menu.classList.add('gc-lanes');
+  menu.setAttribute('role', 'menu');
 
   for (const lane of MOVABLE) {
     const chosen = lane === card.lane;
@@ -691,9 +705,10 @@ function renderBadge(doc, element, card, now, actions) {
     return [];
   }
 
-  const menu = laneMenu(doc, lane, card, actions);
+  const menu = laneMenu(doc, card, actions);
 
   (doc.body ?? doc.documentElement).appendChild(menu);
+  place(menu, lane);
 
   // The chip travels with its menu: a click on it is the developer closing what they opened, and an outside-click
   // handler that took the chip for an outside click would close the menu and let the chip reopen it.

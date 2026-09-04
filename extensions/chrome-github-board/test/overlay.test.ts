@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
 import { ago, agentIcon, cardsByIssue, clear, issueRefOf, paint } from '../src/overlay.js';
 
@@ -384,7 +384,15 @@ describe('the menu in the board’s own filter bar', () => {
   it('asks the hub to read again, and closes', () => {
     paint(document, state(), NOW, actions);
     open();
-    document.querySelector<HTMLElement>('.gc-popover button[role="menuitem"]')!.click();
+
+    const refresh = document.getElementById('gc-refresh')!;
+
+    // A button of GitHub's, not a line of text to click: the classes are the ones the bar's own buttons wear.
+    expect(refresh.className).toBe(
+      document.querySelector('[role="region"][aria-label="View filters"] button[data-component="Button"]')!.className,
+    );
+
+    refresh.click();
     paint(document, state(), NOW, actions);
 
     expect(actions.refresh).toHaveBeenCalledTimes(1);
@@ -401,6 +409,61 @@ describe('the menu in the board’s own filter bar', () => {
     paint(document, state(), NOW, actions);
 
     expect(document.querySelectorAll('.gc-popover')).toHaveLength(0);
+  });
+});
+
+describe('where a panel hangs', () => {
+  /**
+   * jsdom lays nothing out, so the two rects a placement is made of are given: where the button is, and how big the
+   * panel turned out. Both are what the browser measures.
+   */
+  function measured(anchor: Partial<DOMRect>, panel: Partial<DOMRect>): void {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const of = this.classList.contains('gc-popover') ? panel : anchor;
+
+      return { top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}), ...of };
+    });
+  }
+
+  function panel(): HTMLElement {
+    return document.querySelector<HTMLElement>('.gc-popover')!;
+  }
+
+  function open(): void {
+    paint(document, state(), NOW, actions);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, state(), NOW, actions);
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('hangs under what opened it, left edges aligned', () => {
+    measured({ left: 300, bottom: 120, top: 90 }, { width: 260, height: 140 });
+    open();
+
+    expect(panel().style.top).toBe('124px');
+    expect(panel().style.left).toBe('300px');
+  });
+
+  /**
+   * The button sits at the right-hand end of GitHub's filter bar, so left-aligning it runs off the window. Shifting
+   * back by the panel's own width is the whole of the fix: a guess at that width left the menu adrift of its button.
+   */
+  it('shifts back from the window edge by no more than it has to', () => {
+    measured({ left: 900, bottom: 120, top: 90 }, { width: 260, height: 140 });
+    open();
+
+    expect(window.innerWidth).toBe(1024);
+    expect(panel().style.left).toBe('756px');
+  });
+
+  it('flips above the anchor rather than off the bottom of the window', () => {
+    measured({ left: 300, top: 700, bottom: 740 }, { width: 260, height: 200 });
+    open();
+
+    expect(panel().style.top).toBe('496px');
   });
 });
 
