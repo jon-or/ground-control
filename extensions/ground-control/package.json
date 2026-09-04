@@ -156,7 +156,8 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "test": "vitest run --coverage",
     "package": "vsce package --no-dependencies --allow-missing-repository",
-    "vscode:uninstall": "node ./dist/uninstall.js"
+    "vscode:uninstall": "node ./dist/uninstall.js",
+    "test:integration": "vscode-test"
   },
   "dependencies": {
     "@ground-control/board": "*",
@@ -166,12 +167,16 @@
     "@ground-control/hub": "*"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.104.0",
     "@vitest/coverage-v8": "^3.2.7",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.25.0",
     "jsdom": "^26.1.0",
+    "mocha": "^12.0.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.7"
   }

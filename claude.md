@@ -30,7 +30,7 @@ The docs are updated as part of the work that changed them, in the same commit �
 - Plan first. Read the PRD, architecture, mechanics, and existing code, then write a plan that includes how you will verify the change — before coding.
 - All new functionality is verified by tests. `docs/testing.md` is the contract; it decides what earns a test and what does not.
 - After developing a feature, use subagents to review it before committing. Where appropriate, run several from different angles (spec adherence, regression, correctness, UX).
-- Manually exercise UI-visible changes in the Extension Development Host (F5) before calling them done.
+- Exercise UI-visible changes in a real VS Code before calling them done: `npm run test:integration` runs the extension in one. A one-off check is a scratch test under `extensions/ground-control/test-integration/`, run and then deleted — never a request that someone else click through it.
 - One commit per story or task. Commit when a self-contained task is complete, reviewed, verified, and accepted by the user.
 - When a commit fixes a GitHub issue, put a closing reference on the first line (`fix(board): summary (fixes #123)`).
 - Once assigned work, continue until all tasks are complete or you hit a blocker. Raise to the user if you need credentials, clarification, better requirements, a deviation from the PRD, or you cannot adequately verify the change.
@@ -39,11 +39,12 @@ The docs are updated as part of the work that changed them, in the same commit �
 
 The full rules are in [docs/testing.md](docs/testing.md). The short version:
 
-- **`npm run verify` is the only definition of "the tree is good"** — typecheck + tests + coverage thresholds. A `pre-commit` hook runs it. Not a passing F5, not a screenshot, not an agent reporting success.
+- **`npm run verify` is the only definition of "the tree is good"** — typecheck + tests + coverage thresholds. A `pre-commit` hook runs it, and `npm run verify:full` adds the integration tests. Not a window that looked right, not a screenshot, not an agent reporting success.
 - `--no-verify` is legitimate exactly twice: a WIP commit on a branch nobody else reads, and a docs-only commit.
 - **No network in tests.** Fixtures in `packages/*/test/fixtures/`, recorded from real responses with `gh api graphql`, trimmed only by deleting whole nodes.
 - **Assert the refusal, not just the success.** A test that cannot fail is a bug — know what source change would break an assertion before you write it.
-- **Know which layer you are changing.** A webview script (`media/*.js`) imports nothing from `vscode`, so it belongs in vitest under jsdom. An `extensions/*/src/` file does import it and cannot be reached, which is why decisions belong in a `packages/*` module instead. Packaging gets the hard requirement that `vsce package --no-dependencies` succeeds — F5 resolves workspace dependencies the packaged `.vsix` does not.
+- **Know which layer you are changing.** A webview script (`media/*.js`) imports nothing from `vscode`, so it belongs in vitest under jsdom. An `extensions/*/src/` file does import it, so it is reached by the integration tests in `extensions/ground-control/test-integration/` — mocha running inside a real extension host, against a temporary home. Decisions still belong in a `packages/*` module; what the integration layer proves is the wiring between them. Packaging gets the hard requirement that `vsce package --no-dependencies` succeeds — a development launch resolves workspace dependencies the packaged `.vsix` does not.
+- **The Chrome extension is driven by Playwright, headless, in the repo's own tests.** `chromium.launchPersistentContext` with `--disable-extensions-except=<dir>` and `--load-extension=<dir>` under `channel: 'chromium'` loads the unpacked extension; the content script runs and `context.serviceWorkers()` reaches the MV3 worker. Both work with `headless: true`, so a run opens no window. Two things to know before writing one: `page.evaluate` runs in the page's main world where `chrome` is undefined, so drive messaging from the worker side; and the no-network rule holds — navigate to a recorded project-board fixture on a `file://` URL, never to github.com.
 
 ## Code Quality
 
@@ -83,13 +84,17 @@ That boundary is what makes the logic testable in vitest: a module importing `vs
 ## Essential Commands
 
 ```bash
-npm run verify      # typecheck + test + coverage — the gate
-npm run build       # tsc -b across packages, esbuild for the extension
-npm run watch       # incremental build for F5
-npm test            # vitest across workspaces
-npm run typecheck   # tsc -b plus each package's test tsconfig
-npm run hub         # run the hub in the foreground, after a build
+npm run verify           # typecheck + test + coverage — the gate the hook runs
+npm run verify:full      # the gate plus the integration tests, in a real VS Code
+npm run test:integration # builds, then runs the extension in a real VS Code window
+npm run build            # tsc -b across packages, esbuild for the extension
+npm run watch            # incremental build while iterating
+npm test                 # vitest across workspaces
+npm run typecheck        # tsc -b plus each package's test tsconfig
+npm run hub              # run the hub in the foreground, after a build
 ```
+
+`verify` is the pre-commit gate and stays fast and quiet. `verify:full` adds the integration run, which opens a real VS Code window for a few seconds — run it before committing anything the extension host touches, not on every save.
 
 Package the extension from `extensions/ground-control`:
 
@@ -99,6 +104,6 @@ npm run package     # vsce package --no-dependencies --allow-missing-repository
 
 ## Running It
 
-F5 from the repo root launches the Extension Development Host (`.vscode/launch.json`). The board opens via the **Ground Control: Open Board** command.
+`npm run test:integration` launches a VS Code of its own, loads the extension into it, and runs the tests in `extensions/ground-control/test-integration/` inside its extension host — against a temporary home, so it never touches the board you are using. That is how the extension is exercised.
 
 `npm run hub` runs the hub as its own process against your real home. It prints the port; `~/.claude/ground-control/hub.json` carries the token, and `hub.log` its own lines. `node apps/hub/dist/main.js --stop` stops it — there is no signal that will (`docs/mechanics.md` §25). `--home=<path>` points it at a home of its own, which is how to run one without touching your board's.

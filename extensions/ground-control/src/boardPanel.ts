@@ -11,9 +11,21 @@ import { host } from './registry.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 
+/** Long enough for a first render on a cold extension host, short enough that nobody sits looking at nothing. */
+const BLANK_AFTER_MS = 10_000;
+
 export type Outbound = { type: 'loading' } | SnapshotMessage;
 
+/** What the webview drew, which is the only report that its script ran at all. */
+export interface Drawn {
+  lanes: number;
+  cards: number;
+  notices: number;
+  meta: string;
+}
+
 type Inbound =
+  | ({ type: 'drew' } & Drawn)
   | { type: 'refresh' }
   | { type: 'openIssue'; number: number }
   | { type: 'openPullRequest'; number: number }
@@ -46,6 +58,8 @@ export class BoardPanel {
   #promptDismissed = false;
   /** The event also fires on focus, so the visibility the board acted on last is kept to tell the two apart. */
   #visible = true;
+  #drew: Drawn | null = null;
+  #blankTimer: NodeJS.Timeout | undefined;
 
   static show(context: vscode.ExtensionContext): { panel: BoardPanel; created: boolean } {
     const existing = BoardPanel.current;
@@ -103,6 +117,13 @@ export class BoardPanel {
 
         this.#visible = this.#panel.visible;
         this.#tell({ type: 'watching', watching: this.#visible });
+
+        // A board only draws while it is visible, so the wait for its first render starts and stops with the tab.
+        if (this.#visible) {
+          this.#watchForBlank();
+        } else {
+          this.#stopWatchingForBlank();
+        }
       },
       undefined,
       this.#disposables,
@@ -111,6 +132,7 @@ export class BoardPanel {
     this.#panel.onDidDispose(() => this.dispose(), undefined, this.#disposables);
 
     this.#post({ type: 'loading' });
+    this.#watchForBlank();
     this.#connect();
   }
 
@@ -139,6 +161,12 @@ export class BoardPanel {
 
   #onWebview(msg: Inbound): void {
     switch (msg.type) {
+      case 'drew':
+        this.#drew = msg;
+        this.#stopWatchingForBlank();
+
+        return;
+
       case 'refresh':
         this.#tell({ type: 'refresh' });
 
@@ -166,6 +194,43 @@ export class BoardPanel {
         void this.#open(msg.sessionId);
 
         return;
+    }
+  }
+
+  /** What the webview last reported drawing. A board that never draws leaves this null, which is the only tell. */
+  get drew(): Drawn | null {
+    return this.#drew;
+  }
+
+  /**
+   * A board that never reports drawing is a board whose script never ran — a content policy that rejected it, or a
+   * bundle that is not there. Nothing else notices: the panel is open, the tab is titled, and the developer is
+   * looking at the loading line with no reason given (R25).
+   *
+   * Only while the tab is visible, and only once. A hidden board never loads its script at all
+   * (`retainContextWhenHidden` is false), so a timer armed on a board the developer tabbed away from would call a
+   * working board broken.
+   */
+  #watchForBlank(): void {
+    if (this.#blankTimer !== undefined || this.#drew !== null || !this.#panel.visible) {
+      return;
+    }
+
+    this.#blankTimer = setTimeout(() => {
+      this.#blankTimer = undefined;
+
+      if (this.#drew === null && this.#panel.visible) {
+        void vscode.window.showErrorMessage(
+          'The board opened but never drew: its script did not run. Reload the window, and report it if it happens again.',
+        );
+      }
+    }, BLANK_AFTER_MS);
+  }
+
+  #stopWatchingForBlank(): void {
+    if (this.#blankTimer !== undefined) {
+      clearTimeout(this.#blankTimer);
+      this.#blankTimer = undefined;
     }
   }
 
@@ -288,6 +353,7 @@ export class BoardPanel {
     }
 
     this.#disposed = true;
+    this.#stopWatchingForBlank();
 
     if (BoardPanel.current === this) {
       BoardPanel.current = undefined;

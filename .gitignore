@@ -8,3 +8,6 @@ dist/
 .tmp/
 .tmp-smoke/
 coverage/
+.vscode-test/
+test-results/
+.playwright-mcp/

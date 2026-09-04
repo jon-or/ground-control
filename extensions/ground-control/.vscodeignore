@@ -3,6 +3,9 @@ src/**
 node_modules/**
 coverage/**
 test/**
+test-integration/**
+.vscode-test/**
+.vscode-test.mjs
 tsconfig.json
 tsconfig.test.json
 vitest.config.ts
