@@ -146,6 +146,23 @@ describe('starting a hub for a home', () => {
     expect(second.lines.join(' ')).toContain('already serving');
   });
 
+  /**
+   * The client that spawned it waits for a hub and gets none, and a spawn that died leaves the same silence. Only
+   * this file tells the two apart, and without it the board tells a developer to go stop a stranger while their own
+   * hub is up and only that window cannot reach it.
+   */
+  it('leaves the reason it stood down where a client reads why its start came to nothing', async () => {
+    const home = homeForThisTest();
+    const first = served((await serving(home)).result);
+
+    await serving(home);
+
+    const exit = JSON.parse(readFileSync(exitPathOf(home), 'utf8')) as { code: number; reason: string };
+
+    expect(exit).toMatchObject({ code: 0 });
+    expect(exit.reason).toBe(`a hub was already serving this home on port ${first.port}`);
+  });
+
   /** A hub that was killed leaves its record behind, and the next one takes the home over rather than refusing. */
   it('takes over a home whose recorded hub is not answering', async () => {
     const home = homeForThisTest();

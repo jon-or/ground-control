@@ -63,6 +63,26 @@ function tellThem(home: string, what: string): string {
 }
 
 /**
+ * The port a hub this client started stood down for, when one did. A spawn that died and a spawn that found the
+ * home already served are the same silence to the client that asked, and only one of them means a hub is running.
+ */
+function standingPort(home: string): string | null {
+  const text = read(exitPathOf(home));
+  const found = text === null ? null : /already serving this home on port (\d+)/.exec(text);
+
+  return found?.[1] ?? null;
+}
+
+/** Said after a miss that claims nothing of ours is there, when what this client started says otherwise. */
+function alsoRunning(home: string): string {
+  const port = standingPort(home);
+
+  return port === null
+    ? ''
+    : ` The hub this window started stood down because one is already serving this home on port ${port}, so a hub is running that this window cannot reach.`;
+}
+
+/**
  * What a start that came to nothing ran into: no hub at all, a hub that died leaving its record, or — every other
  * branch — a process that is up and did not become this client's hub. The remedy for those is ending it, because
  * nothing stops a hub whose token this client could not prove, and the pid is what the developer has to work with.
@@ -82,16 +102,16 @@ function whatIsThere(home: string, miss: HubMiss): string {
       return tellThem(home, 'The board started its background process and it never recorded itself.');
 
     case 'silent':
-      return `Something holds port ${held.port}, which is where this board's hub was, and will not answer this window. ${stop}`;
+      return `Something holds port ${held.port}, which is where this board's hub was, and will not answer this window. ${stop}${alsoRunning(home)}`;
 
     case 'not-a-hub':
-      return `Port ${held.port} is held by something that is not Ground Control, and ${hubJsonPathOf(home)} still names it. Stop that process, or delete that file, and open the board again.`;
+      return `Port ${held.port} answered, but not as Ground Control (HTTP ${miss.saw.status}${miss.saw.said === '' ? '' : `: ${miss.saw.said}`}), and ${hubJsonPathOf(home)} still names it. Stop that process, or delete that file, and open the board again.${alsoRunning(home)}`;
 
     case 'another-home':
-      return `The hub on port ${held.port} is tracking a different home, and this board cannot use it. ${stop}`;
+      return `The hub on port ${held.port} is tracking a different home, and this board cannot use it. ${stop}${alsoRunning(home)}`;
 
     case 'unproven':
-      return `Something is already serving this board's home on port ${held.port}, holding a token this window cannot verify. ${stop}`;
+      return `Something is already serving this board's home on port ${held.port}, holding a token this window cannot verify. ${stop}${alsoRunning(home)}`;
 
     case 'another-protocol':
       return `A Ground Control of another version is running (pid ${held.pid}, on port ${held.port}) and would not give up this machine. ${stop}`;
