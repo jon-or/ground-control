@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
-import { logPathOf, makeEnsure, realEnsureDeps, sanitizeEnvironment } from '@ground-control/hub';
+import { logPathOf, makeEnsure, realEnsureDeps, spawnEnvironment } from '@ground-control/hub';
 import type { Ensured } from '@ground-control/hub';
 
 /**
@@ -13,10 +13,7 @@ import type { Ensured } from '@ground-control/hub';
  */
 function startHub(bundle: string, home: string): void {
   const log = openSync(logPathOf(home), 'a');
-  const env = { ...process.env };
-
-  sanitizeEnvironment(env);
-  env['ELECTRON_RUN_AS_NODE'] = '1';
+  const env = spawnEnvironment();
 
   try {
     const child = spawn(process.execPath, [bundle, `--home=${home}`], {

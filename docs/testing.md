@@ -9,7 +9,7 @@ npm run verify          # typecheck + test + coverage thresholds
 npm run verify:full     # the same, plus the integration tests in a real VS Code
 ```
 
-`verify` is the whole contract for the pre-commit hook. It stays fast and opens no windows, so it can run on every commit without stealing focus from whatever the developer is typing into. `verify:full` adds the integration run and is what a change to `extensions/*/src/` owes before it is committed.
+`verify` builds first, because two of its tests spawn what a build produces — the hub bundle a client carries. Without that, a fresh checkout fails at collection and, worse, a stale bundle lets the spawn tests run yesterday's code and pass. `verify` is the whole contract for the pre-commit hook. It stays fast and opens no windows, so it can run on every commit without stealing focus from whatever the developer is typing into. `verify:full` adds the integration run and is what a change to `extensions/*/src/` owes before it is committed.
 
 The hook is installed by `npm install` (the `prepare` script points `core.hooksPath` at `.githooks/`), and a runner is the only definition of "the tree is good". Nothing else counts — not a window that looked right, not a screenshot, not an agent reporting success.
 
@@ -87,7 +87,7 @@ That last one is the case for the layer. A route handler in `src/` earns no test
 
 What must not end up here is anything that could have been tested a layer down. The client's transport was written under `src/` and imports nothing from `vscode`, so it belonged in `packages/hub` from the start: its backoff, its once-per-outage notice, its pending queue, and its treatment of a refused hello are all decisions, and all of them are now vitest tests against a real server on a loopback port the test itself started. Two defects surfaced there and nowhere else: a restart budget that counted successful starts, so killing a healthy hub left the board dead for a minute; and a configuration read that broadcast nothing when the read it asked for was inside the refresh floor, so a setting corrected a second after being made wrong went on being complained about. Both were invisible to every unit test, and both are now covered one layer down as well, where they are cheaper to keep.
 
-**The Chrome extension — `extensions/chrome-github-board/`.** Two layers, the same split as the VS Code side. The overlay's DOM logic is a pure function of a snapshot and a document, so vitest reaches it under jsdom against a recorded `project-board.html`. What jsdom cannot see is whether Chrome loads the extension at all, whether the content script's matches fire on the page, and whether the MV3 worker starts — so those are Playwright, in the repo's own suite:
+**The Chrome extension — `extensions/chrome-github-board/`.** Two layers, the same split as the VS Code side, and the same rule about where a decision lives. The overlay's DOM logic is a pure function of a snapshot and a document, so vitest reaches it under jsdom against a recorded `project-board.html`; so is `state.js`, which holds what a worker message does to what is drawn, which pages count as a board, and the reconnect backoff. Both were in the files holding a `chrome` port once, and both shipped defects that no test could have seen there. What jsdom cannot see is whether Chrome loads the extension at all, whether the content script's matches fire on the page, and whether the MV3 worker starts — so those are Playwright, in the repo's own suite:
 
 ```js
 const context = await chromium.launchPersistentContext(profileDir, {
@@ -97,11 +97,15 @@ const context = await chromium.launchPersistentContext(profileDir, {
 });
 ```
 
-Measured 2026-09-03 against Playwright 1.62.1: the content script paints into the page and `context.serviceWorkers()` holds the MV3 worker, under `headless: true` and `headless: false` alike. A run opens no window, which the VS Code harness cannot say.
+Measured 2026-09-04 against Playwright 1.62.1 and this extension: the content script paints into the page and `context.serviceWorkers()` holds the MV3 worker, headless, in about a second. A run opens no window, which the VS Code harness cannot say.
 
-Two rules follow from how Chrome scopes things. `page.evaluate` runs in the page's **main world**, where `chrome` is undefined — extension messaging is driven from the worker's side (`worker.evaluate`) or through the DOM the content script wrote, never by calling `chrome.runtime` from the page. And the no-network rule is unchanged: a test navigates to a recorded board fixture over `file://`, so it asserts against markup that was captured once and scrubbed, not against whatever GitHub shipped this morning.
+What that run is worth is every mistake that leaves no error anywhere else: a `matches` pattern that never fires, a `web_accessible_resources` entry missing so the content script's import of the overlay module resolves to nothing, a worker that throws on load. All three would pass every jsdom test and paint nothing.
 
-**Recording that fixture is the one place an agent drives a live page.** The Playwright MCP browser opens the real project board so its markup can be read and captured; the capture is then scrubbed and committed, and every test runs against the file. Exploring with the MCP is how a fixture is obtained, never how a behavior is verified.
+Two rules follow from how Chrome scopes things. `page.evaluate` runs in the page's **main world**, where `chrome` is undefined — extension messaging is driven from the worker's side (`worker.evaluate`) or through the DOM the content script wrote, never by calling `chrome.runtime` from the page. And the no-network rule is unchanged, but a `file://` page will not serve it: a content script's `matches` are the page's URL, so off github.com nothing runs at all and the test would assert against a page the extension never touched. The test therefore answers the github.com URL itself — `context.route('https://github.com/**', ...)` fulfilled with the recorded fixture — which keeps the URL the extension is scoped to while nothing leaves the machine.
+
+**That fixture is recorded from a public board, by a script anyone can re-run.** `test/fixtures/record.cjs` opens GitHub's own public roadmap in its board view, trims to two columns and three cards by removing whole nodes, scrubs, and asserts before it writes — so refreshing it needs no account, no token, and no interactive session. Exploring the markup with the Playwright MCP is how the four attributes the overlay reads were found; it is never how a behavior is verified.
+
+The browser that run needs is installed by the install that sets the gate up: `extensions/chrome-github-board` has a `postinstall` of `playwright install chromium`. A gate that fails on a missing browser rather than on the code is a gate that has to be explained, and one that gets explained gets ignored.
 
 **Packaging.** `vsce package --no-dependencies` must succeed before a change lands, because a development launch resolves workspace dependencies that the packaged `.vsix` does not — a green integration run is not evidence the extension installs.
 

@@ -47,7 +47,13 @@ describe('the extension in a real window', () => {
 
     assert.deepStrictEqual(
       commands.filter((name) => name.startsWith('groundControl.')).sort(),
-      ['groundControl.openBoard', 'groundControl.refresh', 'groundControl.removeSessionHooks'],
+      [
+        'groundControl.disableGithubOverlay',
+        'groundControl.enableGithubOverlay',
+        'groundControl.openBoard',
+        'groundControl.refresh',
+        'groundControl.removeSessionHooks',
+      ],
     );
   });
 

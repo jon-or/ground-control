@@ -1,0 +1,25 @@
+{
+  "name": "@ground-control/chrome-github-board",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The browser overlay: Ground Control's board painted onto the team's GitHub project board.",
+  "type": "module",
+  "scripts": {
+    "postinstall": "playwright install chromium",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run --coverage",
+    "record": "node test/fixtures/record.cjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.62.1",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.7"
+  },
+  "dependencies": {
+    "@ground-control/core": "*"
+  }
+}

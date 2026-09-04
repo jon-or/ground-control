@@ -168,6 +168,7 @@ The snapshot and the actions are one typed contract in `packages/core`, and ever
 | hub → client | `changed` | the same, sent on any change; clients replace, never patch |
 | hub → client | `perform` | a resident route, forwarded to the one client that offered it |
 | hub → client | `notice` | a message for the developer, with the refusal it came from where there is one |
+| bridge → browser | `trouble` | that the hub is not answering, or that it is again — the bridge's own, since a client cannot be told by a hub it cannot reach |
 
 A configuration is parsed before it is taken, and a bad one is refused whole and named above the lanes rather than half-applied: one field of it becomes a process, and a client is not necessarily this editor. What it settled on is broadcast before the read it triggers, because that read has a floor: a setting corrected within a second of being made wrong would otherwise leave every board showing the complaint until the next poll. A client restates its configuration after every `hello`, since a hub it has just started knows nothing about it.
 
@@ -190,7 +191,13 @@ A client reads `~/.claude/ground-control/hub.json` for the port and the token, t
 
 The server refuses any request carrying an `Origin` header, any `Host` other than its own loopback address, any `POST` that is not `application/json`, any body over 64 KB, and more than eight event streams. A web page can reach loopback, and the request that pushes configuration carries executable paths, so nothing a browser can send is accepted. The browser board is reached another way.
 
-**The Chrome bridge.** Chrome talks to the hub through native messaging: a per-user host registered under the developer's own profile (`HKCU` on Windows, the profile directory elsewhere), which Chrome starts on demand and talks to over stdio. The bridge is the hub bundle in a second mode. It reads `hub.json`, starts a hub if none answers, connects to the event stream with the token, and relays messages both ways. It connects as a client with no host and no resident routes, and the server refuses `configure` and `shutdown` from it. The registration is written by a deliberate command, **Ground Control: Enable GitHub Overlay**, and removed the same way (R34).
+**The Chrome bridge.** Chrome talks to the hub through native messaging: a per-user host registered under the developer's own profile (`HKCU` on Windows, the profile directory elsewhere), which Chrome starts on demand and talks to over stdio. The bridge is the hub bundle in a second mode. It reads `hub.json`, starts a hub if none answers, connects to the event stream with the token, and relays messages both ways. It connects as a client with no host and no resident routes, so no route is ever forwarded to it.
+
+The bridge is the boundary the browser is held at, and it is a whitelist rather than a blacklist: `refresh`, `watching`, and a `move` to a lane the board has, and everything else is refused by name and the refusal sent back for the overlay to show. The hub's own server treats it like any other client, so the rule has to live where the browser's messages arrive. Frames are Chrome's own: four bytes of length and then JSON, reassembled across however stdin chunks them, with a header claiming more than a megabyte treated as a stream out of step with its frames rather than a body to wait for.
+
+Google Chrome is the browser it registers with: the manifest goes where Chrome looks for it, and on Windows under Chrome's own key. Chromium, Edge and the rest read their own locations and would each need a row; none has been asked for.
+
+The registration is written by a deliberate command, **Ground Control: Enable GitHub Overlay**, removed by the command that reverses it, and removed again when the extension is uninstalled — what it names is the bundle the uninstall deletes, so left behind it would have Chrome starting a host that is not there (R34). What it writes is a wrapper script and a manifest naming it, plus the registry value Chrome finds the manifest by on Windows. The wrapper prints nothing of its own: Chrome reads the process's stdout as message frames, so a line from a shell is a malformed frame and the port closes. It names the bundle at `~/.claude/ground-control/hub.js`, never the copy inside an extension, so an update never orphans it.
 
 ### Lifecycle
 
@@ -220,7 +227,13 @@ A client renders the snapshot and forwards actions. It holds no state the hub do
 
 **VS Code board.** The webview panel, the commands, the settings UI, and the resident half of the `vscode` host adapter: it offers every route in `residentRoutes` on `hello`, and performs one with `executeCommand` when the hub forwards it. It is also the client that asks for what the hub `needs`. Everything else it did lives in the hub, the transport included — what stays in the extension is spawning the process and writing the bundle, which are the two things only something inside VS Code can do.
 
-**GitHub project overlay.** A Chrome extension whose content script runs on project board pages, finds the issue number in each card's link, and paints a badge from the matching snapshot card: session count, phase, duration since the phase began. Above the board it renders what R25 asks to be stated once: the source failures, the hook notice, and how old the snapshot is, because a bridge that lost the hub must not leave a badge that looks current. Its actions are `refresh` and `move`. `open` from the browser is off unless `hosts.vscode.allowBrowserOpen` is set, because a route that raises an editor window from a browser tab moves the developer's focus without a board of theirs in sight. A seize lands in VS Code, because the resident half is there.
+**GitHub project overlay.** A Chrome extension whose content script runs on project board pages, finds the issue number in each card's link, and paints a badge onto the cards the snapshot knows: the lane the board has the card in, and a chip per session carrying its phase and how long that phase has held. Above the board it renders what R25 asks to be stated once: the source failures, the hook notice, and how old the snapshot is, because a bridge that lost the hub must not leave a badge that looks current. Its actions are `refresh` and a `move` to another lane, offered from the lane chip. Taking a session over is not offered at all: the resident half is in VS Code, so the chip says where that happens rather than raising an editor window from a browser tab, which would move the developer's focus with no board of theirs in sight.
+
+The content script is injected across `github.com` rather than on project boards alone, because a board reached by clicking through the site is a soft navigation and Chrome injects nothing for one. Which pages it paints is therefore decided in the script, on every location change, and leaving a board is something it handles rather than a page it never sees.
+
+The overlay splits three ways, and the two halves holding no `chrome` port are the ones vitest reaches. `overlay.js` is a pure function of a snapshot and a document; `state.js` is what a message from the worker does to what is drawn, which page is a board, and how long to wait before trying the worker again. What is left in `content.js` is the port and the observer, and in `worker.js` the native port.
+
+The trouble line is the worker's to set and clear, never the tab's. A tab is handed the last snapshot from `chrome.storage.session` before anything has answered, and a tab that cleared the line on receiving one would show an hours-old reading under a banner saying all was well (R24). The badge is rebuilt from scratch on every scan rather than patched, because a view switch replaces every card node and takes the badge with it (`mechanics.md` §27) — and the observer is disarmed while painting, or the badges it writes would schedule the next scan forever.
 
 **Worked example.** A hook fires `PermissionRequest` for the Claude session on issue 4521. Claude's activity writer replaces that session's marker. The hub's watcher fires; the session is listed, so the roster is not stale, and the hub reads one file instead of spawning the CLI. `phaseOf` returns `waiting`. The hub rebuilds the snapshot and pushes `changed` to both clients. The VS Code webview repaints the card amber. The bridge relays the message to the worker, the content script finds the project card whose link ends in `/issues/4521` and turns its badge amber with the duration. End to end is one file event plus the 150 ms batch window.
 
@@ -228,7 +241,7 @@ A client renders the snapshot and forwards actions. It holds no state the hub do
 
 | Package | Holds | May import |
 | --- | --- | --- |
-| `packages/core` | `Session`, `ReadFailure`, `AgentAdapter`, `HostAdapter`, `WorkSource`, the lane and card types, the protocol, and the neutral helpers: paths, the branch link, the JSON CLI runner, the disk readers, the configuration directory | nothing of ours |
+| `packages/core` | `Session`, `ReadFailure`, `AgentAdapter`, `HostAdapter`, `WorkSource`, the lane and card types, the protocol, the browser overlay's own identity, and the neutral helpers: paths, the branch link, the JSON CLI runner, the disk readers, the configuration directory | nothing of ours |
 | `packages/agent-claude` | the `claude` adapter: `claude agents --json`, transcript titles, the hook writer, the marker reader | `core` |
 | `packages/host-vscode` | the `vscode` adapter's headless half: lock files, window stores, surfaces, the placement table, the open plan | `core` |
 | `packages/github` | the `github` work source | `core` |
@@ -236,9 +249,9 @@ A client renders the snapshot and forwards actions. It holds no state the hub do
 | `packages/hub` | the registries and defaults, the loop, lane memory, activity install, the watcher, the server, and the client half: finding or starting a hub, and the transport that rides its event stream | everything above |
 | `apps/hub` | the daemon entry point and the Chrome bridge; `ground-control-hub` | `core`, `hub` |
 | `extensions/ground-control` | the VS Code client and the `vscode` resident half; bundles `apps/hub` as `dist/hub.js` | `core`, `host-vscode`, `hub`; the only package that imports `vscode` |
-| `extensions/chrome-github-board` | the Chrome client | `core`; the only package that imports `chrome` |
+| `extensions/chrome-github-board` | the Chrome client: the MV3 worker, the content script, and the overlay's DOM layer | `core` for its types; the only package that imports `chrome` |
 
-The extension also imports `board` and `github` for the two settings readers that turn a raw value into one the hub takes. Those stay in the client: what they read is VS Code's own settings, which only something inside VS Code can see. `extensions/chrome-github-board` is the one row nothing occupies yet.
+The extension also imports `board` and `github` for the two settings readers that turn a raw value into one the hub takes. Those stay in the client: what they read is VS Code's own settings, which only something inside VS Code can see. The Chrome client has no build step and imports nothing at runtime — `core` reaches it as JSDoc types, so a protocol rename fails its typecheck, and Chrome loads the directory as it stands.
 
 One package per adapter is what makes the seams enforceable. The boundary rule and the coverage floor apply per package, so `agent-claude` cannot reach `host-vscode`, and an adapter that arrives without tests fails on its own number rather than hiding in a larger one. `core` names no adapter; the registries are the hub's.
 

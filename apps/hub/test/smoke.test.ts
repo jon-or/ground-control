@@ -298,6 +298,24 @@ describe('the hub as its own process', () => {
     expect(await hub.ended).toBe(0);
   });
 
+  /**
+   * A mode that threw used to drain and exit 0, because the `unhandledRejection` handler reports and deliberately
+   * does not exit. Its caller is a menu item telling the developer their browser can now reach the board (R34), and
+   * an exit code is all it has to go on.
+   */
+  it('exits non-zero when it cannot do what it was asked', async () => {
+    const home = tempHome();
+
+    // A file where the configuration directory belongs: the first thing every mode does is make that directory.
+    rmSync(join(home, '.claude', 'ground-control'), { recursive: true, force: true });
+    writeFileSync(join(home, '.claude', 'ground-control'), 'not a directory');
+
+    const hub = run(home);
+
+    expect(await hub.ended).toBe(1);
+    expect(hub.output()).toContain('the hub could not do that');
+  });
+
   it('ends itself when nobody has connected for the idle span', async () => {
     const home = tempHome();
     const hub = run(home, '--idle-ms=300');

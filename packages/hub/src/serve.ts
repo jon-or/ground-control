@@ -30,6 +30,18 @@ export function sanitizeEnvironment(env: NodeJS.ProcessEnv = process.env): strin
   return removed;
 }
 
+/**
+ * The environment a hub or a bridge is started in. Sanitized, and then `ELECTRON_RUN_AS_NODE` put back: the
+ * interpreter may be VS Code's own executable, which runs as node only when told to and otherwise opens an editor.
+ * Plain node ignores the variable, so one environment serves both and no caller has to know which it holds.
+ */
+export function spawnEnvironment(env: NodeJS.ProcessEnv = { ...process.env }): NodeJS.ProcessEnv {
+  sanitizeEnvironment(env);
+  env['ELECTRON_RUN_AS_NODE'] = '1';
+
+  return env;
+}
+
 /** A hub reading the given home, wired to the real machine. The same object whether it is served or held in process. */
 export function makeHub(home: string = homedir()): Hub {
   return new Hub(realHubDeps(makeRegistries(), makeLaneStore(home), makeMarkStore(home), home, watchDir));

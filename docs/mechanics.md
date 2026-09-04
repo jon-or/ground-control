@@ -1233,3 +1233,34 @@ Two things follow. A hub killed with `/F` never removes `hub.json`, so **a stale
 **Starting it costs 60 ms.** Spawn to a readable `hub.json`, five cold starts of the esbuild bundle the extension carries: 64, 61, 61, 60, 63 ms. That is the whole wait a board pays when it finds no hub answering.
 
 **It cannot raise one.** With one window already showing the folder and another window in front, `code <folder>` at that folder returned in 1109 ms and the target **never** reached the foreground — not at return, and not in the four seconds after. A process the user has not interacted with cannot take focus on Windows; it gets a taskbar flash. So the CLI's return says a window exists, never that it is in front, and every `-elsewhere` route stays resident: only an extension inside the target window can confirm it came forward (§7, §8).
+
+## 27. GitHub's project board, and what an overlay may hold on to
+
+**Measured 2026-09-04, Chromium 151.0.7922.34 (Playwright 1.62.1) on Windows 11, against `https://github.com/orgs/github/projects/4247/views/21` — GitHub's own public roadmap, in its board view.**
+
+**Four attributes, and everything else is hashed.** A card's classes read `card-base-with-sash-module__CardBaseWithSash__O46HI index-module__CardBaseWithSash__v6Jl5 board-view-column-card card-base-module__CardBase__jJ0gF` — CSS-module names with a per-build hash on the end, so none of them is a selector to write down. What is stable is the data attributes the board's own drag-and-drop needs:
+
+| Selector | Is | Carries |
+| --- | --- | --- |
+| `#project-items-region` | the board | the columns; the banner goes in front of it |
+| `[data-board-column]` | one column | the column's own name, in the attribute — `data-board-column="Shipped"` |
+| `[data-board-card-id]` | one card | the project item id, and `data-hovercard-subject-tag="issue:<node id>"` |
+| `a[href*="/issues/"]` inside a card | the issue link | the issue number, in the href |
+
+So the overlay reads the issue number off the link and nothing off a class. A draft item has no such link, which is how a card with no issue is told from one whose issue is not on the developer's board.
+
+**No recycling at the size measured.** One column held 25 cards, all of them in the DOM at once. Scrolling that column to the bottom and back changed neither the node count nor node identity, and a `<div>` appended to a card survived it. Whether a longer board virtualizes was not measured; the overlay is written as though it does, because the rule that covers recycling covers re-rendering too and costs nothing.
+
+**A view switch replaces every card node.** Clicking through to another view of the same project and back — a soft navigation, no page load — left the held card node `isConnected === false`, and both the appended badge and a `data-gc-issue` attribute set on the card were gone with it. A `MutationObserver` on the board container saw 89 records across the round trip.
+
+Two consequences, and they are what the overlay is built on. **Nothing may be stored on a card**: no badge, no attribute, no map keyed by node — every scan rewrites from scratch, which makes the replaced case and the survived case the same code. And **the observer is the trigger**, so it must be disarmed while painting: the badges are DOM changes of its own, and an observer left armed schedules the next scan forever.
+
+**Playwright loads the unpacked extension headless.** `chromium.launchPersistentContext` with `--disable-extensions-except=<dir>` and `--load-extension=<dir>` under `channel: 'chromium'` and `headless: true`: the content script ran, imported the overlay module through `web_accessible_resources`, and painted, and `context.serviceWorkers()` held the MV3 worker — the whole round trip inside a second, with no window. The page has to be answered at a `github.com` URL for any of it to happen, since a content script's `matches` are the page's URL; `context.route` fulfilling from the recorded fixture keeps the URL and touches no network.
+
+**Chromium starts a `.cmd` native-messaging host, and Node will not.** The manifest's `path` is a `.cmd` wrapper, which is how the interpreter and the arguments are pinned — Chrome runs the command with no arguments of its own but the origin. Driving that wrapper from a Node harness fails with `spawn EINVAL`: since 20.12, Node refuses to spawn a `.bat` or `.cmd` without a shell. The browser has no such rule, and the only way to establish that was to let one do it.
+
+Measured end to end, with the host registered under `HKCU\Software\Chromium\NativeMessagingHosts` and the extension loaded unpacked: the page's content script connected, the worker opened the native port, Chromium started the wrapper, the bridge started a hub for the home, and the banner carried that hub's own snapshot **inside a second**. With the bundle deliberately absent from the home, the same path ended in the banner reading "The board started its background process and it never answered", with the reason and the log path — the failure a developer can act on rather than a board that looks empty (R24, R25).
+
+**The MV3 worker stayed up for three minutes, and that is not the same as a port keeping it up.** With one board tab open, a content-script port held, and nothing sent on it, `context.serviceWorkers()` held a responsive worker at every 15-second check from 0 s to 180 s. The confound is in the method: reaching a worker with `worker.evaluate` is itself activity on it, so what this shows is that nothing tears the worker down on its own, not that the open port is what keeps it alive. Chrome's own rule has changed more than once across versions, so treating a held port as a keep-alive would be reading a version-fragile behaviour as a contract.
+
+So the overlay does not rely on it. `chrome.alarms` fires every minute; if a board tab is open and the native port is gone, the worker opens it again. A worker Chrome stopped is restarted by the next port message or the next alarm, and the state it needs across a restart — the last snapshot — is in `chrome.storage.session`. **Version-fragile**: re-verify after a Chrome upgrade.

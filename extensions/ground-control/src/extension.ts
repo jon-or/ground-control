@@ -7,6 +7,7 @@ import { writeBundle } from './bundle.js';
 import { SECTION, readHubConfig, userDirOf } from './config.js';
 import { disposeClient, startClient } from './hubClient.js';
 import { migrateLaneMemory } from './migrate.js';
+import { registerOverlayCommands } from './overlay.js';
 import type { Snapshot } from '@ground-control/core';
 
 /**
@@ -68,6 +69,7 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
         .getConfiguration(SECTION)
         .update('installSessionHooks', false, vscode.ConfigurationTarget.Global),
     ),
+    ...registerOverlayCommands(context, home, bundle),
     vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
       async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
         BoardPanel.revive(panel, context);
