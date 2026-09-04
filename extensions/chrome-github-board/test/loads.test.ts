@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -22,19 +22,79 @@ const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'u
  */
 const BOARD_URL = 'https://github.com/orgs/example-org/projects/3/views/1';
 
-/** Every other page on the site the content script is now injected across, and must leave alone. */
+/** Every other page on the site the content script is injected across, and must leave alone. */
 const ISSUE_URL = 'https://github.com/example-org/example-repo/issues/4501';
+
+interface Manifest {
+  key: string;
+  permissions: string[];
+  background: { service_worker: string; type: string };
+  content_scripts: { matches: string[]; js: string[] }[];
+  web_accessible_resources: { resources: string[]; matches: string[] }[];
+}
+
+function manifest(where: string): Manifest {
+  return JSON.parse(readFileSync(join(where, 'manifest.json'), 'utf8')) as Manifest;
+}
+
+/**
+ * The shipped manifest is what Chrome is handed, and nothing below reads it — so it is asserted here, whole. A
+ * permission added by hand is the extension asking for more of the developer's browser than it was reviewed for.
+ */
+describe('what the extension asks Chrome for', () => {
+  const shipped = manifest(EXTENSION);
+
+  it('asks for nothing beyond the bridge, the alarm and its own storage', () => {
+    expect(shipped.permissions).toEqual(['nativeMessaging', 'alarms', 'storage']);
+    expect(shipped).not.toHaveProperty('host_permissions');
+  });
+
+  /**
+   * The whole site, because a board reached by clicking through it is a soft navigation Chrome injects nothing for
+   * (`mechanics.md` §27). `isBoardPath` is what keeps the overlay off every other page, and the test below is what
+   * proves it does.
+   */
+  it('runs its content script on github.com and nowhere else', () => {
+    expect(shipped.content_scripts).toHaveLength(1);
+    expect(shipped.content_scripts[0]?.matches).toEqual(['https://github.com/*']);
+    expect(shipped.content_scripts[0]?.js).toEqual(['src/content.js']);
+  });
+
+  /** The content script imports both at runtime. A resource left out of this list resolves to nothing, silently. */
+  it('lets the page reach the two modules the content script imports', () => {
+    expect(shipped.web_accessible_resources[0]?.resources).toEqual(['src/overlay.js', 'src/state.js']);
+  });
+});
 
 describe('the overlay as Chrome loads it', () => {
   let profile: string;
+  let loaded: string;
   let context: BrowserContext;
 
   beforeAll(async () => {
     profile = mkdtempSync(join(tmpdir(), 'gc-chrome-'));
+
+    /**
+     * A copy with `nativeMessaging` taken out. A native host is registered per user rather than per profile, so on
+     * a machine where the developer has enabled the overlay the worker would reach their real bridge, start a hub
+     * against their real home, and this test would assert against their board. Without the permission the connect
+     * throws, the worker says so, and every machine behaves the same way.
+     */
+    loaded = mkdtempSync(join(tmpdir(), 'gc-ext-'));
+    cpSync(EXTENSION, loaded, {
+      recursive: true,
+      filter: (from) => !from.includes('node_modules') && !from.includes('coverage'),
+    });
+
+    const stripped = manifest(loaded);
+
+    stripped.permissions = stripped.permissions.filter((name) => name !== 'nativeMessaging');
+    writeFileSync(join(loaded, 'manifest.json'), JSON.stringify(stripped, null, 2));
+
     context = await chromium.launchPersistentContext(profile, {
       channel: 'chromium',
       headless: true,
-      args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`],
+      args: [`--disable-extensions-except=${loaded}`, `--load-extension=${loaded}`],
     });
 
     await context.route('https://github.com/**', (route) =>
@@ -45,6 +105,7 @@ describe('the overlay as Chrome loads it', () => {
   afterAll(async () => {
     await context?.close();
     rmSync(profile, { recursive: true, force: true });
+    rmSync(loaded, { recursive: true, force: true });
   });
 
   /**
@@ -67,8 +128,8 @@ describe('the overlay as Chrome loads it', () => {
 
     await expect.poll(() => banner.count(), { timeout: 20_000 }).toBe(1);
 
-    // No native host is registered in this profile, so the worker's port to the bridge cannot open. What the
-    // developer must see is that the badges are missing because nothing answered — never a board that looks empty.
+    // The worker cannot open its port to the bridge here. What the developer must see is that the badges are
+    // missing because nothing answered — never a board that looks empty (R24, R25).
     await expect.poll(() => banner.textContent(), { timeout: 20_000 }).toMatch(/Ground Control is not/);
 
     expect(await page.locator('.gc-badge').count()).toBe(0);
@@ -76,9 +137,8 @@ describe('the overlay as Chrome loads it', () => {
   });
 
   /**
-   * The content script matches the whole site, because a board reached by clicking through it is a soft navigation
-   * Chrome injects nothing for. What must not follow is an overlay on every issue and pull request — this route
-   * serves the same board markup, so only the path check can be what keeps the page clean.
+   * This route serves the same board markup at an issue URL, so only the path check can be what keeps the page
+   * clean — an over-broad `matches` alone would leave this test green.
    */
   it('leaves every other page on the site alone', async () => {
     const page = await context.newPage();

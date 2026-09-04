@@ -14,11 +14,13 @@ export {
 export type { ActivityNoticeInput, ActivityState, Wanted } from './activityInstall.js';
 export { makeLaneStore } from './lanes.js';
 export type { LaneStore } from './lanes.js';
+export { makeSettingsStore } from './settings.js';
+export type { SettingsStore } from './settings.js';
 export { afterInstall, announce, makeMarkStore } from './marks.js';
 export type { MarkStore, Marks } from './marks.js';
 export { BATCH_MS, watchDir } from './watch.js';
 export { LOCK_STALE_MS, lockIsStale, read, releaseLock, takeLock, writeAtomic, writeIfChanged, writeInPlace } from './fs.js';
-export { backupPathOf, installLockPathOf, lanesPathOf, marksPathOf } from './paths.js';
+export { backupPathOf, configPathOf, installLockPathOf, lanesPathOf, marksPathOf } from './paths.js';
 export { Hub, realHubDeps } from './hub.js';
 export type { HubClock, HubDeps } from './hub.js';
 export { createHubServer, proofOf, BODY_LIMIT_BYTES, HEARTBEAT_MS, MAX_EVENT_STREAMS } from './server.js';

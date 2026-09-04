@@ -20,6 +20,11 @@ export function backupPathOf(home: string, at: Date): string {
   return `${groundControlDirOf(home)}/settings-backup-${at.toISOString().replace(/[:.]/g, '-')}.json`;
 }
 
+/** The last configuration a client pushed, so the next hub starts on the developer's settings rather than defaults. */
+export function configPathOf(home: string): string {
+  return `${groundControlDirOf(home)}/config.json`;
+}
+
 /** Where a running hub says how to reach it. Discovery, never liveness: a killed hub leaves this behind. */
 export function hubJsonPathOf(home: string): string {
   return `${groundControlDirOf(home)}/hub.json`;
