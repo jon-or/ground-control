@@ -15,6 +15,9 @@ export {
 export type { BoardCard } from './types.js';
 export type { Attention, BoardRules, CardMemory, Lane, LaneId, LanedCard } from './lanes.js';
 export {
+  CLASSIFIED_ACTIONS,
+  DERIVED_ACTIONS,
+  EVIDENCE_MAX_AGE_MS,
   TRIAGE_ACTIONS,
   TRIAGE_LABELS,
   TRIAGE_QUALIFIERS,

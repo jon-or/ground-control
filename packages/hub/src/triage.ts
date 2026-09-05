@@ -27,6 +27,12 @@ import type { TriageStore } from './triageStore.js';
 export interface TriageDeps {
   home: string;
   store: TriageStore;
+  /**
+   * Says, once per machine, that reading cards spends the developer's usage and sends card text to an API. The
+   * activity install — which writes a local file and costs nothing — already announces itself; a feature that
+   * spends money and leaves the machine, on by default, cannot say less (R25, R38).
+   */
+  announce(message: string): void;
   agents: readonly AgentAdapter[];
   sources: readonly WorkSource[];
   now(): number;
@@ -61,10 +67,12 @@ export class TriageRunner {
   readonly #inFlight = new Map<string, AbortController>();
   readonly #asked = new Map<string, number>();
 
-  #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 60_000 };
+  #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 180_000 };
   #agentPaths = new Map<string, { path: string; model: string | null }>();
   #disposed = false;
   #considering = false;
+  /** Keys the runner stood down itself, so a deliberate abort is never charged to the card as a failure. */
+  readonly #stoodDown = new Set<string>();
 
   constructor(deps: TriageDeps) {
     this.#deps = deps;
@@ -137,11 +145,21 @@ export class TriageRunner {
         return;
       }
 
-      for (const key of dueForTriage(lanes, state, this.#running, this.#deps.now()).slice(0, free)) {
+      const waiting = dueForTriage(lanes, state, this.#running, this.#deps.now());
+
+      if (waiting.length > 0) {
+        this.#deps.announce(
+          `Reading ${waiting.length === 1 ? 'a card' : `${waiting.length} cards`} to work out what each is waiting on. ` +
+            `That spends your Claude usage and sends each card's issue and pull request text to the model. ` +
+            `Turn it off with groundControl.triage.enabled.`,
+        );
+      }
+
+      for (const key of waiting.slice(0, free)) {
         const due = this.#dueOf(lanes, key);
 
         if (due !== null) {
-          void this.#run(due);
+          this.#start(due);
         }
       }
     } finally {
@@ -150,7 +168,7 @@ export class TriageRunner {
   }
 
   /** The developer asking for one card again. Refused for a key no card holds, and rationed. */
-  retriage(lanes: readonly Lane[], key: string, watched: boolean): ReadFailure | null {
+  retriage(lanes: readonly Lane[], key: string): ReadFailure | null {
     const due = this.#dueOf(lanes, key);
     const asked = this.#asked.get(key) ?? 0;
     const now = this.#deps.now();
@@ -163,8 +181,18 @@ export class TriageRunner {
       return refusal('triage-disabled', 'Card triage is turned off in Settings.');
     }
 
+    if (this.#disposed) {
+      return refusal('triage-stopping', 'The board is shutting down.');
+    }
+
     if (this.#running.has(key)) {
       return refusal('triage-running', 'That card is being read now.');
+    }
+
+    // The cap is the cap however the reading was asked for. The cooldown is per card, so without this a board of
+    // fifteen chips is fifteen clicks away from fifteen classifications at once.
+    if (this.#running.size >= this.#settings.concurrency) {
+      return refusal('triage-busy', 'The board is already reading as many cards as it may at once. Try again shortly.');
     }
 
     if (now - asked < RETRIAGE_COOLDOWN_MS) {
@@ -175,10 +203,9 @@ export class TriageRunner {
     this.#deps.store.write(forgetTriage(this.#deps.store.read(), key));
 
     // Asked for by hand, so it runs whether or not a board is watching — the developer clicking is the watching.
-    void this.#run(due);
-    this.#deps.changed();
+    this.#start(due);
 
-    return watched ? null : null;
+    return null;
   }
 
   dispose(): void {
@@ -186,8 +213,14 @@ export class TriageRunner {
     this.#standDown();
   }
 
+  /**
+   * Stops what is in flight. Each key is marked first, because an abort the developer asked for must not land on the
+   * card as a failure — charged an attempt, four flicks of the setting would silence a card for good. A timeout
+   * aborts the same controller and is not marked, so it is still charged, which is the whole point of the deadline.
+   */
   #standDown(): void {
-    for (const controller of this.#inFlight.values()) {
+    for (const [key, controller] of this.#inFlight) {
+      this.#stoodDown.add(key);
       controller.abort();
     }
   }
@@ -209,6 +242,10 @@ export class TriageRunner {
       : null;
   }
 
+  #start(due: Due): void {
+    void this.#run(due);
+  }
+
   async #run(due: Due): Promise<void> {
     const controller = new AbortController();
     const sessionId = randomUUID();
@@ -222,9 +259,17 @@ export class TriageRunner {
     const deadline = setTimeout(() => controller.abort(), this.#settings.timeoutMs);
 
     try {
-      const failure = await this.#read(due, sessionId, controller.signal);
+      // The seams are public and either may throw rather than classify. A throw that escaped would leave the card
+      // with neither an entry nor a failure — which reads as never having been tried, so the next broadcast starts
+      // it again with no backoff and no end. Caught here, it is charged and backed off like any other failure, and
+      // the record is written before the `finally` below broadcasts.
+      const failure = await this.#read(due, sessionId, controller.signal).catch((error: unknown) => ({
+        kind: 'triage-crashed',
+        message: error instanceof Error ? error.message : String(error),
+      }));
 
-      if (this.#disposed) {
+      // A run the board stood down itself is not a card that could not be read. A timeout is, and reaches here.
+      if (this.#disposed || this.#stoodDown.has(due.key)) {
         return;
       }
 
@@ -235,6 +280,7 @@ export class TriageRunner {
       );
     } finally {
       clearTimeout(deadline);
+      this.#stoodDown.delete(due.key);
       this.#running.delete(due.key);
       this.#inFlight.delete(due.key);
       this.#sessions.delete(sessionId);
@@ -255,7 +301,7 @@ export class TriageRunner {
       sessionId,
       model: due.model,
       systemPrompt: TRIAGE_SYSTEM_PROMPT,
-      prompt: buildTriagePrompt(reading.context),
+      prompt: buildTriagePrompt(reading.context, this.#deps.now()),
       schema: triageJsonSchema,
       // A directory with no project of its own, so nothing of the developer's is discovered or loaded.
       cwd: triageCwd(this.#deps.home),

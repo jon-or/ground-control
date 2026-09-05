@@ -12,6 +12,7 @@ import type {
   TriageContext,
   WorkSource,
 } from '@ground-control/core';
+import { triageJsonSchema } from '@ground-control/board';
 import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
@@ -69,6 +70,8 @@ interface Control {
   hold: (() => void) | null;
   answer: ClassifyResult;
   contextFailure: { kind: string; message: string } | null;
+  /** Set to make the seam throw rather than classify a failure. Both seams are public and either may. */
+  contextThrows: boolean;
   sourceFailed: boolean;
   snapshot(): Snapshot;
   settle(): Promise<void>;
@@ -95,6 +98,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     hold: null,
     answer: { value: { action: 'begin-work', detail: 'Pick it up.' } },
     contextFailure: null,
+    contextThrows: false,
     sourceFailed: false,
     snapshot: () => control.hub.snapshot(),
     settle: async () => {
@@ -135,6 +139,10 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     readContext: async (card): Promise<ContextReading> => {
       control.contexts.push(card.number);
 
+      if (control.contextThrows) {
+        throw new Error('the seam threw rather than classifying');
+      }
+
       return control.contextFailure
         ? { context: null, failure: { subject: 'github', ...control.contextFailure, remedy: 'r' } }
         : { context: contextOf(card), failure: null };
@@ -153,9 +161,15 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
 
       try {
         // Held open by every classification, not just the first: what a cap has to be measured against is how many
-        // are in flight together, and a fake that lets all but one through would measure nothing.
+        // are in flight together, and a fake that lets all but one through would measure nothing. It answers an
+        // abort, because the real runner kills the process and the outcome comes back — a fake that ignored the
+        // signal would hold a slot no production run ever holds.
         if (control.hold !== null) {
-          await new Promise<void>(() => undefined);
+          await new Promise<void>((resolve) => {
+            input.signal.addEventListener('abort', () => resolve(), { once: true });
+          });
+
+          return { failure: { subject: 'claude', kind: 'classify-aborted', message: 'stood down', remedy: 'r' } };
         }
 
         return control.answer;
@@ -304,7 +318,8 @@ describe('when a reading cannot be made', () => {
 
     const snapshot = control.snapshot();
 
-    expect(triageOf(snapshot, 'issue:1')).toBeUndefined();
+    // The card carries a control and no words; what went wrong is the one line above the lanes.
+    expect(triageOf(snapshot, 'issue:1')).toMatchObject({ state: 'failed', attempts: 1 });
     // One condition, however many cards it hit (R25).
     expect(snapshot.failures.filter((f) => f.kind === 'not-authenticated')).toHaveLength(1);
 
@@ -338,7 +353,92 @@ describe('when a reading cannot be made', () => {
     await control.hub.refresh('asked');
     await control.settle();
 
+    expect(triageOf(control.snapshot())).toMatchObject({ state: 'failed' });
+  });
+
+  it('refuses an action the hub decides for itself, however confidently the model answers it', () => {
+    // `land` is read off the pull request or not at all. A model that answered it about mergeability nobody has
+    // computed would put "Land it" on a card that cannot merge, which is the guess R38 exists to refuse.
+    expect(triageJsonSchema.properties.action.enum).not.toContain('land');
+  });
+});
+
+describe('when a seam throws rather than classifying', () => {
+  it('charges the card a failure and backs off, rather than reading it again on every pass', async () => {
+    // A rejection would otherwise leave neither an entry nor a failure, which reads as never having been tried — so
+    // the very next broadcast starts it again, with no backoff and no end.
+    const control = harness();
+    control.contextThrows = true;
+    watch(control.hub);
+    await control.pass();
+
+    expect(control.contexts).toEqual([17198]);
+    expect(triageOf(control.snapshot())).toMatchObject({ state: 'failed', attempts: 1 });
+
+    await control.pass(31_000);
+
+    expect(control.contexts).toEqual([17198]);
+  });
+});
+
+describe('standing readings down', () => {
+  it('does not charge a card for a reading the developer turned off', async () => {
+    const control = harness();
+    control.hold = () => undefined;
+    watch(control.hub);
+    void control.hub.refresh('asked');
+    await control.settle();
+
+    expect(triageOf(control.snapshot())).toEqual({ state: 'running' });
+
+    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 120_000 }));
+    await control.settle();
+
+    // Charged, four flicks of the setting would silence a card for good, and the board would say it had failed.
     expect(triageOf(control.snapshot())).toBeUndefined();
+    expect(control.snapshot().failures.filter((f) => f.subject === 'triage')).toEqual([]);
+  });
+});
+
+describe('telling the developer what it is about to spend', () => {
+  it('says so once, before the first card is read, and never again', async () => {
+    // The activity install announces itself, and it writes a local file and costs nothing. A feature that spends the
+    // developer's usage and sends their colleagues' words to an API, on by default, cannot say less (R25, R38).
+    const told: string[] = [];
+    const control = harness({}, [issue({ number: 1 }), issue({ number: 2 })]);
+    control.hub.connect(
+      { id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true },
+      (m) => {
+        if (m.type === 'notice') told.push(m.message);
+      },
+    );
+
+    await control.pass();
+
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('2 cards');
+    expect(told[0]).toContain('spends your Claude usage');
+    expect(told[0]).toContain('groundControl.triage.enabled');
+
+    control.cards = [issue({ number: 3 })];
+    await control.pass();
+
+    expect(told).toHaveLength(1);
+  });
+
+  it('says nothing on a board where there is nothing to read', async () => {
+    const told: string[] = [];
+    const control = harness({}, []);
+    control.hub.connect(
+      { id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true },
+      (m) => {
+        if (m.type === 'notice') told.push(m.message);
+      },
+    );
+
+    await control.pass();
+
+    expect(told).toEqual([]);
   });
 });
 
@@ -398,6 +498,31 @@ describe('asking for a card again', () => {
     await control.settle();
 
     expect(control.contexts).toEqual([17198, 17198]);
+  });
+
+  it('refuses when the board is already reading as many cards as it may', async () => {
+    // The cooldown is per card, so without a cap here a board of fifteen chips is fifteen clicks away from fifteen
+    // classifications at once, whatever the setting says.
+    const told: string[] = [];
+    const control = harness({}, [issue({ number: 1 }), issue({ number: 2 }), issue({ number: 3 })]);
+    const client = control.hub.connect(
+      { id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true },
+      (m) => {
+        if (m.type === 'notice') told.push(m.message);
+      },
+    );
+
+    control.hold = () => undefined;
+    void control.hub.refresh('asked');
+    await control.settle();
+
+    expect(control.peak()).toBe(2);
+
+    control.hub.receive(client, { type: 'retriage', key: 'issue:3' });
+    await control.settle();
+
+    expect(control.peak()).toBe(2);
+    expect(told.join(' ')).toContain('as many cards as it may');
   });
 
   it('refuses a key no card holds, rather than spawning against it', async () => {

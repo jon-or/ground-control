@@ -69,7 +69,7 @@ export function makeClaudeClassifier(run: ExecJson) {
     if (!outcome.ok) {
       const remedy =
         outcome.reason === 'missing' || outcome.reason === 'not-executable'
-          ? 'Check groundControl.sessions.claudePath, or turn triage off in Settings.'
+          ? 'Check groundControl.agents, or turn triage off in Settings.'
           : 'The card is left untriaged. Refresh the board to try it again.';
 
       return { failure: failure(`classify-${outcome.reason}`, `Claude Code could not classify this card: ${outcome.detail}`, remedy) };
@@ -88,7 +88,7 @@ export function makeClaudeClassifier(run: ExecJson) {
         failure: failure(
           'classify-refused',
           `Claude Code did not finish classifying this card${parsed.data.subtype ? ` (${parsed.data.subtype})` : ''}.`,
-          'The card is left untriaged. It is tried again when it next arrives, or when you ask for it.',
+          'Check groundControl.triage.model names a model Claude Code has. The card is left unread; its chip tries again.',
         ),
       };
     }

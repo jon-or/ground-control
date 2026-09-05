@@ -123,7 +123,7 @@ describe('refusing a classification it did not get', () => {
     const failure = await failureOf({ ok: false, reason: 'missing', detail: 'not found' });
 
     expect(failure).toMatchObject({ subject: 'claude', kind: 'classify-missing' });
-    expect(failure?.remedy).toContain('claudePath');
+    expect(failure?.remedy).toContain('groundControl.agents');
   });
 
   it('tells a timeout from a run it stood down, and from a CLI that failed', async () => {

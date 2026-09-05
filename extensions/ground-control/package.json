@@ -172,13 +172,13 @@
           "scope": "application",
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Work out what each card is waiting on when it arrives, and label it with that plus a one-line description of the work. It reads the recent comments on the issue and its pull request; it never moves a card and never writes anything anywhere. **This sends that text — including other people's comments — to the model's API**, which is the one thing the board does that leaves your machine. It runs only while a board is open, a couple of cards at a time."
+          "markdownDescription": "Work out what each card is waiting on when it arrives, and label it with that plus a one-line description of the work. It reads the recent comments on the issue and its pull request; it never moves a card and never writes anything anywhere. **This sends that text — including other people's comments and logins — to the model's API**, which is the one thing the board does that leaves your machine, and **it spends your own Claude usage**: the first board you open reads every card on it. It runs only while a board is open, a couple at a time. Turning it off stops new readings; the labels already on your cards stay, and stop being refreshed."
         },
         "groundControl.triage.model": {
           "scope": "application",
           "type": "string",
           "default": "claude-haiku-4-5-20251001",
-          "markdownDescription": "The model that classifies a card. Give a full model name rather than an alias — an alias that quietly resolves elsewhere changes both what it costs and how well it reads."
+          "markdownDescription": "The model that classifies a card. Give a full model name rather than an alias — an alias that quietly resolves elsewhere changes both what it costs and how well it reads. A name Claude Code does not know fails every card, which the board says above the lanes."
         },
         "groundControl.triage.concurrency": {
           "scope": "application",
@@ -191,10 +191,10 @@
         "groundControl.triage.timeoutSeconds": {
           "scope": "application",
           "type": "number",
-          "default": 120,
+          "default": 180,
           "minimum": 10,
           "maximum": 300,
-          "markdownDescription": "How long one card gets, covering both reading it from GitHub and classifying it. Real cards measured 23–46 seconds, so the default leaves plenty of room; a card that runs over is left unlabelled and tried again later."
+          "markdownDescription": "How long one card gets, covering both reading it from GitHub and classifying it. Real cards measured 27 to 102 seconds — how long a card takes tracks how much has been written on it — so the default leaves room for the slow end. A card that runs over is left unread, and its chip tries again."
         },
         "groundControl.installSessionHooks": {
           "scope": "application",

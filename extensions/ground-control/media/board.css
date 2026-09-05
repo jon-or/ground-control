@@ -738,7 +738,8 @@ button.session-label:focus-visible {
 }
 
 .triage-detail[data-stale='true'] {
-  opacity: 0.65;
+  /* Gentle, because this text is already the card's quietest and has to stay legible against the theme. */
+  opacity: 0.8;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -747,3 +748,9 @@ button.session-label:focus-visible {
     opacity: 0.7;
   }
 }
+
+/* A card the board tried and could not read. No words about why — that is one line above the lanes (R25). */
+.badge.triage-failed {
+  border-style: dashed;
+}
+

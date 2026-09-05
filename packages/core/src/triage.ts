@@ -1,7 +1,7 @@
 /**
- * What a card is asking the developer to do next, decided once when the card arrives (`prd.md` R38). Six of these are
- * a judgement about what people wrote; the other six are facts about a pull request, and the hub decides those itself
- * rather than leaving them to a classifier (R23 — evidence over an agent's word).
+ * What a card is asking the developer to do next, decided once when the card arrives (`prd.md` R38). Eight of these
+ * are a judgement about what people wrote; the other four are facts about a pull request, and the hub decides those
+ * itself rather than leaving them to a classifier (R23 — evidence over an agent's word).
  */
 export const TRIAGE_ACTIONS = [
   'begin-work',
@@ -68,13 +68,17 @@ export interface TriageState {
 export const EMPTY_TRIAGE: TriageState = { entries: {}, failures: {} };
 
 /**
- * What a client draws. `running` and `stale` are separate states rather than flags because they read differently on a
- * card: one is work in flight, the other is an answer that was true when it was given. A failure draws nothing here —
- * it is one deduplicated line above the lanes, since fifteen cards failing one cause is one condition (R25).
+ * What a client draws. `running`, `done` and `failed` read differently on a card: work in flight, an answer that was
+ * true when it was given, and a card the board could not read.
+ *
+ * `failed` carries no words of its own — what went wrong is one deduplicated line above the lanes, since fifteen
+ * cards failing one cause is one condition (R25). What it carries is somewhere for the developer to click: without
+ * it, the cards that most need reading again are the only ones with nothing to press.
  */
 export type CardTriage =
   | { state: 'running' }
-  | { state: 'done'; action: TriageAction; qualifier: TriageQualifier | null; detail: string; at: number; stale: boolean };
+  | { state: 'done'; action: TriageAction; qualifier: TriageQualifier | null; detail: string; at: number; stale: boolean }
+  | { state: 'failed'; attempts: number; exhausted: boolean };
 
 /** One comment on an issue or a pull request, clipped. `authorAssociation` is how a tester is told from a colleague. */
 export interface TriageComment {

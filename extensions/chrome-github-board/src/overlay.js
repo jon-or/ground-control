@@ -66,8 +66,8 @@ const TRIAGE_LABELS = {
   'uat-question': 'UAT question',
   'uat-failure': 'UAT failure',
   'awaiting-others': 'Waiting on others',
-  'review-others': 'Dev review',
-  'address-review': 'Address dev review',
+  'review-others': 'Review their PR',
+  'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
   'merge-upstream': 'Merge upstream',
   'resolve-conflicts': 'Resolve conflicts',
@@ -153,7 +153,7 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-mark[data-mark="triaging"] { animation: gc-triage-pulse 1.8s ease-in-out infinite; }
 .gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
 .gc-triage-detail { font-size: 11px; line-height: 15px; padding: 2px 0 0; color: var(--fgColor-muted, #59636e); }
-.gc-triage-detail[data-stale="true"] { opacity: 0.65; }
+.gc-triage-detail[data-stale="true"] { opacity: 0.8; }
 @keyframes gc-triage-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
@@ -1272,12 +1272,21 @@ function renderTriage(doc, badge, head, card, now) {
   const mark = doc.createElement('span');
 
   mark.className = 'gc-mark';
-  mark.dataset.mark = triage.state === 'running' ? 'triaging' : 'triage';
+  mark.dataset.mark = triage.state === 'done' ? 'triage' : 'triaging';
   head.appendChild(mark);
 
   if (triage.state === 'running') {
-    mark.textContent = 'Triaging…';
+    mark.textContent = 'Reading…';
     mark.title = 'Working out what this card is waiting on.';
+
+    return;
+  }
+
+  // No control here and no words about the failure: reading a card again spends the developer's usage, and the
+  // browser bridge takes refresh, watching and move and nothing else (R38).
+  if (triage.state === 'failed') {
+    mark.textContent = 'Not read';
+    mark.title = 'The board could not read this card. Its triage chip in the editor will try again.';
 
     return;
   }

@@ -1401,13 +1401,13 @@ describe('what a card was read to be waiting on (R38)', () => {
   }
 
   function chip(): HTMLElement | null {
-    return document.querySelector<HTMLElement>('.badge.triage, .badge.triage-running');
+    return document.querySelector<HTMLElement>('.badge.triage, .badge.triage-running, .badge.triage-failed');
   }
 
   it('says a card is being read, and asks nothing of the developer while it does', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'running' })] }) }));
 
-    expect(chip()?.textContent).toBe('Triaging…');
+    expect(chip()?.textContent).toBe('Reading…');
     // R6's channels are for the two things that want the developer. Being read is not one of them.
     expect(document.querySelector<HTMLElement>('.card')?.dataset['attention']).toBeUndefined();
     expect(document.querySelector('.triage-detail')).toBeNull();
@@ -1431,7 +1431,7 @@ describe('what a card was read to be waiting on (R38)', () => {
       }),
     );
 
-    expect(chip()?.textContent).toBe('Address dev review · followup');
+    expect(chip()?.textContent).toBe('Answer review · followup');
     expect(document.querySelector('.triage-detail')?.textContent).toBe('Answer the naming notes on the paging fix.');
     expect(document.querySelector<HTMLElement>('.triage-detail')?.dataset['stale']).toBe('false');
   });
@@ -1463,6 +1463,34 @@ describe('what a card was read to be waiting on (R38)', () => {
 
     expect(chip()).toBeNull();
     expect(document.querySelector('.triage-detail')).toBeNull();
+  });
+
+  it('gives a card it could not read somewhere to press, with no words about why', () => {
+    send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 2, exhausted: false })] }) }));
+
+    expect(chip()?.textContent).toBe('Not read');
+    expect(document.querySelector('.triage-detail')).toBeNull();
+
+    chip()?.click();
+
+    expect(sent()).toContainEqual({ type: 'retriage', key: 'issue:18953' });
+  });
+
+  it('says when the board has stopped trying on its own', () => {
+    send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 5, exhausted: true })] }) }));
+
+    expect(chip()?.title).toContain('has stopped trying');
+  });
+
+  it('never paints a reading in a colour R6 keeps for the two things that want the developer', () => {
+    send(
+      message({
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'land', qualifier: null, detail: 'Merge it.', at, stale: false })] }),
+      }),
+    );
+
+    // `your-turn` is BLUE and `blocked` is YELLOW; a reading must read as neither at a glance.
+    expect(chip()?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
   });
 
   it('asks for the card to be read again on a click, naming the card and never a URL', () => {
@@ -1500,10 +1528,10 @@ describe('triage labels read the same on every board', () => {
     ['uat-question', null, 'UAT question'],
     ['uat-failure', null, 'UAT failure'],
     ['awaiting-others', null, 'Waiting on others'],
-    ['review-others', 'initial', 'Dev review · initial'],
-    ['review-others', 'followup', 'Dev review · followup'],
-    ['address-review', 'initial', 'Address dev review · initial'],
-    ['address-review', 'followup', 'Address dev review · followup'],
+    ['review-others', 'initial', 'Review their PR · initial'],
+    ['review-others', 'followup', 'Review their PR · followup'],
+    ['address-review', 'initial', 'Answer review · initial'],
+    ['address-review', 'followup', 'Answer review · followup'],
     ['fix-checks', null, 'Fix failing checks'],
     ['merge-upstream', null, 'Merge upstream'],
     ['resolve-conflicts', null, 'Resolve conflicts'],

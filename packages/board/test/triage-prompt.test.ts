@@ -3,8 +3,10 @@ import type { TriageContext } from '@ground-control/core';
 import { TRIAGE_SYSTEM_PROMPT, buildTriagePrompt } from '../src/triagePrompt.js';
 import { TRIAGE_ACTIONS } from '../src/triage.js';
 
-/** The six the hub reads off the pull request itself. Offering them invites a guess at something already known. */
+/** The four the hub reads off the pull request itself, offered to the model neither here nor in the schema. */
 const DERIVED = ['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land'];
+
+const NOW = Date.parse('2026-09-05T12:00:00Z');
 
 function comment(author: string, body: string, association = 'MEMBER') {
   return { author, authorAssociation: association, body, createdAt: '2026-09-01T09:00:00Z' };
@@ -50,8 +52,26 @@ function pullRequest(over = {}) {
 describe('the system prompt', () => {
   it('names every action the model decides, and none the hub reads for itself', () => {
     for (const action of TRIAGE_ACTIONS) {
-      expect(TRIAGE_SYSTEM_PROMPT.includes(`- ${action}:`)).toBe(!DERIVED.includes(action));
+      expect(TRIAGE_SYSTEM_PROMPT.includes(`${action}:`)).toBe(!DERIVED.includes(action));
     }
+  });
+
+  it('gives an order to take when more than one fits, since several routinely do', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('take the first that applies');
+    // The order the numbers put them in, which is the whole of what the rule is worth.
+    const order = ['uat-failure', 'uat-question', 'answer-design-question', 'address-review', 'review-others', 'awaiting-others', 'begin-work', 'other'];
+    const at = order.map((action) => TRIAGE_SYSTEM_PROMPT.indexOf(`${action}:`));
+
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(at.every((i) => i > 0)).toBe(true);
+  });
+
+  it('says an assigned issue with nothing on it is begin-work, since that is most of a first run', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('is begin-work, not other');
+  });
+
+  it('tells the model what day it is, since three of the actions turn on recency', () => {
+    expect(buildTriagePrompt(context(), Date.parse('2026-09-05T12:00:00Z'))).toContain('Today is 2026-09-05.');
   });
 
   it('asks for the one sentence length the parser enforces', () => {
@@ -61,7 +81,7 @@ describe('the system prompt', () => {
 
 describe('building the prompt', () => {
   it('carries the issue, its status and its conversation in order', () => {
-    const prompt = buildTriagePrompt(context({ comments: [comment('dev-2', 'First.'), comment('dev-3', 'Second.')] }));
+    const prompt = buildTriagePrompt(context({ comments: [comment('dev-2', 'First.'), comment('dev-3', 'Second.')] }), NOW);
 
     expect(prompt).toContain('ISSUE #17198: Channel mapping drops rows past the first page');
     expect(prompt).toContain('Board status: ⚒️ Dev');
@@ -70,7 +90,7 @@ describe('building the prompt', () => {
   });
 
   it('marks which words are the developer own, which is what two of the actions turn on', () => {
-    const prompt = buildTriagePrompt(context({ comments: [comment('dev-1', 'Mine.'), comment('dev-2', 'Theirs.')] }));
+    const prompt = buildTriagePrompt(context({ comments: [comment('dev-1', 'Mine.'), comment('dev-2', 'Theirs.')] }), NOW);
 
     expect(prompt).toContain('dev-1 (the developer), member');
     expect(prompt).toContain('dev-2, member');
@@ -78,24 +98,31 @@ describe('building the prompt', () => {
   });
 
   it('matches an own login whatever its case, the way the lane rules do', () => {
-    expect(buildTriagePrompt(context({ comments: [comment('DEV-1', 'Mine.')], logins: ['dev-1'] }))).toContain(
+    expect(buildTriagePrompt(context({ comments: [comment('DEV-1', 'Mine.')], logins: ['dev-1'] }), NOW)).toContain(
       'DEV-1 (the developer)',
     );
   });
 
   it('carries an author association, so a tester reads differently from a colleague', () => {
-    expect(buildTriagePrompt(context())).toContain('dev-2, contributor');
+    expect(buildTriagePrompt(context(), NOW)).toContain('dev-2, contributor');
+  });
+
+  it('spells out what no association means, rather than rendering GitHub NONE as if it were an error', () => {
+    const outsider = buildTriagePrompt(context({ comments: [comment('dev-9', 'Broken for me.', 'NONE')] }), NOW);
+
+    expect(outsider).toContain('dev-9, not a member of the repository');
+    expect(outsider).not.toContain('dev-9, none');
   });
 
   it('says plainly when there is no pull request, rather than leaving a gap to infer from', () => {
-    const prompt = buildTriagePrompt(context());
+    const prompt = buildTriagePrompt(context(), NOW);
 
     expect(prompt).toContain('No pull request is linked to this issue.');
     expect(prompt).not.toContain('PULL REQUEST');
   });
 
   it('carries the pull request facts and whose it is', () => {
-    const prompt = buildTriagePrompt(context({ pullRequest: pullRequest() }));
+    const prompt = buildTriagePrompt(context({ pullRequest: pullRequest() }), NOW);
 
     expect(prompt).toContain('PULL REQUEST #4021: Fix paging');
     expect(prompt).toContain('Opened by: dev-1 (the developer)');
@@ -106,13 +133,14 @@ describe('building the prompt', () => {
   });
 
   it('marks a draft, because a draft asks for nothing yet', () => {
-    expect(buildTriagePrompt(context({ pullRequest: pullRequest({ isDraft: true }) }))).toContain('State: OPEN (draft)');
+    expect(buildTriagePrompt(context({ pullRequest: pullRequest({ isDraft: true }) }), NOW)).toContain('State: OPEN (draft)');
   });
 
   it('carries only the threads still open, and counts them', () => {
-    const prompt = buildTriagePrompt(context({ pullRequest: pullRequest() }));
+    const prompt = buildTriagePrompt(context({ pullRequest: pullRequest() }), NOW);
 
     expect(prompt).toContain('Unresolved review threads (1):');
+    expect(prompt).toContain('Thread 1:');
     expect(prompt).toContain('This name is wrong.');
     expect(prompt).not.toContain('Settled already.');
     expect(prompt).not.toContain('Moved on since.');
@@ -126,6 +154,7 @@ describe('building the prompt', () => {
         logins: [],
         pullRequest: pullRequest({ comments: [], reviews: [], reviewRequests: [], threads: [], reviewDecision: null }),
       }),
+      NOW,
     );
 
     expect(bare).toContain("The developer's own GitHub accounts: (none)");
@@ -136,9 +165,24 @@ describe('building the prompt', () => {
     expect(bare).toContain('Unresolved review threads (0):\n(none)');
   });
 
+  it('numbers each open thread, so three threads never read as one thread with three comments', () => {
+    const many = pullRequest({
+      threads: [
+        { isResolved: false, isOutdated: false, comments: [comment('dev-4', 'First point.')] },
+        { isResolved: false, isOutdated: false, comments: [comment('dev-5', 'Second point.')] },
+      ],
+    });
+    const prompt = buildTriagePrompt(context({ pullRequest: many }), NOW);
+
+    expect(prompt).toContain('Unresolved review threads (2):');
+    expect(prompt).toContain('Thread 1:');
+    expect(prompt).toContain('Thread 2:');
+    expect(prompt.indexOf('Thread 1:')).toBeLessThan(prompt.indexOf('Thread 2:'));
+  });
+
   it('is a pure function of its context, so what reached the model can always be read back', () => {
-    expect(buildTriagePrompt(context({ pullRequest: pullRequest() }))).toBe(
-      buildTriagePrompt(context({ pullRequest: pullRequest() })),
+    expect(buildTriagePrompt(context({ pullRequest: pullRequest() }), NOW)).toBe(
+      buildTriagePrompt(context({ pullRequest: pullRequest() }), NOW),
     );
   });
 });

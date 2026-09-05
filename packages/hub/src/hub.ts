@@ -186,6 +186,7 @@ export class Hub {
       sources: deps.registries.sources,
       now: () => deps.clock.now(),
       changed: () => this.#broadcast(),
+      announce: (message) => this.#tellOnceAboutTriage(message),
     });
     this.#triage.configure(this.#config.triage, this.#config.agents);
     pruneMarkers(deps.registries.agents, deps.home);
@@ -272,7 +273,7 @@ export class Hub {
 
       case 'retriage': {
         // The one message that spends money, so the key has to name a card on the board and the ask is rationed.
-        const refused = this.#triage.retriage(this.snapshot().lanes, message.key, this.#watched());
+        const refused = this.#triage.retriage(this.snapshot().lanes, message.key);
 
         if (refused) {
           connected.send({ type: 'notice', level: 'info', message: refused.message });
@@ -844,7 +845,7 @@ export class Hub {
     );
 
     // Attached after the lanes are settled, and it changes none of them: triage labels a card, it never places one.
-    const lanes = withTriage(laned, this.#deps.triage.read(), this.#triage.running());
+    const lanes = withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now());
 
     return {
       lanes,
@@ -991,12 +992,30 @@ export class Hub {
     const base = this.snapshot();
 
     this.#persist(base.lanes);
-    // After the placements are written, and never before: a reading that lands mid-pass must not race the record of
-    // where the cards were. `consider` starts work and returns, so the recursion through `changed` is one deep.
-    this.#triage.consider(base.lanes, this.#sourcesRead(), this.#watched());
 
     for (const id of [...this.#clients.keys()]) {
       this.#sendTo(id, 'changed', base);
+    }
+
+    // After the send, never before. `consider` starts a reading synchronously and that start broadcasts a fresh
+    // snapshot saying so — sent from inside this call, it would be followed by `base`, which was taken before the
+    // reading began. Every client's last word would then be that nothing is being read, until the reading finished.
+    this.#triage.consider(base.lanes, this.#sourcesRead(), this.#watched());
+  }
+
+  /**
+   * Said once per machine, and held rather than sent: what a client is shown is assembled per client, and a notice
+   * pushed from inside a pass would race the snapshot that pass is about to send.
+   */
+  #tellOnceAboutTriage(message: string): void {
+    if (this.#deps.marks.read().triageToldAt !== null) {
+      return;
+    }
+
+    this.#deps.marks.write({ ...this.#deps.marks.read(), triageToldAt: this.#deps.clock.now() });
+
+    for (const client of this.#clients.values()) {
+      client.send({ type: 'notice', level: 'info', message });
     }
   }
 

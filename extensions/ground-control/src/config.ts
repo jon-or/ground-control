@@ -4,6 +4,7 @@ import { boardStatuses, statusLanes } from '@ground-control/board';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubConfig } from '@ground-control/github';
+import { CLAUDE_AGENT_ID } from '@ground-control/agent-claude';
 import { idsFrom } from '@ground-control/core';
 import type { AgentConfig, HubConfig } from '@ground-control/core';
 import { defaultConfig } from '@ground-control/hub';
@@ -49,12 +50,13 @@ export function readHubConfig(userDir: string): HubConfig {
       : defaults.agents;
 
   // The model a classification runs with is the agent's own word, so it rides on the agent rather than in the
-  // triage block — `core` names no adapter, and "haiku" means nothing to a CLI that is not Claude.
+  // triage block — `core` names no adapter, and a Claude model id means nothing to a CLI that is not Claude, which
+  // is why it is stamped on that one agent rather than on every configured one.
   const model = cfg.get<string>('triage.model', '').trim();
 
   return {
     ...defaults,
-    agents: model === '' ? agents : agents.map((agent) => ({ ...agent, model })),
+    agents: model === '' ? agents : agents.map((agent) => (agent.id === CLAUDE_AGENT_ID ? { ...agent, model } : agent)),
     branchIssuePattern: cfg.get<string>('branchIssuePattern', '^(\\d+)-'),
     hosts: Object.fromEntries(hostIds().map((id) => [id, id === VSCODE_HOST_ID ? vscodeSettings(userDir) : {}])),
     sources: Object.fromEntries(sourceIds().map((id) => [id, id === GITHUB_SOURCE_ID ? readConfig() : {}])),
@@ -83,7 +85,7 @@ export function readTriage(): HubConfig['triage'] {
     enabled: cfg.get<boolean>('triage.enabled', true),
     concurrency: number('triage.concurrency', 2),
     // Seconds in settings, milliseconds in the hub, the way every other interval here is.
-    timeoutMs: number('triage.timeoutSeconds', 120) * 1000,
+    timeoutMs: number('triage.timeoutSeconds', 180) * 1000,
   };
 }
 

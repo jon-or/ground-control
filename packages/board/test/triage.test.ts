@@ -3,6 +3,8 @@ import type { IssueCard, Lane, TriageAction, TriageContext, TriageEntry, TriageQ
 import { assignLanes } from '../src/lanes.js';
 import type { BoardCard } from '../src/types.js';
 import {
+  CLASSIFIED_ACTIONS,
+  DERIVED_ACTIONS,
   TRIAGE_ACTIONS,
   TRIAGE_LABELS,
   derivedAction,
@@ -28,10 +30,10 @@ const TRIAGE_LABEL_ROWS: [TriageAction, TriageQualifier | null, string][] = [
   ['uat-question', null, 'UAT question'],
   ['uat-failure', null, 'UAT failure'],
   ['awaiting-others', null, 'Waiting on others'],
-  ['review-others', 'initial', 'Dev review · initial'],
-  ['review-others', 'followup', 'Dev review · followup'],
-  ['address-review', 'initial', 'Address dev review · initial'],
-  ['address-review', 'followup', 'Address dev review · followup'],
+  ['review-others', 'initial', 'Review their PR · initial'],
+  ['review-others', 'followup', 'Review their PR · followup'],
+  ['address-review', 'initial', 'Answer review · initial'],
+  ['address-review', 'followup', 'Answer review · followup'],
   ['fix-checks', null, 'Fix failing checks'],
   ['merge-upstream', null, 'Merge upstream'],
   ['resolve-conflicts', null, 'Resolve conflicts'],
@@ -228,16 +230,25 @@ describe('reading the stored state', () => {
 });
 
 describe('the classifier answer', () => {
-  it('takes an answer that is one of the actions', () => {
-    expect(readTriageResult({ action: 'land', detail: 'Merge it.' })).toEqual({ action: 'land', detail: 'Merge it.' });
+  it('takes an answer that is one of the actions the model was offered', () => {
+    expect(readTriageResult({ action: 'uat-failure', detail: 'Safari.' })).toEqual({ action: 'uat-failure', detail: 'Safari.' });
   });
 
   it('refuses an action no build has, rather than reading it as other', () => {
     expect(readTriageResult({ action: 'ship-it', detail: 'go' })).toBeNull();
-    expect(readTriageResult({ action: 'land' })).toBeNull();
+    expect(readTriageResult({ action: 'other' })).toBeNull();
     expect(readTriageResult({ detail: 'go' })).toBeNull();
-    expect(readTriageResult({ action: 'land', detail: '' })).toBeNull();
-    expect(readTriageResult('land')).toBeNull();
+    expect(readTriageResult({ action: 'other', detail: '' })).toBeNull();
+    expect(readTriageResult('other')).toBeNull();
+  });
+
+  it('refuses an action the hub decides for itself, whatever the model says', () => {
+    // A model free to answer `land` would say it of a pull request GitHub has not computed mergeability for, which
+    // is the common case the moment a card arrives. The schema does not offer these and the parser will not take them.
+    for (const action of DERIVED_ACTIONS) {
+      expect(readTriageResult({ action, detail: 'go' })).toBeNull();
+      expect(triageJsonSchema.properties.action.enum).not.toContain(action);
+    }
   });
 
   it('cuts an over-long sentence at a word rather than discarding a good classification', () => {
@@ -249,8 +260,9 @@ describe('the classifier answer', () => {
     expect(result?.detail).not.toContain('wor…');
   });
 
-  it('offers the model exactly the actions the board knows', () => {
-    expect(triageJsonSchema.properties.action.enum).toEqual([...TRIAGE_ACTIONS]);
+  it('offers the model every action it decides and no other, and labels all twelve', () => {
+    expect(triageJsonSchema.properties.action.enum).toEqual([...CLASSIFIED_ACTIONS]);
+    expect([...CLASSIFIED_ACTIONS, ...DERIVED_ACTIONS].sort()).toEqual([...TRIAGE_ACTIONS].sort());
     expect(Object.keys(TRIAGE_LABELS).sort()).toEqual([...TRIAGE_ACTIONS].sort());
   });
 });
@@ -370,14 +382,14 @@ describe('the facts overruling the model', () => {
 
 describe('what a card carries', () => {
   it('shows a card being read as running, and nothing else', () => {
-    const [lane] = withTriage(lanesOf(card()), state({ entries: { 'issue:17198': entry() } }), new Set(['issue:17198']));
+    const [lane] = withTriage(lanesOf(card()), state({ entries: { 'issue:17198': entry() } }), new Set(['issue:17198']), 1_000);
 
     expect(lane?.cards[0]?.triage).toEqual({ state: 'running' });
   });
 
   it('shows what was read, with the qualifier and the sentence', () => {
     const held = state({ entries: { 'issue:17198': entry({ action: 'address-review', qualifier: 'followup', detail: 'Answer the naming notes.' }) } });
-    const [lane] = withTriage(lanesOf(card()), held, NONE);
+    const [lane] = withTriage(lanesOf(card()), held, NONE, 1_000);
 
     expect(lane?.cards[0]?.triage).toEqual({
       state: 'done',
@@ -391,7 +403,7 @@ describe('what a card carries', () => {
 
   it('says a reading has aged when the card has moved under it', () => {
     const held = state({ entries: { 'issue:17198': entry({ evidence: 'something else entirely' }) } });
-    const [lane] = withTriage(lanesOf(card()), held, NONE);
+    const [lane] = withTriage(lanesOf(card()), held, NONE, 1_000);
 
     expect(lane?.cards[0]?.triage).toMatchObject({ stale: true });
   });
@@ -407,16 +419,39 @@ describe('what a card carries', () => {
     expect(evidenceOf(issue())).toBe(before);
   });
 
-  it('carries nothing on a card that has not been read, or whose reading failed', () => {
-    const failed = withTriageFailure(state(), 'issue:17198', { kind: 'classify-failed', message: 'no' }, 0);
+  it('carries nothing on a card that has never been read', () => {
+    expect(withTriage(lanesOf(card()), state(), NONE, 1_000)[0]?.cards[0]?.triage).toBeUndefined();
+  });
 
-    expect(withTriage(lanesOf(card()), state(), NONE)[0]?.cards[0]?.triage).toBeUndefined();
-    expect(withTriage(lanesOf(card()), failed, NONE)[0]?.cards[0]?.triage).toBeUndefined();
+  it('gives a card it could not read somewhere to press, and no words about why', () => {
+    // Without this the cards that most need reading again are the only ones with nothing to click, and the failure's
+    // own remedy names a control that does not exist. What went wrong is one line above the lanes (R25).
+    const failed = withTriageFailure(state(), 'issue:17198', { kind: 'classify-failed', message: 'no' }, 0);
+    const [lane] = withTriage(lanesOf(card()), failed, NONE, 1_000);
+
+    expect(lane?.cards[0]?.triage).toEqual({ state: 'failed', attempts: 1, exhausted: false });
+  });
+
+  it('says when it has stopped trying on its own, so the developer knows a click is the only way back', () => {
+    let failed = state();
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      failed = withTriageFailure(failed, 'issue:17198', { kind: 'classify-missing', message: 'no' }, 0);
+    }
+
+    expect(withTriage(lanesOf(card()), failed, NONE, 1_000)[0]?.cards[0]?.triage).toMatchObject({ exhausted: true });
+  });
+
+  it('draws a reading that has simply aged as stale, whatever the card still says', () => {
+    const held = state({ entries: { 'issue:17198': entry({ at: 0 }) } });
+
+    expect(withTriage(lanesOf(card()), held, NONE, 1_000)[0]?.cards[0]?.triage).toMatchObject({ stale: false });
+    expect(withTriage(lanesOf(card()), held, NONE, 13 * 60 * 60 * 1000)[0]?.cards[0]?.triage).toMatchObject({ stale: true });
   });
 
   it('leaves every other card alone', () => {
     const two = [card(), card({ key: 'issue:17199', issue: issue({ number: 17199 }), issueNumber: 17199 })];
-    const [lane] = withTriage(lanesOf(...two), state({ entries: { 'issue:17198': entry() } }), NONE);
+    const [lane] = withTriage(lanesOf(...two), state({ entries: { 'issue:17198': entry() } }), NONE, 1_000);
 
     expect(lane?.cards).toHaveLength(2);
     expect(lane?.cards[0]?.triage).toBeDefined();
@@ -425,7 +460,7 @@ describe('what a card carries', () => {
 
   it('changes no lane and no placement', () => {
     const before = lanesOf(card());
-    const after = withTriage(before, state({ entries: { 'issue:17198': entry() } }), NONE);
+    const after = withTriage(before, state({ entries: { 'issue:17198': entry() } }), NONE, 1_000);
 
     expect(after.map((lane) => lane.cards.map((c) => c.key))).toEqual(before.map((lane) => lane.cards.map((c) => c.key)));
     expect(after.map((lane) => lane.id)).toEqual(before.map((lane) => lane.id));

@@ -1148,7 +1148,7 @@ describe('what a card was read to be waiting on (R38)', () => {
   it('says a card is being read, and rings nothing while it does', () => {
     show(card(4501, { sessions: [], triage: { state: 'running' } }));
 
-    expect(mark()?.textContent).toBe('Triaging…');
+    expect(mark()?.textContent).toBe('Reading…');
     // R36 keeps colour for the two things that want the developer, and being read is neither.
     expect(document.querySelector(`[${'data-gc-attention'}]`)).toBeNull();
     expect(document.querySelector('.gc-triage-detail')).toBeNull();
@@ -1180,6 +1180,14 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(document.querySelector<HTMLElement>('.gc-triage-detail')?.dataset.stale).toBe('true');
   });
 
+  it('says a card could not be read, and offers no control — reading again is the editor own', () => {
+    show(card(4501, { sessions: [], triage: { state: 'failed', attempts: 2, exhausted: false } }));
+
+    expect(mark()?.textContent).toBe('Not read');
+    expect(mark()?.tagName).toBe('SPAN');
+    expect(document.querySelector('.gc-triage-detail')).toBeNull();
+  });
+
   it('carries nothing on a card that has not been read', () => {
     show(card(4501, { sessions: [] }));
 
@@ -1197,10 +1205,10 @@ describe('what a card was read to be waiting on (R38)', () => {
     ['uat-question', null, 'UAT question'],
     ['uat-failure', null, 'UAT failure'],
     ['awaiting-others', null, 'Waiting on others'],
-    ['review-others', 'initial', 'Dev review · initial'],
-    ['review-others', 'followup', 'Dev review · followup'],
-    ['address-review', 'initial', 'Address dev review · initial'],
-    ['address-review', 'followup', 'Address dev review · followup'],
+    ['review-others', 'initial', 'Review their PR · initial'],
+    ['review-others', 'followup', 'Review their PR · followup'],
+    ['address-review', 'initial', 'Answer review · initial'],
+    ['address-review', 'followup', 'Answer review · followup'],
     ['fix-checks', null, 'Fix failing checks'],
     ['merge-upstream', null, 'Merge upstream'],
     ['resolve-conflicts', null, 'Resolve conflicts'],

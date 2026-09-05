@@ -66,36 +66,36 @@ describe('the lane store', () => {
 
 describe('the marks', () => {
   it('reads nothing on a machine where the activity signal has never been installed', () => {
-    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {} });
+    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null });
   });
 
   it('round trips', () => {
     const store = makeMarkStore(home);
-    store.write({ installedAt: 42, announcedAt: { 'board-1': 42 } });
+    store.write({ installedAt: 42, announcedAt: { 'board-1': 42 }, triageToldAt: 7 });
 
-    expect(store.read()).toEqual({ installedAt: 42, announcedAt: { 'board-1': 42 } });
+    expect(store.read()).toEqual({ installedAt: 42, announcedAt: { 'board-1': 42 }, triageToldAt: 7 });
   });
 
   it('reads nothing from a file it cannot parse', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(marksPathOf(home), 'not json');
 
-    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {} });
+    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null });
   });
 
   it('reads nothing from a file whose shape it does not recognise', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(marksPathOf(home), '{"installedAt":"yesterday"}');
 
-    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {} });
+    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null });
   });
 });
 
 describe('afterInstall', () => {
-  const held = { installedAt: null, announcedAt: {} };
+  const held = { installedAt: null, announcedAt: {}, triageToldAt: null };
 
   it('starts the clock on a run that actually added entries', () => {
-    expect(afterInstall(held, 'install', 3, 1000)).toEqual({ installedAt: 1000, announcedAt: {} });
+    expect(afterInstall(held, 'install', 3, 1000)).toEqual({ installedAt: 1000, announcedAt: {}, triageToldAt: null });
   });
 
   /**
@@ -107,22 +107,24 @@ describe('afterInstall', () => {
   });
 
   it('leaves an install already stamped where it was', () => {
-    const stamped = { installedAt: 500, announcedAt: { 'board-1': 500 } };
+    const stamped = { installedAt: 500, announcedAt: { 'board-1': 500 }, triageToldAt: null };
 
     expect(afterInstall(stamped, 'install', 3, 1000)).toEqual(stamped);
   });
 
   /** So putting the hooks back says so again, rather than being old news from the install before it. */
-  it('clears the stamp and every announcement on a removal', () => {
-    expect(afterInstall({ installedAt: 500, announcedAt: { 'board-1': 500 } }, 'remove', 0, 1000)).toEqual({
+  it('clears the stamp and every announcement on a removal, and nothing else', () => {
+    // Putting the hooks back is not a second occasion to be told what reading a card costs.
+    expect(afterInstall({ installedAt: 500, announcedAt: { 'board-1': 500 }, triageToldAt: 7 }, 'remove', 0, 1000)).toEqual({
       installedAt: null,
       announcedAt: {},
+      triageToldAt: 7,
     });
   });
 });
 
 describe('announce', () => {
-  const installed = { installedAt: 500, announcedAt: {} };
+  const installed = { installedAt: 500, announcedAt: {}, triageToldAt: null };
 
   it('says it once to a client that has not heard it', () => {
     const first = announce(installed, 'board-1');
@@ -139,7 +141,7 @@ describe('announce', () => {
   });
 
   it('says nothing where nothing has been installed', () => {
-    expect(announce({ installedAt: null, announcedAt: {} }, 'board-1').say).toBe(false);
+    expect(announce({ installedAt: null, announcedAt: {}, triageToldAt: null }, 'board-1').say).toBe(false);
   });
 
   it('says it again after the hooks are removed and put back', () => {

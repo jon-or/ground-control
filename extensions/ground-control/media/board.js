@@ -286,8 +286,8 @@ const TRIAGE_LABELS = {
   'uat-question': 'UAT question',
   'uat-failure': 'UAT failure',
   'awaiting-others': 'Waiting on others',
-  'review-others': 'Dev review',
-  'address-review': 'Address dev review',
+  'review-others': 'Review their PR',
+  'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
   'merge-upstream': 'Merge upstream',
   'resolve-conflicts': 'Resolve conflicts',
@@ -525,18 +525,34 @@ function card(boardCard, avatarPool, placeable) {
   // R38. Deliberately none of R6's three channels: a card being read, or one that has been, is asking for nothing.
   const triage = boardCard.triage;
 
+  const readAgain = () => vscode.postMessage({ type: 'retriage', key: boardCard.key });
+
   if (triage?.state === 'running') {
-    const chip = badge('triage-running', 'Triaging…', 'GRAY', 'Working out what this card is waiting on.');
-    badges.appendChild(chip);
+    badges.appendChild(badge('triage-running', 'Reading…', 'GRAY', 'Working out what this card is waiting on.'));
+  } else if (triage?.state === 'failed') {
+    // No words about what went wrong: that is one line above the lanes (R25). What this is, is somewhere to click,
+    // without which the cards that most need reading again are the only ones with nothing to press.
+    badges.appendChild(
+      badge(
+        'triage-failed',
+        'Not read',
+        'GRAY',
+        triage.exhausted
+          ? `The board could not read this card after ${triage.attempts} tries and has stopped trying. Click to try now.`
+          : `The board could not read this card. Click to try now.`,
+        readAgain,
+      ),
+    );
   } else if (triage?.state === 'done') {
+    // GRAY rather than a colour: R6 keeps colour for the two things that want the developer, and BLUE is `your-turn`.
     const chip = badge(
       'triage',
       triageText(triage),
-      triage.stale ? 'GRAY' : 'BLUE',
+      'GRAY',
       triage.stale
         ? `Read ${ago(Date.now() - triage.at)} ago; the card has moved since. Click to read it again.`
         : `Read ${ago(Date.now() - triage.at)} ago. Click to read it again.`,
-      () => vscode.postMessage({ type: 'retriage', key: boardCard.key }),
+      readAgain,
     );
     chip.dataset.stale = String(triage.stale);
     badges.appendChild(chip);

@@ -162,7 +162,7 @@ describe('triage settings', () => {
   it('defaults a configuration written before triage existed, rather than refusing it', () => {
     const parsed = parseHubConfig(config());
 
-    expect('config' in parsed && parsed.config.triage).toEqual({ enabled: true, concurrency: 2, timeoutMs: 120_000 });
+    expect('config' in parsed && parsed.config.triage).toEqual({ enabled: true, concurrency: 2, timeoutMs: 180_000 });
   });
 
   it('takes what a client asked for', () => {

@@ -29,19 +29,31 @@ const DETAIL_LIMIT = 160;
  */
 const BACKOFF_MS = [60_000, 120_000, 300_000, 1_800_000];
 
+/**
+ * The actions the hub reads off the pull request itself. They are never offered to the model: `derivedAction` fires
+ * only where a fact is established, so a model free to answer `land` could say it of a pull request GitHub has not
+ * computed mergeability for — which is the guess R38 exists to refuse.
+ */
+export const DERIVED_ACTIONS: readonly TriageAction[] = ['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land'];
+
+/** What the model may answer. The other four are facts, and a fact is not something to be classified. */
+export const CLASSIFIED_ACTIONS = TRIAGE_ACTIONS.filter((action) => !DERIVED_ACTIONS.includes(action));
+
 /** What the model is held to. Two fields, and an action outside the list is refused rather than read as `other`. */
 export const triageJsonSchema = {
   type: 'object',
   properties: {
-    action: { type: 'string', enum: [...TRIAGE_ACTIONS] },
+    action: { type: 'string', enum: CLASSIFIED_ACTIONS },
     detail: { type: 'string', maxLength: DETAIL_LIMIT },
   },
   required: ['action', 'detail'],
   additionalProperties: false,
 } as const;
 
+// The schema is what the model is asked for; this is what is accepted. Both name the classified actions only, so an
+// answer of `land` is refused rather than passed through on a pull request whose facts said nothing.
 const parsed = z.object({
-  action: z.enum(TRIAGE_ACTIONS),
+  action: z.enum(CLASSIFIED_ACTIONS as [TriageAction, ...TriageAction[]]),
   detail: z.string().min(1),
 });
 
@@ -75,8 +87,8 @@ export const TRIAGE_LABELS: Readonly<Record<TriageAction, string>> = {
   'uat-question': 'UAT question',
   'uat-failure': 'UAT failure',
   'awaiting-others': 'Waiting on others',
-  'review-others': 'Dev review',
-  'address-review': 'Address dev review',
+  'review-others': 'Review their PR',
+  'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
   'merge-upstream': 'Merge upstream',
   'resolve-conflicts': 'Resolve conflicts',
@@ -93,6 +105,14 @@ export const TRIAGE_QUALIFIERS: Readonly<Record<TriageQualifier, string>> = {
 export function triageLabel(action: TriageAction, qualifier: TriageQualifier | null): string {
   return qualifier === null ? TRIAGE_LABELS[action] : `${TRIAGE_LABELS[action]} · ${TRIAGE_QUALIFIERS[qualifier]}`;
 }
+
+/**
+ * How long a reading is presented as current whatever else happens. The evidence below is everything the board can
+ * see about a card, and it is not everything a card is: a comment on the pull request, a check going red and a
+ * branch falling behind all move the work without moving any of it. So a reading also ages out, because saying
+ * "this was true yesterday" is honest where claiming it is true now would not be (R24).
+ */
+export const EVIDENCE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 /**
  * What the card looked like when it was triaged. A label is decided once, so this is what lets a card say the answer
@@ -375,6 +395,7 @@ export function withTriage(
   lanes: readonly Lane[],
   state: TriageState,
   running: ReadonlySet<string>,
+  now: number,
 ): Lane[] {
   return lanes.map((lane) => ({
     ...lane,
@@ -383,12 +404,20 @@ export function withTriage(
         return { ...card, triage: { state: 'running' } };
       }
 
+      if (card.issue === null) {
+        return card;
+      }
+
       const entry = state.entries[card.key];
 
-      // A card with no reading, and one whose reading failed, look the same: nothing on the card. The failure is one
-      // deduplicated line above the lanes, because fifteen cards failing one cause is one condition (R25).
-      if (entry === undefined || card.issue === null) {
-        return card;
+      if (entry === undefined) {
+        const failure = state.failures[card.key];
+
+        // A card that has never been read carries nothing. One the board tried and could not read carries a control
+        // and no words: what went wrong is stated once above the lanes, and this is where the developer asks again.
+        return failure === undefined
+          ? card
+          : { ...card, triage: { state: 'failed', attempts: failure.attempts, exhausted: failure.nextAt > now + EVIDENCE_MAX_AGE_MS } };
       }
 
       const triage: CardTriage = {
@@ -397,7 +426,7 @@ export function withTriage(
         qualifier: entry.qualifier,
         detail: entry.detail,
         at: entry.at,
-        stale: entry.evidence !== '' && entry.evidence !== evidenceOf(card.issue),
+        stale: (entry.evidence !== '' && entry.evidence !== evidenceOf(card.issue)) || now - entry.at > EVIDENCE_MAX_AGE_MS,
       };
 
       return { ...card, triage };

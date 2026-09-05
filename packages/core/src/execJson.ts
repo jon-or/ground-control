@@ -133,6 +133,9 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
       // The prompt is written rather than passed, because argv is capped and evidence is not (§31). A closed stdin
       // is what tells a CLI reading from it that the input is complete.
       if (options.stdin !== undefined) {
+        // A child that dies before draining a long prompt makes this an EPIPE, which is an unhandled 'error' event
+        // on the stream and takes the process with it. The callback above is what reports the failure.
+        child.stdin?.on('error', () => undefined);
         child.stdin?.end(options.stdin);
       }
     } catch (err) {

@@ -44,38 +44,61 @@ function classify(err: ExecFileException, stderr: string): Failure {
 export function makeGhRunner(ghPath: string): GhRunner {
   return (args, options = {}) =>
     new Promise<Result<unknown>>((resolve) => {
-      const child = execFile(
-        ghPath,
-        args,
-        {
-          maxBuffer: 32 * 1024 * 1024,
-          windowsHide: true,
-          ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
-        },
-        (err, stdout, stderr) => {
-        if (err) {
-          resolve({
-            ok: false,
-            error: options.signal?.aborted === true
-              ? { kind: 'query-failed', message: 'The read was stood down before it answered.', remedy: 'Refresh the board to try again.' }
-              : classify(err, stderr),
-          });
-          return;
-        }
+      // A path the platform rejects outright raises before the callback, and a rejection here would surface as an
+      // unhandled failure rather than a board notice — or, for a caller that retries, as a loop with no backoff.
+      try {
+        const child = execFile(
+          ghPath,
+          args,
+          {
+            maxBuffer: 32 * 1024 * 1024,
+            windowsHide: true,
+            ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+          },
+          (err, stdout, stderr) => {
+            if (err) {
+              resolve({
+                ok: false,
+                error:
+                  options.signal?.aborted === true
+                    ? {
+                        kind: 'query-failed',
+                        message: 'The read was stood down before it answered.',
+                        remedy: 'Refresh the board to try again.',
+                      }
+                    : classify(err, stderr),
+              });
 
-        try {
-          resolve({ ok: true, value: JSON.parse(stdout) });
-        } catch {
-          resolve({
-            ok: false,
-            error: { kind: 'bad-response', message: 'gh returned output that is not JSON.', remedy: 'Run the same gh command in a terminal to see what it printed.' },
-          });
-        }
-        },
-      );
+              return;
+            }
 
-      // A read the board has abandoned has to stop costing something: a triage queue of two slots cannot afford one
-      // held by a `gh` nobody is waiting on any more.
-      options.signal?.addEventListener('abort', () => child.kill(), { once: true });
+            try {
+              resolve({ ok: true, value: JSON.parse(stdout) });
+            } catch {
+              resolve({
+                ok: false,
+                error: {
+                  kind: 'bad-response',
+                  message: 'gh returned output that is not JSON.',
+                  remedy: 'Run the same gh command in a terminal to see what it printed.',
+                },
+              });
+            }
+          },
+        );
+
+        // A read the board has abandoned has to stop costing something: a triage queue of two slots cannot afford
+        // one held by a `gh` nobody is waiting on any more.
+        options.signal?.addEventListener('abort', () => child.kill(), { once: true });
+      } catch (err) {
+        resolve({
+          ok: false,
+          error: {
+            kind: 'query-failed',
+            message: err instanceof Error ? err.message : String(err),
+            remedy: 'Check groundControl.github.ghPath, then refresh.',
+          },
+        });
+      }
     });
 }

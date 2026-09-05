@@ -9,11 +9,13 @@ const marks = z.object({
   installedAt: z.number().nullable().default(null),
   /** The install each client has already been told about, so a second board still sees the notice once (R25). */
   announcedAt: z.record(z.string(), z.number()).default({}),
+  /** Whether this machine has been told that reading cards spends usage and sends text to an API (R38). */
+  triageToldAt: z.number().nullable().default(null),
 });
 
 export type Marks = z.infer<typeof marks>;
 
-const EMPTY: Marks = { installedAt: null, announcedAt: {} };
+const EMPTY: Marks = { installedAt: null, announcedAt: {}, triageToldAt: null };
 
 /**
  * What the hub has already done and already said. Machine-wide for the install, per client for the announcement:
@@ -61,8 +63,10 @@ export function makeMarkStore(home: string): MarkStore {
  * on their next event. A removal clears it, so putting the hooks back says so again.
  */
 export function afterInstall(held: Marks, wanted: 'install' | 'remove', added: number, now: number): Marks {
+  // The triage notice is not the install's to clear: putting the hooks back is not a second time to be told what
+  // reading a card costs.
   if (wanted === 'remove') {
-    return { installedAt: null, announcedAt: {} };
+    return { ...held, installedAt: null, announcedAt: {} };
   }
 
   if (held.installedAt !== null || added === 0) {

@@ -63,7 +63,7 @@ const TRIAGE_TIMEOUT_FLOOR_MS = 10_000;
 const TRIAGE_TIMEOUT_CEILING_MS = 300_000;
 const TRIAGE_CONCURRENCY_CEILING = 8;
 
-export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, concurrency: 2, timeoutMs: 120_000 };
+export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, concurrency: 2, timeoutMs: 180_000 };
 
 const triage = z.object({
   enabled: z.boolean(),
@@ -84,7 +84,7 @@ export const hubConfig = z.object({
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
   installActivity: z.boolean(),
-  // Absent from a configuration a client built before triage existed, which is every stored one written until now.
+  // Absent from a configuration written by a client that predates triage.
   triage: triage.default(DEFAULT_TRIAGE),
 });
 
