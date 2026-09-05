@@ -1,5 +1,6 @@
 import { dirKey } from './paths.js';
 import type { IssueCard } from './cards.js';
+import type { CardTriage } from './triage.js';
 import type { HistoricalSession, Session } from './types.js';
 
 export type LaneId = 'unstarted' | 'plan' | 'build' | 'review' | 'done' | 'icebox' | 'archived';
@@ -39,6 +40,8 @@ export interface LanedCard extends BoardCard {
   attention: Attention | null;
   /** What the card's status says about it being on the board. Never why it is in its lane. */
   reason: string;
+  /** What the board has worked out this card is asking for, where it has read one. Absent on a card never triaged. */
+  triage?: CardTriage;
 }
 
 export interface Lane {

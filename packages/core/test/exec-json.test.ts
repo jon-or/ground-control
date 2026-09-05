@@ -98,9 +98,45 @@ describe('runJsonCli', () => {
   });
 
   it('says how long it waited when a CLI hangs', async () => {
-    const outcome = await runJsonCli(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], 200);
+    const outcome = await runJsonCli(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { timeoutMs: 200 });
 
     expect(outcome).toEqual({ ok: false, reason: 'failed', detail: 'timed out after 0.2s' });
+  });
+
+  it('runs where it is told, so a CLI that reads its directory reads the one asked for', async () => {
+    const outcome = await runJsonCli(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.cwd()))'], {
+      cwd: scratch,
+    });
+
+    expect(outcome).toMatchObject({ ok: true });
+    expect(outcome.ok && String(outcome.value).toLowerCase()).toBe(scratch.toLowerCase());
+  });
+
+  it('writes stdin and closes it, so a CLI reading its prompt from there sees the whole of it', async () => {
+    const read = 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>process.stdout.write(JSON.stringify(s)))';
+    const outcome = await runJsonCli(process.execPath, ['-e', read], { stdin: 'the whole prompt' });
+
+    expect(outcome).toEqual({ ok: true, value: 'the whole prompt' });
+  });
+
+  it('starts nothing for a run already stood down', async () => {
+    const outcome = await runJsonCli(process.execPath, ['-e', 'process.stdout.write("[]")'], {
+      signal: AbortSignal.abort(),
+    });
+
+    expect(outcome).toEqual({ ok: false, reason: 'aborted', detail: 'the run was stood down before it started' });
+  });
+
+  it('tells a run it stood down from one that would not answer', async () => {
+    const controller = new AbortController();
+    const outcome = runJsonCli(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+      timeoutMs: 60_000,
+      signal: controller.signal,
+    });
+
+    setTimeout(() => controller.abort(), 50);
+
+    expect(await outcome).toEqual({ ok: false, reason: 'aborted', detail: 'the run was stood down before it answered' });
   });
 
   it('survives a path the platform will not accept at all', async () => {

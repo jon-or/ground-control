@@ -151,3 +151,61 @@ describe('idsFrom', () => {
     expect(idsFrom([], ['vscode'])).toEqual([]);
   });
 });
+
+describe('triage settings', () => {
+  function triageOf(raw: unknown) {
+    const parsed = parseHubConfig(config({ triage: raw } as never));
+
+    return 'config' in parsed ? parsed.config.triage : parsed.failure;
+  }
+
+  it('defaults a configuration written before triage existed, rather than refusing it', () => {
+    const parsed = parseHubConfig(config());
+
+    expect('config' in parsed && parsed.config.triage).toEqual({ enabled: true, concurrency: 2, timeoutMs: 60_000 });
+  });
+
+  it('takes what a client asked for', () => {
+    expect(triageOf({ enabled: false, concurrency: 4, timeoutMs: 90_000 })).toEqual({
+      enabled: false,
+      concurrency: 4,
+      timeoutMs: 90_000,
+    });
+  });
+
+  it('floors and ceilings a hand-edited spend, in both directions', () => {
+    expect(triageOf({ enabled: true, concurrency: 0, timeoutMs: 1 })).toEqual({
+      enabled: true,
+      concurrency: 1,
+      timeoutMs: 10_000,
+    });
+    expect(triageOf({ enabled: true, concurrency: 500, timeoutMs: 9_999_999 })).toEqual({
+      enabled: true,
+      concurrency: 8,
+      timeoutMs: 300_000,
+    });
+  });
+
+  it('refuses a triage block that is not one, rather than spending on a default nobody chose', () => {
+    expect(triageOf({ enabled: 'yes', concurrency: 2, timeoutMs: 60_000 })).toMatchObject({ kind: 'bad-config' });
+    expect(triageOf('on')).toMatchObject({ kind: 'bad-config' });
+  });
+
+  it('carries an agent model where one is set, and omits the field where none is', () => {
+    const withModel = parseHubConfig(config({ agents: [{ id: 'claude', path: 'claude', model: 'claude-haiku-4-5' }] }));
+    const without = parseHubConfig(config());
+
+    expect('config' in withModel && withModel.config.agents[0]).toEqual({
+      id: 'claude',
+      path: 'claude',
+      model: 'claude-haiku-4-5',
+    });
+    expect('config' in without && without.config.agents[0]).toEqual({ id: 'claude', path: 'claude' });
+  });
+
+  it('refuses an empty model rather than spawning with a blank --model', () => {
+    expect(parseHubConfig(config({ agents: [{ id: 'claude', path: 'claude', model: '' }] }))).toMatchObject({
+      failure: { kind: 'bad-config' },
+    });
+  });
+});

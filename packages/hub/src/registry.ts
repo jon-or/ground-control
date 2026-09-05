@@ -1,5 +1,6 @@
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
+import { DEFAULT_TRIAGE } from '@ground-control/core';
 import type { AgentAdapter, HostAdapter, HubConfig, ReadFailure, WorkSource } from '@ground-control/core';
 import { makeGithubSource } from '@ground-control/github';
 import { makeVscodeHost } from '@ground-control/host-vscode';
@@ -45,6 +46,7 @@ export function defaultConfig(registries: Registries = makeRegistries()): HubCon
     refreshIntervalMs: REFRESH_INTERVAL_MS,
     sessionIntervalMs: SESSION_INTERVAL_MS,
     installActivity: true,
+    triage: { ...DEFAULT_TRIAGE },
   };
 }
 

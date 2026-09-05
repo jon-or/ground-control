@@ -55,6 +55,28 @@ export interface ActivitySignal {
 }
 
 /**
+ * One bounded question put to an agent, answered as JSON and nothing else. The session it runs in must not become a
+ * session the board shows — the adapter owns how, and Claude's flags are measured in `docs/mechanics.md` §31.
+ */
+export interface ClassifyInput {
+  /** The CLI, from the same configuration the roster read spawns. */
+  path: string;
+  /** Minted by the caller, so it can recognise its own run without waiting to be told what it started. */
+  sessionId: string;
+  model: string | null;
+  systemPrompt: string;
+  prompt: string;
+  schema: unknown;
+  /** A directory with no project of its own, so nothing of the developer's is discovered or loaded. */
+  cwd: string;
+  timeoutMs: number;
+  signal: AbortSignal;
+}
+
+/** Never throws: a classification that failed is a named failure, the same as a roster read that did (R24). */
+export type ClassifyResult = { value: unknown } | { failure: ReadFailure };
+
+/**
  * One agent CLI the board reads live sessions from. An adapter owns its transport, its response shape, where its
  * transcripts live, and the wording of its failures, and returns finished `Session` rows.
  */
@@ -70,5 +92,10 @@ export interface AgentAdapter {
   listHistory?(deps: MachineDeps): Promise<HistoryReading>;
   /** Whether this saved transcript can still be resumed from its recorded directory. Checked on click. */
   canResume?(session: HistoricalSession, deps: MachineDeps): boolean;
+  /**
+   * Answers one bounded question as JSON. Optional, because an agent CLI that cannot do this without leaving a session
+   * on the board must not offer it — absence costs the developer a label, not a feature that half works (R30).
+   */
+  classify?(input: ClassifyInput): Promise<ClassifyResult>;
   readonly activity?: ActivitySignal;
 }

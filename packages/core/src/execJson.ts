@@ -6,9 +6,21 @@ import { normalize } from './paths.js';
 /** Why a call did not produce JSON. An adapter turns a reason into wording naming its own CLI and its own setting. */
 export type ExecOutcome =
   | { ok: true; value: unknown }
-  | { ok: false; reason: 'missing' | 'not-executable' | 'failed' | 'unparsable'; detail: string };
+  | { ok: false; reason: 'missing' | 'not-executable' | 'failed' | 'unparsable' | 'aborted'; detail: string };
 
-export type ExecJson = (path: string, args: string[]) => Promise<ExecOutcome>;
+/**
+ * How a call is run beyond its arguments. Every field is optional and the defaults are what a roster read has always
+ * used, so a caller that wants none of it passes none. `stdin` is what keeps a long prompt off a command line
+ * Windows caps at 32,767 characters (`docs/mechanics.md` §31), and `signal` is what lets a queued run be abandoned.
+ */
+export interface ExecOptions {
+  timeoutMs?: number;
+  cwd?: string;
+  stdin?: string;
+  signal?: AbortSignal;
+}
+
+export type ExecJson = (path: string, args: string[], options?: ExecOptions) => Promise<ExecOutcome>;
 
 /** A hung CLI would leave the board with no sessions and no explanation, which R24 forbids more than an error does. */
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -64,14 +76,28 @@ export function resolveOnDisk(path: string): string | null {
   return null;
 }
 
-function spawn(path: string, args: string[], timeout: number, resolved: boolean): Promise<ExecOutcome> {
+function spawn(path: string, args: string[], options: ExecOptions, resolved: boolean): Promise<ExecOutcome> {
+  const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
   return new Promise<ExecOutcome>((resolve) => {
     // A path Windows rejects outright raises before the callback, and a rejected promise here would surface as an
     // unhandled failure rather than a board notice. `windowsHide` because the hub is detached and has no console of
     // its own: without it every poll opens a command prompt on the developer's screen.
     try {
-      execFile(path, args, { maxBuffer: 32 * 1024 * 1024, timeout, windowsHide: true }, (err, stdout, stderr) => {
+      const child = execFile(
+        path,
+        args,
+        { maxBuffer: 32 * 1024 * 1024, timeout, windowsHide: true, ...(options.cwd === undefined ? {} : { cwd: options.cwd }) },
+        (err, stdout, stderr) => {
         if (err) {
+          // An abort and a timeout both arrive as a killed child, and they are different things to a caller: one is
+          // the board standing a run down, the other is a CLI that would not answer.
+          if (options.signal?.aborted === true) {
+            resolve({ ok: false, reason: 'aborted', detail: 'the run was stood down before it answered' });
+
+            return;
+          }
+
           if ('killed' in err && err.killed === true) {
             resolve({ ok: false, reason: 'failed', detail: `timed out after ${timeout / 1000}s` });
 
@@ -96,7 +122,19 @@ function spawn(path: string, args: string[], timeout: number, resolved: boolean)
         } catch {
           resolve({ ok: false, reason: 'unparsable', detail: stdout.trim().slice(0, DETAIL_LIMIT) });
         }
-      });
+        },
+      );
+
+      // Abandoning a run has to reach the process, not just the promise: a classifier the board has stood down would
+      // otherwise go on spending until it answered nobody (`docs/mechanics.md` §31 — a `-p` session is killable only
+      // by pid). `once`, so a settled run leaves no listener on a signal the caller may reuse.
+      options.signal?.addEventListener('abort', () => child.kill(), { once: true });
+
+      // The prompt is written rather than passed, because argv is capped and evidence is not (§31). A closed stdin
+      // is what tells a CLI reading from it that the input is complete.
+      if (options.stdin !== undefined) {
+        child.stdin?.end(options.stdin);
+      }
     } catch (err) {
       resolve({ ok: false, reason: 'failed', detail: (err instanceof Error ? err.message : String(err)).slice(0, DETAIL_LIMIT) });
     }
@@ -107,12 +145,17 @@ function spawn(path: string, args: string[], timeout: number, resolved: boolean)
  * Runs a CLI that prints one JSON document and parses it. Never throws, and never through a shell: the path is
  * developer configuration, and a shell would let a crafted one run something else entirely.
  */
-export const runJsonCli = async (path: string, args: string[], timeout = DEFAULT_TIMEOUT_MS): Promise<ExecOutcome> => {
+export const runJsonCli = async (path: string, args: string[], options: ExecOptions = {}): Promise<ExecOutcome> => {
   const resolved = resolveOnDisk(path);
 
   if (resolved !== null && BATCH.test(resolved)) {
     return { ok: false, reason: 'not-executable', detail: `${resolved} is a batch shim, which cannot be run directly` };
   }
 
-  return spawn(resolved ?? path, args, timeout, resolved !== null);
+  // Nothing is spawned for a run already stood down, so a queue drained on shutdown starts no process at all.
+  if (options.signal?.aborted === true) {
+    return { ok: false, reason: 'aborted', detail: 'the run was stood down before it started' };
+  }
+
+  return spawn(resolved ?? path, args, options, resolved !== null);
 };

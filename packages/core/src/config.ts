@@ -20,6 +20,16 @@ export interface HubConfig {
   refreshIntervalMs: number;
   sessionIntervalMs: number;
   installActivity: boolean;
+  triage: TriageSettings;
+}
+
+/** What card triage is allowed to cost. Every field bounds a spend, so a hand-edited one is floored rather than taken. */
+export interface TriageSettings {
+  enabled: boolean;
+  /** How many cards are read and classified at once. Fetch and classification share the budget. */
+  concurrency: number;
+  /** The whole of one card's triage — the source read and the classification together, not the classification alone. */
+  timeoutMs: number;
 }
 
 /**
@@ -48,8 +58,24 @@ const laneId = z.enum(LANE_ORDER as [LaneId, ...LaneId[]]);
 const REFRESH_FLOOR_MS = 30_000;
 const SESSION_FLOOR_MS = 2_000;
 
+/** Ceilings as well as floors here, because every one of these bounds what the board may spend without being asked. */
+const TRIAGE_TIMEOUT_FLOOR_MS = 10_000;
+const TRIAGE_TIMEOUT_CEILING_MS = 300_000;
+const TRIAGE_CONCURRENCY_CEILING = 8;
+
+export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, concurrency: 2, timeoutMs: 60_000 };
+
+const triage = z.object({
+  enabled: z.boolean(),
+  concurrency: z.number().finite().transform((n) => Math.min(TRIAGE_CONCURRENCY_CEILING, Math.max(1, Math.trunc(n)))),
+  timeoutMs: z
+    .number()
+    .finite()
+    .transform((ms) => Math.min(TRIAGE_TIMEOUT_CEILING_MS, Math.max(TRIAGE_TIMEOUT_FLOOR_MS, ms))),
+});
+
 export const hubConfig = z.object({
-  agents: z.array(z.object({ id: z.string().min(1), path: spawnable })),
+  agents: z.array(z.object({ id: z.string().min(1), path: spawnable, model: z.string().min(1).optional() })),
   branchIssuePattern: z.string(),
   hosts: z.record(z.string(), z.unknown()),
   sources: z.record(z.string(), z.unknown()),
@@ -58,6 +84,8 @@ export const hubConfig = z.object({
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
   installActivity: z.boolean(),
+  // Absent from a configuration a client built before triage existed, which is every stored one written until now.
+  triage: triage.default(DEFAULT_TRIAGE),
 });
 
 /** The configuration a client pushed, or a named failure the board shows above the lanes rather than a throw (R25). */

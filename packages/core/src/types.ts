@@ -2,6 +2,11 @@
 export interface AgentConfig {
   id: string;
   path: string;
+  /**
+   * Which model this agent answers a classification with. The adapter's own vocabulary, so it lives here rather than
+   * in `HubConfig`: `core` names no adapter, and a model name is one CLI's word.
+   */
+  model?: string | undefined;
 }
 
 export interface SessionsConfig {

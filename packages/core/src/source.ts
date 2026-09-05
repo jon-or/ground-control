@@ -1,4 +1,5 @@
 import type { IssueCard } from './cards.js';
+import type { TriageContext } from './triage.js';
 import type { ReadFailure } from './types.js';
 
 /**
@@ -39,4 +40,15 @@ export interface WorkSource {
   /** Takes this source's entry in a pushed configuration and holds it, or names why it will not read with it. */
   configure(raw: unknown): ReadFailure | null;
   read(): Promise<SourceReading>;
+  /**
+   * Everything one card's triage reads, for a card this source produced. Optional: a source with no conversation to
+   * read leaves its cards untriaged rather than triaged on nothing (R30).
+   */
+  readContext?(card: IssueCard, signal: AbortSignal): Promise<ContextReading>;
+}
+
+/** One card's context, or why it could not be read. Never both — a partial context is a classification on half the story. */
+export interface ContextReading {
+  context: TriageContext | null;
+  failure: ReadFailure | null;
 }
