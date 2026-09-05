@@ -744,6 +744,9 @@ describe('reported activity', () => {
     // A forced button surface pairs with ButtonText; CanvasText is the card's pairing, kept for a label that is text.
     expect(/button\.session-label \{\s*color: ButtonText/.test(forced ?? '')).toBe(true);
     expect(forced).toContain('color: CanvasText');
+
+    // The changes control is drawn by its underline, and a border colour left to currentColor is unspecified here.
+    expect(/\.card-changes \{\s*color: ButtonText;\s*border-bottom-color: ButtonText/.test(forced ?? '')).toBe(true);
   });
 
   it('paints the marked label its attention colour even though the label is a button', () => {
@@ -1325,4 +1328,67 @@ it('makes a historical title openable when the host offers it, including after a
   expect(button.closest('.historical')?.getAttribute('title')).toContain('Resume this session');
   send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
   expect(document.querySelector('.historical button')).toBeNull();
+});
+
+describe('the changes control', () => {
+  const changes = () => document.querySelector<HTMLButtonElement>('.card-changes');
+
+  it('is a button on a card with a session', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    const el = changes()!;
+    expect(el.tagName).toBe('BUTTON');
+    expect(el.textContent).toBe('Changes');
+    expect(el.title).toBe("Open this card's commits and uncommitted changes in one editor");
+    expect(el.getAttribute('aria-label')).toBe('Open the commits and uncommitted changes of Cached counts do not update');
+    // Without this a few pixels of drift on the way to a click starts a drag of the card instead.
+    expect(el.getAttribute('draggable')).toBe('false');
+  });
+
+  it('names the card, never its directory', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    changes()!.click();
+
+    expect(sent()).toEqual([{ type: 'openChanges', key: 'issue:18953' }]);
+  });
+
+  it('is drawn on a card whose sessions have all ended, from the session it saved', () => {
+    const lastSession = { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: Date.now() - 60000 };
+
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], lastSession }] }) }));
+
+    expect(changes()).not.toBeNull();
+  });
+
+  // A card nobody has worked on has no directory to read, and a control that could only ever refuse is worse than
+  // no control — the rule the session rows already follow.
+  it('is absent on a card with no session at all', () => {
+    send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
+
+    expect(changes()).toBeNull();
+  });
+});
+
+/**
+ * The board draws the control on exactly the cards `core` would hand a checkout for. `media/board.js` is a classic
+ * script and can import nothing, so the condition exists twice; this is the table asserted against `core`'s own
+ * copy in `packages/core/test/checkout.test.ts`, with literal answers rather than a computed expectation. A copy
+ * that drifts draws a control that can only refuse, or hides one that would have worked.
+ */
+describe('which cards have a checkout, against core', () => {
+  const past = { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: 1 };
+
+  const rows: [string, Partial<LanedCard>, boolean][] = [
+    ['one live session', { sessions: [session] }, true],
+    ['two live sessions', { sessions: [session, { ...session, sessionId: 'session-2', cwd: 'c:/work/other' }] }, true],
+    ['no session, one saved', { sessions: [], lastSession: past }, true],
+    ['a live session and a saved one', { sessions: [session], lastSession: past }, true],
+    ['no session at all', { sessions: [] }, false],
+  ];
+
+  it.each(rows)('a card with %s', (_row, over, expected) => {
+    send(message({ lanes: lanes({ build: [{ ...liveCard, ...over }] }) }));
+
+    expect(document.querySelector('.card-changes') !== null).toBe(expected);
+  });
 });

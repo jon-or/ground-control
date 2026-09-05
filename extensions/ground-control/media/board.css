@@ -367,6 +367,7 @@ main.dragging .lane-idle {
 
 .avatar-slot,
 .avatar {
+  flex: none;
   display: grid;
   place-items: center;
   width: 1.4rem;
@@ -547,6 +548,11 @@ button.session-label:focus-visible {
     color: ButtonText;
   }
 
+  .card-changes {
+    color: ButtonText;
+    border-bottom-color: ButtonText;
+  }
+
   .card[data-attention],
   .card[data-attention]:hover {
     border-color: Highlight;
@@ -594,6 +600,37 @@ button.session-label:focus-visible {
 
 .number.link:hover {
   color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+}
+
+/*
+ * The card's one action that is not the issue. Squared and underlined rather than a pill, because every chip beside
+ * it is a badge saying what the issue is, and a control that borrows their shape reads as one more of them.
+ */
+.card-changes {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 0.15rem;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.card-changes:hover {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+}
+
+.card-changes:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
 }
 
 /* Badges ----------------------------------------------------------------- */

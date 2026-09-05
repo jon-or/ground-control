@@ -51,6 +51,7 @@ describe('the extension in a real window', () => {
         'groundControl.disableGithubOverlay',
         'groundControl.enableGithubOverlay',
         'groundControl.openBoard',
+        'groundControl.openChanges',
         'groundControl.refresh',
         'groundControl.removeSessionHooks',
       ],

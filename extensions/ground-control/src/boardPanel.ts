@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
-import type { ClientMessage, LaneId, Snapshot, SnapshotMessage } from '@ground-control/core';
+import { basename, checkoutOf } from '@ground-control/core';
+import type { Checkout, ClientMessage, LaneId, Snapshot, SnapshotMessage } from '@ground-control/core';
 import { readHubConfig, userDirOf } from './config.js';
 import { promptForLogins } from './identity.js';
 import { client } from './hubClient.js';
 import type { HubClient } from './hubClient.js';
 import { agentExtensionReady } from './resident.js';
+import { OPEN_CHANGES } from './changes.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 
@@ -27,8 +29,25 @@ type Inbound =
   | { type: 'openIssue'; number: number }
   | { type: 'openPullRequest'; number: number }
   | { type: 'moveCard'; key: string; lane: LaneId }
-  | { type: 'openSession'; sessionId: string };
+  | { type: 'openSession'; sessionId: string }
+  | { type: 'openChanges'; key: string };
 
+
+/**
+ * What the editor tab is called, so two open at once are told apart: the issue where there is one, the checkout's
+ * own directory where there is not. A card whose sessions are spread over more than one directory names the one
+ * that was picked, because which of them the diff came from is otherwise invisible.
+ */
+function cardLabel(card: { issueNumber: number | null; issue: { title: string } | null }, checkout: Checkout): string {
+  const named =
+    card.issueNumber === null
+      ? basename(checkout.cwd)
+      : card.issue
+        ? `#${card.issueNumber} ${card.issue.title}`
+        : `#${card.issueNumber}`;
+
+  return checkout.only ? named : `${named} (${basename(checkout.cwd)})`;
+}
 
 function nonce(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -177,10 +196,14 @@ export class BoardPanel {
 
         return;
 
-      // The webview names the session, never a path or a command line — the same rule as the issue above. Whether
-      // the agent's extension is ready is read here, on the click: it activates while a board is up.
+      // Whether the agent's extension is ready is read here, on the click: it activates while a board is up.
       case 'openSession':
         void this.#open(msg.sessionId);
+
+        return;
+
+      case 'openChanges':
+        void this.#changes(msg.key);
 
         return;
     }
@@ -227,6 +250,26 @@ export class BoardPanel {
     const extensionReady = await agentExtensionReady();
 
     this.#tell({ type: 'open', sessionId, extensionReady });
+  }
+
+  async #changes(key: string): Promise<void> {
+    const card = this.#last?.lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+
+    if (!card) {
+      void vscode.window.showWarningMessage('That card is no longer on the board. Refresh and try again.');
+
+      return;
+    }
+
+    const checkout = checkoutOf(card);
+
+    if (checkout === null) {
+      void vscode.window.showWarningMessage('That card has no session, so there is no checkout to read changes from.');
+
+      return;
+    }
+
+    await vscode.commands.executeCommand(OPEN_CHANGES, checkout.cwd, cardLabel(card, checkout), key);
   }
 
   #issueOf(number: number) {

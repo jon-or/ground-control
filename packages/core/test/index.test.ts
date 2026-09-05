@@ -11,6 +11,7 @@ describe('the package public surface', () => {
       'NATIVE_HOST_NAME',
       'PROTOCOL',
       'basename',
+      'checkoutOf',
       'compilePattern',
       'dirKey',
       'diskReaders',
