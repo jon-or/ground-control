@@ -10,6 +10,8 @@ export const SETTLING_MS = 120_000;
 
 /** Every route `planOpen` can return, which is the host's whole vocabulary for reaching a session. */
 export const VSCODE_ROUTES: readonly OpenRoute['route'][] = [
+  'resume-here',
+  'resume-elsewhere',
   'reveal-here',
   'reveal-elsewhere',
   'sidebar-here',
@@ -65,6 +67,18 @@ export function planOpen(
   mayOpenWindow: boolean,
 ): OpenPlan {
   const session = request.sessions.find((candidate) => candidate.sessionId === request.sessionId);
+
+  const historical = request.historicalSession;
+  if ((!session || session.finished) && historical?.sessionId === request.sessionId) {
+    if (!(historical.agent in placements)) return { refusal: 'other-agent', message: `This editor cannot resume ${historical.agent} sessions.` };
+    if (!request.extensionReady) return { refusal: 'no-extension', message: 'Install or enable the Claude Code extension to resume this session.' };
+    const here = request.workspaceRoot !== null && dirKey(request.workspaceRoot) === dirKey(historical.cwd);
+    if (!here && !mayOpenWindow) return { refusal: 'elsewhere-not-allowed', message: `Resuming this session needs a window on ${historical.cwd}. Allow other windows to continue.` };
+    const base = { session: historical, root: historical.cwd, expiresAt: request.now + 30_000 };
+    if (here) return { route: 'resume-here', ...base };
+    const matching = request.liveWindows?.filter((w) => w.folders.some((f) => dirKey(f) === dirKey(historical.cwd))) ?? [];
+    return { route: 'resume-elsewhere', ...base, newWindow: matching.length === 0 || matching.some((w) => w.folders.length !== 1) };
+  }
 
   if (!session) {
     return {
@@ -159,10 +173,17 @@ export function planOpen(
  * A session that started while an open was in flight. Revealing creates nothing, so anything new is evidence of a
  * miss: the URI follows the focused window, and a window that took focus first gets a fresh agent (§7).
  */
-export function strayFrom(before: readonly Session[], after: readonly Session[]): Session | null {
+export function strayFrom(before: readonly Session[], after: readonly Session[], expectedSessionId?: string): Session | null {
   const had = new Set(before.map((session) => session.sessionId));
 
-  return after.find((session) => !had.has(session.sessionId)) ?? null;
+  return after.find((session) => session.sessionId !== expectedSessionId && !had.has(session.sessionId)) ?? null;
+}
+
+/** A resume may create a process only after a complete read proves that nobody already holds this session. */
+export function resumeRefusal(sessionId: string, roster: readonly Session[] | null): string | null {
+  if (roster === null) return 'Could not verify whether this session is active. Refresh the board and try again.';
+  if (roster.some((s) => s.sessionId === sessionId && !s.finished)) return 'This session is now active. Refresh the board to go to its existing session.';
+  return null;
 }
 
 /**
@@ -170,7 +191,7 @@ export function strayFrom(before: readonly Session[], after: readonly Session[])
  * because which window holds it is read at the click rather than at the render.
  */
 export function openableSessions(
-  sessions: readonly Session[],
+  sessions: readonly Pick<Session, 'agent' | 'sessionId'>[],
   placements: Readonly<Record<string, AgentPlacement>>,
 ): string[] {
   return sessions.filter((session) => session.agent in placements).map((session) => session.sessionId);

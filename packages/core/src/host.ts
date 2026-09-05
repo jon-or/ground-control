@@ -1,5 +1,5 @@
 import type { MachineReaders } from './machine.js';
-import type { ReadFailure, Session } from './types.js';
+import type { HistoricalSession, ReadFailure, Session } from './types.js';
 
 /** One window of a host application, with the roots it has open. The host adapter decides what else a window carries. */
 export interface HostWindow {
@@ -26,6 +26,10 @@ export type OpenRefusal =
   | 'settling'
   | 'window-closed'
   | 'unnamed-window'
+  | 'history-unavailable'
+  | 'sessions-unreadable'
+  | 'resume-pending'
+  | 'card-active'
   | 'elsewhere-not-allowed';
 
 /**
@@ -33,6 +37,8 @@ export type OpenRefusal =
  * the whole of what can be done is bringing its window forward and saying which session is in it.
  */
 export type OpenRoute =
+  | { route: 'resume-here'; session: HistoricalSession; root: string; expiresAt: number }
+  | { route: 'resume-elsewhere'; session: HistoricalSession; root: string; expiresAt: number; newWindow: boolean }
   | { route: 'reveal-here'; session: Session; root: string }
   | { route: 'reveal-elsewhere'; session: Session; root: string }
   | { route: 'sidebar-here'; session: Session; root: string }
@@ -43,6 +49,8 @@ export type OpenRoute =
 export interface OpenRequest {
   sessionId: string;
   sessions: readonly Session[];
+  /** Saved metadata re-read and validated by the agent on this click. A live session of the same id takes precedence. */
+  historicalSession?: HistoricalSession;
   /** Which surface holds each session, from every window's own persisted state (`docs/mechanics.md` §21). */
   surfaces: readonly SessionSurface[];
   /**
@@ -52,6 +60,8 @@ export interface OpenRequest {
   window: HostWindow | null;
   /** Folders a live window has open. The fallback for confirming a recorded root when the join names no window. */
   liveRoots: readonly string[];
+  /** Full folder sets are needed to distinguish a standalone resume directory from a multi-root workspace. */
+  liveWindows?: readonly HostWindow[];
   /** The board window's own root, chosen as a recorded one is: its workspace file where it has one, else its folder. */
   workspaceRoot: string | null;
   /** Whether the agent's own extension is available in the host to perform a reveal. */
@@ -89,7 +99,7 @@ export interface HostAdapter {
   /** A route to the session, or a named refusal with its remedy. Pure, and judged against this host's own settings. */
   plan(request: OpenRequest): OpenPlan;
   /** Which of these sessions this host offers to open. Another host's answer is its own (R14). */
-  openable(sessions: readonly Session[]): string[];
+  openable(sessions: readonly Session[], history?: readonly HistoricalSession[]): string[];
   /**
    * Routes only a client resident in the host can perform, named so the hub forwards them rather than attempting
    * them. A host whose every route is resident performs none itself, and omits `open`.

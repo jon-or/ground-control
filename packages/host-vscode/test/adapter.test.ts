@@ -82,6 +82,7 @@ describe('what it reads the machine for', () => {
     mtime: () => null,
     listDir: () => null,
     readTail: () => null,
+  readHead: () => null,
     home: '/nowhere/home',
   };
 

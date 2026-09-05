@@ -1,11 +1,12 @@
 import { assignLanes, mergeBoard, nextMemory, withPlacement } from '@ground-control/board';
-import { diskReaders, fetchSessions, parseHubConfig, rosterIsStale, unreportedSessions } from '@ground-control/core';
+import { compilePattern, diskReaders, fetchSessions, fetchSessionHistory, parseHubConfig, rosterIsStale, unreportedSessions } from '@ground-control/core';
 import type {
   ActivityChange,
   Client,
   ClientHello,
   ClientMessage,
   HostAdapter,
+  HistoricalSession,
   HubConfig,
   HubMessage,
   LaneId,
@@ -140,6 +141,9 @@ export class Hub {
   /** Each source keeps its last good read and its last failure, so one failing never blanks the other (R24). */
   readonly #readings = new Map<string, SourceReading>();
   #sessions: SessionsSnapshot | undefined;
+  #history: HistoricalSession[] = [];
+  #historyFailures: ReadFailure[] = [];
+  readonly #resuming = new Map<string, number>();
   #sourcesInFlight: Promise<void> | undefined;
   #sessionsInFlight: Promise<void> | undefined;
   #lastReadAt = 0;
@@ -273,6 +277,12 @@ export class Hub {
     const before = this.#config;
 
     this.#config = parsed.config;
+    const sessionsChanged = !same(before.agents, parsed.config.agents) || before.branchIssuePattern !== parsed.config.branchIssuePattern;
+    if (sessionsChanged) {
+      this.#sessions = undefined;
+      this.#history = [];
+      this.#historyFailures = [];
+    }
     this.#configFailures = this.#applyConfig();
     this.#stored = null;
 
@@ -306,7 +316,13 @@ export class Hub {
     this.#broadcast();
     // Read now only where the settings a source reads with moved, so the cards on screen answer to them. Every
     // client restates its configuration on connect, and reading for each of those is a read per board that opens.
-    void this.refresh(same(before.sources, parsed.config.sources) ? 'visible' : 'settings');
+    const reason = same(before.sources, parsed.config.sources) ? 'visible' : 'settings';
+    if (sessionsChanged) {
+      void this.#refreshSources(reason);
+      void this.#refreshSessions(true);
+    } else {
+      void this.refresh(reason);
+    }
 
     return resynced;
   }
@@ -396,10 +412,10 @@ export class Hub {
    * The live roster, read now. The one way anything on this machine reads sessions: a client that spawned the CLI
    * itself would be a second reader of the same machine, which is the thing this process exists to stop.
    */
-  async roster(): Promise<readonly Session[]> {
-    await this.#refreshSessions();
+  async roster(): Promise<readonly Session[] | null> {
+    await this.#refreshSessions(true);
 
-    return this.#sessions?.sessions ?? [];
+    return this.#sessions && this.#sessions.failures.length === 0 ? this.#sessions.sessions : null;
   }
 
   /** Reads both sources, each on the floor its own cost earns. */
@@ -524,6 +540,8 @@ export class Hub {
 
   async #readSessions(): Promise<void> {
     const readers = this.#readers();
+    const config = { agents: this.#config.agents, branchIssuePattern: this.#config.branchIssuePattern };
+    const current = () => !this.#disposed && same(config, { agents: this.#config.agents, branchIssuePattern: this.#config.branchIssuePattern });
 
     // Off the click path on purpose: what an open needs costs the best part of a second cold and almost nothing
     // once read, and none of it changes on the developer's click.
@@ -532,19 +550,33 @@ export class Hub {
     }
 
     const snapshot = await fetchSessions(
-      { agents: this.#config.agents, branchIssuePattern: this.#config.branchIssuePattern },
+      config,
       this.#deps.registries.agents,
       readers,
     );
 
-    if (this.#disposed) {
+    if (!current()) {
       return;
     }
 
     // Always a snapshot: one CLI being unreadable contributes a failure and no sessions, and must not discard the
     // rest. The activity is re-read as it lands, because a poll that began before an event carries the older phase.
+    const liveIds = new Set(snapshot.sessions.filter((s) => !s.finished).map((s) => `${s.agent}:${s.sessionId}`));
+    const endedIssues = new Set(this.#sessions?.sessions.filter((s) => !s.finished && !liveIds.has(`${s.agent}:${s.sessionId}`)).map((s) => s.issueNumber));
     this.#sessions = { ...snapshot, sessions: snapshot.sessions.map((session) => this.#withActivity(session)) };
     this.#sessionsUnreadable = snapshot.sessions.length === 0 && snapshot.failures.length > 0;
+    // Stable cards keep their rows while history refreshes. A just-ended attempt needs a fresh history read,
+    // otherwise the older attempt would briefly appear in its place.
+    this.#history = snapshot.failures.length > 0 ? [] : this.#history.filter((s) => !endedIssues.has(s.issueNumber));
+    this.#historyFailures = [];
+
+    // Publish live rows even if history is slow or fails. An incomplete roster cannot establish inactivity.
+    this.#broadcast();
+    if (snapshot.failures.length > 0) return;
+    const history = await fetchSessionHistory(config, this.#deps.registries.agents, readers);
+    if (!current()) return;
+    this.#history = history.sessions;
+    this.#historyFailures = history.failures;
 
     this.#broadcast();
   }
@@ -634,8 +666,40 @@ export class Hub {
       return;
     }
 
+    const wasHistorical = this.#history.some((s) => s.sessionId === sessionId);
+    // A card can have been drawn before this session resumed elsewhere. Never resume from a cached roster.
+    await this.#refreshSessions(true);
+    if (this.#disposed) return;
     const sessions = this.#sessions?.sessions ?? [];
+    const live = sessions.find((s) => s.sessionId === sessionId && !s.finished);
+    const historical = live ? undefined : this.#history.find((s) => s.sessionId === sessionId);
+    if (!live && wasHistorical && (this.#sessions?.failures.length ?? 1) > 0) {
+      client.send({ type: 'notice', level: 'warning', refusal: 'sessions-unreadable', message: 'Could not verify whether this session is active. Refresh the board and try again.' });
+      return;
+    }
     const readers = this.#readers();
+    let resumeLease: number | undefined;
+    if (historical) {
+      const now = this.#deps.clock.now();
+      for (const [id, until] of this.#resuming) if (until <= now) this.#resuming.delete(id);
+      if (this.#resuming.has(sessionId)) {
+        client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'This session is already being opened. Give its tab a moment to appear.' });
+        return;
+      }
+      const agent = this.#deps.registries.agents.find((a) => a.id === historical.agent);
+      const { pattern } = compilePattern(this.#config.branchIssuePattern);
+      if (!agent?.canResume?.(historical, { ...readers, pattern })) {
+        client.send({ type: 'notice', level: 'warning', refusal: 'history-unavailable', message: 'The saved transcript or its working directory is no longer available. Refresh the board.' });
+        return;
+      }
+      if (historical.issueNumber !== null && sessions.some((s) => !s.finished && s.issueNumber === historical.issueNumber)) {
+        client.send({ type: 'notice', level: 'warning', refusal: 'card-active', message: 'This card now has an active session. Refresh the board to open it.' });
+        return;
+      }
+      // Reserve before window discovery yields: two editor clients may click the same saved session together.
+      resumeLease = now + 60_000;
+      this.#resuming.set(sessionId, resumeLease);
+    }
     const [windows, surfaces] = await Promise.all([
       host.windows(
         sessions.find((session) => session.sessionId === sessionId),
@@ -644,24 +708,44 @@ export class Hub {
       host.surfaces(readers),
     ]);
 
+    // A slow window lookup must not borrow or release a later click's reservation.
+    if (resumeLease !== undefined && this.#resuming.get(sessionId) !== resumeLease) return;
+    if (resumeLease !== undefined && this.#deps.clock.now() >= resumeLease - 30_000) {
+      this.#resuming.delete(sessionId);
+      client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'This resume request expired while locating its window. Refresh the board and try again.' });
+      return;
+    }
+
     const plan = host.plan({
       sessionId,
       sessions,
+      ...(historical ? { historicalSession: historical } : {}),
       surfaces,
       window: windows.holding,
       liveRoots: windows.live.flatMap((window) => window.folders),
+      liveWindows: windows.live,
       workspaceRoot: client.hello.workspaceRoot,
       extensionReady,
       now: this.#deps.clock.now(),
     });
 
     if ('refusal' in plan) {
+      if (historical) this.#resuming.delete(sessionId);
       client.send({ type: 'notice', level: 'warning', message: plan.message, refusal: plan.refusal });
 
       return;
     }
 
     if (host.residentRoutes.includes(plan.route)) {
+      if (!client.hello.residentRoutes.includes(plan.route)) {
+        if (historical) this.#resuming.delete(sessionId);
+        client.send({ type: 'notice', level: 'warning', message: 'Reload this editor to enable opening historical sessions.' });
+        return;
+      }
+      if (plan.route === 'resume-here' || plan.route === 'resume-elsewhere') {
+        // The fire deadline precedes lease expiry, leaving time for the new process to register before another click.
+        plan.expiresAt = Math.min(plan.expiresAt, resumeLease! - 30_000);
+      }
       client.send({ type: 'perform', route: plan });
 
       return;
@@ -683,7 +767,7 @@ export class Hub {
    */
   snapshot(): Snapshot {
     const activity = this.#ensureActivity();
-    const failures: ReadFailure[] = [...this.#configFailures];
+    const failures: ReadFailure[] = [...this.#configFailures, ...this.#historyFailures];
 
     // A stored configuration this hub would not run on. Said rather than swallowed: silently falling back to
     // defaults is how a board comes to report itself unconfigured with the developer's settings sitting on disk.
@@ -708,7 +792,7 @@ export class Hub {
     const memory = this.#memory();
     const items = this.#items();
     const lanes = assignLanes(
-      mergeBoard(items?.cards ?? [], this.#sessions?.sessions ?? []),
+      mergeBoard(items?.cards ?? [], this.#sessions?.sessions ?? [], this.#history),
       {
         boardStatuses: this.#config.boardStatuses,
         statusLanes: this.#config.statusLanes,
@@ -843,7 +927,11 @@ export class Hub {
       type,
       snapshot: {
         ...base,
-        openable: this.#hostFor(client.hello)?.openable(this.#sessions?.sessions ?? []) ?? [],
+        openable: this.#hostFor(client.hello)?.openable(
+          this.#sessions?.sessions ?? [],
+          base.lanes.flatMap((l) => l.cards).flatMap((c) => c.lastSession ?? []).filter((s) =>
+            this.#deps.registries.agents.some((a) => a.id === s.agent && a.canResume !== undefined)),
+        ) ?? [],
         hooks: this.#noticeFor(id),
       },
     } as HubMessage);

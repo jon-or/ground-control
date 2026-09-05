@@ -54,6 +54,8 @@ interface AgentAdapter {
   readonly defaultEnabled: boolean;
   /** Every live session this CLI reports. Never throws; a failure comes back classified. */
   listSessions(path: string, deps: MachineDeps): Promise<{ sessions: Session[]; failure: ReadFailure | null }>;
+  listHistory?(deps: MachineDeps): Promise<HistoryReading>;
+  canResume?(session: HistoricalSession, deps: MachineDeps): boolean;
   /** The phase signal this CLI offers, or absent when it has none. */
   readonly activity?: ActivitySignal;
 }
@@ -72,11 +74,23 @@ interface ActivitySignal {
 }
 ```
 
-`MachineDeps` is the hub's view of the machine handed to every adapter: the `MachineReaders` (`readText`, `mtime`, `listDir`, `readTail`, `home`) plus the compiled branch pattern. `fetchSessions(config, adapters, readers)` in `core` compiles the pattern and fans out to the adapters named in the configuration; an unknown id is a named failure. An adapter never touches `node:fs` directly, which is what makes it testable against recorded reads.
+`MachineDeps` is the hub's view of the machine handed to every adapter: the `MachineReaders` (`readText`, `mtime`, `listDir`, `readHead`, `readTail`, `home`) plus the compiled branch pattern. `fetchSessions(config, adapters, readers)` in `core` compiles the pattern and fans out to the adapters named in the configuration; an unknown id is a named failure. An adapter never touches `node:fs` directly, which is what makes it testable against recorded reads.
 
 `activity` is optional because the signal is the least portable part of an agent. Claude's is a hook script writing a marker per session (`mechanics.md` §20); another CLI may offer a status file, a socket, or nothing. An adapter with no signal produces sessions with `activity: null`, which the board already renders as no phase (R24).
 
 `Session` is neutral. It carries what every board needs to place and label a card: `agent`, `sessionId`, `pid`, `title`, `cwd`, `branch`, `issueNumber`, `startedAt`, `transcriptWrittenAt`, `activity`, and `finished`, the agent's own word that the session ended, which the lane rules read and never infer. Anything only one CLI reports goes in `details: Record<string, string>` for display, absent rather than null where the CLI said nothing. The board reads four keys where present: `name` and `shortId` in the label ladder after `title` (R11), and `state` or `status` as the CLI's own word when no phase is reported (R24). A field like Claude's background-session `status` never becomes a column every adapter has to fake, and `finished` is the only word promoted out of the bag, because a lane decision may not rest on one agent's vocabulary.
+
+### Historical sessions
+
+An agent may implement `listHistory(MachineDeps)` alongside its live roster. `HistoricalSession` carries saved title, cwd, branch, issue number, canonical repository identity, and transcript modification time; it carries no pid, activity phase, or finished claim. `fetchSessionHistory` keeps history failures separate from roster failures. The hub reads history only after a complete successful roster read and serializes both reads, discarding results for replaced agent or pattern settings.
+
+Claude scans parent transcript files under the injected home's `.claude/projects`, reading at most 64 KiB from each end. Parsed metadata is cached by absolute path and mtime. Every roster refresh discovers additions and deletions, including marker-triggered session transitions, visible-board refreshes, the session cadence, and manual refresh. Phase-only events do not scan history. The reader yields between projects, and unchanged files cost stats rather than repeated parsing; repository identity and issue-pattern matching are recomputed each scan. Incomplete filesystem reads report a history failure and publish no fallback. Missing metadata is skipped. The injected readers keep temporary-home tests isolated without process-global SDK settings.
+
+`mergeBoard` excludes active `(agent, sessionId)` identities from history, deduplicates saved copies by newest modification time, then chooses one historical session for each existing issue card with no active sessions. Saved branches and directory names provide issue numbers; the checkout's origin remote (following worktree `commondir`) must match the issue URL's repository. Unknown remotes do not match. Ties use agent and session ID. An optional `lastSession` field carries this to both renderers, preserving older cached snapshots which omit it. It never enters live counts, activity processing, or lane decisions. The host includes supported historical IDs in `openable`; both boards send the same ID-only opening request for a reveal or resume. Stable historical rows remain visible during successful refreshes; just-ended sessions wait for fresh history, and unreadable rosters clear history immediately.
+
+Historical opening refreshes the roster/history, then asks the agent's `canResume` to verify that the saved directory and transcript remain readable. The host receives validated `historicalSession` metadata alongside the live roster, and chooses `resume-here` or `resume-elsewhere` only if the session is still inactive. A standalone window on the saved directory may be reused; missing or multi-root targets use an explicit new window. The editor uses its own `out/cli.js` through `Code.exe` in Node mode, with argument arrays rather than shell interpolation.
+
+The hub reserves historical resumes across clients before asynchronous window discovery. Each request retains ownership of its reservation; an old lookup cannot use or delete a newer click's reservation. Routes have a 30-second fire deadline within a 60-second reservation. The resident checks that deadline after its final fresh roster read, immediately before opening. Fresh roster requests queue behind in-flight reads instead of reusing a pre-history roster, and return null on incomplete reads. Landing verification recognizes the requested session's new process as expected. The reservation leaves time for it to register before another click may resume it.
 
 ### Host adapter
 
@@ -96,7 +110,7 @@ interface HostAdapter {
   /** A route to the session, or a named refusal with its remedy. Pure, and judged against this host's own settings. */
   plan(request: OpenRequest): OpenPlan;
   /** Which of these sessions this host offers to open. Another host's answer is its own (R14). */
-  openable(sessions: readonly Session[]): string[];
+  openable(sessions: readonly Session[], history?: readonly HistoricalSession[]): string[];
   /** Routes only a client resident in the host can perform, named so the hub can forward them. */
   readonly residentRoutes: readonly OpenRoute['route'][];
   /** Routes this adapter can perform from a headless process. Absent where every route is resident. */

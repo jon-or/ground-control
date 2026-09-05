@@ -10,6 +10,19 @@ export interface SessionsConfig {
   branchIssuePattern: string;
 }
 
+/** Saved work, separate from the live roster: no process, phase, or claim that the work completed. */
+export interface HistoricalSession {
+  agent: string;
+  sessionId: string;
+  title: string | null;
+  cwd: string;
+  branch: string | null;
+  issueNumber: number | null;
+  /** Canonical remote identity (host/owner/repository), or null when the checkout cannot establish it. */
+  repository: string | null;
+  updatedAt: number;
+}
+
 export type ActivityPhase = 'running' | 'waiting' | 'idle';
 
 /**

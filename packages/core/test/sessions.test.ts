@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentAdapter, AgentReading } from '../src/agent.js';
-import { fetchSessions } from '../src/sessions.js';
+import { fetchSessions, fetchSessionHistory } from '../src/sessions.js';
 import type { MachineDeps, MachineReaders } from '../src/machine.js';
 import type { Session, SessionsConfig } from '../src/types.js';
 import { HOME, gitReads } from './helpers.js';
@@ -26,6 +26,7 @@ const readers: MachineReaders = {
   mtime: () => null,
   listDir: () => null,
   readTail: () => null,
+  readHead: () => null,
   home: HOME,
 };
 
@@ -150,5 +151,16 @@ describe('fetchSessions', () => {
 
     expect(snapshot.sessions).toHaveLength(1);
     expect(snapshot.failures).toHaveLength(1);
+  });
+});
+
+
+describe('history fan-out', () => {
+  it('keeps an absent capability empty and catches a history reader failure independently of liveness', async () => {
+    expect(await fetchSessionHistory(config(), [adapter('fake')], readers)).toEqual({ sessions: [], failures: [] });
+    const fake = adapter('fake');
+    fake.listHistory = async () => { throw new Error('unreadable'); };
+    expect((await fetchSessionHistory(config(), [fake], readers)).failures[0]?.kind).toBe('history-failed');
+    expect((await fetchSessions(config(), [fake], readers)).failures).toEqual([]);
   });
 });

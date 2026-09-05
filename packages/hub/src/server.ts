@@ -14,7 +14,7 @@ export interface ServableHub {
   receive(client: Client, message: ClientMessage): void;
   snapshot(): Snapshot;
   /** A fresh read of the sessions on this machine. The resident half polls it while it carries out an open route. */
-  roster(): Promise<readonly Session[]>;
+  roster(): Promise<readonly Session[] | null>;
 }
 
 export interface ServerClock {

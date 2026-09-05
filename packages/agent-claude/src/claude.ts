@@ -13,6 +13,7 @@ import type {
 } from '@ground-control/core';
 import { claudeActivity } from './activity.js';
 import { readActivity } from './phase.js';
+import { makeHistoryReader } from './history.js';
 
 export const CLAUDE_AGENT_ID = 'claude';
 export const CLAUDE_DISPLAY_NAME = 'Claude Code';
@@ -229,6 +230,8 @@ export function makeClaudeAdapter(run: ExecJson = runJsonCli): AgentAdapter {
     defaultPath: 'claude',
     defaultEnabled: true,
     activity: claudeActivity,
+    listHistory: makeHistoryReader(),
+    canResume: (session, deps) => deps.listDir(session.cwd) !== null && findTranscript(deps.home, session.cwd, session.sessionId, deps) !== null,
 
     /**
      * `--all` is deliberately not passed: it also returns exited background sessions, and R2 asks for the active

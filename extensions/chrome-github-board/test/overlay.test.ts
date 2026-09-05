@@ -1101,3 +1101,41 @@ describe('going to a session from the browser', () => {
     expect(onCard).not.toHaveBeenCalled();
   });
 });
+
+
+describe('historical session rows', () => {
+  const lastSession = { agent: 'claude', sessionId: SESSION_ID, title: 'Past attempt', cwd: '/work/4501-test', branch: '4501-test', issueNumber: 4501, repository: 'github.com/example-org/example-repo', updatedAt: NOW - 60000 };
+  const show = (entry: LanedCard) => paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
+  it('renders an inert history row when not offered by the host, and updates its age', () => {
+    show(card(4501, { sessions: [], lastSession }));
+    const row = document.querySelector<HTMLElement>('.gc-historical')!;
+    expect(row.tagName).toBe('SPAN'); expect(row.hasAttribute('href')).toBe(false);
+    expect(row.querySelector('a, button, [data-activity-since]')).toBeNull();
+    expect(row.dataset.phase).toBeUndefined(); expect(row.textContent).toContain('Last session · updated 1m ago');
+    row.click(); expect(actions.move).not.toHaveBeenCalled(); expect(actions.repaint).not.toHaveBeenCalled();
+    tickDurations(document, NOW + 60000);
+    expect(row.textContent).toContain('updated 2m ago');
+    show(card(4501, { lastSession })); expect(document.querySelector('.gc-historical')).toBeNull();
+    show(card(4501, { sessions: [], lastSession: { ...lastSession, title: 'Renamed' } }));
+    expect(document.querySelector('.gc-historical')?.textContent).toContain('Renamed');
+  });
+  it('handles cached payloads with absent or malformed history and falls back to the directory label', () => {
+    show(card(4501, { sessions: [] })); expect(document.querySelector('.gc-historical')).toBeNull();
+    show(card(4501, { sessions: [], lastSession: { ...lastSession, updatedAt: NaN } })); expect(document.querySelector('.gc-historical')).toBeNull();
+    show(card(4501, { sessions: [], lastSession: { ...lastSession, agent: 'other', title: null } }));
+    expect(document.querySelector('.gc-historical')?.textContent).toContain('4501-test');
+  });
+});
+
+
+it('links historical rows through the same VS Code handler without opening the GitHub card', () => {
+  const lastSession = { agent: 'claude', sessionId: SESSION_ID, title: 'Past attempt', cwd: '/work/4501-test', branch: '4501-test', issueNumber: 4501, repository: 'github.com/example-org/example-repo', updatedAt: NOW - 60000 };
+  const entry = card(4501, { sessions: [], lastSession });
+  paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [SESSION_ID] }) }), NOW, actions);
+  const link = document.querySelector<HTMLAnchorElement>('a.gc-historical')!;
+  expect(link.href).toBe(`vscode://ownerrez.ground-control/open?session=${SESSION_ID}`);
+  expect(link.draggable).toBe(false); expect(link.title).toContain('Resume this session');
+  const parentClick = vi.fn(); link.parentElement!.addEventListener('click', parentClick);
+  link.addEventListener('click', (event) => event.preventDefault()); link.click();
+  expect(parentClick).not.toHaveBeenCalled();
+});

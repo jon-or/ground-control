@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { diskReaders, listDirFromDisk, mtimeFromDisk, readTailFromDisk, readTextFromDisk } from '../src/machine.js';
+import { diskReaders, readHeadFromDisk, listDirFromDisk, mtimeFromDisk, readTailFromDisk, readTextFromDisk } from '../src/machine.js';
 import { join as joinForward } from '../src/paths.js';
 
 // This package's own directory, which has the two shapes the readers must tell apart.
@@ -88,4 +88,10 @@ describe('diskReaders', () => {
   it('defaults the home to the machine own', () => {
     expect(diskReaders().home.length).toBeGreaterThan(0);
   });
+});
+
+
+it('reads a bounded head independently of the tail', () => {
+  expect(readHeadFromDisk(manifest, 17)).toBe(readFileSync(manifest).subarray(0, 17).toString());
+  expect(diskReaders().readHead).toBe(readHeadFromDisk);
 });

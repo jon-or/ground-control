@@ -1,4 +1,5 @@
-import { dirKey } from '@ground-control/core';
+import { dirKey, repositoryKey } from '@ground-control/core';
+import type { HistoricalSession } from '@ground-control/core';
 import type { BoardCard, IssueCard, Session } from './types.js';
 
 /** Sessions bucketed by whatever they have in common, each bucket newest first. */
@@ -27,7 +28,7 @@ function groupSessions<K>(sessions: Session[], keyOf: (session: Session) => K): 
  * Every issue and every session on one board. Issue order is the order they were read; cards for issues the
  * developer does not own, then sessions with no issue, follow. Every session lands on exactly one card.
  */
-export function mergeBoard(issues: IssueCard[], sessions: Session[]): BoardCard[] {
+export function mergeBoard(issues: IssueCard[], sessions: Session[], history: readonly HistoricalSession[] = []): BoardCard[] {
   const linked = groupSessions(
     sessions.filter((session) => session.issueNumber !== null),
     (session) => session.issueNumber as number,
@@ -47,6 +48,26 @@ export function mergeBoard(issues: IssueCard[], sessions: Session[]): BoardCard[
     issueNumber: issue.number,
     sessions: linked.get(issue.number) ?? [],
   }));
+
+  const liveIds = new Set(sessions.filter((s) => !s.finished).map((s) => `${s.agent}:${s.sessionId}`));
+  const seenHistory = new Set<string>();
+  const newest = [...history].filter((s) => !liveIds.has(`${s.agent}:${s.sessionId}`)).sort(
+    (a, b) => b.updatedAt - a.updatedAt || `${a.agent}:${a.sessionId}`.localeCompare(`${b.agent}:${b.sessionId}`),
+  ).filter((s) => {
+    const key = `${s.agent}:${s.sessionId}`;
+    if (seenHistory.has(key)) return false;
+    seenHistory.add(key);
+    return true;
+  });
+  for (const card of cards) {
+    if (card.sessions.some((s) => !s.finished)) continue;
+    const repo = repositoryKey(card.issue!.url);
+    const last = newest.find((s) => s.issueNumber === card.issueNumber && s.repository !== null && s.repository === repo);
+    if (last) {
+      card.lastSession = last;
+      card.sessions = [];
+    }
+  }
 
   for (const [issueNumber, group] of linked) {
     if (!onBoard.has(issueNumber)) {

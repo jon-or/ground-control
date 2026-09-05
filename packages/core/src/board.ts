@@ -1,5 +1,5 @@
 import type { IssueCard } from './cards.js';
-import type { Session } from './types.js';
+import type { HistoricalSession, Session } from './types.js';
 
 export type LaneId = 'unstarted' | 'plan' | 'build' | 'review' | 'done' | 'icebox' | 'archived';
 
@@ -25,6 +25,8 @@ export interface BoardCard {
   issue: IssueCard | null;
   issueNumber: number | null;
   sessions: Session[];
+  /** Present only on an issue card with no live sessions. Older snapshots omit it. */
+  lastSession?: HistoricalSession;
 }
 
 export type Attention = 'blocked' | 'your-turn';

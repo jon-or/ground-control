@@ -21,6 +21,7 @@ describe('the package public surface', () => {
       'processesFrom',
       'readWindowStores',
       'readWindows',
+      'resumeRefusal',
       'rootFrom',
       'sessionFromUri',
       'sidebarSession',

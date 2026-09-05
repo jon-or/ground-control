@@ -178,7 +178,7 @@
           "scope": "application",
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Whether opening a session may bring another VS Code window forward. A session is only reachable from the window showing it, so this is what lets the board cross windows — at the cost of moving your focus. The board never opens a window that is not already open: where no window holds the session, it says so. Off, a session held elsewhere is named and refused instead."
+          "markdownDescription": "Whether opening a session may bring another VS Code window forward or open a new one to resume a historical session. A session is only reachable from the window showing it, so this is what lets the board cross windows — at the cost of moving your focus. An active session requires its existing window. A historical session may open a new window on its saved directory. Off, a session held elsewhere is named and refused instead."
         }
       }
     }
