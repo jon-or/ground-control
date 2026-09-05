@@ -1,5 +1,5 @@
 {
-  // js-debug asks the debuggee to mirror network events whenever this is on, and Node's own reporting of them
-  // throws on this extension's event stream and aborts the extension host with it (`docs/mechanics.md` §28).
+  // js-debug asks a debuggee it launches to mirror network events. Narrows the exposure only: any connected
+  // inspector frontend enables the same reporting, and what made it fatal is fixed in the streams (`docs/mechanics.md` §28).
   "debug.javascript.enableNetworkView": false
 }

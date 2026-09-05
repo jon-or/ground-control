@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { IncomingMessage, createServer } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Client, ClientHello, ClientMessage, HubMessage, Session, Snapshot } from '@ground-control/core';
 import { createHubServer } from '../src/server.js';
@@ -140,6 +140,41 @@ async function until(what: () => boolean, why: string, within = 5000): Promise<v
     await new Promise((done) => setTimeout(done, 10));
   }
 }
+
+/**
+ * Node reports every response chunk to a connected inspector as `dataLength: chunk.byteLength`. A `Buffer` has one;
+ * a string does not — so a stream read with `setEncoding` makes the inspector throw once per chunk, and the event
+ * stream never ends, which aborts the extension host holding it (`docs/mechanics.md` §28). Nothing this package
+ * reads off a socket may be decoded by the stream itself.
+ */
+describe('how a client reads a socket', () => {
+  it('never decodes a response stream, on the event stream or on a read', async () => {
+    const { hub, server } = await serving();
+    const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
+    const decoded: string[] = [];
+    const original = IncomingMessage.prototype.setEncoding;
+
+    IncomingMessage.prototype.setEncoding = function patched(this: IncomingMessage, encoding) {
+      decoded.push(String(encoding));
+
+      return original.call(this, encoding);
+    };
+    shut.push(() => {
+      IncomingMessage.prototype.setEncoding = original;
+    });
+
+    const client = connecting('board-1', () => Promise.resolve(found as Ensured));
+
+    await until(() => hub.sends.size === 1, 'the hello never reached the hub');
+
+    hub.sends.get('board-1')!({ type: 'changed', snapshot: SNAPSHOT });
+
+    await until(() => client.inbox.length > 0, 'the hub sent a snapshot and the client never saw it');
+
+    expect(await client.transport.roster()).toEqual([SESSION]);
+    expect(decoded).toEqual([]);
+  });
+});
 
 describe('what a client does over the wire', () => {
   it('opens a stream, says hello, and takes what the hub sends', async () => {
