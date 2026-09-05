@@ -1,4 +1,5 @@
 import { request } from 'node:http';
+import { StringDecoder } from 'node:string_decoder';
 import type { ClientRequest } from 'node:http';
 import type { ClientHello, ClientMessage, HubMessage, Session } from '@ground-control/core';
 import type { HubRecord } from './discover.js';
@@ -159,11 +160,16 @@ export class HubTransport {
         this.#live = true;
         void this.#sayHello();
 
+        // A decoder rather than `setEncoding`: this stream is handed bytes, because a decoded chunk is a string
+        // and a string has no `byteLength` for Node's inspector to report — which throws once per chunk, and this
+        // stream never ends, so it throws until the extension host aborts (`mechanics.md` §28). The decoder still
+        // holds a split multi-byte character across chunks, which is what `setEncoding` was here for.
+        const decoder = new StringDecoder('utf8');
+
         let buffer = '';
 
-        response.setEncoding('utf8');
-        response.on('data', (chunk: string) => {
-          buffer += chunk;
+        response.on('data', (chunk: Buffer) => {
+          buffer += decoder.write(chunk);
 
           for (let cut = buffer.indexOf('\n\n'); cut !== -1; cut = buffer.indexOf('\n\n')) {
             this.#frame(buffer.slice(0, cut));
@@ -367,15 +373,14 @@ export class HubTransport {
           agent: false,
         },
         (response) => {
-          let body = '';
+          const chunks: Buffer[] = [];
 
-          response.setEncoding('utf8');
-          response.on('data', (chunk: string) => {
-            body += chunk;
+          response.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
           });
           response.on('end', () => {
             try {
-              done(response.statusCode === 200 ? JSON.parse(body) : null);
+              done(response.statusCode === 200 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : null);
             } catch {
               done(null);
             }

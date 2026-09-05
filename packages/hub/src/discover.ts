@@ -109,17 +109,21 @@ function call(
     // Never a pooled socket, the rule every request this package makes follows: the agent belongs to whatever
     // process the client runs in, and a hub probe must not queue behind whatever else that process is doing.
     const outbound = request({ host: '127.0.0.1', port, method, path, headers, agent: false }, (response) => {
-      let body = '';
+      const chunks: Buffer[] = [];
 
-      response.setEncoding('utf8');
-      response.on('data', (chunk: string) => {
-        body += chunk;
+      let size = 0;
 
-        if (body.length > ANSWER_LIMIT_BYTES) {
+      // Bytes, never `setEncoding`: a decoded chunk is a string, and a string has no `byteLength` for Node's
+      // inspector to report — which throws once per chunk and takes the extension host with it (`mechanics.md` §28).
+      response.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+        size += chunk.byteLength;
+
+        if (size > ANSWER_LIMIT_BYTES) {
           done('silent');
         }
       });
-      response.on('end', () => done({ status: response.statusCode ?? 0, body }));
+      response.on('end', () => done({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
     });
 
     function done(answer: Answer | Unanswered): void {

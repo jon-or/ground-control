@@ -1278,13 +1278,11 @@ Measured end to end, with the host registered under `HKCU\Software\Chromium\Nati
 
 So the overlay does not rely on it. `chrome.alarms` fires every minute; if a board tab is open and the native port is gone, the worker opens it again. A worker Chrome stopped is restarted by the next port message or the next alarm, and the state it needs across a restart — the last snapshot — is in `chrome.storage.session`. **Version-fragile**: re-verify after a Chrome upgrade.
 
-## 28. A debugged extension host aborts on this extension's event stream
+## 28. A decoded response stream aborts the extension host
 
-**Measured 2026-09-04, VS Code 1.136.1 with js-debug 1.117.0 on Windows 11, from the editor's own logs.**
+**Measured 2026-09-04, VS Code 1.136.1 on Windows 11, from the editor's own logs and Node v24's own source.**
 
-Pressing F5 often opens the Extension Development Host and then loses it. What the logs show is the extension host process aborting: `Extension host with pid 27856 exited with code: 134` and `crashed with code 134 and reason 'crashed'`, five times in ninety seconds. Code 134 is `SIGABRT` — the host does not exit, it dies.
-
-What precedes it, in the same window's `exthost.log` and immediately after `ExtensionService#_doActivateExtension ownerrez.ground-control`:
+The extension host dies rather than exits: `Extension host with pid 48708 exited with code: 134` and `crashed with code 134 and reason 'crashed'`. Code 134 is `SIGABRT`. It begins **65 ms after** `ExtensionService#_doActivateExtension ownerrez.ground-control` and repeats until the abort — 18,692 times in one window's `exthost.log`:
 
 ```
 TypeError: Missing dataLength in event
@@ -1293,11 +1291,21 @@ TypeError: Missing dataLength in event
     at IncomingMessage.<anonymous> (node:internal/inspector/network_http:140:13)
 ```
 
-That is Node's inspector reporting HTTP traffic to the debugger's Network view, and it throws on every response it sees: 570 of them in one window's log. `node:internal/inspector/network_http` only instruments while a debugger has the network domain enabled, which is why this happens under F5 and never in an installed extension. This extension is the one that makes the traffic — the transport's `/events` stream and its POSTs are the only HTTP the extension host does — so it is the one that hits the bug.
+**The cause is ours.** `internal/inspector/network_http` reports every response chunk to a connected inspector frontend:
 
-What turns it on is the debugger, not a flag on the runtime: js-debug sends the debuggee an `enableNetworking` request as each session starts, and only when `debug.javascript.enableNetworkView` is on — which it is by default. That request is a CDP `Network.enable`, and Node instruments `http` the moment it arrives. `.vscode/settings.json` turns the setting off for this workspace, so the request is never sent. The launch attribute named for this, `experimentalNetworking`, is not the lever: it only adds `--experimental-network-inspection` to a launched Node's arguments, and the `extensionHost` debug type does not accept it.
+```js
+EventEmitter.prototype.on.call(response, 'data', (chunk) => {
+  Network.dataReceived({ requestId, timestamp, dataLength: chunk.byteLength, encodedDataLength: chunk.byteLength, data: chunk });
+});
+```
 
-**Version-fragile**: a Node or js-debug upgrade may fix the throw, at which point the setting is only a Network view nobody here uses.
+A `Buffer` has `byteLength`; a **string does not**. `response.setEncoding('utf8')` hands that listener strings, so `dataLength` is `undefined` and the frontend broadcast throws — once per chunk. The event stream this extension holds never ends, so it throws until the host aborts. The throw is invisible to the code doing the reading: the request succeeds and the body arrives.
+
+So nothing this project reads off an HTTP response may be decoded by the stream. Bytes are collected and decoded once at the end, or through a `StringDecoder` fed `Buffer`s where a stream has to be read as it arrives — which is what holds a multi-byte character split across two chunks, the reason `setEncoding` was there. `packages/hub/test/transport.test.ts` asserts the rule by patching `IncomingMessage.prototype.setEncoding` and requiring it is never called.
+
+**It needs a connected frontend, not a debug session.** The windows this was measured in activated the extension from a webview panel, with no `extensionDevelopmentPath` and no js-debug extension activated. `debug.javascript.enableNetworkView` decides whether js-debug asks a debuggee it launches for network events; it does not decide whether some other frontend has the domain enabled, so turning it off narrows the exposure rather than removing it. With the streams reading bytes, neither matters.
+
+**Version-fragile**: this rests on `chunk.byteLength` in Node's instrumentation, which a Node upgrade may make tolerant of strings. The rule stands anyway — the reading code has no way to observe the throw.
 
 ## 29. `vscode://` is one registration per user, and the test build holds it
 
