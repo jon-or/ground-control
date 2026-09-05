@@ -44,3 +44,8 @@ export function exitPathOf(home: string): string {
 export function bundlePathOf(home: string): string {
   return `${groundControlDirOf(home)}/hub.js`;
 }
+
+/** What the board has read about each card. One record per machine, the way lane placement is (R38). */
+export function triagePathOf(home: string): string {
+  return `${groundControlDirOf(home)}/triage.json`;
+}

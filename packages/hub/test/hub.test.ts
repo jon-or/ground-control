@@ -7,6 +7,7 @@ import type { ActivityState } from '../src/activityInstall.js';
 import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
+import { makeTriageStore } from '../src/triageStore.js';
 import { makeSettingsStore } from '../src/settings.js';
 import type { StoredConfig } from '../src/settings.js';
 import { makeMarkStore } from '../src/marks.js';
@@ -158,6 +159,7 @@ function harness(
     registries,
     lanes: makeLaneStore(home),
     marks: makeMarkStore(home),
+    triage: makeTriageStore(home),
     // A hub built over a store that already holds a configuration is the browser-started case: nobody is here to
     // push one, and the developer set theirs in an editor that is not open.
     settings: {

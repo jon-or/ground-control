@@ -1,4 +1,4 @@
-import { assignLanes, mergeBoard, nextMemory, withPlacement } from '@ground-control/board';
+import { assignLanes, mergeBoard, nextMemory, withPlacement, withTriage } from '@ground-control/board';
 import { compilePattern, diskReaders, fetchSessions, fetchSessionHistory, parseHubConfig, rosterIsStale, unreportedSessions } from '@ground-control/core';
 import type {
   ActivityChange,
@@ -24,6 +24,9 @@ import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } f
 import type { ActivityState } from './activityInstall.js';
 import { read } from './fs.js';
 import type { LaneStore } from './lanes.js';
+import { TriageRunner } from './triage.js';
+import { makeTriageStore } from './triageStore.js';
+import type { TriageStore } from './triageStore.js';
 import { afterInstall, announce } from './marks.js';
 import type { MarkStore } from './marks.js';
 import type { SettingsStore } from './settings.js';
@@ -45,6 +48,8 @@ export interface HubDeps {
   registries: Registries;
   lanes: LaneStore;
   marks: MarkStore;
+  /** What the board has read about each card, kept beside the placements and read the same way (R38). */
+  triage: TriageStore;
   /** The configuration a client last pushed. A hub starts on it, because the browser has none of its own to give. */
   settings: SettingsStore;
   /** The activity install, which is also the thing a test replaces to keep its hands off any settings file. */
@@ -106,6 +111,7 @@ export function realHubDeps(
   settings: SettingsStore,
   home: string,
   watch: HubDeps['watch'],
+  triage: TriageStore = makeTriageStore(home),
 ): HubDeps {
   return {
     clock: REAL_CLOCK,
@@ -114,6 +120,7 @@ export function realHubDeps(
     registries,
     lanes,
     marks,
+    triage,
     settings,
     syncActivity: (regs, wanted, where) => syncActivity(regs.agents, wanted, where),
   };
@@ -157,6 +164,7 @@ export class Hub {
   #stored: ReadFailure | null = null;
   #installedAt = 0;
   #disposed = false;
+  readonly #triage: TriageRunner;
 
   constructor(deps: HubDeps) {
     this.#deps = deps;
@@ -171,6 +179,15 @@ export class Hub {
     // Applied here rather than as each client turns up: a second window connecting would otherwise overwrite what
     // the board is saying about the first one's settings, while the hub is still running on the older ones.
     this.#configFailures = this.#applyConfig();
+    this.#triage = new TriageRunner({
+      home: deps.home,
+      store: deps.triage,
+      agents: deps.registries.agents,
+      sources: deps.registries.sources,
+      now: () => deps.clock.now(),
+      changed: () => this.#broadcast(),
+    });
+    this.#triage.configure(this.#config.triage, this.#config.agents);
     pruneMarkers(deps.registries.agents, deps.home);
     this.#armWatchers();
   }
@@ -252,6 +269,17 @@ export class Hub {
         void this.#open(connected, message.sessionId, message.extensionReady);
 
         return;
+
+      case 'retriage': {
+        // The one message that spends money, so the key has to name a card on the board and the ask is rationed.
+        const refused = this.#triage.retriage(this.snapshot().lanes, message.key, this.#watched());
+
+        if (refused) {
+          connected.send({ type: 'notice', level: 'info', message: refused.message });
+        }
+
+        return;
+      }
     }
   }
 
@@ -329,6 +357,8 @@ export class Hub {
 
   /** Hands each host and each source its own entry. Every id the registries do not carry is named here (R25). */
   #applyConfig(): ReadFailure[] {
+    this.#triage?.configure(this.#config.triage, this.#config.agents);
+
     const refused = configureSources(this.#deps.registries, this.#config.sources);
 
     // A source this configuration does not name, and one whose settings it refused, both lose their last read here
@@ -549,7 +579,7 @@ export class Hub {
       host.prime(readers);
     }
 
-    const snapshot = await fetchSessions(
+    let snapshot = await fetchSessions(
       config,
       this.#deps.registries.agents,
       readers,
@@ -561,6 +591,15 @@ export class Hub {
 
     // Always a snapshot: one CLI being unreadable contributes a failure and no sessions, and must not discard the
     // rest. The activity is re-read as it lands, because a poll that began before an event carries the older phase.
+    // The board's own classifications, taken off before anything downstream counts or merges them. The adapter
+    // already drops them — a classification is listed in exactly the shape `neverPrompted` refuses — so this is what
+    // still holds if a flag ever stops doing what it says (R2's carve-out, `docs/mechanics.md` §31).
+    const ours = this.#triage.sessionIds();
+
+    if (ours.size > 0) {
+      snapshot = { ...snapshot, sessions: snapshot.sessions.filter((session) => !ours.has(session.sessionId)) };
+    }
+
     const liveIds = new Set(snapshot.sessions.filter((s) => !s.finished).map((s) => `${s.agent}:${s.sessionId}`));
     const endedIssues = new Set(this.#sessions?.sessions.filter((s) => !s.finished && !liveIds.has(`${s.agent}:${s.sessionId}`)).map((s) => s.issueNumber));
     this.#sessions = { ...snapshot, sessions: snapshot.sessions.map((session) => this.#withActivity(session)) };
@@ -789,9 +828,11 @@ export class Hub {
       failures.push({ ...failure, subject: 'sessions' });
     }
 
+    failures.push(...this.#triage.failures());
+
     const memory = this.#memory();
     const items = this.#items();
-    const lanes = assignLanes(
+    const laned = assignLanes(
       mergeBoard(items?.cards ?? [], this.#sessions?.sessions ?? [], this.#history),
       {
         boardStatuses: this.#config.boardStatuses,
@@ -801,6 +842,9 @@ export class Hub {
       },
       memory,
     );
+
+    // Attached after the lanes are settled, and it changes none of them: triage labels a card, it never places one.
+    const lanes = withTriage(laned, this.#deps.triage.read(), this.#triage.running());
 
     return {
       lanes,
@@ -824,7 +868,9 @@ export class Hub {
       // Filled in per client: what a board may open is the answer of the host it is running inside (R14).
       openable: [],
       hooks: null,
-      failures,
+      // Deduplicated by what failed and how: fifteen cards failing one logged-out CLI is one condition, and R25 says
+      // a condition belonging to the whole board is stated once above the lanes rather than fifteen times.
+      failures: distinct(failures),
       stale:
         this.#sourcesRefused.length > 0 ||
         [...this.#readings.values()].some((reading) => reading.failure) ||
@@ -945,14 +991,25 @@ export class Hub {
     const base = this.snapshot();
 
     this.#persist(base.lanes);
+    // After the placements are written, and never before: a reading that lands mid-pass must not race the record of
+    // where the cards were. `consider` starts work and returns, so the recursion through `changed` is one deep.
+    this.#triage.consider(base.lanes, this.#sourcesRead(), this.#watched());
 
     for (const id of [...this.#clients.keys()]) {
       this.#sendTo(id, 'changed', base);
     }
   }
 
+  /** Only a clean source read proves a card has left the board; a failed one re-renders the last good cards. */
+  #sourcesRead(): boolean {
+    const readings = [...this.#readings.values()];
+
+    return readings.length > 0 && readings.every((reading) => reading.failure === null && reading.items !== null);
+  }
+
   dispose(): void {
     this.#disposed = true;
+    this.#triage.dispose();
 
     while (this.#timers.length > 0) {
       this.#deps.clock.clearInterval(this.#timers.pop()!);
@@ -964,4 +1021,19 @@ export class Hub {
 
     this.#clients.clear();
   }
+}
+
+/** One entry per distinct condition. A cause that hit fifteen cards is one line above the lanes, not fifteen (R25). */
+function distinct(failures: readonly ReadFailure[]): ReadFailure[] {
+  const seen = new Map<string, ReadFailure>();
+
+  for (const failure of failures) {
+    const key = `${failure.subject}\u0000${failure.kind}`;
+
+    if (!seen.has(key)) {
+      seen.set(key, failure);
+    }
+  }
+
+  return [...seen.values()];
 }
