@@ -62,17 +62,9 @@ const PHASE_TITLES = {
 };
 
 /**
- * How each kind of attention reads on a card, matching the editor board word for word. `phase` is the session phase
- * whose rows the mark names, so the tooltip can say which session it means.
- *
- * @type {Record<string, { text: string, phase: string, said: string }>}
+ * Where a card's attention is written, so a scan that no longer finds one can take it off again. It is the card's
+ * own element that carries it, and the CSS above paints both the card and the session row the attention is about.
  */
-const ATTENTION = {
-  blocked: { text: 'Needs you', phase: 'waiting', said: 'is waiting on you.' },
-  'your-turn': { text: 'Your turn', phase: 'idle', said: 'finished its turn — you have not replied since.' },
-};
-
-/** Where a card's attention mark is written, so a scan that no longer finds one can take it off again. */
 const ATTENTION_ATTR = 'data-gc-attention';
 
 /**
@@ -94,30 +86,78 @@ ${COLUMN} { margin-right: -1px !important;
   background-position: left top, right top !important; background-size: 1px 100%, 1px 100% !important;
   background-image: linear-gradient(to bottom, var(--borderColor-default, #d0d7de), transparent),
     linear-gradient(to bottom, var(--borderColor-default, #d0d7de), transparent) !important; }
-.${BADGE_CLASS} { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin: 8px 0 -12px;
-  padding: 6px 8px; border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 0 0 5px 5px;
+.${BADGE_CLASS} { display: flex; flex-direction: column; align-items: stretch; gap: 1px; margin: 8px 0 -12px;
+  padding: 5px 6px 6px; border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 0 0 5px 5px;
   background: var(--bgColor-muted, #f6f8fa); }
-.${BADGE_CLASS} button, .${BADGE_CLASS} .gc-session {
+.${BADGE_CLASS} .gc-head { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 3px; }
+.${BADGE_CLASS} button {
   font: inherit; font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px;
   display: inline-flex; align-items: center; gap: 3px;
   border: 1px solid var(--borderColor-default, #d0d7de); background: var(--bgColor-default, #ffffff);
   color: var(--fgColor-default, #1f2328); cursor: pointer; }
-.${BADGE_CLASS} button:hover, .${BADGE_CLASS} a.gc-session:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
+.${BADGE_CLASS} button:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
+/* No box of its own: a row is a line of the card, and a border around each one turned the footer into a stack of chips. */
+.${BADGE_CLASS} .gc-session {
+  display: flex; box-sizing: border-box; width: 100%; align-items: center; gap: 5px;
+  font: inherit; font-size: 11px; line-height: 20px; padding: 0 6px 0 8px; border: 0; border-radius: 0;
+  background: none; color: var(--fgColor-default, #1f2328); cursor: pointer; }
 .${BADGE_CLASS} a.gc-session { text-decoration: none; }
+.${BADGE_CLASS} a.gc-session:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
 .${BADGE_CLASS} span.gc-session { cursor: default; }
-.${BADGE_CLASS} [data-phase="waiting"] { background: var(--bgColor-attention-muted, #fff8c5); }
-.${BADGE_CLASS} [data-phase="running"] { background: var(--bgColor-accent-muted, #ddf4ff); }
 .${BADGE_CLASS} svg { flex: none; }
-.gc-name { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-agent { flex: none; }
+.gc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-state { flex: none; white-space: nowrap; }
 .gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
 .gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
-  color: var(--fgColor-onEmphasis, #ffffff); background: var(--fgColor-muted, #59636e); }
-.gc-mark[data-mark="blocked"] { background: var(--bgColor-attention-emphasis, #bf8700); }
-.gc-mark[data-mark="your-turn"] { background: var(--bgColor-accent-emphasis, #0969da); }
-.gc-mark[data-mark="returned"] { background: var(--bgColor-severe-emphasis, #bc4c00); }
+  color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-severe-emphasis, #bc4c00); }
 ${CARD}[${ATTENTION_ATTR}] { outline: 2px solid var(--bgColor-attention-emphasis, #bf8700); outline-offset: -1px;
   border-radius: 6px; }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--bgColor-accent-emphasis, #0969da); }
+
+/*
+ * One highlight, one pass, left to right, over the session's own name rather than its row: a working session is lit,
+ * not recoloured, because yellow and blue already mean the two things that want the developer. The image is three
+ * times the name and never repeats, so the band leads in from off the left and leaves with nothing behind it.
+ */
+@keyframes gc-shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+.gc-session[data-phase="running"] .gc-name {
+  background-image: linear-gradient(95deg, var(--fgColor-muted, #59636e) 43%,
+    var(--fgColor-default, #1f2328) 50%, var(--fgColor-muted, #59636e) 57%);
+  background-size: 300% 100%; background-repeat: no-repeat;
+  background-clip: text; -webkit-background-clip: text; color: transparent; font-weight: 600;
+  animation-name: gc-shimmer; animation-duration: 1.8s; animation-timing-function: linear;
+  animation-iteration-count: infinite; }
+
+/*
+ * Scoped to the marked card, the way the editor board scopes its own: an idle row on a card asking nothing — one
+ * parked in Done — must not be painted as if it were. Three channels on the row that wants you: a rule down its
+ * edge — square, so it reads as a rule and not as the corner of a box — its colour, and its weight. No filled surface — a tint behind every marked row is what made a footer of
+ * these read as a stack of boxes rather than lines of the card.
+ */
+${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] {
+  box-shadow: inset 3px 0 0 var(--bgColor-attention-emphasis, #bf8700); }
+${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-name,
+${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-state {
+  color: var(--fgColor-attention, #9a6700); font-weight: 600; }
+${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] {
+  box-shadow: inset 3px 0 0 var(--bgColor-accent-emphasis, #0969da); }
+${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-name,
+${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-state {
+  color: var(--fgColor-accent, #0969da); font-weight: 600; }
+
+/* Reduced motion must not mean less information: the running session stays marked, it just stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  .gc-session[data-phase="running"] .gc-name {
+    background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
+}
+
+/* The gradient is the one thing forced colours may not paint, and the name's own colour is transparent under it. */
+@media (forced-colors: active) {
+  .gc-session[data-phase="running"] .gc-name {
+    background-image: none; color: CanvasText; animation-name: none; }
+  ${CARD}[${ATTENTION_ATTR}] { outline-color: Highlight; }
+}
 .${POPOVER_CLASS} { position: fixed; z-index: 100; min-width: 200px; max-width: 320px; padding: 4px 0;
   font-size: 12px; color: var(--fgColor-default, #1f2328);
   background: var(--overlay-bgColor, var(--bgColor-default, #ffffff));
@@ -241,7 +281,7 @@ function phaseText(phase, since, now) {
 export function tickDurations(doc, now) {
   let moved = 0;
 
-  // Scoped to the overlay's own chips rather than to the attribute: this runs over a page GitHub owns, and a bare
+  // Scoped to the overlay's own rows rather than to the attribute: this runs over a page GitHub owns, and a bare
   // attribute selector would rewrite the text of anything of theirs that happened to carry the same name.
   for (const el of doc.querySelectorAll(`.${BADGE_CLASS} .gc-session[data-phase] > [data-activity-since]`)) {
     const phase = /** @type {Element} */ (el.parentElement).getAttribute('data-phase') ?? '';
@@ -944,33 +984,33 @@ function laneMenu(doc, card, actions) {
  * @param {readonly string[]} openable
  * @returns {HTMLElement}
  */
-function sessionChip(doc, session, now, openable) {
+function sessionRow(doc, session, now, openable) {
   const reachable = openable.includes(session.sessionId);
-  const chip = doc.createElement(reachable ? 'a' : 'span');
+  const row = doc.createElement(reachable ? 'a' : 'span');
 
-  chip.className = 'gc-session';
-  chip.dataset.phase = session.activity?.phase ?? 'none';
+  row.className = 'gc-session';
+  row.dataset.phase = session.activity?.phase ?? 'none';
 
   if (reachable) {
     // A real link, not a button: the navigation has to read as the developer's own gesture in the application they
     // are looking at, which is the only thing that gives VS Code the foreground (`mechanics.md` §26, §29).
-    chip.setAttribute('href', `${OPEN_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
+    row.setAttribute('href', `${OPEN_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
     // A few pixels of drift on the way to a click would otherwise drag the card GitHub wraps around this.
-    chip.setAttribute('draggable', 'false');
+    row.setAttribute('draggable', 'false');
   }
 
   const icon = agentIcon(doc, session.agent);
 
   // R2: which agent reported a session is always said. A mark where there is one, the CLI's own name where there
-  // is not — an unnamed chip would read as Claude's.
+  // is not — an unnamed row would read as Claude's.
   if (icon === null) {
     const named = doc.createElement('span');
 
     named.className = 'gc-agent';
     named.textContent = session.agent;
-    chip.appendChild(named);
+    row.appendChild(named);
   } else {
-    chip.appendChild(icon);
+    row.appendChild(icon);
   }
 
   const name = sessionLabel(session);
@@ -978,7 +1018,7 @@ function sessionChip(doc, session, now, openable) {
 
   label.className = 'gc-name';
   label.textContent = name;
-  chip.appendChild(label);
+  row.appendChild(label);
 
   const state = doc.createElement('span');
 
@@ -988,13 +1028,13 @@ function sessionChip(doc, session, now, openable) {
     // The `since` too, so the second-by-second tick can advance this without a snapshot behind it.
     state.setAttribute('data-activity-since', String(session.activity.since));
     state.textContent = phaseText(session.activity.phase, session.activity.since, now);
-    chip.appendChild(state);
+    row.appendChild(state);
   } else {
     const reported = session.details.state ?? session.details.status;
 
     if (reported) {
       state.textContent = reported;
-      chip.appendChild(state);
+      row.appendChild(state);
     }
   }
 
@@ -1003,12 +1043,12 @@ function sessionChip(doc, session, now, openable) {
 
   const does = reachable ? 'go to this session in VS Code' : 'no editor of yours can open this one';
 
-  chip.title = `${name} — ${does}.${seen}`;
+  row.title = `${name} — ${does}.${seen}`;
   // Only the propagation: the card underneath is GitHub's own button, and a click reaching it opens the issue
   // instead. The navigation itself is the browser's to make, which is what gives VS Code the foreground.
-  chip.addEventListener('click', (event) => event.stopPropagation());
+  row.addEventListener('click', (event) => event.stopPropagation());
 
-  return chip;
+  return row;
 }
 
 /**
@@ -1024,16 +1064,16 @@ function stateTitle(activity) {
 }
 
 /**
- * R6, on the project board's own card: the word in the footer and a mark on the card itself, because a footer chip
- * alone is not readable from across a board of them. Written to GitHub's element rather than ours so the card
- * carries it, and taken off again by the scan that no longer finds one.
+ * R6, on the project board's own card: the attention goes onto GitHub's own element, which rings the card so it
+ * reads from across a board, and the CSS paints the session row it is about. No word of its own — the row already
+ * says `needs you` beside the session it means, and a card-level pill said the same thing without naming which one.
  *
  * @param {Document} doc
  * @param {Element} element
- * @param {HTMLElement} badge
+ * @param {HTMLElement} head
  * @param {LanedCard} card
  */
-function renderAttention(doc, element, badge, card) {
+function renderAttention(doc, element, head, card) {
   if (card.returned) {
     const mark = doc.createElement('span');
 
@@ -1041,36 +1081,21 @@ function renderAttention(doc, element, badge, card) {
     mark.dataset.mark = 'returned';
     mark.textContent = 'Returned';
     mark.title = 'This card was past your hands and has come back.';
-    badge.appendChild(mark);
+    head.appendChild(mark);
   }
 
-  const attention = card.attention === null ? undefined : ATTENTION[card.attention];
-
-  if (card.attention === null || attention === undefined) {
+  if (card.attention === null) {
     element.removeAttribute(ATTENTION_ATTR);
 
     return;
   }
 
-  // A finished session is not waiting on anyone, whatever its last event was — the same filter the editor board runs.
-  const named = card.sessions.filter(
-    (session) => session.activity?.phase === attention.phase && !(attention.phase === 'waiting' && session.finished),
-  );
-
   element.setAttribute(ATTENTION_ATTR, card.attention);
-
-  const mark = doc.createElement('span');
-
-  mark.className = 'gc-mark';
-  mark.dataset.mark = card.attention;
-  mark.textContent = attention.text;
-  mark.title = named.map((session) => `${sessionLabel(session)} ${attention.said}`).join(' ');
-  badge.appendChild(mark);
 }
 
 /**
- * One card's footer: the lane the board has it in, and a chip per session with its phase and how long that phase
- * has held. It goes inside the card's own box — the card element is a drag handle wrapped around it, and anything
+ * One card's footer: the lane the board has it in, and a full-width row per session with its phase and how long
+ * that phase has held. It goes inside the card's own box — the card element is a drag handle wrapped around it, and anything
  * appended there hangs below the border. Rebuilt from scratch every scan rather than patched: a re-render replaces
  * the card node and takes the old footer with it (`mechanics.md` §27).
  *
@@ -1087,6 +1112,12 @@ function renderBadge(doc, element, card, now, actions, openable) {
 
   badge.className = BADGE_CLASS;
 
+  // The lane and the card's own marks share one line; the sessions each get a line of their own under it.
+  const head = doc.createElement('div');
+
+  head.className = 'gc-head';
+  badge.appendChild(head);
+
   const lane = doc.createElement('button');
 
   lane.type = 'button';
@@ -1100,12 +1131,12 @@ function renderBadge(doc, element, card, now, actions, openable) {
     panelOpen = false;
     actions.repaint();
   });
-  badge.appendChild(lane);
+  head.appendChild(lane);
 
-  renderAttention(doc, element, badge, card);
+  renderAttention(doc, element, head, card);
 
   for (const session of card.sessions) {
-    badge.appendChild(sessionChip(doc, session, now, openable));
+    badge.appendChild(sessionRow(doc, session, now, openable));
   }
 
   // Inside the card's own bordered box, so the footer reads as a line of the card rather than a chip dropped under it.
