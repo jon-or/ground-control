@@ -71,7 +71,7 @@ The full rules are in [docs/testing.md](docs/testing.md). The short version:
 | --- | --- |
 | `packages/core` | The seams every adapter implements (`AgentAdapter`, `HostAdapter`, `WorkSource`), the neutral `Session`, the lane and card types, the client protocol, and the helpers they share. Names no adapter. **Must not import `vscode`.** |
 | `packages/agent-claude` | The Claude Code agent adapter: `claude agents --json`, transcript titles, the activity hook. **Must not import `vscode`.** |
-| `packages/host-vscode` | The VS Code host adapter's headless half: lock files, window stores, the placement table, the open plan. **Must not import `vscode`.** |
+| `packages/host-vscode` | The VS Code host adapter's headless half: lock files, window stores, the placement table, the open plan, the changes fold. **Must not import `vscode`.** |
 | `packages/github` | The `github` work source: assigned issues read through the `gh` CLI. **Must not import `vscode`.** |
 | `packages/board` | Merges assigned issues and live sessions into board cards. **Must not import `vscode`.** |
 | `packages/hub` | The background process the boards are clients of, and how a client reaches it: the registries and defaults, the loop, activity install, the marker watcher, lane memory, the loopback server, and the client's own transport — finding or starting a hub, and the event stream it then rides. **Must not import `vscode`.** |

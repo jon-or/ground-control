@@ -1,5 +1,7 @@
 export { VSCODE_HOST_ID, makeVscodeHost } from './adapter.js';
 export type { VscodeConfig, VscodeHost, VscodeRoute } from './adapter.js';
+export { changesPlan, noRepository, repositoryRefusal } from './changes.js';
+export type { ChangeKind, ChangedPath, ChangesPlan, ChangesRequest, DiffRow, DiffSide } from './changes.js';
 export { PLACEMENTS, claudeDirOf } from './placements.js';
 export { sessionFromUri } from './openUri.js';
 export type { AgentPlacement } from './placements.js';

@@ -59,6 +59,15 @@ function sessionLabel(session) {
   return session.title ?? session.details.name ?? session.details.shortId ?? basename(session.cwd);
 }
 
+/**
+ * Whether the card has a directory to read changes from. `core`'s `checkoutOf` decides which of several sessions
+ * answers; the board only needs whether one does, which is the same condition and is pinned to it by the parity
+ * table in `test/board.test.ts` — this file is a classic script and can import nothing.
+ */
+function hasCheckout(boardCard) {
+  return boardCard.sessions.length > 0 || boardCard.lastSession != null;
+}
+
 /** The sessions this window can open, named by the extension - the webview never compares directories itself. */
 let openable = new Set();
 
@@ -308,6 +317,21 @@ function badge(kind, text, color, title, onOpen) {
   return el;
 }
 
+/** The control that opens what this card's checkout has done - its commits and its uncommitted work in one editor. */
+function changesControl(boardCard) {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'card-changes';
+  el.textContent = 'Changes';
+  el.title = "Open this card's commits and uncommitted changes in one editor";
+  el.setAttribute('aria-label', `Open the commits and uncommitted changes of ${cardTitle(boardCard)}`);
+  // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
+  el.draggable = false;
+  el.addEventListener('click', () => vscode.postMessage({ type: 'openChanges', key: boardCard.key }));
+
+  return el;
+}
+
 function cardTitle(boardCard) {
   if (boardCard.issue) {
     return boardCard.issue.title;
@@ -403,7 +427,15 @@ function card(boardCard, avatarPool, placeable) {
   const badges = document.createElement('span');
   badges.className = 'badges';
 
-  meta.append(number, badges, avatarSlot);
+  meta.append(number, badges);
+
+  // A card with no session has no directory to read, and a control that could only ever refuse is worse than none,
+  // which is the rule the session rows already follow.
+  if (hasCheckout(boardCard)) {
+    meta.appendChild(changesControl(boardCard));
+  }
+
+  meta.appendChild(avatarSlot);
   el.appendChild(meta);
 
   const open = document.createElement('button');

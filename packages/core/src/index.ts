@@ -1,7 +1,7 @@
 export { fetchSessions, fetchSessionHistory } from './sessions.js';
 export { rosterIsStale, sessionLabel, unreportedSessions } from './roster.js';
-export { LANE_ORDER, LANE_TITLES } from './board.js';
-export type { Attention, BoardCard, Lane, LaneId, LanedCard } from './board.js';
+export { LANE_ORDER, LANE_TITLES, checkoutOf } from './board.js';
+export type { Attention, BoardCard, Checkout, Lane, LaneId, LanedCard } from './board.js';
 export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
 export { hubConfig, idsFrom, parseHubConfig, spawnable } from './config.js';
 export type { HubConfig } from './config.js';
