@@ -323,6 +323,23 @@ describe('the footer on a card', () => {
     expect(badges()[0]!.querySelector('.gc-lane')?.textContent).toBe('Review');
   });
 
+  /** The name is the thing worth reading, and an inline chip clipped it — so the lane keeps one line and each session gets its own. */
+  it('gives each session a line of its own, the width of the card', () => {
+    const two = snapshot({
+      lanes: [
+        { id: 'build', title: 'Build', cards: [card(4501, { sessions: [session(), session({ sessionId: OTHER_ID })] })] },
+      ],
+    });
+
+    paint(document, state({ snapshot: two }), NOW, actions);
+
+    const badge = badges()[0]!;
+
+    expect(badge.querySelector('.gc-lane')!.parentElement!.className).toBe('gc-head');
+    expect([...badge.children].map((el) => el.className)).toEqual(['gc-head', 'gc-session', 'gc-session']);
+    expect(getComputedStyle(badge.querySelector<HTMLElement>('.gc-session')!).width).toBe('100%');
+  });
+
   it('marks a Claude session with Claude’s own mark, names it, and says the phase beside it', () => {
     paint(document, state(), NOW, actions);
 
@@ -901,39 +918,46 @@ describe('the card that wants something from you', () => {
     return snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { attention, ...over })] }] });
   }
 
-  it('says which mark, in the same words the editor board uses', () => {
+  it('paints the row that is waiting on you, rather than saying so a second time on the card', () => {
     paint(document, state({ snapshot: marked('blocked') }), NOW, actions);
 
-    const mark = badges()[0]!.querySelector<HTMLElement>('.gc-mark')!;
+    const row = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
 
-    expect(mark.textContent).toBe('Needs you');
-    expect(mark.dataset.mark).toBe('blocked');
-    expect(mark.title).toBe('Working on it is waiting on you.');
+    expect(row.dataset.phase).toBe('waiting');
+    expect(row.querySelector('.gc-state')!.textContent).toBe('needs you 2m');
+    expect(getComputedStyle(row).boxShadow).toContain('inset 3px 0 0');
+    expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-name')!).fontWeight).toBe('600');
+    expect(badges()[0]!.querySelector('.gc-mark')).toBeNull();
   });
 
-  it('names the session behind a your-turn mark, and only the sessions in that phase', () => {
+  it('paints only the row a your-turn card is about, and leaves the working one lit instead', () => {
     const idle = session({ title: 'Reading the logs', activity: { phase: 'idle', since: NOW - 60_000, event: 'Stop' } });
-    const running = session({ title: 'Still going', activity: { phase: 'running', since: NOW - 10_000, event: 'Stop' } });
+    const running = session({
+      sessionId: OTHER_ID,
+      title: 'Still going',
+      activity: { phase: 'running', since: NOW - 10_000, event: 'Stop' },
+    });
 
     paint(document, state({ snapshot: marked('your-turn', { sessions: [idle, running] }) }), NOW, actions);
 
-    const mark = badges()[0]!.querySelector<HTMLElement>('.gc-mark')!;
+    const [first, second] = [...badges()[0]!.querySelectorAll<HTMLElement>('.gc-session')];
 
-    expect(mark.textContent).toBe('Your turn');
-    expect(mark.title).toBe('Reading the logs finished its turn \u2014 you have not replied since.');
+    expect(getComputedStyle(first!).boxShadow).toContain('inset 3px 0 0');
+    expect(getComputedStyle(second!).boxShadow).toBe('');
+    expect(getComputedStyle(second!.querySelector<HTMLElement>('.gc-name')!).animationName).toBe('gc-shimmer');
   });
 
-  /** A session the agent says has ended is not waiting on anyone, whatever hook it was last seen at. */
-  it('leaves a finished session out of a needs-you mark', () => {
-    const done = session({ title: 'Already over', finished: true });
+  /** An idle row on a card asking nothing — one parked in Done — must not be painted as if it were your turn. */
+  it('leaves an idle row on an unmarked card alone', () => {
+    const idle = session({ title: 'Reading the logs', activity: { phase: 'idle', since: NOW - 60_000, event: 'Stop' } });
 
-    paint(document, state({ snapshot: marked('blocked', { sessions: [done] }) }), NOW, actions);
+    paint(document, state({ snapshot: marked(null, { sessions: [idle] }) }), NOW, actions);
 
-    expect(badges()[0]!.querySelector<HTMLElement>('.gc-mark')!.title).toBe('');
+    expect(getComputedStyle(badges()[0]!.querySelector<HTMLElement>('.gc-session')!).boxShadow).toBe('');
   });
 
-  // R6: the word alone is a footer chip, which is not readable from across a board. The card carries it too.
-  it('marks the card itself, and takes the mark off when the snapshot no longer has one', () => {
+  // R6: a painted row lives inside the card, which is not readable from across a board. The card carries the ring.
+  it('rings the card itself, and takes the ring off when the snapshot no longer has one', () => {
     paint(document, state({ snapshot: marked('blocked') }), NOW, actions);
 
     expect(document.querySelector(`[data-gc-issue="${REPO}#4501"]`)!.getAttribute('data-gc-attention')).toBe('blocked');
