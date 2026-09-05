@@ -168,6 +168,34 @@
           ],
           "markdownDescription": "Where the board reads work from. An id the board does not know is named above the lanes rather than silently reading nothing."
         },
+        "groundControl.triage.enabled": {
+          "scope": "application",
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Work out what each card is waiting on when it arrives, and label it with that plus a one-line description of the work. It reads the recent comments on the issue and its pull request; it never moves a card and never writes anything anywhere. **This sends that text — including other people's comments — to the model's API**, which is the one thing the board does that leaves your machine. It runs only while a board is open, a couple of cards at a time."
+        },
+        "groundControl.triage.model": {
+          "scope": "application",
+          "type": "string",
+          "default": "claude-haiku-4-5-20251001",
+          "markdownDescription": "The model that classifies a card. Give a full model name rather than an alias — an alias that quietly resolves elsewhere changes both what it costs and how well it reads."
+        },
+        "groundControl.triage.concurrency": {
+          "scope": "application",
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 8,
+          "markdownDescription": "How many cards are read at once. The first time you open a board every card is read, so this is what decides whether that arrives as a trickle or all at once."
+        },
+        "groundControl.triage.timeoutSeconds": {
+          "scope": "application",
+          "type": "number",
+          "default": 60,
+          "minimum": 10,
+          "maximum": 300,
+          "markdownDescription": "How long one card gets, covering both reading it from GitHub and classifying it. A card that runs over is left unlabelled and tried again later."
+        },
         "groundControl.installSessionHooks": {
           "scope": "application",
           "type": "boolean",

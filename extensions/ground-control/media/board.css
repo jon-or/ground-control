@@ -705,3 +705,45 @@ button.session-label:focus-visible {
   border: 1px dashed var(--vscode-panel-border);
   border-radius: var(--gc-radius);
 }
+
+/*
+ * What the card was read to be waiting on (R38). Deliberately none of R6's channels — no border on the card, no
+ * attention colour, no set-apart name — because a card being read, or one that has been read, is asking for nothing.
+ */
+.badge.triage-running {
+  animation: triage-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes triage-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* A reading is only as good as the card it was made against, so one the card has moved under says so by fading. */
+.badge.triage[data-stale='true'] {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+.triage-detail {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--vscode-descriptionForeground);
+}
+
+.triage-detail[data-stale='true'] {
+  opacity: 0.65;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge.triage-running {
+    animation: none;
+    opacity: 0.7;
+  }
+}

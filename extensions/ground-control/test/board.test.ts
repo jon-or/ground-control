@@ -1392,3 +1392,147 @@ describe('which cards have a checkout, against core', () => {
     expect(document.querySelector('.card-changes') !== null).toBe(expected);
   });
 });
+
+describe('what a card was read to be waiting on (R38)', () => {
+  const at = Date.UTC(2026, 8, 1, 19, 0, 0);
+
+  function triaged(triage: NonNullable<LanedCard['triage']>): LanedCard {
+    return { ...liveCard, sessions: [], triage };
+  }
+
+  function chip(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('.badge.triage, .badge.triage-running');
+  }
+
+  it('says a card is being read, and asks nothing of the developer while it does', () => {
+    send(message({ lanes: lanes({ unstarted: [triaged({ state: 'running' })] }) }));
+
+    expect(chip()?.textContent).toBe('Triaging…');
+    // R6's channels are for the two things that want the developer. Being read is not one of them.
+    expect(document.querySelector<HTMLElement>('.card')?.dataset['attention']).toBeUndefined();
+    expect(document.querySelector('.triage-detail')).toBeNull();
+  });
+
+  it('names the action and writes the sentence under the title', () => {
+    send(
+      message({
+        lanes: lanes({
+          unstarted: [
+            triaged({
+              state: 'done',
+              action: 'address-review',
+              qualifier: 'followup',
+              detail: 'Answer the naming notes on the paging fix.',
+              at,
+              stale: false,
+            }),
+          ],
+        }),
+      }),
+    );
+
+    expect(chip()?.textContent).toBe('Address dev review · followup');
+    expect(document.querySelector('.triage-detail')?.textContent).toBe('Answer the naming notes on the paging fix.');
+    expect(document.querySelector<HTMLElement>('.triage-detail')?.dataset['stale']).toBe('false');
+  });
+
+  it('writes no qualifier where there is none', () => {
+    send(
+      message({
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'land', qualifier: null, detail: 'Merge it.', at, stale: false })] }),
+      }),
+    );
+
+    expect(chip()?.textContent).toBe('Land it');
+  });
+
+  it('marks a reading the card has moved under, rather than presenting it as current', () => {
+    send(
+      message({
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'begin-work', qualifier: null, detail: 'Pick it up.', at, stale: true })] }),
+      }),
+    );
+
+    expect(chip()?.dataset['stale']).toBe('true');
+    expect(document.querySelector<HTMLElement>('.triage-detail')?.dataset['stale']).toBe('true');
+    expect(chip()?.title).toContain('has moved since');
+  });
+
+  it('carries nothing at all on a card that has not been read', () => {
+    send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
+
+    expect(chip()).toBeNull();
+    expect(document.querySelector('.triage-detail')).toBeNull();
+  });
+
+  it('asks for the card to be read again on a click, naming the card and never a URL', () => {
+    send(
+      message({
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'other', qualifier: null, detail: 'Unclear.', at, stale: false })] }),
+      }),
+    );
+
+    chip()?.click();
+
+    expect(sent()).toContainEqual({ type: 'retriage', key: 'issue:18953' });
+  });
+
+  it('is not a drag handle, through the attribute the platform reflects rather than the property', () => {
+    send(
+      message({
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'other', qualifier: null, detail: 'Unclear.', at, stale: false })] }),
+      }),
+    );
+
+    expect(chip()?.getAttribute('draggable')).toBe('false');
+  });
+});
+
+/**
+ * The parity table. `media/board.js` is a classic script and imports nothing from `packages/board`, so its copy of
+ * the labels is pinned by asserting the same literals here that `packages/board`'s own suite asserts. A copy that
+ * drifts labels a card one way in the editor and another in the browser (`docs/testing.md`).
+ */
+describe('triage labels read the same on every board', () => {
+  const rows: [string, string | null, string][] = [
+    ['begin-work', null, 'Begin work'],
+    ['answer-design-question', null, 'Answer design question'],
+    ['uat-question', null, 'UAT question'],
+    ['uat-failure', null, 'UAT failure'],
+    ['awaiting-others', null, 'Waiting on others'],
+    ['review-others', 'initial', 'Dev review · initial'],
+    ['review-others', 'followup', 'Dev review · followup'],
+    ['address-review', 'initial', 'Address dev review · initial'],
+    ['address-review', 'followup', 'Address dev review · followup'],
+    ['fix-checks', null, 'Fix failing checks'],
+    ['merge-upstream', null, 'Merge upstream'],
+    ['resolve-conflicts', null, 'Resolve conflicts'],
+    ['land', null, 'Land it'],
+    ['other', null, 'Other'],
+  ];
+
+  it.each(rows)('draws %s/%s as "%s"', (action, qualifier, expected) => {
+    send(
+      message({
+        lanes: lanes({
+          unstarted: [
+            {
+              ...liveCard,
+              sessions: [],
+              triage: {
+                state: 'done',
+                action: action as never,
+                qualifier: qualifier as never,
+                detail: 'x',
+                at: Date.now(),
+                stale: false,
+              },
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(document.querySelector('.badge.triage')?.textContent).toBe(expected);
+  });
+});

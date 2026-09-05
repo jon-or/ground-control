@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { IssueCard, Lane, TriageContext, TriageEntry, TriageState } from '@ground-control/core';
+import type { IssueCard, Lane, TriageAction, TriageContext, TriageEntry, TriageQualifier, TriageState } from '@ground-control/core';
 import { assignLanes } from '../src/lanes.js';
 import type { BoardCard } from '../src/types.js';
 import {
@@ -20,6 +20,24 @@ import {
   withTriageFailure,
   withTriaged,
 } from '../src/triage.js';
+
+/** Every label both boards must draw, as literals. Duplicated verbatim in each client's suite — see the test below. */
+const TRIAGE_LABEL_ROWS: [TriageAction, TriageQualifier | null, string][] = [
+  ['begin-work', null, 'Begin work'],
+  ['answer-design-question', null, 'Answer design question'],
+  ['uat-question', null, 'UAT question'],
+  ['uat-failure', null, 'UAT failure'],
+  ['awaiting-others', null, 'Waiting on others'],
+  ['review-others', 'initial', 'Dev review · initial'],
+  ['review-others', 'followup', 'Dev review · followup'],
+  ['address-review', 'initial', 'Address dev review · initial'],
+  ['address-review', 'followup', 'Address dev review · followup'],
+  ['fix-checks', null, 'Fix failing checks'],
+  ['merge-upstream', null, 'Merge upstream'],
+  ['resolve-conflicts', null, 'Resolve conflicts'],
+  ['land', null, 'Land it'],
+  ['other', null, 'Other'],
+];
 
 const RULES = { boardStatuses: ['⚒️ Dev'], statusLanes: {}, logins: ['dev-1'] };
 const MEMORY = { placements: {}, seenPastMyHands: [], statuses: ['⚒️ Dev'] };
@@ -336,9 +354,17 @@ describe('the facts overruling the model', () => {
     expect(qualifierOf('uat-failure', context())).toBeNull();
   });
 
-  it('reads a label the way both boards draw it', () => {
-    expect(triageLabel('address-review', 'followup')).toBe('Address dev review · followup');
-    expect(triageLabel('land', null)).toBe('Land it');
+  /**
+   * The parity table. Neither board can import this at runtime — one is a classic script, the other is plain
+   * JavaScript Chrome loads as it stands — so the same literals are asserted in each client's suite. A copy that
+   * drifts labels a card one way in the editor and another in the browser (`docs/testing.md`).
+   */
+  it.each(TRIAGE_LABEL_ROWS)('reads %s/%s as "%s" on every board', (action, qualifier, expected) => {
+    expect(triageLabel(action, qualifier)).toBe(expected);
+  });
+
+  it('covers every action in that table, so a new one cannot ship unlabelled', () => {
+    expect(new Set(TRIAGE_LABEL_ROWS.map(([action]) => action))).toEqual(new Set(TRIAGE_ACTIONS));
   });
 });
 

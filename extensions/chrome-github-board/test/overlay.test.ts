@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { ago, agentIcon, cardsByIssue, clear, foldedRows, issueRefOf, paint, sessionLabel, tickDurations } from '../src/overlay.js';
+import { ago, agentIcon, cardsByIssue, clear, foldedRows, issueRefOf, paint, sessionLabel, tickDurations, triageText } from '../src/overlay.js';
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
@@ -1138,4 +1138,77 @@ it('links historical rows through the same VS Code handler without opening the G
   const parentClick = vi.fn(); link.parentElement!.addEventListener('click', parentClick);
   link.addEventListener('click', (event) => event.preventDefault()); link.click();
   expect(parentClick).not.toHaveBeenCalled();
+});
+
+describe('what a card was read to be waiting on (R38)', () => {
+  const show = (entry: LanedCard) =>
+    paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
+  const mark = () => document.querySelector<HTMLElement>('.gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"]');
+
+  it('says a card is being read, and rings nothing while it does', () => {
+    show(card(4501, { sessions: [], triage: { state: 'running' } }));
+
+    expect(mark()?.textContent).toBe('Triaging…');
+    // R36 keeps colour for the two things that want the developer, and being read is neither.
+    expect(document.querySelector(`[${'data-gc-attention'}]`)).toBeNull();
+    expect(document.querySelector('.gc-triage-detail')).toBeNull();
+  });
+
+  it('names the action on the head line and writes the sentence under it', () => {
+    show(
+      card(4501, {
+        sessions: [],
+        triage: { state: 'done', action: 'uat-failure', qualifier: null, detail: 'Safari still shows an empty second page.', at: NOW - 3_600_000, stale: false },
+      }),
+    );
+
+    expect(mark()?.textContent).toBe('UAT failure');
+    expect(mark()?.title).toBe('Read 1h ago.');
+    expect(document.querySelector('.gc-triage-detail')?.textContent).toBe('Safari still shows an empty second page.');
+  });
+
+  it('marks a reading the card has moved under', () => {
+    show(
+      card(4501, {
+        sessions: [],
+        triage: { state: 'done', action: 'begin-work', qualifier: null, detail: 'Pick it up.', at: NOW - 60_000, stale: true },
+      }),
+    );
+
+    expect(mark()?.dataset.stale).toBe('true');
+    expect(mark()?.title).toContain('has moved since');
+    expect(document.querySelector<HTMLElement>('.gc-triage-detail')?.dataset.stale).toBe('true');
+  });
+
+  it('carries nothing on a card that has not been read', () => {
+    show(card(4501, { sessions: [] }));
+
+    expect(mark()).toBeNull();
+    expect(document.querySelector('.gc-triage-detail')).toBeNull();
+  });
+
+  /**
+   * The parity table. This extension imports nothing from `packages/board` at runtime, so its copy of the labels is
+   * pinned by asserting the same literals its own suite does (`docs/testing.md`).
+   */
+  const rows: [string, string | null, string][] = [
+    ['begin-work', null, 'Begin work'],
+    ['answer-design-question', null, 'Answer design question'],
+    ['uat-question', null, 'UAT question'],
+    ['uat-failure', null, 'UAT failure'],
+    ['awaiting-others', null, 'Waiting on others'],
+    ['review-others', 'initial', 'Dev review · initial'],
+    ['review-others', 'followup', 'Dev review · followup'],
+    ['address-review', 'initial', 'Address dev review · initial'],
+    ['address-review', 'followup', 'Address dev review · followup'],
+    ['fix-checks', null, 'Fix failing checks'],
+    ['merge-upstream', null, 'Merge upstream'],
+    ['resolve-conflicts', null, 'Resolve conflicts'],
+    ['land', null, 'Land it'],
+    ['other', null, 'Other'],
+  ];
+
+  it.each(rows)('draws %s/%s as "%s"', (action, qualifier, expected) => {
+    expect(triageText({ action, qualifier })).toBe(expected);
+  });
 });

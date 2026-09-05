@@ -48,9 +48,13 @@ export function readHubConfig(userDir: string): HubConfig {
       ? Object.entries(configured).map(([id, path]) => ({ id, path }))
       : defaults.agents;
 
+  // The model a classification runs with is the agent's own word, so it rides on the agent rather than in the
+  // triage block — `core` names no adapter, and "haiku" means nothing to a CLI that is not Claude.
+  const model = cfg.get<string>('triage.model', '').trim();
+
   return {
     ...defaults,
-    agents,
+    agents: model === '' ? agents : agents.map((agent) => ({ ...agent, model })),
     branchIssuePattern: cfg.get<string>('branchIssuePattern', '^(\\d+)-'),
     hosts: Object.fromEntries(hostIds().map((id) => [id, id === VSCODE_HOST_ID ? vscodeSettings(userDir) : {}])),
     sources: Object.fromEntries(sourceIds().map((id) => [id, id === GITHUB_SOURCE_ID ? readConfig() : {}])),
@@ -59,6 +63,27 @@ export function readHubConfig(userDir: string): HubConfig {
     refreshIntervalMs: refreshIntervalMs(),
     sessionIntervalMs: sessionIntervalMs(),
     installActivity: installSessionHooks(),
+    triage: readTriage(),
+  };
+}
+
+/**
+ * R38's bounds. Flat keys rather than one object, because VS Code's settings UI renders an object of mixed types as
+ * "Edit in settings.json", and R34 says anything a developer is expected to set is settable without editing a file.
+ */
+export function readTriage(): HubConfig['triage'] {
+  const cfg = vscode.workspace.getConfiguration(SECTION);
+  const number = (key: string, fallback: number): number => {
+    const value = cfg.get<number>(key, fallback);
+
+    return Number.isFinite(value) ? Number(value) : fallback;
+  };
+
+  return {
+    enabled: cfg.get<boolean>('triage.enabled', true),
+    concurrency: number('triage.concurrency', 2),
+    // Seconds in settings, milliseconds in the hub, the way every other interval here is.
+    timeoutMs: number('triage.timeoutSeconds', 60) * 1000,
   };
 }
 

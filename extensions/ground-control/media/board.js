@@ -275,6 +275,33 @@ function statusLabel(status) {
  * GitHub names a colour rather than giving one, so the board maps its eight names onto the editor's chart palette —
  * the theme's own colours, which stay legible in light and dark where GitHub's hexes would not.
  */
+/**
+ * What each triage action is called. A copy of `TRIAGE_LABELS` in `packages/board`, because this script is a classic
+ * script and imports nothing — pinned by the parity table in both suites, since a copy that drifts labels one board
+ * differently from the other (`docs/testing.md`).
+ */
+const TRIAGE_LABELS = {
+  'begin-work': 'Begin work',
+  'answer-design-question': 'Answer design question',
+  'uat-question': 'UAT question',
+  'uat-failure': 'UAT failure',
+  'awaiting-others': 'Waiting on others',
+  'review-others': 'Dev review',
+  'address-review': 'Address dev review',
+  'fix-checks': 'Fix failing checks',
+  'merge-upstream': 'Merge upstream',
+  'resolve-conflicts': 'Resolve conflicts',
+  land: 'Land it',
+  other: 'Other',
+};
+
+/** The one place a triage label is spelled, so both boards read a card the same way. */
+function triageText(triage) {
+  const label = TRIAGE_LABELS[triage.action] ?? triage.action;
+
+  return triage.qualifier ? `${label} · ${triage.qualifier}` : label;
+}
+
 const BADGE_COLORS = {
   RED: 'red',
   ORANGE: 'orange',
@@ -456,6 +483,14 @@ function card(boardCard, avatarPool, placeable) {
 
   el.appendChild(open);
 
+  if (boardCard.triage?.state === 'done') {
+    const detail = document.createElement('p');
+    detail.className = 'triage-detail';
+    detail.dataset.stale = String(boardCard.triage.stale);
+    detail.textContent = boardCard.triage.detail;
+    el.appendChild(detail);
+  }
+
   if (issue?.type) {
     badges.appendChild(badge('type', issue.type, issue.typeColor, issue.type));
   }
@@ -485,6 +520,26 @@ function card(boardCard, avatarPool, placeable) {
     const mark = badge('returned', 'Returned', 'ORANGE');
     mark.title = 'This card was past your hands and has come back.';
     badges.appendChild(mark);
+  }
+
+  // R38. Deliberately none of R6's three channels: a card being read, or one that has been, is asking for nothing.
+  const triage = boardCard.triage;
+
+  if (triage?.state === 'running') {
+    const chip = badge('triage-running', 'Triaging…', 'GRAY', 'Working out what this card is waiting on.');
+    badges.appendChild(chip);
+  } else if (triage?.state === 'done') {
+    const chip = badge(
+      'triage',
+      triageText(triage),
+      triage.stale ? 'GRAY' : 'BLUE',
+      triage.stale
+        ? `Read ${ago(Date.now() - triage.at)} ago; the card has moved since. Click to read it again.`
+        : `Read ${ago(Date.now() - triage.at)} ago. Click to read it again.`,
+      () => vscode.postMessage({ type: 'retriage', key: boardCard.key }),
+    );
+    chip.dataset.stale = String(triage.stale);
+    badges.appendChild(chip);
   }
 
   // R6: on the card, not only on the session row, so it reads from across a full board. Three channels - the word,

@@ -4,6 +4,7 @@ import type {
   ClassifyInput,
   ClassifyResult,
   ContextReading,
+  HubConfig,
   IssueCard,
   Session,
   Snapshot,
@@ -179,9 +180,16 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     ...over,
   });
 
-  control.hub.configure({
+    control.hub.configure(hubConfig());
+
+  return control;
+}
+
+/** What a client pushes. Every test but one runs on this; that one turns triage off. */
+function hubConfig(triage: HubConfig['triage'] = { enabled: true, concurrency: 2, timeoutMs: 60_000 }): HubConfig {
+  return {
     agents: [{ id: 'claude', path: 'claude-cli', model: 'claude-haiku-4-5-20251001' }],
-    branchIssuePattern: '^(\\d+)-',
+    branchIssuePattern: '^(\d+)-',
     hosts: {},
     sources: { github: { repo: 'example-org/example-repo', logins: ['dev-1'] } },
     boardStatuses: ['⚒️ Dev'],
@@ -189,10 +197,8 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     refreshIntervalMs: 300_000,
     sessionIntervalMs: 30_000,
     installActivity: false,
-    triage: { enabled: true, concurrency: 2, timeoutMs: 60_000 },
-  });
-
-  return control;
+    triage,
+  };
 }
 
 /** A watching client, which is what R35 makes triage conditional on. */
@@ -259,19 +265,7 @@ describe('reading a card that arrives', () => {
   it('reads nothing while triage is turned off', async () => {
     const control = harness();
     watch(control.hub);
-    control.hub.configure({
-      ...(control.snapshot() as never),
-      agents: [{ id: 'claude', path: 'claude-cli' }],
-      branchIssuePattern: '^(\\d+)-',
-      hosts: {},
-      sources: { github: { repo: 'example-org/example-repo', logins: ['dev-1'] } },
-      boardStatuses: ['⚒️ Dev'],
-      statusLanes: {},
-      refreshIntervalMs: 300_000,
-      sessionIntervalMs: 30_000,
-      installActivity: false,
-      triage: { enabled: false, concurrency: 2, timeoutMs: 60_000 },
-    });
+    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 60_000 }));
 
     await control.hub.refresh('asked');
     await control.settle();

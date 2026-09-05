@@ -54,6 +54,39 @@ export const LANE_TITLES = {
 /** @type {Record<string, string>} */
 const PHASE_WORDS = { running: 'running', waiting: 'needs you', idle: 'idle' };
 
+/**
+ * What each triage action is called. A copy of `TRIAGE_LABELS` in `packages/board` — this extension imports nothing
+ * from it — pinned by the parity table in both suites, because a copy that drifts labels one board differently from
+ * the other (`docs/testing.md`).
+ */
+/** @type {Record<string, string>} */
+const TRIAGE_LABELS = {
+  'begin-work': 'Begin work',
+  'answer-design-question': 'Answer design question',
+  'uat-question': 'UAT question',
+  'uat-failure': 'UAT failure',
+  'awaiting-others': 'Waiting on others',
+  'review-others': 'Dev review',
+  'address-review': 'Address dev review',
+  'fix-checks': 'Fix failing checks',
+  'merge-upstream': 'Merge upstream',
+  'resolve-conflicts': 'Resolve conflicts',
+  land: 'Land it',
+  other: 'Other',
+};
+
+/**
+ * How a triaged card reads, the same on both boards.
+ *
+ * @param {{ action: string, qualifier: string | null }} triage
+ * @returns {string}
+ */
+export function triageText(triage) {
+  const label = TRIAGE_LABELS[triage.action] ?? triage.action;
+
+  return triage.qualifier ? `${label} · ${triage.qualifier}` : label;
+}
+
 /** @type {Record<string, string>} */
 const PHASE_TITLES = {
   running: 'This session is working. The duration counts the turn it is in, from the prompt that began it where the board saw one.',
@@ -113,6 +146,18 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
 .gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
   color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-severe-emphasis, #bc4c00); }
+/* R38. Not an attention channel: no fill and no outline, because colour on this board means the two things that
+   want the developer (R36). The reading is text; a reading the card has moved under fades and dashes instead. */
+.gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"] { color: var(--fgColor-muted, #59636e);
+  background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 600; }
+.gc-mark[data-mark="triaging"] { animation: gc-triage-pulse 1.8s ease-in-out infinite; }
+.gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
+.gc-triage-detail { font-size: 11px; line-height: 15px; padding: 2px 0 0; color: var(--fgColor-muted, #59636e); }
+.gc-triage-detail[data-stale="true"] { opacity: 0.65; }
+@keyframes gc-triage-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
+}
 ${CARD}[${ATTENTION_ATTR}] { outline: 2px solid var(--bgColor-attention-emphasis, #bf8700); outline-offset: -1px;
   border-radius: 6px; }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--bgColor-accent-emphasis, #0969da); }
@@ -1178,6 +1223,7 @@ function renderBadge(doc, element, card, now, actions, openable) {
   head.appendChild(lane);
 
   renderAttention(doc, element, head, card);
+  renderTriage(doc, badge, head, card, now);
 
   for (const session of card.sessions) {
     badge.appendChild(sessionRow(doc, session, now, openable));
@@ -1202,6 +1248,52 @@ function renderBadge(doc, element, card, now, actions, openable) {
   // The chip travels with its menu: a click on it is the developer closing what they opened, and an outside-click
   // handler that took the chip for an outside click would close the menu and let the chip reopen it.
   return [menu, lane];
+}
+
+/**
+ * R38 on the project board's card: the action on the head line beside the lane, and the sentence on its own line
+ * under it. Neither is an attention channel — a card being read asks for nothing, and R36 keeps colour for the two
+ * things that do want the developer, so this is text and weight only. There is no control here: re-reading a card
+ * spends the developer's usage, and the bridge refuses anything but refresh, watching and move.
+ *
+ * @param {Document} doc
+ * @param {HTMLElement} badge
+ * @param {HTMLElement} head
+ * @param {LanedCard} card
+ * @param {number} now
+ */
+function renderTriage(doc, badge, head, card, now) {
+  const triage = card.triage;
+
+  if (!triage) {
+    return;
+  }
+
+  const mark = doc.createElement('span');
+
+  mark.className = 'gc-mark';
+  mark.dataset.mark = triage.state === 'running' ? 'triaging' : 'triage';
+  head.appendChild(mark);
+
+  if (triage.state === 'running') {
+    mark.textContent = 'Triaging…';
+    mark.title = 'Working out what this card is waiting on.';
+
+    return;
+  }
+
+  mark.textContent = triageText(triage);
+  mark.dataset.stale = String(triage.stale);
+  mark.title = triage.stale
+    ? `Read ${ago(now - triage.at)} ago; the card has moved since.`
+    : `Read ${ago(now - triage.at)} ago.`;
+
+  const detail = doc.createElement('div');
+
+  detail.className = 'gc-triage-detail';
+  detail.dataset.stale = String(triage.stale);
+  detail.textContent = triage.detail;
+  badge.appendChild(detail);
 }
 
 /**
