@@ -56,12 +56,13 @@ export class BoardPanel {
   #drew: Drawn | null = null;
   #blankTimer: NodeJS.Timeout | undefined;
 
-  static show(context: vscode.ExtensionContext): { panel: BoardPanel; created: boolean } {
+  static show(context: vscode.ExtensionContext): BoardPanel {
     const existing = BoardPanel.current;
 
     if (existing) {
       existing.#panel.reveal();
-      return { panel: existing, created: false };
+
+      return existing;
     }
 
     const panel = vscode.window.createWebviewPanel(VIEW_TYPE, 'Ground Control', vscode.ViewColumn.One, {
@@ -70,10 +71,7 @@ export class BoardPanel {
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
     });
 
-    return {
-      panel: new BoardPanel(panel, context.extensionUri, userDirOf(context)),
-      created: true,
-    };
+    return new BoardPanel(panel, context.extensionUri, userDirOf(context));
   }
 
   /**

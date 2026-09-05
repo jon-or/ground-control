@@ -56,12 +56,9 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
       BoardPanel.show(context);
     }),
     vscode.commands.registerCommand('groundControl.refresh', () => {
-      // Creating the panel already reads both sources; refreshing again here would double every first invocation.
-      const { panel, created } = BoardPanel.show(context);
-
-      if (!created) {
-        panel.refresh();
-      }
+      // Asked for on the board it opens too: what a board's arrival triggers is a read the source floor may hold,
+      // and a developer who pressed this is owed the round trip either way.
+      BoardPanel.show(context).refresh();
     }),
     // Turns the setting off and stops there: the configuration listener above owns the removal and its message, so
     // there is one path that changes the hooks rather than two that have to agree.

@@ -59,6 +59,39 @@ interface Connected {
 /** A refresh asked for again inside this is the same read. The button, not the timers, is what this is for. */
 const REFRESH_FLOOR_MS = 1000;
 
+/** Why a read was called for, which is the floor it is answered against. */
+type Reason = 'visible' | 'asked' | 'settings';
+
+/**
+ * How stale a source reading may be before a board becoming visible is worth a network round trip. Without it a
+ * developer moving between a board and their code reads GitHub once a second, which GitHub rate limits (R35).
+ */
+const SOURCE_FLOOR_MS = 60_000;
+
+/**
+ * Two settings that would be read with identically. Key order is not a difference: a source's entry is its own
+ * shape, which `core` deliberately does not know, and a client may build it in any order it likes.
+ */
+function same(before: unknown, after: unknown): boolean {
+  return canonical(before) === canonical(after);
+}
+
+/** Every configuration arrives as JSON — over the loopback, over native messaging, or parsed from `config.json`. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonical).join(',')}]`;
+  }
+
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => (left < right ? -1 : 1))
+      .map(([key, held]) => `${JSON.stringify(key)}:${canonical(held)}`)
+      .join(',')}}`;
+  }
+
+  return JSON.stringify(value) ?? 'null';
+}
+
 const REAL_CLOCK: HubClock = {
   now: () => Date.now(),
   setInterval: (fn, ms) => setInterval(fn, ms),
@@ -110,6 +143,7 @@ export class Hub {
   #sourcesInFlight: Promise<void> | undefined;
   #sessionsInFlight: Promise<void> | undefined;
   #lastReadAt = 0;
+  #lastSourceReadAt = 0;
   /** The last read listed nothing and every agent failed, so an activity event has nothing to re-read. */
   #sessionsUnreadable = false;
   /** Null until a client has said whether it wants the signal at all. Nothing is written to an agent before that. */
@@ -201,7 +235,7 @@ export class Hub {
         return;
 
       case 'refresh':
-        void this.refresh();
+        void this.refresh('asked');
 
         return;
 
@@ -264,13 +298,15 @@ export class Hub {
       before.refreshIntervalMs !== parsed.config.refreshIntervalMs ||
       before.sessionIntervalMs !== parsed.config.sessionIntervalMs
     ) {
-      this.#retime();
+      this.#retime(true);
     }
 
     // Said before the read rather than left to it: the read has a floor, so a setting corrected within a second of
     // being made wrong would leave every board showing the complaint until the next poll.
     this.#broadcast();
-    void this.refresh();
+    // Read now only where the settings a source reads with moved, so the cards on screen answer to them. Every
+    // client restates its configuration on connect, and reading for each of those is a read per board that opens.
+    void this.refresh(same(before.sources, parsed.config.sources) ? 'visible' : 'settings');
 
     return resynced;
   }
@@ -320,18 +356,28 @@ export class Hub {
     return [...this.#clients.values()].some((client) => client.watching);
   }
 
-  /** Timers exist only while something is watching, and are rebuilt when a cadence changes. */
-  #retime(): void {
+  /**
+   * Timers exist only while something is watching. Left alone when nothing about them changed: a client that says
+   * what it already said — a browser worker Chrome restarted, a second board — would otherwise restart the clock
+   * the periodic read is counting on.
+   */
+  #retime(cadenceChanged = false): void {
+    const wanted = !this.#disposed && this.#watched();
+
+    if (wanted === (this.#timers.length > 0) && !cadenceChanged) {
+      return;
+    }
+
     while (this.#timers.length > 0) {
       this.#deps.clock.clearInterval(this.#timers.pop()!);
     }
 
-    if (this.#disposed || !this.#watched()) {
+    if (!wanted) {
       return;
     }
 
     this.#timers.push(
-      this.#deps.clock.setInterval(() => void this.#refreshSources(), this.#config.refreshIntervalMs),
+      this.#deps.clock.setInterval(() => void this.#refreshSources('asked'), this.#config.refreshIntervalMs),
       this.#deps.clock.setInterval(() => void this.#refreshSessions(), this.#config.sessionIntervalMs),
     );
   }
@@ -356,25 +402,43 @@ export class Hub {
     return this.#sessions?.sessions ?? [];
   }
 
-  /** Reads both sources. Each coalesces on its own, so a button press and the two timers never stack up. */
-  refresh(): Promise<void> {
+  /** Reads both sources, each on the floor its own cost earns. */
+  refresh(reason: Reason = 'visible'): Promise<void> {
     if (this.#disposed) {
       return Promise.resolve();
     }
 
     const now = this.#deps.clock.now();
+    const reads = [this.#refreshSources(reason)];
 
-    if (now - this.#lastReadAt < REFRESH_FLOOR_MS) {
+    // The session read spawns a CLI, so it keeps a floor of its own: a button pressed twice in a second is one
+    // roster read rather than two processes (mechanics §2).
+    if (now - this.#lastReadAt >= REFRESH_FLOOR_MS) {
+      this.#lastReadAt = now;
+      reads.push(this.#refreshSessions());
+    }
+
+    return Promise.all(reads).then(() => undefined);
+  }
+
+  /**
+   * A source read is a network round trip, so a board that merely became visible gets the reading already taken
+   * unless it has gone stale. A read asked for waits only out the second that makes two asks one read, and settings
+   * that moved wait out nothing: the read in flight was issued with the ones they replaced, so one follows it.
+   */
+  #refreshSources(reason: Reason = 'visible'): Promise<void> {
+    if (this.#sourcesInFlight) {
+      return reason === 'settings' ? this.#sourcesInFlight.then(() => this.#refreshSources(reason)) : this.#sourcesInFlight;
+    }
+
+    const now = this.#deps.clock.now();
+
+    if (reason !== 'settings' && now - this.#lastSourceReadAt < (reason === 'asked' ? REFRESH_FLOOR_MS : SOURCE_FLOOR_MS)) {
       return Promise.resolve();
     }
 
-    this.#lastReadAt = now;
-
-    return Promise.all([this.#refreshSources(), this.#refreshSessions()]).then(() => undefined);
-  }
-
-  #refreshSources(): Promise<void> {
-    this.#sourcesInFlight ??= this.#readSources().finally(() => {
+    this.#lastSourceReadAt = now;
+    this.#sourcesInFlight = this.#readSources().finally(() => {
       this.#sourcesInFlight = undefined;
     });
 
