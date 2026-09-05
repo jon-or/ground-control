@@ -2,8 +2,14 @@ import { execFile } from 'node:child_process';
 import type { ExecFileException } from 'node:child_process';
 import type { Failure, Result } from './types.js';
 
+/** What a call may bound beyond its arguments. A poll wants neither; one card's triage wants both. */
+export interface GhOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
 export interface GhRunner {
-  (args: string[]): Promise<Result<unknown>>;
+  (args: string[], options?: GhOptions): Promise<Result<unknown>>;
 }
 
 function classify(err: ExecFileException, stderr: string): Failure {
@@ -24,6 +30,10 @@ function classify(err: ExecFileException, stderr: string): Failure {
     };
   }
 
+  if (err.killed === true) {
+    return { kind: 'query-failed', message: 'The GitHub CLI did not answer in time.', remedy: 'Refresh the board to try again.' };
+  }
+
   return { kind: 'query-failed', message: stderr.trim() || err.message, remedy: 'Check the query and your network, then refresh.' };
 }
 
@@ -32,11 +42,24 @@ function classify(err: ExecFileException, stderr: string): Failure {
  * hub that calls this is detached and has no console: without it each poll opens a command prompt on screen.
  */
 export function makeGhRunner(ghPath: string): GhRunner {
-  return (args) =>
+  return (args, options = {}) =>
     new Promise<Result<unknown>>((resolve) => {
-      execFile(ghPath, args, { maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+      const child = execFile(
+        ghPath,
+        args,
+        {
+          maxBuffer: 32 * 1024 * 1024,
+          windowsHide: true,
+          ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+        },
+        (err, stdout, stderr) => {
         if (err) {
-          resolve({ ok: false, error: classify(err, stderr) });
+          resolve({
+            ok: false,
+            error: options.signal?.aborted === true
+              ? { kind: 'query-failed', message: 'The read was stood down before it answered.', remedy: 'Refresh the board to try again.' }
+              : classify(err, stderr),
+          });
           return;
         }
 
@@ -48,6 +71,11 @@ export function makeGhRunner(ghPath: string): GhRunner {
             error: { kind: 'bad-response', message: 'gh returned output that is not JSON.', remedy: 'Run the same gh command in a terminal to see what it printed.' },
           });
         }
-      });
+        },
+      );
+
+      // A read the board has abandoned has to stop costing something: a triage queue of two slots cannot afford one
+      // held by a `gh` nobody is waiting on any more.
+      options.signal?.addEventListener('abort', () => child.kill(), { once: true });
     });
 }

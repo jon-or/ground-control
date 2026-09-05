@@ -1,0 +1,132 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 19209,
+        "title": "Owner statement rounds the wrong currency unit",
+        "body": "Blocked on the other change landing first. (quote email)",
+        "comments": {
+          "nodes": [
+            {
+              "body": "Verified in UAT, the totals line up now. (guest portal)",
+              "createdAt": "2026-08-27T20:22:14Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "body": "Should this respect the account time zone, or the property one? (tax rule)",
+              "createdAt": "2026-08-28T03:07:59Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-5"
+              }
+            },
+            {
+              "body": "The fix looks right, but it needs a test for the empty case. (quote email)",
+              "createdAt": "2026-08-28T03:11:32Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-5"
+              }
+            },
+            {
+              "body": "Can you confirm which account this was tested against? (calendar feed)",
+              "createdAt": "2026-08-28T04:25:43Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-5"
+              }
+            },
+            {
+              "body": "This still fails for me after the latest deploy. (review import)",
+              "createdAt": "2026-08-31T17:43:09Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-1"
+              }
+            }
+          ]
+        }
+      },
+      "pullRequest": {
+        "number": 19210,
+        "title": "Refund ledger skips the second occurrence",
+        "body": "Rebased and pushed; checks are green again. (guest portal)",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "dev-5"
+        },
+        "reviewDecision": "REVIEW_REQUIRED",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED",
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "state": "SUCCESS"
+                }
+              }
+            }
+          ]
+        },
+        "comments": {
+          "nodes": [
+            {
+              "body": "Blocked on the other change landing first. (tax rule)",
+              "createdAt": "2026-08-28T04:25:32Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-5"
+              }
+            },
+            {
+              "body": "Verified in UAT, the totals line up now. (quote email)",
+              "createdAt": "2026-08-28T10:23:06Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-5"
+              }
+            },
+            {
+              "body": "Should this respect the account time zone, or the property one? (calendar feed)",
+              "createdAt": "2026-08-28T12:15:39Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-5"
+              }
+            },
+            {
+              "body": "Left a couple of notes on the diff — mostly naming. (review import)",
+              "createdAt": "2026-08-31T17:26:52Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-1-bot"
+              }
+            },
+            {
+              "body": "Can you confirm which account this was tested against? (refund ledger)",
+              "createdAt": "2026-09-04T17:46:49Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-3"
+              }
+            }
+          ]
+        },
+        "reviews": {
+          "nodes": []
+        },
+        "reviewRequests": {
+          "nodes": []
+        },
+        "reviewThreads": {
+          "nodes": []
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 19231,
+        "title": "Booking export drops rows past the first page",
+        "body": "Can you confirm which account this was tested against? (calendar feed)",
+        "comments": {
+          "nodes": [
+            {
+              "body": "Reproduced on the second page of results; the first page is fine. (review import)",
+              "createdAt": "2026-08-26T17:50:45Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "body": "Rebased and pushed; checks are green again. (refund ledger)",
+              "createdAt": "2026-08-28T11:58:20Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-5"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

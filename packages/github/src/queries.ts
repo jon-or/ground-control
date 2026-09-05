@@ -24,3 +24,36 @@ query($cards:String!, $all:String!, $after:String){
   }
   assignedTotal: search(query:$all, type:ISSUE, first:1){ issueCount }
 }`;
+
+/**
+ * One card's conversation, for triage (`prd.md` R38). The issue and the one pull request the card is showing are asked
+ * for together because they are one question — what is this card asking for — and two round trips would double the
+ * cost of a cold start. `mergeStateStatus`, `statusCheckRollup` and `reviewThreads` need no preview header
+ * (`docs/mechanics.md` §31); `reviews` and `reviewRequests` are what tell a first review round from a later one, and
+ * a colleague's pull request awaiting the developer from their own.
+ */
+export const CARD_CONTEXT_QUERY = `
+query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
+  repository(owner:$owner, name:$name){
+    issue(number:$issue){
+      number title body
+      comments(last:5){ nodes{ body createdAt authorAssociation author{ login } } }
+    }
+    pullRequest(number:$pr) @include(if:$withPr){
+      number title body state isDraft
+      author{ login }
+      reviewDecision mergeable mergeStateStatus
+      commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } }
+      comments(last:5){ nodes{ body createdAt authorAssociation author{ login } } }
+      reviews(last:20){ nodes{ state submittedAt author{ login } } }
+      reviewRequests(first:10){ nodes{ requestedReviewer{
+        ... on User{ login }
+        ... on Team{ slug }
+      }}}
+      reviewThreads(last:10){ nodes{
+        isResolved isOutdated
+        comments(first:3){ nodes{ body createdAt authorAssociation author{ login } } }
+      }}
+    }
+  }
+}`;

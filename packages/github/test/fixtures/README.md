@@ -35,3 +35,42 @@ see scrubbed output.
 A test may null a scalar the GraphQL schema declares nullable — `pageInfo.endCursor`, say — when the live API will
 not produce that shape on demand. Derive it from a recorded fixture in the test itself and say so there; do not
 save the derived shape as a fixture, or the next reader will take it for a recording.
+
+## Triage context
+
+`context-*.json` are `CARD_CONTEXT_QUERY` responses — one card's conversation, for triage. They are recorded and
+scrubbed in one pass by `record-context.js`, which reads the query out of `src/queries.ts` so a recording can never
+be of a document the board does not send:
+
+```
+GC_SELF_LOGINS=<your gh logins> GC_CONTEXT_REPO=owner/name \
+  node test/fixtures/record-context.js <issue>:<pr> <issue>:<pr> <issue>
+```
+
+| File | What it demonstrates |
+|---|---|
+| `context-review.json` | A card with an open pull request carrying a submitted review and one resolved thread — `MERGEABLE`/`BLOCKED`, checks green. Its issue body is padded past the reader's 2 KB limit, so one fixture exercises clipping |
+| `context-fresh.json` | The same shape with no reviews, no threads and no review requests: a pull request nobody has looked at yet |
+| `context-no-pr.json` | An issue with comments and no pull request at all, recorded with `withPr=false` |
+
+Run with no arguments to re-scrub what is on disk.
+
+**Two states are derived in the tests rather than recorded, and say so there.** `mergeable: UNKNOWN` is what GitHub
+answers only in the window before it has computed mergeability — the ask itself starts the computation
+(`docs/mechanics.md` §31) — so it cannot be captured on demand. A null `statusCheckRollup` is the same: it appears
+only on a commit no check ran against.
+
+### Scrubbing
+
+`anonymise-context.js` replaces **every body wholesale** rather than matching known values: a recorded conversation is
+the developer's and their colleagues' own words about their own work, and no list of logins or paths will match one.
+Bodies are rebuilt from `remark()` in `tools/fixture-words.js`, keyed by number and position so two comments never
+read alike and the diff stays readable across re-records. Logins go through the same map as the search fixtures, so a
+person is the same `dev-N` in every file; a requested team becomes `team-N` for the same reason a login does.
+
+Kept, because the tests turn on them: issue and pull request numbers, comment order, author associations, review
+states and timestamps, thread resolution, and every merge and check field.
+
+It asserts twice before writing — that each recorded value is gone, and that nothing shaped like a link, an email
+address or an `@mention` survives anywhere in the file. The second is the sweep that catches what the first never
+enumerated.

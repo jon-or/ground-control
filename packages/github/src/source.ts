@@ -1,7 +1,10 @@
 import { execFile } from 'node:child_process';
 import { z } from 'zod';
 import { spawnable } from '@ground-control/core';
-import type { ReadFailure, SourceReading, WorkSource } from '@ground-control/core';
+import type { ReadFailure } from '@ground-control/core';
+import type { ContextReading, IssueCard, SourceReading, WorkSource } from '@ground-control/core';
+import { fetchCardContext } from './context.js';
+import { makeGhRunner } from './gh.js';
 import { parseAuthStatusLogins } from './identity.js';
 import { fetchAssignedIssues } from './issues.js';
 import type { AssignedIssues, GithubConfig, Result } from './types.js';
@@ -70,6 +73,7 @@ export function detectLogins(ghPath: string): Promise<string[]> {
 export interface GithubSourceDeps {
   fetch(config: GithubConfig): Promise<Result<AssignedIssues>>;
   detectLogins(ghPath: string): Promise<string[]>;
+  readContext(config: GithubConfig, card: IssueCard, signal: AbortSignal): Promise<ContextReading>;
 }
 
 /**
@@ -80,6 +84,10 @@ export interface GithubSourceDeps {
 export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSource {
   const fetch = deps.fetch ?? ((config: GithubConfig) => fetchAssignedIssues(config));
   const detect = deps.detectLogins ?? detectLogins;
+  const context =
+    deps.readContext ??
+    ((config: GithubConfig, card: IssueCard, signal: AbortSignal) =>
+      fetchCardContext(config, card, makeGhRunner(config.ghPath), signal));
 
   let held: GithubConfig | null = null;
 
@@ -137,6 +145,22 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
         failure: null,
         needs: null,
       };
+    },
+
+    readContext(card, signal): Promise<ContextReading> {
+      // Reading with settings nobody set is what a refused configuration must never do, and a card's conversation
+      // is read for the developer's own logins the same way its issues are.
+      return held === null
+        ? Promise.resolve({
+            context: null,
+            failure: {
+              subject: GITHUB_SOURCE_ID,
+              kind: 'bad-config',
+              message: 'The board has not been told which repository your work is tracked in.',
+              remedy: 'Set groundControl.github.repo in Settings.',
+            },
+          })
+        : context(held, card, signal);
     },
   };
 }
