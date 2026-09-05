@@ -1370,3 +1370,44 @@ So nothing this project reads off an HTTP response may be decoded by the stream.
 **The Source Control Graph cannot be pointed at a repository.** Its `_selectedRepository` defaults to `scmViewService.activeRepository`, and the only way to change it is `workbench.scm.action.graph.pickRepository`, which takes no arguments and opens a quick pick. `activeRepository` is derived from the active editor's original URI, and a multi-diff editor's resource is the `multiDiffSourceUri`, so opening one does not move it. Focusing the graph after opening a diff shows whichever repository was already selected.
 
 **View ids and their focus commands.** `workbench.view.scm` opens the container; the workbench registers `` `${view.id}.focus` `` for every view, so `workbench.scm.focus`, `workbench.scm.history.focus` (the Graph) and `workbench.scm.repositories.focus` (Repositories) all exist. The Graph view carries `when: scm.historyProviderCount != 0` and its focus action no-ops silently when unavailable. `git.detectWorktrees` (default `false`, limit `git.detectWorktreesLimit`, 50) is the setting that opens a repository's worktrees on its own.
+
+## 31. A classifier session can be run so the board never sees it
+
+**Measured 2026-09-05**, four probes against the installed `claude` CLI on this machine. This is the mechanism card triage runs on (`prd.md` R38).
+
+The invocation, at the directory the hub uses:
+
+```bash
+cd ~/.claude/ground-control
+<prompt on stdin> | claude -p \
+  --output-format json --json-schema '<schema>' \
+  --no-session-persistence --setting-sources "" --session-id '<uuid>' \
+  --strict-mcp-config --tools "" --system-prompt '<classifier>' \
+  --model claude-haiku-4-5-20251001
+```
+
+**It writes nothing the board reads.** Across all four probes `~/.claude/projects` held 2,001 `.jsonl` files before and after with none named for a probe session; `~/.claude/ground-control/activity` was unchanged; and `~/.claude/session-env` held 1,046 entries before and after. So `--no-session-persistence` suppresses the transcript *and* the per-session environment directory §3 records, and `--setting-sources ""` keeps the activity hooks out of a session that would otherwise fire them.
+
+**It is listed by `claude agents --json`,** as §10 says a `-p` session is: `pid`, `cwd`, `startedAt`, `sessionId` and a directory-derived `name`, with no short `id`, no `status` and no `state`. **That shape is exactly what `neverPrompted` drops** — no transcript, no activity, no `status`, no `state` — so the Claude adapter filters such a session out before the hub sees it, and a classifier process orphaned by a killed hub cannot become a card either.
+
+**`--setting-sources ""` is accepted** and is a stronger guarantee than naming sources hoped to be empty: no user, project or local settings load, so no hook entry at any level reaches the session. Naming sources instead would matter, because project and local settings resolve by walking up from the cwd, and `~/.claude/settings.json` — where the board installs its hooks — sits at an ancestor of any path under the home directory.
+
+**The prompt goes on stdin.** Review-thread bodies run to 1–2 KB each and Windows caps a command line at 32,767 characters, so the evidence must not be an argv element.
+
+**`--tools` is variadic,** so `--tools ""` parses only when a flag follows it.
+
+**Cost is dominated by what is loaded, not by the prompt.** Same classification, three invocations:
+
+| Invocation | Input tokens | Wall | List price |
+|---|---|---|---|
+| `--restricted`, default system prompt, tools loaded | 55,175 | 11.8 s | $0.064 |
+| `--tools ""` and an explicit `--system-prompt` | 2,243 | 5.2 s | $0.005 |
+| plus `--setting-sources ""`, stdin, and the cwd above | **1,007** | **3.1 s** | **$0.003** |
+
+The tool definitions and the default system prompt were the whole of the overhead — 55× the final input size.
+
+**`--json-schema` answers on `structured_output`,** already parsed, with the same JSON in `result` as a string.
+
+**`--model haiku` is not a documented alias.** The CLI's help names `fable`, `opus` and `sonnet`; `haiku` resolved to `claude-haiku-4-5-20251001` here, but an alias that silently resolves elsewhere changes cost and quality with no signal, so the full name is what gets passed.
+
+**Version-fragile.** What `--setting-sources` and `--no-session-persistence` *do* is the whole of the invisibility; a flag that keeps its name and changes its meaning puts activity markers and transcripts back, and only re-measuring this section catches it.
