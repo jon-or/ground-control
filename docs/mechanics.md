@@ -1408,6 +1408,8 @@ The tool definitions and the default system prompt were the whole of the overhea
 
 **`--json-schema` answers on `structured_output`,** already parsed, with the same JSON in `result` as a string.
 
+**A real card takes 23–46 seconds, not the 3 the synthetic probe took.** Four cards on this team's board, each with its issue body, five comments and an open pull request, classified in 23.5 s, 31.0 s, 39.3 s and 45.9 s — every answer correct. The synthetic one-sentence probe above is not a latency guide: Haiku thinks in proportion to the evidence. That spread is what sets the default budget at 120 s covering the `gh` read and the classification together, and it means a fifteen-card board costs about four and a half minutes at two at a time.
+
 **`--model haiku` is not a documented alias.** The CLI's help names `fable`, `opus` and `sonnet`; `haiku` resolved to `claude-haiku-4-5-20251001` here, but an alias that silently resolves elsewhere changes cost and quality with no signal, so the full name is what gets passed.
 
 **Version-fragile.** What `--setting-sources` and `--no-session-persistence` *do* is the whole of the invisibility; a flag that keeps its name and changes its meaning puts activity markers and transcripts back, and only re-measuring this section catches it.

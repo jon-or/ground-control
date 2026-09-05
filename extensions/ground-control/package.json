@@ -191,10 +191,10 @@
         "groundControl.triage.timeoutSeconds": {
           "scope": "application",
           "type": "number",
-          "default": 60,
+          "default": 120,
           "minimum": 10,
           "maximum": 300,
-          "markdownDescription": "How long one card gets, covering both reading it from GitHub and classifying it. A card that runs over is left unlabelled and tried again later."
+          "markdownDescription": "How long one card gets, covering both reading it from GitHub and classifying it. Real cards measured 23–46 seconds, so the default leaves plenty of room; a card that runs over is left unlabelled and tried again later."
         },
         "groundControl.installSessionHooks": {
           "scope": "application",

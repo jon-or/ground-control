@@ -83,7 +83,7 @@ export function readTriage(): HubConfig['triage'] {
     enabled: cfg.get<boolean>('triage.enabled', true),
     concurrency: number('triage.concurrency', 2),
     // Seconds in settings, milliseconds in the hub, the way every other interval here is.
-    timeoutMs: number('triage.timeoutSeconds', 60) * 1000,
+    timeoutMs: number('triage.timeoutSeconds', 120) * 1000,
   };
 }
 

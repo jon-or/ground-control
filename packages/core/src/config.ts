@@ -63,7 +63,7 @@ const TRIAGE_TIMEOUT_FLOOR_MS = 10_000;
 const TRIAGE_TIMEOUT_CEILING_MS = 300_000;
 const TRIAGE_CONCURRENCY_CEILING = 8;
 
-export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, concurrency: 2, timeoutMs: 60_000 };
+export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, concurrency: 2, timeoutMs: 120_000 };
 
 const triage = z.object({
   enabled: z.boolean(),
