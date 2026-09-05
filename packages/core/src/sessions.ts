@@ -1,7 +1,25 @@
-import type { AgentAdapter, AgentReading } from './agent.js';
+import type { AgentAdapter, AgentReading, HistoryReading } from './agent.js';
 import { compilePattern } from './link.js';
 import type { MachineReaders } from './machine.js';
 import type { SessionsConfig, SessionsSnapshot } from './types.js';
+
+/** History readers have no effect on whether the active roster was successfully read. */
+export async function fetchSessionHistory(
+  cfg: SessionsConfig,
+  adapters: readonly AgentAdapter[],
+  readers: MachineReaders,
+): Promise<{ sessions: HistoryReading['sessions']; failures: NonNullable<HistoryReading['failure']>[] }> {
+  const { pattern } = compilePattern(cfg.branchIssuePattern);
+  const readings = await Promise.all(cfg.agents.map(async ({ id }): Promise<HistoryReading> => {
+    const adapter = adapters.find((candidate) => candidate.id === id);
+    try {
+      return await adapter?.listHistory?.({ ...readers, pattern }) ?? { sessions: [], failure: null };
+    } catch {
+      return { sessions: [], failure: { subject: id, kind: 'history-failed', message: `${id} session history could not be read.`, remedy: 'Refresh the board and check access to the agent history directory.' } };
+    }
+  }));
+  return { sessions: readings.flatMap((r) => r.sessions), failures: readings.flatMap((r) => r.failure ? [r.failure] : []) };
+}
 
 /**
  * Every live session across every configured agent CLI, read concurrently. Always a snapshot: one CLI being absent

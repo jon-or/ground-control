@@ -167,3 +167,33 @@ describe('mergeBoard', () => {
     expect(cards).toHaveLength(2);
   });
 });
+
+
+describe('latest historical session fallback', () => {
+  const issue = { ...issues[0]!, number: 42, url: 'https://github.com/org/repo/issues/42' };
+  const past = (id: string, at: number, over = {}) => ({ agent: 'claude', sessionId: id, title: 'Past attempt', cwd: '/work/42-test', branch: '42-test', issueNumber: 42, repository: 'github.com/org/repo', updatedAt: at, ...over });
+  it('chooses one newest modified session with a deterministic tie-break and without mutating inputs', () => {
+    const history = [past('z', 10), past('b', 20), past('a', 20)];
+    const card = mergeBoard([issue], [], history)[0]!;
+    expect(card.lastSession?.sessionId).toBe('a');
+    expect(card.sessions).toEqual([]);
+    expect(history.map((s) => s.sessionId)).toEqual(['z', 'b', 'a']);
+  });
+  it('lets every live phase suppress history and excludes resumed ids even after their issue link changes', () => {
+    for (const phase of ['running', 'waiting', 'idle'] as const) {
+      const live = { ...sessions[0]!, agent: 'claude', issueNumber: 42, finished: false, activity: { phase, since: 1, event: 'test' } };
+      expect(mergeBoard([issue], [live], [past('old', 10)])[0]?.lastSession).toBeUndefined();
+      const moved = { ...live, issueNumber: 43, sessionId: 'old' };
+      expect(mergeBoard([issue], [moved], [past('old', 10)])[0]?.lastSession).toBeUndefined();
+    }
+  });
+  it('requires matching repository evidence and ignores stale copies of a moved transcript', () => {
+    expect(mergeBoard([issue], [], [past('old', 1, { repository: null }), past('other', 2, { repository: 'github.com/other/repo' })])[0]?.lastSession).toBeUndefined();
+    expect(mergeBoard([issue], [], [past('moved', 1), past('moved', 2, { issueNumber: 43 })])[0]?.lastSession).toBeUndefined();
+  });
+  it('never creates cards from history or puts finished-session activity on the fallback', () => {
+    expect(mergeBoard([], [], [past('old', 1)])).toEqual([]);
+    const finished = { ...sessions[0]!, issueNumber: 42, finished: true };
+    expect(mergeBoard([issue], [finished], [past('old', 1)])[0]).toMatchObject({ sessions: [], lastSession: { sessionId: 'old' } });
+  });
+});

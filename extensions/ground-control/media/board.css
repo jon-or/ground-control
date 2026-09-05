@@ -417,6 +417,9 @@ main.dragging .lane-idle {
   text-transform: uppercase;
 }
 
+.session.historical { flex-wrap: wrap; }
+.session.historical .state { flex-basis: 100%; padding-inline-start: 1.15rem; }
+
 .agent-mark {
   width: 0.85rem;
   height: 0.85rem;

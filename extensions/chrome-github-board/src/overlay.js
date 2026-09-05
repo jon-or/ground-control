@@ -104,6 +104,8 @@ ${COLUMN} { margin-right: -1px !important;
 .${BADGE_CLASS} a.gc-session { text-decoration: none; }
 .${BADGE_CLASS} a.gc-session:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
 .${BADGE_CLASS} span.gc-session { cursor: default; }
+.${BADGE_CLASS} .gc-historical { flex-wrap: wrap; }
+.${BADGE_CLASS} .gc-historical .gc-state { flex-basis: 100%; padding-inline-start: 1.15rem; }
 .${BADGE_CLASS} svg { flex: none; }
 .gc-agent { flex: none; }
 .gc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -279,6 +281,9 @@ function phaseText(phase, since, now) {
  * @returns {number} how many durations were advanced, which is what a test has to go on
  */
 export function tickDurations(doc, now) {
+  for (const el of doc.querySelectorAll('[data-history-updated]')) {
+    el.textContent = `Last session · updated ${ago(now - Number(el.getAttribute('data-history-updated')))} ago`;
+  }
   let moved = 0;
 
   // Scoped to the overlay's own rows rather than to the attribute: this runs over a page GitHub owns, and a bare
@@ -1052,6 +1057,45 @@ function sessionRow(doc, session, now, openable) {
 }
 
 /**
+ * @param {Document} doc
+ * @param {import('@ground-control/core').HistoricalSession | undefined} session
+ * @param {number} now
+ * @param {readonly string[]} openable
+ * @returns {HTMLElement | null}
+ */
+function historyRow(doc, session, now, openable) {
+  if (!session || typeof session.agent !== 'string' || typeof session.cwd !== 'string' ||
+      !(session.title === null || typeof session.title === 'string') ||
+      !Number.isFinite(session.updatedAt) || !Number.isFinite(new Date(session.updatedAt).getTime())) return null;
+  const reachable = openable.includes(session.sessionId);
+  const row = doc.createElement(reachable ? 'a' : 'span');
+  if (reachable) {
+    row.setAttribute('href', `${OPEN_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
+    row.setAttribute('draggable', 'false');
+  }
+  row.className = 'gc-session gc-historical';
+  const icon = agentIcon(doc, session.agent);
+  if (icon) row.appendChild(icon);
+  else {
+    const named = doc.createElement('span');
+    named.className = 'gc-agent';
+    named.textContent = session.agent;
+    row.appendChild(named);
+  }
+  const name = doc.createElement('span');
+  name.className = 'gc-name';
+  name.textContent = session.title ?? basename(session.cwd);
+  const state = doc.createElement('span');
+  state.className = 'gc-state';
+  state.dataset.historyUpdated = String(session.updatedAt);
+  state.textContent = `Last session · updated ${ago(now - session.updatedAt)} ago`;
+  row.title = `${name.textContent} — ${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`;
+  row.append(name, state);
+  row.addEventListener('click', (event) => event.stopPropagation());
+  return row;
+}
+
+/**
  * What the row says on hover: what the board concluded, and the hook it concluded it from (R13).
  *
  * @param {{ phase: string, event: string | null }} activity
@@ -1137,6 +1181,10 @@ function renderBadge(doc, element, card, now, actions, openable) {
 
   for (const session of card.sessions) {
     badge.appendChild(sessionRow(doc, session, now, openable));
+  }
+  if (!card.sessions.some((session) => !session.finished)) {
+    const historical = historyRow(doc, card.lastSession, now, openable);
+    if (historical) badge.appendChild(historical);
   }
 
   // Inside the card's own bordered box, so the footer reads as a line of the card rather than a chip dropped under it.

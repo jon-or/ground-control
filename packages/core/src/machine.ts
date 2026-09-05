@@ -25,6 +25,7 @@ export interface MachineReaders {
   mtime: StatMtime;
   listDir: ListDir;
   readTail: ReadTail;
+  readHead: ReadTail;
   home: string;
 }
 
@@ -61,7 +62,7 @@ export const listDirFromDisk: ListDir = (path) => {
 };
 
 /** One positional read of a file's end. A whole-file read of a multi-megabyte transcript is what this replaces. */
-export const readTailFromDisk: ReadTail = (path, bytes) => {
+function readSlice(path: string, bytes: number, tail: boolean): string | null {
   let file: number | null = null;
 
   try {
@@ -78,7 +79,7 @@ export const readTailFromDisk: ReadTail = (path, bytes) => {
 
     // The count read, not the length asked for: a file truncated between the stat and the read leaves the rest of
     // the buffer zeroed, and NUL is not JSON whitespace, so those bytes would break the first record parsed.
-    const read = readSync(file, buffer, 0, length, stats.size - length);
+    const read = readSync(file, buffer, 0, length, tail ? stats.size - length : 0);
 
     return buffer.subarray(0, read).toString('utf8');
   } catch {
@@ -88,9 +89,12 @@ export const readTailFromDisk: ReadTail = (path, bytes) => {
       closeSync(file);
     }
   }
-};
+}
+
+export const readTailFromDisk: ReadTail = (path, bytes) => readSlice(path, bytes, true);
+export const readHeadFromDisk: ReadTail = (path, bytes) => readSlice(path, bytes, false);
 
 /** The real machine, which is what every caller outside a test hands an adapter. */
 export function diskReaders(home: string = homedir()): MachineReaders {
-  return { readText: readTextFromDisk, mtime: mtimeFromDisk, listDir: listDirFromDisk, readTail: readTailFromDisk, home };
+  return { readText: readTextFromDisk, mtime: mtimeFromDisk, listDir: listDirFromDisk, readTail: readTailFromDisk, readHead: readHeadFromDisk, home };
 }

@@ -189,5 +189,5 @@ export function claudeWith(run: ExecJson): readonly AgentAdapter[] {
 
 /** The recorded machine: git reads, transcript listing, write times and tails, under the synthetic home. */
 export function recordedReaders(): MachineReaders {
-  return { readText: gitReads(), mtime: recordedMtimes, listDir: listRecordedDirs, readTail: readRecordedTails, home: HOME };
+  return { readText: gitReads(), mtime: recordedMtimes, listDir: listRecordedDirs, readTail: readRecordedTails, readHead: () => null, home: HOME };
 }

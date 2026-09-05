@@ -14,6 +14,7 @@ Read the diff before committing — a fixture is evidence, and the counts move a
 | `agents-all.json` | `claude agents --all --json` — the same sessions plus finished background ones. The only fixture carrying a short `id` or a `state`, so it is what proves those two fields are mapped rather than hardcoded |
 | `git-reads.json` | each recorded checkout's `.git` and its `HEAD`, keyed by forward-slash path. A `null` is a real read failure: a plain `.git` is a directory, so reading it as text fails, which is how a clone is told from a worktree |
 | `hook-payloads.json` | real Claude Code hook payloads, captured through `claude --settings <file>` so the developer's own `~/.claude/settings.json` is never involved. Re-record with `node test/fixtures/record-hooks.js` |
+| `history-records.json` | A prompted parent conversation record and a title record from one real session, with all unrelated strings redacted. Re-record with `node test/fixtures/record-history.mjs`. The history reader uses only metadata, not conversation content. |
 | `transcripts.json` | the project-directory listing, plus each live session's cwd, the directory its transcript was found in (`dir`), that transcript's write time, the title records inside the window the reader reads (`titles`), and how far from the transcript's end its last title sat (`titleBytesFromEnd`) |
 
 ## Anonymised, and why that makes the tests stronger

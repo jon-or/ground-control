@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { OpenPlan, OpenRequest, Session, SessionSurface } from '@ground-control/core';
 import { basename } from '@ground-control/core';
-import { SETTLING_MS, openableSessions, planOpen, strayFrom, verifyOpen } from '../src/open.js';
+import { SETTLING_MS, openableSessions, planOpen, resumeRefusal, strayFrom, verifyOpen } from '../src/open.js';
 import { PLACEMENTS } from '../src/placements.js';
 import { session } from './helpers.js';
 
@@ -359,5 +359,34 @@ describe('verifyOpen', () => {
 
   it('reports no-tab when the count fell, which no open can cause', () => {
     expect(verifyOpen(3, 1, false)).toBe('no-tab');
+  });
+});
+
+
+describe('resuming historical sessions', () => {
+  const historicalSession = { agent: 'claude', sessionId: live.sessionId, cwd: live.cwd, title: 'Previous work', branch: live.branch, issueNumber: live.issueNumber, repository: 'github.com/org/repo', updatedAt: 100 };
+  const pastRequest = (over: Partial<OpenRequest> = {}) => request(live, { sessions: [], surfaces: [], liveRoots: [], historicalSession, ...over });
+  it('resumes in the saved directory, including a new window when none is open', () => {
+    expect(decide(pastRequest())).toMatchObject({ route: 'resume-here', root: live.cwd, session: historicalSession });
+    expect(decide(pastRequest({ workspaceRoot: '/other' }))).toMatchObject({ route: 'resume-elsewhere', root: live.cwd, newWindow: true });
+    expect(decide(pastRequest({ workspaceRoot: '/other', liveWindows: [{ folders: [live.cwd] }] }))).toMatchObject({ newWindow: false });
+    expect(decide(pastRequest({ workspaceRoot: '/other', liveWindows: [{ folders: [live.cwd, '/second'] }] }))).toMatchObject({ newWindow: true });
+    expect(refusalOf(decide(pastRequest({ workspaceRoot: '/other' }), false))).toBe('elsewhere-not-allowed');
+    expect(refusalOf(decide(pastRequest({ extensionReady: false })))).toBe('no-extension');
+    expect(refusalOf(decide(pastRequest({ historicalSession: { ...historicalSession, agent: 'other' } })))).toBe('other-agent');
+  });
+  it('reveals the live session when a historical card has become stale, including sidebar routing', () => {
+    expect(routeOf(decide(pastRequest({ sessions: [live], surfaces: [sidebarIn(live, live.cwd)] })))).toBe('sidebar-here');
+    expect(routeOf(decide(pastRequest({ sessions: [{ ...live, finished: true }] })))).toBe('resume-here');
+  });
+  it('does not confuse a requested resume with an unintended fresh session', () => {
+    expect(strayFrom([], [live], live.sessionId)).toBeNull();
+    expect(strayFrom([], [live, twin], live.sessionId)).toBe(twin);
+  });
+  it('requires a complete inactive roster immediately before firing', () => {
+    expect(resumeRefusal(live.sessionId, null)).toContain('Could not verify');
+    expect(resumeRefusal(live.sessionId, [live])).toContain('now active');
+    expect(resumeRefusal(live.sessionId, [])).toBeNull();
+    expect(resumeRefusal(live.sessionId, [{ ...live, finished: true }])).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   HostAdapter,
+  HistoricalSession,
   HostWindows,
   MachineReaders,
   OpenPlan,
@@ -93,8 +94,8 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
       return planOpen(request, placements, settings.mayOpenWindow);
     },
 
-    openable(sessions: readonly Session[]): string[] {
-      return openableSessions(sessions, placements);
+    openable(sessions: readonly Session[], history: readonly HistoricalSession[] = []): string[] {
+      return openableSessions([...sessions, ...history], placements);
     },
   };
 }

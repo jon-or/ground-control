@@ -1,5 +1,10 @@
 import type { MachineDeps, ReadText } from './machine.js';
-import type { ReadFailure, Session, SessionActivity } from './types.js';
+import type { HistoricalSession, ReadFailure, Session, SessionActivity } from './types.js';
+
+export interface HistoryReading {
+  sessions: HistoricalSession[];
+  failure: ReadFailure | null;
+}
 
 /**
  * Sessions and a failure are not exclusive: a CLI listing ten sessions and one entry the board cannot read reports
@@ -61,5 +66,9 @@ export interface AgentAdapter {
   readonly defaultEnabled: boolean;
   /** Lists every live session this CLI reports. Never throws — a failure comes back classified. */
   listSessions(path: string, deps: MachineDeps): Promise<AgentReading>;
+  /** Saved metadata only. The caller establishes absence from the live roster independently. */
+  listHistory?(deps: MachineDeps): Promise<HistoryReading>;
+  /** Whether this saved transcript can still be resumed from its recorded directory. Checked on click. */
+  canResume?(session: HistoricalSession, deps: MachineDeps): boolean;
   readonly activity?: ActivitySignal;
 }

@@ -1281,3 +1281,48 @@ describe('the session label ladder', () => {
     ]);
   });
 });
+
+
+describe('historical rows', () => {
+  const lastSession = { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: Date.now() - 60000 };
+  it('renders a neutral non-clickable row, updates it, and replaces it when a session resumes', () => {
+    const pastCard = { ...liveCard, sessions: [], lastSession };
+    send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
+    const row = document.querySelector<HTMLElement>('.historical')!;
+    expect(row.textContent).toContain('Past attempt');
+    expect(row.textContent).toContain('Last session · updated');
+    expect(row.title).toContain('Last saved');
+    expect(row.querySelector('button, a, [data-activity-since]')).toBeNull();
+    expect(row.dataset.phase).toBeUndefined();
+    row.click(); expect(sent()).toEqual([]);
+    send(message({ lanes: lanes({ build: [{ ...pastCard, lastSession: { ...lastSession, title: 'Renamed' } }] }) }));
+    expect(document.querySelector('.historical')?.textContent).toContain('Renamed');
+    send(message({ lanes: lanes({ build: [{ ...liveCard, lastSession }] }) }));
+    expect(document.querySelector('.historical')).toBeNull();
+    send(message({ lanes: lanes({ build: [pastCard] }) }));
+    expect(document.querySelector('.historical')).not.toBeNull();
+  });
+  it('tolerates absent and malformed history in cached payloads', () => {
+    for (const history of [undefined, { ...lastSession, updatedAt: NaN }]) {
+      send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], ...(history ? { lastSession: history } : {}) }] }) }));
+      expect(document.querySelector('.historical')).toBeNull();
+    }
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], lastSession: { ...lastSession, title: null, agent: 'other' } }] }) }));
+    expect(document.querySelector('.historical')?.textContent).toContain('18953-test');
+  });
+});
+
+
+it('makes a historical title openable when the host offers it, including after a cached render', () => {
+  const lastSession = { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: Date.now() - 60000 };
+  const pastCard = { ...liveCard, sessions: [], lastSession };
+  send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
+  expect(document.querySelector('.historical button')).toBeNull();
+  send(message({ lanes: lanes({ build: [pastCard] }), openable: ['past'] }));
+  const button = document.querySelector<HTMLButtonElement>('.historical button')!;
+  expect(button.textContent).toBe('Past attempt'); expect(button.draggable).toBe(false);
+  button.click(); expect(sent()).toEqual([{ type: 'openSession', sessionId: 'past' }]);
+  expect(button.closest('.historical')?.getAttribute('title')).toContain('Resume this session');
+  send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
+  expect(document.querySelector('.historical button')).toBeNull();
+});

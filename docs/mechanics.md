@@ -92,6 +92,16 @@ The board reads the last **64 kB**: twice the measured worst in-reach case, whic
 
 The first line of a positional read is a fragment of whatever line it cut through, so a reader must tolerate one unparseable line at the front. A record also carries its own `sessionId`, which a forked transcript makes worth checking.
 
+## 3c. Historical session discovery
+
+**Measured 2026-09-05.** A metadata-only probe found 108 project-directory entries and 558 top-level UUID-named transcript files under this machine's `.claude/projects`. Parent conversation records carry `sessionId`, `cwd`, `gitBranch`, and `type`; subagent records carry `isSidechain`, and nested subagent files are outside this scan. `test/fixtures/history-records.json` records one prompted parent and a title record with strings scrubbed; `record-history.mjs` reproduces it.
+
+The bounded history reader found 557 sessions with usable parent metadata and 232 with both an issue link and repository identity. Its first scan took 1,080 ms, and a second scan using cached metadata took 73 ms. These are observations of this machine's history, not latency guarantees. Each transcript read is bounded to the first and last 64 KiB; absent metadata in those windows means no match, and a title outside them falls back to the directory name. Modification time ranks saved work only; the live CLI roster establishes whether a saved session is inactive.
+
+The official SDK `0.3.261` was inspected and imported in an isolated probe. `listSessions()` returned zero sessions from an empty `CLAUDE_CONFIG_DIR` in 72 ms including import. The API has no per-call home argument; its configuration resolver uses process-wide `CLAUDE_CONFIG_DIR`, and directory discovery catches filesystem failures as empty results. The hub uses its injected filesystem readers for history, so its own `--home` and classified read failures do not depend on changing process-wide environment variables. SDK source and transcript metadata are version-fragile.
+
+**Clickable history wiring measured 2026-09-05.** In a real VS Code integration host, the historical row rendered a button and clicking it posted its saved session ID. The resident's `resume-here` route invoked `claude-vscode.primaryEditor.open` with that ID and observed a real editor tab. This wiring test registered a surrogate handler for the Claude command so it made no model request; it did not remeasure Claude's transcript loading. It also verified no command fired for an unreadable roster, an already-active session, or an expired route. A direct `Code.exe <appRoot>/out/cli.js --version` invocation with `ELECTRON_RUN_AS_NODE=1` succeeded without a shell. Section 7 records the actual historical Claude resume mechanism; cold-window routing explicitly supplies `--new-window` rather than relying on the user's folder-opening preference.
+
 ## 4. Stop kills subagents — they do not survive
 
 Measured directly. A background session spawned two subagents, each running a ~150s wait.

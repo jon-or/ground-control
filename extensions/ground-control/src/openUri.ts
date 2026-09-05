@@ -9,7 +9,7 @@ import { agentExtensionReady } from './resident.js';
  * the foreground, which is what every route then needs (`docs/mechanics.md` §26, §29).
  *
  * The link is reachable from any page, so this takes one well-formed id and nothing else, and hands it to the same
- * path the board's own session row uses. The hub refuses an id its roster does not carry, by name.
+ * path the board's own session row uses. The hub resolves the id against its live roster and saved history, and refuses unknown ids.
  */
 export function registerUriHandler(): vscode.Disposable {
   return vscode.window.registerUriHandler({

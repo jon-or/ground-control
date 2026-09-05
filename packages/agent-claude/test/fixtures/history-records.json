@@ -1,0 +1,36 @@
+[
+  {
+    "parentUuid": null,
+    "isSidechain": false,
+    "promptId": "[redacted]",
+    "type": "user",
+    "message": {
+      "role": "[redacted]",
+      "content": [
+        {
+          "type": "[redacted]",
+          "text": "[redacted]"
+        }
+      ]
+    },
+    "uuid": "[redacted]",
+    "timestamp": "[redacted]",
+    "permissionMode": "[redacted]",
+    "origin": {
+      "kind": "[redacted]"
+    },
+    "promptSource": "[redacted]",
+    "userType": "[redacted]",
+    "entrypoint": "[redacted]",
+    "cwd": "/work/42-example",
+    "sessionId": "a1b2c3d4-0000-4000-8000-000000000000",
+    "version": "[redacted]",
+    "gitBranch": "42-example",
+    "slug": "[redacted]"
+  },
+  {
+    "type": "ai-title",
+    "sessionId": "a1b2c3d4-0000-4000-8000-000000000000",
+    "aiTitle": "Recorded automatic title"
+  }
+]

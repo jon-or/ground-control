@@ -152,6 +152,31 @@ function sessionLine(session) {
   return el;
 }
 
+function historyLine(session) {
+  // Cached snapshots can outlive the hub version that produced them.
+  if (!session || typeof session.agent !== 'string' || typeof session.cwd !== 'string' ||
+      !(session.title === null || typeof session.title === 'string') ||
+      !Number.isFinite(session.updatedAt) || !Number.isFinite(new Date(session.updatedAt).getTime())) return null;
+  const el = document.createElement('span');
+  el.className = 'session historical';
+  const reachable = openable.has(session.sessionId);
+  const label = document.createElement(reachable ? 'button' : 'span');
+  label.className = 'session-label';
+  label.textContent = session.title ?? basename(session.cwd);
+  if (reachable) {
+    label.type = 'button';
+    label.draggable = false;
+    label.addEventListener('click', () => vscode.postMessage({ type: 'openSession', sessionId: session.sessionId }));
+  }
+  const state = document.createElement('span');
+  state.className = 'state';
+  state.dataset.historyUpdated = String(session.updatedAt);
+  state.textContent = `Last session · updated ${ago(Date.now() - session.updatedAt)} ago`;
+  el.title = `${label.textContent} — ${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`;
+  el.append(agentMark(session.agent), label, state);
+  return el;
+}
+
 const PHASE_WORDS = { running: 'running', waiting: 'needs you', idle: 'idle' };
 
 const PHASE_TITLES = {
@@ -193,6 +218,9 @@ function stateTitle(activity) {
  * and the phase itself only changes when a hook fires - so the text is rewritten and the elements are left alone.
  */
 function tickDurations() {
+  for (const el of document.querySelectorAll('[data-history-updated]')) {
+    el.textContent = `Last session · updated ${ago(Date.now() - Number(el.dataset.historyUpdated))} ago`;
+  }
   for (const el of document.querySelectorAll('[data-activity-since]')) {
     const since = Number(el.dataset.activitySince);
     const phase = el.closest('.session')?.dataset.phase;
@@ -450,6 +478,10 @@ function card(boardCard, avatarPool, placeable) {
   for (const session of boardCard.sessions) {
     el.appendChild(sessionLine(session));
   }
+  if (!boardCard.sessions.some((session) => !session.finished)) {
+    const historical = historyLine(boardCard.lastSession);
+    if (historical) el.appendChild(historical);
+  }
 
   // The lane is the developer's own placement, so a card carries its own way to move. Alt+arrow is the same move from
   // a keyboard, which drag alone does not give.
@@ -558,6 +590,8 @@ function signature(boardCard) {
     boardCard.lane,
     boardCard.returned,
     boardCard.issue,
+    boardCard.lastSession,
+    boardCard.lastSession ? openable.has(boardCard.lastSession.sessionId) : false,
     // The phase, not the activity: `since` moves at every turn, and including it would rebuild the card each time -
     // losing the scroll, the avatars and the focus this whole mechanism exists to keep.
     boardCard.sessions.map((s) => [

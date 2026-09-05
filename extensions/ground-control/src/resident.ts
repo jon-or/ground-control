@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
-import { sessionLabel } from '@ground-control/core';
-import type { OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
-import { PLACEMENTS, strayFrom, verifyOpen } from '@ground-control/host-vscode';
+import { join } from 'node:path';
+import { dirKey, sessionLabel } from '@ground-control/core';
+import type { HistoricalSession, OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
+import { PLACEMENTS, resumeRefusal, strayFrom, verifyOpen } from '@ground-control/host-vscode';
 
 /** The Claude placement in VS Code: its ids, and the commands that reach a session without side effects (§6, §7). */
 const CLAUDE = PLACEMENTS['claude']!;
@@ -27,15 +28,13 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** `code` is a shell script on every platform, so it is run through one — which means arguments are quoted by hand. */
-function run(command: string, args: string[]): Promise<void> {
+/** Use this editor's CLI directly: a saved directory is an argument, never shell source. */
+function runCode(args: string[]): Promise<void> {
   return new Promise((resolve) => {
-    execFile(command, args, { shell: true, windowsHide: true, timeout: 20_000 }, () => resolve());
+    execFile(process.execPath, [join(vscode.env.appRoot, 'out', 'cli.js'), ...args], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true, timeout: 20_000,
+    }, () => resolve());
   });
-}
-
-function quoted(value: string): string {
-  return `"${value.replace(/"/g, '')}"`;
 }
 
 /** A Claude panel's viewType is prefixed by the host, so this is a containment test rather than an equality one. */
@@ -114,9 +113,9 @@ export function boardRoot(): string | null {
   return (file?.scheme === 'file' ? file.fsPath : undefined) ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
 }
 
-/** Brings the window on a root forward. Only ever called for a root a window is open on, which `planOpen` settles. */
-async function raise(root: string): Promise<boolean> {
-  await run('code', [quoted(root)]);
+/** Brings a root forward, opening its window when a historical resume needs one. */
+async function raise(root: string, newWindow = false): Promise<boolean> {
+  await runCode(newWindow ? ['--new-window', root] : [root]);
 
   return focusLeft(FOCUS_TIMEOUT_MS);
 }
@@ -154,7 +153,7 @@ async function revealHere(sessionId: string): Promise<string | null> {
  * Watches, after the fact, for the session to appear where it was aimed. Not awaited: the developer has already been
  * taken to the window, and the only thing worth interrupting them for is a fire that missed (`docs/mechanics.md` §7).
  */
-async function confirmLanding(roster: Roster, root: string, before: readonly Session[]): Promise<void> {
+async function confirmLanding(roster: Roster, root: string, before: readonly Session[], expectedSessionId?: string): Promise<void> {
   for (let waited = 0; waited < LANDING_TIMEOUT_MS; waited += LANDING_POLL_MS) {
     await delay(LANDING_POLL_MS);
 
@@ -166,7 +165,9 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
       return;
     }
 
-    const stray = strayFrom(before, now);
+    const resumed = expectedSessionId && now.find((s) => s.sessionId === expectedSessionId && !s.finished);
+    if (resumed && dirKey(resumed.cwd) === dirKey(root)) return;
+    const stray = strayFrom(before, now, expectedSessionId);
 
     if (stray) {
       void vscode.window.showErrorMessage(
@@ -176,27 +177,36 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
       return;
     }
   }
+  if (expectedSessionId) {
+    void vscode.window.showWarningMessage('The historical session did not appear in its working directory. Refresh the board before trying again.');
+  }
 }
 
 /**
  * Reveals a session whose tab is in another window. The URI reaches whichever window has focus and nothing else
  * (`docs/mechanics.md` §7), so focus is taken first, deliberately, and the fire is checked afterwards.
  */
-async function revealElsewhere(roster: Roster, session: Session, root: string): Promise<string | null> {
-  if (!(await raise(root))) {
+async function revealElsewhere(roster: Roster, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean }): Promise<string | null> {
+  if (resume && Date.now() >= resume.expiresAt) return 'This resume request expired. Refresh the board and try again.';
+  if (!(await raise(root, resume?.newWindow))) {
     return `Could not bring the window on ${root} forward, so nothing was opened. Is the \`code\` command on your PATH?`;
   }
 
   // Read here rather than taken from the render: anything already running when the fire went out is the developer's
   // own work, and reporting it as a stray would tell them to close a session they had just started themselves.
   const before = await roster();
+  if (resume) {
+    const refusal = resumeRefusal(session.sessionId, before);
+    if (refusal) return refusal;
+    if (Date.now() >= resume.expiresAt) return 'This resume request expired before its window was ready. Refresh the board and try again.';
+  }
 
-  await run('code', ['--open-url', quoted(CLAUDE.openUri(session.sessionId))]);
+  await runCode(['--open-url', CLAUDE.openUri(session.sessionId)]);
 
   // Only with something to compare against. Without it the watch below would call every session already running a
   // stray, which is worse than saying nothing: the fire itself is unaffected either way.
   if (before !== null) {
-    void confirmLanding(roster, root, before);
+    void confirmLanding(roster, root, before, resume ? session.sessionId : undefined);
   }
 
   return null;
@@ -212,6 +222,20 @@ async function revealElsewhere(roster: Roster, session: Session, root: string): 
  */
 export async function performRoute(plan: OpenRoute, roster: Roster): Promise<string | null> {
   switch (plan.route) {
+    case 'resume-here': {
+      if (dirKey(boardRoot() ?? '') !== dirKey(plan.root)) return 'The workspace changed before this session could be resumed. Refresh the board.';
+      const before = await roster();
+      const refusal = resumeRefusal(plan.session.sessionId, before);
+      if (refusal) return refusal;
+      if (Date.now() >= plan.expiresAt) return 'This resume request expired. Refresh the board and try again.';
+      const failure = await revealHere(plan.session.sessionId);
+      if (!failure && before !== null) void confirmLanding(roster, plan.root, before, plan.session.sessionId);
+      return failure;
+    }
+
+    case 'resume-elsewhere':
+      return revealElsewhere(roster, plan.session, plan.root, plan);
+
     case 'reveal-here':
       return revealHere(plan.session.sessionId);
 

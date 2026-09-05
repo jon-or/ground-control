@@ -1449,3 +1449,155 @@ describe('a client changing its mind', () => {
     expect(h.agent.paths.at(-1)).toBe('fake-cli');
   });
 });
+
+
+describe('historical fallback publication', () => {
+  const past = { agent: 'fake', sessionId: 'past', title: 'Past attempt', cwd: '/work/42-test', branch: '42-test', issueNumber: 42, repository: 'github.com/org/repo', updatedAt: 100 };
+  const setup = () => harness({}, { remembered: {}, fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [{ ...card(42), url: 'https://github.com/org/repo/issues/42' }] } }) });
+  it('shares the fallback with both clients, removes it on resume and rediscovers it after exit', async () => {
+    const h = setup(); let historyCalls = 0;
+    h.agent.adapter.listHistory = async () => { historyCalls++; return { sessions: [past], failure: null }; };
+    const { inbox } = connect(h); const browser = connect(h, hello({ id: 'browser', hostId: null }));
+    await h.hub.refresh('asked');
+    const shown = () => latest(inbox).lanes.flatMap((l) => l.cards)[0]!;
+    expect(shown().lastSession?.sessionId).toBe('past'); expect(shown().attention).toBeNull();
+    expect(latest(browser.inbox).lanes).toEqual(latest(inbox).lanes);
+    expect(latest(inbox).sessions?.count).toBe(0); expect(latest(inbox).openable).toEqual([]);
+    inbox.length = 0;
+    await h.hub.roster();
+    expect(inbox.filter((m) => m.type === 'changed')).toHaveLength(2);
+    expect(inbox.filter((m) => m.type === 'changed').every((m) => m.type === 'changed' && m.snapshot.lanes.flatMap((l) => l.cards)[0]?.lastSession?.sessionId === 'past')).toBe(true);
+    h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42 })];
+    h.agent.phases.set('past', { phase: 'running', since: 1, event: 'UserPromptSubmit' });
+    h.signal([{ kind: 'created', sessionId: 'past' }]); await settle();
+    expect(shown().lastSession).toBeUndefined();
+    const reads = historyCalls;
+    h.signal([{ kind: 'changed', sessionId: 'past' }]); await settle(); expect(historyCalls).toBe(reads);
+    h.agent.sessions = []; h.signal([{ kind: 'deleted', sessionId: 'past' }]); await settle();
+    expect(shown().lastSession?.sessionId).toBe('past'); expect(historyCalls).toBe(reads + 1);
+    h.hub.dispose();
+  });
+  it('suppresses history on complete or partial roster failure but retains readable live sessions', async () => {
+    const h = setup(); let historyCalls = 0;
+    h.agent.adapter.listHistory = async () => { historyCalls++; return { sessions: [past], failure: null }; };
+    await h.hub.refresh('asked'); expect(historyCalls).toBe(1);
+    h.agent.failure = { subject: 'fake', kind: 'bad-response', message: 'partial', remedy: 'retry' };
+    for (const live of [[], [fakeSession({ issueNumber: 99 })]]) {
+      h.agent.sessions = live; await h.hub.roster();
+      expect(h.hub.snapshot().lanes.flatMap((l) => l.cards).every((c) => !c.lastSession)).toBe(true);
+      expect(h.hub.snapshot().sessions?.count).toBe(live.length);
+    }
+    expect(historyCalls).toBe(1); h.hub.dispose();
+  });
+  it('isolates a history failure and discards a late result from replaced settings', async () => {
+    const h = setup(); h.agent.sessions = [fakeSession()];
+    h.agent.adapter.listHistory = async () => { throw new Error('history access'); };
+    await h.hub.refresh('asked');
+    expect(h.hub.snapshot().sessions?.count).toBe(1);
+    expect(h.hub.snapshot().failures.some((f) => f.kind === 'history-failed')).toBe(true);
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    h.agent.adapter.listHistory = async () => { await gate; return { sessions: [past], failure: null }; };
+    const reading = h.hub.roster(); await settle();
+    h.hub.configure(h.config({ agents: [] })); finish(); await reading; await settle();
+    expect(h.hub.snapshot().lanes.flatMap((l) => l.cards).every((c) => !c.lastSession)).toBe(true);
+    expect(h.hub.snapshot().sessions?.count).toBe(0); h.hub.dispose();
+  });
+});
+
+
+describe('opening a historical session', () => {
+  const past = { agent: 'fake', sessionId: 'past', title: 'Past attempt', cwd: '/work/42-test', branch: '42-test', issueNumber: 42, repository: 'github.com/org/repo', updatedAt: 100 };
+  function setup() {
+    const h = harness({}, { remembered: {}, fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [{ ...card(42), url: 'https://github.com/org/repo/issues/42' }] } }) });
+    h.agent.adapter.listHistory = async () => ({ sessions: [past], failure: null });
+    h.agent.adapter.canResume = () => true;
+    h.host.adapter.openable = (live, history = []) => [...live, ...history].map((s) => s.sessionId);
+    h.host.resident.push('resume-here');
+    h.host.plan = { route: 'resume-here', session: past, root: past.cwd, expiresAt: h.clock.clock.now() + 30_000 };
+    return h;
+  }
+  const ask = (h: Harness, client: ReturnType<typeof connect>['client']) => h.hub.receive(client, { type: 'open', sessionId: 'past', extensionReady: true });
+  it('offers history to both boards and serializes concurrent editor clicks before window discovery', async () => {
+    const h = setup();
+    const first = connect(h, hello({ residentRoutes: ['resume-here'] }));
+    const other = connect(h, hello({ id: 'other', residentRoutes: ['resume-here'] }));
+    const browser = connect(h, hello({ id: 'browser', hostId: null }));
+    await h.hub.refresh('asked');
+    expect(latest(first.inbox).openable).toContain('past'); expect(latest(browser.inbox).openable).toContain('past');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    h.host.adapter.windows = async () => { await gate; return { live: [], holding: null }; };
+    ask(h, first.client); await settle(); ask(h, other.client); await settle();
+    expect(other.inbox.some((m) => m.type === 'notice' && m.refusal === 'resume-pending')).toBe(true);
+    release(); await settle();
+    const performed = first.inbox.filter((m) => m.type === 'perform'); expect(performed).toHaveLength(1);
+    expect(h.host.planned.at(-1)?.historicalSession).toEqual(past);
+    expect(performed[0]).toMatchObject({ route: { route: 'resume-here', expiresAt: h.clock.clock.now() + 30_000 } });
+    h.hub.dispose();
+  });
+  it('uses the live reveal path if the clicked session resumed since rendering', async () => {
+    const h = setup(); const { client, inbox } = connect(h);
+    await h.hub.refresh('asked'); h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42 })];
+    h.host.plan = { route: 'reveal-here', session: h.agent.sessions[0]!, root: past.cwd };
+    ask(h, client); await settle();
+    expect(h.host.planned.at(-1)?.historicalSession).toBeUndefined();
+    expect(inbox.some((m) => m.type === 'perform' && m.route.route === 'reveal-here')).toBe(true); h.hub.dispose();
+  });
+  it.each(['unreadable', 'missing', 'active-card', 'old-client'])('refuses %s instead of firing a resume', async (kind) => {
+    const h = setup(); const { client, inbox } = connect(h); await h.hub.refresh('asked');
+    if (kind === 'unreadable') h.agent.failure = { subject: 'fake', kind: 'bad-response', message: 'unreadable', remedy: 'retry' };
+    if (kind === 'missing') h.agent.adapter.canResume = () => false;
+    if (kind === 'active-card') h.agent.sessions = [fakeSession({ sessionId: 'different', issueNumber: 42 })];
+    ask(h, client); await settle();
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(inbox.some((m) => m.type === 'notice')).toBe(true);
+    if (kind === 'unreadable') expect(await h.hub.roster()).toBeNull(); h.hub.dispose();
+  });
+  it('takes a fresh active read after an older history scan finishes', async () => {
+    const h = setup(); let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let firstRead = true;
+    h.agent.adapter.listHistory = async () => { if (firstRead) { firstRead = false; await gate; } return { sessions: [past], failure: null }; };
+    const poll = h.hub.refresh('asked'); await settle();
+    const prefire = h.hub.roster();
+    h.agent.sessions = [fakeSession({ sessionId: 'past' })]; release();
+    await poll; expect((await prefire)?.map((s) => s.sessionId)).toEqual(['past']); h.hub.dispose();
+  });
+  it('does not let an expired window lookup use a newer click reservation', async () => {
+    const h = setup();
+    const first = connect(h, hello({ id: 'first', residentRoutes: ['resume-here'] }));
+    const second = connect(h, hello({ id: 'second', residentRoutes: ['resume-here'] }));
+    await h.hub.refresh('asked');
+    let release!: () => void; let lookups = 0;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    h.host.adapter.windows = async () => { if (++lookups === 1) await gate; return { live: [], holding: null }; };
+    ask(h, first.client); await settle(); h.clock.advance(60_001);
+    h.host.plan = { route: 'resume-here', session: past, root: past.cwd, expiresAt: h.clock.clock.now() + 30_000 };
+    ask(h, second.client); await settle(); release(); await settle();
+    expect(first.inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(second.inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+    ask(h, first.client); await settle();
+    expect(first.inbox.some((m) => m.type === 'notice' && m.refusal === 'resume-pending')).toBe(true);
+    h.hub.dispose();
+  });
+  it('expires a slow window lookup before it can launch anything', async () => {
+    const h = setup(); const { client, inbox } = connect(h, hello({ residentRoutes: ['resume-here'] }));
+    await h.hub.refresh('asked');
+    h.host.adapter.windows = async () => { h.clock.advance(30_001); return { live: [], holding: null }; };
+    ask(h, client); await settle();
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(inbox.some((m) => m.type === 'notice' && m.message.includes('expired'))).toBe(true);
+    h.hub.dispose();
+  });
+  it('releases a refused lease and gives a fresh lease only after the old one expires', async () => {
+    const h = setup(); const { client, inbox } = connect(h, hello({ residentRoutes: ['resume-here'] }));
+    await h.hub.refresh('asked'); h.host.plan = { refusal: 'no-extension', message: 'missing' };
+    ask(h, client); await settle();
+    h.host.plan = { route: 'resume-here', session: past, root: past.cwd, expiresAt: h.clock.clock.now() + 30_000 };
+    ask(h, client); await settle();
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+    h.clock.advance(60_001); h.host.plan = { ...h.host.plan, expiresAt: h.clock.clock.now() + 30_000 };
+    ask(h, client); await settle(); expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(2); h.hub.dispose();
+  });
+});
