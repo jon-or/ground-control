@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fetchSessions } from '@ground-control/core';
-import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME, makeClaudeAdapter } from '../src/claude.js';
+import { makeClaudeAdapter } from '../src/claude.js';
+import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from '../src/ids.js';
 import { claudeActivity } from '../src/activity.js';
 import { config, recordedReaders } from './helpers.js';
 

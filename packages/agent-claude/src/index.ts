@@ -1,4 +1,6 @@
-export { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME, makeClaudeAdapter } from './claude.js';
+export { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from './ids.js';
+export { classifyArgs, makeClaudeClassifier } from './classify.js';
+export { makeClaudeAdapter } from './claude.js';
 export { claudeActivity } from './activity.js';
 export { readActivity } from './phase.js';
 export { backupsToDelete, lockIsStale, markerIsOrphaned, planHookInstall } from './hookPlan.js';

@@ -12,11 +12,12 @@ import type {
   StatMtime,
 } from '@ground-control/core';
 import { claudeActivity } from './activity.js';
+import { makeClaudeClassifier } from './classify.js';
+import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from './ids.js';
 import { readActivity } from './phase.js';
 import { makeHistoryReader } from './history.js';
 
-export const CLAUDE_AGENT_ID = 'claude';
-export const CLAUDE_DISPLAY_NAME = 'Claude Code';
+
 
 /**
  * `status` and `state` are the `--bg` shape; interactive sessions carry neither, and neither does a short `id`.
@@ -230,6 +231,7 @@ export function makeClaudeAdapter(run: ExecJson = runJsonCli): AgentAdapter {
     defaultPath: 'claude',
     defaultEnabled: true,
     activity: claudeActivity,
+    classify: makeClaudeClassifier(run),
     listHistory: makeHistoryReader(),
     canResume: (session, deps) => deps.listDir(session.cwd) !== null && findTranscript(deps.home, session.cwd, session.sessionId, deps) !== null,
 
