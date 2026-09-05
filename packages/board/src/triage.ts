@@ -11,6 +11,7 @@ import type {
   TriageFailure,
   TriageQualifier,
   TriageResult,
+  TriagePullRequest,
   TriageState,
 } from '@ground-control/core';
 
@@ -29,15 +30,19 @@ const DETAIL_LIMIT = 160;
  */
 const BACKOFF_MS = [60_000, 120_000, 300_000, 1_800_000];
 
-/**
- * The actions the hub reads off the pull request itself. They are never offered to the model: `derivedAction` fires
- * only where a fact is established, so a model free to answer `land` could say it of a pull request GitHub has not
- * computed mergeability for — which is the guess R38 exists to refuse.
- */
+/** The actions the hub reads off the pull request itself, whatever anybody wrote about it. */
 export const DERIVED_ACTIONS: readonly TriageAction[] = ['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land'];
 
-/** What the model may answer. The other four are facts, and a fact is not something to be classified. */
-export const CLASSIFIED_ACTIONS = TRIAGE_ACTIONS.filter((action) => !DERIVED_ACTIONS.includes(action));
+/**
+ * The one action the model is never offered. The line is that the model may report a problem somebody named, and
+ * only the hub may say everything is fine: a comment reading "auto-merge failed" or "please rebase" is evidence, and
+ * a common one, but "ship it" is an opinion where mergeability is a fact. `mergeable` is `UNKNOWN` in exactly the
+ * window a card arrives (`docs/mechanics.md` §31), so a model with no word for a conflict has nowhere to put one.
+ */
+export const MODEL_MAY_NOT_SAY: readonly TriageAction[] = ['land'];
+
+/** What the model may answer. `derivedAction` still outranks it wherever GitHub has computed a fact. */
+export const CLASSIFIED_ACTIONS = TRIAGE_ACTIONS.filter((action) => !MODEL_MAY_NOT_SAY.includes(action));
 
 /** What the model is held to. Two fields, and an action outside the list is refused rather than read as `other`. */
 export const triageJsonSchema = {
@@ -380,14 +385,39 @@ export function derivedAction(context: TriageContext): TriageAction | null {
   return null;
 }
 
+/** What a fact says, in a sentence, for a card whose reading it overruled. */
+function factSentence(action: TriageAction, pr: TriagePullRequest): string {
+  const at = `Pull request #${pr.number}`;
+
+  switch (action) {
+    case 'resolve-conflicts':
+      return `${at} has conflicts and will not merge.`;
+    case 'fix-checks':
+      return `${at} has failing checks.`;
+    case 'merge-upstream':
+      return `${at} is behind its base branch.`;
+    default:
+      return `${at} is approved and ready to merge.`;
+  }
+}
+
 /**
- * The card's action, with the facts given the last word and the model's sentence kept either way — an override
- * changes what the work is called, not the description of it.
+ * The card's action, with the facts given the last word.
+ *
+ * The model's sentence survives where the facts agreed with it or said nothing, because it describes the work better
+ * than anything generated here. Where a fact overruled the reading it does not: the sentence then describes a problem
+ * the card no longer has, and "Land it — has merge conflicts to resolve" is a card contradicting itself (R24).
  */
 export function overrideAction(result: TriageResult, context: TriageContext): { action: TriageAction; qualifier: TriageQualifier | null; detail: string } {
-  const action = derivedAction(context) ?? result.action;
+  const derived = derivedAction(context);
+  const action = derived ?? result.action;
+  const overruled = derived !== null && derived !== result.action && context.pullRequest !== null;
 
-  return { action, qualifier: qualifierOf(action, context), detail: result.detail };
+  return {
+    action,
+    qualifier: qualifierOf(action, context),
+    detail: overruled ? factSentence(derived, context.pullRequest!) : result.detail,
+  };
 }
 
 /** Every lane again, each triageable card carrying what the board knows about it. */

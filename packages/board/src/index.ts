@@ -17,6 +17,7 @@ export type { Attention, BoardRules, CardMemory, Lane, LaneId, LanedCard } from 
 export {
   CLASSIFIED_ACTIONS,
   DERIVED_ACTIONS,
+  MODEL_MAY_NOT_SAY,
   EVIDENCE_MAX_AGE_MS,
   TRIAGE_ACTIONS,
   TRIAGE_LABELS,

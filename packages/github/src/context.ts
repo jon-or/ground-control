@@ -8,12 +8,11 @@ import type { GithubConfig } from './types.js';
 const GITHUB_SOURCE_ID = 'github';
 
 /**
- * How much of each body reaches the prompt. Measured against real review threads on this team's repository, which run
- * to 1–2 KB each: enough to carry what somebody actually asked for, and bounded so a card with a long argument on it
- * costs the same as a card without one.
+ * How much of each body reaches the prompt, in characters — UTF-16 code units, so a body of CJK or emoji is longer
+ * on the wire than it is here. Anything longer keeps its first and last thousand and says what came out between.
  */
 const BODY_LIMIT = 2_000;
-const COMMENT_LIMIT = 1_000;
+const COMMENT_LIMIT = 2_000;
 
 /** A hung `gh` would hold a triage slot for as long as the hub runs, and the card would claim to be triaging forever. */
 const CONTEXT_TIMEOUT_MS = 20_000;
@@ -85,7 +84,37 @@ const contextResponse = z.object({
   }),
 });
 
-/** Clipped at a word where one is near the cut, so a body never ends mid-token. Empty text stays empty, not `""…`. */
+/**
+ * How the kept characters are split when a body is too long. Evenly, because a comment's opening frames what it is
+ * about and its last line is usually what it asks for — either end alone loses half of why the board is reading it.
+ */
+const HEAD_SHARE = 0.5;
+
+/** How far from a cut a word boundary has to be to be worth backing up to, rather than cutting mid-token. */
+const WORD_REACH = 200;
+
+/** The last word boundary at or before `at`, or `at` where the text has none near enough to be worth taking. */
+function backTo(text: string, at: number): number {
+  const space = text.lastIndexOf(' ', at);
+
+  return space > 0 && space > at - WORD_REACH ? space : at;
+}
+
+/** The next word boundary at or after `at`, or `at` where there is none near enough. */
+function forwardTo(text: string, at: number): number {
+  const space = text.indexOf(' ', at);
+
+  return space > 0 && space < at + WORD_REACH ? space + 1 : at;
+}
+
+/**
+ * Text bounded to `limit` characters of the original, keeping both ends and saying what came out of the middle.
+ * Characters, not bytes: this counts UTF-16 code units, so a body of CJK or emoji is longer on the wire than it is
+ * here. The middle is what goes because a comment's last line is usually the ask — the whole reason the board is
+ * reading it — where a clip that took the tail would carry the preamble and drop the request.
+ *
+ * The marker is added on top of `limit`, so what is bounded is how much of the original text travels.
+ */
 export function clip(text: string | null, limit: number): string {
   const trimmed = (text ?? '').trim();
 
@@ -93,12 +122,12 @@ export function clip(text: string | null, limit: number): string {
     return trimmed;
   }
 
-  const cut = trimmed.slice(0, limit);
-  const space = cut.lastIndexOf(' ');
+  const head = trimmed.slice(0, backTo(trimmed, Math.ceil(limit * HEAD_SHARE))).trimEnd();
+  const tail = trimmed.slice(forwardTo(trimmed, trimmed.length - (limit - head.length))).trimStart();
 
-  // A body with no space near the cut — a long token, a base64 blob — keeps the cut. `lastIndexOf` answering -1 is
-  // exactly that case, and taking it as a position would drop the last character of every such body.
-  return `${space > 0 && space > limit - 200 ? cut.slice(0, space) : cut}…`;
+  return `${head}
+[…${trimmed.length - head.length - tail.length} characters omitted…]
+${tail}`;
 }
 
 function commentsOf(nodes: z.infer<typeof comment>[], limit = COMMENT_LIMIT): TriageComment[] {

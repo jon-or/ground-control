@@ -102,18 +102,23 @@ describe('reading a card context', () => {
     expect(context.issueNumber).toBe(19072);
     expect(context.status).toBe('⚒️ Dev');
     expect(context.logins).toEqual(['dev-1']);
-    expect(context.comments.map((c) => c.author)).toEqual(['dev-2', 'dev-3', 'dev-2', 'dev-1', 'dev-3']);
-    expect(context.comments.map((c) => c.authorAssociation)).toEqual(Array(5).fill('MEMBER'));
-    expect(new Set(context.comments.map((c) => c.body)).size).toBe(5);
+    expect(context.comments.map((c) => c.author)).toEqual(['dev-2', 'dev-3', 'dev-1', 'dev-4', 'dev-5', 'dev-4', 'dev-1', 'dev-5']);
+    // Both shapes the prompt reads differently: a colleague, and somebody with no relationship to the repository.
+    expect(new Set(context.comments.map((c) => c.authorAssociation))).toEqual(new Set(['MEMBER', 'NONE']));
+    expect(new Set(context.comments.map((c) => c.body)).size).toBe(8);
   });
 
-  it('clips a long body and leaves a short one whole', async () => {
+  it('keeps both ends of a long body and says what came out of the middle', async () => {
     const context = await contextOf('context-review');
+    const recorded = (fixture('context-review') as { data: { repository: { issue: { body: string } } } }).data.repository
+      .issue.body;
 
     // The recorder pads this one fixture past the limit, because no real body on the board happened to be long enough.
-    expect(context.body.length).toBeLessThanOrEqual(2_001);
-    expect(context.body.endsWith('…')).toBe(true);
-    expect(context.comments.every((c) => !c.body.endsWith('…'))).toBe(true);
+    expect(recorded.length).toBeGreaterThan(6_000);
+    expect(context.body.startsWith(recorded.slice(0, 200))).toBe(true);
+    expect(context.body.endsWith(recorded.slice(-200))).toBe(true);
+    expect(context.body).toMatch(/\n\[…\d+ characters omitted…\]\n/);
+    expect(context.comments.every((c) => !c.body.includes('omitted'))).toBe(true);
   });
 
   it('carries every fact the derived actions are read from', async () => {
@@ -129,7 +134,7 @@ describe('reading a card context', () => {
       mergeStateStatus: 'BLOCKED',
       checkState: 'SUCCESS',
     });
-    expect(pr?.reviews).toEqual([{ author: 'dev-4', state: 'COMMENTED', submittedAt: '2026-08-19T20:16:30Z' }]);
+    expect(pr?.reviews).toEqual([{ author: 'dev-6', state: 'COMMENTED', submittedAt: '2026-08-19T20:16:30Z' }]);
     expect(pr?.threads).toHaveLength(1);
     expect(pr?.threads[0]?.isResolved).toBe(true);
     expect(pr?.threads[0]?.comments).toHaveLength(1);
@@ -222,12 +227,42 @@ describe('the helpers the reader is built from', () => {
     expect(repositoryOfUrl('')).toBeNull();
   });
 
-  it('clips at a word where one is near the cut, and leaves short text alone', () => {
+  it('leaves short text alone, and trims what it is given', () => {
     expect(clip('short enough', 100)).toBe('short enough');
     expect(clip(null, 100)).toBe('');
     expect(clip('  padded  ', 100)).toBe('padded');
-    expect(clip(`${'a'.repeat(50)} ${'b'.repeat(50)}`, 80)).toBe(`${'a'.repeat(50)}…`);
-    // No space anywhere near the cut, so it takes the cut rather than throwing away most of the text.
-    expect(clip('c'.repeat(300), 100)).toBe(`${'c'.repeat(100)}…`);
+    expect(clip('x'.repeat(100), 100)).toBe('x'.repeat(100));
+  });
+
+  it('keeps the last line, because what a comment asks for is usually its last line', () => {
+    const body = `Context first. ${'filler here. '.repeat(100)}Finally: please split this in two.`;
+    const clipped = clip(body, 200);
+
+    expect(clipped.startsWith('Context first.')).toBe(true);
+    expect(clipped.endsWith('Finally: please split this in two.')).toBe(true);
+  });
+
+  it('says how much of the middle it took out, so nothing reads as the whole of what was written', () => {
+    const body = `head ${'x '.repeat(500)}tail`;
+    const clipped = clip(body, 100);
+    const [before, rest] = clipped.split(`\n[…`);
+    const [count, after] = (rest ?? '').split(` characters omitted…]\n`);
+
+    // The marker rides on top of the limit: what is bounded is how much of the original text travels.
+    expect(count).toMatch(/^\d+$/);
+    expect(before!.length + after!.length).toBeLessThanOrEqual(100);
+    expect(before!.length + after!.length + Number(count)).toBe(body.length);
+  });
+
+  it('cuts mid-token rather than throwing away most of the text, where there is no word boundary near', () => {
+    const clipped = clip('c'.repeat(1_000), 100);
+
+    expect(clipped.split(`\n[…`)[0]! + clipped.split(`…]\n`)[1]!).toBe('c'.repeat(100));
+  });
+
+  it('counts characters rather than bytes, which is what a body of emoji costs against the limit', () => {
+    // Each of these is one code point and two UTF-16 code units, so ten of them spend twenty of the budget.
+    expect(clip('🔥'.repeat(10), 20)).toBe('🔥'.repeat(10));
+    expect(clip('🔥'.repeat(10), 19)).toContain('omitted');
   });
 });

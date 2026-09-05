@@ -5,6 +5,7 @@ import type { BoardCard } from '../src/types.js';
 import {
   CLASSIFIED_ACTIONS,
   DERIVED_ACTIONS,
+  MODEL_MAY_NOT_SAY,
   TRIAGE_ACTIONS,
   TRIAGE_LABELS,
   derivedAction,
@@ -242,12 +243,15 @@ describe('the classifier answer', () => {
     expect(readTriageResult('other')).toBeNull();
   });
 
-  it('refuses an action the hub decides for itself, whatever the model says', () => {
-    // A model free to answer `land` would say it of a pull request GitHub has not computed mergeability for, which
-    // is the common case the moment a card arrives. The schema does not offer these and the parser will not take them.
-    for (const action of DERIVED_ACTIONS) {
-      expect(readTriageResult({ action, detail: 'go' })).toBeNull();
-      expect(triageJsonSchema.properties.action.enum).not.toContain(action);
+  it('refuses only the one action the hub alone may say', () => {
+    // The model may report a problem somebody named — the commonest comment on a pull request is that its auto-merge
+    // failed, and `mergeable` reads UNKNOWN in the window a card arrives. Only "everything is fine" is a fact.
+    expect(readTriageResult({ action: 'land', detail: 'go' })).toBeNull();
+    expect(triageJsonSchema.properties.action.enum).not.toContain('land');
+
+    for (const action of ['resolve-conflicts', 'merge-upstream', 'fix-checks'] as const) {
+      expect(readTriageResult({ action, detail: 'go' })).toEqual({ action, detail: 'go' });
+      expect(triageJsonSchema.properties.action.enum).toContain(action);
     }
   });
 
@@ -260,10 +264,12 @@ describe('the classifier answer', () => {
     expect(result?.detail).not.toContain('wor…');
   });
 
-  it('offers the model every action it decides and no other, and labels all twelve', () => {
+  it('offers the model every action but the one only the hub may say, and labels all twelve', () => {
     expect(triageJsonSchema.properties.action.enum).toEqual([...CLASSIFIED_ACTIONS]);
-    expect([...CLASSIFIED_ACTIONS, ...DERIVED_ACTIONS].sort()).toEqual([...TRIAGE_ACTIONS].sort());
+    expect([...CLASSIFIED_ACTIONS, ...MODEL_MAY_NOT_SAY].sort()).toEqual([...TRIAGE_ACTIONS].sort());
     expect(Object.keys(TRIAGE_LABELS).sort()).toEqual([...TRIAGE_ACTIONS].sort());
+    // Still the hub's to decide wherever GitHub has computed one, whatever the model was allowed to answer.
+    expect(DERIVED_ACTIONS).toEqual(['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land']);
   });
 });
 
@@ -329,10 +335,45 @@ describe('the facts overruling the model', () => {
     expect(derivedAction({ ...context(), pullRequest: null })).toBeNull();
   });
 
-  it('keeps the sentence when it overrules the action', () => {
-    const overridden = overrideAction({ action: 'begin-work', detail: 'Add the paging fix.' }, context({ mergeable: 'CONFLICTING' }));
+  it('replaces the sentence when it overrules the reading, so the card cannot contradict itself', () => {
+    // "Land it — has merge conflicts to resolve" is a card saying two things at once. Measured against the real
+    // model: told a bot had reported a failed auto-merge on a pull request GitHub since called clean, it answered
+    // resolve-conflicts, and the fact has to take the sentence with the label (R24).
+    const landed = overrideAction(
+      { action: 'resolve-conflicts', detail: 'Resolve merge conflicts in the paging fix.' },
+      context({ mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED' }),
+    );
 
-    expect(overridden).toEqual({ action: 'resolve-conflicts', qualifier: null, detail: 'Add the paging fix.' });
+    expect(landed).toEqual({ action: 'land', qualifier: null, detail: 'Pull request #42 is approved and ready to merge.' });
+
+    expect(overrideAction({ action: 'begin-work', detail: 'x' }, context({ mergeable: 'CONFLICTING' })).detail).toBe(
+      'Pull request #42 has conflicts and will not merge.',
+    );
+    expect(overrideAction({ action: 'begin-work', detail: 'x' }, context({ checkState: 'FAILURE' })).detail).toBe(
+      'Pull request #42 has failing checks.',
+    );
+    expect(overrideAction({ action: 'begin-work', detail: 'x' }, context({ mergeStateStatus: 'BEHIND' })).detail).toBe(
+      'Pull request #42 is behind its base branch.',
+    );
+  });
+
+  it('keeps the sentence where the fact agreed with the reading, since the model describes the work better', () => {
+    const agreed = overrideAction(
+      { action: 'resolve-conflicts', detail: 'Resolve merge conflicts in the paging fix.' },
+      context({ mergeable: 'CONFLICTING' }),
+    );
+
+    expect(agreed).toEqual({
+      action: 'resolve-conflicts',
+      qualifier: null,
+      detail: 'Resolve merge conflicts in the paging fix.',
+    });
+  });
+
+  it('keeps the sentence where the facts said nothing at all', () => {
+    expect(
+      overrideAction({ action: 'resolve-conflicts', detail: 'A bot says the auto-merge failed.' }, context({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' })),
+    ).toMatchObject({ action: 'resolve-conflicts', detail: 'A bot says the auto-merge failed.' });
   });
 
   it('leaves the model its answer where the facts say nothing', () => {

@@ -3,8 +3,11 @@ import type { TriageContext } from '@ground-control/core';
 import { TRIAGE_SYSTEM_PROMPT, buildTriagePrompt } from '../src/triagePrompt.js';
 import { TRIAGE_ACTIONS } from '../src/triage.js';
 
-/** The four the hub reads off the pull request itself, offered to the model neither here nor in the schema. */
-const DERIVED = ['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land'];
+/**
+ * The one action the model is never offered. It may report a problem somebody named — an auto-merge that failed, a
+ * red build — because `mergeable` reads UNKNOWN in the window a card arrives; only the hub says everything is fine.
+ */
+const NEVER_OFFERED = ['land'];
 
 const NOW = Date.parse('2026-09-05T12:00:00Z');
 
@@ -52,14 +55,14 @@ function pullRequest(over = {}) {
 describe('the system prompt', () => {
   it('names every action the model decides, and none the hub reads for itself', () => {
     for (const action of TRIAGE_ACTIONS) {
-      expect(TRIAGE_SYSTEM_PROMPT.includes(`${action}:`)).toBe(!DERIVED.includes(action));
+      expect(TRIAGE_SYSTEM_PROMPT.includes(`${action}:`)).toBe(!NEVER_OFFERED.includes(action));
     }
   });
 
   it('gives an order to take when more than one fits, since several routinely do', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('take the first that applies');
     // The order the numbers put them in, which is the whole of what the rule is worth.
-    const order = ['uat-failure', 'uat-question', 'answer-design-question', 'address-review', 'review-others', 'awaiting-others', 'begin-work', 'other'];
+    const order = ['resolve-conflicts', 'merge-upstream', 'fix-checks', 'uat-failure', 'uat-question', 'answer-design-question', 'address-review', 'review-others', 'awaiting-others', 'begin-work', 'other'];
     const at = order.map((action) => TRIAGE_SYSTEM_PROMPT.indexOf(`${action}:`));
 
     expect(at).toEqual([...at].sort((a, b) => a - b));
@@ -68,6 +71,18 @@ describe('the system prompt', () => {
 
   it('says an assigned issue with nothing on it is begin-work, since that is most of a first run', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('is begin-work, not other');
+  });
+
+  it('names a conflict, a stale branch and a red build, which are reported in words long before GitHub computes them', () => {
+    // A card arrives in the very window `mergeable` reads UNKNOWN, so without these the commonest thing anybody
+    // writes on a pull request — that the auto-merge failed — has nowhere to go.
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('auto-merge failed');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('merge or rebase the base branch in');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('is failing');
+  });
+
+  it('tells the model to take the most recent word on a problem, so a fixed one is not still pending', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('since said is fixed is not what the card is waiting on');
   });
 
   it('tells the model what day it is, since three of the actions turn on recency', () => {

@@ -7,8 +7,8 @@
 const { remark, title } = require('../../../../tools/fixture-words.js');
 const { loginMap } = require('./anonymise.js');
 
-/** Long enough to cross the reader's own body limit, so one fixture proves clipping happens. */
-const LONG_BODY_CHARS = 2_600;
+/** Long enough to cross the reader's own body limit, so one fixture proves the middle is what comes out. */
+const LONG_BODY_CHARS = 7_500;
 
 function scrubComments(nodes, number, logins, offset = 0) {
   (nodes ?? []).forEach((node, i) => {

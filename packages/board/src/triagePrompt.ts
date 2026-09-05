@@ -4,8 +4,9 @@ import type { TriageComment, TriageContext } from '@ground-control/core';
  * What the classifier is told it is doing. Short on purpose: the whole system prompt and every tool definition cost
  * 55× the evidence itself (`docs/mechanics.md` §31), so this replaces the CLI's own rather than appending to it.
  *
- * It names only the eight actions the model decides. The four the hub reads off the pull request are left out of
- * both this and the schema, so a model cannot answer `land` about mergeability nobody has computed.
+ * `land` is the one action left out of both this and the schema: the model may report a problem somebody named, and
+ * only the hub may say everything is fine. Where GitHub has computed a fact, `derivedAction` overrules whatever is
+ * chosen here — but it is `UNKNOWN` in the window a card arrives, which is why the three problems are named below.
  */
 export const TRIAGE_SYSTEM_PROMPT = [
   'You classify what one software work item is waiting on, for a developer looking at their own board.',
@@ -13,14 +14,17 @@ export const TRIAGE_SYSTEM_PROMPT = [
   'Answer with exactly one action and one sentence saying what the work is, in under 160 characters.',
   '',
   'Choose the action for what the developer must do NEXT. Where more than one fits, take the first that applies:',
-  '1. uat-failure: a tester has reported it does not work',
-  '2. uat-question: a tester has asked something about how it is meant to behave',
-  '3. answer-design-question: somebody has asked them a question the work cannot go on without',
-  '4. address-review: their own pull request has review comments to answer',
-  '5. review-others: a pull request that is not theirs is waiting on their review',
-  '6. awaiting-others: they are waiting on somebody else and it has not arrived; nothing for them to do now',
-  '7. begin-work: assigned to them, nothing under way yet, the issue is the specification',
-  '8. other: the evidence points somewhere none of these names',
+  '1. resolve-conflicts: their branch will not merge — an auto-merge failed, or somebody reported a conflict',
+  '2. merge-upstream: their branch is behind and somebody has asked them to merge or rebase the base branch in',
+  '3. fix-checks: a build, a test run or a check on their pull request is failing',
+  '4. uat-failure: a tester has reported it does not work',
+  '5. uat-question: a tester has asked something about how it is meant to behave',
+  '6. answer-design-question: somebody has asked them a question the work cannot go on without',
+  '7. address-review: their own pull request has review comments to answer',
+  '8. review-others: a pull request that is not theirs is waiting on their review',
+  '9. awaiting-others: they are waiting on somebody else and it has not arrived; nothing for them to do now',
+  '10. begin-work: assigned to them, nothing under way yet, the issue is the specification',
+  '11. other: the evidence points somewhere none of these names',
   '',
   'Reading the evidence:',
   '- "Board status" names the stage the team has this at, and a status naming UAT means a tester is involved.',
@@ -28,9 +32,11 @@ export const TRIAGE_SYSTEM_PROMPT = [
   '  behaves is UAT; a colleague asking how it should work is a design question.',
   "- The developer's own comments are marked. Read what came after them: a question they asked that somebody has",
   '  since answered is not awaiting-others, because the answer is now theirs to act on.',
+  '- The first three are what somebody has reported, not what you can see for yourself. Take the most recent word:',
+  '  a conflict or a failing build somebody has since said is fixed is not what the card is waiting on.',
   '',
   'An issue assigned to them with no discussion and no pull request is begin-work, not other. Pick other only when',
-  'none of the seven above describes what is actually pending.',
+  'none of the ten above describes what is actually pending.',
   '',
   'The sentence describes the work, not your reasoning. Write it for somebody who already knows the project.',
   'Do not speculate about causes you have no evidence for.',

@@ -4,35 +4,59 @@
       "issue": {
         "number": 19072,
         "title": "Listing sync retries a settled charge",
-        "body": "Should this respect the account time zone, or the property one? (channel mapping) I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again.",
+        "body": "Should this respect the account time zone, or the property one? (channel mapping) I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. Reproduced on the second page of results; the first page is fine. This still fails for me after the latest deploy. Can you confirm which account this was tested against? Left a couple of notes on the diff — mostly naming. The fix looks right, but it needs a test for the empty case. Should this respect the account time zone, or the property one? Verified in UAT, the totals line up now. Blocked on the other change landing first. I think we settled on the second approach in the design review. Rebased and pushed; checks are green again. This still fails for me after the latest deploy.",
         "comments": {
           "nodes": [
             {
               "body": "Left a couple of notes on the diff — mostly naming. (owner statement)",
-              "createdAt": "2026-08-19T22:18:29Z",
-              "authorAssociation": "MEMBER",
+              "createdAt": "2026-08-19T20:07:48Z",
+              "authorAssociation": "NONE",
               "author": {
                 "login": "dev-2"
               }
             },
             {
               "body": "Left a couple of notes on the diff — mostly naming. (booking export)",
-              "createdAt": "2026-08-19T23:13:11Z",
-              "authorAssociation": "MEMBER",
+              "createdAt": "2026-08-19T20:16:44Z",
+              "authorAssociation": "NONE",
               "author": {
                 "login": "dev-3"
               }
             },
             {
               "body": "Can you confirm which account this was tested against? (inbox badge)",
-              "createdAt": "2026-08-21T17:47:33Z",
+              "createdAt": "2026-08-19T20:56:34Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-2"
+                "login": "dev-1"
               }
             },
             {
               "body": "This still fails for me after the latest deploy. (payment retry)",
+              "createdAt": "2026-08-19T22:18:29Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-4"
+              }
+            },
+            {
+              "body": "Rebased and pushed; checks are green again. (listing sync)",
+              "createdAt": "2026-08-19T23:13:11Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-5"
+              }
+            },
+            {
+              "body": "I think we settled on the second approach in the design review. (guest portal)",
+              "createdAt": "2026-08-21T17:47:33Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-4"
+              }
+            },
+            {
+              "body": "Blocked on the other change landing first. (tax rule)",
               "createdAt": "2026-08-21T18:44:45Z",
               "authorAssociation": "MEMBER",
               "author": {
@@ -40,11 +64,11 @@
               }
             },
             {
-              "body": "Rebased and pushed; checks are green again. (listing sync)",
+              "body": "Verified in UAT, the totals line up now. (listing sync)",
               "createdAt": "2026-08-21T19:09:53Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-3"
+                "login": "dev-5"
               }
             }
           ]
@@ -82,7 +106,7 @@
               "state": "COMMENTED",
               "submittedAt": "2026-08-19T20:16:30Z",
               "author": {
-                "login": "dev-4"
+                "login": "dev-6"
               }
             }
           ]
@@ -102,7 +126,7 @@
                     "createdAt": "2026-08-19T20:16:30Z",
                     "authorAssociation": "NONE",
                     "author": {
-                      "login": "dev-4"
+                      "login": "dev-6"
                     }
                   }
                 ]

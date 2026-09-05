@@ -50,7 +50,7 @@ query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
         ... on User{ login }
         ... on Team{ slug }
       }}}
-      reviewThreads(last:10){ nodes{
+      reviewThreads(last:5){ nodes{
         isResolved isOutdated
         comments(first:3){ nodes{ body createdAt authorAssociation author{ login } } }
       }}
