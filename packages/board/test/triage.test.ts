@@ -1,0 +1,407 @@
+import { describe, expect, it } from 'vitest';
+import type { IssueCard, Lane, TriageContext, TriageEntry, TriageState } from '@ground-control/core';
+import { assignLanes } from '../src/lanes.js';
+import type { BoardCard } from '../src/types.js';
+import {
+  TRIAGE_ACTIONS,
+  TRIAGE_LABELS,
+  derivedAction,
+  dueForTriage,
+  evidenceOf,
+  forgetTriage,
+  nextTriageState,
+  overrideAction,
+  qualifierOf,
+  readTriageResult,
+  readTriageState,
+  triageJsonSchema,
+  triageLabel,
+  withTriage,
+  withTriageFailure,
+  withTriaged,
+} from '../src/triage.js';
+
+const RULES = { boardStatuses: ['⚒️ Dev'], statusLanes: {}, logins: ['dev-1'] };
+const MEMORY = { placements: {}, seenPastMyHands: [], statuses: ['⚒️ Dev'] };
+
+function issue(over: Partial<IssueCard> = {}): IssueCard {
+  return {
+    number: 17198,
+    title: 'Channel mapping drops rows past the first page',
+    type: 'Bug',
+    typeColor: 'RED',
+    url: 'https://github.com/example-org/example-repo/issues/17198',
+    status: '⚒️ Dev',
+    statusColor: 'BLUE',
+    assignees: ['dev-1'],
+    avatar: null,
+    pullRequest: null,
+    updatedAt: '2026-09-01T10:00:00Z',
+    ...over,
+  };
+}
+
+function card(over: Partial<BoardCard> = {}): BoardCard {
+  return { key: 'issue:17198', issue: issue(), issueNumber: 17198, sessions: [], ...over };
+}
+
+function lanesOf(...cards: BoardCard[]): Lane[] {
+  return assignLanes(cards, RULES, MEMORY);
+}
+
+function entry(over: Partial<TriageEntry> = {}): TriageEntry {
+  return {
+    action: 'begin-work',
+    qualifier: null,
+    detail: 'Pick it up.',
+    at: 1_000,
+    agent: 'claude',
+    wasArchived: false,
+    evidence: evidenceOf(issue()),
+    ...over,
+  };
+}
+
+function state(over: Partial<TriageState> = {}): TriageState {
+  return { entries: {}, failures: {}, ...over };
+}
+
+const NONE = new Set<string>();
+
+describe('which cards are due', () => {
+  it('reads a card nobody has read', () => {
+    expect(dueForTriage(lanesOf(card()), state(), NONE, 0)).toEqual(['issue:17198']);
+  });
+
+  it('does not read one it has already read', () => {
+    expect(dueForTriage(lanesOf(card()), state({ entries: { 'issue:17198': entry() } }), NONE, 0)).toEqual([]);
+  });
+
+  it('never reads an archived card, however many passes run over it', () => {
+    // The regression this whole design turns on. An archived card stays in every snapshot — the source query does
+    // not filter on status — so a rule that dropped its entry and read absence as due would spawn a classifier for
+    // every archived card on every broadcast, for as long as the hub ran.
+    const gone = lanesOf(card({ issue: issue({ status: '🚀 Released' }) }));
+
+    expect(gone.find((lane) => lane.id === 'archived')?.cards).toHaveLength(1);
+
+    let held = state({ entries: { 'issue:17198': entry() } });
+
+    for (let pass = 0; pass < 20; pass++) {
+      expect(dueForTriage(gone, held, NONE, pass * 1_000)).toEqual([]);
+      held = nextTriageState(gone, held, true);
+    }
+
+    expect(held.entries['issue:17198']?.wasArchived).toBe(true);
+  });
+
+  it('reads a card that went past the developer and came back, exactly once', () => {
+    const away = lanesOf(card({ issue: issue({ status: '🚀 Released' }) }));
+    const back = lanesOf(card());
+
+    const archived = nextTriageState(away, state({ entries: { 'issue:17198': entry() } }), true);
+
+    expect(dueForTriage(back, archived, NONE, 0)).toEqual(['issue:17198']);
+
+    // Reading it clears the mark, so the next pass leaves it alone rather than reading it again.
+    const read = withTriaged(archived, 'issue:17198', entry({ action: 'address-review' }));
+
+    expect(dueForTriage(back, read, NONE, 0)).toEqual([]);
+  });
+
+  it('never reads work with no issue of its own', () => {
+    const adhoc = card({ key: 'session:d--work-repo', issue: null, issueNumber: null });
+    const foreign = card({ key: 'issue:99', issue: null, issueNumber: 99 });
+
+    expect(dueForTriage(lanesOf(adhoc, foreign), state(), NONE, 0)).toEqual([]);
+  });
+
+  it('does not read one it is already reading', () => {
+    expect(dueForTriage(lanesOf(card()), state(), new Set(['issue:17198']), 0)).toEqual([]);
+  });
+
+  it('waits out a failure, then tries again', () => {
+    const failed = withTriageFailure(state(), 'issue:17198', { kind: 'classify-failed', message: 'no' }, 1_000);
+
+    expect(failed.failures['issue:17198']).toMatchObject({ attempts: 1, nextAt: 61_000 });
+    expect(dueForTriage(lanesOf(card()), failed, NONE, 60_999)).toEqual([]);
+    expect(dueForTriage(lanesOf(card()), failed, NONE, 61_000)).toEqual(['issue:17198']);
+  });
+
+  it('gives up after four attempts rather than spawning forever against a broken CLI', () => {
+    let failed = state();
+
+    for (const expected of [60_000, 120_000, 300_000, 1_800_000]) {
+      failed = withTriageFailure(failed, 'issue:17198', { kind: 'classify-missing', message: 'no' }, 0);
+      expect(failed.failures['issue:17198']?.nextAt).toBe(expected);
+    }
+
+    failed = withTriageFailure(failed, 'issue:17198', { kind: 'classify-missing', message: 'no' }, 0);
+
+    expect(failed.failures['issue:17198']?.attempts).toBe(5);
+    expect(dueForTriage(lanesOf(card()), failed, NONE, Number.MAX_SAFE_INTEGER)).toEqual([]);
+  });
+
+  it('reads every due card, in board order', () => {
+    const cards = [card(), card({ key: 'issue:17199', issue: issue({ number: 17199 }), issueNumber: 17199 })];
+
+    expect(dueForTriage(lanesOf(...cards), state(), NONE, 0)).toEqual(['issue:17198', 'issue:17199']);
+  });
+});
+
+describe('what a pass leaves behind', () => {
+  it('marks an archived card rather than dropping it', () => {
+    const away = lanesOf(card({ issue: issue({ status: '🚀 Released' }) }));
+    const next = nextTriageState(away, state({ entries: { 'issue:17198': entry() } }), true);
+
+    expect(next.entries['issue:17198']).toMatchObject({ action: 'begin-work', wasArchived: true });
+  });
+
+  it('prunes a card that left the board on a clean read, and keeps it on a failed one', () => {
+    const held = state({ entries: { 'issue:17198': entry() } });
+
+    expect(nextTriageState([], held, true).entries).toEqual({});
+    expect(nextTriageState([], held, false).entries).toHaveProperty('issue:17198');
+  });
+
+  it('gives a card that went past the developer a clean slate, attempts included', () => {
+    const away = lanesOf(card({ issue: issue({ status: '🚀 Released' }) }));
+    const failed = withTriageFailure(state(), 'issue:17198', { kind: 'classify-failed', message: 'no' }, 0);
+
+    expect(nextTriageState(away, failed, true).failures).toEqual({});
+  });
+
+  it('forgets one card when the developer asks for it again', () => {
+    const held = withTriageFailure(state({ entries: { 'issue:17198': entry() } }), 'issue:17198', { kind: 'k', message: 'm' }, 0);
+    const forgotten = forgetTriage(held, 'issue:17198');
+
+    expect(forgotten.entries).toEqual({});
+    expect(forgotten.failures).toEqual({});
+    expect(dueForTriage(lanesOf(card()), forgotten, NONE, 0)).toEqual(['issue:17198']);
+  });
+});
+
+describe('reading the stored state', () => {
+  it('drops one unusable entry rather than the whole file, which would re-read the entire board', () => {
+    const stored = {
+      entries: {
+        'issue:1': { action: 'land', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' },
+        'issue:2': { action: 'a-thing-no-build-has', detail: 'go', at: 1, agent: 'claude' },
+      },
+      failures: { 'issue:3': { kind: 'k', message: 'm', attempts: 1, nextAt: 5 }, 'issue:4': { kind: 'k' } },
+    };
+
+    const read = readTriageState(stored);
+
+    expect(Object.keys(read.entries)).toEqual(['issue:1']);
+    expect(Object.keys(read.failures)).toEqual(['issue:3']);
+  });
+
+  it('defaults the fields an older build did not write', () => {
+    const read = readTriageState({ entries: { 'issue:1': { action: 'land', detail: 'go', at: 1, agent: 'claude' } } });
+
+    expect(read.entries['issue:1']).toMatchObject({ qualifier: null, wasArchived: false, evidence: '' });
+  });
+
+  it('reads an unusable file as empty rather than throwing on every render', () => {
+    expect(readTriageState('nonsense')).toEqual({ entries: {}, failures: {} });
+    expect(readTriageState(null)).toEqual({ entries: {}, failures: {} });
+  });
+});
+
+describe('the classifier answer', () => {
+  it('takes an answer that is one of the actions', () => {
+    expect(readTriageResult({ action: 'land', detail: 'Merge it.' })).toEqual({ action: 'land', detail: 'Merge it.' });
+  });
+
+  it('refuses an action no build has, rather than reading it as other', () => {
+    expect(readTriageResult({ action: 'ship-it', detail: 'go' })).toBeNull();
+    expect(readTriageResult({ action: 'land' })).toBeNull();
+    expect(readTriageResult({ detail: 'go' })).toBeNull();
+    expect(readTriageResult({ action: 'land', detail: '' })).toBeNull();
+    expect(readTriageResult('land')).toBeNull();
+  });
+
+  it('cuts an over-long sentence at a word rather than discarding a good classification', () => {
+    const long = `${'word '.repeat(60)}end`;
+    const result = readTriageResult({ action: 'other', detail: long });
+
+    expect(result?.detail.length).toBeLessThanOrEqual(160);
+    expect(result?.detail.endsWith('…')).toBe(true);
+    expect(result?.detail).not.toContain('wor…');
+  });
+
+  it('offers the model exactly the actions the board knows', () => {
+    expect(triageJsonSchema.properties.action.enum).toEqual([...TRIAGE_ACTIONS]);
+    expect(Object.keys(TRIAGE_LABELS).sort()).toEqual([...TRIAGE_ACTIONS].sort());
+  });
+});
+
+describe('the facts overruling the model', () => {
+  function context(over: Partial<TriageContext['pullRequest']> = {}, logins = ['dev-1']): TriageContext {
+    return {
+      issueNumber: 17198,
+      title: 'x',
+      body: '',
+      status: '⚒️ Dev',
+      comments: [],
+      logins,
+      pullRequest: {
+        number: 42,
+        title: 'x',
+        body: '',
+        state: 'OPEN',
+        isDraft: false,
+        author: 'dev-1',
+        reviewDecision: null,
+        mergeable: 'MERGEABLE',
+        mergeStateStatus: 'BLOCKED',
+        checkState: 'SUCCESS',
+        comments: [],
+        reviews: [],
+        reviewRequests: [],
+        threads: [],
+        ...over,
+      },
+    };
+  }
+
+  it('reads each fact as its own action', () => {
+    expect(derivedAction(context({ mergeable: 'CONFLICTING' }))).toBe('resolve-conflicts');
+    expect(derivedAction(context({ checkState: 'FAILURE' }))).toBe('fix-checks');
+    expect(derivedAction(context({ checkState: 'ERROR' }))).toBe('fix-checks');
+    expect(derivedAction(context({ mergeStateStatus: 'BEHIND' }))).toBe('merge-upstream');
+    expect(derivedAction(context({ mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED' }))).toBe('land');
+  });
+
+  it('puts a branch that will not merge ahead of one whose checks are red', () => {
+    expect(derivedAction(context({ mergeable: 'CONFLICTING', checkState: 'FAILURE' }))).toBe('resolve-conflicts');
+    expect(derivedAction(context({ checkState: 'FAILURE', mergeStateStatus: 'BEHIND' }))).toBe('fix-checks');
+  });
+
+  it('reads UNKNOWN as not computed rather than as fine, in either direction', () => {
+    expect(derivedAction(context({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }))).toBeNull();
+    expect(derivedAction(context({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN', reviewDecision: 'APPROVED' }))).toBeNull();
+  });
+
+  it('reads a null check rollup as a repository with no checks, not as checks that failed', () => {
+    expect(derivedAction(context({ checkState: null }))).toBeNull();
+  });
+
+  it('says nothing about a draft, a colleague pull request, or one already landed', () => {
+    expect(derivedAction(context({ isDraft: true, checkState: 'FAILURE' }))).toBeNull();
+    expect(derivedAction(context({ author: 'dev-9', mergeable: 'CONFLICTING' }))).toBeNull();
+    expect(derivedAction(context({ state: 'MERGED', mergeable: 'CONFLICTING' }))).toBeNull();
+    expect(derivedAction(context({ state: 'CLOSED', mergeable: 'CONFLICTING' }))).toBeNull();
+  });
+
+  it('says nothing at all about a card with no pull request', () => {
+    expect(derivedAction({ ...context(), pullRequest: null })).toBeNull();
+  });
+
+  it('keeps the sentence when it overrules the action', () => {
+    const overridden = overrideAction({ action: 'begin-work', detail: 'Add the paging fix.' }, context({ mergeable: 'CONFLICTING' }));
+
+    expect(overridden).toEqual({ action: 'resolve-conflicts', qualifier: null, detail: 'Add the paging fix.' });
+  });
+
+  it('leaves the model its answer where the facts say nothing', () => {
+    expect(overrideAction({ action: 'uat-failure', detail: 'Safari.' }, context())).toMatchObject({ action: 'uat-failure' });
+  });
+
+  it('calls a review round initial until the developer has spoken on it', () => {
+    const said = (author: string) => ({ author, authorAssociation: 'MEMBER', body: 'x', createdAt: '2026-01-01T00:00:00Z' });
+
+    expect(qualifierOf('address-review', context())).toBe('initial');
+    expect(qualifierOf('address-review', context({ comments: [said('dev-9')] }))).toBe('initial');
+    expect(qualifierOf('address-review', context({ comments: [said('DEV-1')] }))).toBe('followup');
+    expect(
+      qualifierOf('address-review', context({ threads: [{ isResolved: false, isOutdated: false, comments: [said('dev-9'), said('dev-1')] }] })),
+    ).toBe('followup');
+    // The developer opening a thread is not them replying to one.
+    expect(
+      qualifierOf('address-review', context({ threads: [{ isResolved: false, isOutdated: false, comments: [said('dev-1')] }] })),
+    ).toBe('initial');
+  });
+
+  it('calls a review of somebody else work initial until the developer has submitted one', () => {
+    const review = (author: string) => ({ author, state: 'COMMENTED', submittedAt: null });
+
+    expect(qualifierOf('review-others', context({ author: 'dev-9', reviews: [review('dev-9')] }))).toBe('initial');
+    expect(qualifierOf('review-others', context({ author: 'dev-9', reviews: [review('dev-1')] }))).toBe('followup');
+  });
+
+  it('qualifies nothing else', () => {
+    expect(qualifierOf('land', context())).toBeNull();
+    expect(qualifierOf('uat-failure', context())).toBeNull();
+  });
+
+  it('reads a label the way both boards draw it', () => {
+    expect(triageLabel('address-review', 'followup')).toBe('Address dev review · followup');
+    expect(triageLabel('land', null)).toBe('Land it');
+  });
+});
+
+describe('what a card carries', () => {
+  it('shows a card being read as running, and nothing else', () => {
+    const [lane] = withTriage(lanesOf(card()), state({ entries: { 'issue:17198': entry() } }), new Set(['issue:17198']));
+
+    expect(lane?.cards[0]?.triage).toEqual({ state: 'running' });
+  });
+
+  it('shows what was read, with the qualifier and the sentence', () => {
+    const held = state({ entries: { 'issue:17198': entry({ action: 'address-review', qualifier: 'followup', detail: 'Answer the naming notes.' }) } });
+    const [lane] = withTriage(lanesOf(card()), held, NONE);
+
+    expect(lane?.cards[0]?.triage).toEqual({
+      state: 'done',
+      action: 'address-review',
+      qualifier: 'followup',
+      detail: 'Answer the naming notes.',
+      at: 1_000,
+      stale: false,
+    });
+  });
+
+  it('says a reading has aged when the card has moved under it', () => {
+    const held = state({ entries: { 'issue:17198': entry({ evidence: 'something else entirely' }) } });
+    const [lane] = withTriage(lanesOf(card()), held, NONE);
+
+    expect(lane?.cards[0]?.triage).toMatchObject({ stale: true });
+  });
+
+  it('reads a pull request opening as the card having moved', () => {
+    const before = evidenceOf(issue());
+    const after = evidenceOf(
+      issue({ pullRequest: { number: 9, url: 'u', state: 'OPEN', author: 'dev-1', isDraft: false, reviewDecision: null } }),
+    );
+
+    expect(after).not.toBe(before);
+    expect(evidenceOf(issue({ updatedAt: '2026-09-02T10:00:00Z' }))).not.toBe(before);
+    expect(evidenceOf(issue())).toBe(before);
+  });
+
+  it('carries nothing on a card that has not been read, or whose reading failed', () => {
+    const failed = withTriageFailure(state(), 'issue:17198', { kind: 'classify-failed', message: 'no' }, 0);
+
+    expect(withTriage(lanesOf(card()), state(), NONE)[0]?.cards[0]?.triage).toBeUndefined();
+    expect(withTriage(lanesOf(card()), failed, NONE)[0]?.cards[0]?.triage).toBeUndefined();
+  });
+
+  it('leaves every other card alone', () => {
+    const two = [card(), card({ key: 'issue:17199', issue: issue({ number: 17199 }), issueNumber: 17199 })];
+    const [lane] = withTriage(lanesOf(...two), state({ entries: { 'issue:17198': entry() } }), NONE);
+
+    expect(lane?.cards).toHaveLength(2);
+    expect(lane?.cards[0]?.triage).toBeDefined();
+    expect(lane?.cards[1]?.triage).toBeUndefined();
+  });
+
+  it('changes no lane and no placement', () => {
+    const before = lanesOf(card());
+    const after = withTriage(before, state({ entries: { 'issue:17198': entry() } }), NONE);
+
+    expect(after.map((lane) => lane.cards.map((c) => c.key))).toEqual(before.map((lane) => lane.cards.map((c) => c.key)));
+    expect(after.map((lane) => lane.id)).toEqual(before.map((lane) => lane.id));
+  });
+});

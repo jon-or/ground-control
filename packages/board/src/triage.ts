@@ -1,0 +1,406 @@
+import { z } from 'zod';
+import { TRIAGE_ACTIONS } from '@ground-control/core';
+import type {
+  CardTriage,
+  IssueCard,
+  Lane,
+  LanedCard,
+  TriageAction,
+  TriageContext,
+  TriageEntry,
+  TriageFailure,
+  TriageQualifier,
+  TriageResult,
+  TriageState,
+} from '@ground-control/core';
+
+export { TRIAGE_ACTIONS };
+
+/** `mergeBoard` keys work with no issue by the directory it runs in. Such a card has no conversation to read. */
+const SESSION_KEY_PREFIX = 'session:';
+
+/** One sentence. Long enough to name the work, short enough that a card stays a card. */
+const DETAIL_LIMIT = 160;
+
+/**
+ * How long a card waits after each failed attempt, and how many it gets. Without this every failure mode — a
+ * logged-out CLI, a usage limit, a timeout — retries at the rate the board broadcasts, which is a spawn loop that
+ * only stops when the developer notices. After the last one the card waits for a return or for the developer to ask.
+ */
+const BACKOFF_MS = [60_000, 120_000, 300_000, 1_800_000];
+
+/** What the model is held to. Two fields, and an action outside the list is refused rather than read as `other`. */
+export const triageJsonSchema = {
+  type: 'object',
+  properties: {
+    action: { type: 'string', enum: [...TRIAGE_ACTIONS] },
+    detail: { type: 'string', maxLength: DETAIL_LIMIT },
+  },
+  required: ['action', 'detail'],
+  additionalProperties: false,
+} as const;
+
+const parsed = z.object({
+  action: z.enum(TRIAGE_ACTIONS),
+  detail: z.string().min(1),
+});
+
+/**
+ * The classifier's answer, or null where it is not one. `maxLength` in the schema is what the model is asked for and
+ * a long sentence is not worth discarding a good classification over, so an over-long one is cut at a word here.
+ */
+export function readTriageResult(value: unknown): TriageResult | null {
+  const result = parsed.safeParse(value);
+
+  if (!result.success) {
+    return null;
+  }
+
+  const detail = result.data.detail.trim();
+
+  if (detail.length <= DETAIL_LIMIT) {
+    return { action: result.data.action, detail };
+  }
+
+  const cut = detail.slice(0, DETAIL_LIMIT - 1);
+  const space = cut.lastIndexOf(' ');
+
+  return { action: result.data.action, detail: `${space > 0 ? cut.slice(0, space) : cut}…` };
+}
+
+/** What each action is called on a card. Duplicated into both clients, so it is pinned by a parity table in each. */
+export const TRIAGE_LABELS: Readonly<Record<TriageAction, string>> = {
+  'begin-work': 'Begin work',
+  'answer-design-question': 'Answer design question',
+  'uat-question': 'UAT question',
+  'uat-failure': 'UAT failure',
+  'awaiting-others': 'Waiting on others',
+  'review-others': 'Dev review',
+  'address-review': 'Address dev review',
+  'fix-checks': 'Fix failing checks',
+  'merge-upstream': 'Merge upstream',
+  'resolve-conflicts': 'Resolve conflicts',
+  land: 'Land it',
+  other: 'Other',
+};
+
+export const TRIAGE_QUALIFIERS: Readonly<Record<TriageQualifier, string>> = {
+  initial: 'initial',
+  followup: 'followup',
+};
+
+/** How a triaged card reads, in one place because both boards draw it. */
+export function triageLabel(action: TriageAction, qualifier: TriageQualifier | null): string {
+  return qualifier === null ? TRIAGE_LABELS[action] : `${TRIAGE_LABELS[action]} · ${TRIAGE_QUALIFIERS[qualifier]}`;
+}
+
+/**
+ * What the card looked like when it was triaged. A label is decided once, so this is what lets a card say the answer
+ * has aged rather than presenting a Monday reading of a Thursday card as current (R24).
+ */
+export function evidenceOf(issue: IssueCard): string {
+  const pr = issue.pullRequest;
+
+  return [issue.updatedAt, issue.status ?? '', pr?.number ?? '', pr?.state ?? '', pr?.reviewDecision ?? ''].join('|');
+}
+
+const triageEntry = z.object({
+  action: z.enum(TRIAGE_ACTIONS),
+  qualifier: z.enum(['initial', 'followup']).nullable().default(null),
+  detail: z.string(),
+  at: z.number(),
+  agent: z.string(),
+  wasArchived: z.boolean().default(false),
+  evidence: z.string().default(''),
+});
+
+const triageFailure = z.object({
+  kind: z.string(),
+  message: z.string(),
+  attempts: z.number(),
+  nextAt: z.number(),
+});
+
+const triageState = z.object({
+  entries: z.record(z.string(), z.unknown()).default({}),
+  failures: z.record(z.string(), z.unknown()).default({}),
+});
+
+/**
+ * The stored state, or an empty one. Durable, hand-editable, and written by builds that knew a different set of
+ * actions — so one unusable entry costs that card its label and nothing else. Refusing the file whole would silently
+ * re-triage the entire board, which is the one failure mode here that spends money.
+ */
+export function readTriageState(stored: unknown): TriageState {
+  const outer = triageState.safeParse(stored);
+
+  if (!outer.success) {
+    return { entries: {}, failures: {} };
+  }
+
+  const entries: Record<string, TriageEntry> = {};
+  const failures: Record<string, TriageFailure> = {};
+
+  for (const [key, value] of Object.entries(outer.data.entries)) {
+    const entry = triageEntry.safeParse(value);
+
+    if (entry.success) {
+      entries[key] = entry.data;
+    }
+  }
+
+  for (const [key, value] of Object.entries(outer.data.failures)) {
+    const failure = triageFailure.safeParse(value);
+
+    if (failure.success) {
+      failures[key] = failure.data;
+    }
+  }
+
+  return { entries, failures };
+}
+
+/** Only a card with an issue of its own has a conversation to read. Ad-hoc work and a foreign issue number have none. */
+function triageable(card: LanedCard): boolean {
+  return card.issue !== null && card.issueNumber !== null && !card.key.startsWith(SESSION_KEY_PREFIX);
+}
+
+/**
+ * The cards to triage now, in board order. A card is due when it has never been read, or when the last reading
+ * belongs to a pass through the developer's hands that has since ended.
+ *
+ * An archived card is never due, and that is the whole of what keeps this from being a loop. Archived cards stay in
+ * every snapshot — the source query does not filter on status — so a rule that made absence the trigger and dropped
+ * the entry on archive would re-triage every one of them on every broadcast, for as long as the hub ran.
+ */
+export function dueForTriage(
+  lanes: readonly Lane[],
+  state: TriageState,
+  running: ReadonlySet<string>,
+  now: number,
+): string[] {
+  const due: string[] = [];
+
+  for (const lane of lanes) {
+    if (lane.id === 'archived') {
+      continue;
+    }
+
+    for (const card of lane.cards) {
+      const failure = state.failures[card.key];
+      const entry = state.entries[card.key];
+
+      if (!triageable(card) || running.has(card.key)) {
+        continue;
+      }
+
+      // A card still inside its backoff is not due, and one that has spent its attempts waits for a return or for
+      // the developer to ask by hand.
+      if (failure !== undefined && failure.nextAt > now) {
+        continue;
+      }
+
+      if (entry === undefined || entry.wasArchived) {
+        due.push(card.key);
+      }
+    }
+  }
+
+  return due;
+}
+
+/**
+ * The state after a render. An archived card is **marked**, never dropped: the mark is what makes a later return due
+ * exactly once, where deleting the entry would make it due on every pass while it sat there. Keys absent from a clean
+ * read are pruned, so a card taken off the board entirely is read afresh if it comes back.
+ */
+export function nextTriageState(lanes: readonly Lane[], state: TriageState, sourcesRead: boolean): TriageState {
+  const entries: Record<string, TriageEntry> = {};
+  const failures: Record<string, TriageFailure> = { ...state.failures };
+  const shown = new Set<string>();
+  const archived = new Set<string>();
+
+  for (const lane of lanes) {
+    for (const card of lane.cards) {
+      shown.add(card.key);
+
+      if (lane.id === 'archived' && card.issueNumber !== null) {
+        archived.add(card.key);
+      }
+    }
+  }
+
+  for (const [key, entry] of Object.entries(state.entries)) {
+    // A failed read re-renders the last good cards, so only a clean one proves a card has left the board.
+    if (sourcesRead && !shown.has(key)) {
+      continue;
+    }
+
+    entries[key] = archived.has(key) && !entry.wasArchived ? { ...entry, wasArchived: true } : entry;
+  }
+
+  for (const key of Object.keys(failures)) {
+    if (sourcesRead && !shown.has(key)) {
+      delete failures[key];
+    }
+
+    // A card that goes past the developer's hands starts its next pass with a clean slate, attempts included.
+    if (archived.has(key)) {
+      delete failures[key];
+    }
+  }
+
+  return { entries, failures };
+}
+
+/** The state after a card is read. Its failure, if it had one, is spent — the reading is what replaces it. */
+export function withTriaged(state: TriageState, key: string, entry: TriageEntry): TriageState {
+  const failures = { ...state.failures };
+  delete failures[key];
+
+  return { entries: { ...state.entries, [key]: entry }, failures };
+}
+
+/** The state after a card could not be read, with the next time it may be tried. */
+export function withTriageFailure(
+  state: TriageState,
+  key: string,
+  failure: { kind: string; message: string },
+  now: number,
+): TriageState {
+  const attempts = (state.failures[key]?.attempts ?? 0) + 1;
+  const wait = BACKOFF_MS[attempts - 1];
+
+  return {
+    ...state,
+    failures: {
+      ...state.failures,
+      // Out of attempts: never again on its own, which is what keeps a permanently broken CLI from being a spawn loop.
+      [key]: { ...failure, attempts, nextAt: wait === undefined ? Number.POSITIVE_INFINITY : now + wait },
+    },
+  };
+}
+
+/** Forgets what the board knows about one card, so the developer asking for it again is read as never having read it. */
+export function forgetTriage(state: TriageState, key: string): TriageState {
+  const entries = { ...state.entries };
+  const failures = { ...state.failures };
+  delete entries[key];
+  delete failures[key];
+
+  return { entries, failures };
+}
+
+function mine(login: string | null, logins: readonly string[]): boolean {
+  return login !== null && logins.some((own) => own.toLowerCase() === login.toLowerCase());
+}
+
+/**
+ * Whether a review round is the developer's first or a later one, read from the pull request's own history rather
+ * than from the model: `address-review` is a followup once they have replied on it, and `review-others` once they
+ * have already submitted a review of it.
+ */
+export function qualifierOf(action: TriageAction, context: TriageContext): TriageQualifier | null {
+  const pr = context.pullRequest;
+
+  if (pr === null) {
+    return null;
+  }
+
+  if (action === 'address-review') {
+    const spoken = pr.comments.some((comment) => mine(comment.author, context.logins));
+    const replied = pr.threads.some((thread) =>
+      thread.comments.slice(1).some((comment) => mine(comment.author, context.logins)),
+    );
+
+    return spoken || replied ? 'followup' : 'initial';
+  }
+
+  if (action === 'review-others') {
+    return pr.reviews.some((review) => mine(review.author, context.logins)) ? 'followup' : 'initial';
+  }
+
+  return null;
+}
+
+/**
+ * What the pull request itself says, where it says anything. These outrank the model because they are facts: a branch
+ * that will not merge is a branch to fix whatever anybody wrote about it.
+ *
+ * Nothing fires on a draft, on somebody else's pull request, on one already merged or closed, or on `UNKNOWN` —
+ * which GitHub answers until it has computed mergeability, and which is common in the very window a card arrives
+ * (`docs/mechanics.md` §31). `UNKNOWN` means "not computed", never "fine".
+ */
+export function derivedAction(context: TriageContext): TriageAction | null {
+  const pr = context.pullRequest;
+
+  if (pr === null || pr.state !== 'OPEN' || pr.isDraft || !mine(pr.author, context.logins)) {
+    return null;
+  }
+
+  if (pr.mergeable === 'CONFLICTING') {
+    return 'resolve-conflicts';
+  }
+
+  // A null rollup is a repository that runs no checks, which is not a repository whose checks have not passed.
+  if (pr.checkState === 'FAILURE' || pr.checkState === 'ERROR') {
+    return 'fix-checks';
+  }
+
+  if (pr.mergeStateStatus === 'BEHIND') {
+    return 'merge-upstream';
+  }
+
+  // Keyed on CLEAN rather than assembled from parts: BLOCKED is what a repository requiring review answers for
+  // everything else, so a hand-built condition would name every open pull request as ready to land.
+  if (pr.mergeStateStatus === 'CLEAN' && pr.reviewDecision === 'APPROVED') {
+    return 'land';
+  }
+
+  return null;
+}
+
+/**
+ * The card's action, with the facts given the last word and the model's sentence kept either way — an override
+ * changes what the work is called, not the description of it.
+ */
+export function overrideAction(result: TriageResult, context: TriageContext): { action: TriageAction; qualifier: TriageQualifier | null; detail: string } {
+  const action = derivedAction(context) ?? result.action;
+
+  return { action, qualifier: qualifierOf(action, context), detail: result.detail };
+}
+
+/** Every lane again, each triageable card carrying what the board knows about it. */
+export function withTriage(
+  lanes: readonly Lane[],
+  state: TriageState,
+  running: ReadonlySet<string>,
+): Lane[] {
+  return lanes.map((lane) => ({
+    ...lane,
+    cards: lane.cards.map((card): LanedCard => {
+      if (running.has(card.key)) {
+        return { ...card, triage: { state: 'running' } };
+      }
+
+      const entry = state.entries[card.key];
+
+      // A card with no reading, and one whose reading failed, look the same: nothing on the card. The failure is one
+      // deduplicated line above the lanes, because fifteen cards failing one cause is one condition (R25).
+      if (entry === undefined || card.issue === null) {
+        return card;
+      }
+
+      const triage: CardTriage = {
+        state: 'done',
+        action: entry.action,
+        qualifier: entry.qualifier,
+        detail: entry.detail,
+        at: entry.at,
+        stale: entry.evidence !== '' && entry.evidence !== evidenceOf(card.issue),
+      };
+
+      return { ...card, triage };
+    }),
+  }));
+}
