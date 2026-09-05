@@ -206,7 +206,12 @@ export function fakeClock(start = 1_788_000_000_000) {
       now += ms;
     },
     cadences: () => [...timers.values()].map((timer) => timer.ms).sort((a, b) => a - b),
+    /** Which timers these are, not merely how they are paced: a rebuilt one restarts the clock it was counting. */
+    handles: () => [...timers.keys()],
+    /** Time passes before a timer of that cadence fires, as it does on a real clock: floors count elapsed time. */
     fire: (ms: number) => {
+      now += ms;
+
       for (const timer of [...timers.values()]) {
         if (timer.ms === ms) {
           timer.fn();

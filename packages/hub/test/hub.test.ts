@@ -301,6 +301,158 @@ describe('what the hub polls', () => {
 
     expect(h.agent.calls).toBe(after + 1);
   });
+
+  /** R35: a board becomes visible on every tab switch, and a source read is a network round trip GitHub rate limits. */
+  it('shows a board that comes back inside the minute the cards it already read', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const before = { issues: h.issueReads, sessions: h.agent.calls };
+
+    h.clock.advance(59_000);
+    h.hub.receive(client, { type: 'watching', watching: false });
+    h.hub.receive(client, { type: 'watching', watching: true });
+    await settle();
+
+    // The sessions are read all the same: that one is a local CLI spawn, and it is what says a session ended.
+    expect(h.issueReads).toBe(before.issues);
+    expect(h.agent.calls).toBe(before.sessions + 1);
+
+    h.clock.advance(1_001);
+    h.hub.receive(client, { type: 'watching', watching: false });
+    h.hub.receive(client, { type: 'watching', watching: true });
+    await settle();
+
+    expect(h.issueReads).toBe(before.issues + 1);
+  });
+
+  it('reads the sources for a button press inside that minute, and for settings that moved', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const before = h.issueReads;
+
+    h.clock.advance(1_001);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    expect(h.issueReads).toBe(before + 1);
+
+    // Restated rather than changed, which is what every board that opens does, and must not cost a read. The second
+    // says the same thing in another order, which is a client building its own source entry, not a setting that moved.
+    h.clock.advance(1_001);
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(h.issueReads).toBe(before + 1);
+
+    h.clock.advance(1_001);
+    h.hub.receive(client, {
+      type: 'configure',
+      config: h.config({ sources: { github: { logins: ['dev-1'], repo: 'example-org/example-repo' } } }),
+    });
+    await settle();
+
+    expect(h.issueReads).toBe(before + 1);
+
+    h.clock.advance(1_001);
+    h.hub.receive(client, {
+      type: 'configure',
+      config: h.config({ sources: { github: { repo: 'example-org/other-repo', logins: ['dev-1'] } } }),
+    });
+    await settle();
+
+    expect(h.issueReads).toBe(before + 2);
+  });
+
+  /** The board's arrival takes the session read's second. A press behind it is the developer asking, not that read. */
+  it('reads the sources for a button press behind a board that just became visible', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const before = h.issueReads;
+
+    h.clock.advance(30_000);
+    h.hub.receive(client, { type: 'watching', watching: false });
+    h.hub.receive(client, { type: 'watching', watching: true });
+    await settle();
+
+    expect(h.issueReads).toBe(before);
+
+    h.clock.advance(400);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    expect(h.issueReads).toBe(before + 1);
+  });
+
+  /** The read in flight went out with the settings these replaced, so folding this into it would answer the old ones. */
+  it('reads again for a source whose settings moved under a read already in flight', async () => {
+    const waiting: (() => void)[] = [];
+    const repos: string[] = [];
+    const h = harness(
+      {},
+      {
+        fetch: (config) => {
+          repos.push(config.repo);
+
+          return new Promise((resolve) => waiting.push(() => resolve({ ok: true, value: ISSUES })));
+        },
+      },
+    );
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(repos).toEqual(['example-org/example-repo']);
+
+    h.hub.receive(client, {
+      type: 'configure',
+      config: h.config({ sources: { github: { repo: 'example-org/other-repo', logins: ['dev-1'] } } }),
+    });
+    await settle();
+
+    // Queued, not folded in: the read in flight is still the only one that has gone out.
+    expect(repos).toHaveLength(1);
+
+    waiting.shift()?.();
+    await settle();
+
+    expect(repos).toEqual(['example-org/example-repo', 'example-org/other-repo']);
+
+    waiting.shift()?.();
+    await settle();
+  });
+
+  /** A rebuilt timer starts its count again, so a board toggled faster than the cadence would never reach a poll. */
+  it('leaves the timers alone for a client that says nothing new', () => {
+    const h = harness();
+    const { client } = connect(h);
+    const armed = h.clock.handles();
+
+    h.hub.receive(client, { type: 'watching', watching: true });
+    h.hub.receive(client, { type: 'hello', hello: hello() });
+
+    expect(h.clock.handles()).toEqual(armed);
+
+    connect(h, hello({ id: 'board-2' }));
+
+    expect(h.clock.handles()).toEqual(armed);
+
+    h.hub.receive(client, { type: 'watching', watching: false });
+
+    expect(h.clock.handles()).toEqual(armed);
+  });
 });
 
 describe('what an activity event costs', () => {
