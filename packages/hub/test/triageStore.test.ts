@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { withTriageFailure } from '@ground-control/board';
+import { TRIAGE_REVISION, withTriageFailure } from '@ground-control/board';
 import type { TriageState } from '@ground-control/core';
 import { makeTriageStore } from '../src/triageStore.js';
 import { triagePathOf } from '../src/paths.js';
@@ -45,7 +45,7 @@ describe('what the board remembers about each card', () => {
     store.write({ entries: {}, failures: {} });
     writeFileSync(
       triagePathOf(home),
-      JSON.stringify({ entries: { 'issue:9': { action: 'land', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' } }, failures: {} }),
+      JSON.stringify({ entries: { 'issue:9': { revision: TRIAGE_REVISION, action: 'land', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' } }, failures: {} }),
     );
 
     expect(store.read().entries['issue:9']?.action).toBe('land');

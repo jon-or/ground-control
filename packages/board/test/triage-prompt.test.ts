@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TriageContext } from '@ground-control/core';
 import { TRIAGE_SYSTEM_PROMPT, buildTriagePrompt } from '../src/triagePrompt.js';
-import { TRIAGE_ACTIONS } from '../src/triage.js';
+import { CLASSIFIED_ACTIONS, TRIAGE_ACTIONS } from '../src/triage.js';
 
 /**
  * The one action the model is never offered. It may report a problem somebody named — an auto-merge that failed, a
@@ -62,7 +62,7 @@ describe('the system prompt', () => {
   it('gives an order to take when more than one fits, since several routinely do', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('take the first that applies');
     // The order the numbers put them in, which is the whole of what the rule is worth.
-    const order = ['resolve-conflicts', 'merge-upstream', 'fix-checks', 'uat-failure', 'uat-question', 'answer-design-question', 'address-review', 'review-others', 'awaiting-others', 'begin-work', 'other'];
+    const order = ['resolve-conflicts', 'merge-upstream', 'fix-checks', 'uat-failure', 'uat-question', 'answer-design-question', 'address-review', 'review-others', 'begin-work', 'other'];
     const at = order.map((action) => TRIAGE_SYSTEM_PROMPT.indexOf(`${action}:`));
 
     expect(at).toEqual([...at].sort((a, b) => a - b));
@@ -71,6 +71,12 @@ describe('the system prompt', () => {
 
   it('says an assigned issue with nothing on it is begin-work, since that is most of a first run', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('is begin-work, not other');
+  });
+
+  it('counts the actions above other the way the list does, so retiring one cannot leave the prose wrong', () => {
+    const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven'];
+
+    expect(TRIAGE_SYSTEM_PROMPT).toContain(`none of the ${words[CLASSIFIED_ACTIONS.length - 1]} above fits`);
   });
 
   it('names a conflict, a stale branch and a red build, which are reported in words long before GitHub computes them', () => {
@@ -91,6 +97,39 @@ describe('the system prompt', () => {
 
   it('asks for the one sentence length the parser enforces', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('160 characters');
+  });
+
+  it('asks for logistics rather than a summary of the change, which is what the developer already knows', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('logistics, not engineering');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('Do not summarise the change');
+  });
+
+  it('forbids a count in words as well as digits, since the reading that started this said "all nine findings"', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('Count nothing, in digits or in words');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('never "buildfriday addressed all nine findings"');
+  });
+
+  it('states how to write the sentence before it lists the actions, which is where the rule holds', () => {
+    // Both rules regressed when they sat at the end: counts came back and the sentence went technical again.
+    for (const rule of ['logistics, not engineering', 'Count nothing']) {
+      expect(TRIAGE_SYSTEM_PROMPT.indexOf(rule)).toBeLessThan(TRIAGE_SYSTEM_PROMPT.indexOf('1. resolve-conflicts'));
+    }
+  });
+
+  it('gives the board status the last word over the conversation, and lets Opened by decide whose review it is', () => {
+    // A colleague's pull request, stacked on a parent, on an issue at Dev Review: what it waits on to merge is not
+    // what the card waits on, and without this every such card read as blocked on somebody else.
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('it outranks the conversation');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('"Opened by" says whose job that is');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('review even when it cannot merge yet');
+  });
+
+  it('gives an unreviewed or blocked pull request nowhere to go but other, so no card claims to be waiting', () => {
+    // Both misreadings the removed action produced: a colleague's stacked pull request awaiting its parent, and the
+    // developer's own awaiting a reviewer while the issue had already been handed back to them.
+    expect(TRIAGE_SYSTEM_PROMPT).toContain("is somebody else's queue");
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('answer other');
+    expect(TRIAGE_SYSTEM_PROMPT).not.toContain('awaiting-others');
   });
 });
 
@@ -151,11 +190,12 @@ describe('building the prompt', () => {
     expect(buildTriagePrompt(context({ pullRequest: pullRequest({ isDraft: true }) }), NOW)).toContain('State: OPEN (draft)');
   });
 
-  it('carries only the threads still open, and counts them', () => {
+  it('carries only the threads still open, and numbers them without a total', () => {
     const prompt = buildTriagePrompt(context({ pullRequest: pullRequest() }), NOW);
 
-    expect(prompt).toContain('Unresolved review threads (1):');
+    expect(prompt).toContain('Unresolved review threads (the most recent few):');
     expect(prompt).toContain('Thread 1:');
+    expect(prompt).not.toContain('Thread 2:');
     expect(prompt).toContain('This name is wrong.');
     expect(prompt).not.toContain('Settled already.');
     expect(prompt).not.toContain('Moved on since.');
@@ -173,11 +213,11 @@ describe('building the prompt', () => {
     );
 
     expect(bare).toContain("The developer's own GitHub accounts: (none)");
-    expect(bare).toContain('Recent issue comments (oldest first):\n(none)');
+    expect(bare).toContain('Recent issue comments (the most recent few, oldest first):\n(none)');
     expect(bare).toContain('Review decision: (none)');
     expect(bare).toContain('Reviewers asked for: (none)');
     expect(bare).toContain('Reviews submitted: (none)');
-    expect(bare).toContain('Unresolved review threads (0):\n(none)');
+    expect(bare).toContain('Unresolved review threads (the most recent few):\n(none)');
   });
 
   it('numbers each open thread, so three threads never read as one thread with three comments', () => {
@@ -189,10 +229,29 @@ describe('building the prompt', () => {
     });
     const prompt = buildTriagePrompt(context({ pullRequest: many }), NOW);
 
-    expect(prompt).toContain('Unresolved review threads (2):');
     expect(prompt).toContain('Thread 1:');
     expect(prompt).toContain('Thread 2:');
     expect(prompt.indexOf('Thread 1:')).toBeLessThan(prompt.indexOf('Thread 2:'));
+  });
+
+  it('presents no list as a total, because every one of them is capped before it is rendered', () => {
+    const many = pullRequest({
+      threads: [
+        { isResolved: false, isOutdated: false, comments: [comment('dev-4', 'First point.')] },
+        { isResolved: false, isOutdated: false, comments: [comment('dev-5', 'Second point.')] },
+      ],
+    });
+    const prompt = buildTriagePrompt(context({ pullRequest: many }), NOW);
+
+    // Every heading, not just the one that carried a count: a number beside a truncated list is a number the model
+    // will repeat, and `reviewThreads(last:5)` means the number was never the total in the first place.
+    for (const heading of prompt.split('\n').filter((line) => line.endsWith(':'))) {
+      expect(heading).not.toMatch(/\(\d+\)/);
+    }
+
+    expect(prompt).toContain('Recent issue comments (the most recent few, oldest first):');
+    expect(prompt).toContain('Recent pull request comments (the most recent few, oldest first):');
+    expect(prompt).toContain('Unresolved review threads (the most recent few):');
   });
 
   it('is a pure function of its context, so what reached the model can always be read back', () => {

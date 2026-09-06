@@ -1373,7 +1373,7 @@ So nothing this project reads off an HTTP response may be decoded by the stream.
 
 ## 31. A classifier session can be run so the board never sees it
 
-**Measured 2026-09-05**, four probes against the installed `claude` CLI on this machine. This is the mechanism card triage runs on (`prd.md` R38).
+**Measured 2026-09-05**, against the installed `claude` CLI on this machine: four probes of the invocation, then two models over seven real cards. This is the mechanism card triage runs on (`prd.md` R38).
 
 The invocation, at the directory the hub uses:
 
@@ -1383,7 +1383,7 @@ cd ~/.claude/ground-control
   --output-format json --json-schema '<schema>' \
   --no-session-persistence --setting-sources "" --session-id '<uuid>' \
   --strict-mcp-config --tools "" --system-prompt '<classifier>' \
-  --model claude-haiku-4-5-20251001
+  --model claude-sonnet-5
 ```
 
 **It writes nothing the board reads.** Across all four probes `~/.claude/projects` held 2,001 `.jsonl` files before and after with none named for a probe session; `~/.claude/ground-control/activity` was unchanged; and `~/.claude/session-env` held 1,046 entries before and after. So `--no-session-persistence` suppresses the transcript *and* the per-session environment directory §3 records, and `--setting-sources ""` keeps the activity hooks out of a session that would otherwise fire them.
@@ -1396,7 +1396,7 @@ cd ~/.claude/ground-control
 
 **`--tools` is variadic,** so `--tools ""` parses only when a flag follows it.
 
-**Cost is dominated by what is loaded, not by the prompt.** Same classification, three invocations:
+**Cost is dominated by what is loaded, not by the prompt.** Same classification under Haiku, three invocations:
 
 | Invocation | Input tokens | Wall | List price |
 |---|---|---|---|
@@ -1408,7 +1408,9 @@ The tool definitions and the default system prompt were the whole of the overhea
 
 **`--json-schema` answers on `structured_output`,** already parsed, with the same JSON in `result` as a string.
 
-**A real card takes 19 to 102 seconds, and how long tracks how hard it thinks rather than how much it was given.** Ten classifications of cards on this team's board: 18.8, 23.5, 25.8, 27.4, 31.0, 39.3, 45.9, 55.8, 72.3 and 102.0 seconds. The synthetic one-sentence probe above is not a latency guide. Neither is prompt size — the fastest of the ten carried the largest prompt, 29,291 characters, and one of 8,157 took 26 seconds. Reading the card from GitHub is a rounding error against that: `gh` answered in 357 to 604 ms. The spread is what sets the default budget at 180 s covering both, and a fifteen-card board is six to ten minutes at two at a time.
+**A real card takes 3 to 102 seconds, and the model decides that far more than the prompt does.** Ten Haiku classifications of cards on this team's board: 18.8, 23.5, 25.8, 27.4, 31.0, 39.3, 45.9, 55.8, 72.3 and 102.0 seconds. Prompt size does not predict it — the fastest of the ten carried the largest prompt, 29,291 characters, and one of 8,157 took 26 seconds. The synthetic one-sentence probe above is no guide either.
+
+**Sonnet is an order of magnitude faster than Haiku here, against the direction of the price.** Seven cards, the same prompts: `claude-sonnet-5` ran 2.5, 4.0, 5.1, 5.8, 7.3, 7.4 and 23.8 seconds, where six of the same seven under `claude-haiku-4-5-20251001` ran 37.4, 38.6, 68.1, 76.6, 79.0 and 84.0. Sonnet classified all seven the way the developer would; Haiku, on the six it answered, missed one. Reading the card from GitHub is a rounding error against either: `gh` answered in 357 to 604 ms. `groundControl.triage.model` defaults to `claude-sonnet-5` on that evidence: a card is read once, so the several-fold price of the larger model buys both the speed and the reading, and a fifteen-card board is about a minute at two at a time rather than six to ten. The budget stays at 180 s covering fetch and classification together — a ceiling on a hang, not a figure either model approaches.
 
 **`--model haiku` is not a documented alias.** The CLI's help names `fable`, `opus` and `sonnet`; `haiku` resolved to `claude-haiku-4-5-20251001` here, but an alias that silently resolves elsewhere changes cost and quality with no signal, so the full name is what gets passed.
 

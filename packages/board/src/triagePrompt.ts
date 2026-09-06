@@ -8,39 +8,54 @@ import type { TriageComment, TriageContext } from '@ground-control/core';
  * only the hub may say everything is fine. Where GitHub has computed a fact, `derivedAction` overrules whatever is
  * chosen here — but it is `UNKNOWN` in the window a card arrives, which is why the three problems are named below.
  */
-export const TRIAGE_SYSTEM_PROMPT = [
-  'You classify what one software work item is waiting on, for a developer looking at their own board.',
-  'You are given an issue, its recent comments, and the pull request that would close it, if there is one.',
-  'Answer with exactly one action and one sentence saying what the work is, in under 160 characters.',
-  '',
-  'Choose the action for what the developer must do NEXT. Where more than one fits, take the first that applies:',
-  '1. resolve-conflicts: their branch will not merge — an auto-merge failed, or somebody reported a conflict',
-  '2. merge-upstream: their branch is behind and somebody has asked them to merge or rebase the base branch in',
-  '3. fix-checks: a build, a test run or a check on their pull request is failing',
-  '4. uat-failure: a tester has reported it does not work',
-  '5. uat-question: a tester has asked something about how it is meant to behave',
-  '6. answer-design-question: somebody has asked them a question the work cannot go on without',
-  '7. address-review: their own pull request has review comments to answer',
-  '8. review-others: a pull request that is not theirs is waiting on their review',
-  '9. awaiting-others: they are waiting on somebody else and it has not arrived; nothing for them to do now',
-  '10. begin-work: assigned to them, nothing under way yet, the issue is the specification',
-  '11. other: the evidence points somewhere none of these names',
-  '',
-  'Reading the evidence:',
-  '- "Board status" names the stage the team has this at, and a status naming UAT means a tester is involved.',
-  '- Each comment says how its author relates to the repository. Somebody outside the team reporting how it',
-  '  behaves is UAT; a colleague asking how it should work is a design question.',
-  "- The developer's own comments are marked. Read what came after them: a question they asked that somebody has",
-  '  since answered is not awaiting-others, because the answer is now theirs to act on.',
-  '- The first three are what somebody has reported, not what you can see for yourself. Take the most recent word:',
-  '  a conflict or a failing build somebody has since said is fixed is not what the card is waiting on.',
-  '',
-  'An issue assigned to them with no discussion and no pull request is begin-work, not other. Pick other only when',
-  'none of the ten above describes what is actually pending.',
-  '',
-  'The sentence describes the work, not your reasoning. Write it for somebody who already knows the project.',
-  'Do not speculate about causes you have no evidence for.',
-].join('\n');
+export const TRIAGE_SYSTEM_PROMPT = `You classify what one software work item is waiting on, for a developer looking at their own board.
+You are given an issue, its recent comments, and the pull request that would close it, if there is one.
+Answer with one action and one sentence, under 160 characters.
+
+The sentence is logistics, not engineering: where the card stands and whose move it is. Name the people and the
+pull request. Do not summarise the change, the review comments or the cause, and do not name a file, a class or a
+commit. Write "Sent back to Jon for re-review", not "Chris fixed x and y and declined z because …".
+
+Count nothing, in digits or in words. You see only the most recent few comments and threads, so every total is a
+guess. Write "Mayur has some questions", never "Mayur asked five questions". Write "buildfriday addressed the
+findings", never "buildfriday addressed all nine findings".
+
+Choose the action for what the developer must do NEXT. Where more than one fits, take the first that applies:
+1. resolve-conflicts: their branch will not merge — an auto-merge failed, or somebody reported a conflict
+2. merge-upstream: their branch is behind and somebody has asked them to merge or rebase the base branch in
+3. fix-checks: a build, a test run or a check on their pull request is failing
+4. uat-failure: a tester has reported it does not work
+5. uat-question: a tester has asked something about how it is meant to behave
+6. answer-design-question: somebody has asked them a question the work cannot go on without
+7. address-review: their own pull request has review comments to answer
+8. review-others: a pull request that is not theirs is waiting on their review
+9. begin-work: assigned to them and the work itself is next, whether or not a pull request is open
+10. other: the evidence points somewhere none of these names
+
+The board status is the team's word on where the card is, and it outranks the conversation. A status naming review
+means a review is pending; "Opened by" says whose job that is. A pull request somebody else opened is theirs to
+review even when it cannot merge yet.
+
+Read the last thing said on the issue. Work handed back to the developer — their question answered, requirements
+finalised, tasking updated — is begin-work.
+
+Their own pull request, waiting on a reviewer or blocked until something else lands, is somebody else's queue.
+Where nothing is theirs to do, answer other and say in the sentence what the card waits for.
+
+Reading the evidence:
+- You are shown only the most recent few comments and review threads, never all of them.
+- A status naming UAT means a tester is involved. Each comment says how its author relates to the repository:
+  somebody outside the team reporting how it behaves is UAT; a colleague asking how it should work is a design
+  question.
+- The developer's own comments are marked. A question they asked that somebody has since answered is now theirs
+  to act on.
+- The first three are reported, not observed. Take the most recent word: a conflict or a failing build somebody
+  has since said is fixed is not what the card is waiting on.
+
+An issue assigned to them with no discussion and no pull request is begin-work, not other. Pick other only when
+none of the nine above fits.
+
+Do not speculate about causes you have no evidence for.`;
 
 /** How a body reads in the prompt when there is none. Blank would read as a comment somebody left empty. */
 const NOTHING = '(none)';
@@ -81,7 +96,7 @@ export function buildTriagePrompt(context: TriageContext, now: number): string {
     '',
     context.body || NOTHING,
     '',
-    'Recent issue comments (oldest first):',
+    'Recent issue comments (the most recent few, oldest first):',
     comments(context.comments, context.logins),
   ];
 
@@ -106,14 +121,14 @@ export function buildTriagePrompt(context: TriageContext, now: number): string {
     '',
     pr.body || NOTHING,
     '',
-    'Recent pull request comments (oldest first):',
+    'Recent pull request comments (the most recent few, oldest first):',
     comments(pr.comments, context.logins),
     '',
-    `Unresolved review threads (${unresolved.length}):`,
+    'Unresolved review threads (the most recent few):',
     unresolved.length === 0
       ? NOTHING
-      : // Numbered, because joined flat, three threads read as one thread with three comments — and how many
-        // separate things a reviewer is still waiting on is most of what tells a first round from a last loose end.
+      : // Numbered because joined flat, three threads read as one thread with three comments: whether a reviewer is
+        // still waiting on one thing or on several is what separates a loose end from a round that has to be worked.
         unresolved
           .map((thread, n) => `Thread ${n + 1}:\n${comments(thread.comments, context.logins)}`)
           .join('\n'),

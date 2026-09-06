@@ -1527,7 +1527,6 @@ describe('triage labels read the same on every board', () => {
     ['answer-design-question', null, 'Answer design question'],
     ['uat-question', null, 'UAT question'],
     ['uat-failure', null, 'UAT failure'],
-    ['awaiting-others', null, 'Waiting on others'],
     ['review-others', 'initial', 'Review their PR · initial'],
     ['review-others', 'followup', 'Review their PR · followup'],
     ['address-review', 'initial', 'Answer review · initial'],

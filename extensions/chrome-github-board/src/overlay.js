@@ -65,7 +65,6 @@ const TRIAGE_LABELS = {
   'answer-design-question': 'Answer design question',
   'uat-question': 'UAT question',
   'uat-failure': 'UAT failure',
-  'awaiting-others': 'Waiting on others',
   'review-others': 'Review their PR',
   'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',

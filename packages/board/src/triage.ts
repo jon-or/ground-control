@@ -30,6 +30,14 @@ const DETAIL_LIMIT = 160;
  */
 const BACKOFF_MS = [60_000, 120_000, 300_000, 1_800_000];
 
+/**
+ * What the board's reading of a card is worth. Bumped whenever the prompt, the action list or the qualifier rules
+ * change what an answer to the same evidence would be: a stored entry from an older revision is dropped on read,
+ * which is what makes its card due again. Without it the board goes on showing sentences a fixed classifier would
+ * no longer write, since a card is read once and nothing else re-reads it.
+ */
+export const TRIAGE_REVISION = 2;
+
 /** The actions the hub reads off the pull request itself, whatever anybody wrote about it. */
 export const DERIVED_ACTIONS: readonly TriageAction[] = ['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land'];
 
@@ -91,7 +99,6 @@ export const TRIAGE_LABELS: Readonly<Record<TriageAction, string>> = {
   'answer-design-question': 'Answer design question',
   'uat-question': 'UAT question',
   'uat-failure': 'UAT failure',
-  'awaiting-others': 'Waiting on others',
   'review-others': 'Review their PR',
   'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
@@ -131,6 +138,7 @@ export function evidenceOf(issue: IssueCard): string {
 
 const triageEntry = z.object({
   action: z.enum(TRIAGE_ACTIONS),
+  revision: z.literal(TRIAGE_REVISION),
   qualifier: z.enum(['initial', 'followup']).nullable().default(null),
   detail: z.string(),
   at: z.number(),
@@ -321,9 +329,14 @@ function mine(login: string | null, logins: readonly string[]): boolean {
 }
 
 /**
- * Whether a review round is the developer's first or a later one, read from the pull request's own history rather
- * than from the model: `address-review` is a followup once they have replied on it, and `review-others` once they
- * have already submitted a review of it.
+ * Whether a review round is the first or a later one, read from the pull request's own history rather than from the
+ * model: `address-review` is a followup once the developer has replied on it, and `review-others` once anybody but
+ * the author has already reviewed it.
+ *
+ * `review-others` takes two signals because a review here is routinely neither a GitHub review nor the developer's
+ * own hand: it is given as a plain comment, or submitted by an agent account that is none of their logins, and a
+ * re-review is a re-review whoever gave the first one. The pull request's author is excluded from the first signal
+ * because GitHub records their own inline replies as reviews, which would make every answered one read as round two.
  */
 export function qualifierOf(action: TriageAction, context: TriageContext): TriageQualifier | null {
   const pr = context.pullRequest;
@@ -342,7 +355,20 @@ export function qualifierOf(action: TriageAction, context: TriageContext): Triag
   }
 
   if (action === 'review-others') {
-    return pr.reviews.some((review) => mine(review.author, context.logins)) ? 'followup' : 'initial';
+    // A pending review is a draft nobody but its writer has seen, and `gh` runs as the developer, so it is fetched.
+    // An unresolvable author is read as nobody having reviewed: claiming a round they have not had is the worse miss.
+    const reviewed = pr.reviews.some(
+      (review) =>
+        review.author !== null &&
+        review.state !== 'PENDING' &&
+        pr.author !== null &&
+        review.author.toLowerCase() !== pr.author.toLowerCase(),
+    );
+    // On somebody else's pull request every word of the developer's is a review, whatever GitHub filed it as. Only
+    // the most recent comments are fetched, so a first pass further back than that reads as a first pass here too.
+    const spoken = pr.comments.some((comment) => mine(comment.author, context.logins));
+
+    return reviewed || spoken ? 'followup' : 'initial';
   }
 
   return null;

@@ -20,6 +20,7 @@ import {
   triageJsonSchema,
   TRIAGE_SYSTEM_PROMPT,
   withTriageFailure,
+  TRIAGE_REVISION,
   withTriaged,
 } from '@ground-control/board';
 import type { TriageStore } from './triageStore.js';
@@ -323,6 +324,7 @@ export class TriageRunner {
 
     this.#deps.store.write(
       withTriaged(this.#deps.store.read(), due.key, {
+        revision: TRIAGE_REVISION,
         action,
         qualifier,
         detail,

@@ -22,6 +22,7 @@ export {
   TRIAGE_ACTIONS,
   TRIAGE_LABELS,
   TRIAGE_QUALIFIERS,
+  TRIAGE_REVISION,
   derivedAction,
   dueForTriage,
   evidenceOf,

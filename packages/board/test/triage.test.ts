@@ -8,6 +8,7 @@ import {
   MODEL_MAY_NOT_SAY,
   TRIAGE_ACTIONS,
   TRIAGE_LABELS,
+  TRIAGE_REVISION,
   derivedAction,
   dueForTriage,
   evidenceOf,
@@ -30,7 +31,6 @@ const TRIAGE_LABEL_ROWS: [TriageAction, TriageQualifier | null, string][] = [
   ['answer-design-question', null, 'Answer design question'],
   ['uat-question', null, 'UAT question'],
   ['uat-failure', null, 'UAT failure'],
-  ['awaiting-others', null, 'Waiting on others'],
   ['review-others', 'initial', 'Review their PR · initial'],
   ['review-others', 'followup', 'Review their PR · followup'],
   ['address-review', 'initial', 'Answer review · initial'],
@@ -72,6 +72,7 @@ function lanesOf(...cards: BoardCard[]): Lane[] {
 
 function entry(over: Partial<TriageEntry> = {}): TriageEntry {
   return {
+    revision: TRIAGE_REVISION,
     action: 'begin-work',
     qualifier: null,
     detail: 'Pick it up.',
@@ -206,8 +207,8 @@ describe('reading the stored state', () => {
   it('drops one unusable entry rather than the whole file, which would re-read the entire board', () => {
     const stored = {
       entries: {
-        'issue:1': { action: 'land', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' },
-        'issue:2': { action: 'a-thing-no-build-has', detail: 'go', at: 1, agent: 'claude' },
+        'issue:1': { revision: TRIAGE_REVISION, action: 'land', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' },
+        'issue:2': { revision: TRIAGE_REVISION, action: 'a-thing-no-build-has', detail: 'go', at: 1, agent: 'claude' },
       },
       failures: { 'issue:3': { kind: 'k', message: 'm', attempts: 1, nextAt: 5 }, 'issue:4': { kind: 'k' } },
     };
@@ -218,10 +219,38 @@ describe('reading the stored state', () => {
     expect(Object.keys(read.failures)).toEqual(['issue:3']);
   });
 
-  it('defaults the fields an older build did not write', () => {
-    const read = readTriageState({ entries: { 'issue:1': { action: 'land', detail: 'go', at: 1, agent: 'claude' } } });
+  it('defaults the fields that carry a sensible absence, within one revision', () => {
+    const read = readTriageState({
+      entries: { 'issue:1': { revision: TRIAGE_REVISION, action: 'land', detail: 'go', at: 1, agent: 'claude' } },
+    });
 
     expect(read.entries['issue:1']).toMatchObject({ qualifier: null, wasArchived: false, evidence: '' });
+  });
+
+  it('drops an entry read under an older revision, which is what re-reads those cards', () => {
+    // The file outlives the build that wrote it, and a card is read once — so without this the board goes on showing
+    // sentences a fixed classifier would no longer write. Dropping the entry is what makes its card due again.
+    const older = { action: 'begin-work', detail: 'Pick it up.', at: 1, agent: 'claude' };
+    const read = readTriageState({
+      entries: {
+        'issue:1': older,
+        'issue:2': { ...older, revision: TRIAGE_REVISION - 1 },
+        'issue:3': { ...older, revision: TRIAGE_REVISION },
+      },
+    });
+
+    expect(Object.keys(read.entries)).toEqual(['issue:3']);
+  });
+
+  it('drops an entry naming an action this build retired, so a shrunken list re-reads too', () => {
+    const read = readTriageState({
+      entries: {
+        'issue:1': { revision: TRIAGE_REVISION, action: 'awaiting-others', detail: 'Waiting.', at: 1, agent: 'claude' },
+        'issue:2': { revision: TRIAGE_REVISION, action: 'begin-work', detail: 'Pick it up.', at: 1, agent: 'claude' },
+      },
+    });
+
+    expect(Object.keys(read.entries)).toEqual(['issue:2']);
   });
 
   it('reads an unusable file as empty rather than throwing on every render', () => {
@@ -395,11 +424,29 @@ describe('the facts overruling the model', () => {
     ).toBe('initial');
   });
 
-  it('calls a review of somebody else work initial until the developer has submitted one', () => {
-    const review = (author: string) => ({ author, state: 'COMMENTED', submittedAt: null });
+  it('calls a review of somebody else work initial until somebody other than its author has reviewed it', () => {
+    const review = (author: string | null) => ({ author, state: 'COMMENTED', submittedAt: null });
+    const said = (author: string) => ({ author, authorAssociation: 'MEMBER', body: 'x', createdAt: '2026-01-01T00:00:00Z' });
+    const theirs = { author: 'dev-9' };
 
-    expect(qualifierOf('review-others', context({ author: 'dev-9', reviews: [review('dev-9')] }))).toBe('initial');
-    expect(qualifierOf('review-others', context({ author: 'dev-9', reviews: [review('dev-1')] }))).toBe('followup');
+    expect(qualifierOf('review-others', context({ ...theirs, reviews: [] }))).toBe('initial');
+    // GitHub records the author's own inline replies as reviews, so counting those makes every answered pull
+    // request read as a second round.
+    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('dev-9'), review('DEV-9')] }))).toBe('initial');
+    // A re-review is a re-review whoever gave the first one: on this board the first is routinely an agent account
+    // that is none of the developer's own logins, which is what made a round two read as a round one.
+    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('some-bot')] }))).toBe('followup');
+    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('dev-1')] }))).toBe('followup');
+    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review(null)] }))).toBe('initial');
+    // A review given as a plain comment rather than a GitHub review, which is how most of them arrive here.
+    expect(qualifierOf('review-others', context({ ...theirs, comments: [said('DEV-1')] }))).toBe('followup');
+    expect(qualifierOf('review-others', context({ ...theirs, comments: [said('dev-9')] }))).toBe('initial');
+    // A pending review is a draft nobody but its writer has seen, and `gh` runs as the developer, so it is fetched.
+    expect(
+      qualifierOf('review-others', context({ ...theirs, reviews: [{ author: 'dev-1', state: 'PENDING', submittedAt: null }] })),
+    ).toBe('initial');
+    // An author GitHub could not resolve must not turn the exclusion off and count their own inline replies.
+    expect(qualifierOf('review-others', context({ author: null, reviews: [review('dev-9')] }))).toBe('initial');
   });
 
   it('qualifies nothing else', () => {

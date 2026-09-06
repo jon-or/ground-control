@@ -1,14 +1,13 @@
 /**
- * What a card is asking the developer to do next, decided once when the card arrives (`prd.md` R38). Eight of these
- * are a judgement about what people wrote; the other four are facts about a pull request, and the hub decides those
- * itself rather than leaving them to a classifier (R23 — evidence over an agent's word).
+ * What a card is asking the developer to do next, decided once when the card arrives (`prd.md` R38). Most are a
+ * judgement about what people wrote; the four in `DERIVED_ACTIONS` are facts about a pull request, and the hub
+ * decides those itself rather than leaving them to a classifier (R23 — evidence over an agent's word).
  */
 export const TRIAGE_ACTIONS = [
   'begin-work',
   'answer-design-question',
   'uat-question',
   'uat-failure',
-  'awaiting-others',
   'review-others',
   'address-review',
   'fix-checks',
@@ -37,6 +36,8 @@ export interface TriageResult {
  */
 export interface TriageEntry {
   action: TriageAction;
+  /** The `TRIAGE_REVISION` this was read under. An entry from an older one is dropped, which re-reads the card. */
+  revision: number;
   qualifier: TriageQualifier | null;
   detail: string;
   /** Epoch milliseconds this was decided. */
