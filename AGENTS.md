@@ -32,6 +32,7 @@ The docs are updated as part of the work that changed them, in the same commit �
 - After developing a feature, use subagents to review it before committing. Where appropriate, run several from different angles (spec adherence, regression, correctness, UX).
 - Exercise UI-visible changes in a real VS Code before calling them done: `npm run test:integration` runs the extension in one. A one-off check is a scratch test under `extensions/ground-control/test-integration/`, run and then deleted — never a request that someone else click through it.
 - One commit per story or task. Commit when a self-contained task is complete, reviewed, verified, and accepted by the user.
+- **Finish by rebuilding and reinstalling the extension.** The board is the installed VSIX, which carries its own bundled hub and never reads this repo's `dist/` — so until it is repackaged and reinstalled, a green build puts nothing in front of the developer. Then tell them it is installed and takes effect when they reload the window; reloading is theirs, not yours. See [Reinstalling after a change](#reinstalling-after-a-change).
 - When a commit fixes a GitHub issue, put a closing reference on the first line (`fix(board): summary (fixes #123)`).
 - Once assigned work, continue until all tasks are complete or you hit a blocker. Raise to the user if you need credentials, clarification, better requirements, a deviation from the PRD, or you cannot adequately verify the change.
 
@@ -97,11 +98,24 @@ npm run hub              # run the hub in the foreground, after a build
 
 `verify` is the pre-commit gate and stays fast and quiet. `verify:full` adds the integration run, which opens a real VS Code window for a few seconds — run it before committing anything the extension host touches, not on every save.
 
-Package the extension from `extensions/ground-control`:
+### Reinstalling after a change
+
+The last step of every task touching the extension, the hub, or any `packages/*` they bundle. From the repo root:
 
 ```bash
-npm run package     # vsce package --no-dependencies --allow-missing-repository
+npm run build
+cd extensions/ground-control && npm run package && code --install-extension ground-control-0.0.0.vsix --force
 ```
+
+`npm run package` has no `vscode:prepublish` hook, so `vsce` ships whatever is already in `dist/` — build first. Confirm by reading a phrase you changed back out of the **installed** bundle, since `dist/` being right is not the thing in doubt:
+
+```bash
+node -e "console.log(require('fs').readFileSync(process.env.USERPROFILE+'/.vscode/extensions/ownerrez.ground-control-0.0.0/dist/hub.js','utf8').includes('<phrase>'))"
+```
+
+Use an ASCII needle on one line: esbuild escapes non-ASCII, and a phrase spanning a line break is not a substring — either reports a false negative on a current bundle.
+
+The developer reloads the window when they choose; on activation the extension replaces the running hub with its own.
 
 ## Running It
 
