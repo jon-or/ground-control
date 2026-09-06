@@ -31,6 +31,41 @@ describe('makeGhRunner', () => {
     expect(result.ok === false && result.error.kind).toBe('not-authenticated');
   });
 
+  // The message on the board's own banner, recorded from gh 2.96.0 on a laptop whose network was not back yet.
+  it('classifies a machine that cannot reach GitHub as offline, and says so in its own words', async () => {
+    const stderr = 'error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com';
+    const result = await fakeGh(`console.error(${JSON.stringify(stderr)}); process.exit(1)`)();
+
+    expect(result.ok === false && result.error.kind).toBe('offline');
+    expect(result.ok === false && result.error.transient).toBe(true);
+    // gh's own stderr never reaches the board, and neither does an instruction to do anything: a board that is
+    // already retrying must not be pointed at a refresh button or at the developer's own internet connection.
+    expect(result.ok === false && result.error.message).not.toContain('githubstatus');
+    expect(result.ok === false && result.error.remedy).not.toMatch(/refresh|connection|check/i);
+  });
+
+  it.each([
+    'dial tcp: lookup api.github.com: no such host',
+    'dial tcp 140.82.121.6:443: connectex: A socket operation was attempted to an unreachable network.',
+    'Post "https://api.github.com/graphql": net/http: TLS handshake timeout',
+    'Get "https://api.github.com/graphql": context deadline exceeded (Client.Timeout exceeded while awaiting headers)',
+  ])('classifies %s as offline', async (stderr) => {
+    const result = await fakeGh(`console.error(${JSON.stringify(stderr)}); process.exit(1)`)();
+
+    expect(result.ok === false && result.error.kind).toBe('offline');
+  });
+
+  /** The board only rides out what nobody can act on. A repository that is gone is not that, and neither is a 503. */
+  it.each([
+    'Could not resolve to a Repository with the name "example/nope".',
+    'HTTP 503: Service unavailable (https://api.github.com/graphql)',
+  ])('leaves %s as a failure the board states at once', async (stderr) => {
+    const result = await fakeGh(`console.error(${JSON.stringify(stderr)}); process.exit(1)`)();
+
+    expect(result.ok === false && result.error.kind).toBe('query-failed');
+    expect(result.ok === false && result.error.transient).toBeUndefined();
+  });
+
   it('falls back to the spawn error when the process said nothing on stderr', async () => {
     const result = await fakeGh('process.exit(9)')();
 

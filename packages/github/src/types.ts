@@ -33,6 +33,7 @@ export type FailureKind =
   | 'gh-missing'
   | 'not-authenticated'
   | 'no-logins'
+  | 'offline'
   | 'query-failed'
   | 'bad-response';
 
@@ -40,6 +41,8 @@ export interface Failure {
   kind: FailureKind;
   message: string;
   remedy: string;
+  /** Set on `offline`: the hub holds the board and retries rather than showing it (see `ReadFailure.transient`). */
+  transient?: boolean;
 }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: Failure };

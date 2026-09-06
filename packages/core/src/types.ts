@@ -90,6 +90,11 @@ export interface ReadFailure {
   kind: string;
   message: string;
   remedy: string;
+  /**
+   * The condition is expected to clear without anybody doing anything — a network that is not back yet. The hub
+   * holds the board on its last read and retries rather than saying it, because a laptop waking up is not a notice.
+   */
+  transient?: boolean;
 }
 
 /**

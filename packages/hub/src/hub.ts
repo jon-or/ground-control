@@ -67,6 +67,13 @@ interface Connected {
   watching: boolean;
 }
 
+/** One source that cannot be reached, held rather than reported until `OUTAGE_GRACE_MS` says otherwise. */
+interface Outage {
+  since: number;
+  retryAt: number;
+  announced: boolean;
+}
+
 /** A refresh asked for again inside this is the same read. The button, not the timers, is what this is for. */
 const REFRESH_FLOOR_MS = 1000;
 
@@ -78,6 +85,30 @@ type Reason = 'visible' | 'asked' | 'settings';
  * developer moving between a board and their code reads GitHub once a second, which GitHub rate limits (R35).
  */
 const SOURCE_FLOOR_MS = 60_000;
+
+/**
+ * How long a source may be unreachable before the board says so. Under it the board holds the read it already has:
+ * a machine coming back from sleep fails one read and succeeds the next, and that is not a condition to act on (R25).
+ */
+const OUTAGE_GRACE_MS = 60_000;
+
+/**
+ * What an unreachable source waits before the next try, taken from how long it has been unreachable rather than from
+ * how many tries it has cost: a developer pressing refresh during an outage must not spend the ladder and leave the
+ * board recovering later than if they had left it alone.
+ */
+function backoffMs(outageMs: number): number {
+  return outageMs < 30_000 ? 5_000 : outageMs < 120_000 ? 15_000 : outageMs < 600_000 ? 60_000 : 120_000;
+}
+
+/** The cadence the outage retry and the suspend check share. Neither costs anything on the passes that find nothing. */
+const TICK_MS = 5_000;
+
+/**
+ * A tick this much later than it was due is a machine that was suspended, not a loop that ran slow: the poll timers
+ * counted none of the sleep, so without this a laptop opened after an hour reads nothing for another five minutes.
+ */
+const WAKE_GAP_MS = 20_000;
 
 /**
  * Two settings that would be read with identically. Key order is not a difference: a source's entry is its own
@@ -154,6 +185,9 @@ export class Hub {
 
   /** Each source keeps its last good read and its last failure, so one failing never blanks the other (R24). */
   readonly #readings = new Map<string, SourceReading>();
+  /** Sources that cannot be reached: when each went, how many tries it has cost, and whether the board has said so. */
+  readonly #outages = new Map<string, Outage>();
+  #lastTickAt = 0;
   #sessions: SessionsSnapshot | undefined;
   #history: HistoricalSession[] = [];
   #historyFailures: ReadFailure[] = [];
@@ -415,6 +449,9 @@ export class Hub {
     for (const id of [...this.#readings.keys()]) {
       if (!Object.hasOwn(this.#config.sources, id) || refused.some((failure) => failure.subject === id)) {
         this.#readings.delete(id);
+        // Its outage with it: nothing reads that source again, so the retry it is waiting on would never come due,
+        // and the tick would spend a read on every surviving source every five seconds for the life of the hub.
+        this.#outages.delete(id);
       }
     }
 
@@ -470,10 +507,56 @@ export class Hub {
       return;
     }
 
+    this.#lastTickAt = this.#deps.clock.now();
     this.#timers.push(
       this.#deps.clock.setInterval(() => void this.#refreshSources('asked'), this.#config.refreshIntervalMs),
       this.#deps.clock.setInterval(() => void this.#refreshSessions(), this.#config.sessionIntervalMs),
+      this.#deps.clock.setInterval(() => this.#tick(), TICK_MS),
     );
+  }
+
+  /**
+   * The two things the poll cadences cannot answer for: a machine that was asleep between two of them, and a network
+   * that was not back yet when one of them ran.
+   */
+  #tick(): void {
+    const now = this.#deps.clock.now();
+    const slept = now - this.#lastTickAt > TICK_MS + WAKE_GAP_MS;
+
+    this.#lastTickAt = now;
+
+    if (slept) {
+      // The sleep is not part of the outage: a source that failed on the way down gets its minute over again, and
+      // its next try is now. One the board has already stated stays stated — `#riding` keys on that rather than on
+      // the clock, because a stall long enough to look like a suspend must not retract a notice that still holds.
+      for (const outage of this.#outages.values()) {
+        outage.since = now;
+        outage.retryAt = now;
+      }
+
+      void this.#refreshSources('asked');
+      void this.#refreshSessions();
+
+      return;
+    }
+
+    // Announced here rather than on the try that finds the source still down: that try may be two minutes out, and
+    // one that hangs never answers at all — which would leave a dimmed board saying nothing for as long as it hung.
+    const overdue = [...this.#outages.values()].filter(
+      (outage) => !outage.announced && now - outage.since >= OUTAGE_GRACE_MS,
+    );
+
+    for (const outage of overdue) {
+      outage.announced = true;
+    }
+
+    if (overdue.length > 0) {
+      this.#broadcast();
+    }
+
+    if ([...this.#outages.values()].some((outage) => outage.retryAt <= now)) {
+      void this.#refreshSources('asked');
+    }
   }
 
   #armWatchers(): void {
@@ -587,6 +670,20 @@ export class Hub {
     );
 
     const held = this.#readings.get(source.id);
+    const now = this.#deps.clock.now();
+
+    if (reading.failure?.transient === true) {
+      const outage = this.#outages.get(source.id);
+      const since = outage?.since ?? now;
+
+      this.#outages.set(source.id, {
+        since,
+        retryAt: now + backoffMs(now - since),
+        announced: outage?.announced ?? false,
+      });
+    } else {
+      this.#outages.delete(source.id);
+    }
 
     // A failed read keeps what the source last returned, and says what went wrong beside it (R24). A source with
     // nothing to say at all had its settings refused, and its cards go with them: they were read for a repository
@@ -854,6 +951,7 @@ export class Hub {
    */
   snapshot(): Snapshot {
     const activity = this.#ensureActivity();
+    const now = this.#deps.clock.now();
     const failures: ReadFailure[] = [...this.#configFailures, ...this.#historyFailures];
 
     // A stored configuration this hub would not run on. Said rather than swallowed: silently falling back to
@@ -866,8 +964,8 @@ export class Hub {
       failures.push(activity.failure);
     }
 
-    for (const reading of this.#readings.values()) {
-      if (reading.failure) {
+    for (const [id, reading] of this.#readings) {
+      if (reading.failure && !this.#riding(id, reading, now)) {
         failures.push(reading.failure);
       }
     }
@@ -927,8 +1025,24 @@ export class Hub {
         [...this.#readings.values()].some((reading) => reading.failure) ||
         (this.#sessions?.failures.length ?? 0) > 0,
       needs: this.#needs(),
-      fetchedAt: new Date(this.#deps.clock.now()).toISOString(),
+      fetchedAt: new Date(now).toISOString(),
     };
+  }
+
+  /**
+   * An unreachable source the board rides out rather than reports: the failure clears itself, it has not lasted a
+   * minute, and there is a read behind it still worth looking at. `stale` still says the board could not refresh.
+   */
+  #riding(id: string, reading: SourceReading, now: number): boolean {
+    const outage = this.#outages.get(id);
+
+    return (
+      reading.failure?.transient === true &&
+      reading.items !== null &&
+      outage !== undefined &&
+      !outage.announced &&
+      now - outage.since < OUTAGE_GRACE_MS
+    );
   }
 
   /** What no client has given the hub yet, from the first source that is waiting on it (R26, R28). */

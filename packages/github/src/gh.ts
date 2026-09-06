@@ -30,6 +30,21 @@ function classify(err: ExecFileException, stderr: string): Failure {
     };
   }
 
+  // The machine cannot reach the network at all — asleep a moment ago, or on a captive portal. `gh` wraps its own
+  // connect failures; the rest are what Go's net stack and HTTP client print underneath, Windows `connectex` included.
+  if (
+    /error connecting to|dial tcp|no such host|network is unreachable|unreachable network|connectex|i\/o timeout|TLS handshake timeout|context deadline exceeded|Client\.Timeout exceeded|connection (reset|refused)/i.test(
+      stderr,
+    )
+  ) {
+    return {
+      kind: 'offline',
+      message: 'GitHub could not be reached.',
+      remedy: 'The board is showing what it last read, and keeps trying on its own.',
+      transient: true,
+    };
+  }
+
   if (err.killed === true) {
     return { kind: 'query-failed', message: 'The GitHub CLI did not answer in time.', remedy: 'Refresh the board to try again.' };
   }

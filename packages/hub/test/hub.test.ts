@@ -231,8 +231,9 @@ describe('what the hub polls', () => {
     h.hub.receive(client, { type: 'watching', watching: true });
     await settle();
 
-    // Written out, not read back from the same defaults the hub used: the shipped cadences are 30 s and 5 minutes.
-    expect(h.clock.cadences()).toEqual([30_000, 300_000]);
+    // Written out, not read back from the same defaults the hub used: the shipped cadences are 30 s and 5 minutes,
+    // over the fixed 5 s tick that watches for a suspend and for a source that has come back.
+    expect(h.clock.cadences()).toEqual([5_000, 30_000, 300_000]);
 
     h.hub.receive(client, { type: 'watching', watching: false });
 
@@ -243,7 +244,7 @@ describe('what the hub polls', () => {
     const h = harness();
     const { client } = connect(h);
 
-    expect(h.clock.cadences()).toHaveLength(2);
+    expect(h.clock.cadences()).toHaveLength(3);
 
     h.hub.disconnect(client);
 
@@ -282,7 +283,8 @@ describe('what the hub polls', () => {
     });
     await settle();
 
-    expect(h.clock.cadences()).toEqual([5_000, 60_000]);
+    // The two a client configured, plus the tick, which is the hub's own and takes no setting.
+    expect(h.clock.cadences()).toEqual([5_000, 5_000, 60_000]);
   });
 
   /** The button is a read of whatever is there now, so pressing it twice is one read, not two CLI spawns. */
@@ -989,6 +991,360 @@ describe('what the snapshot says', () => {
   });
 });
 
+/**
+ * A laptop that was asleep is the common way a board goes wrong: both readings are as old as the sleep was, and the
+ * first read after the lid opens runs before the network is back. Neither is a condition the developer has to act on.
+ */
+describe('what the hub does when the network goes and comes back', () => {
+  // Written out rather than imported, so a change to either in the hub fails a test instead of following it.
+  const TICK_MS = 5_000;
+  const OUTAGE_GRACE_MS = 60_000;
+
+  const OFFLINE = {
+    kind: 'offline' as const,
+    message: 'GitHub could not be reached.',
+    remedy: 'Waiting.',
+    transient: true,
+  };
+
+  /**
+   * A board that has read once, whose GitHub can be taken away and given back. Reads are asked for rather than
+   * fired off the poll cadence: firing it moves the clock five minutes, which is a suspend as far as the tick knows.
+   */
+  async function reading() {
+    let reachable = true;
+    const h = harness({}, { fetch: async () => (reachable ? { ok: true, value: ISSUES } : { ok: false, error: OFFLINE }) });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    return {
+      h,
+      inbox,
+      cut: () => (reachable = false),
+      restore: () => (reachable = true),
+      /** A read now, past the second that would coalesce it with the one before. */
+      reread: async () => {
+        h.clock.advance(2_000);
+        h.hub.receive(client, { type: 'refresh' });
+        await settle();
+      },
+    };
+  }
+
+  it('holds the board on its last read rather than showing a banner for a network blip', async () => {
+    const { inbox, cut, reread } = await reading();
+
+    cut();
+    await reread();
+
+    // Said quietly in the meta line, not as a red notice: the board is a minute out of date and fixing itself.
+    expect(latest(inbox).stale).toBe(true);
+    expect(latest(inbox).failures).toEqual([]);
+    expect(latest(inbox).issues).not.toBeNull();
+  });
+
+  it('retries in seconds rather than waiting out the five-minute poll, and widens as the outage holds', async () => {
+    const { h, cut, reread } = await reading();
+
+    cut();
+    await reread();
+
+    const failed = h.issueReads;
+
+    // Every tick for the first thirty seconds, which is where a machine coming back from sleep is answered.
+    for (let tick = 1; tick <= 6; tick++) {
+      h.clock.fire(TICK_MS);
+      await settle();
+
+      expect(h.issueReads).toBe(failed + tick);
+    }
+
+    // Half a minute down is no longer a blip, so the gap widens to fifteen seconds: two ticks spend nothing.
+    h.clock.fire(TICK_MS);
+    await settle();
+    h.clock.fire(TICK_MS);
+    await settle();
+
+    expect(h.issueReads).toBe(failed + 6);
+
+    h.clock.fire(TICK_MS);
+    await settle();
+
+    expect(h.issueReads).toBe(failed + 7);
+  });
+
+  it('says so once the outage outlasts the grace, without waiting for the next try', async () => {
+    const { h, inbox, cut, reread } = await reading();
+
+    cut();
+    await reread();
+
+    for (let elapsed = 0; elapsed < OUTAGE_GRACE_MS + TICK_MS; elapsed += TICK_MS) {
+      h.clock.fire(TICK_MS);
+      await settle();
+    }
+
+    const offline = latest(inbox).failures.find((failure) => failure.kind === 'offline');
+
+    expect(offline?.subject).toBe(GITHUB_SOURCE_ID);
+    // Still the board it last read, under the notice: R24 forbids erasing what the developer can still act on.
+    expect(latest(inbox).issues).not.toBeNull();
+  });
+
+  it('clears the notice, and the staleness, on the read that gets through', async () => {
+    const { h, inbox, cut, restore, reread } = await reading();
+
+    cut();
+    await reread();
+
+    for (let elapsed = 0; elapsed < OUTAGE_GRACE_MS + TICK_MS; elapsed += TICK_MS) {
+      h.clock.fire(TICK_MS);
+      await settle();
+    }
+
+    expect(latest(inbox).failures.map((failure) => failure.kind)).toContain('offline');
+
+    restore();
+    await reread();
+
+    expect(latest(inbox).failures).toEqual([]);
+    expect(latest(inbox).stale).toBe(false);
+  });
+
+  /**
+   * The sleep itself. A timer that counted none of it leaves both readings as old as the sleep was, so the tick that
+   * finds the gap reads now rather than letting the board show an hour-old roster until the next cadence comes round.
+   */
+  it('reads both sources on the first tick after a suspend, whatever the cadences were counting', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const before = { issues: h.issueReads, sessions: h.agent.calls };
+
+    h.clock.advance(3_600_000);
+    h.clock.fire(TICK_MS);
+    await settle();
+
+    expect(h.issueReads).toBe(before.issues + 1);
+    expect(h.agent.calls).toBe(before.sessions + 1);
+  });
+
+  it('leaves a tick that merely ran late alone', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const before = { issues: h.issueReads, sessions: h.agent.calls };
+
+    // Twenty seconds late is a loop under load. Twenty-five is a machine that was off — the threshold, pinned from
+    // both sides, because a test that only tries an hour would pass on any threshold at all.
+    h.clock.advance(20_000);
+    h.clock.fire(TICK_MS);
+    await settle();
+
+    expect(h.issueReads).toBe(before.issues);
+    expect(h.agent.calls).toBe(before.sessions);
+
+    h.clock.advance(21_000);
+    h.clock.fire(TICK_MS);
+    await settle();
+
+    expect(h.issueReads).toBe(before.issues + 1);
+  });
+
+  /** R24: a board with nothing behind it must say why it is empty, not ride out an outage in silence. */
+  it('states an unreachable source at once where it has no read to hold', async () => {
+    const h = harness({}, { fetch: async () => ({ ok: false, error: OFFLINE }) });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(latest(inbox).issues).toBeNull();
+    expect(latest(inbox).failures.map((failure) => failure.kind)).toContain('offline');
+  });
+
+  /** A notice restated every five seconds is the noise R25 says to state once. */
+  it('says an outage once, however long it holds', async () => {
+    const { h, inbox, cut, reread } = await reading();
+
+    cut();
+    await reread();
+
+    for (let elapsed = 0; elapsed < OUTAGE_GRACE_MS + TICK_MS; elapsed += TICK_MS) {
+      h.clock.fire(TICK_MS);
+      await settle();
+    }
+
+    expect(latest(inbox).failures.map((failure) => failure.kind)).toContain('offline');
+
+    // Past the grace the retries widen to fifteen seconds, so most of these ticks find nothing at all to do.
+    const said = inbox.length;
+
+    for (let elapsed = 0; elapsed < 20_000; elapsed += TICK_MS) {
+      h.clock.fire(TICK_MS);
+      await settle();
+    }
+
+    // One read came due in that window. Nothing else broadcast, because nothing else had anything new to say.
+    expect(inbox.length - said).toBe(1);
+  });
+
+  /**
+   * The developer's own asking must not cost the recovery: the ladder is stepped by how long the source has been
+   * unreachable, so four presses of refresh leave the next automatic try exactly where one press would have.
+   */
+  it('does not spend the backoff on reads the developer asked for', async () => {
+    const { h, cut, restore, reread } = await reading();
+
+    cut();
+    await reread();
+    await reread();
+    await reread();
+    await reread();
+
+    const failed = h.issueReads;
+
+    restore();
+    h.clock.fire(TICK_MS);
+    await settle();
+
+    expect(h.issueReads).toBe(failed + 1);
+  });
+
+  /**
+   * The retry a dropped source is waiting on never comes due, because nothing reads it again. Left behind, it makes
+   * the tick spend a read on every surviving source every five seconds for the life of the hub.
+   */
+  it('forgets an outage for a source the configuration stops naming', async () => {
+    const { h, cut, reread } = await reading();
+    const { client, inbox } = connect(h, hello({ id: 'board-2' }));
+
+    cut();
+    await reread();
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ sources: {} }) });
+    await settle();
+
+    const settled = inbox.length;
+
+    for (let elapsed = 0; elapsed < 60_000; elapsed += TICK_MS) {
+      h.clock.fire(TICK_MS);
+      await settle();
+    }
+
+    // Nothing reads that source again, so its retry never comes due and every tick would spend one — a read of each
+    // surviving source, and a write of the lane store, five seconds apart for the life of the hub.
+    expect(inbox.length).toBe(settled);
+  });
+
+  /**
+   * A read with no deadline can hang for as long as the network blackholes it, and the tick coalesces onto it. The
+   * board would otherwise sit dimmed and silent for the whole of that, because only a finished read broadcasts.
+   */
+  it('says so on the grace even while the read that would have said it is still hanging', async () => {
+    // A board with a read behind it, an outage the grace is riding out, and then a read that never answers: the
+    // source poll carries no deadline, so a blackholed network hangs it and every tick coalesces onto that one.
+    const answers = ['read', 'offline'];
+    const h = harness({}, {
+      fetch: () => {
+        const answer = answers.shift();
+
+        return answer === 'read'
+          ? Promise.resolve({ ok: true as const, value: ISSUES })
+          : answer === 'offline'
+            ? Promise.resolve({ ok: false as const, error: OFFLINE })
+            : new Promise<never>(() => undefined);
+      },
+    });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    h.clock.advance(2_000);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    expect(latest(inbox).failures).toEqual([]);
+
+    for (let elapsed = 0; elapsed < OUTAGE_GRACE_MS + TICK_MS; elapsed += TICK_MS) {
+      h.clock.fire(TICK_MS);
+      await settle();
+    }
+
+    expect(latest(inbox).failures.map((failure) => failure.kind)).toContain('offline');
+    expect(latest(inbox).issues).not.toBeNull();
+  });
+
+  /**
+   * A stall long enough to look like a suspend must not retract a notice the board has already given, because the
+   * condition behind it has not changed. A suspend still gives an outage nobody has been told about its minute back.
+   */
+  it('keeps an outage it has already stated across a suspend, and gives an unstated one its minute again', async () => {
+    const { h, inbox, cut, reread } = await reading();
+
+    cut();
+    await reread();
+
+    for (let elapsed = 0; elapsed < OUTAGE_GRACE_MS + TICK_MS; elapsed += TICK_MS) {
+      h.clock.fire(TICK_MS);
+      await settle();
+    }
+
+    expect(latest(inbox).failures.map((failure) => failure.kind)).toContain('offline');
+
+    h.clock.advance(3_600_000);
+    h.clock.fire(TICK_MS);
+    await settle();
+
+    expect(latest(inbox).failures.map((failure) => failure.kind)).toContain('offline');
+  });
+
+  it('gives an outage nobody has been told about its minute back after a suspend', async () => {
+    const { h, inbox, cut, reread } = await reading();
+
+    cut();
+    await reread();
+
+    // Most of the grace spent, then the machine sleeps: the minute starts again rather than expiring on the way up.
+    for (let elapsed = 0; elapsed < 50_000; elapsed += TICK_MS) {
+      h.clock.fire(TICK_MS);
+      await settle();
+    }
+
+    expect(latest(inbox).failures).toEqual([]);
+
+    h.clock.advance(3_600_000);
+    h.clock.fire(TICK_MS);
+    await settle();
+
+    h.clock.fire(TICK_MS);
+    await settle();
+
+    expect(latest(inbox).failures).toEqual([]);
+    expect(latest(inbox).stale).toBe(true);
+  });
+
+  it('does not tick at all while no client is watching', () => {
+    const h = harness();
+    const { client } = connect(h, hello({ watching: false }));
+
+    expect(h.clock.cadences()).toEqual([]);
+
+    h.hub.receive(client, { type: 'watching', watching: true });
+
+    expect(h.clock.cadences()).toContain(TICK_MS);
+  });
+});
+
 describe('what the developer does', () => {
   it('writes a moved card to the machine record and tells every board', async () => {
     const h = harness();
@@ -1407,7 +1763,7 @@ describe('a client changing its mind', () => {
     const h = harness();
     const { client } = connect(h);
 
-    expect(h.clock.cadences()).toHaveLength(2);
+    expect(h.clock.cadences()).toHaveLength(3);
 
     h.hub.receive(client, { type: 'hello', hello: hello({ watching: false, workspaceRoot: 'd:/checkouts/other' }) });
 
@@ -1421,7 +1777,7 @@ describe('a client changing its mind', () => {
     h.hub.receive(client, { type: 'open', sessionId: session.sessionId, extensionReady: true });
     await settle();
 
-    expect(h.clock.cadences()).toHaveLength(2);
+    expect(h.clock.cadences()).toHaveLength(3);
     expect(h.host.planned[0]?.workspaceRoot).toBe('d:/checkouts/other');
   });
 
