@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import type { GhRunner, GithubConfig, Result } from '../src/index.js';
+import type { GhOptions, GhRunner, GithubConfig, Result } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -25,12 +25,14 @@ export function config(over: Partial<GithubConfig> = {}): GithubConfig {
  * Serves recorded responses in order and records the args it was called with. Asking for a page that was not
  * recorded is a failure, not a repeat — repeating the last page hides an over-paging bug from every test.
  */
-export function runnerOf(...pages: unknown[]): GhRunner & { calls: string[][] } {
+export function runnerOf(...pages: unknown[]): GhRunner & { calls: string[][]; bounds: (GhOptions | undefined)[] } {
   const calls: string[][] = [];
+  const bounds: (GhOptions | undefined)[] = [];
   let i = 0;
 
-  const run = (async (args: string[]): Promise<Result<unknown>> => {
+  const run = (async (args: string[], options?: GhOptions): Promise<Result<unknown>> => {
     calls.push(args);
+    bounds.push(options);
     const page = pages[i];
     i++;
 
@@ -39,9 +41,10 @@ export function runnerOf(...pages: unknown[]): GhRunner & { calls: string[][] } 
     }
 
     return { ok: true, value: page };
-  }) as GhRunner & { calls: string[][] };
+  }) as GhRunner & { calls: string[][]; bounds: (GhOptions | undefined)[] };
 
   run.calls = calls;
+  run.bounds = bounds;
 
   return run;
 }

@@ -13,6 +13,21 @@ async function unwrap(...args: Parameters<typeof fetchAssignedIssues>) {
 }
 
 describe('fetchAssignedIssues', () => {
+  /**
+   * Every page carries a deadline. Without one a blackholed network hangs the poll for the life of the hub, and each
+   * later refresh coalesces onto that read rather than starting one of its own — so the board never comes back.
+   */
+  it('bounds every page it asks for', async () => {
+    const runner = runnerOf(fixture('project-mode'));
+    await unwrap(config(), runner);
+
+    expect(runner.bounds).not.toEqual([]);
+
+    for (const bound of runner.bounds) {
+      expect(bound?.timeoutMs).toBeGreaterThan(0);
+    }
+  });
+
   it('maps a recorded response to cards', async () => {
     const value = await unwrap(config(), runnerOf(fixture('project-mode')));
 

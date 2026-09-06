@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import type { ExecFileException } from 'node:child_process';
 import type { Failure, Result } from './types.js';
 
-/** What a call may bound beyond its arguments. A poll wants neither; one card's triage wants both. */
+/** What a call may bound beyond its arguments. Every call carries a deadline; one card's triage carries a signal too. */
 export interface GhOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -45,8 +45,15 @@ function classify(err: ExecFileException, stderr: string): Failure {
     };
   }
 
+  // Ridden out like a connection that failed outright: a read that ran out of time says nothing about what is wrong,
+  // and the deadline is short enough that hitting it is a slow network far more often than it is a broken query.
   if (err.killed === true) {
-    return { kind: 'query-failed', message: 'The GitHub CLI did not answer in time.', remedy: 'Refresh the board to try again.' };
+    return {
+      kind: 'timed-out',
+      message: 'GitHub did not answer in time.',
+      remedy: 'The board is showing what it last read, and keeps trying on its own.',
+      transient: true,
+    };
   }
 
   return { kind: 'query-failed', message: stderr.trim() || err.message, remedy: 'Check the query and your network, then refresh.' };

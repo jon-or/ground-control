@@ -34,6 +34,7 @@ export type FailureKind =
   | 'not-authenticated'
   | 'no-logins'
   | 'offline'
+  | 'timed-out'
   | 'query-failed'
   | 'bad-response';
 
@@ -41,7 +42,7 @@ export interface Failure {
   kind: FailureKind;
   message: string;
   remedy: string;
-  /** Set on `offline`: the hub holds the board and retries rather than showing it (see `ReadFailure.transient`). */
+  /** Set on `offline` and `timed-out`: the hub holds the board and retries rather than showing it (`ReadFailure.transient`). */
   transient?: boolean;
 }
 

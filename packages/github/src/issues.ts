@@ -13,6 +13,12 @@ import type {
 import { searchResponse } from './types.js';
 
 /**
+ * One page of the poll. Without it a blackholed network — a captive portal, a link that dropped mid-request — hangs
+ * the read for as long as the hub runs, and every later refresh coalesces onto that one and never answers either.
+ */
+const PAGE_TIMEOUT_MS = 30_000;
+
+/**
  * Repeated `assignee:` qualifiers OR in GitHub's issue search — verified against a live repo.
  * They AND in `projectV2.items(query:)`, so this trick does not survive a move to the project API.
  */
@@ -121,7 +127,7 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
       args.push('-f', `after=${after}`);
     }
 
-    const raw = await run(args);
+    const raw = await run(args, { timeoutMs: PAGE_TIMEOUT_MS });
 
     if (!raw.ok) {
       return raw;

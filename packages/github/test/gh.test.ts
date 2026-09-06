@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { makeGhRunner } from '../src/index.js';
 
 /** These spawn a local process, never the network. `node -e` stands in for gh so stderr and exit code are ours to set. */
-function fakeGh(script: string) {
+function fakeGh(script: string, options?: { timeoutMs: number }) {
   const runner = makeGhRunner(process.execPath);
 
-  return () => runner(['-e', script]);
+  return () => runner(['-e', script], options);
 }
 
 describe('makeGhRunner', () => {
@@ -64,6 +64,15 @@ describe('makeGhRunner', () => {
 
     expect(result.ok === false && result.error.kind).toBe('query-failed');
     expect(result.ok === false && result.error.transient).toBeUndefined();
+  });
+
+  /** A `gh` that never answers would otherwise hold the poll for the life of the hub, and every retry with it. */
+  it('classifies a read that ran out of time as transient, so the board rides it out rather than banners it', async () => {
+    const result = await fakeGh('setInterval(() => undefined, 1000)', { timeoutMs: 200 })();
+
+    expect(result.ok === false && result.error.kind).toBe('timed-out');
+    expect(result.ok === false && result.error.transient).toBe(true);
+    expect(result.ok === false && result.error.remedy).not.toMatch(/refresh|connection|check/i);
   });
 
   it('falls back to the spawn error when the process said nothing on stderr', async () => {
