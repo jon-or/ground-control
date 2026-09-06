@@ -4,7 +4,7 @@ One Kanban board for the GitHub issues assigned to you and the Claude Code sessi
 
 Those live in three disconnected places: GitHub's project board, a fleet of VS Code windows across many worktrees, and terminal sessions whose state is only visible by attaching to them. Nothing shows what an agent is doing right now, and nothing shows which agent belongs to which issue. Ground Control puts both on one board — in a VS Code panel, and optionally painted onto GitHub's own project board in Chrome.
 
-It is a personal board for one developer on one machine. Not a team dashboard, not a manager view. It does not write to GitHub.
+It is a personal board for one developer on one machine. Not a team dashboard, not a manager view. It writes nothing to GitHub of its own — the one thing that reaches a repository is a card action you turned on, which runs your own prompt in your own checkout.
 
 ## What it does
 
@@ -14,7 +14,8 @@ It is a personal board for one developer on one machine. Not a team dashboard, n
 - **Six lanes, the board's own.** A card arrives in the lane its evidence names; the moment you move it, your placement outranks the evidence. Placement is one record per machine, so a card moved on one board sits in that lane on every board.
 - **Work that leaves your hands leaves the board,** into an Archived column with a count, and forgets its placement — a card that comes back arrives on fresh evidence, marked as returned.
 - **Go to a session.** A card's session row reveals that session's tab in the window running it, and an issue card with nothing live offers its most recent saved session to resume. From the overlay the same row is a `vscode://` link, so the browser hands VS Code the foreground rather than taking it.
-- **Card triage.** A card can say what it is waiting on and where it stands, read from its issue and pull request text. This is the one feature that leaves the machine, and it is a setting you turn off.
+- **Card triage.** A card can say what it is waiting on and where it stands, read from its issue and pull request text. This is the one thing the board itself sends anywhere, and it is a setting you turn off.
+- **Card actions.** Where a card is asking for the base branch merged into yours, the board offers to do it: your prompt, in that card's own checkout, as a session you can watch, take over and stop. It never decides a merge is due on its own — somebody has to have asked, or you press the control. It ships off, with no prompt, and it refuses a branch stacked on anything but the default branch rather than guessing at a chain of merges.
 
 ### Lanes
 
@@ -25,7 +26,7 @@ Every lane names one action the card is asking for.
 | **Unstarted** | pick it up, or leave it |
 | **Plan** | agree what to build |
 | **Build** | nothing, unless it stopped |
-| **Review** | read a diff and judge it, or land one already judged |
+| **Review** | read a diff and judge it, or answer a review of your own |
 | **Done** | confirm and let go |
 | **Icebox** | nothing, deliberately |
 
@@ -101,7 +102,7 @@ Every external thing the hub touches sits behind one of three interfaces, each b
 
 | Seam | Answers | Today |
 | --- | --- | --- |
-| **Agent adapter** | Which sessions are alive, what each is doing, what each is called | `claude` |
+| **Agent adapter** | Which sessions are alive, what each is doing, what each is called, and — optionally — one bounded question answered as JSON, or one piece of work started in a checkout | `claude` |
 | **Host adapter** | Where a session is showing, how to reveal it, how to release it | `vscode` |
 | **Work source** | Which items are on the board, and each one's status | `github` |
 
@@ -147,6 +148,7 @@ flowchart BT
     hostvs["host-vscode"]
     gh["github"]
     board["board"]
+    automation["automation"]
     hub["hub"]
     appshub["apps/hub"]
     ext["extensions/ground-control"]
@@ -157,11 +159,14 @@ flowchart BT
     gh --> core
     board --> core
     board -.-> gh
+    automation --> core
+    automation --> board
     hub --> core
     hub --> claude
     hub --> hostvs
     hub --> gh
     hub --> board
+    hub --> automation
     appshub --> core
     appshub --> hub
     ext --> core
@@ -180,7 +185,8 @@ Dashed edges are type-only, erased at build.
 | `packages/agent-claude` | The `claude` adapter: `claude agents --json`, transcript titles, the hook writer, the marker reader |
 | `packages/host-vscode` | The `vscode` adapter's headless half: lock files, window stores, the placement table, the open plan, the changes fold |
 | `packages/github` | The `github` work source: assigned issues through the `gh` CLI |
-| `packages/board` | Merge and lane rules |
+| `packages/board` | Merge and lane rules, and what a card is asking for |
+| `packages/automation` | Which cards the board may act on, what a run is authorised against, and what it remembers having run |
 | `packages/hub` | Registries and defaults, the loop, lane memory, activity install, the watcher, the server, and the client transport |
 | `apps/hub` | The daemon entry point and the Chrome bridge; `ground-control-hub` |
 | `extensions/ground-control` | The VS Code client and the `vscode` resident half; bundles the hub as `dist/hub.js`. Reaches `board` and `github` for the two settings readers, which stay in the client because what they read is VS Code's own settings |

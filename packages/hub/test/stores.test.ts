@@ -66,36 +66,36 @@ describe('the lane store', () => {
 
 describe('the marks', () => {
   it('reads nothing on a machine where the activity signal has never been installed', () => {
-    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null });
+    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null });
   });
 
   it('round trips', () => {
     const store = makeMarkStore(home);
-    store.write({ installedAt: 42, announcedAt: { 'board-1': 42 }, triageToldAt: 7 });
+    store.write({ installedAt: 42, announcedAt: { 'board-1': 42 }, triageToldAt: 7, actionsToldAt: null });
 
-    expect(store.read()).toEqual({ installedAt: 42, announcedAt: { 'board-1': 42 }, triageToldAt: 7 });
+    expect(store.read()).toEqual({ installedAt: 42, announcedAt: { 'board-1': 42 }, triageToldAt: 7, actionsToldAt: null });
   });
 
   it('reads nothing from a file it cannot parse', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(marksPathOf(home), 'not json');
 
-    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null });
+    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null });
   });
 
   it('reads nothing from a file whose shape it does not recognise', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(marksPathOf(home), '{"installedAt":"yesterday"}');
 
-    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null });
+    expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null });
   });
 });
 
 describe('afterInstall', () => {
-  const held = { installedAt: null, announcedAt: {}, triageToldAt: null };
+  const held = { installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null };
 
   it('starts the clock on a run that actually added entries', () => {
-    expect(afterInstall(held, 'install', 3, 1000)).toEqual({ installedAt: 1000, announcedAt: {}, triageToldAt: null });
+    expect(afterInstall(held, 'install', 3, 1000)).toEqual({ installedAt: 1000, announcedAt: {}, triageToldAt: null, actionsToldAt: null });
   });
 
   /**
@@ -107,7 +107,7 @@ describe('afterInstall', () => {
   });
 
   it('leaves an install already stamped where it was', () => {
-    const stamped = { installedAt: 500, announcedAt: { 'board-1': 500 }, triageToldAt: null };
+    const stamped = { installedAt: 500, announcedAt: { 'board-1': 500 }, triageToldAt: null, actionsToldAt: null };
 
     expect(afterInstall(stamped, 'install', 3, 1000)).toEqual(stamped);
   });
@@ -115,16 +115,18 @@ describe('afterInstall', () => {
   /** So putting the hooks back says so again, rather than being old news from the install before it. */
   it('clears the stamp and every announcement on a removal, and nothing else', () => {
     // Putting the hooks back is not a second occasion to be told what reading a card costs.
-    expect(afterInstall({ installedAt: 500, announcedAt: { 'board-1': 500 }, triageToldAt: 7 }, 'remove', 0, 1000)).toEqual({
+    // Nor is it a second occasion to be told that the board has started work on the developer's own code.
+    expect(afterInstall({ installedAt: 500, announcedAt: { 'board-1': 500 }, triageToldAt: 7, actionsToldAt: 9 }, 'remove', 0, 1000)).toEqual({
       installedAt: null,
       announcedAt: {},
       triageToldAt: 7,
+      actionsToldAt: 9,
     });
   });
 });
 
 describe('announce', () => {
-  const installed = { installedAt: 500, announcedAt: {}, triageToldAt: null };
+  const installed = { installedAt: 500, announcedAt: {}, triageToldAt: null, actionsToldAt: null };
 
   it('says it once to a client that has not heard it', () => {
     const first = announce(installed, 'board-1');
@@ -141,7 +143,7 @@ describe('announce', () => {
   });
 
   it('says nothing where nothing has been installed', () => {
-    expect(announce({ installedAt: null, announcedAt: {}, triageToldAt: null }, 'board-1').say).toBe(false);
+    expect(announce({ installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null }, 'board-1').say).toBe(false);
   });
 
   it('says it again after the hooks are removed and put back', () => {

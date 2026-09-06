@@ -5,8 +5,8 @@ import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubConfig } from '@ground-control/github';
 import { CLAUDE_AGENT_ID } from '@ground-control/agent-claude';
-import { idsFrom } from '@ground-control/core';
-import type { AgentConfig, HubConfig } from '@ground-control/core';
+import { AUTOMATABLE_ACTIONS, idsFrom } from '@ground-control/core';
+import type { ActionSetting, AgentConfig, AutomatableAction, HubConfig } from '@ground-control/core';
 import { defaultConfig } from '@ground-control/hub';
 
 export const SECTION = 'groundControl';
@@ -66,6 +66,44 @@ export function readHubConfig(userDir: string): HubConfig {
     sessionIntervalMs: sessionIntervalMs(),
     installActivity: installSessionHooks(),
     triage: readTriage(),
+    actions: readActions(),
+  };
+}
+
+/**
+ * R39's bounds. One key per action rather than one map, for the same reason the triage block is flat: VS Code's
+ * settings UI renders a map of mixed types as "Edit in settings.json", and R34 asks that what a developer is
+ * expected to set be settable without editing a file.
+ *
+ * An action with no prompt is off however `enabled` reads. There is no shipped default prompt, because what runs a
+ * merge is the developer's own repository's skill and no two teams share one.
+ */
+export function readActions(): HubConfig['actions'] {
+  const cfg = vscode.workspace.getConfiguration(SECTION);
+  const number = (key: string, fallback: number): number => {
+    const value = cfg.get<number>(key, fallback);
+
+    return Number.isFinite(value) ? Number(value) : fallback;
+  };
+
+  const setting = (action: AutomatableAction): ActionSetting => {
+    const raw = cfg.get<Record<string, unknown>>(`actions.${action}`, {}) ?? {};
+    const prompt = typeof raw['prompt'] === 'string' ? raw['prompt'].trim() : '';
+
+    return { enabled: raw['enabled'] === true, prompt };
+  };
+
+  return {
+    permissionMode: cfg.get<string>('actions.permissionMode', 'manual'),
+    concurrency: number('actions.concurrency', 1),
+    dailyLimit: number('actions.dailyLimit', 10),
+    // Minutes in settings, milliseconds in the hub, the way every other interval here is.
+    resultTimeoutMs: number('actions.resultMinutes', 30) * 60 * 1000,
+    // Only an action with something to run is carried. An entry with an empty prompt is the same as no entry, and
+    // sending one would have the board offer a control that can only refuse.
+    actions: Object.fromEntries(
+      AUTOMATABLE_ACTIONS.map((action) => [action, setting(action)] as const).filter(([, held]) => held.prompt !== ''),
+    ),
   };
 }
 

@@ -1,6 +1,6 @@
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
-import { DEFAULT_TRIAGE } from '@ground-control/core';
+import { DEFAULT_ACTIONS, DEFAULT_TRIAGE } from '@ground-control/core';
 import type { AgentAdapter, HostAdapter, HubConfig, ReadFailure, WorkSource } from '@ground-control/core';
 import { makeGithubSource } from '@ground-control/github';
 import { makeVscodeHost } from '@ground-control/host-vscode';
@@ -47,6 +47,8 @@ export function defaultConfig(registries: Registries = makeRegistries()): HubCon
     sessionIntervalMs: SESSION_INTERVAL_MS,
     installActivity: true,
     triage: { ...DEFAULT_TRIAGE },
+    // Nothing on, and no prompt: the board shows and intervenes, and does not start work until asked to (R32).
+    actions: { ...DEFAULT_ACTIONS, actions: {} },
   };
 }
 

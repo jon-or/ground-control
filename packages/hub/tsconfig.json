@@ -11,6 +11,7 @@
     { "path": "../agent-claude" },
     { "path": "../host-vscode" },
     { "path": "../github" },
-    { "path": "../board" }
+    { "path": "../board" },
+    { "path": "../automation" }
   ]
 }

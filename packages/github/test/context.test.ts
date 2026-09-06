@@ -144,7 +144,7 @@ describe('reading a card context', () => {
     expect(context.comments.every((c) => !c.body.includes('omitted'))).toBe(true);
   });
 
-  it('carries every fact the derived actions are read from', async () => {
+  it('carries every fact the derived action and a merge plan are read from', async () => {
     const pr = (await contextOf('context-review')).pullRequest;
 
     expect(pr).toMatchObject({
@@ -153,12 +153,10 @@ describe('reading a card context', () => {
       isDraft: false,
       author: 'dev-1-bot',
       reviewDecision: 'REVIEW_REQUIRED',
-      mergeable: 'MERGEABLE',
-      mergeStateStatus: 'BLOCKED',
       checkState: 'SUCCESS',
     });
     expect(pr?.reviews).toEqual([
-      { author: 'dev-4', authorName: null, state: 'COMMENTED', submittedAt: '2026-08-19T20:16:30Z' },
+      { author: 'dev-8', authorName: null, state: 'COMMENTED', submittedAt: '2026-08-19T20:16:30Z' },
     ]);
     expect(pr?.threads).toHaveLength(1);
     expect(pr?.threads[0]?.isResolved).toBe(true);
@@ -172,22 +170,35 @@ describe('reading a card context', () => {
     expect(context.comments).toHaveLength(2);
   });
 
-  it('carries UNKNOWN mergeability through as read, which is what GitHub answers before it has computed', async () => {
-    // Derived rather than recorded: GitHub computes mergeability on the first ask and answers UNKNOWN only in that
-    // window, so a fixture of it cannot be produced on demand (`docs/mechanics.md` §31, `docs/testing.md`).
-    const recorded = fixture('context-fresh') as { data: { repository: { pullRequest: Record<string, unknown> } } };
-    recorded.data.repository.pullRequest['mergeable'] = 'UNKNOWN';
-    recorded.data.repository.pullRequest['mergeStateStatus'] = 'UNKNOWN';
+  /** What decides whether keeping a branch current is one merge or a chain of them (R39). */
+  it('carries the branches a merge would be between, and the one the repository merges into', async () => {
+    const context = await contextOf('context-review');
 
-    const reading = await fetchCardContext(
-      config(),
-      card({ number: 19209, pullRequest: { ...card().pullRequest!, number: 19210 } }),
-      runnerOf(recorded),
-      new AbortController().signal,
-    );
+    expect(context.defaultBranch).toBe('master');
+    expect(context.repository).toBe('example-org/example-repo');
+    expect(context.pullRequest).toMatchObject({
+      baseRefName: 'master',
+      headRefName: '19072-calendar-feed-counts-archived-records-twice',
+      headOid: '5886b444997bada42bd47b6afcf95d83830fc2ac',
+    });
+  });
 
-    expect(reading.context?.pullRequest?.mergeable).toBe('UNKNOWN');
-    expect(reading.context?.pullRequest?.mergeStateStatus).toBe('UNKNOWN');
+  /** A recorded pull request that really is stacked on another feature branch, which is the case the board refuses. */
+  it('reads a base that is not the default branch as what it is', async () => {
+    const context = await contextOf('context-bots', { number: 19131, pullRequest: { ...card().pullRequest!, number: 19143 } });
+
+    expect(context.defaultBranch).toBe('master');
+    expect(context.pullRequest?.baseRefName).toBe('19175-inbox-badge-overwrites-a-manual-edit');
+    expect(context.pullRequest?.baseRefName).not.toBe(context.defaultBranch);
+  });
+
+  it('reports no default branch rather than assuming one, where GitHub named none', async () => {
+    const recorded = fixture('context-review') as { data: { repository: Record<string, unknown> } };
+    recorded.data.repository['defaultBranchRef'] = null;
+
+    const reading = await fetchCardContext(config(), card(), runnerOf(recorded), new AbortController().signal);
+
+    expect(reading.context?.defaultBranch).toBeNull();
   });
 
   it('reports a null check rollup as no evidence, not as a failure', async () => {
@@ -250,12 +261,12 @@ describe('the state changes on a card', () => {
 
     expect(events.map((e) => [e.at, e.actor, e.status?.to ?? null, e.assigned, e.unassigned])).toEqual([
       ['2026-08-24T20:41:34Z', 'dev-4', '\u{1F195} New', null, null],
-      ['2026-08-24T21:47:40Z', 'dev-3', null, 'dev-3', null],
-      ['2026-08-24T21:47:42Z', 'dev-3', '\u{1F381} Assigned', null, null],
-      ['2026-09-02T22:32:32Z', 'dev-3', '⚒️ Dev', null, null],
-      ['2026-09-04T13:53:36Z', 'dev-3', '\u{1F50D} Dev Review', null, null],
-      ['2026-09-04T13:53:44Z', 'dev-3', null, null, 'dev-3'],
-      ['2026-09-04T16:28:42Z', 'dev-5', null, 'dev-1', null],
+      ['2026-08-24T21:47:40Z', 'dev-14', null, 'dev-14', null],
+      ['2026-08-24T21:47:42Z', 'dev-14', '\u{1F381} Assigned', null, null],
+      ['2026-09-02T22:32:32Z', 'dev-14', '⚒️ Dev', null, null],
+      ['2026-09-04T13:53:36Z', 'dev-14', '\u{1F50D} Dev Review', null, null],
+      ['2026-09-04T13:53:44Z', 'dev-14', null, null, 'dev-14'],
+      ['2026-09-04T16:28:42Z', 'dev-13', null, 'dev-1', null],
     ]);
   });
 
@@ -304,7 +315,22 @@ describe('the state changes on a card', () => {
   });
 
   it('reads a card recorded before the timeline was asked for as having no state changes', async () => {
-    expect((await contextOf('context-no-pr', { pullRequest: null })).stateEvents).toEqual([]);
+    // Derived rather than recorded: every fixture is recorded against the document the board sends today, and that
+    // document asks for the timeline. A recording made before it did is a shape the live API will not produce on
+    // demand, and it is the one this default exists for.
+    const older = structuredClone(fixture('context-no-pr')) as {
+      data: { repository: { issue: Record<string, unknown> } };
+    };
+    delete older.data.repository.issue['timelineItems'];
+
+    const reading = await fetchCardContext(
+      config(),
+      card({ number: 19231, pullRequest: null }),
+      runnerOf(older),
+      new AbortController().signal,
+    );
+
+    expect(reading.context?.stateEvents).toEqual([]);
   });
 });
 

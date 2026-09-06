@@ -1,5 +1,6 @@
 export { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from './ids.js';
 export { classifyArgs, makeClaudeClassifier } from './classify.js';
+export { dispatchArgs, makeClaudeDispatcher, makeClaudeStopper, shortIdFrom } from './dispatch.js';
 export { makeClaudeAdapter } from './claude.js';
 export { claudeActivity } from './activity.js';
 export { readActivity } from './phase.js';

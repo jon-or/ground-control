@@ -36,16 +36,15 @@ was said after the last state change is still open.
 
 Where you are asked for an action, choose it for what you must do NEXT.
 Where more than one fits, take the first that applies:
-1. resolve-conflicts: your branch will not merge — an auto-merge failed, or somebody reported a conflict
-2. merge-upstream: your branch is behind and somebody has asked you to merge or rebase the base branch in
-3. fix-checks: a build, a test run or a check on your pull request is failing
-4. uat-failure: a tester has reported it does not work
-5. uat-question: a tester has asked something about how it is meant to behave
-6. answer-design-question: somebody has asked you a question the work cannot go on without
-7. address-review: your own pull request has review comments to answer
-8. review-others: a pull request that is not yours is waiting on your review
-9. begin-work: the work itself is next, whether or not a pull request is open
-10. other: the evidence points somewhere none of these names
+1. merge-upstream: somebody has asked you to merge or rebase the base branch into yours
+2. fix-checks: a build, a test run or a check on your pull request is failing
+3. qa-failure: a tester has reported it does not work
+4. qa-question: a tester has asked something about how it is meant to behave
+5. dev-question: somebody has asked you a question the work cannot go on without
+6. address-review: your own pull request has review comments to answer
+7. review-others: a pull request that is not yours is waiting on your review
+8. develop: the work itself is next, whether or not it has been started
+9. other: the evidence points somewhere none of these names
 
 A status naming review means a review is pending; "Opened by" says whose job that is. A pull request somebody else
 opened is yours to review even when it cannot merge yet. Your own pull request, waiting on a reviewer or blocked
@@ -53,15 +52,15 @@ until something else lands, is somebody else's queue: answer other and say in th
 
 Reading the evidence:
 - Only the most recent few comments and review threads are shown, never all of them.
-- A status naming UAT means a tester is involved. Each comment says how its author relates to the repository:
-  somebody outside the team reporting how it behaves is UAT; a colleague asking how it should work is a design
-  question.
+- A status naming UAT or QA means a tester is involved — they are separate teams and both answer as qa. Each comment
+  says how its author relates to the repository: somebody outside the team reporting how it behaves is qa; a
+  colleague asking how it should work is a dev question.
 - Your own words are marked "you". A question you asked that somebody has since answered is now yours to act on.
-- The first three are reported, not observed. Take the most recent word: a conflict or a failing build somebody
-  has since said is fixed is not what the card is waiting on.
+- The first two are reported, not observed. Take the most recent word: a stale branch or a failing build somebody
+  has since said is fixed is not what the card is waiting on. A branch that will not merge is not yours to fix.
 
-An issue assigned to you with no discussion and no pull request is begin-work, not other. Pick other only when
-none of the nine above fits.
+An issue assigned to you with no discussion and no pull request is develop, not other. Pick other only when
+none of the eight above fits.
 
 Do not speculate about causes you have no evidence for.`;
 

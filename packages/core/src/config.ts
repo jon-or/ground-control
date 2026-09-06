@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
+import { AUTOMATABLE_ACTIONS } from './actions.js';
 import { LANE_ORDER } from './board.js';
+import type { ActionSettings } from './actions.js';
 import type { LaneId } from './board.js';
 import type { AgentConfig, ReadFailure } from './types.js';
 
@@ -21,6 +23,7 @@ export interface HubConfig {
   sessionIntervalMs: number;
   installActivity: boolean;
   triage: TriageSettings;
+  actions: ActionSettings;
 }
 
 /** What card triage is allowed to cost. Every field bounds a spend, so a hand-edited one is floored rather than taken. */
@@ -83,6 +86,56 @@ const triage = z.object({
   names: z.record(z.string(), z.string()).catch({}).default({}),
 });
 
+/**
+ * What the board may do on its own, and it starts at nothing (R32). Every ceiling here bounds something a mistake
+ * would spend repeatedly: sessions in flight, dispatches in a day, and how long one is waited on.
+ */
+const ACTION_CONCURRENCY_CEILING = 4;
+const ACTION_DAILY_CEILING = 50;
+const ACTION_RESULT_TIMEOUT_FLOOR_MS = 60_000;
+const ACTION_RESULT_TIMEOUT_CEILING_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * The permission modes a dispatched session may be given, as the CLI names them (`docs/mechanics.md` §33). A value
+ * outside this list would be handed straight to a spawn, so it is refused rather than passed through.
+ */
+export const PERMISSION_MODES = ['manual', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions'] as const;
+
+export const DEFAULT_ACTIONS: ActionSettings = {
+  permissionMode: 'manual',
+  concurrency: 1,
+  dailyLimit: 10,
+  resultTimeoutMs: 30 * 60 * 1000,
+  actions: {},
+};
+
+const actionSetting = z.object({
+  enabled: z.boolean().catch(false).default(false),
+  prompt: z.string().catch('').default(''),
+});
+
+const actions = z.object({
+  permissionMode: z.enum(PERMISSION_MODES).catch('manual').default('manual'),
+  concurrency: z
+    .number()
+    .finite()
+    .transform((n) => Math.min(ACTION_CONCURRENCY_CEILING, Math.max(1, Math.trunc(n)))),
+  dailyLimit: z
+    .number()
+    .finite()
+    .transform((n) => Math.min(ACTION_DAILY_CEILING, Math.max(0, Math.trunc(n)))),
+  resultTimeoutMs: z
+    .number()
+    .finite()
+    .transform((ms) => Math.min(ACTION_RESULT_TIMEOUT_CEILING_MS, Math.max(ACTION_RESULT_TIMEOUT_FLOOR_MS, ms))),
+  // An action the board does not automate is dropped rather than refused: a settings file written by a later build
+  // naming one this build has never heard of must not cost the developer their whole configuration.
+  actions: z
+    .record(z.enum(AUTOMATABLE_ACTIONS), actionSetting)
+    .catch({})
+    .default({}),
+});
+
 export const hubConfig = z.object({
   agents: z.array(z.object({ id: z.string().min(1), path: spawnable, model: z.string().min(1).optional() })),
   branchIssuePattern: z.string(),
@@ -95,6 +148,8 @@ export const hubConfig = z.object({
   installActivity: z.boolean(),
   // Absent from a configuration written by a client that predates triage.
   triage: triage.default(DEFAULT_TRIAGE),
+  // Absent from one that predates the board acting at all, which reads as the board doing nothing on its own (R32).
+  actions: actions.default(DEFAULT_ACTIONS),
 });
 
 /** The configuration a client pushed, or a named failure the board shows above the lanes rather than a throw (R25). */

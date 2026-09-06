@@ -281,16 +281,14 @@ function statusLabel(status) {
  * differently from the other (`docs/testing.md`).
  */
 const TRIAGE_LABELS = {
-  'begin-work': 'Begin work',
-  'answer-design-question': 'Answer design question',
-  'uat-question': 'UAT question',
-  'uat-failure': 'UAT failure',
+  develop: 'Develop',
+  'dev-question': 'Dev question',
+  'qa-question': 'QA question',
+  'qa-failure': 'QA failure',
   'review-others': 'Review their PR',
   'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
   'merge-upstream': 'Merge upstream',
-  'resolve-conflicts': 'Resolve conflicts',
-  land: 'Land it',
   other: 'Other',
 };
 
@@ -323,6 +321,54 @@ const ATTENTION = {
 
 /** A pull request's own state colours, matching what GitHub paints them. */
 const PR_COLORS = { OPEN: 'GREEN', MERGED: 'PURPLE', CLOSED: 'RED' };
+
+/** What a finished run reads as. `landed` is the run's own signal that it pushed; nothing else claims it (R23). */
+const ACTION_OUTCOMES = {
+  landed: { text: 'Merged', color: 'GREEN' },
+  halted: { text: 'Stopped short', color: 'ORANGE' },
+  failed: { text: 'Did not run', color: 'GRAY' },
+  stopped: { text: 'Stopped', color: 'GRAY' },
+};
+
+/**
+ * The control for a card action (R39). Four states, and only two of them do anything: a card the board can act on
+ * offers to run it, and one it is running offers to take it back. A refusal is a chip with no click, because the
+ * remedy is a setting or the card itself rather than pressing again.
+ */
+function actionChip(action, key) {
+  const label = TRIAGE_LABELS[action.action] ?? action.action;
+
+  if (action.state === 'running') {
+    // R15: what stopping costs is said before it is pressed. A merge stopped mid-way leaves the working tree
+    // part-merged, which is the developer's to finish or throw away.
+    const chip = badge(
+      'action-running',
+      'Working…',
+      'GRAY',
+      `The board is running ${label} on this card. Click to stop it — whatever it has already done to the checkout stays there.`,
+      () => vscode.postMessage({ type: 'stopAction', key }),
+    );
+    chip.dataset.running = 'true';
+
+    return chip;
+  }
+
+  if (action.state === 'done') {
+    const outcome = ACTION_OUTCOMES[action.outcome] ?? ACTION_OUTCOMES.failed;
+
+    return badge('action-done', outcome.text, outcome.color, `${action.detail} Click to run ${label} again.`, () =>
+      vscode.postMessage({ type: 'runAction', key }),
+    );
+  }
+
+  if (action.state === 'refused') {
+    return badge('action-refused', 'Not run', 'GRAY', action.reason);
+  }
+
+  return badge('action', `Run ${label.toLowerCase()}`, 'GRAY', `Start ${label} on this card, in its own checkout.`, () =>
+    vscode.postMessage({ type: 'runAction', key }),
+  );
+}
 
 function badge(kind, text, color, title, onOpen) {
   const el = document.createElement(onOpen ? 'button' : 'span');
@@ -555,6 +601,14 @@ function card(boardCard, avatarPool, placeable) {
     );
     chip.dataset.stale = String(triage.stale);
     badges.appendChild(chip);
+  }
+
+  // R39. Beside the reading it acts on, and never one of R6's channels: work the board started is work in progress,
+  // which is the one thing a card is not asking the developer for.
+  const action = boardCard.action;
+
+  if (action) {
+    badges.appendChild(actionChip(action, boardCard.key));
   }
 
   // R6: on the card, not only on the session row, so it reads from across a full board. Three channels - the word,

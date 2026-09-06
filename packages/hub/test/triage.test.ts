@@ -18,6 +18,7 @@ import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
+import { makeActionStore } from '../src/actionStore.js';
 import { fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
 
 let home: string;
@@ -59,6 +60,8 @@ function contextOf(card: IssueCard): TriageContext {
     stateEvents: [],
     logins: ['dev-1'],
     pullRequest: null,
+    repository: 'example-org/example-repo',
+    defaultBranch: 'master',
   };
 }
 
@@ -100,7 +103,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     contexts: [],
     classified: [],
     hold: null,
-    answer: { value: { action: 'begin-work', detail: 'Pick it up.' } },
+    answer: { value: { action: 'develop', detail: 'Pick it up.' } },
     contextFailure: null,
     contextThrows: false,
     sourceFailed: false,
@@ -193,6 +196,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     lanes: makeLaneStore(home),
     marks: makeMarkStore(home),
     triage: makeTriageStore(home),
+    actions: makeActionStore(home),
     settings: { read: () => null, write: () => undefined },
     syncActivity: (_r, wanted) => ({ wanted, plan: 'up-to-date', added: 0, failure: null }),
     ...over,
@@ -219,6 +223,7 @@ function hubConfig(
     sessionIntervalMs: 30_000,
     installActivity: false,
     triage,
+    actions: { permissionMode: 'manual', concurrency: 1, dailyLimit: 0, resultTimeoutMs: 1_800_000, actions: {} },
   };
 }
 
@@ -242,7 +247,7 @@ describe('reading a card that arrives', () => {
     await control.settle();
 
     expect(control.contexts).toEqual([17198]);
-    expect(triageOf(control.snapshot())).toMatchObject({ state: 'done', action: 'begin-work', detail: 'Pick it up.' });
+    expect(triageOf(control.snapshot())).toMatchObject({ state: 'done', action: 'develop', detail: 'Pick it up.' });
 
     await control.pass();
 
@@ -434,10 +439,14 @@ describe('when a reading cannot be made', () => {
     expect(triageOf(control.snapshot())).toMatchObject({ state: 'failed' });
   });
 
-  it('refuses an action the hub decides for itself, however confidently the model answers it', () => {
-    // `land` is read off the pull request or not at all. A model that answered it about mergeability nobody has
-    // computed would put "Land it" on a card that cannot merge, which is the guess R38 exists to refuse.
-    expect((triageJsonSchema(null) as { properties: { action: { enum: string[] } } }).properties.action.enum).not.toContain('land');
+  it('offers the merge to the model, since a merge is a request and nothing derives one', () => {
+    // R39: the board reads no mergeability, so the words somebody wrote are the only channel there is. An action
+    // the build does not have is refused by the same enum, which is what keeps a stale answer off a card.
+    const offered = (triageJsonSchema(null) as { properties: { action: { enum: string[] } } }).properties.action.enum;
+
+    expect(offered).toContain('merge-upstream');
+    expect(offered).not.toContain('resolve-conflicts');
+    expect(offered).not.toContain('land');
   });
 });
 

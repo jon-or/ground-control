@@ -12,13 +12,17 @@ describe('the package public surface', () => {
       'classifyArgs',
       'claudeActivity',
       'claudeSettingsPathOf',
+      'dispatchArgs',
       'hookPathOf',
       'lockIsStale',
       'makeClaudeAdapter',
       'makeClaudeClassifier',
+      'makeClaudeDispatcher',
+      'makeClaudeStopper',
       'markerIsOrphaned',
       'planHookInstall',
       'readActivity',
+      'shortIdFrom',
     ]);
   });
 });

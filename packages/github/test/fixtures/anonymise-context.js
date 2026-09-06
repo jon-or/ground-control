@@ -5,10 +5,31 @@
 // What survives is the structure the tests turn on: issue and pull request numbers, who wrote what and in what order,
 // author associations, review states, thread resolution, timestamps, and every merge and check field.
 const { remark, title } = require('../../../../tools/fixture-words.js');
+const { UNIVERSAL, branchFor } = require('../../../../tools/fixture-scrub.js');
 const { loginMap } = require('./anonymise.js');
 
 /** Long enough to cross the reader's own body limit, so one fixture proves the middle is what comes out. */
 const LONG_BODY_CHARS = 7_500;
+
+/**
+ * A branch name is the issue title with the spaces taken out, so it names real work as surely as the title does. The
+ * number is kept — the tests turn on it and an integer names nobody — and the rest is rebuilt through the shared
+ * `branchFor`, so issue 19072's branch reads the same here as in every other package's recording.
+ *
+ * A branch every repository has is left alone. `master` names nobody, and whether a base equals the default branch
+ * is the whole of what decides that a merge is one leg or a chain (R39).
+ */
+function scrubBranch(ref) {
+  if (typeof ref !== 'string' || ref === '' || UNIVERSAL.has(ref)) {
+    return ref;
+  }
+
+  const number = /^(\d+)-/.exec(ref)?.[1];
+
+  // A branch with no issue number in it is still somebody's words. It gets a synthetic name seeded by its own, so
+  // two different such branches do not collapse into one.
+  return branchFor(Number(number ?? [...ref].reduce((sum, c) => sum + c.charCodeAt(0), 0)));
+}
 
 /** A profile name identifies somebody far more surely than a login does, so it is replaced wherever it is carried. */
 function scrubActor(actor, logins) {
@@ -59,6 +80,8 @@ function anonymiseContext(response, logins, { longBody = false } = {}) {
   if (pr) {
     pr.title = title(pr.number);
     pr.body = remark(pr.number, 0);
+    pr.baseRefName = scrubBranch(pr.baseRefName);
+    pr.headRefName = scrubBranch(pr.headRefName);
     scrubActor(pr.author, logins);
     scrubComments(pr.comments?.nodes, pr.number, logins, 1);
 
@@ -104,6 +127,10 @@ function identifyingValues(response) {
     ]),
     pr?.title,
     pr?.body,
+    // A recorded branch name that survived would name real work. The branches every repository has are excluded:
+    // they name nobody, and the tests turn on a base either matching the default branch or not.
+    UNIVERSAL.has(pr?.baseRefName) ? null : pr?.baseRefName,
+    UNIVERSAL.has(pr?.headRefName) ? null : pr?.headRefName,
     ...named(pr?.author),
     ...fromComments(pr?.comments?.nodes),
     ...(pr?.reviews?.nodes ?? []).flatMap((r) => named(r.author)),
@@ -140,6 +167,15 @@ function assertContextScrubbed(recorded, written, logins) {
 
   if (survivors.length > 0) {
     throw new Error(`anonymise-context left ${survivors.length} link/address/mention(s): ${survivors.slice(0, 3).join(' | ')}`);
+  }
+
+  // The same sweep for branch names, which is what catches one arriving in a field nobody enumerated — a `headRef`
+  // the query grows, a merge-queue entry. Every ref-shaped value must be one `branchFor` would have written.
+  const refs = [...new Set(json.match(/"\d+-[a-z][a-z0-9-]{3,}"/g) ?? [])].map((ref) => ref.slice(1, -1));
+  const invented = refs.filter((ref) => ref !== branchFor(Number(/^(\d+)-/.exec(ref)[1])));
+
+  if (invented.length > 0) {
+    throw new Error(`anonymise-context left ${invented.length} recorded branch name(s): ${invented.slice(0, 3).join(' | ')}`);
   }
 }
 

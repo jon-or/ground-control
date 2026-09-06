@@ -1,6 +1,9 @@
 {
   "data": {
     "repository": {
+      "defaultBranchRef": {
+        "name": "master"
+      },
       "issue": {
         "number": 19231,
         "title": "Booking export drops rows past the first page",
@@ -21,8 +24,83 @@
               "createdAt": "2026-08-28T11:58:20Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-5",
-                "name": "dev-5 Surname"
+                "login": "dev-9",
+                "name": "dev-9 Surname"
+              }
+            }
+          ]
+        },
+        "timelineItems": {
+          "nodes": [
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-25T19:41:22Z",
+              "actor": {
+                "login": "dev-1-bot",
+                "name": "dev-1-bot Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-25T19:41:26Z",
+              "actor": {
+                "login": "dev-4"
+              },
+              "previousStatus": "",
+              "status": "🆕 New",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-25T19:53:58Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "previousStatus": "🆕 New",
+              "status": "🔖 Planned",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-26T17:50:52Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "assignee": {
+                "login": "dev-10"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-26T17:50:56Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-26T17:51:19Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "previousStatus": "🔖 Planned",
+              "status": "🆕 New",
+              "project": {
+                "number": 3
               }
             }
           ]

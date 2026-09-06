@@ -1,6 +1,9 @@
 {
   "data": {
     "repository": {
+      "defaultBranchRef": {
+        "name": "master"
+      },
       "issue": {
         "number": 19131,
         "title": "Owner statement fails silently on an empty result",
@@ -12,7 +15,7 @@
               "createdAt": "2026-08-21T18:26:44Z",
               "authorAssociation": "NONE",
               "author": {
-                "login": "dev-6"
+                "login": "dev-11"
               }
             },
             {
@@ -20,8 +23,8 @@
               "createdAt": "2026-08-21T18:28:48Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-5",
-                "name": "dev-5 Surname"
+                "login": "dev-9",
+                "name": "dev-9 Surname"
               }
             },
             {
@@ -29,8 +32,8 @@
               "createdAt": "2026-08-27T16:40:11Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-7",
-                "name": "dev-7 Surname"
+                "login": "dev-10",
+                "name": "dev-10 Surname"
               }
             },
             {
@@ -38,8 +41,8 @@
               "createdAt": "2026-08-27T16:59:54Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-7",
-                "name": "dev-7 Surname"
+                "login": "dev-10",
+                "name": "dev-10 Surname"
               }
             },
             {
@@ -47,8 +50,253 @@
               "createdAt": "2026-09-02T00:40:32Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-8",
-                "name": "dev-8 Surname"
+                "login": "dev-12",
+                "name": "dev-12 Surname"
+              }
+            }
+          ]
+        },
+        "timelineItems": {
+          "nodes": [
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-21T16:27:01Z",
+              "actor": {
+                "login": "dev-4"
+              },
+              "previousStatus": "",
+              "status": "🆕 New",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-21T16:28:31Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-21T16:28:37Z",
+              "actor": {
+                "login": "dev-9",
+                "name": "dev-9 Surname"
+              },
+              "previousStatus": "🆕 New",
+              "status": "⚒️ Dev",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-21T18:32:28Z",
+              "actor": {
+                "login": "dev-9",
+                "name": "dev-9 Surname"
+              },
+              "previousStatus": "⚒️ Dev",
+              "status": "🔍 Dev Review",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-21T18:32:44Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-27T14:02:01Z",
+              "actor": {
+                "login": "dev-10",
+                "name": "dev-10 Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-27T16:38:58Z",
+              "actor": {
+                "login": "dev-10",
+                "name": "dev-10 Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-27T16:39:20Z",
+              "actor": {
+                "login": "dev-10",
+                "name": "dev-10 Surname"
+              },
+              "previousStatus": "🔍 Dev Review",
+              "status": "⚒️ Dev",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-27T16:39:25Z",
+              "actor": {
+                "login": "dev-10",
+                "name": "dev-10 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-27T17:00:00Z",
+              "actor": {
+                "login": "dev-10",
+                "name": "dev-10 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-27T17:00:00Z",
+              "actor": {
+                "login": "dev-10",
+                "name": "dev-10 Surname"
+              },
+              "assignee": {
+                "login": "dev-12"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-27T17:00:03Z",
+              "actor": {
+                "login": "dev-10",
+                "name": "dev-10 Surname"
+              },
+              "previousStatus": "⚒️ Dev",
+              "status": "🎁 Assigned",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-28T16:31:54Z",
+              "actor": {
+                "login": "dev-12",
+                "name": "dev-12 Surname"
+              },
+              "previousStatus": "🎁 Assigned",
+              "status": "⚒️ Dev",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-28T18:29:48Z",
+              "actor": {
+                "login": "dev-12",
+                "name": "dev-12 Surname"
+              },
+              "previousStatus": "⚒️ Dev",
+              "status": "🎁 Assigned",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-28T21:24:27Z",
+              "actor": {
+                "login": "dev-12",
+                "name": "dev-12 Surname"
+              },
+              "previousStatus": "🎁 Assigned",
+              "status": "⚒️ Dev",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-28T21:26:15Z",
+              "actor": {
+                "login": "dev-12",
+                "name": "dev-12 Surname"
+              },
+              "previousStatus": "⚒️ Dev",
+              "status": "🎁 Assigned",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-28T21:34:13Z",
+              "actor": {
+                "login": "dev-12",
+                "name": "dev-12 Surname"
+              },
+              "previousStatus": "🎁 Assigned",
+              "status": "⚒️ Dev",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-09-02T00:40:52Z",
+              "actor": {
+                "login": "dev-12",
+                "name": "dev-12 Surname"
+              },
+              "previousStatus": "⚒️ Dev",
+              "status": "🔍 Dev Review",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-09-02T00:40:55Z",
+              "actor": {
+                "login": "dev-12",
+                "name": "dev-12 Surname"
+              },
+              "assignee": {
+                "login": "dev-12"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-09-04T16:28:40Z",
+              "actor": {
+                "login": "dev-13",
+                "name": "dev-13 Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
               }
             }
           ]
@@ -61,16 +309,17 @@
         "state": "OPEN",
         "isDraft": false,
         "author": {
-          "login": "dev-5",
-          "name": "dev-5 Surname"
+          "login": "dev-9",
+          "name": "dev-9 Surname"
         },
+        "baseRefName": "19175-inbox-badge-overwrites-a-manual-edit",
+        "headRefName": "19131-listing-sync-overwrites-a-manual-edit",
         "reviewDecision": "REVIEW_REQUIRED",
-        "mergeable": "MERGEABLE",
-        "mergeStateStatus": "BLOCKED",
         "commits": {
           "nodes": [
             {
               "commit": {
+                "oid": "a5492cf680e5e6bca205289977b5a265b96e44bb",
                 "statusCheckRollup": {
                   "state": "SUCCESS"
                 }
@@ -85,7 +334,7 @@
               "createdAt": "2026-08-21T18:49:07Z",
               "authorAssociation": "NONE",
               "author": {
-                "login": "dev-4"
+                "login": "dev-8"
               }
             },
             {
@@ -93,7 +342,7 @@
               "createdAt": "2026-08-28T22:57:49Z",
               "authorAssociation": "NONE",
               "author": {
-                "login": "dev-6"
+                "login": "dev-11"
               }
             }
           ]

@@ -36,21 +36,7 @@ const BACKOFF_MS = [60_000, 120_000, 300_000, 1_800_000];
  * which is what makes its card due again. Without it the board goes on showing sentences a fixed classifier would
  * no longer write, since a card is read once and nothing else re-reads it.
  */
-export const TRIAGE_REVISION = 4;
-
-/** The actions the hub reads off the pull request itself, whatever anybody wrote about it. */
-export const DERIVED_ACTIONS: readonly TriageAction[] = ['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land'];
-
-/**
- * The one action the model is never offered. The line is that the model may report a problem somebody named, and
- * only the hub may say everything is fine: a comment reading "auto-merge failed" or "please rebase" is evidence, and
- * a common one, but "ship it" is an opinion where mergeability is a fact. `mergeable` is `UNKNOWN` in exactly the
- * window a card arrives (`docs/mechanics.md` §31), so a model with no word for a conflict has nowhere to put one.
- */
-export const MODEL_MAY_NOT_SAY: readonly TriageAction[] = ['land'];
-
-/** What the model may answer. `derivedAction` still outranks it wherever GitHub has computed a fact. */
-export const CLASSIFIED_ACTIONS = TRIAGE_ACTIONS.filter((action) => !MODEL_MAY_NOT_SAY.includes(action));
+export const TRIAGE_REVISION = 5;
 
 const detailProperty = { type: 'string', maxLength: DETAIL_LIMIT } as const;
 
@@ -64,16 +50,16 @@ export function triageJsonSchema(settled: TriageAction | null): object {
     ? { type: 'object', properties: { detail: detailProperty }, required: ['detail'], additionalProperties: false }
     : {
         type: 'object',
-        properties: { action: { type: 'string', enum: CLASSIFIED_ACTIONS }, detail: detailProperty },
+        properties: { action: { type: 'string', enum: TRIAGE_ACTIONS }, detail: detailProperty },
         required: ['action', 'detail'],
         additionalProperties: false,
       };
 }
 
-// The schema is what the model is asked for; this is what is accepted. Both name the classified actions only, so an
-// answer of `land` is refused rather than passed through on a pull request whose facts said nothing.
+// The schema is what the model is asked for; this is what is accepted. Both name the same list, so an answer
+// outside it is refused rather than read as `other`.
 const parsed = z.object({
-  action: z.enum(CLASSIFIED_ACTIONS as [TriageAction, ...TriageAction[]]),
+  action: z.enum(TRIAGE_ACTIONS),
   detail: z.string().min(1),
 });
 
@@ -105,16 +91,14 @@ export function readTriageResult(value: unknown, settled: TriageAction | null): 
 
 /** What each action is called on a card. Duplicated into both clients, so it is pinned by a parity table in each. */
 export const TRIAGE_LABELS: Readonly<Record<TriageAction, string>> = {
-  'begin-work': 'Begin work',
-  'answer-design-question': 'Answer design question',
-  'uat-question': 'UAT question',
-  'uat-failure': 'UAT failure',
+  develop: 'Develop',
+  'dev-question': 'Dev question',
+  'qa-question': 'QA question',
+  'qa-failure': 'QA failure',
   'review-others': 'Review their PR',
   'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
   'merge-upstream': 'Merge upstream',
-  'resolve-conflicts': 'Resolve conflicts',
-  land: 'Land it',
   other: 'Other',
 };
 
@@ -398,12 +382,11 @@ export function qualifierOf(action: TriageAction, context: TriageContext): Triag
 }
 
 /**
- * What the pull request itself says, where it says anything. These outrank the model because they are facts: a branch
- * that will not merge is a branch to fix whatever anybody wrote about it.
+ * What the pull request itself says, where it says anything. This outranks the model because it is a fact: a branch
+ * whose build is red is a branch to fix whatever anybody wrote about it.
  *
- * Nothing fires on a draft, on somebody else's pull request, on one already merged or closed, or on `UNKNOWN` —
- * which GitHub answers until it has computed mergeability, and which is common in the very window a card arrives
- * (`docs/mechanics.md` §31). `UNKNOWN` means "not computed", never "fine".
+ * Nothing fires on a draft, on somebody else's pull request, or on one already merged or closed. Mergeability is not
+ * read at all — a merge is something somebody asks for, not something GitHub computes (R39).
  */
 export function derivedAction(context: TriageContext): TriageAction | null {
   const pr = context.pullRequest;
@@ -412,26 +395,8 @@ export function derivedAction(context: TriageContext): TriageAction | null {
     return null;
   }
 
-  if (pr.mergeable === 'CONFLICTING') {
-    return 'resolve-conflicts';
-  }
-
   // A null rollup is a repository that runs no checks, which is not a repository whose checks have not passed.
-  if (pr.checkState === 'FAILURE' || pr.checkState === 'ERROR') {
-    return 'fix-checks';
-  }
-
-  if (pr.mergeStateStatus === 'BEHIND') {
-    return 'merge-upstream';
-  }
-
-  // Keyed on CLEAN rather than assembled from parts: BLOCKED is what a repository requiring review answers for
-  // everything else, so a hand-built condition would name every open pull request as ready to land.
-  if (pr.mergeStateStatus === 'CLEAN' && pr.reviewDecision === 'APPROVED') {
-    return 'land';
-  }
-
-  return null;
+  return pr.checkState === 'FAILURE' || pr.checkState === 'ERROR' ? 'fix-checks' : null;
 }
 
 /**
@@ -451,7 +416,7 @@ export function statusAction(status: string | null, statusLanes: Readonly<Record
     case 'review':
       return 'review-others';
     case 'unstarted':
-      return 'begin-work';
+      return 'develop';
     default:
       return null;
   }

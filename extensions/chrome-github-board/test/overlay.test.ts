@@ -1159,11 +1159,11 @@ describe('what a card was read to be waiting on (R38)', () => {
     show(
       card(4501, {
         sessions: [],
-        triage: { state: 'done', action: 'uat-failure', qualifier: null, detail: 'Safari still shows an empty second page.', at: NOW - 3_600_000, stale: false },
+        triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'Safari still shows an empty second page.', at: NOW - 3_600_000, stale: false },
       }),
     );
 
-    expect(mark()?.textContent).toBe('UAT failure');
+    expect(mark()?.textContent).toBe('QA failure');
     expect(mark()?.title).toBe('Read 1h ago.');
     expect(document.querySelector('.gc-triage-detail')?.textContent).toBe('Safari still shows an empty second page.');
   });
@@ -1172,7 +1172,7 @@ describe('what a card was read to be waiting on (R38)', () => {
     show(
       card(4501, {
         sessions: [],
-        triage: { state: 'done', action: 'begin-work', qualifier: null, detail: 'Pick it up.', at: NOW - 60_000, stale: true },
+        triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW - 60_000, stale: true },
       }),
     );
 
@@ -1201,18 +1201,16 @@ describe('what a card was read to be waiting on (R38)', () => {
    * pinned by asserting the same literals its own suite does (`docs/testing.md`).
    */
   const rows: [string, string | null, string][] = [
-    ['begin-work', null, 'Begin work'],
-    ['answer-design-question', null, 'Answer design question'],
-    ['uat-question', null, 'UAT question'],
-    ['uat-failure', null, 'UAT failure'],
+    ['develop', null, 'Develop'],
+    ['dev-question', null, 'Dev question'],
+    ['qa-question', null, 'QA question'],
+    ['qa-failure', null, 'QA failure'],
     ['review-others', 'initial', 'Review their PR · initial'],
     ['review-others', 'followup', 'Review their PR · followup'],
     ['address-review', 'initial', 'Answer review · initial'],
     ['address-review', 'followup', 'Answer review · followup'],
     ['fix-checks', null, 'Fix failing checks'],
     ['merge-upstream', null, 'Merge upstream'],
-    ['resolve-conflicts', null, 'Resolve conflicts'],
-    ['land', null, 'Land it'],
     ['other', null, 'Other'],
   ];
 

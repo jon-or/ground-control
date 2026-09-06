@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { linkOf, normalize, runJsonCli } from '@ground-control/core';
+import { linkOf, normalize, runJsonCli, runTextCli } from '@ground-control/core';
 import type {
   AgentAdapter,
   AgentReading,
   ExecJson,
+  ExecText,
   ListDir,
   MachineDeps,
   ReadFailure,
@@ -13,6 +14,7 @@ import type {
 } from '@ground-control/core';
 import { claudeActivity } from './activity.js';
 import { makeClaudeClassifier } from './classify.js';
+import { makeClaudeDispatcher, makeClaudeStopper } from './dispatch.js';
 import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from './ids.js';
 import { readActivity } from './phase.js';
 import { makeHistoryReader } from './history.js';
@@ -223,8 +225,11 @@ export function neverPrompted(session: Session, entry: AgentEntry): boolean {
   );
 }
 
-/** The transport is the adapter's own, so a test supplies a recorded one without the interface knowing. */
-export function makeClaudeAdapter(run: ExecJson = runJsonCli): AgentAdapter {
+/**
+ * The transport is the adapter's own, so a test supplies a recorded one without the interface knowing. Two of them,
+ * because a roster read parses JSON and a dispatch reads what `--bg` prints, which is prose (`mechanics.md` §33).
+ */
+export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText = runTextCli): AgentAdapter {
   return {
     id: CLAUDE_AGENT_ID,
     displayName: CLAUDE_DISPLAY_NAME,
@@ -232,6 +237,8 @@ export function makeClaudeAdapter(run: ExecJson = runJsonCli): AgentAdapter {
     defaultEnabled: true,
     activity: claudeActivity,
     classify: makeClaudeClassifier(run),
+    dispatch: makeClaudeDispatcher(runText),
+    stopDispatch: makeClaudeStopper(runText),
     listHistory: makeHistoryReader(),
     canResume: (session, deps) => deps.listDir(session.cwd) !== null && findTranscript(deps.home, session.cwd, session.sessionId, deps) !== null,
 

@@ -219,3 +219,97 @@ describe('triage settings', () => {
     });
   });
 });
+
+describe('what the board may do on its own', () => {
+  function actionsOf(raw: unknown) {
+    const parsed = parseHubConfig(config({ actions: raw } as never));
+
+    return 'config' in parsed ? parsed.config.actions : parsed.failure;
+  }
+
+  it('defaults a configuration written before the board acted at all to doing nothing', () => {
+    const parsed = parseHubConfig(config());
+
+    expect('config' in parsed && parsed.config.actions).toEqual({
+      permissionMode: 'manual',
+      concurrency: 1,
+      dailyLimit: 10,
+      resultTimeoutMs: 1_800_000,
+      actions: {},
+    });
+  });
+
+  it('takes what a client asked for', () => {
+    expect(
+      actionsOf({
+        permissionMode: 'bypassPermissions',
+        concurrency: 2,
+        dailyLimit: 5,
+        resultTimeoutMs: 600_000,
+        actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge' } },
+      }),
+    ).toEqual({
+      permissionMode: 'bypassPermissions',
+      concurrency: 2,
+      dailyLimit: 5,
+      resultTimeoutMs: 600_000,
+      actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge' } },
+    });
+  });
+
+  it('floors and ceilings a hand-edited spend, in both directions', () => {
+    expect(actionsOf({ permissionMode: 'manual', concurrency: 0, dailyLimit: -5, resultTimeoutMs: 1 })).toMatchObject({
+      concurrency: 1,
+      dailyLimit: 0,
+      resultTimeoutMs: 60_000,
+    });
+    expect(
+      actionsOf({ permissionMode: 'manual', concurrency: 500, dailyLimit: 5_000, resultTimeoutMs: 9_999_999_999 }),
+    ).toMatchObject({ concurrency: 4, dailyLimit: 50, resultTimeoutMs: 4 * 60 * 60 * 1000 });
+  });
+
+  /** This value is handed straight to a spawn, so one the CLI does not know must never reach it. */
+  it('falls back to the careful permission mode rather than passing one the CLI has no word for', () => {
+    expect(actionsOf({ permissionMode: 'yolo', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 })).toMatchObject({
+      permissionMode: 'manual',
+    });
+    expect(actionsOf({ permissionMode: 7, concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 })).toMatchObject({
+      permissionMode: 'manual',
+    });
+  });
+
+  /** A later build naming an action this one does not perform must not cost the developer their configuration. */
+  it('drops an action it does not know, and one shaped wrongly, rather than refusing the whole block', () => {
+    expect(
+      actionsOf({
+        permissionMode: 'manual',
+        concurrency: 1,
+        dailyLimit: 1,
+        resultTimeoutMs: 60_000,
+        actions: { 'fix-checks': { enabled: true, prompt: '/x' } },
+      }),
+    ).toMatchObject({ actions: {} });
+    expect(
+      actionsOf({ permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000, actions: 'on' }),
+    ).toMatchObject({ actions: {} });
+  });
+
+  it('reads an action written with neither field as off with nothing to run', () => {
+    expect(
+      actionsOf({
+        permissionMode: 'manual',
+        concurrency: 1,
+        dailyLimit: 1,
+        resultTimeoutMs: 60_000,
+        actions: { 'merge-upstream': {} },
+      }),
+    ).toMatchObject({ actions: { 'merge-upstream': { enabled: false, prompt: '' } } });
+  });
+
+  it('refuses an actions block that is not one, rather than acting on a default nobody chose', () => {
+    expect(actionsOf('on')).toMatchObject({ kind: 'bad-config' });
+    expect(actionsOf({ permissionMode: 'manual', concurrency: 'two', dailyLimit: 1, resultTimeoutMs: 60_000 })).toMatchObject({
+      kind: 'bad-config',
+    });
+  });
+});

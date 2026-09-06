@@ -3,9 +3,6 @@ import type { IssueCard, Lane, TriageAction, TriageContext, TriageEntry, TriageQ
 import { assignLanes } from '../src/lanes.js';
 import type { BoardCard } from '../src/types.js';
 import {
-  CLASSIFIED_ACTIONS,
-  DERIVED_ACTIONS,
-  MODEL_MAY_NOT_SAY,
   TRIAGE_ACTIONS,
   TRIAGE_LABELS,
   TRIAGE_REVISION,
@@ -30,18 +27,16 @@ import {
 
 /** Every label both boards must draw, as literals. Duplicated verbatim in each client's suite — see the test below. */
 const TRIAGE_LABEL_ROWS: [TriageAction, TriageQualifier | null, string][] = [
-  ['begin-work', null, 'Begin work'],
-  ['answer-design-question', null, 'Answer design question'],
-  ['uat-question', null, 'UAT question'],
-  ['uat-failure', null, 'UAT failure'],
+  ['develop', null, 'Develop'],
+  ['dev-question', null, 'Dev question'],
+  ['qa-question', null, 'QA question'],
+  ['qa-failure', null, 'QA failure'],
   ['review-others', 'initial', 'Review their PR · initial'],
   ['review-others', 'followup', 'Review their PR · followup'],
   ['address-review', 'initial', 'Answer review · initial'],
   ['address-review', 'followup', 'Answer review · followup'],
   ['fix-checks', null, 'Fix failing checks'],
   ['merge-upstream', null, 'Merge upstream'],
-  ['resolve-conflicts', null, 'Resolve conflicts'],
-  ['land', null, 'Land it'],
   ['other', null, 'Other'],
 ];
 
@@ -77,7 +72,7 @@ function lanesOf(...cards: BoardCard[]): Lane[] {
 function entry(over: Partial<TriageEntry> = {}): TriageEntry {
   return {
     revision: TRIAGE_REVISION,
-    action: 'begin-work',
+    action: 'develop',
     qualifier: null,
     detail: 'Pick it up.',
     at: 1_000,
@@ -181,7 +176,7 @@ describe('what a pass leaves behind', () => {
     const away = lanesOf(card({ issue: issue({ status: '🚀 Released' }) }));
     const next = nextTriageState(away, state({ entries: { 'issue:17198': entry() } }), true);
 
-    expect(next.entries['issue:17198']).toMatchObject({ action: 'begin-work', wasArchived: true });
+    expect(next.entries['issue:17198']).toMatchObject({ action: 'develop', wasArchived: true });
   });
 
   it('prunes a card that left the board on a clean read, and keeps it on a failed one', () => {
@@ -212,7 +207,7 @@ describe('reading the stored state', () => {
   it('drops one unusable entry rather than the whole file, which would re-read the entire board', () => {
     const stored = {
       entries: {
-        'issue:1': { revision: TRIAGE_REVISION, action: 'land', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' },
+        'issue:1': { revision: TRIAGE_REVISION, action: 'merge-upstream', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' },
         'issue:2': { revision: TRIAGE_REVISION, action: 'a-thing-no-build-has', detail: 'go', at: 1, agent: 'claude' },
       },
       failures: { 'issue:3': { kind: 'k', message: 'm', attempts: 1, nextAt: 5 }, 'issue:4': { kind: 'k' } },
@@ -226,7 +221,7 @@ describe('reading the stored state', () => {
 
   it('defaults the fields that carry a sensible absence, within one revision', () => {
     const read = readTriageState({
-      entries: { 'issue:1': { revision: TRIAGE_REVISION, action: 'land', detail: 'go', at: 1, agent: 'claude' } },
+      entries: { 'issue:1': { revision: TRIAGE_REVISION, action: 'merge-upstream', detail: 'go', at: 1, agent: 'claude' } },
     });
 
     expect(read.entries['issue:1']).toMatchObject({ qualifier: null, wasArchived: false, evidence: '' });
@@ -235,7 +230,7 @@ describe('reading the stored state', () => {
   it('drops an entry read under an older revision, which is what re-reads those cards', () => {
     // The file outlives the build that wrote it, and a card is read once — so without this the board goes on showing
     // sentences a fixed classifier would no longer write. Dropping the entry is what makes its card due again.
-    const older = { action: 'begin-work', detail: 'Pick it up.', at: 1, agent: 'claude' };
+    const older = { action: 'develop', detail: 'Pick it up.', at: 1, agent: 'claude' };
     const read = readTriageState({
       entries: {
         'issue:1': older,
@@ -251,7 +246,7 @@ describe('reading the stored state', () => {
     const read = readTriageState({
       entries: {
         'issue:1': { revision: TRIAGE_REVISION, action: 'awaiting-others', detail: 'Waiting.', at: 1, agent: 'claude' },
-        'issue:2': { revision: TRIAGE_REVISION, action: 'begin-work', detail: 'Pick it up.', at: 1, agent: 'claude' },
+        'issue:2': { revision: TRIAGE_REVISION, action: 'develop', detail: 'Pick it up.', at: 1, agent: 'claude' },
       },
     });
 
@@ -271,7 +266,7 @@ function offered(): readonly string[] {
 
 describe('the classifier answer', () => {
   it('takes an answer that is one of the actions the model was offered', () => {
-    expect(readTriageResult({ action: 'uat-failure', detail: 'Safari.' }, null)).toEqual({ action: 'uat-failure', detail: 'Safari.' });
+    expect(readTriageResult({ action: 'qa-failure', detail: 'Safari.' }, null)).toEqual({ action: 'qa-failure', detail: 'Safari.' });
   });
 
   it('refuses an action no build has, rather than reading it as other', () => {
@@ -282,16 +277,20 @@ describe('the classifier answer', () => {
     expect(readTriageResult('other', null)).toBeNull();
   });
 
-  it('refuses only the one action the hub alone may say', () => {
-    // The model may report a problem somebody named — the commonest comment on a pull request is that its auto-merge
-    // failed, and `mergeable` reads UNKNOWN in the window a card arrives. Only "everything is fine" is a fact.
-    expect(readTriageResult({ action: 'land', detail: 'go' }, null)).toBeNull();
-    expect(offered()).not.toContain('land');
-
-    for (const action of ['resolve-conflicts', 'merge-upstream', 'fix-checks'] as const) {
+  it('takes a merge from the model, because a merge is a request rather than a fact', () => {
+    // R39: nothing derives a merge, so the model reading somebody asking for one is the only channel there is.
+    // A fact still outranks it — `derivedAction` settles `fix-checks` before the model is asked at all.
+    for (const action of ['merge-upstream', 'fix-checks'] as const) {
       expect(readTriageResult({ action, detail: 'go' }, null)).toEqual({ action, detail: 'go' });
       expect(offered()).toContain(action);
     }
+  });
+
+  it('refuses a retired action, so a stale answer never reaches a card', () => {
+    expect(readTriageResult({ action: 'land', detail: 'go' }, null)).toBeNull();
+    expect(readTriageResult({ action: 'resolve-conflicts', detail: 'go' }, null)).toBeNull();
+    expect(offered()).not.toContain('land');
+    expect(offered()).not.toContain('resolve-conflicts');
   });
 
   it('cuts an over-long sentence at a word rather than discarding a good classification', () => {
@@ -303,12 +302,9 @@ describe('the classifier answer', () => {
     expect(result?.detail).not.toContain('wor…');
   });
 
-  it('offers the model every action but the one only the hub may say, and labels all twelve', () => {
-    expect(offered()).toEqual([...CLASSIFIED_ACTIONS]);
-    expect([...CLASSIFIED_ACTIONS, ...MODEL_MAY_NOT_SAY].sort()).toEqual([...TRIAGE_ACTIONS].sort());
+  it('offers the model every action there is, and labels all nine', () => {
+    expect(offered()).toEqual([...TRIAGE_ACTIONS]);
     expect(Object.keys(TRIAGE_LABELS).sort()).toEqual([...TRIAGE_ACTIONS].sort());
-    // Still the hub's to decide wherever GitHub has computed one, whatever the model was allowed to answer.
-    expect(DERIVED_ACTIONS).toEqual(['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land']);
   });
 });
 
@@ -330,9 +326,10 @@ describe('what the evidence settles before the model is asked', () => {
         isDraft: false,
         author: 'dev-1',
         authorName: null,
+        baseRefName: 'master',
+        headRefName: '17198-channel-mapping',
+        headOid: '9ab0cde1111111111111111111111111111111ff',
         reviewDecision: null,
-        mergeable: 'MERGEABLE',
-        mergeStateStatus: 'BLOCKED',
         checkState: 'SUCCESS',
         comments: [],
         reviews: [],
@@ -340,25 +337,42 @@ describe('what the evidence settles before the model is asked', () => {
         threads: [],
         ...over,
       },
+      repository: 'example-org/example-repo',
+      defaultBranch: 'master',
     };
   }
 
-  it('reads each fact as its own action', () => {
-    expect(derivedAction(context({ mergeable: 'CONFLICTING' }))).toBe('resolve-conflicts');
+  it('reads a red check rollup as the one fact it derives', () => {
     expect(derivedAction(context({ checkState: 'FAILURE' }))).toBe('fix-checks');
     expect(derivedAction(context({ checkState: 'ERROR' }))).toBe('fix-checks');
-    expect(derivedAction(context({ mergeStateStatus: 'BEHIND' }))).toBe('merge-upstream');
-    expect(derivedAction(context({ mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED' }))).toBe('land');
   });
 
-  it('puts a branch that will not merge ahead of one whose checks are red', () => {
-    expect(derivedAction(context({ mergeable: 'CONFLICTING', checkState: 'FAILURE' }))).toBe('resolve-conflicts');
-    expect(derivedAction(context({ checkState: 'FAILURE', mergeStateStatus: 'BEHIND' }))).toBe('fix-checks');
+  /**
+   * The derived set is exactly one, and this is what would catch a second rule creeping back in: every state a
+   * pull request can be in, and the only label the facts ever settle is the failing check (R39).
+   */
+  it('derives nothing but the failing check, over every state a pull request can be in', () => {
+    const states: Partial<TriageContext['pullRequest']>[] = [];
+
+    for (const checkState of ['SUCCESS', 'PENDING', null]) {
+      for (const reviewDecision of ['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED', null]) {
+        for (const baseRefName of ['master', '17000-parent-feature']) {
+          states.push({ checkState, reviewDecision, baseRefName });
+        }
+      }
+    }
+
+    expect(states).toHaveLength(24);
+    expect([...new Set(states.map((state) => derivedAction(context(state))))]).toEqual([null]);
   });
 
-  it('reads UNKNOWN as not computed rather than as fine, in either direction', () => {
-    expect(derivedAction(context({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }))).toBeNull();
-    expect(derivedAction(context({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN', reviewDecision: 'APPROVED' }))).toBeNull();
+  /**
+   * R39: a branch going stale under a card is not an instruction to touch it, and one that will not merge is not the
+   * developer's to fix. An approved, green pull request used to read `land`; now the conversation decides.
+   */
+  it('says nothing about an approved pull request, whatever else is true of it', () => {
+    expect(derivedAction(context({ reviewDecision: 'APPROVED' }))).toBeNull();
+    expect(derivedAction(context({ reviewDecision: 'APPROVED', checkState: null }))).toBeNull();
   });
 
   it('reads a null check rollup as a repository with no checks, not as checks that failed', () => {
@@ -367,9 +381,9 @@ describe('what the evidence settles before the model is asked', () => {
 
   it('says nothing about a draft, a colleague pull request, or one already landed', () => {
     expect(derivedAction(context({ isDraft: true, checkState: 'FAILURE' }))).toBeNull();
-    expect(derivedAction(context({ author: 'dev-9', mergeable: 'CONFLICTING' }))).toBeNull();
-    expect(derivedAction(context({ state: 'MERGED', mergeable: 'CONFLICTING' }))).toBeNull();
-    expect(derivedAction(context({ state: 'CLOSED', mergeable: 'CONFLICTING' }))).toBeNull();
+    expect(derivedAction(context({ author: 'dev-9', checkState: 'FAILURE' }))).toBeNull();
+    expect(derivedAction(context({ state: 'MERGED', checkState: 'FAILURE' }))).toBeNull();
+    expect(derivedAction(context({ state: 'CLOSED', checkState: 'FAILURE' }))).toBeNull();
   });
 
   it('says nothing at all about a card with no pull request', () => {
@@ -382,9 +396,9 @@ describe('what the evidence settles before the model is asked', () => {
     const lanes = { '🎁 Assigned': 'unstarted', '🔍 Dev Review': 'review' } as const;
 
     expect(statusAction('🔍 Dev Review', lanes)).toBe('review-others');
-    expect(statusAction('🎁 Assigned', lanes)).toBe('begin-work');
-    expect(settledAction({ ...context({ author: 'dev-9', mergeable: 'CONFLICTING' }), status: '🔍 Dev Review' }, lanes)).toBe('review-others');
-    expect(settledAction({ ...context({ checkState: 'FAILURE' }), status: '🎁 Assigned' }, lanes)).toBe('begin-work');
+    expect(statusAction('🎁 Assigned', lanes)).toBe('develop');
+    expect(settledAction({ ...context({ author: 'dev-9', checkState: 'FAILURE' }), status: '🔍 Dev Review' }, lanes)).toBe('review-others');
+    expect(settledAction({ ...context({ checkState: 'FAILURE' }), status: '🎁 Assigned' }, lanes)).toBe('develop');
   });
 
   it('never calls the developer own open pull request theirs to review, whatever the status says', () => {
@@ -393,9 +407,7 @@ describe('what the evidence settles before the model is asked', () => {
     const lanes = { '🔍 Dev Review': 'review' } as const;
     const own = (over = {}) => ({ ...context(over), status: '🔍 Dev Review' });
 
-    expect(settledAction(own({ mergeable: 'CONFLICTING' }), lanes)).toBe('resolve-conflicts');
-    // And Land it stays reachable: it is read off the pull request alone, so a review status must not swallow it.
-    expect(settledAction(own({ mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED' }), lanes)).toBe('land');
+    expect(settledAction(own({ checkState: 'FAILURE' }), lanes)).toBe('fix-checks');
     // Nothing computed about it either, so the conversation decides — a pull request awaiting a reviewer is Other.
     expect(settledAction(own(), lanes)).toBeNull();
     // A merged or closed one is read as nothing, the way lane arrival reads it, so the status stands again.
@@ -410,7 +422,7 @@ describe('what the evidence settles before the model is asked', () => {
     expect(statusAction('⚒️ Dev', lanes)).toBeNull();
     expect(statusAction(null, lanes)).toBeNull();
     expect(statusAction('⚒️ Dev', {})).toBeNull();
-    expect(settledAction(context({ mergeable: 'CONFLICTING' }), lanes)).toBe('resolve-conflicts');
+    expect(settledAction(context({ checkState: 'FAILURE' }), lanes)).toBe('fix-checks');
     expect(settledAction(context(), lanes)).toBeNull();
   });
 
@@ -422,7 +434,7 @@ describe('what the evidence settles before the model is asked', () => {
   it('keeps the model sentence, because it was written knowing the action', () => {
     // Nothing is overruled after the fact any more: the action is settled before the ask and the model is told it,
     // so a card can no longer carry a label and a sentence describing different states (R24).
-    expect(resolveTriage('review-others', { action: 'begin-work', detail: 'Rich sent it over for review.' }, context())).toEqual({
+    expect(resolveTriage('review-others', { action: 'develop', detail: 'Rich sent it over for review.' }, context())).toEqual({
       action: 'review-others',
       qualifier: 'initial',
       detail: 'Rich sent it over for review.',
@@ -430,8 +442,8 @@ describe('what the evidence settles before the model is asked', () => {
   });
 
   it('takes the model action where nothing settled one', () => {
-    expect(resolveTriage(null, { action: 'uat-failure', detail: 'Safari.' }, context())).toMatchObject({
-      action: 'uat-failure',
+    expect(resolveTriage(null, { action: 'qa-failure', detail: 'Safari.' }, context())).toMatchObject({
+      action: 'qa-failure',
       detail: 'Safari.',
     });
   });
@@ -477,8 +489,8 @@ describe('what the evidence settles before the model is asked', () => {
   });
 
   it('qualifies nothing else', () => {
-    expect(qualifierOf('land', context())).toBeNull();
-    expect(qualifierOf('uat-failure', context())).toBeNull();
+    expect(qualifierOf('fix-checks', context())).toBeNull();
+    expect(qualifierOf('qa-failure', context())).toBeNull();
   });
 
   /**

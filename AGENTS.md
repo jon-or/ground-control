@@ -75,6 +75,7 @@ The full rules are in [docs/testing.md](docs/testing.md). The short version:
 | `packages/host-vscode` | The VS Code host adapter's headless half: lock files, window stores, the placement table, the open plan, the changes fold. **Must not import `vscode`.** |
 | `packages/github` | The `github` work source: assigned issues read through the `gh` CLI. **Must not import `vscode`.** |
 | `packages/board` | Merges assigned issues and live sessions into board cards. **Must not import `vscode`.** |
+| `packages/automation` | Which cards the board may act on, what a run is authorised against, and what it remembers having run. **Must not import `vscode`.** |
 | `packages/hub` | The background process the boards are clients of, and how a client reaches it: the registries and defaults, the loop, activity install, the marker watcher, lane memory, the loopback server, and the client's own transport — finding or starting a hub, and the event stream it then rides. **Must not import `vscode`.** |
 | `apps/hub` | The hub as its own process: `ground-control-hub`, an argument parser over `packages/hub`, plus the machine half of its modes — the spawn, the native-messaging streams, and `reg.exe`. **Must not import `vscode`.** |
 | `extensions/ground-control` | The extension — activation, config, the webview board panel, and the client that starts the hub and talks to it. Carries the hub as `dist/hub.js`. Imports `vscode`. |

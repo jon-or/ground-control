@@ -72,8 +72,9 @@ export type BridgeMessage = HubMessage | { type: 'trouble'; message: string | nu
 
 /**
  * What the browser may ask for, and what it may not. The overlay watches and moves cards, and goes to a session by
- * navigating rather than through here (R36). A configuration carries paths the hub would spawn, and stopping a
- * session and taking it over is the editor's (R15) — neither is the browser's to send.
+ * navigating rather than through here (R36). A configuration carries paths the hub would spawn, stopping a session
+ * and taking it over is the editor's (R15), and starting work on a card runs an agent against the developer's own
+ * checkout (R39) — none of those is the browser's to send.
  */
 export type BridgeAction = { send: ClientMessage } | { refused: string };
 
@@ -104,6 +105,12 @@ export function bridgeAction(raw: unknown): BridgeAction {
 
   if (message.type === 'open') {
     return { refused: 'The browser board goes to a session by opening its link, not by asking the hub.' };
+  }
+
+  // Refused by name rather than by the catch-all below, because this is the one message that would have a web page
+  // start an agent in the developer's checkout. The overlay shows what a run came to and offers no control (R39).
+  if (message.type === 'runAction' || message.type === 'stopAction') {
+    return { refused: 'Starting and stopping work on a card is the editor board’s, not the browser’s.' };
   }
 
   return { refused: `The overlay may not send ${String(message.type)}.` };

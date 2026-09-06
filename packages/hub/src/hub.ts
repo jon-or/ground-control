@@ -24,6 +24,9 @@ import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } f
 import type { ActivityState } from './activityInstall.js';
 import { read } from './fs.js';
 import type { LaneStore } from './lanes.js';
+import { ActionRunner } from './actions.js';
+import { makeActionStore } from './actionStore.js';
+import type { ActionStore } from './actionStore.js';
 import { TriageRunner } from './triage.js';
 import { makeTriageStore } from './triageStore.js';
 import type { TriageStore } from './triageStore.js';
@@ -50,6 +53,8 @@ export interface HubDeps {
   marks: MarkStore;
   /** What the board has read about each card, kept beside the placements and read the same way (R38). */
   triage: TriageStore;
+  /** What the board has run on each card, kept the same way again (R39). */
+  actions: ActionStore;
   /** The configuration a client last pushed. A hub starts on it, because the browser has none of its own to give. */
   settings: SettingsStore;
   /** The activity install, which is also the thing a test replaces to keep its hands off any settings file. */
@@ -112,6 +117,7 @@ export function realHubDeps(
   home: string,
   watch: HubDeps['watch'],
   triage: TriageStore = makeTriageStore(home),
+  actions: ActionStore = makeActionStore(home),
 ): HubDeps {
   return {
     clock: REAL_CLOCK,
@@ -121,6 +127,7 @@ export function realHubDeps(
     lanes,
     marks,
     triage,
+    actions,
     settings,
     syncActivity: (regs, wanted, where) => syncActivity(regs.agents, wanted, where),
   };
@@ -165,6 +172,7 @@ export class Hub {
   #installedAt = 0;
   #disposed = false;
   readonly #triage: TriageRunner;
+  readonly #actions: ActionRunner;
 
   constructor(deps: HubDeps) {
     this.#deps = deps;
@@ -189,6 +197,23 @@ export class Hub {
       announce: (message) => this.#tellOnceAboutTriage(message),
     });
     this.#triage.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes);
+    this.#actions = new ActionRunner({
+      home: deps.home,
+      store: deps.actions,
+      agents: deps.registries.agents,
+      sources: deps.registries.sources,
+      now: () => deps.clock.now(),
+      changed: () => this.#broadcast(),
+      announce: (message) => this.#tellOnceAboutActions(message),
+      // Every client, because the runner does not know which one pressed and a board the developer is not looking at
+      // is a board that says nothing. One notice per refusal, which is what R25 asks of a condition stated once.
+      notify: (message) => {
+        for (const client of this.#clients.values()) {
+          client.send({ type: 'notice', level: 'info', message });
+        }
+      },
+    });
+    this.#actions.configure(this.#config.actions, this.#config.agents);
     pruneMarkers(deps.registries.agents, deps.home);
     this.#armWatchers();
   }
@@ -281,6 +306,27 @@ export class Hub {
 
         return;
       }
+
+      case 'runAction': {
+        // The message that changes the developer's code. Every gate an automatic dispatch runs is run for this one
+        // too, against a fresh read — what the click replaces is the setting, never a safety check.
+        const refused = this.#actions.runAction(this.snapshot().lanes, message.key);
+
+        if (refused) {
+          connected.send({ type: 'notice', level: 'info', message: refused.message });
+        }
+
+        return;
+      }
+
+      case 'stopAction':
+        void this.#actions.stopAction(message.key).then((refused) => {
+          if (refused) {
+            connected.send({ type: 'notice', level: 'warning', message: refused.message });
+          }
+        });
+
+        return;
     }
   }
 
@@ -359,6 +405,7 @@ export class Hub {
   /** Hands each host and each source its own entry. Every id the registries do not carry is named here (R25). */
   #applyConfig(): ReadFailure[] {
     this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes);
+    this.#actions?.configure(this.#config.actions, this.#config.agents);
 
     const refused = configureSources(this.#deps.registries, this.#config.sources);
 
@@ -829,7 +876,7 @@ export class Hub {
       failures.push({ ...failure, subject: 'sessions' });
     }
 
-    failures.push(...this.#triage.failures());
+    failures.push(...this.#triage.failures(), ...this.#actions.failures());
 
     const memory = this.#memory();
     const items = this.#items();
@@ -844,8 +891,11 @@ export class Hub {
       memory,
     );
 
-    // Attached after the lanes are settled, and it changes none of them: triage labels a card, it never places one.
-    const lanes = withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now());
+    // Attached after the lanes are settled, and neither changes them: triage labels a card and an action works on
+    // what a card holds. Placement stays the developer's alone (R8).
+    const lanes = this.#actions.decorate(
+      withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now()),
+    );
 
     return {
       lanes,
@@ -1001,6 +1051,13 @@ export class Hub {
     // snapshot saying so — sent from inside this call, it would be followed by `base`, which was taken before the
     // reading began. Every client's last word would then be that nothing is being read, until the reading finished.
     this.#triage.consider(base.lanes, this.#sourcesRead(), this.#watched());
+    this.#actions.consider(
+      base.lanes,
+      this.#sessions?.sessions ?? [],
+      this.#sourcesRead(),
+      this.#sessions !== undefined && this.#sessions.failures.length === 0,
+      this.#watched(),
+    );
   }
 
   /**
@@ -1019,6 +1076,22 @@ export class Hub {
     }
   }
 
+  /**
+   * Said once per machine, the first time the board actually starts work on the developer's code. The setting is the
+   * consent; this is the moment it becomes an agent editing a checkout, and a warning is what R32's line deserves.
+   */
+  #tellOnceAboutActions(message: string): void {
+    if (this.#deps.marks.read().actionsToldAt !== null) {
+      return;
+    }
+
+    this.#deps.marks.write({ ...this.#deps.marks.read(), actionsToldAt: this.#deps.clock.now() });
+
+    for (const client of this.#clients.values()) {
+      client.send({ type: 'notice', level: 'warning', message });
+    }
+  }
+
   /** Only a clean source read proves a card has left the board; a failed one re-renders the last good cards. */
   #sourcesRead(): boolean {
     const readings = [...this.#readings.values()];
@@ -1029,6 +1102,7 @@ export class Hub {
   dispose(): void {
     this.#disposed = true;
     this.#triage.dispose();
+    this.#actions.dispose();
 
     while (this.#timers.length > 0) {
       this.#deps.clock.clearInterval(this.#timers.pop()!);

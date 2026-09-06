@@ -52,6 +52,9 @@ const contextResponse = z.object({
   data: z.object({
     repository: z
       .object({
+        // Defaulted: a context fixture recorded before it was selected must stay readable, and a repository whose
+        // default branch cannot be read refuses every action rather than assuming one (R39).
+        defaultBranchRef: z.object({ name: z.string() }).nullable().default(null),
         issue: z
           .object({
             number: z.number(),
@@ -70,12 +73,19 @@ const contextResponse = z.object({
             state: z.string(),
             isDraft: z.boolean(),
             author: actor,
+            // Defaulted for the same reason `defaultBranchRef` is. An empty base or head refuses every action: the
+            // board will not merge a branch it could not name.
+            baseRefName: z.string().default(''),
+            headRefName: z.string().default(''),
             reviewDecision: z.string().nullable(),
-            mergeable: z.string().nullable(),
-            mergeStateStatus: z.string().nullable(),
             commits: z.object({
               nodes: z.array(
-                z.object({ commit: z.object({ statusCheckRollup: z.object({ state: z.string() }).nullable() }) }),
+                z.object({
+                  commit: z.object({
+                    oid: z.string().default(''),
+                    statusCheckRollup: z.object({ state: z.string() }).nullable(),
+                  }),
+                }),
               ),
             }),
             comments: z.object({ nodes: z.array(comment) }),
@@ -217,9 +227,10 @@ function pullRequestOf(raw: NonNullable<z.infer<typeof contextResponse>['data'][
     isDraft: raw.isDraft,
     author: raw.author?.login ?? null,
     authorName: raw.author?.name ?? null,
+    baseRefName: raw.baseRefName,
+    headRefName: raw.headRefName,
+    headOid: raw.commits.nodes[0]?.commit.oid ?? '',
     reviewDecision: raw.reviewDecision,
-    mergeable: raw.mergeable,
-    mergeStateStatus: raw.mergeStateStatus,
     // Null where the repository runs no checks at all, which is not the same as checks that have not passed.
     checkState: raw.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
     comments: commentsOf(raw.comments.nodes),
@@ -319,6 +330,8 @@ export async function fetchCardContext(
       comments: commentsOf(issue.comments.nodes),
       pullRequest: pullRequestOf(parsed.data.data.repository.pullRequest),
       logins: config.logins,
+      repository: `${repository.owner}/${repository.name}`,
+      defaultBranch: parsed.data.data.repository.defaultBranchRef?.name ?? null,
     },
     failure: null,
   };

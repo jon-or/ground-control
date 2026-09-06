@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildSearchQuery } from '../src/index.js';
-import { ASSIGNED_ISSUES_QUERY } from '../src/queries.js';
+import { ASSIGNED_ISSUES_QUERY, CARD_CONTEXT_QUERY } from '../src/queries.js';
 import { config } from './helpers.js';
 
 describe('ASSIGNED_ISSUES_QUERY', () => {
@@ -16,6 +16,21 @@ describe('ASSIGNED_ISSUES_QUERY', () => {
     for (const field of ['isDraft', 'reviewDecision', 'author']) {
       expect(selection).toContain(field);
     }
+  });
+});
+
+describe('CARD_CONTEXT_QUERY', () => {
+  /**
+   * R39: a merge is something somebody asks for, and a run's success is the run's own signal. Nothing on this board
+   * reads GitHub's mergeability, so asking for it would be a field fetched on every card read with no consumer.
+   */
+  it('asks for no mergeability', () => {
+    expect(CARD_CONTEXT_QUERY).not.toContain('mergeable');
+    expect(CARD_CONTEXT_QUERY).not.toContain('mergeStateStatus');
+  });
+
+  it('asks for the head commit a run is authorised against', () => {
+    expect(CARD_CONTEXT_QUERY).toContain('commit{ oid');
   });
 });
 

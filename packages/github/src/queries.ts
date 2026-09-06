@@ -28,17 +28,23 @@ query($cards:String!, $all:String!, $after:String){
 /**
  * One card's conversation, for triage (`prd.md` R38). The issue and the one pull request the card is showing are asked
  * for together because they are one question — what is this card asking for — and two round trips would double the
- * cost of a cold start. `mergeStateStatus`, `statusCheckRollup` and `reviewThreads` need no preview header
+ * cost of a cold start. `statusCheckRollup` and `reviewThreads` need no preview header
  * (`docs/mechanics.md` §31); `reviews` and `reviewRequests` are what tell a first review round from a later one, and
  * a colleague's pull request awaiting the developer from their own. The `profile` fragment resolves to nothing on
  * a bot — `claude` and `github-actions` are not `User` — so those keep the login the board already had.
  *
  * `timelineItems` is what says when the card became what it is: on this team's board a status names the work and the
  * assignee names who does it, so a move with no comment on it is still an instruction (`docs/mechanics.md` §32).
+ *
+ * `defaultBranchRef` and `baseRefName` are what decide whether keeping a branch current is one merge or a chain, and
+ * `oid` is the head commit a run's evidence carries, which is what authorises one run per push (R39). GitHub's own
+ * mergeability is not asked for: a merge is something somebody requests, and whether one happened is the run's own
+ * report, so nothing on this board is decided by it.
  */
 export const CARD_CONTEXT_QUERY = `
 query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
   repository(owner:$owner, name:$name){
+    defaultBranchRef{ name }
     issue(number:$issue){
       number title body
       comments(last:5){ nodes{ body createdAt authorAssociation author{ login ...profile } } }
@@ -52,8 +58,9 @@ query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
     pullRequest(number:$pr) @include(if:$withPr){
       number title body state isDraft
       author{ login ...profile }
-      reviewDecision mergeable mergeStateStatus
-      commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } }
+      baseRefName headRefName
+      reviewDecision
+      commits(last:1){ nodes{ commit{ oid statusCheckRollup{ state } } } }
       comments(last:5){ nodes{ body createdAt authorAssociation author{ login ...profile } } }
       reviews(last:20){ nodes{ state submittedAt author{ login ...profile } } }
       reviewRequests(first:10){ nodes{ requestedReviewer{

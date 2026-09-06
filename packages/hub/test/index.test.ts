@@ -4,6 +4,7 @@ import * as api from '../src/index.js';
 describe('the package public surface', () => {
   it('exposes what a client and the daemon consume, and nothing test-only', () => {
     expect(Object.keys(api).sort()).toEqual([
+      'ActionRunner',
       'BACKUPS_KEPT',
       'BATCH_MS',
       'BODY_LIMIT_BYTES',
@@ -22,6 +23,8 @@ describe('the package public surface', () => {
       'STARTS_PER_MINUTE',
       'START_POLL_MS',
       'START_TIMEOUT_MS',
+      'actionReportPathOf',
+      'actionsPathOf',
       'activityAcknowledgement',
       'activityNotice',
       'afterInstall',
@@ -46,6 +49,7 @@ describe('the package public surface', () => {
       'lanesPathOf',
       'lockIsStale',
       'logPathOf',
+      'makeActionStore',
       'makeEnsure',
       'makeHub',
       'makeLaneStore',

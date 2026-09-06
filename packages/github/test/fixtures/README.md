@@ -52,18 +52,16 @@ A `-` in a slot leaves that fixture alone, so one card can be re-recorded withou
 
 | File | What it demonstrates |
 |---|---|
-| `context-review.json` | A card with an open pull request carrying a submitted review and one resolved thread — `MERGEABLE`/`BLOCKED`, checks green. Its issue body is padded past the reader's 2 KB limit, so one fixture exercises clipping |
+| `context-review.json` | A card with an open pull request carrying a submitted review and one resolved thread — checks green. Its issue body is padded past the reader's 2 KB limit, so one fixture exercises clipping |
 | `context-fresh.json` | The same shape with no reviews, no threads and no review requests: a pull request nobody has looked at yet |
 | `context-no-pr.json` | An issue with comments and no pull request at all, recorded with `withPr=false` |
-| `context-bots.json` | A colleague's pull request commented on by bots — no profile name, no author association |
+| `context-bots.json` | A colleague's pull request commented on by bots — no profile name, no author association — which also happens to be **stacked on another feature branch**, so `baseRefName` is not the repository's default. That is the case R39 refuses to automate, recorded rather than invented |
 | `context-handover.json` | A card handed over with nothing written on it: the status moved and the mover took themselves off it eight seconds later, and somebody else assigned the developer two and a half hours after that. Every comment predates all of it, which is what the live/background split is read against |
 
 Run with no arguments to re-scrub what is on disk.
 
-**Two states are derived in the tests rather than recorded, and say so there.** `mergeable: UNKNOWN` is what GitHub
-answers only in the window before it has computed mergeability — the ask itself starts the computation
-(`docs/mechanics.md` §31) — so it cannot be captured on demand. A null `statusCheckRollup` is the same: it appears
-only on a commit no check ran against.
+**One state is derived in the tests rather than recorded, and says so there.** A null `statusCheckRollup` appears
+only on a commit no check ran against, so it cannot be captured from a repository that runs them.
 
 ### Scrubbing
 
@@ -76,6 +74,18 @@ person is the same `dev-N` in every file; a requested team becomes `team-N` for 
 Kept, because the tests turn on them: issue and pull request numbers, comment order, author associations, review
 states and timestamps, thread resolution, every merge and check field, and the project statuses on the timeline —
 those are the project's own column names, they identify nobody, and the shipped defaults already carry the same list.
+
+**A branch name is free text and is rebuilt, not matched.** A name like `19072-requeue-rules-import` is the issue
+title with the spaces taken out, so it names real work as surely as the title does. The leading issue number
+survives — the tests turn on it and an integer names nobody — and the rest is rebuilt through `branchFor` in
+`tools/fixture-scrub.js`, the same shared vocabulary every other package's recording uses, so issue 19072's branch
+reads the same everywhere. The branches every repository has — `main`, `master`, `trunk`, `develop` — are left
+alone: they name nobody, and whether a base equals the default branch is the whole of what decides that a merge is
+one leg or a chain of them.
+
+The second sweep covers branch names too: every ref-shaped value in the written file must be one `branchFor` would
+have produced. That is what catches one arriving in a field nobody enumerated — a `headRef` the query grows later,
+a merge-queue entry — rather than only in the two the anonymiser knows about today.
 
 It asserts twice before writing — that each recorded value is gone, and that nothing shaped like a link, an email
 address or an `@mention` survives anywhere in the file. The second is the sweep that catches what the first never

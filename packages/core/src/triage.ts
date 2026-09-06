@@ -1,19 +1,17 @@
 /**
- * What a card is asking the developer to do next, decided once when the card arrives (`prd.md` R38). Most are a
- * judgement about what people wrote; the four in `DERIVED_ACTIONS` are facts about a pull request, and the hub
- * decides those itself rather than leaving them to a classifier (R23 — evidence over an agent's word).
+ * What a card is asking the developer to do next, decided once when the card arrives (`prd.md` R38). All but
+ * `fix-checks` are a judgement about what people wrote; that one is a fact about a pull request, and the hub decides
+ * it itself rather than leaving it to a classifier (R23 — evidence over an agent's word).
  */
 export const TRIAGE_ACTIONS = [
-  'begin-work',
-  'answer-design-question',
-  'uat-question',
-  'uat-failure',
+  'develop',
+  'dev-question',
+  'qa-question',
+  'qa-failure',
   'review-others',
   'address-review',
   'fix-checks',
   'merge-upstream',
-  'resolve-conflicts',
-  'land',
   'other',
 ] as const;
 
@@ -119,8 +117,8 @@ export interface TriageThread {
 
 /**
  * The pull request the card is showing — the same one `selectPullRequest` chose, never a second answer to the same
- * question. `mergeable` and `mergeStateStatus` are `UNKNOWN` until GitHub has computed them, which is often the case
- * the moment a card arrives (`docs/mechanics.md` §31), so they are carried as read and judged nowhere but one place.
+ * question. GitHub's own mergeability is not read: whether a branch needs merging is what somebody asked for, and
+ * whether a merge happened is what the run itself reported (`prd.md` R39).
  */
 export interface TriagePullRequest {
   number: number;
@@ -130,9 +128,17 @@ export interface TriagePullRequest {
   isDraft: boolean;
   author: string | null;
   authorName: string | null;
+  /**
+   * The branch this would merge into. What decides whether keeping the head current is one merge or a chain: a
+   * branch based on another feature branch needs its parent current first, and the board cannot verify that order
+   * (R39). Empty only on a recording made before it was selected.
+   */
+  baseRefName: string;
+  /** The branch the work is on, which is what a dispatched merge is told to merge into. */
+  headRefName: string;
+  /** The head commit, and a run's whole evidence: one run per push, and never a second against the same commit. */
+  headOid: string;
   reviewDecision: string | null;
-  mergeable: string | null;
-  mergeStateStatus: string | null;
   /** `SUCCESS`, `FAILURE`, `ERROR`, `PENDING`, or null where the repository runs no checks at all. */
   checkState: string | null;
   comments: TriageComment[];
@@ -169,4 +175,11 @@ export interface TriageContext {
   pullRequest: TriagePullRequest | null;
   /** The developer's own logins, so the prompt can say which words are theirs. */
   logins: string[];
+  /** `owner/name`, as the card's own URL carries it. What a dispatched run is told it is working in. */
+  repository: string;
+  /**
+   * The branch the repository merges into by default. Read rather than assumed: a pull request based on anything
+   * else is a chain the board refuses to automate (R39), and "master" is a convention, not a fact.
+   */
+  defaultBranch: string | null;
 }

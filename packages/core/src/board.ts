@@ -1,4 +1,5 @@
 import { dirKey } from './paths.js';
+import type { CardAction } from './actions.js';
 import type { IssueCard } from './cards.js';
 import type { CardTriage } from './triage.js';
 import type { HistoricalSession, Session } from './types.js';
@@ -42,6 +43,8 @@ export interface LanedCard extends BoardCard {
   reason: string;
   /** What the board has worked out this card is asking for, where it has read one. Absent on a card never triaged. */
   triage?: CardTriage;
+  /** What the board can do about that reading, or has done. Absent where the card's action is not one it performs. */
+  action?: CardAction;
 }
 
 export interface Lane {

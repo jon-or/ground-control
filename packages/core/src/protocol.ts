@@ -65,7 +65,12 @@ export type ClientMessage =
   | { type: 'open'; sessionId: string; extensionReady: boolean }
   // The one message that spends money, so the hub checks the key names a card on the board and holds a cooldown
   // rather than taking it on trust the way every other, idempotent, message is taken.
-  | { type: 'retriage'; key: string };
+  | { type: 'retriage'; key: string }
+  // The developer asking for a card's action by hand. It runs every gate a dispatch the board made itself runs, and
+  // the ceilings too — what it skips is the setting, because the click is the opt-in for this one card (R32).
+  | { type: 'runAction'; key: string }
+  // Taking back a run in flight. Never a lane change and never a refusal of the card, only the session it started.
+  | { type: 'stopAction'; key: string };
 
 export type HubMessage =
   | { type: 'snapshot'; snapshot: Snapshot }

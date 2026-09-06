@@ -1,6 +1,9 @@
 {
   "data": {
     "repository": {
+      "defaultBranchRef": {
+        "name": "master"
+      },
       "issue": {
         "number": 19072,
         "title": "Listing sync retries a settled charge",
@@ -53,6 +56,298 @@
               }
             }
           ]
+        },
+        "timelineItems": {
+          "nodes": [
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-19T18:47:25Z",
+              "actor": {
+                "login": "dev-1-bot",
+                "name": "dev-1-bot Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-19T18:47:27Z",
+              "actor": {
+                "login": "dev-4"
+              },
+              "previousStatus": "",
+              "status": "🆕 New",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-19T20:16:42Z",
+              "actor": {
+                "login": "dev-5"
+              },
+              "previousStatus": "🆕 New",
+              "status": "⚒️ Dev",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-19T20:16:43Z",
+              "actor": {
+                "login": "dev-5"
+              },
+              "assignee": {
+                "login": "dev-1-bot"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-19T20:56:47Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "previousStatus": "⚒️ Dev",
+              "status": "🎯 Product Review",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-19T21:00:36Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-19T21:00:36Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "assignee": {
+                "login": "dev-1-bot"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-19T22:17:25Z",
+              "actor": {
+                "login": "dev-2",
+                "name": "dev-2 Surname"
+              },
+              "assignee": {
+                "login": "dev-2"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-19T22:17:38Z",
+              "actor": {
+                "login": "dev-2",
+                "name": "dev-2 Surname"
+              },
+              "assignee": {
+                "login": "dev-6"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-19T22:17:38Z",
+              "actor": {
+                "login": "dev-2",
+                "name": "dev-2 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-19T22:17:38Z",
+              "actor": {
+                "login": "dev-2",
+                "name": "dev-2 Surname"
+              },
+              "assignee": {
+                "login": "dev-7"
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-20T18:11:50Z",
+              "actor": {
+                "login": "dev-7",
+                "name": "dev-7 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-20T18:11:50Z",
+              "actor": {
+                "login": "dev-7",
+                "name": "dev-7 Surname"
+              },
+              "assignee": {
+                "login": "dev-6"
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-20T18:11:50Z",
+              "actor": {
+                "login": "dev-7",
+                "name": "dev-7 Surname"
+              },
+              "assignee": {
+                "login": "dev-7"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-21T17:47:40Z",
+              "actor": {
+                "login": "dev-2",
+                "name": "dev-2 Surname"
+              },
+              "previousStatus": "🎯 Product Review",
+              "status": "⚒️ Dev",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-21T17:47:47Z",
+              "actor": {
+                "login": "dev-2",
+                "name": "dev-2 Surname"
+              },
+              "assignee": {
+                "login": "dev-2"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-21T17:47:48Z",
+              "actor": {
+                "login": "dev-2",
+                "name": "dev-2 Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-21T17:52:01Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-21T17:52:07Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "previousStatus": "⚒️ Dev",
+              "status": "🔍 Dev Review",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-21T18:44:49Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "previousStatus": "🔍 Dev Review",
+              "status": "🆕 New",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-21T18:44:55Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-08-21T19:10:03Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-21T19:10:03Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-21T19:10:08Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "previousStatus": "🆕 New",
+              "status": "🎁 Assigned",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-09-03T17:28:07Z",
+              "actor": {
+                "login": "dev-1",
+                "name": "dev-1 Surname"
+              },
+              "previousStatus": "🎁 Assigned",
+              "status": "⚒️ Dev",
+              "project": {
+                "number": 3
+              }
+            }
+          ]
         }
       },
       "pullRequest": {
@@ -65,13 +360,14 @@
           "login": "dev-1-bot",
           "name": "dev-1-bot Surname"
         },
+        "baseRefName": "master",
+        "headRefName": "19072-calendar-feed-counts-archived-records-twice",
         "reviewDecision": "REVIEW_REQUIRED",
-        "mergeable": "MERGEABLE",
-        "mergeStateStatus": "BLOCKED",
         "commits": {
           "nodes": [
             {
               "commit": {
+                "oid": "5886b444997bada42bd47b6afcf95d83830fc2ac",
                 "statusCheckRollup": {
                   "state": "SUCCESS"
                 }
@@ -88,7 +384,7 @@
               "state": "COMMENTED",
               "submittedAt": "2026-08-19T20:16:30Z",
               "author": {
-                "login": "dev-4"
+                "login": "dev-8"
               }
             }
           ]
@@ -108,7 +404,7 @@
                     "createdAt": "2026-08-19T20:16:30Z",
                     "authorAssociation": "NONE",
                     "author": {
-                      "login": "dev-4"
+                      "login": "dev-8"
                     }
                   }
                 ]

@@ -3,10 +3,18 @@ import { statSync } from 'node:fs';
 import { delimiter } from 'node:path';
 import { normalize } from './paths.js';
 
-/** Why a call did not produce JSON. An adapter turns a reason into wording naming its own CLI and its own setting. */
-export type ExecOutcome =
-  | { ok: true; value: unknown }
-  | { ok: false; reason: 'missing' | 'not-executable' | 'failed' | 'unparsable' | 'aborted'; detail: string };
+/** Why a call did not run. An adapter turns a reason into wording naming its own CLI and its own setting. */
+export type ExecFailure = {
+  ok: false;
+  reason: 'missing' | 'not-executable' | 'failed' | 'unparsable' | 'aborted';
+  detail: string;
+};
+
+/** What a CLI printed, or why it did not print it. `unparsable` never reaches here — there is nothing to parse. */
+export type TextOutcome = { ok: true; text: string } | ExecFailure;
+
+/** The same, once the text has been read as one JSON document. */
+export type ExecOutcome = { ok: true; value: unknown } | ExecFailure;
 
 /**
  * How a call is run beyond its arguments. Every field is optional and the defaults are what a roster read has always
@@ -21,6 +29,8 @@ export interface ExecOptions {
 }
 
 export type ExecJson = (path: string, args: string[], options?: ExecOptions) => Promise<ExecOutcome>;
+
+export type ExecText = (path: string, args: string[], options?: ExecOptions) => Promise<TextOutcome>;
 
 /** A hung CLI would leave the board with no sessions and no explanation, which R24 forbids more than an error does. */
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -76,10 +86,10 @@ export function resolveOnDisk(path: string): string | null {
   return null;
 }
 
-function spawn(path: string, args: string[], options: ExecOptions, resolved: boolean): Promise<ExecOutcome> {
+function spawn(path: string, args: string[], options: ExecOptions, resolved: boolean): Promise<TextOutcome> {
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  return new Promise<ExecOutcome>((resolve) => {
+  return new Promise<TextOutcome>((resolve) => {
     // A path Windows rejects outright raises before the callback, and a rejected promise here would surface as an
     // unhandled failure rather than a board notice. `windowsHide` because the hub is detached and has no console of
     // its own: without it every poll opens a command prompt on the developer's screen.
@@ -117,11 +127,7 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
           return;
         }
 
-        try {
-          resolve({ ok: true, value: JSON.parse(stdout) });
-        } catch {
-          resolve({ ok: false, reason: 'unparsable', detail: stdout.trim().slice(0, DETAIL_LIMIT) });
-        }
+        resolve({ ok: true, text: stdout });
         },
       );
 
@@ -145,10 +151,11 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
 }
 
 /**
- * Runs a CLI that prints one JSON document and parses it. Never throws, and never through a shell: the path is
- * developer configuration, and a shell would let a crafted one run something else entirely.
+ * Runs a CLI for whatever it prints. Never throws, and never through a shell: the path is developer configuration,
+ * and a shell would let a crafted one run something else entirely — which on Windows also rewrites a leading `/` in
+ * an argument into a filesystem path, silently turning a slash command into prose (`docs/mechanics.md` §33).
  */
-export const runJsonCli = async (path: string, args: string[], options: ExecOptions = {}): Promise<ExecOutcome> => {
+export const runTextCli = async (path: string, args: string[], options: ExecOptions = {}): Promise<TextOutcome> => {
   const resolved = resolveOnDisk(path);
 
   if (resolved !== null && BATCH.test(resolved)) {
@@ -161,4 +168,19 @@ export const runJsonCli = async (path: string, args: string[], options: ExecOpti
   }
 
   return spawn(resolved ?? path, args, options, resolved !== null);
+};
+
+/** Runs a CLI that prints one JSON document and parses it. Every refusal is `runTextCli`'s, plus one of its own. */
+export const runJsonCli = async (path: string, args: string[], options: ExecOptions = {}): Promise<ExecOutcome> => {
+  const outcome = await runTextCli(path, args, options);
+
+  if (!outcome.ok) {
+    return outcome;
+  }
+
+  try {
+    return { ok: true, value: JSON.parse(outcome.text) };
+  } catch {
+    return { ok: false, reason: 'unparsable', detail: outcome.text.trim().slice(0, DETAIL_LIMIT) };
+  }
 };

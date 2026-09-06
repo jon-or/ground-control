@@ -1,6 +1,9 @@
 {
   "data": {
     "repository": {
+      "defaultBranchRef": {
+        "name": "master"
+      },
       "issue": {
         "number": 19192,
         "title": "Quote email overwrites a manual edit",
@@ -12,7 +15,7 @@
               "createdAt": "2026-09-03T14:43:28Z",
               "authorAssociation": "NONE",
               "author": {
-                "login": "dev-2"
+                "login": "dev-11"
               }
             },
             {
@@ -20,8 +23,8 @@
               "createdAt": "2026-09-03T15:27:10Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-3",
-                "name": "dev-3 Surname"
+                "login": "dev-14",
+                "name": "dev-14 Surname"
               }
             },
             {
@@ -29,8 +32,8 @@
               "createdAt": "2026-09-04T13:38:50Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-3",
-                "name": "dev-3 Surname"
+                "login": "dev-14",
+                "name": "dev-14 Surname"
               }
             }
           ]
@@ -53,19 +56,19 @@
               "__typename": "AssignedEvent",
               "createdAt": "2026-08-24T21:47:40Z",
               "actor": {
-                "login": "dev-3",
-                "name": "dev-3 Surname"
+                "login": "dev-14",
+                "name": "dev-14 Surname"
               },
               "assignee": {
-                "login": "dev-3"
+                "login": "dev-14"
               }
             },
             {
               "__typename": "ProjectV2ItemStatusChangedEvent",
               "createdAt": "2026-08-24T21:47:42Z",
               "actor": {
-                "login": "dev-3",
-                "name": "dev-3 Surname"
+                "login": "dev-14",
+                "name": "dev-14 Surname"
               },
               "previousStatus": "🆕 New",
               "status": "🎁 Assigned",
@@ -77,8 +80,8 @@
               "__typename": "ProjectV2ItemStatusChangedEvent",
               "createdAt": "2026-09-02T22:32:32Z",
               "actor": {
-                "login": "dev-3",
-                "name": "dev-3 Surname"
+                "login": "dev-14",
+                "name": "dev-14 Surname"
               },
               "previousStatus": "🎁 Assigned",
               "status": "⚒️ Dev",
@@ -90,8 +93,8 @@
               "__typename": "ProjectV2ItemStatusChangedEvent",
               "createdAt": "2026-09-04T13:53:36Z",
               "actor": {
-                "login": "dev-3",
-                "name": "dev-3 Surname"
+                "login": "dev-14",
+                "name": "dev-14 Surname"
               },
               "previousStatus": "⚒️ Dev",
               "status": "🔍 Dev Review",
@@ -103,19 +106,19 @@
               "__typename": "UnassignedEvent",
               "createdAt": "2026-09-04T13:53:44Z",
               "actor": {
-                "login": "dev-3",
-                "name": "dev-3 Surname"
+                "login": "dev-14",
+                "name": "dev-14 Surname"
               },
               "assignee": {
-                "login": "dev-3"
+                "login": "dev-14"
               }
             },
             {
               "__typename": "AssignedEvent",
               "createdAt": "2026-09-04T16:28:42Z",
               "actor": {
-                "login": "dev-5",
-                "name": "dev-5 Surname"
+                "login": "dev-13",
+                "name": "dev-13 Surname"
               },
               "assignee": {
                 "login": "dev-1"

@@ -49,3 +49,13 @@ export function bundlePathOf(home: string): string {
 export function triagePathOf(home: string): string {
   return `${groundControlDirOf(home)}/triage.json`;
 }
+
+/** What the board has run on each card, and when. One record per machine, so two boards cannot both dispatch (R39). */
+export function actionsPathOf(home: string): string {
+  return `${groundControlDirOf(home)}/actions.json`;
+}
+
+/** Where one run may report on itself. Named per card key so two runs never overwrite each other's account. */
+export function actionReportPathOf(home: string, key: string): string {
+  return `${groundControlDirOf(home)}/runs/${key.replace(/[^A-Za-z0-9._-]/g, '-')}.json`;
+}

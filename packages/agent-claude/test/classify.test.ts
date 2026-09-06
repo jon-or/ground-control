@@ -34,7 +34,7 @@ function runnerOf(outcome: ExecOutcome): ExecJson & { calls: [string, string[], 
 
 const answer = (over: Record<string, unknown> = {}): ExecOutcome => ({
   ok: true,
-  value: { type: 'result', subtype: 'success', is_error: false, structured_output: { action: 'land', detail: 'Merge it.' }, ...over },
+  value: { type: 'result', subtype: 'success', is_error: false, structured_output: { action: 'merge-upstream', detail: 'Merge it.' }, ...over },
 });
 
 describe('the argv a classification is run with', () => {
@@ -97,7 +97,7 @@ describe('running a classification', () => {
 
   it('reads the parsed structured output', async () => {
     expect(await makeClaudeClassifier(runnerOf(answer()))(input())).toEqual({
-      value: { action: 'land', detail: 'Merge it.' },
+      value: { action: 'merge-upstream', detail: 'Merge it.' },
     });
   });
 

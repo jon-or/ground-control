@@ -61,16 +61,14 @@ const PHASE_WORDS = { running: 'running', waiting: 'needs you', idle: 'idle' };
  */
 /** @type {Record<string, string>} */
 const TRIAGE_LABELS = {
-  'begin-work': 'Begin work',
-  'answer-design-question': 'Answer design question',
-  'uat-question': 'UAT question',
-  'uat-failure': 'UAT failure',
+  develop: 'Develop',
+  'dev-question': 'Dev question',
+  'qa-question': 'QA question',
+  'qa-failure': 'QA failure',
   'review-others': 'Review their PR',
   'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
   'merge-upstream': 'Merge upstream',
-  'resolve-conflicts': 'Resolve conflicts',
-  land: 'Land it',
   other: 'Other',
 };
 

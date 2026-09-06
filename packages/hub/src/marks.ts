@@ -11,11 +11,13 @@ const marks = z.object({
   announcedAt: z.record(z.string(), z.number()).default({}),
   /** Whether this machine has been told that reading cards spends usage and sends text to an API (R38). */
   triageToldAt: z.number().nullable().default(null),
+  /** Whether this machine has been told that the board has started work on the developer's own code (R39). */
+  actionsToldAt: z.number().nullable().default(null),
 });
 
 export type Marks = z.infer<typeof marks>;
 
-const EMPTY: Marks = { installedAt: null, announcedAt: {}, triageToldAt: null };
+const EMPTY: Marks = { installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null };
 
 /**
  * What the hub has already done and already said. Machine-wide for the install, per client for the announcement:

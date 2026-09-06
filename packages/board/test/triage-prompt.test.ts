@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TriageContext, TriageStateEvent } from '@ground-control/core';
 import { TRIAGE_SYSTEM_PROMPT, buildTriagePrompt } from '../src/triagePrompt.js';
-import { CLASSIFIED_ACTIONS, TRIAGE_ACTIONS } from '../src/triage.js';
-
-/**
- * The one action the model is never offered. It may report a problem somebody named — an auto-merge that failed, a
- * red build — because `mergeable` reads UNKNOWN in the window a card arrives; only the hub says everything is fine.
- */
-const NEVER_OFFERED = ['land'];
+import { TRIAGE_ACTIONS } from '../src/triage.js';
 
 const NOW = Date.parse('2026-09-05T12:00:00Z');
 
@@ -28,6 +22,8 @@ function context(over: Partial<TriageContext> = {}): TriageContext {
     comments: [comment('dev-2', 'Still broken on Safari.', 'CONTRIBUTOR')],
     logins: ['dev-1'],
     pullRequest: null,
+    repository: 'example-org/example-repo',
+    defaultBranch: 'master',
     ...over,
   };
 }
@@ -49,9 +45,10 @@ function pullRequest(over = {}) {
     isDraft: false,
     author: 'dev-1',
     authorName: null,
+    baseRefName: 'master',
+    headRefName: '17198-channel-mapping',
+    headOid: '9ab0cde1111111111111111111111111111111ff',
     reviewDecision: 'CHANGES_REQUESTED',
-    mergeable: 'MERGEABLE',
-    mergeStateStatus: 'BLOCKED',
     checkState: 'SUCCESS',
     comments: [comment('dev-4', 'A couple of naming notes.')],
     reviews: [{ author: 'dev-4', authorName: null, state: 'CHANGES_REQUESTED', submittedAt: '2026-09-01T09:30:00Z' }],
@@ -66,42 +63,42 @@ function pullRequest(over = {}) {
 }
 
 describe('the system prompt', () => {
-  it('names every action the model decides, and none the hub reads for itself', () => {
+  it('names every action there is, so retiring or adding one cannot leave the prompt behind', () => {
     for (const action of TRIAGE_ACTIONS) {
-      expect(TRIAGE_SYSTEM_PROMPT.includes(`${action}:`)).toBe(!NEVER_OFFERED.includes(action));
+      expect(TRIAGE_SYSTEM_PROMPT).toContain(`${action}:`);
     }
   });
 
   it('gives an order to take when more than one fits, since several routinely do', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('take the first that applies');
     // The order the numbers put them in, which is the whole of what the rule is worth.
-    const order = ['resolve-conflicts', 'merge-upstream', 'fix-checks', 'uat-failure', 'uat-question', 'answer-design-question', 'address-review', 'review-others', 'begin-work', 'other'];
+    const order = ['merge-upstream', 'fix-checks', 'qa-failure', 'qa-question', 'dev-question', 'address-review', 'review-others', 'develop', 'other'];
     const at = order.map((action) => TRIAGE_SYSTEM_PROMPT.indexOf(`${action}:`));
 
     expect(at).toEqual([...at].sort((a, b) => a - b));
     expect(at.every((i) => i > 0)).toBe(true);
   });
 
-  it('says an assigned issue with nothing on it is begin-work, since that is most of a first run', () => {
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('is begin-work, not other');
+  it('says an assigned issue with nothing on it is develop, since that is most of a first run', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('is develop, not other');
   });
 
   it('counts the actions above other the way the list does, so retiring one cannot leave the prose wrong', () => {
     const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven'];
 
-    expect(TRIAGE_SYSTEM_PROMPT).toContain(`none of the ${words[CLASSIFIED_ACTIONS.length - 1]} above fits`);
+    expect(TRIAGE_SYSTEM_PROMPT).toContain(`none of the ${words[TRIAGE_ACTIONS.length - 1]} above fits`);
   });
 
-  it('names a conflict, a stale branch and a red build, which are reported in words long before GitHub computes them', () => {
-    // A card arrives in the very window `mergeable` reads UNKNOWN, so without these the commonest thing anybody
-    // writes on a pull request — that the auto-merge failed — has nowhere to go.
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('auto-merge failed');
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('merge or rebase the base branch in');
+  it('names the merge as something asked for, and says a conflict is not the developer to fix', () => {
+    // R39: nothing derives a merge, so the words somebody wrote are the only channel. And a branch that will not
+    // merge is somebody else's job on this team, which the model has to be told or it labels it anyway.
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('somebody has asked you to merge or rebase the base branch into yours');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('A branch that will not merge is not yours to fix.');
     expect(TRIAGE_SYSTEM_PROMPT).toContain('is failing');
   });
 
   it('tells the model to take the most recent word on a problem, so a fixed one is not still pending', () => {
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('since said is fixed is not what the card is waiting on');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('has since said is fixed is not what the card is waiting on');
   });
 
   it('tells the model what day it is, since three of the actions turn on recency', () => {
@@ -125,7 +122,7 @@ describe('the system prompt', () => {
   it('states how to write the sentence before it lists the actions, which is where the rule holds', () => {
     // Both rules regressed when they sat at the end: counts came back and the sentence went technical again.
     for (const rule of ['logistics, not engineering', 'Count nothing']) {
-      expect(TRIAGE_SYSTEM_PROMPT.indexOf(rule)).toBeLessThan(TRIAGE_SYSTEM_PROMPT.indexOf('1. resolve-conflicts'));
+      expect(TRIAGE_SYSTEM_PROMPT.indexOf(rule)).toBeLessThan(TRIAGE_SYSTEM_PROMPT.indexOf('1. merge-upstream'));
     }
   });
 

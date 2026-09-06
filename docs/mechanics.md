@@ -1455,3 +1455,28 @@ Issue #19192's is not:
 Both are one instruction — *review this* — but the second reaches the board as two acts, and its later one carries no status at all. So what the card is now and when it was last told something are separate reads: the instruction time is the most recent event of any kind, the status it was moved *out of* comes from the most recent event that moved one, and the status it is now is the card's own — a project option renamed since rewrites every event that names it. A rule keyed on the latest event alone sees a bare assignment on #19192 and nothing else.
 
 **`ProjectV2ItemFieldSingleSelectValue.updatedAt` tracks the Status value alone.** On #19192 it reads `2026-09-04T13:53:36Z` — exactly the status event — and eesquibel's 16:28 assignment left it where it was. It rides the cheap board query rather than the per-card one, which is what lets a status move make a card due to be read again without fetching a timeline for every card on the board. That it moves for the Status value **only** is what stops the re-read rule spending money on its own: were it to move on an unrelated write, every card would be re-read once per board refresh. Measured here on three issues; re-measure it before trusting a board that suddenly costs more than it did.
+## 33. A dispatched session is `--bg`, and the caller cannot name it
+
+**Measured 2026-09-05**, against `claude` 2.1.261 on this machine. This is the mechanism card actions run on (`prd.md` R39).
+
+```
+claude --bg --permission-mode <mode> -n <name> "<prompt>"
+→ stdout: backgrounded · 46af2ac8 · gc-slash2
+→ stderr: Starting background service…
+```
+
+**`--bg` ignores `--session-id`.** It prints `warning: --bg manages the session id; ignoring --session-id (use --resume <id> to continue an existing session)` and mints its own. So a dispatch cannot recognise its run the way a classification does (§31) — the id has to be read back out of what the CLI printed.
+
+**What it prints is the short id, and the short id is a prefix.** `backgrounded · 46af2ac8 · gc-slash2` on stdout, then four help lines; `Starting background service…` goes to stderr, so stdout alone is what gets parsed. `claude agents --json` then lists the session as `kind: "background"` carrying both — `id: "46af2ac8"` and `sessionId: "46af2ac8-f232-4406-8e8f-2579df5eb08f"` — so the full id resolves by prefix off the next roster read, and the roster is what the board already reads every 30 s.
+
+**A prompt beginning with `/` is resolved as a slash command.** Dispatching `/gc-nonexistent-probe hello` wrote two `system` entries to the transcript: `Unknown command: /gc-nonexistent-probe` and `Args from unknown skill: hello`. That is what makes the prompt a setting rather than a template — a developer names the skill their own repository already carries.
+
+**A shell would silently destroy that.** The same prompt sent through Git Bash arrived as the user message `C:/Program Files/Git/gc-nonexistent-probe hello`: MSYS rewrites a leading `/name` into a filesystem path, the slash is gone, and the command becomes prose no skill answers. `runJsonCli` spawns with an argv array and never a shell, and refuses a `.cmd` shim by name rather than reaching for one, so the hub is already on the right side of this — the rule is that it stays there.
+
+**An unknown command is a session that starts and does nothing.** The probe's transcript holds the two warnings and no user message at all: no turn, no work, and a roster entry at `status: idle` almost at once. A mistyped prompt does not fail loudly — it produces a live session that never worked, which is why an action's outcome is read from the file the run was told to write rather than from the session having ended. A run that never ran writes nothing, and nothing reads as stopped short.
+
+**A bare `--bg` runs under `permissionMode: "auto"`,** recorded in the transcript's own `permission-mode` entry. That is not the conservative setting R31 asks for as a default, so the mode is passed explicitly on every dispatch rather than left to the CLI.
+
+**`claude stop <short-id>` answers `stopped <short-id>`** and the session leaves the roster. `claude rm` is never used: its help says it deletes the session "and its worktree when that is safe", and a card's checkout holds the developer's work.
+
+**Version-fragile.** The id-bearing stdout line and `--bg`'s refusal of `--session-id` are both undocumented shapes; a release that changes either leaves a dispatch that runs and cannot be tracked.

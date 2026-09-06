@@ -30,6 +30,8 @@ type Inbound =
   | { type: 'openPullRequest'; number: number }
   | { type: 'moveCard'; key: string; lane: LaneId }
   | { type: 'retriage'; key: string }
+  | { type: 'runAction'; key: string }
+  | { type: 'stopAction'; key: string }
   | { type: 'openSession'; sessionId: string }
   | { type: 'openChanges'; key: string };
 
@@ -199,6 +201,16 @@ export class BoardPanel {
 
       case 'retriage':
         this.#tell({ type: 'retriage', key: msg.key });
+
+        return;
+
+      case 'runAction':
+        this.#tell({ type: 'runAction', key: msg.key });
+
+        return;
+
+      case 'stopAction':
+        this.#tell({ type: 'stopAction', key: msg.key });
 
         return;
 

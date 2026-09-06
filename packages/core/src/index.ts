@@ -3,8 +3,20 @@ export { rosterIsStale, sessionLabel, unreportedSessions } from './roster.js';
 export { LANE_ORDER, LANE_TITLES, checkoutOf } from './board.js';
 export type { Attention, BoardCard, Checkout, Lane, LaneId, LanedCard } from './board.js';
 export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
-export { DEFAULT_TRIAGE, hubConfig, idsFrom, parseHubConfig, spawnable } from './config.js';
+export { DEFAULT_ACTIONS, DEFAULT_TRIAGE, PERMISSION_MODES, hubConfig, idsFrom, parseHubConfig, spawnable } from './config.js';
 export type { HubConfig, TriageSettings } from './config.js';
+export { ACTION_REVISION, AUTOMATABLE_ACTIONS, EMPTY_ACTIONS, isAutomatable } from './actions.js';
+export type {
+  ActionOutcome,
+  ActionRefusalRecord,
+  ActionReport,
+  ActionRun,
+  ActionSetting,
+  ActionSettings,
+  ActionState,
+  AutomatableAction,
+  CardAction,
+} from './actions.js';
 export type { ContextReading, SourceReading, WorkItems, WorkSource } from './source.js';
 export { EMPTY_TRIAGE, TRIAGE_ACTIONS } from './triage.js';
 export type {
@@ -29,8 +41,8 @@ export { basename, dirKey, groundControlDirOf, isAbsolute, join, normalize, pare
 export { compilePattern, findCheckout, issueNumberFrom, linkOf } from './link.js';
 export { repositoryKey, repositoryOf } from './repository.js';
 export type { CompiledPattern, Link } from './link.js';
-export { runJsonCli, resolveOnDisk } from './execJson.js';
-export type { ExecJson, ExecOptions, ExecOutcome } from './execJson.js';
+export { runJsonCli, runTextCli, resolveOnDisk } from './execJson.js';
+export type { ExecFailure, ExecJson, ExecOptions, ExecOutcome, ExecText, TextOutcome } from './execJson.js';
 export { diskReaders, listDirFromDisk, mtimeFromDisk, readHeadFromDisk, readTailFromDisk, readTextFromDisk } from './machine.js';
 export type { ListDir, MachineDeps, MachineReaders, ReadTail, ReadText, StatMtime } from './machine.js';
 export type {
@@ -42,6 +54,8 @@ export type {
   AgentReading,
   ClassifyInput,
   ClassifyResult,
+  DispatchInput,
+  DispatchResult,
   HistoryReading,
 } from './agent.js';
 export type {

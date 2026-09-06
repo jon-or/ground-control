@@ -98,6 +98,14 @@ describe('what the browser may ask the hub for', () => {
     });
   });
 
+  /** The one message that would have a web page start an agent in the developer's own checkout (R39). */
+  it('refuses to start or stop work on a card', () => {
+    const refused = { refused: 'Starting and stopping work on a card is the editor board’s, not the browser’s.' };
+
+    expect(bridgeAction({ type: 'runAction', key: 'issue:17198' })).toEqual(refused);
+    expect(bridgeAction({ type: 'stopAction', key: 'issue:17198' })).toEqual(refused);
+  });
+
   it('refuses everything else by name', () => {
     expect(bridgeAction({ type: 'configure', config: {} })).toEqual({ refused: 'The overlay may not send configure.' });
     expect(bridgeAction({ type: 'hello' })).toEqual({ refused: 'The overlay may not send hello.' });

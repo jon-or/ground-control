@@ -204,6 +204,47 @@
           "maximum": 300,
           "markdownDescription": "How long one card gets, covering both reading it from GitHub and classifying it. Real cards measured 27 to 102 seconds — how long a card takes tracks how much has been written on it — so the default leaves room for the slow end. A card that runs over is left unread, and its chip tries again."
         },
+        "groundControl.actions.merge-upstream": {
+          "scope": "application",
+          "type": "object",
+          "default": {},
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "prompt": { "type": "string", "default": "" }
+          },
+          "markdownDescription": "What to run on a card asking for the **base branch merged into yours**, and whether to run it without being asked. **This starts an agent in your checkout and it may push.** Nothing runs until you set both `enabled` and a `prompt` — there is no shipped default, because what merges a branch is your own repository's skill. A prompt beginning with `/` is a slash command, e.g. `/or-merge {base} {branch} {issue} --single`. The board fills `{issue}`, `{repo}`, `{pr}`, `{branch}`, `{base}`, `{checkout}` and `{resultPath}` — write a small JSON `{ \"outcome\": \"pushed\"|\"halted\", \"detail\": \"…\", \"auditPath\": \"…\" }` to `{resultPath}`. **That file is the verdict**: `pushed` is what the card reports as **Merged**, and a run that writes nothing reads as stopped short. The board does not re-read GitHub to check — the base branch moves under a card within minutes, so a conflict somebody else landed afterwards would read as your run having failed. The board never merges on its own reading of a stale branch: the card has to be asking for a merge. It refuses a pull request based on anything but the repository's default branch, because keeping a stacked branch current is a chain of merges it cannot order — and a card with no checkout it has seen a session run in, because it will not guess a directory from a branch name."
+        },
+        "groundControl.actions.permissionMode": {
+          "scope": "application",
+          "type": "string",
+          "default": "manual",
+          "enum": ["manual", "acceptEdits", "auto", "dontAsk", "plan", "bypassPermissions"],
+          "markdownDescription": "What a session the board starts may do without asking. `manual` is the default because a developer who has not thought about this should get the careful behaviour — but a merge that stops at every `git` command will simply park, so turning an action on is a decision about this too. `bypassPermissions` is what an unattended merge needs, and it means the session runs whatever it likes in that checkout."
+        },
+        "groundControl.actions.concurrency": {
+          "scope": "application",
+          "type": "number",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 4,
+          "markdownDescription": "How many card actions run at once. These are real builds in real checkouts, so the default is one."
+        },
+        "groundControl.actions.dailyLimit": {
+          "scope": "application",
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "maximum": 50,
+          "markdownDescription": "How many actions the board may start in a rolling 24 hours, however many cards ask for one. This is the ceiling on a mistake: a rule that fires more often than you expected costs this many sessions and then stops. Zero stops the board acting on its own entirely, and leaves each card's control working."
+        },
+        "groundControl.actions.resultMinutes": {
+          "scope": "application",
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 240,
+          "markdownDescription": "How long a dispatch whose session never appeared on the machine is left open before the board calls it lost. Not a limit on the work — a run is followed until its session ends, however long that takes."
+        },
         "groundControl.installSessionHooks": {
           "scope": "application",
           "type": "boolean",

@@ -14,6 +14,10 @@ export {
 export type { ActivityNoticeInput, ActivityState, Wanted } from './activityInstall.js';
 export { makeLaneStore } from './lanes.js';
 export type { LaneStore } from './lanes.js';
+export { ActionRunner } from './actions.js';
+export type { ActionDeps } from './actions.js';
+export { makeActionStore } from './actionStore.js';
+export type { ActionStore } from './actionStore.js';
 export { afterInstall, announce, makeMarkStore } from './marks.js';
 export type { MarkStore, Marks } from './marks.js';
 export { BATCH_MS, watchDir } from './watch.js';
@@ -28,6 +32,8 @@ export { LOGS_KEPT, LOG_LIMIT_BYTES, openLog, rotateLog } from './log.js';
 export { IDLE_EXIT_MS, makeHub, sanitizeEnvironment, serveHub, spawnEnvironment } from './serve.js';
 export type { ServeOptions, ServeResult, Served } from './serve.js';
 export {
+  actionReportPathOf,
+  actionsPathOf,
   backupPathOf,
   bundlePathOf,
   exitPathOf,

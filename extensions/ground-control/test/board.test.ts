@@ -1440,17 +1440,17 @@ describe('what a card was read to be waiting on (R38)', () => {
   it('writes no qualifier where there is none', () => {
     send(
       message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'land', qualifier: null, detail: 'Merge it.', at, stale: false })] }),
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'merge-upstream', qualifier: null, detail: 'Merge it.', at, stale: false })] }),
       }),
     );
 
-    expect(chip()?.textContent).toBe('Land it');
+    expect(chip()?.textContent).toBe('Merge upstream');
   });
 
   it('marks a reading the card has moved under, rather than presenting it as current', () => {
     send(
       message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'begin-work', qualifier: null, detail: 'Pick it up.', at, stale: true })] }),
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: true })] }),
       }),
     );
 
@@ -1486,7 +1486,7 @@ describe('what a card was read to be waiting on (R38)', () => {
   it('never paints a reading in a colour R6 keeps for the two things that want the developer', () => {
     send(
       message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'land', qualifier: null, detail: 'Merge it.', at, stale: false })] }),
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'merge-upstream', qualifier: null, detail: 'Merge it.', at, stale: false })] }),
       }),
     );
 
@@ -1517,6 +1517,93 @@ describe('what a card was read to be waiting on (R38)', () => {
   });
 });
 
+describe('what the board can do about a card reading (R39)', () => {
+  const at = Date.UTC(2026, 8, 1, 19, 0, 0);
+
+  function acting(action: NonNullable<LanedCard['action']>): LanedCard {
+    return { ...liveCard, sessions: [], action };
+  }
+
+  function chip(): HTMLElement | null {
+    return document.querySelector<HTMLElement>(
+      '.badge.action, .badge.action-running, .badge.action-done, .badge.action-refused',
+    );
+  }
+
+  it('offers to run an action the board could take, and sends the card key when pressed', () => {
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'available', action: 'merge-upstream' })] }) }));
+
+    expect(chip()?.textContent).toBe('Run merge upstream');
+    chip()?.click();
+
+    expect(sent()).toContainEqual({ type: 'runAction', key: 'issue:18953' });
+  });
+
+  it('says a run is working and offers to take it back, rather than starting a second one', () => {
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'running', action: 'merge-upstream', since: at })] }) }));
+
+    expect(chip()?.textContent).toBe('Working…');
+    chip()?.click();
+
+    expect(sent()).toContainEqual({ type: 'stopAction', key: 'issue:18953' });
+    // Work the board started is work in progress, which is the one thing a card is not asking the developer for —
+    // so the chip is none of R6's three channels. Asserted through the badge's own colour, which is what would
+    // change if it ever became one; the card's attention attribute is absent on this card either way.
+    expect(chip()?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
+  });
+
+  const outcomes: [NonNullable<LanedCard['action']> & { state: 'done' }, string][] = [
+    [{ state: 'done', action: 'merge-upstream', outcome: 'landed', detail: 'Merged master.', at }, 'Merged'],
+    [{ state: 'done', action: 'merge-upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at }, 'Stopped short'],
+    [{ state: 'done', action: 'merge-upstream', outcome: 'failed', detail: 'Claude Code was not found.', at }, 'Did not run'],
+    [{ state: 'done', action: 'merge-upstream', outcome: 'stopped', detail: 'Stopped by you.', at }, 'Stopped'],
+  ];
+
+  for (const [action, text] of outcomes) {
+    it(`reads a ${action.outcome} run as "${text}", carrying what it said about itself`, () => {
+      send(message({ lanes: lanes({ unstarted: [acting(action)] }) }));
+
+      expect(chip()?.textContent).toBe(text);
+      expect(chip()?.title).toContain(action.detail);
+    });
+  }
+
+  it('offers a finished run again, so a card the board stopped short on is one press from another try', () => {
+    send(message({ lanes: lanes({ unstarted: [acting(outcomes[1]![0])] }) }));
+
+    chip()?.click();
+
+    expect(sent()).toContainEqual({ type: 'runAction', key: 'issue:18953' });
+  });
+
+  /** The remedy for a refusal is a setting or the card itself, so pressing again would only refuse again. */
+  it('says why the board will not act, and gives nothing to press', () => {
+    send(
+      message({
+        lanes: lanes({
+          unstarted: [acting({ state: 'refused', action: 'merge-upstream', reason: 'It merges into a feature branch.' })],
+        }),
+      }),
+    );
+
+    expect(chip()?.textContent).toBe('Not run');
+    expect(chip()?.title).toBe('It merges into a feature branch.');
+    expect(chip()?.tagName).toBe('SPAN');
+  });
+
+  it('draws nothing at all on a card the board has no action for', () => {
+    send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
+
+    expect(chip()).toBeNull();
+  });
+
+  it('is not a drag handle, through the attribute the platform reflects rather than the property', () => {
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'available', action: 'merge-upstream' })] }) }));
+
+    expect(chip()?.getAttribute('draggable')).toBe('false');
+  });
+});
+
 /**
  * The parity table. `media/board.js` is a classic script and imports nothing from `packages/board`, so its copy of
  * the labels is pinned by asserting the same literals here that `packages/board`'s own suite asserts. A copy that
@@ -1524,18 +1611,16 @@ describe('what a card was read to be waiting on (R38)', () => {
  */
 describe('triage labels read the same on every board', () => {
   const rows: [string, string | null, string][] = [
-    ['begin-work', null, 'Begin work'],
-    ['answer-design-question', null, 'Answer design question'],
-    ['uat-question', null, 'UAT question'],
-    ['uat-failure', null, 'UAT failure'],
+    ['develop', null, 'Develop'],
+    ['dev-question', null, 'Dev question'],
+    ['qa-question', null, 'QA question'],
+    ['qa-failure', null, 'QA failure'],
     ['review-others', 'initial', 'Review their PR · initial'],
     ['review-others', 'followup', 'Review their PR · followup'],
     ['address-review', 'initial', 'Answer review · initial'],
     ['address-review', 'followup', 'Answer review · followup'],
     ['fix-checks', null, 'Fix failing checks'],
     ['merge-upstream', null, 'Merge upstream'],
-    ['resolve-conflicts', null, 'Resolve conflicts'],
-    ['land', null, 'Land it'],
     ['other', null, 'Other'],
   ];
 

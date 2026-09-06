@@ -77,6 +77,33 @@ export interface ClassifyInput {
 export type ClassifyResult = { value: unknown } | { failure: ReadFailure };
 
 /**
+ * One piece of work handed to an agent to carry out, in the developer's own checkout. Unlike a classification this
+ * is meant to be seen: it writes a transcript, loads the developer's settings, and becomes a session on the card
+ * (R2). The caller cannot name the session — `--bg` mints its own id (`docs/mechanics.md` §33).
+ */
+export interface DispatchInput {
+  /** The CLI, from the same configuration the roster read spawns. */
+  path: string;
+  /** What the session is told to do. A leading `/` reaches the CLI as a slash command (§33). */
+  prompt: string;
+  /** The display name the session carries, which is how the developer tells a dispatched session from their own. */
+  name: string;
+  /** The checkout the work happens in, read from a session the card already carries and never from a branch name. */
+  cwd: string;
+  /** What the session may do without asking. Passed explicitly, because a bare `--bg` runs under `auto` (§33). */
+  permissionMode: string;
+  model: string | null;
+  timeoutMs: number;
+  signal: AbortSignal;
+}
+
+/**
+ * What a dispatch produced. `shortId` is what the CLI printed; the full session id is resolved from the next roster
+ * read by prefix, because the CLI will not take one it is given (§33).
+ */
+export type DispatchResult = { shortId: string } | { failure: ReadFailure };
+
+/**
  * One agent CLI the board reads live sessions from. An adapter owns its transport, its response shape, where its
  * transcripts live, and the wording of its failures, and returns finished `Session` rows.
  */
@@ -97,5 +124,12 @@ export interface AgentAdapter {
    * on the board must not offer it — absence costs the developer a label, not a feature that half works (R30).
    */
   classify?(input: ClassifyInput): Promise<ClassifyResult>;
+  /**
+   * Starts one piece of work in a checkout. Optional, because an agent CLI that cannot start a session the board can
+   * later stop and hand over must not offer it — a run nobody can take back is worse than no automation (R15, R30).
+   */
+  dispatch?(input: DispatchInput): Promise<DispatchResult>;
+  /** Stops a session this adapter started, by the short id the dispatch returned. Absent where the CLI cannot. */
+  stopDispatch?(path: string, shortId: string): Promise<ReadFailure | null>;
   readonly activity?: ActivitySignal;
 }
