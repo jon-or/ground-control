@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { PROTOCOL } from '@ground-control/core';
-import type { Client, ClientHello, ClientMessage, HubMessage, Session, Snapshot } from '@ground-control/core';
+import type { Client, ClientHello, ClientMessage, HubMessage, Logger, Session, Snapshot } from '@ground-control/core';
 
 /**
  * What the server needs of the hub, and nothing more. Narrow so the server's own tests drive a fake: whether a
@@ -34,7 +34,7 @@ export interface HubServerDeps {
    * before any route read as "this is not a hub" from there — so if the hub does not write them down, a board that
    * cannot reach the hub it can see leaves no evidence anywhere on the machine.
    */
-  log(line: string): void;
+  log: Logger;
 }
 
 export interface HubServer {
@@ -303,9 +303,9 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
     refusals += 1;
 
     if (refusals <= REFUSALS_PER_MINUTE) {
-      deps.log(`refused ${request.method ?? '?'} ${clipped(request.url ?? '?')}: ${detail}`);
+      deps.log.warn(`refused ${request.method ?? '?'} ${clipped(request.url ?? '?')}: ${detail}`, 'server');
     } else if (refusals === REFUSALS_PER_MINUTE + 1) {
-      deps.log('refusing more than this log will carry; saying no more about it this minute');
+      deps.log.warn('refusing more than this log will carry; saying no more about it this minute', 'server');
     }
 
     refuse(response, status, message);

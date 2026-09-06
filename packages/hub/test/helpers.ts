@@ -13,6 +13,28 @@ import type {
   Session,
   SessionActivity,
 } from '@ground-control/core';
+import type { LogEntry, LogFloor, Logger } from '@ground-control/core';
+import { makeLogger } from '../src/logger.js';
+
+/**
+ * A logger a test reads back, collected through `watch` — the same subscription a board opening a viewer makes.
+ *
+ * The floor here is only the floor until a `Hub` is built over it: its constructor applies the stored
+ * configuration, whose `logLevel` is `info` by default. A test that wants the hub's `debug` lines configures
+ * the hub for them rather than passing a floor here.
+ */
+export function captureLog(level: LogFloor = 'debug'): { log: Logger; entries: LogEntry[]; messages: string[] } {
+  const entries: LogEntry[] = [];
+  const messages: string[] = [];
+  const log = makeLogger({ write: () => {}, level });
+
+  log.watch((entry) => {
+    entries.push(entry);
+    messages.push(entry.message);
+  });
+
+  return { log, entries, messages };
+}
 
 /**
  * A home of the hub's own, never the developer's. Every module here writes into `~/.claude/ground-control`, and a

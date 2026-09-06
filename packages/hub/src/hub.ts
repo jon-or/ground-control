@@ -1,25 +1,6 @@
 import { assignLanes, mergeBoard, nextMemory, withPlacement, withTriage } from '@ground-control/board';
 import { compilePattern, diskReaders, fetchSessions, fetchSessionHistory, parseHubConfig, rosterIsStale, unreportedSessions } from '@ground-control/core';
-import type {
-  ActivityChange,
-  Client,
-  ClientHello,
-  ClientMessage,
-  HostAdapter,
-  HistoricalSession,
-  HubConfig,
-  HubMessage,
-  LaneId,
-  MachineReaders,
-  Lane,
-  ReadFailure,
-  Session,
-  SessionsSnapshot,
-  Snapshot,
-  SourceReading,
-  WorkItems,
-  WorkSource,
-} from '@ground-control/core';
+import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HubConfig, HubMessage, Lane, LaneId, Logger, MachineReaders, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import type { ActivityState } from './activityInstall.js';
 import { read } from './fs.js';
@@ -35,6 +16,8 @@ import type { MarkStore } from './marks.js';
 import type { SettingsStore } from './settings.js';
 import { configureHosts, configureSources, defaultConfig } from './registry.js';
 import type { Registries } from './registry.js';
+import { readLogTail } from './logger.js';
+import { logPathOf } from './paths.js';
 
 /** Injected whole, so a test drives the two cadences without waiting for them. */
 export interface HubClock {
@@ -57,6 +40,8 @@ export interface HubDeps {
   actions: ActionStore;
   /** The configuration a client last pushed. A hub starts on it, because the browser has none of its own to give. */
   settings: SettingsStore;
+  /** What the hub says about itself. Written to `hub.log` whatever happens; streamed only to a client that asked. */
+  log: Logger;
   /** The activity install, which is also the thing a test replaces to keep its hands off any settings file. */
   syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string): ActivityState;
 }
@@ -65,6 +50,8 @@ interface Connected {
   hello: ClientHello;
   send(message: HubMessage): void;
   watching: boolean;
+  /** Undoes this client's log subscription. Null while no viewer of theirs is open, which is where every one starts. */
+  unwatchLog: (() => void) | null;
 }
 
 /** One source that cannot be reached, held rather than reported until `OUTAGE_GRACE_MS` says otherwise. */
@@ -147,6 +134,7 @@ export function realHubDeps(
   settings: SettingsStore,
   home: string,
   watch: HubDeps['watch'],
+  log: Logger,
   triage: TriageStore = makeTriageStore(home),
   actions: ActionStore = makeActionStore(home),
 ): HubDeps {
@@ -160,6 +148,7 @@ export function realHubDeps(
     triage,
     actions,
     settings,
+    log,
     syncActivity: (regs, wanted, where) => syncActivity(regs.agents, wanted, where),
   };
 }
@@ -198,6 +187,8 @@ export class Hub {
   #lastSourceReadAt = 0;
   /** The last read listed nothing and every agent failed, so an activity event has nothing to re-read. */
   #sessionsUnreadable = false;
+  /** Which agents the log last said were unreadable, by subject and kind. Never by message — see `#sayAboutSessions`. */
+  #saidAboutSessions = '';
   /** Null until a client has said whether it wants the signal at all. Nothing is written to an agent before that. */
   #activity: ActivityState | null = null;
   #configured = false;
@@ -224,6 +215,7 @@ export class Hub {
     this.#triage = new TriageRunner({
       home: deps.home,
       store: deps.triage,
+      log: deps.log,
       agents: deps.registries.agents,
       sources: deps.registries.sources,
       now: () => deps.clock.now(),
@@ -234,6 +226,7 @@ export class Hub {
     this.#actions = new ActionRunner({
       home: deps.home,
       store: deps.actions,
+      log: deps.log,
       agents: deps.registries.agents,
       sources: deps.registries.sources,
       now: () => deps.clock.now(),
@@ -255,8 +248,12 @@ export class Hub {
   // — clients —
 
   connect(hello: ClientHello, send: (message: HubMessage) => void): Client {
-    this.#clients.set(hello.id, { hello, send, watching: hello.watching });
+    this.#clients.set(hello.id, { hello, send, watching: hello.watching, unwatchLog: null });
 
+    this.#deps.log.info(
+      `${hello.id} connected from ${hello.hostId ?? 'no host'}, ${hello.watching ? 'watching' : 'not watching'}`,
+      'clients',
+    );
     this.#sendTo(hello.id, 'snapshot');
     this.#retime();
 
@@ -264,7 +261,9 @@ export class Hub {
   }
 
   disconnect(client: Client): void {
+    this.#clients.get(client.id)?.unwatchLog?.();
     this.#clients.delete(client.id);
+    this.#deps.log.info(`${client.id} went away, leaving ${this.#clients.size}`, 'clients');
     this.#retime();
   }
 
@@ -279,6 +278,7 @@ export class Hub {
       case 'hello':
         connected.hello = message.hello;
         connected.watching = message.hello.watching;
+        this.#deps.log.debug(`${client.id} said hello again, ${message.hello.watching ? 'watching' : 'not watching'}`, 'clients');
         this.#retime();
 
         return;
@@ -312,6 +312,11 @@ export class Hub {
           this.#sendTo(client.id, 'snapshot');
           void this.refresh();
         }
+
+        return;
+
+      case 'watchLog':
+        this.#watchLog(connected, message.watching);
 
         return;
 
@@ -378,6 +383,7 @@ export class Hub {
     // a process: taking half of a configuration would leave the hub polling with two clients' settings mixed.
     if ('failure' in parsed) {
       this.#configFailures = [parsed.failure];
+      this.#deps.log.warn(`a client's settings were refused: ${parsed.failure.message}`, 'config');
       this.#broadcast();
 
       return null;
@@ -386,6 +392,14 @@ export class Hub {
     const before = this.#config;
 
     this.#config = parsed.config;
+
+    if (same(before, parsed.config)) {
+      this.#deps.log.debug('settings restated unchanged', 'config');
+    } else {
+      // Written before `#applyConfig` moves the floor, so turning the log down still says why it went quiet.
+      this.#deps.log.info(`settings changed by a client; the log level is now ${parsed.config.logLevel}`, 'config');
+    }
+
     const sessionsChanged = !same(before.agents, parsed.config.agents) || before.branchIssuePattern !== parsed.config.branchIssuePattern;
     if (sessionsChanged) {
       this.#sessions = undefined;
@@ -438,6 +452,7 @@ export class Hub {
 
   /** Hands each host and each source its own entry. Every id the registries do not carry is named here (R25). */
   #applyConfig(): ReadFailure[] {
+    this.#deps.log.setLevel(this.#config.logLevel);
     this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes);
     this.#actions?.configure(this.#config.actions, this.#config.agents);
 
@@ -483,6 +498,36 @@ export class Hub {
 
   // — polling —
 
+  /**
+   * A viewer opening or closing. Opening reads the tail of `hub.log` and subscribes to what comes after it;
+   * closing undoes both. Nothing is held for a client that has not asked — no buffer against the chance somebody
+   * looks, and no reason to touch the file. The backfill comes off disk rather than out of memory, which is what
+   * lets a viewer opened after a restart carry the last hub's dying words as well as this one's.
+   *
+   * It never makes this client watched: a developer reading the log is not a board on screen, and turning the
+   * poll loop on for one would spend a CLI spawn every thirty seconds for a window nobody is looking at (R35).
+   */
+  #watchLog(client: Connected, watching: boolean): void {
+    client.unwatchLog?.();
+    client.unwatchLog = null;
+
+    if (!watching) {
+      this.#deps.log.debug(`${client.hello.id} closed its log viewer`, 'clients');
+
+      return;
+    }
+
+    const backfill = readLogTail(this.#readers().readTail, logPathOf(this.#deps.home));
+
+    if (backfill.length > 0) {
+      client.send({ type: 'log', entries: backfill });
+    }
+
+    // Installed before the line saying so, which is therefore the first live entry the viewer receives.
+    client.unwatchLog = this.#deps.log.watch((entry) => client.send({ type: 'log', entries: [entry] }));
+    this.#deps.log.debug(`${client.hello.id} opened its log viewer`, 'clients');
+  }
+
   #watched(): boolean {
     return [...this.#clients.values()].some((client) => client.watching);
   }
@@ -504,9 +549,15 @@ export class Hub {
     }
 
     if (!wanted) {
+      this.#deps.log.debug('nothing is watching, so the timers are down', 'loop');
+
       return;
     }
 
+    this.#deps.log.debug(
+      `polling sources every ${this.#config.refreshIntervalMs}ms and sessions every ${this.#config.sessionIntervalMs}ms`,
+      'loop',
+    );
     this.#lastTickAt = this.#deps.clock.now();
     this.#timers.push(
       this.#deps.clock.setInterval(() => void this.#refreshSources('asked'), this.#config.refreshIntervalMs),
@@ -521,11 +572,13 @@ export class Hub {
    */
   #tick(): void {
     const now = this.#deps.clock.now();
-    const slept = now - this.#lastTickAt > TICK_MS + WAKE_GAP_MS;
+    const gap = now - this.#lastTickAt;
+    const slept = gap > TICK_MS + WAKE_GAP_MS;
 
     this.#lastTickAt = now;
 
     if (slept) {
+      this.#deps.log.info(`the machine was away about ${Math.round(gap / 1000)}s; reading everything again`, 'loop');
       // The sleep is not part of the outage: a source that failed on the way down gets its minute over again, and
       // its next try is now. One the board has already stated stays stated — `#riding` keys on that rather than on
       // the clock, because a stall long enough to look like a suspend must not retract a notice that still holds.
@@ -551,6 +604,7 @@ export class Hub {
     }
 
     if (overdue.length > 0) {
+      this.#deps.log.warn(`${overdue.length} source(s) unreachable for over a minute; saying so on the board`, 'sources');
       this.#broadcast();
     }
 
@@ -654,6 +708,7 @@ export class Hub {
   }
 
   async #readSource(source: WorkSource): Promise<void> {
+    const startedAt = this.#deps.clock.now();
     const reading = await source.read().catch(
       (error: unknown): SourceReading => ({
         items: null,
@@ -691,6 +746,16 @@ export class Hub {
     const items = reading.items ?? (reading.failure ? held?.items ?? null : null);
 
     this.#readings.set(source.id, { ...reading, items });
+
+    const took = now - startedAt;
+
+    if (reading.failure) {
+      this.#deps.log.warn(`${source.id} could not be read after ${took}ms: ${reading.failure.kind}`, 'sources');
+    } else if (reading.items === null) {
+      this.#deps.log.debug(`${source.id} has no settings to read with`, 'sources');
+    } else {
+      this.#deps.log.info(`${source.id} read ${reading.items.cards.length} cards in ${took}ms`, 'sources');
+    }
   }
 
   /** What every source last read, as one board. A source that has read nothing contributes nothing, not an absence. */
@@ -724,6 +789,8 @@ export class Hub {
       host.prime(readers);
     }
 
+    const startedAt = this.#deps.clock.now();
+
     let snapshot = await fetchSessions(
       config,
       this.#deps.registries.agents,
@@ -749,6 +816,7 @@ export class Hub {
     const endedIssues = new Set(this.#sessions?.sessions.filter((s) => !s.finished && !liveIds.has(`${s.agent}:${s.sessionId}`)).map((s) => s.issueNumber));
     this.#sessions = { ...snapshot, sessions: snapshot.sessions.map((session) => this.#withActivity(session)) };
     this.#sessionsUnreadable = snapshot.sessions.length === 0 && snapshot.failures.length > 0;
+    this.#sayAboutSessions(snapshot.failures, snapshot.sessions.length, this.#deps.clock.now() - startedAt);
     // Stable cards keep their rows while history refreshes. A just-ended attempt needs a fresh history read,
     // otherwise the older attempt would briefly appear in its place.
     this.#history = snapshot.failures.length > 0 ? [] : this.#history.filter((s) => !endedIssues.has(s.issueNumber));
@@ -763,6 +831,34 @@ export class Hub {
     this.#historyFailures = history.failures;
 
     this.#broadcast();
+  }
+
+  /**
+   * One line per session read at `debug`, because the cadence is every thirty seconds and a line each at `info`
+   * would outwrite the log in a day. A failure is a `warn`, and only where the set of them has moved: an agent
+   * whose CLI is missing fails every read, and repeating that twice a minute buries everything else in the file.
+   */
+  #sayAboutSessions(failures: readonly ReadFailure[], listed: number, took: number): void {
+    this.#deps.log.debug(`${listed} sessions in ${took}ms`, 'sessions');
+
+    // Keyed on subject and kind, never on the message: an agent adapter puts its CLI's own output in one, so a
+    // failure whose text moves between attempts would write a line every read — which is the flood this prevents.
+    const key = failures.map((failure) => `${failure.subject}/${failure.kind}`).join(' ');
+
+    if (key === this.#saidAboutSessions) {
+      return;
+    }
+
+    this.#saidAboutSessions = key;
+
+    // An empty set that was not empty before is a CLI that has come back, which is worth as much as its going.
+    if (key === '') {
+      this.#deps.log.info('every agent is readable again', 'sessions');
+
+      return;
+    }
+
+    this.#deps.log.warn(failures.map((failure) => `${failure.subject}: ${failure.message}`).join('; '), 'sessions');
   }
 
   #readers(): MachineReaders {
@@ -784,6 +880,11 @@ export class Hub {
 
     const known = new Set(this.#sessions?.sessions.map((session) => session.sessionId) ?? []);
     const stale = rosterIsStale(changes, known, (id) => this.#phaseOf(id) !== null);
+
+    this.#deps.log.debug(
+      `${changes.length} marker change(s); ${stale ? 'the roster moved, so the CLI is asked' : 'a phase changed, so one file is read'}`,
+      'activity',
+    );
 
     // Not while the CLI is unreadable: it lists nothing, so every batch would be stale and spawn a read that fails
     // again. The timer keeps retrying, which is the one place a read that may fail belongs.
@@ -827,6 +928,7 @@ export class Hub {
 
   #move(key: string, lane: LaneId): void {
     this.#deps.lanes.write(withPlacement(this.#memory(), key, lane));
+    this.#deps.log.info(`${key} moved to ${lane}`, 'lanes');
     this.#broadcast();
   }
 
@@ -1215,6 +1317,12 @@ export class Hub {
 
   dispose(): void {
     this.#disposed = true;
+
+    for (const client of this.#clients.values()) {
+      client.unwatchLog?.();
+      client.unwatchLog = null;
+    }
+
     this.#triage.dispose();
     this.#actions.dispose();
 

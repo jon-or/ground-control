@@ -1,16 +1,6 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { ACTION_REVISION, checkoutOf, isAutomatable } from '@ground-control/core';
-import type {
-  ActionSettings,
-  ActionState,
-  AgentAdapter,
-  AutomatableAction,
-  Lane,
-  LanedCard,
-  ReadFailure,
-  Session,
-  WorkSource,
-} from '@ground-control/core';
+import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource } from '@ground-control/core';
 import {
   actionEnabled,
   alreadyRun,
@@ -37,6 +27,8 @@ import type { ActionStore } from './actionStore.js';
 export interface ActionDeps {
   home: string;
   store: ActionStore;
+  /** Every run the board starts, stops, or settles. This is the board editing the developer's code (R39). */
+  log: Logger;
   agents: readonly AgentAdapter[];
   sources: readonly WorkSource[];
   now(): number;
@@ -268,6 +260,7 @@ export class ActionRunner {
 
     // Held while the stop is out, so the settle pass does not decide this run's outcome from underneath it.
     this.#settling.add(key);
+    this.#deps.log.info(`${key}: asked to stop`, 'actions');
 
     try {
       // The seam is public and may throw rather than answer. A throw escaping here is an unhandled rejection in the
@@ -450,6 +443,11 @@ export class ActionRunner {
   #settled(state: ActionState, key: string): ActionState {
     const report = readActionReport(readJson(actionReportPathOf(this.#deps.home, key)));
 
+    this.#deps.log.info(
+      `${key}: the run ${report?.outcome === 'pushed' ? 'landed' : 'ended without landing'}`,
+      'actions',
+    );
+
     return withOutcome(
       state,
       key,
@@ -585,6 +583,12 @@ export class ActionRunner {
 
     const now = this.#deps.now();
     const failed = 'failure' in outcome;
+
+    if ('failure' in outcome) {
+      this.#deps.log.warn(`${key}: ${plan.action} could not be started: ${outcome.failure.message}`, 'actions');
+    } else {
+      this.#deps.log.info(`${key}: started ${plan.action} as ${outcome.shortId} in ${plan.checkout}`, 'actions');
+    }
 
     this.#write(
       withDispatch(

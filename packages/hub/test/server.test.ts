@@ -6,6 +6,7 @@ import { PROTOCOL } from '@ground-control/core';
 import type { Client, ClientHello, ClientMessage, HubMessage, Session, Snapshot } from '@ground-control/core';
 import { BODY_LIMIT_BYTES, HEARTBEAT_MS, MAX_EVENT_STREAMS, REFUSALS_PER_MINUTE, createHubServer } from '../src/server.js';
 import type { HubServer, ServerClock } from '../src/server.js';
+import { captureLog } from './helpers.js';
 
 const CRLF = String.fromCharCode(13, 10);
 
@@ -197,12 +198,12 @@ function stream(server: HubServer, id: string): Promise<{ frames: string[]; next
 async function serving(clock?: ServerClock) {
   const hub = fakeHub();
   const stops: string[] = [];
-  const logged: string[] = [];
+  const { log, messages: logged } = captureLog();
   const created = createHubServer({
     hub,
     fingerprint: 'abc123',
     onShutdown: () => stops.push('asked'),
-    log: (line) => logged.push(line),
+    log,
     ...(clock ? { clock } : {}),
   });
   const server = await created.listen();

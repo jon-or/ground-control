@@ -4,7 +4,9 @@ import { AUTOMATABLE_ACTIONS } from './actions.js';
 import { LANE_ORDER } from './board.js';
 import type { ActionSettings } from './actions.js';
 import type { LaneId } from './board.js';
+import { LOG_FLOORS } from './log.js';
 import type { AgentConfig, ReadFailure } from './types.js';
+import type { LogFloor } from './log.js';
 
 /**
  * Everything the hub polls with. A client pushes one of these and the hub merges it over its own defaults, so a hub
@@ -22,6 +24,8 @@ export interface HubConfig {
   refreshIntervalMs: number;
   sessionIntervalMs: number;
   installActivity: boolean;
+  /** How much detail the hub writes about itself. Never whether it writes at all — see `LOG_FLOORS`. */
+  logLevel: LogFloor;
   triage: TriageSettings;
   actions: ActionSettings;
 }
@@ -146,6 +150,9 @@ export const hubConfig = z.object({
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
   installActivity: z.boolean(),
+  // Absent from a configuration written by a client that predates the hub saying what it is doing, and caught
+  // rather than refused the way `permissionMode` is: a level a later build names is not worth a dead board over.
+  logLevel: z.enum(LOG_FLOORS).catch('info').default('info'),
   // Absent from a configuration written by a client that predates triage.
   triage: triage.default(DEFAULT_TRIAGE),
   // Absent from one that predates the board acting at all, which reads as the board doing nothing on its own (R32).

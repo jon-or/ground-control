@@ -12,9 +12,12 @@ import { makeActionStore } from '../src/actionStore.js';
 import { makeSettingsStore } from '../src/settings.js';
 import type { StoredConfig } from '../src/settings.js';
 import { makeMarkStore } from '../src/marks.js';
-import { lanesPathOf } from '../src/paths.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { lanesPathOf, logPathOf } from '../src/paths.js';
+import { groundControlDirOf } from '@ground-control/core';
+import type { LogEntry } from '@ground-control/core';
 import { defaultConfig } from '../src/registry.js';
-import { fakeClock, fakeHost, fakeSession, reportingAgent, tempHome } from './helpers.js';
+import { captureLog, fakeClock, fakeHost, fakeSession, reportingAgent, tempHome } from './helpers.js';
 import type { FakeAgentControl, FakeHostControl } from './helpers.js';
 
 let home: string;
@@ -87,6 +90,8 @@ interface Harness {
   config(over?: Partial<HubConfig>): HubConfig;
   /** Every configuration the hub decided to remember. A refused one must never reach it. */
   wrote: HubConfig[];
+  /** What the hub said about itself, message only. A line it never wrote is a decision nothing recorded. */
+  logged: string[];
 }
 
 function harness(
@@ -113,6 +118,7 @@ function harness(
   });
 
   const registries = { agents: [agent.adapter], hosts: [host.adapter], sources: [github, ...(extra.sources ?? [])] };
+  const logging = captureLog();
 
   const shape: Harness = {
     hub: undefined as unknown as Hub,
@@ -132,6 +138,7 @@ function harness(
       return counts.issues;
     },
     installs: [],
+    logged: logging.messages,
     activity: null,
     detected,
     wrote: [],
@@ -159,6 +166,7 @@ function harness(
     },
     home,
     registries,
+    log: logging.log,
     lanes: makeLaneStore(home),
     marks: makeMarkStore(home),
     triage: makeTriageStore(home),
@@ -1960,5 +1968,248 @@ describe('opening a historical session', () => {
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
     h.clock.advance(60_001); h.host.plan = { ...h.host.plan, expiresAt: h.clock.clock.now() + 30_000 };
     ask(h, client); await settle(); expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(2); h.hub.dispose();
+  });
+});
+
+describe('what the hub writes down about itself', () => {
+  it('names the source it read and how much it got, so a quiet board can be told from a stopped loop', async () => {
+    const h = harness({}, { fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [card(11), card(12)] } }) });
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(h.logged).toContain('github read 2 cards in 0ms');
+  });
+
+  it('names a source it could not read, and the kind rather than the sentence the board shows', async () => {
+    const h = harness(
+      {},
+      { fetch: async () => ({ ok: false, error: { kind: 'query-failed', message: 'GitHub failed.', remedy: 'Try again.' } }) },
+    );
+
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(h.logged).toContain('github could not be read after 0ms: query-failed');
+  });
+
+  it('writes down a board arriving and a board going away', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    await settle();
+    h.hub.disconnect(client);
+
+    expect(h.logged).toContain('board-1 connected from fake-host, watching');
+    expect(h.logged).toContain('board-1 went away, leaving 0');
+  });
+
+  it('writes down a card the developer moved, and where to', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    await settle();
+    h.hub.receive(client, { type: 'move', key: 'issue:18941', lane: 'review' });
+
+    expect(h.logged).toContain('issue:18941 moved to review');
+  });
+
+  it('says why it refused a configuration, in the words the board is given', async () => {
+    const h = harness();
+    const { inbox } = connect(h);
+
+    h.hub.configure({ agents: 'not a list' });
+
+    const refusal = latest(inbox).failures.find((failure) => failure.subject === 'config');
+
+    expect(refusal?.message).toBeDefined();
+    expect(h.logged).toContain(`a client's settings were refused: ${refusal!.message}`);
+  });
+
+  // Every board that opens restates its settings, and a hub that wrote a line for each would say nothing else.
+  it('writes a line for the settings that changed and not for the ones restated after them', async () => {
+    const h = harness();
+    const { client } = connect(h);
+    const settings = h.config({ logLevel: 'debug' });
+
+    h.hub.receive(client, { type: 'configure', config: settings });
+    await settle();
+    h.hub.receive(client, { type: 'configure', config: settings });
+    await settle();
+
+    expect(h.logged.filter((line) => line.startsWith('settings changed by a client'))).toHaveLength(1);
+    expect(h.logged.filter((line) => line === 'settings restated unchanged')).toHaveLength(1);
+  });
+
+  // An agent whose CLI is missing fails every read. Twice a minute, forever, would bury everything else in the file.
+  it('names a broken agent once rather than on every session read', async () => {
+    const h = harness();
+
+    const { client } = connect(h);
+
+    h.agent.failure = { subject: 'fake', kind: 'cli-missing', message: 'no CLI', remedy: 'install it' };
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    h.clock.fire(h.config().sessionIntervalMs);
+    await settle();
+    h.clock.fire(h.config().sessionIntervalMs);
+    await settle();
+
+    expect(h.logged.filter((line) => line === 'fake: no CLI')).toHaveLength(1);
+  });
+
+  it('says an agent is readable again once it comes back, and not before', async () => {
+    const h = harness();
+
+    const { client } = connect(h);
+
+    h.agent.failure = { subject: 'fake', kind: 'cli-missing', message: 'no CLI', remedy: 'install it' };
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(h.logged).toContain('fake: no CLI');
+    expect(h.logged).not.toContain('every agent is readable again');
+
+    h.agent.failure = null;
+    h.clock.fire(h.config().sessionIntervalMs);
+    await settle();
+
+    expect(h.logged).toContain('every agent is readable again');
+  });
+
+  // The per-item detail. It is off by default, and turning it on is a setting a client pushes like any other.
+  it('holds back the per-read detail until a client asks for debug', async () => {
+    const h = harness();
+    const { client } = connect(h);
+    const before = h.agent.calls;
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    // The read happened; its line is what is missing, which is the only way this can prove the floor.
+    expect(h.agent.calls).toBeGreaterThan(before);
+    expect(h.logged.some((line) => line.endsWith('sessions in 0ms'))).toBe(false);
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ logLevel: 'debug' }) });
+    await settle();
+
+    // A configuration that moved only the level asks for no read the floor would allow, so the cadence supplies one.
+    h.clock.fire(h.config().sessionIntervalMs);
+    await settle();
+
+    expect(h.logged.some((line) => line.endsWith('sessions in 0ms'))).toBe(true);
+  });
+});
+
+describe('a client that opened a log viewer', () => {
+  const LINE = '2026-09-06T19:01:24.114Z info listening on 127.0.0.1:51844';
+
+  /** A hub.log an earlier run left behind. The directory is the hub's own to create, and it has not run yet. */
+  function seedLog(text: string): void {
+    mkdirSync(groundControlDirOf(home), { recursive: true });
+    writeFileSync(logPathOf(home), text);
+  }
+
+  function logged(inbox: HubMessage[]): LogEntry[] {
+    return inbox.flatMap((message) => (message.type === 'log' ? message.entries : []));
+  }
+
+  // The whole of "read nothing until the viewer is open": the hub has plenty to say by now and says none of it here.
+  it('is sent nothing about the log until it asks, however much the hub has written', async () => {
+    const h = harness();
+    const { inbox } = connect(h);
+
+    await settle();
+
+    expect(h.logged.length).toBeGreaterThan(0);
+    expect(logged(inbox)).toEqual([]);
+  });
+
+  it('is handed the tail of hub.log the moment it asks', () => {
+    seedLog(`${LINE}\n`);
+
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'watchLog', watching: true });
+
+    expect(logged(inbox)).toEqual([
+      { at: '2026-09-06T19:01:24.114Z', level: 'info', source: 'hub', message: 'listening on 127.0.0.1:51844' },
+    ]);
+  });
+
+  // The backfill comes off disk, so it carries the hub before this one — which is the case a restart leaves behind.
+  it('is handed lines an earlier hub wrote, not only this one', () => {
+    seedLog(`2026-09-05T08:00:00.000Z error could not listen on 127.0.0.1\n`);
+
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'watchLog', watching: true });
+
+    expect(logged(inbox).map((entry) => entry.message)).toEqual(['could not listen on 127.0.0.1']);
+  });
+
+  it('is sent each line as it is written, once it has asked', () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'watchLog', watching: true });
+    h.hub.receive(client, { type: 'move', key: 'issue:18941', lane: 'review' });
+
+    expect(logged(inbox).map((entry) => entry.message)).toContain('issue:18941 moved to review');
+  });
+
+  it('is sent nothing more once it closes the viewer', () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'watchLog', watching: true });
+    h.hub.receive(client, { type: 'watchLog', watching: false });
+    h.hub.receive(client, { type: 'move', key: 'issue:18941', lane: 'review' });
+
+    expect(logged(inbox).map((entry) => entry.message)).not.toContain('issue:18941 moved to review');
+  });
+
+  // A stream that went away must take its subscription with it, or the hub writes into a response that has ended.
+  it('stops being sent lines when its stream goes', () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'watchLog', watching: true });
+    h.hub.disconnect(client);
+
+    const before = logged(inbox).length;
+
+    h.hub.receive(client, { type: 'move', key: 'issue:18941', lane: 'review' });
+
+    expect(logged(inbox)).toHaveLength(before);
+  });
+
+  it('sends one client its lines without sending them to a client that never asked', () => {
+    const h = harness();
+    const reader = connect(h, hello({ id: 'board-reading' }));
+    const other = connect(h, hello({ id: 'board-quiet' }));
+
+    h.hub.receive(reader.client, { type: 'watchLog', watching: true });
+    h.hub.receive(reader.client, { type: 'move', key: 'issue:18941', lane: 'review' });
+
+    expect(logged(reader.inbox).map((entry) => entry.message)).toContain('issue:18941 moved to review');
+    expect(logged(other.inbox)).toEqual([]);
+  });
+
+  // Reading the log is not a board on screen. Turning the loop on for one would spend a CLI spawn every thirty
+  // seconds for a window nobody is looking at (R35).
+  it('does not start the poll loop', () => {
+    const h = harness();
+    const { client } = connect(h, hello({ watching: false }));
+
+    h.hub.receive(client, { type: 'watchLog', watching: true });
+
+    expect(h.clock.cadences()).toEqual([]);
   });
 });

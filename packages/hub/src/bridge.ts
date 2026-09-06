@@ -93,6 +93,12 @@ export function bridgeAction(raw: unknown): BridgeAction {
     return { send: { type: 'refresh' } };
   }
 
+  // The overlay's own sidebar. It reads the hub's log and sends nothing but whether it is open, so it widens
+  // nothing the snapshot has not already carried — with the one exception `redactForBrowser` takes back out.
+  if (message.type === 'watchLog') {
+    return { send: { type: 'watchLog', watching: message.watching === true } };
+  }
+
   if (message.type === 'watching') {
     return { send: { type: 'watching', watching: message.watching === true } };
   }
@@ -115,6 +121,30 @@ export function bridgeAction(raw: unknown): BridgeAction {
 
   return { refused: `The overlay may not send ${String(message.type)}.` };
 }
+
+/**
+ * The one thing in `hub.log` a browser may not have. The hub records the `Origin` of every web page that reached
+ * the loopback port and was refused, which is a slice of the developer's own browsing — and the overlay paints
+ * into a page on github.com, whose own scripts can read what the sidebar writes. Everything else in that file the
+ * snapshot already carries. The refusal itself stays, because a page probing the port is the thing worth seeing;
+ * which page it was is not the browser's to be told.
+ */
+export function redactForBrowser(message: BridgeMessage): BridgeMessage {
+  if (message.type !== 'log') {
+    return message;
+  }
+
+  return {
+    ...message,
+    entries: message.entries.map((entry) =>
+      ORIGIN.test(entry.message)
+        ? { ...entry, message: entry.message.replace(ORIGIN, 'an Origin header (hidden)') }
+        : entry,
+    ),
+  };
+}
+
+const ORIGIN = /an Origin header, .*$/;
 
 /** The bridge as a client: no host, so no route is ever forwarded to it, and no resident half to perform one. */
 export function bridgeHello(id: string, watching: boolean): ClientHello {
@@ -143,7 +173,7 @@ export function runBridge(deps: BridgeDeps): (message: BridgeMessage) => void {
 
   const toChrome = (message: BridgeMessage): void => {
     try {
-      deps.streams.write(encodeFrame(message));
+      deps.streams.write(encodeFrame(redactForBrowser(message)));
     } catch {
       // A frame Chrome will not take is one message lost. The next snapshot carries the same state.
     }

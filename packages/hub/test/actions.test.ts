@@ -23,7 +23,7 @@ import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
 import { makeActionStore } from '../src/actionStore.js';
 import { actionReportPathOf } from '../src/paths.js';
-import { fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
+import { captureLog, fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
 
 let home: string;
 let dispose: () => void;
@@ -269,6 +269,7 @@ function harness(
     },
   };
 
+  const logging = captureLog();
   const store = makeActionStore(home);
 
   control.hub = new Hub({
@@ -282,6 +283,7 @@ function harness(
     // Reads still work; only the write fails, which is the shape a locked or full disk actually takes.
     actions: { read: () => store.read(), write: (state) => (control.storeBroken ? false : store.write(state)) },
     settings: { read: () => null, write: () => undefined },
+    log: logging.log,
     syncActivity: (_r, wanted) => ({ wanted, plan: 'up-to-date', added: 0, failure: null }),
   });
 
@@ -295,6 +297,7 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
     agents: [{ id: 'claude', path: 'claude-cli' }],
     branchIssuePattern: '^(\\d+)-',
     hosts: {},
+    logLevel: 'info',
     sources: { github: { repo: 'example-org/example-repo', logins: ['dev-1'] } },
     boardStatuses: ['⚒️ Dev'],
     statusLanes: {},

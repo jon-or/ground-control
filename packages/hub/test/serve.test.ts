@@ -8,7 +8,7 @@ import { exitPathOf, hubJsonPathOf, logPathOf } from '../src/paths.js';
 import { fingerprintOf, probe } from '../src/discover.js';
 import { sanitizeEnvironment, serveHub } from '../src/serve.js';
 import type { ServeResult } from '../src/serve.js';
-import { tempHome } from './helpers.js';
+import { captureLog, tempHome } from './helpers.js';
 
 /**
  * Every hub and every home this file makes, torn down whatever the test did. Without it an assertion that fails
@@ -31,12 +31,12 @@ function served(result: ServeResult) {
 }
 
 async function serving(home: string, over: { idleMs?: number } = {}) {
-  const lines: string[] = [];
+  const { log, messages: lines } = captureLog();
   const exits: number[] = [];
   const result = await serveHub({
     home,
     version: '1.2.3',
-    log: (line) => lines.push(line),
+    log,
     exit: (code) => exits.push(code),
     ...over,
   });

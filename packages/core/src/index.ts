@@ -37,6 +37,8 @@ export type {
 export { CHROME_EXTENSION_ID, NATIVE_HOST_NAME } from './chrome.js';
 export { PROTOCOL } from './protocol.js';
 export type { Client, ClientHello, ClientMessage, HubMessage, Snapshot, SnapshotMessage } from './protocol.js';
+export { LOG_FLOORS, LOG_LEVELS, formatLogLine, meetsLevel, parseLogLines } from './log.js';
+export type { LogEntry, LogFloor, LogLevel, LogSource, Logger } from './log.js';
 export { basename, dirKey, groundControlDirOf, isAbsolute, join, normalize, parent, GROUND_CONTROL_DIR } from './paths.js';
 export { compilePattern, findCheckout, issueNumberFrom, linkOf } from './link.js';
 export { repositoryKey, repositoryOf } from './repository.js';

@@ -245,6 +245,13 @@
           "maximum": 240,
           "markdownDescription": "How long a dispatch whose session never appeared on the machine is left open before the board calls it lost. Not a limit on the work — a run is followed until its session ends, however long that takes."
         },
+        "groundControl.logLevel": {
+          "scope": "application",
+          "type": "string",
+          "enum": ["info", "debug"],
+          "default": "info",
+          "markdownDescription": "How much the background process writes about what it is doing. `info` is one line per source read, per board that connects, per card moved and per run started. `debug` adds one line per `gh` call with its duration, per session read, and per activity marker batch — useful when the board is slow or empty and you want to see where the time goes. Neither setting can silence the process starting, stopping, or refusing a request: those are always written. The log is at `~/.claude/ground-control/hub.log`, and **Ground Control: Show Logs** opens it live."
+        },
         "groundControl.installSessionHooks": {
           "scope": "application",
           "type": "boolean",

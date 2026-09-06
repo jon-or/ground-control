@@ -64,6 +64,7 @@ export function readHubConfig(userDir: string): HubConfig {
     statusLanes: statusLanes(cfg.get<unknown>('statusLanes')),
     refreshIntervalMs: refreshIntervalMs(),
     sessionIntervalMs: sessionIntervalMs(),
+    logLevel: cfg.get<string>('logLevel', 'info') === 'debug' ? 'debug' : 'info',
     installActivity: installSessionHooks(),
     triage: readTriage(),
     actions: readActions(),

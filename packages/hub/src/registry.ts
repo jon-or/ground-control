@@ -1,7 +1,7 @@
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
 import { DEFAULT_ACTIONS, DEFAULT_TRIAGE } from '@ground-control/core';
-import type { AgentAdapter, HostAdapter, HubConfig, ReadFailure, WorkSource } from '@ground-control/core';
+import type { AgentAdapter, HostAdapter, HubConfig, Logger, ReadFailure, WorkSource } from '@ground-control/core';
 import { makeGithubSource } from '@ground-control/github';
 import { makeVscodeHost } from '@ground-control/host-vscode';
 
@@ -15,8 +15,8 @@ export interface Registries {
   sources: readonly WorkSource[];
 }
 
-export function makeRegistries(): Registries {
-  return { agents: [makeClaudeAdapter()], hosts: [makeVscodeHost()], sources: [makeGithubSource()] };
+export function makeRegistries(log?: Logger): Registries {
+  return { agents: [makeClaudeAdapter()], hosts: [makeVscodeHost()], sources: [makeGithubSource(log ? { log } : {})] };
 }
 
 /** The team's convention, so it ships as a default rather than as something a new developer has to set (R27). */
@@ -46,6 +46,7 @@ export function defaultConfig(registries: Registries = makeRegistries()): HubCon
     refreshIntervalMs: REFRESH_INTERVAL_MS,
     sessionIntervalMs: SESSION_INTERVAL_MS,
     installActivity: true,
+    logLevel: 'info',
     triage: { ...DEFAULT_TRIAGE },
     // Nothing on, and no prompt: the board shows and intervenes, and does not start work until asked to (R32).
     actions: { ...DEFAULT_ACTIONS, actions: {} },

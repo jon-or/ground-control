@@ -19,7 +19,7 @@ import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
 import { makeActionStore } from '../src/actionStore.js';
-import { fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
+import { captureLog, fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
 
 let home: string;
 let dispose: () => void;
@@ -67,6 +67,8 @@ function contextOf(card: IssueCard): TriageContext {
 
 interface Control {
   hub: Hub;
+  /** What the hub wrote down, message only. Reading a card spends the developer's usage, so it leaves a record. */
+  logged: string[];
   clock: ReturnType<typeof fakeClock>;
   agent: ReturnType<typeof reportingAgent>;
   cards: IssueCard[];
@@ -95,8 +97,11 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
   const clock = fakeClock();
   const agent = reportingAgent('claude');
 
+  const logging = captureLog();
+
   const control: Control = {
     hub: undefined as unknown as Hub,
+    logged: logging.messages,
     clock,
     agent,
     cards,
@@ -198,6 +203,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     triage: makeTriageStore(home),
     actions: makeActionStore(home),
     settings: { read: () => null, write: () => undefined },
+    log: logging.log,
     syncActivity: (_r, wanted) => ({ wanted, plan: 'up-to-date', added: 0, failure: null }),
     ...over,
   });
@@ -216,6 +222,7 @@ function hubConfig(
     agents: [{ id: 'claude', path: 'claude-cli', model: 'claude-haiku-4-5-20251001' }],
     branchIssuePattern: '^(\d+)-',
     hosts: {},
+    logLevel: 'info',
     sources: { github: { repo: 'example-org/example-repo', logins: ['dev-1'] } },
     boardStatuses: ['⚒️ Dev', '🔍 Dev Review'],
     statusLanes,
@@ -669,5 +676,19 @@ describe('a card that leaves and comes back', () => {
 
     expect(control.contexts).toEqual([17198]);
     expect(triageOf(control.snapshot())).toMatchObject({ state: 'done' });
+  });
+});
+
+describe('what a reading leaves in the log', () => {
+  // A classification sends card text to an API and spends the developer's usage. It is never only a redraw (R38).
+  it('names the card it read and the agent it spent, and how long the reading took', async () => {
+    const control = harness();
+
+    watch(control.hub);
+    await control.hub.refresh('asked');
+    await control.settle();
+
+    expect(control.logged.some((line) => line.startsWith('reading issue:') && line.endsWith(' with claude'))).toBe(true);
+    expect(control.logged.some((line) => /^issue:\d+ read in \d+ms$/.test(line))).toBe(true);
   });
 });

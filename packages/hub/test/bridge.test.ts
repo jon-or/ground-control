@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ClientMessage, Snapshot } from '@ground-control/core';
-import { FRAME_LIMIT_BYTES, FrameReader, bridgeAction, bridgeHello, encodeFrame, runBridge } from '../src/bridge.js';
+import type { ClientMessage, LogEntry, Snapshot } from '@ground-control/core';
+import { FRAME_LIMIT_BYTES, FrameReader, bridgeAction, bridgeHello, encodeFrame, redactForBrowser, runBridge } from '../src/bridge.js';
 import type { BridgeMessage, BridgeStreams } from '../src/bridge.js';
 
 function frames(reader: FrameReader, ...chunks: Buffer[]): unknown[] {
@@ -212,5 +212,55 @@ describe('relaying one Chrome port', () => {
     h.close();
 
     expect(h.stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('what the overlay may ask about the log, and what it is told back', () => {
+  const AT = '2026-09-06T19:01:24.114Z';
+
+  function entry(message: string): LogEntry {
+    return { at: AT, level: 'warn', source: 'hub', scope: 'server', message };
+  }
+
+  it('lets the overlay say its sidebar is open, and say it is closed again', () => {
+    expect(bridgeAction({ type: 'watchLog', watching: true })).toEqual({ send: { type: 'watchLog', watching: true } });
+    expect(bridgeAction({ type: 'watchLog', watching: false })).toEqual({ send: { type: 'watchLog', watching: false } });
+  });
+
+  it('reads anything but a true watching as closed, rather than refusing the message', () => {
+    expect(bridgeAction({ type: 'watchLog', watching: 'yes' })).toEqual({ send: { type: 'watchLog', watching: false } });
+  });
+
+  // The refusal this exists for: the hub records the Origin of every page that reached the loopback port, and the
+  // overlay paints into a page on github.com whose own scripts can read what the sidebar writes.
+  it('takes the page out of a refused-request line before the browser sees it', () => {
+    const redacted = redactForBrowser({
+      type: 'log',
+      entries: [entry('refused GET /snapshot: an Origin header, https://somesite.example')],
+    });
+
+    expect(redacted).toEqual({
+      type: 'log',
+      entries: [entry('refused GET /snapshot: an Origin header (hidden)')],
+    });
+  });
+
+  it('keeps the refusal itself, because a page probing the port is the thing worth seeing', () => {
+    const redacted = redactForBrowser({ type: 'log', entries: [entry('refused GET /hub: an Origin header, https://a.example')] });
+
+    expect(redacted.type === 'log' && redacted.entries[0]!.message).toContain('refused GET /hub');
+  });
+
+  it('leaves every other line of the log alone', () => {
+    const lines = [entry('a Host of evil.example, not 127.0.0.1:51844'), entry('github read 14 cards in 812ms')];
+    const redacted = redactForBrowser({ type: 'log', entries: lines });
+
+    expect(redacted).toEqual({ type: 'log', entries: lines });
+  });
+
+  it('leaves a message that is not the log alone', () => {
+    const notice = { type: 'notice', level: 'warning', message: 'an Origin header, https://a.example' } as const;
+
+    expect(redactForBrowser(notice)).toEqual(notice);
   });
 });

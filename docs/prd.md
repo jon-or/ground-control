@@ -226,6 +226,7 @@ Telling a running session from an idle one is part of that. The agent CLI does n
 | | How much the board is allowed to do on its own |
 | | What agents it starts are allowed to do without asking |
 | | Whether it may open new editor windows |
+| | How much the background process writes about what it is doing |
 
 A new developer should inherit every shared default without configuring anything, and should never have to edit a shared setting to make the tool work on their machine.
 

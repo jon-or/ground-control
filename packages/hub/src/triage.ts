@@ -1,15 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { groundControlDirOf } from '@ground-control/core';
-import type {
-  AgentAdapter,
-  IssueCard,
-  Lane,
-  LaneId,
-  ReadFailure,
-  TriageSettings,
-  WorkSource,
-} from '@ground-control/core';
+import type { AgentAdapter, IssueCard, Lane, LaneId, Logger, ReadFailure, TriageSettings, WorkSource } from '@ground-control/core';
 import {
   buildTriagePrompt,
   dueForTriage,
@@ -31,6 +23,8 @@ import type { TriageStore } from './triageStore.js';
 export interface TriageDeps {
   home: string;
   store: TriageStore;
+  /** What each reading cost and what it came to. A classification spends money, so it is never only a redraw. */
+  log: Logger;
   /**
    * Says, once per machine, that reading cards spends the developer's usage and sends card text to an API. The
    * activity install — which writes a local file and costs nothing — already announces itself; a feature that
@@ -260,10 +254,12 @@ export class TriageRunner {
   async #run(due: Due): Promise<void> {
     const controller = new AbortController();
     const sessionId = randomUUID();
+    const startedAt = this.#deps.now();
 
     this.#running.add(due.key);
     this.#inFlight.set(due.key, controller);
     this.#sessions.add(sessionId);
+    this.#deps.log.info(`reading ${due.key} with ${due.agent.id}`, 'triage');
     this.#deps.changed();
 
     // One budget over the read and the classification together. A hung `gh` and a hung classifier cost the same slot.
@@ -281,7 +277,17 @@ export class TriageRunner {
 
       // A run the board stood down itself is not a card that could not be read. A timeout is, and reaches here.
       if (this.#disposed || this.#stoodDown.has(due.key)) {
+        this.#deps.log.debug(`${due.key} was stood down before it landed`, 'triage');
+
         return;
+      }
+
+      const took = this.#deps.now() - startedAt;
+
+      if (failure === null) {
+        this.#deps.log.info(`${due.key} read in ${took}ms`, 'triage');
+      } else {
+        this.#deps.log.warn(`${due.key} could not be read after ${took}ms: ${failure.kind}`, 'triage');
       }
 
       const state = this.#deps.store.read();

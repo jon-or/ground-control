@@ -6,6 +6,7 @@ import type { HubServer } from '../src/server.js';
 import { HubTransport } from '../src/transport.js';
 import type { Ensured } from '../src/ensure.js';
 import type { HubRecord } from '../src/discover.js';
+import { captureLog } from './helpers.js';
 
 const SNAPSHOT = {
   lanes: [],
@@ -68,7 +69,7 @@ afterEach(async () => {
 
 async function serving() {
   const hub = fakeHub();
-  const created = createHubServer({ hub, fingerprint: 'abc123', onShutdown: () => {}, log: () => {} });
+  const created = createHubServer({ hub, fingerprint: 'abc123', onShutdown: () => {}, log: captureLog().log });
   const server = await created.listen();
 
   shut.push(() => server.close());

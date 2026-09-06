@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { ExecFileException } from 'node:child_process';
+import type { Logger } from '@ground-control/core';
 import type { Failure, Result } from './types.js';
 
 /** What a call may bound beyond its arguments. Every call carries a deadline; one card's triage carries a signal too. */
@@ -63,7 +64,7 @@ function classify(err: ExecFileException, stderr: string): Failure {
  * Runs `gh` and parses stdout as JSON. Never throws — every failure comes back classified. `windowsHide` because the
  * hub that calls this is detached and has no console: without it each poll opens a command prompt on screen.
  */
-export function makeGhRunner(ghPath: string): GhRunner {
+function spawnGh(ghPath: string): GhRunner {
   return (args, options = {}) =>
     new Promise<Result<unknown>>((resolve) => {
       // A path the platform rejects outright raises before the callback, and a rejection here would surface as an
@@ -123,4 +124,31 @@ export function makeGhRunner(ghPath: string): GhRunner {
         });
       }
     });
+}
+
+/**
+ * Every `gh` invocation, timed. One source read is one or more of these — `fetchAssignedIssues` runs a query per
+ * page — so the read's own line says how many cards came back while these say what it cost to get them.
+ *
+ * Both outcomes are `debug`, the failure included: the classified error is returned to the caller and the source
+ * states it at `warn` on the board's behalf, so warning here would write one outage down twice a read. Only the
+ * subcommand is named, never the arguments — a GraphQL query body is thousands of characters.
+ */
+export function makeGhRunner(ghPath: string, log?: Logger): GhRunner {
+  const run = spawnGh(ghPath);
+
+  if (log === undefined) {
+    return run;
+  }
+
+  return async (args, options) => {
+    const startedAt = Date.now();
+    const result = await run(args, options);
+    const what = args.slice(0, 2).join(' ');
+    const took = Date.now() - startedAt;
+
+    log.debug(result.ok ? `${what} in ${took}ms` : `${what} failed after ${took}ms: ${result.error.kind}`, 'gh');
+
+    return result;
+  };
 }

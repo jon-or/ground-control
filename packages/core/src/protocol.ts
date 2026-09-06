@@ -1,6 +1,7 @@
 import type { Lane, LaneId } from './board.js';
 import type { HubConfig } from './config.js';
 import type { OpenRefusal, OpenRoute } from './host.js';
+import type { LogEntry } from './log.js';
 import type { ReadFailure } from './types.js';
 
 /**
@@ -70,13 +71,19 @@ export type ClientMessage =
   // the ceilings too — what it skips is the setting, because the click is the opt-in for this one card (R32).
   | { type: 'runAction'; key: string }
   // Taking back a run in flight. Never a lane change and never a refusal of the card, only the session it started.
-  | { type: 'stopAction'; key: string };
+  | { type: 'stopAction'; key: string }
+  // A viewer opening or closing. Nothing about the hub's log crosses to a client that has not sent this: until
+  // one does, the hub holds no subscriber, reads no file, and sends nothing.
+  | { type: 'watchLog'; watching: boolean };
 
 export type HubMessage =
   | { type: 'snapshot'; snapshot: Snapshot }
   | { type: 'changed'; snapshot: Snapshot }
   | { type: 'perform'; route: OpenRoute }
-  | { type: 'notice'; level: 'info' | 'warning' | 'error'; message: string; refusal?: OpenRefusal };
+  | { type: 'notice'; level: 'info' | 'warning' | 'error'; message: string; refusal?: OpenRefusal }
+  // Only ever to a client that asked. The first carries the tail of `hub.log`, so a viewer opened after a failure
+  // shows the failure; every one after it carries the single line that was just written.
+  | { type: 'log'; entries: LogEntry[] };
 
 /** What the webview parses. The snapshot flattened, because the board script reads its fields directly. */
 export type SnapshotMessage = { type: 'board' } & Snapshot;

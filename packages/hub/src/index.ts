@@ -29,6 +29,8 @@ export type { HubServer, HubServerDeps, ServableHub, ServerClock } from './serve
 export { fingerprintOf, readHubRecord, recordedHub, stopHub } from './discover.js';
 export type { HubIdentity, HubRecord, LiveHub } from './discover.js';
 export { LOGS_KEPT, LOG_LIMIT_BYTES, openLog, rotateLog } from './log.js';
+export { BACKFILL_BYTES, fileSink, makeLogger, readLogTail } from './logger.js';
+export type { LoggerDeps } from './logger.js';
 export { IDLE_EXIT_MS, makeHub, sanitizeEnvironment, serveHub, spawnEnvironment } from './serve.js';
 export type { ServeOptions, ServeResult, Served } from './serve.js';
 export {
@@ -48,7 +50,7 @@ export type { EnsureDeps, Ensured } from './ensure.js';
 export { HubTransport } from './transport.js';
 export type { TransportDeps } from './transport.js';
 export { compareVersions, shouldWrite, stamp, versionOf } from './bundle.js';
-export { FRAME_LIMIT_BYTES, FrameReader, bridgeAction, bridgeHello, encodeFrame, runBridge } from './bridge.js';
+export { FRAME_LIMIT_BYTES, FrameReader, bridgeAction, bridgeHello, encodeFrame, redactForBrowser, runBridge } from './bridge.js';
 export type { BridgeAction, BridgeDeps, BridgeMessage, BridgeStreams } from './bridge.js';
 export { chromeHostPlan, installChromeHost, uninstallChromeHost } from './chromeHost.js';
 export { realChromeHostDeps } from './chromeHostFs.js';

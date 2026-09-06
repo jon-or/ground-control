@@ -313,3 +313,32 @@ describe('what the board may do on its own', () => {
     });
   });
 });
+
+describe('how much the hub says about itself', () => {
+  function levelOf(raw: unknown) {
+    const parsed = parseHubConfig(config({ logLevel: raw } as never));
+
+    return 'config' in parsed ? parsed.config.logLevel : parsed.failure;
+  }
+
+  it('defaults a configuration written before the hub said anything about itself, rather than refusing it', () => {
+    const parsed = parseHubConfig(config());
+
+    expect('config' in parsed && parsed.config.logLevel).toBe('info');
+  });
+
+  it('takes the one floor a client can ask for beyond the default', () => {
+    expect(levelOf('debug')).toBe('debug');
+  });
+
+  // Caught rather than refused, the way `permissionMode` is: a level a later build names is not worth a dead board.
+  it.each([['verbose'], [42], [null], [['debug']]])('falls back to info rather than refusing %s', (bad) => {
+    expect(levelOf(bad)).toBe('info');
+  });
+
+  // The floors stop at `info` on purpose: above it, a stored setting would silence the hub coming up and every
+  // refused request — and a client whose hub will not start sends the developer to that file to find out why.
+  it.each([['warn'], ['error']])('refuses to take %s as a floor, because it would silence what happened', (level) => {
+    expect(levelOf(level)).toBe('info');
+  });
+});

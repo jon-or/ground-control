@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { z } from 'zod';
 import { spawnable } from '@ground-control/core';
-import type { ReadFailure } from '@ground-control/core';
+import type { Logger, ReadFailure } from '@ground-control/core';
 import type { ContextReading, IssueCard, SourceReading, WorkSource } from '@ground-control/core';
 import { fetchCardContext } from './context.js';
 import { makeGhRunner } from './gh.js';
@@ -71,6 +71,8 @@ export function detectLogins(ghPath: string): Promise<string[]> {
 }
 
 export interface GithubSourceDeps {
+  /** Where each `gh` invocation is timed. Absent leaves the runner exactly as it was, with no wrapper at all. */
+  log: Logger;
   fetch(config: GithubConfig): Promise<Result<AssignedIssues>>;
   detectLogins(ghPath: string): Promise<string[]>;
   readContext(config: GithubConfig, card: IssueCard, signal: AbortSignal): Promise<ContextReading>;
@@ -82,12 +84,12 @@ export interface GithubSourceDeps {
  * never also polled with settings nobody set.
  */
 export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSource {
-  const fetch = deps.fetch ?? ((config: GithubConfig) => fetchAssignedIssues(config));
+  const fetch = deps.fetch ?? ((config: GithubConfig) => fetchAssignedIssues(config, makeGhRunner(config.ghPath, deps.log)));
   const detect = deps.detectLogins ?? detectLogins;
   const context =
     deps.readContext ??
     ((config: GithubConfig, card: IssueCard, signal: AbortSignal) =>
-      fetchCardContext(config, card, makeGhRunner(config.ghPath), signal));
+      fetchCardContext(config, card, makeGhRunner(config.ghPath, deps.log), signal));
 
   let held: GithubConfig | null = null;
 

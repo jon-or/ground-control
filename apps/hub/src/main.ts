@@ -3,6 +3,7 @@ import {
   bundlePathOf,
   chromeHostPlan,
   installChromeHost,
+  makeLogger,
   makeRegistries,
   realChromeHostDeps,
   serveHub,
@@ -10,6 +11,7 @@ import {
   uninstallActivity,
   uninstallChromeHost,
 } from '@ground-control/hub';
+import type { Logger } from '@ground-control/core';
 import { startBridge } from './bridgeMain.js';
 import { VERSION } from './version.js';
 
@@ -98,10 +100,10 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 /** Set once the hub is serving, so a crash lands in `hub.log` beside the rest of its story rather than only on stderr. */
-let crashesInto: (line: string) => void = () => {};
+let crashesInto: Logger = makeLogger({ write: () => {} });
 
 function report(what: string, error: unknown): void {
-  crashesInto(`${what}: ${String(error)}`);
+  crashesInto.error(`${what}: ${String(error)}`);
   process.stderr.write(`${what}: ${String(error)}\n`);
 }
 

@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, mkdirSync, openSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, rmSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { PROTOCOL, groundControlDirOf } from '@ground-control/core';
 import { writeAtomic } from './fs.js';
@@ -6,14 +6,15 @@ import { Hub, realHubDeps } from './hub.js';
 import { makeLaneStore } from './lanes.js';
 import { makeMarkStore } from './marks.js';
 import { makeSettingsStore } from './settings.js';
-import { LOG_LIMIT_BYTES, openLog, rotateLog } from './log.js';
-import { exitPathOf, hubJsonPathOf, logPathOf } from './paths.js';
+import { fileSink, makeLogger } from './logger.js';
+import { exitPathOf, hubJsonPathOf } from './paths.js';
 import { makeRegistries } from './registry.js';
 import { fingerprintOf, readHubRecord, recordedHub } from './discover.js';
 import type { LiveHub } from './discover.js';
 import { createHubServer } from './server.js';
 import type { HubServer } from './server.js';
 import { watchDir } from './watch.js';
+import type { Logger } from '@ground-control/core';
 
 /**
  * What a hub must not inherit. VS Code spawns it as its own executable running as node, and `VSCODE_IPC_HOOK` then
@@ -44,9 +45,9 @@ export function spawnEnvironment(env: NodeJS.ProcessEnv = { ...process.env }): N
 }
 
 /** A hub reading the given home, wired to the real machine. The same object whether it is served or held in process. */
-export function makeHub(home: string = homedir()): Hub {
+export function makeHub(log: Logger, home: string = homedir()): Hub {
   return new Hub(
-    realHubDeps(makeRegistries(), makeLaneStore(home), makeMarkStore(home), makeSettingsStore(home), home, watchDir),
+    realHubDeps(makeRegistries(log), makeLaneStore(home), makeMarkStore(home), makeSettingsStore(home), home, watchDir, log),
   );
 }
 
@@ -58,7 +59,7 @@ export interface ServeOptions {
   version: string;
   idleMs?: number;
   /** Where the hub's own lines go. Defaults to `hub.log`, appended, rotated once at startup. */
-  log?: (line: string) => void;
+  log?: Logger;
   /** How the process ends. Injected so a test drives the idle rule without ending the runner. */
   exit?: (code: number) => void;
 }
@@ -67,40 +68,13 @@ export interface Served {
   port: number;
   token: string;
   hub: Hub;
-  /** The hub's own line writer, so an entry point reports a crash where the rest of the hub's story is. */
-  log(line: string): void;
+  /** The hub's own logger, so an entry point reports a crash where the rest of the hub's story is. */
+  log: Logger;
   stop(reason: string): Promise<void>;
 }
 
 /** Either this process is now the hub, or another one already is and this one has nothing to do. */
 export type ServeResult = { served: Served } | { existing: LiveHub };
-
-function fileLogger(home: string): (line: string) => void {
-  const path = logPathOf(home);
-
-  let fd = openLog(path);
-  let written = 0;
-
-  return (line) => {
-    const text = `${new Date().toISOString()} ${line}\n`;
-
-    try {
-      appendFileSync(fd, text);
-      written += text.length;
-
-      // Rotated by what this run has written rather than by a stat on every line: one long-lived hub can outwrite
-      // its own limit many times over, and the file it leaves is the one a developer opens.
-      if (written >= LOG_LIMIT_BYTES) {
-        written = 0;
-        closeSync(fd);
-        rotateLog(path);
-        fd = openSync(path, 'a');
-      }
-    } catch {
-      // A log that cannot be written is not a reason to stop tracking.
-    }
-  };
-}
 
 /**
  * Why this process is not the hub, left where a client's failure message reads it: a spawn that stood down and a
@@ -143,20 +117,20 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   sanitizeEnvironment();
   mkdirSync(groundControlDirOf(home), { recursive: true });
 
-  const log = options.log ?? fileLogger(home);
+  const log = options.log ?? makeLogger({ write: fileSink(home) });
   // Any hub, not just one this build can talk to: two of them polling one home both rewrite `lanes.json` whole.
   // Which protocol wins is a client's decision, made before it spawns anything, by stopping the one it displaces.
   const already = await recordedHub(home);
 
   if (already) {
-    log(`a hub is already serving this home on port ${already.record.port}; nothing to do`);
+    log.info(`a hub is already serving this home on port ${already.record.port}; nothing to do`);
     standDown(home, already.record.port);
 
     return { existing: already };
   }
 
   const fingerprint = fingerprintOf(home);
-  const hub = makeHub(home);
+  const hub = makeHub(log, home);
   const startedAt = new Date().toISOString();
 
   let server: HubServer;
@@ -172,7 +146,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
 
   const stop = (reason: string): Promise<void> => {
     stopping ??= (async () => {
-      log(`stopping: ${reason}`);
+      log.info(`stopping: ${reason}`);
       clearInterval(idle);
       await server.close();
       hub.dispose();
@@ -198,7 +172,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
     const reason = `could not listen on 127.0.0.1: ${String(error)}`;
 
     // Written here too, or a client whose spawn never came up quotes the reason the last hub stopped for.
-    log(reason);
+    log.error(reason);
     writeAtomic(exitPathOf(home), JSON.stringify({ code: 1, at: new Date().toISOString(), reason }, null, 2));
 
     // Nothing to retry on port 0: a failure here is the loopback interface, not a port someone else took.
@@ -230,7 +204,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
         throw new Error(`Another process keeps claiming ${hubJsonPathOf(home)} and none of them is answering.`);
       }
 
-      log(`another hub claimed this home first, on port ${other.record.port}; standing down`);
+      log.info(`another hub claimed this home first, on port ${other.record.port}; standing down`);
       standDown(home, other.record.port);
 
       return { existing: other };
@@ -255,7 +229,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   }, Math.max(200, Math.min(60_000, idleMs)));
   idle.unref();
 
-  log(`listening on 127.0.0.1:${server.port} as pid ${process.pid}`);
+  log.info(`listening on 127.0.0.1:${server.port} as pid ${process.pid}`);
 
   return { served: { port: server.port, token: server.token, hub, log, stop } };
 }
