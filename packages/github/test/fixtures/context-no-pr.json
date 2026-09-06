@@ -12,7 +12,8 @@
               "createdAt": "2026-08-26T17:50:45Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-1"
+                "login": "dev-1",
+                "name": "dev-1 Surname"
               }
             },
             {
@@ -20,7 +21,8 @@
               "createdAt": "2026-08-28T11:58:20Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-7"
+                "login": "dev-5",
+                "name": "dev-5 Surname"
               }
             }
           ]

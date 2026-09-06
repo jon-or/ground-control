@@ -318,6 +318,7 @@ describe('the facts overruling the model', () => {
         state: 'OPEN',
         isDraft: false,
         author: 'dev-1',
+        authorName: null,
         reviewDecision: null,
         mergeable: 'MERGEABLE',
         mergeStateStatus: 'BLOCKED',
@@ -410,7 +411,7 @@ describe('the facts overruling the model', () => {
   });
 
   it('calls a review round initial until the developer has spoken on it', () => {
-    const said = (author: string) => ({ author, authorAssociation: 'MEMBER', body: 'x', createdAt: '2026-01-01T00:00:00Z' });
+    const said = (author: string) => ({ author, authorName: null, authorAssociation: 'MEMBER', body: 'x', createdAt: '2026-01-01T00:00:00Z' });
 
     expect(qualifierOf('address-review', context())).toBe('initial');
     expect(qualifierOf('address-review', context({ comments: [said('dev-9')] }))).toBe('initial');
@@ -425,8 +426,8 @@ describe('the facts overruling the model', () => {
   });
 
   it('calls a review of somebody else work initial until somebody other than its author has reviewed it', () => {
-    const review = (author: string | null) => ({ author, state: 'COMMENTED', submittedAt: null });
-    const said = (author: string) => ({ author, authorAssociation: 'MEMBER', body: 'x', createdAt: '2026-01-01T00:00:00Z' });
+    const review = (author: string | null) => ({ author, authorName: null, state: 'COMMENTED', submittedAt: null });
+    const said = (author: string) => ({ author, authorName: null, authorAssociation: 'MEMBER', body: 'x', createdAt: '2026-01-01T00:00:00Z' });
     const theirs = { author: 'dev-9' };
 
     expect(qualifierOf('review-others', context({ ...theirs, reviews: [] }))).toBe('initial');
@@ -443,7 +444,7 @@ describe('the facts overruling the model', () => {
     expect(qualifierOf('review-others', context({ ...theirs, comments: [said('dev-9')] }))).toBe('initial');
     // A pending review is a draft nobody but its writer has seen, and `gh` runs as the developer, so it is fetched.
     expect(
-      qualifierOf('review-others', context({ ...theirs, reviews: [{ author: 'dev-1', state: 'PENDING', submittedAt: null }] })),
+      qualifierOf('review-others', context({ ...theirs, reviews: [{ author: 'dev-1', authorName: null, state: 'PENDING', submittedAt: null }] })),
     ).toBe('initial');
     // An author GitHub could not resolve must not turn the exclusion off and count their own inline replies.
     expect(qualifierOf('review-others', context({ author: null, reviews: [review('dev-9')] }))).toBe('initial');

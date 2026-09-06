@@ -102,10 +102,32 @@ describe('reading a card context', () => {
     expect(context.issueNumber).toBe(19072);
     expect(context.status).toBe('⚒️ Dev');
     expect(context.logins).toEqual(['dev-1']);
-    expect(context.comments.map((c) => c.author)).toEqual(['dev-2', 'dev-3', 'dev-1', 'dev-4', 'dev-5', 'dev-4', 'dev-1', 'dev-5']);
-    // Both shapes the prompt reads differently: a colleague, and somebody with no relationship to the repository.
-    expect(new Set(context.comments.map((c) => c.authorAssociation))).toEqual(new Set(['MEMBER', 'NONE']));
-    expect(new Set(context.comments.map((c) => c.body)).size).toBe(8);
+    expect(context.comments.map((c) => c.author)).toEqual(['dev-2', 'dev-3', 'dev-2', 'dev-1', 'dev-3']);
+    expect(context.comments.every((c) => c.authorAssociation === 'MEMBER')).toBe(true);
+    expect(new Set(context.comments.map((c) => c.body)).size).toBe(5);
+  });
+
+  it('carries each author profile name beside their login, which is what a card calls them', async () => {
+    const context = await contextOf('context-review');
+
+    expect(context.comments.map((c) => c.authorName)).toEqual(
+      ['dev-2 Surname', 'dev-3 Surname', 'dev-2 Surname', 'dev-1 Surname', 'dev-3 Surname'],
+    );
+    expect((await contextOf('context-review')).pullRequest?.authorName).toBe('dev-1-bot Surname');
+  });
+
+  it('reads a bot as having no name, and no relationship to the repository, rather than as an error', async () => {
+    // A bot is not a `User`, so GitHub answers the profile fragment with nothing at all and the login has to stand
+    // in. Every automated reviewer on a real pull request is one of these.
+    const bots = await contextOf('context-bots', { number: 19131, pullRequest: { ...card().pullRequest!, number: 19143 } });
+    const commented = bots.pullRequest!.comments;
+
+    expect(commented.length).toBeGreaterThan(0);
+    expect(commented.every((c) => c.authorName === null)).toBe(true);
+    expect(commented.every((c) => c.author !== null)).toBe(true);
+    expect(commented.every((c) => c.authorAssociation === 'NONE')).toBe(true);
+    // And the same recording carries somebody who does have one, so this is not a fixture with no names in it.
+    expect(bots.comments.some((c) => c.authorName !== null)).toBe(true);
   });
 
   it('keeps both ends of a long body and says what came out of the middle', async () => {
@@ -134,7 +156,9 @@ describe('reading a card context', () => {
       mergeStateStatus: 'BLOCKED',
       checkState: 'SUCCESS',
     });
-    expect(pr?.reviews).toEqual([{ author: 'dev-6', state: 'COMMENTED', submittedAt: '2026-08-19T20:16:30Z' }]);
+    expect(pr?.reviews).toEqual([
+      { author: 'dev-4', authorName: null, state: 'COMMENTED', submittedAt: '2026-08-19T20:16:30Z' },
+    ]);
     expect(pr?.threads).toHaveLength(1);
     expect(pr?.threads[0]?.isResolved).toBe(true);
     expect(pr?.threads[0]?.comments).toHaveLength(1);

@@ -162,15 +162,23 @@ describe('triage settings', () => {
   it('defaults a configuration written before triage existed, rather than refusing it', () => {
     const parsed = parseHubConfig(config());
 
-    expect('config' in parsed && parsed.config.triage).toEqual({ enabled: true, concurrency: 2, timeoutMs: 180_000 });
+    expect('config' in parsed && parsed.config.triage).toEqual({ enabled: true, concurrency: 2, timeoutMs: 180_000, names: {} });
   });
 
   it('takes what a client asked for', () => {
-    expect(triageOf({ enabled: false, concurrency: 4, timeoutMs: 90_000 })).toEqual({
+    expect(triageOf({ enabled: false, concurrency: 4, timeoutMs: 90_000, names: { buildfriday: 'Chris' } })).toEqual({
       enabled: false,
       concurrency: 4,
       timeoutMs: 90_000,
+      names: { buildfriday: 'Chris' },
     });
+  });
+
+  it('reads a names map that is not one as none, rather than costing the whole configuration', () => {
+    // Every other field here refuses and takes the configuration down with it. This one is a display nicety on a
+    // client that may be older than the setting, so a bad value costs the names and nothing else.
+    expect(triageOf({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: 'buildfriday=Chris' })).toMatchObject({ names: {} });
+    expect(triageOf({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: { buildfriday: 7 } })).toMatchObject({ names: {} });
   });
 
   it('floors and ceilings a hand-edited spend, in both directions', () => {
@@ -178,11 +186,13 @@ describe('triage settings', () => {
       enabled: true,
       concurrency: 1,
       timeoutMs: 10_000,
+      names: {},
     });
     expect(triageOf({ enabled: true, concurrency: 500, timeoutMs: 9_999_999 })).toEqual({
       enabled: true,
       concurrency: 8,
       timeoutMs: 300_000,
+      names: {},
     });
   });
 

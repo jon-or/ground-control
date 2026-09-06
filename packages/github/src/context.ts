@@ -17,7 +17,7 @@ const COMMENT_LIMIT = 2_000;
 /** A hung `gh` would hold a triage slot for as long as the hub runs, and the card would claim to be triaging forever. */
 const CONTEXT_TIMEOUT_MS = 20_000;
 
-const actor = z.object({ login: z.string() }).nullable();
+const actor = z.object({ login: z.string(), name: z.string().nullable().default(null) }).nullable();
 
 const comment = z.object({
   body: z.string(),
@@ -62,7 +62,7 @@ const contextResponse = z.object({
               nodes: z.array(
                 z.object({
                   requestedReviewer: z
-                    .object({ login: z.string().optional(), slug: z.string().optional() })
+                    .object({ login: z.string().optional(), name: z.string().nullable().optional(), slug: z.string().optional() })
                     .nullable(),
                 }),
               ),
@@ -133,6 +133,7 @@ ${tail}`;
 function commentsOf(nodes: z.infer<typeof comment>[], limit = COMMENT_LIMIT): TriageComment[] {
   return nodes.map((node) => ({
     author: node.author?.login ?? null,
+    authorName: node.author?.name ?? null,
     authorAssociation: node.authorAssociation,
     body: clip(node.body, limit),
     createdAt: node.createdAt,
@@ -158,6 +159,7 @@ function pullRequestOf(raw: NonNullable<z.infer<typeof contextResponse>['data'][
     state: raw.state,
     isDraft: raw.isDraft,
     author: raw.author?.login ?? null,
+    authorName: raw.author?.name ?? null,
     reviewDecision: raw.reviewDecision,
     mergeable: raw.mergeable,
     mergeStateStatus: raw.mergeStateStatus,
@@ -166,13 +168,15 @@ function pullRequestOf(raw: NonNullable<z.infer<typeof contextResponse>['data'][
     comments: commentsOf(raw.comments.nodes),
     reviews: raw.reviews.nodes.map((review) => ({
       author: review.author?.login ?? null,
+      authorName: review.author?.name ?? null,
       state: review.state,
       submittedAt: review.submittedAt,
     })),
     reviewRequests: raw.reviewRequests.nodes.flatMap((request) => {
-      const name = request.requestedReviewer?.login ?? request.requestedReviewer?.slug;
+      const reviewer = request.requestedReviewer;
+      const login = reviewer?.login ?? reviewer?.slug;
 
-      return name ? [name] : [];
+      return login ? [{ login, name: reviewer?.name ?? null }] : [];
     }),
     threads: raw.reviewThreads.nodes.map((thread) => ({
       isResolved: thread.isResolved,

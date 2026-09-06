@@ -68,7 +68,7 @@ export class TriageRunner {
   readonly #inFlight = new Map<string, AbortController>();
   readonly #asked = new Map<string, number>();
 
-  #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 180_000 };
+  #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 180_000, names: {} };
   #agentPaths = new Map<string, { path: string; model: string | null }>();
   #disposed = false;
   #considering = false;
@@ -302,7 +302,7 @@ export class TriageRunner {
       sessionId,
       model: due.model,
       systemPrompt: TRIAGE_SYSTEM_PROMPT,
-      prompt: buildTriagePrompt(reading.context, this.#deps.now()),
+      prompt: buildTriagePrompt(reading.context, this.#deps.now(), this.#settings.names),
       schema: triageJsonSchema,
       // A directory with no project of its own, so nothing of the developer's is discovered or loaded.
       cwd: triageCwd(this.#deps.home),

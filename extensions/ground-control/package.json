@@ -180,6 +180,13 @@
           "default": "claude-sonnet-5",
           "markdownDescription": "The model that classifies a card. Give a full model name rather than an alias — an alias that quietly resolves elsewhere changes both what it costs and how well it reads. A name Claude Code does not know fails every card, which the board says above the lanes."
         },
+        "groundControl.triage.names": {
+          "scope": "application",
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string" },
+          "markdownDescription": "Who a GitHub login really is, where GitHub's own answer is not the person — an agent account whose profile names the agent rather than whoever drives it, or somebody whose profile carries no name. Key is the login, value is the name to use: `{ \"buildfriday\": \"Chris\" }`. Everyone else is named from their GitHub profile, and a login with neither is shown as the login. Cards name people by their first name."
+        },
         "groundControl.triage.concurrency": {
           "scope": "application",
           "type": "number",

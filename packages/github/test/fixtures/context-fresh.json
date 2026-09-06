@@ -9,74 +9,47 @@
           "nodes": [
             {
               "body": "Verified in UAT, the totals line up now. (guest portal)",
-              "createdAt": "2026-08-25T11:27:11Z",
-              "authorAssociation": "NONE",
+              "createdAt": "2026-08-27T20:22:14Z",
+              "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-2"
+                "login": "dev-1",
+                "name": "dev-1 Surname"
               }
             },
             {
               "body": "Should this respect the account time zone, or the property one? (tax rule)",
-              "createdAt": "2026-08-25T11:28:52Z",
+              "createdAt": "2026-08-28T03:07:59Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-7"
+                "login": "dev-5",
+                "name": "dev-5 Surname"
               }
             },
             {
               "body": "The fix looks right, but it needs a test for the empty case. (quote email)",
-              "createdAt": "2026-08-25T21:09:11Z",
+              "createdAt": "2026-08-28T03:11:32Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-7"
+                "login": "dev-5",
+                "name": "dev-5 Surname"
               }
             },
             {
               "body": "Can you confirm which account this was tested against? (calendar feed)",
-              "createdAt": "2026-08-26T17:45:15Z",
+              "createdAt": "2026-08-28T04:25:43Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-5"
+                "login": "dev-5",
+                "name": "dev-5 Surname"
               }
             },
             {
               "body": "This still fails for me after the latest deploy. (review import)",
-              "createdAt": "2026-08-27T20:22:14Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-1"
-              }
-            },
-            {
-              "body": "This still fails for me after the latest deploy. (refund ledger)",
-              "createdAt": "2026-08-28T03:07:59Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-7"
-              }
-            },
-            {
-              "body": "Rebased and pushed; checks are green again. (channel mapping)",
-              "createdAt": "2026-08-28T03:11:32Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-7"
-              }
-            },
-            {
-              "body": "I think we settled on the second approach in the design review. (owner statement)",
-              "createdAt": "2026-08-28T04:25:43Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-7"
-              }
-            },
-            {
-              "body": "Blocked on the other change landing first. (booking export)",
               "createdAt": "2026-08-31T17:43:09Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-1"
+                "login": "dev-1",
+                "name": "dev-1 Surname"
               }
             }
           ]
@@ -89,7 +62,8 @@
         "state": "OPEN",
         "isDraft": false,
         "author": {
-          "login": "dev-7"
+          "login": "dev-5",
+          "name": "dev-5 Surname"
         },
         "reviewDecision": "REVIEW_REQUIRED",
         "mergeable": "MERGEABLE",
@@ -109,82 +83,47 @@
           "nodes": [
             {
               "body": "Blocked on the other change landing first. (tax rule)",
-              "createdAt": "2026-08-25T11:38:31Z",
-              "authorAssociation": "NONE",
+              "createdAt": "2026-08-28T04:25:32Z",
+              "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-6"
+                "login": "dev-5",
+                "name": "dev-5 Surname"
               }
             },
             {
               "body": "Verified in UAT, the totals line up now. (quote email)",
-              "createdAt": "2026-08-26T15:20:18Z",
+              "createdAt": "2026-08-28T10:23:06Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-7"
+                "login": "dev-5",
+                "name": "dev-5 Surname"
               }
             },
             {
               "body": "Should this respect the account time zone, or the property one? (calendar feed)",
-              "createdAt": "2026-08-26T17:10:10Z",
+              "createdAt": "2026-08-28T12:15:39Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-7"
+                "login": "dev-5",
+                "name": "dev-5 Surname"
               }
             },
             {
               "body": "Left a couple of notes on the diff — mostly naming. (review import)",
-              "createdAt": "2026-08-26T17:14:53Z",
-              "authorAssociation": "NONE",
+              "createdAt": "2026-08-31T17:26:52Z",
+              "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-6"
+                "login": "dev-1-bot",
+                "name": "dev-1-bot Surname"
               }
             },
             {
               "body": "Can you confirm which account this was tested against? (refund ledger)",
-              "createdAt": "2026-08-27T20:21:02Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-1-bot"
-              }
-            },
-            {
-              "body": "Can you confirm which account this was tested against? (channel mapping)",
-              "createdAt": "2026-08-28T04:25:32Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-7"
-              }
-            },
-            {
-              "body": "Reproduced on the second page of results; the first page is fine. (owner statement)",
-              "createdAt": "2026-08-28T10:23:06Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-7"
-              }
-            },
-            {
-              "body": "Rebased and pushed; checks are green again. (booking export)",
-              "createdAt": "2026-08-28T12:15:39Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-7"
-              }
-            },
-            {
-              "body": "I think we settled on the second approach in the design review. (inbox badge)",
-              "createdAt": "2026-08-31T17:26:52Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-1-bot"
-              }
-            },
-            {
-              "body": "Blocked on the other change landing first. (owner statement)",
               "createdAt": "2026-09-04T17:46:49Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-5"
+                "login": "dev-3",
+                "name": "dev-3 Surname"
               }
             }
           ]

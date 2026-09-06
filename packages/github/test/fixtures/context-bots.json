@@ -1,0 +1,113 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 19131,
+        "title": "Owner statement fails silently on an empty result",
+        "body": "This still fails for me after the latest deploy. (quote email)",
+        "comments": {
+          "nodes": [
+            {
+              "body": "Rebased and pushed; checks are green again. (calendar feed)",
+              "createdAt": "2026-08-21T18:26:44Z",
+              "authorAssociation": "NONE",
+              "author": {
+                "login": "dev-6"
+              }
+            },
+            {
+              "body": "I think we settled on the second approach in the design review. (review import)",
+              "createdAt": "2026-08-21T18:28:48Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-5",
+                "name": "dev-5 Surname"
+              }
+            },
+            {
+              "body": "Blocked on the other change landing first. (refund ledger)",
+              "createdAt": "2026-08-27T16:40:11Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-7",
+                "name": "dev-7 Surname"
+              }
+            },
+            {
+              "body": "Should this respect the account time zone, or the property one? (channel mapping)",
+              "createdAt": "2026-08-27T16:59:54Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-7",
+                "name": "dev-7 Surname"
+              }
+            },
+            {
+              "body": "Should this respect the account time zone, or the property one? (owner statement)",
+              "createdAt": "2026-09-02T00:40:32Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-8",
+                "name": "dev-8 Surname"
+              }
+            }
+          ]
+        }
+      },
+      "pullRequest": {
+        "number": 19143,
+        "title": "Review import ignores the account time zone",
+        "body": "The fix looks right, but it needs a test for the empty case. (listing sync)",
+        "state": "OPEN",
+        "isDraft": false,
+        "author": {
+          "login": "dev-5",
+          "name": "dev-5 Surname"
+        },
+        "reviewDecision": "REVIEW_REQUIRED",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "BLOCKED",
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "state": "SUCCESS"
+                }
+              }
+            }
+          ]
+        },
+        "comments": {
+          "nodes": [
+            {
+              "body": "Left a couple of notes on the diff — mostly naming. (guest portal)",
+              "createdAt": "2026-08-21T18:49:07Z",
+              "authorAssociation": "NONE",
+              "author": {
+                "login": "dev-4"
+              }
+            },
+            {
+              "body": "This still fails for me after the latest deploy. (tax rule)",
+              "createdAt": "2026-08-28T22:57:49Z",
+              "authorAssociation": "NONE",
+              "author": {
+                "login": "dev-6"
+              }
+            }
+          ]
+        },
+        "reviews": {
+          "nodes": []
+        },
+        "reviewRequests": {
+          "nodes": []
+        },
+        "reviewThreads": {
+          "nodes": []
+        }
+      }
+    }
+  }
+}

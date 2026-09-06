@@ -52,7 +52,9 @@ function contextOf(card: IssueCard): TriageContext {
     title: card.title,
     body: 'The second page comes back empty.',
     status: card.status,
-    comments: [],
+    comments: [
+      { author: 'buildfriday', authorName: 'Friday', authorAssociation: 'MEMBER', body: 'Rebased.', createdAt: '2026-09-01T09:00:00Z' },
+    ],
     logins: ['dev-1'],
     pullRequest: null,
   };
@@ -200,7 +202,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
 }
 
 /** What a client pushes. Every test but one runs on this; that one turns triage off. */
-function hubConfig(triage: HubConfig['triage'] = { enabled: true, concurrency: 2, timeoutMs: 60_000 }): HubConfig {
+function hubConfig(triage: HubConfig['triage'] = { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} }): HubConfig {
   return {
     agents: [{ id: 'claude', path: 'claude-cli', model: 'claude-haiku-4-5-20251001' }],
     branchIssuePattern: '^(\d+)-',
@@ -254,6 +256,17 @@ describe('reading a card that arrives', () => {
     expect(control.classified[0]?.prompt).toContain('ISSUE #17198');
   });
 
+  it('carries the configured names into the prompt, so a card calls an agent account by whoever drives it', () => {
+    const control = harness();
+    control.hub.configure(hubConfig({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: { buildfriday: 'Chris' } }));
+    watch(control.hub);
+
+    return control.hub.refresh('asked').then(control.settle).then(() => {
+      expect(control.classified[0]?.prompt).toContain('Chris, member');
+      expect(control.classified[0]?.prompt).not.toContain('Friday');
+    });
+  });
+
   it('says a card is being read while it is', async () => {
     const control = harness();
     control.hold = () => undefined;
@@ -279,7 +292,7 @@ describe('reading a card that arrives', () => {
   it('reads nothing while triage is turned off', async () => {
     const control = harness();
     watch(control.hub);
-    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 60_000 }));
+    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 60_000, names: {} }));
 
     await control.hub.refresh('asked');
     await control.settle();
@@ -391,7 +404,7 @@ describe('standing readings down', () => {
 
     expect(triageOf(control.snapshot())).toEqual({ state: 'running' });
 
-    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 120_000 }));
+    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 120_000, names: {} }));
     await control.settle();
 
     // Charged, four flicks of the setting would silence a card for good, and the board would say it had failed.

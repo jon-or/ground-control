@@ -36,7 +36,7 @@ const BACKOFF_MS = [60_000, 120_000, 300_000, 1_800_000];
  * which is what makes its card due again. Without it the board goes on showing sentences a fixed classifier would
  * no longer write, since a card is read once and nothing else re-reads it.
  */
-export const TRIAGE_REVISION = 2;
+export const TRIAGE_REVISION = 3;
 
 /** The actions the hub reads off the pull request itself, whatever anybody wrote about it. */
 export const DERIVED_ACTIONS: readonly TriageAction[] = ['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land'];

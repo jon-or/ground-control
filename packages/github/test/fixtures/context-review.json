@@ -9,66 +9,47 @@
           "nodes": [
             {
               "body": "Left a couple of notes on the diff — mostly naming. (owner statement)",
-              "createdAt": "2026-08-19T20:07:48Z",
-              "authorAssociation": "NONE",
+              "createdAt": "2026-08-19T22:18:29Z",
+              "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-2"
+                "login": "dev-2",
+                "name": "dev-2 Surname"
               }
             },
             {
               "body": "Left a couple of notes on the diff — mostly naming. (booking export)",
-              "createdAt": "2026-08-19T20:16:44Z",
-              "authorAssociation": "NONE",
+              "createdAt": "2026-08-19T23:13:11Z",
+              "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-3"
+                "login": "dev-3",
+                "name": "dev-3 Surname"
               }
             },
             {
               "body": "Can you confirm which account this was tested against? (inbox badge)",
-              "createdAt": "2026-08-19T20:56:34Z",
+              "createdAt": "2026-08-21T17:47:33Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-1"
+                "login": "dev-2",
+                "name": "dev-2 Surname"
               }
             },
             {
               "body": "This still fails for me after the latest deploy. (payment retry)",
-              "createdAt": "2026-08-19T22:18:29Z",
+              "createdAt": "2026-08-21T18:44:45Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-4"
+                "login": "dev-1",
+                "name": "dev-1 Surname"
               }
             },
             {
               "body": "Rebased and pushed; checks are green again. (listing sync)",
-              "createdAt": "2026-08-19T23:13:11Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-5"
-              }
-            },
-            {
-              "body": "I think we settled on the second approach in the design review. (guest portal)",
-              "createdAt": "2026-08-21T17:47:33Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-4"
-              }
-            },
-            {
-              "body": "Blocked on the other change landing first. (tax rule)",
-              "createdAt": "2026-08-21T18:44:45Z",
-              "authorAssociation": "MEMBER",
-              "author": {
-                "login": "dev-1"
-              }
-            },
-            {
-              "body": "Verified in UAT, the totals line up now. (listing sync)",
               "createdAt": "2026-08-21T19:09:53Z",
               "authorAssociation": "MEMBER",
               "author": {
-                "login": "dev-5"
+                "login": "dev-3",
+                "name": "dev-3 Surname"
               }
             }
           ]
@@ -81,7 +62,8 @@
         "state": "OPEN",
         "isDraft": false,
         "author": {
-          "login": "dev-1-bot"
+          "login": "dev-1-bot",
+          "name": "dev-1-bot Surname"
         },
         "reviewDecision": "REVIEW_REQUIRED",
         "mergeable": "MERGEABLE",
@@ -106,7 +88,7 @@
               "state": "COMMENTED",
               "submittedAt": "2026-08-19T20:16:30Z",
               "author": {
-                "login": "dev-6"
+                "login": "dev-4"
               }
             }
           ]
@@ -126,7 +108,7 @@
                     "createdAt": "2026-08-19T20:16:30Z",
                     "authorAssociation": "NONE",
                     "author": {
-                      "login": "dev-6"
+                      "login": "dev-4"
                     }
                   }
                 ]

@@ -10,13 +10,26 @@ const { loginMap } = require('./anonymise.js');
 /** Long enough to cross the reader's own body limit, so one fixture proves the middle is what comes out. */
 const LONG_BODY_CHARS = 7_500;
 
+/** A profile name identifies somebody far more surely than a login does, so it is replaced wherever it is carried. */
+function scrubActor(actor, logins) {
+  if (!actor) {
+    return;
+  }
+
+  if (actor.login) {
+    actor.login = logins.of(actor.login);
+  }
+
+  // Two words, because the board shows a first name and one fixture has to prove which word that is.
+  if (typeof actor.name === 'string') {
+    actor.name = `${logins.of(actor.login ?? actor.name)} Surname`;
+  }
+}
+
 function scrubComments(nodes, number, logins, offset = 0) {
   (nodes ?? []).forEach((node, i) => {
     node.body = remark(number, offset + i);
-
-    if (node.author) {
-      node.author.login = logins.of(node.author.login);
-    }
+    scrubActor(node.author, logins);
   });
 }
 
@@ -36,25 +49,16 @@ function anonymiseContext(response, logins, { longBody = false } = {}) {
   if (pr) {
     pr.title = title(pr.number);
     pr.body = remark(pr.number, 0);
-
-    if (pr.author) {
-      pr.author.login = logins.of(pr.author.login);
-    }
-
+    scrubActor(pr.author, logins);
     scrubComments(pr.comments?.nodes, pr.number, logins, 1);
 
     for (const review of pr.reviews?.nodes ?? []) {
-      if (review.author) {
-        review.author.login = logins.of(review.author.login);
-      }
+      scrubActor(review.author, logins);
     }
 
     for (const request of pr.reviewRequests?.nodes ?? []) {
       const reviewer = request.requestedReviewer;
-
-      if (reviewer?.login) {
-        reviewer.login = logins.of(reviewer.login);
-      }
+      scrubActor(reviewer, logins);
 
       // A team is named the way a person is, because a team name identifies the employer as surely as a login does.
       if (reviewer?.slug) {
@@ -76,8 +80,9 @@ function identifyingValues(response) {
   const issue = repository?.issue;
   const pr = repository?.pullRequest;
   const synthetic = (login) => /^dev-\d+(-[a-z0-9-]+)?$/.test(login ?? '');
-  const fromComments = (nodes) =>
-    (nodes ?? []).flatMap((node) => [node.body, synthetic(node.author?.login) ? null : node.author?.login]);
+  /** Both halves of an author: the login, and the profile name, which no login list would ever have caught. */
+  const named = (actor) => [synthetic(actor?.login) ? null : actor?.login, actor?.name];
+  const fromComments = (nodes) => (nodes ?? []).flatMap((node) => [node.body, ...named(node.author)]);
 
   return [
     issue?.title,
@@ -85,11 +90,11 @@ function identifyingValues(response) {
     ...fromComments(issue?.comments?.nodes),
     pr?.title,
     pr?.body,
-    synthetic(pr?.author?.login) ? null : pr?.author?.login,
+    ...named(pr?.author),
     ...fromComments(pr?.comments?.nodes),
-    ...(pr?.reviews?.nodes ?? []).map((r) => (synthetic(r.author?.login) ? null : r.author?.login)),
+    ...(pr?.reviews?.nodes ?? []).flatMap((r) => named(r.author)),
     ...(pr?.reviewRequests?.nodes ?? []).flatMap((r) => [
-      synthetic(r.requestedReviewer?.login) ? null : r.requestedReviewer?.login,
+      ...named(r.requestedReviewer),
       r.requestedReviewer?.slug?.startsWith('team-') ? null : r.requestedReviewer?.slug,
     ]),
     ...(pr?.reviewThreads?.nodes ?? []).flatMap((t) => fromComments(t.comments?.nodes)),

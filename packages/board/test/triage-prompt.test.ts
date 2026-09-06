@@ -11,8 +11,8 @@ const NEVER_OFFERED = ['land'];
 
 const NOW = Date.parse('2026-09-05T12:00:00Z');
 
-function comment(author: string, body: string, association = 'MEMBER') {
-  return { author, authorAssociation: association, body, createdAt: '2026-09-01T09:00:00Z' };
+function comment(author: string, body: string, association = 'MEMBER', authorName: string | null = null) {
+  return { author, authorName, authorAssociation: association, body, createdAt: '2026-09-01T09:00:00Z' };
 }
 
 function context(over: Partial<TriageContext> = {}): TriageContext {
@@ -36,13 +36,14 @@ function pullRequest(over = {}) {
     state: 'OPEN',
     isDraft: false,
     author: 'dev-1',
+    authorName: null,
     reviewDecision: 'CHANGES_REQUESTED',
     mergeable: 'MERGEABLE',
     mergeStateStatus: 'BLOCKED',
     checkState: 'SUCCESS',
     comments: [comment('dev-4', 'A couple of naming notes.')],
-    reviews: [{ author: 'dev-4', state: 'CHANGES_REQUESTED', submittedAt: '2026-09-01T09:30:00Z' }],
-    reviewRequests: ['dev-5'],
+    reviews: [{ author: 'dev-4', authorName: null, state: 'CHANGES_REQUESTED', submittedAt: '2026-09-01T09:30:00Z' }],
+    reviewRequests: [{ login: 'dev-5', name: null }],
     threads: [
       { isResolved: false, isOutdated: false, comments: [comment('dev-4', 'This name is wrong.')] },
       { isResolved: true, isOutdated: false, comments: [comment('dev-4', 'Settled already.')] },
@@ -106,7 +107,7 @@ describe('the system prompt', () => {
 
   it('forbids a count in words as well as digits, since the reading that started this said "all nine findings"', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('Count nothing, in digits or in words');
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('never "buildfriday addressed all nine findings"');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('never "Mayur asked five questions"');
   });
 
   it('states how to write the sentence before it lists the actions, which is where the rule holds', () => {
@@ -143,22 +144,71 @@ describe('building the prompt', () => {
     expect(prompt.indexOf('First.')).toBeLessThan(prompt.indexOf('Second.'));
   });
 
-  it('marks which words are the developer own, which is what two of the actions turn on', () => {
-    const prompt = buildTriagePrompt(context({ comments: [comment('dev-1', 'Mine.'), comment('dev-2', 'Theirs.')] }), NOW);
+  it('writes the developer as you and never as a name, because the sentence is addressed to them', () => {
+    const prompt = buildTriagePrompt(
+      context({ comments: [comment('dev-1', 'Mine.', 'MEMBER', 'Jon Hynes'), comment('dev-2', 'Theirs.')] }),
+      NOW,
+    );
 
-    expect(prompt).toContain('dev-1 (the developer), member');
+    expect(prompt).toContain('you, member');
     expect(prompt).toContain('dev-2, member');
-    expect(prompt).not.toContain('dev-2 (the developer)');
+    // Their own name must not appear anywhere: a card that names its reader is a card about somebody else.
+    expect(prompt).not.toContain('Jon');
+    expect(prompt).not.toContain('dev-1');
   });
 
   it('matches an own login whatever its case, the way the lane rules do', () => {
-    expect(buildTriagePrompt(context({ comments: [comment('DEV-1', 'Mine.')], logins: ['dev-1'] }), NOW)).toContain(
-      'DEV-1 (the developer)',
+    const prompt = buildTriagePrompt(context({ comments: [comment('DEV-1', 'Mine.')], logins: ['dev-1'] }), NOW);
+
+    expect(prompt).toContain('you, member');
+    expect(prompt).not.toContain('DEV-1');
+  });
+
+  it('calls everybody else by their first name, and falls back to the login where GitHub has none', () => {
+    const prompt = buildTriagePrompt(
+      context({ comments: [comment('dev-2', 'One.', 'MEMBER', 'Mayur Bhaliya'), comment('dev-3', 'Two.')] }),
+      NOW,
     );
+
+    expect(prompt).toContain('Mayur, member');
+    expect(prompt).not.toContain('Bhaliya');
+    // A bot carries no profile name at all, and bots write much of what appears on a pull request.
+    expect(prompt).toContain('dev-3, member');
+  });
+
+  it('takes a name override above the profile, since an agent account profile names the agent', () => {
+    const over = { 'dev-2': 'Chris' };
+    const prompt = buildTriagePrompt(context({ comments: [comment('dev-2', 'One.', 'MEMBER', 'Friday')] }), NOW, over);
+
+    expect(prompt).toContain('Chris, member');
+    expect(prompt).not.toContain('Friday');
+    // Matched however the login is cased, the way every other login comparison here is.
+    expect(buildTriagePrompt(context({ comments: [comment('DEV-2', 'One.')] }), NOW, over)).toContain('Chris, member');
+  });
+
+  it('never lets an override rename the developer, who is you whatever anybody calls them', () => {
+    const prompt = buildTriagePrompt(context({ comments: [comment('dev-1', 'Mine.')] }), NOW, { 'dev-1': 'Chris' });
+
+    expect(prompt).toContain('you, member');
+    expect(prompt).not.toContain('Chris');
   });
 
   it('carries an author association, so a tester reads differently from a colleague', () => {
     expect(buildTriagePrompt(context(), NOW)).toContain('dev-2, contributor');
+  });
+
+  it('names the people on a pull request the way it names the people in the conversation', () => {
+    const pr = pullRequest({
+      author: 'dev-2',
+      authorName: 'Mayur Bhaliya',
+      reviewRequests: [{ login: 'dev-1', name: null }, { login: 'dev-5', name: 'Bri Fradella' }],
+      reviews: [{ author: 'dev-1', authorName: null, state: 'COMMENTED', submittedAt: null }],
+    });
+    const prompt = buildTriagePrompt(context({ pullRequest: pr }), NOW);
+
+    expect(prompt).toContain('Opened by: Mayur');
+    expect(prompt).toContain('Reviewers asked for: you, Bri');
+    expect(prompt).toContain('Reviews submitted: you COMMENTED');
   });
 
   it('spells out what no association means, rather than rendering GitHub NONE as if it were an error', () => {
@@ -179,7 +229,7 @@ describe('building the prompt', () => {
     const prompt = buildTriagePrompt(context({ pullRequest: pullRequest() }), NOW);
 
     expect(prompt).toContain('PULL REQUEST #4021: Fix paging');
-    expect(prompt).toContain('Opened by: dev-1 (the developer)');
+    expect(prompt).toContain('Opened by: you');
     expect(prompt).toContain('State: OPEN');
     expect(prompt).toContain('Review decision: CHANGES_REQUESTED');
     expect(prompt).toContain('Reviewers asked for: dev-5');
@@ -212,7 +262,6 @@ describe('building the prompt', () => {
       NOW,
     );
 
-    expect(bare).toContain("The developer's own GitHub accounts: (none)");
     expect(bare).toContain('Recent issue comments (the most recent few, oldest first):\n(none)');
     expect(bare).toContain('Review decision: (none)');
     expect(bare).toContain('Reviewers asked for: (none)');

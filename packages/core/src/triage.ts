@@ -84,14 +84,27 @@ export type CardTriage =
 /** One comment on an issue or a pull request, clipped. `authorAssociation` is how a tester is told from a colleague. */
 export interface TriageComment {
   author: string | null;
+  /** Their profile name, where GitHub has one. Display only — every rule here matches on the login. */
+  authorName: string | null;
   authorAssociation: string | null;
   body: string;
   createdAt: string;
 }
 
+/**
+ * Somebody the board names on a card, where nothing matches on them and they are only ever printed. The identifier
+ * is carried all the same, because that is what a name override is keyed on.
+ */
+export interface TriageActor {
+  /** Their login, or a team's slug. */
+  login: string;
+  name: string | null;
+}
+
 /** One review somebody submitted. What decides whether a review round is the developer's first or a later one. */
 export interface TriageReview {
   author: string | null;
+  authorName: string | null;
   state: string;
   submittedAt: string | null;
 }
@@ -114,6 +127,7 @@ export interface TriagePullRequest {
   state: string;
   isDraft: boolean;
   author: string | null;
+  authorName: string | null;
   reviewDecision: string | null;
   mergeable: string | null;
   mergeStateStatus: string | null;
@@ -122,7 +136,7 @@ export interface TriagePullRequest {
   comments: TriageComment[];
   reviews: TriageReview[];
   /** Who has been asked to review, which is the only thing that says a colleague's pull request wants the developer. */
-  reviewRequests: string[];
+  reviewRequests: TriageActor[];
   threads: TriageThread[];
 }
 

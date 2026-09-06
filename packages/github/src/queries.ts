@@ -30,30 +30,33 @@ query($cards:String!, $all:String!, $after:String){
  * for together because they are one question — what is this card asking for — and two round trips would double the
  * cost of a cold start. `mergeStateStatus`, `statusCheckRollup` and `reviewThreads` need no preview header
  * (`docs/mechanics.md` §31); `reviews` and `reviewRequests` are what tell a first review round from a later one, and
- * a colleague's pull request awaiting the developer from their own.
+ * a colleague's pull request awaiting the developer from their own. The `profile` fragment resolves to nothing on
+ * a bot — `claude` and `github-actions` are not `User` — so those keep the login the board already had.
  */
 export const CARD_CONTEXT_QUERY = `
 query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
   repository(owner:$owner, name:$name){
     issue(number:$issue){
       number title body
-      comments(last:5){ nodes{ body createdAt authorAssociation author{ login } } }
+      comments(last:5){ nodes{ body createdAt authorAssociation author{ login ...profile } } }
     }
     pullRequest(number:$pr) @include(if:$withPr){
       number title body state isDraft
-      author{ login }
+      author{ login ...profile }
       reviewDecision mergeable mergeStateStatus
       commits(last:1){ nodes{ commit{ statusCheckRollup{ state } } } }
-      comments(last:5){ nodes{ body createdAt authorAssociation author{ login } } }
-      reviews(last:20){ nodes{ state submittedAt author{ login } } }
+      comments(last:5){ nodes{ body createdAt authorAssociation author{ login ...profile } } }
+      reviews(last:20){ nodes{ state submittedAt author{ login ...profile } } }
       reviewRequests(first:10){ nodes{ requestedReviewer{
-        ... on User{ login }
+        ... on User{ login name }
         ... on Team{ slug }
       }}}
       reviewThreads(last:5){ nodes{
         isResolved isOutdated
-        comments(first:3){ nodes{ body createdAt authorAssociation author{ login } } }
+        comments(first:3){ nodes{ body createdAt authorAssociation author{ login ...profile } } }
       }}
     }
   }
-}`;
+}
+
+fragment profile on User{ name }`;

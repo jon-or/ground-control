@@ -1406,6 +1406,8 @@ cd ~/.claude/ground-control
 
 The tool definitions and the default system prompt were the whole of the overhead — 55× the final input size.
 
+**A profile name costs no extra round trip, and a bot has none.** `author` is an `Actor`, so `... on User { name }` inline on the author already being fetched returns the profile name in the same response: measured on this repository, `railapex` is `Chris Hynes`, `Turntwo` is `Jason Christian`. `claude` and `github-actions` are `Bot` rather than `User`, so the fragment resolves to nothing at all and the field is simply absent — which is what makes the login the natural fallback rather than a special case.
+
 **`--json-schema` answers on `structured_output`,** already parsed, with the same JSON in `result` as a string.
 
 **A real card takes 3 to 102 seconds, and the model decides that far more than the prompt does.** Ten Haiku classifications of cards on this team's board: 18.8, 23.5, 25.8, 27.4, 31.0, 39.3, 45.9, 55.8, 72.3 and 102.0 seconds. Prompt size does not predict it — the fastest of the ten carried the largest prompt, 29,291 characters, and one of 8,157 took 26 seconds. The synthetic one-sentence probe above is no guide either.

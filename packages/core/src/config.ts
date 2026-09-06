@@ -30,6 +30,12 @@ export interface TriageSettings {
   concurrency: number;
   /** The whole of one card's triage — the source read and the classification together, not the classification alone. */
   timeoutMs: number;
+  /**
+   * Who a login really is, by login, where GitHub's own answer is not the person: an agent account whose profile
+   * name is the agent's, or somebody whose profile carries no name at all. Overrides the profile name wherever the
+   * board prints somebody.
+   */
+  names: Record<string, string>;
 }
 
 /**
@@ -63,7 +69,7 @@ const TRIAGE_TIMEOUT_FLOOR_MS = 10_000;
 const TRIAGE_TIMEOUT_CEILING_MS = 300_000;
 const TRIAGE_CONCURRENCY_CEILING = 8;
 
-export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, concurrency: 2, timeoutMs: 180_000 };
+export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, concurrency: 2, timeoutMs: 180_000, names: {} };
 
 const triage = z.object({
   enabled: z.boolean(),
@@ -72,6 +78,9 @@ const triage = z.object({
     .number()
     .finite()
     .transform((ms) => Math.min(TRIAGE_TIMEOUT_CEILING_MS, Math.max(TRIAGE_TIMEOUT_FLOOR_MS, ms))),
+  // Whose name the board uses, where GitHub's answer is not the person. Written by an older build without it, or by
+  // hand as something other than a map of strings, it reads as none rather than costing the whole configuration.
+  names: z.record(z.string(), z.string()).catch({}).default({}),
 });
 
 export const hubConfig = z.object({

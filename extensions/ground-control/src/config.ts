@@ -86,6 +86,13 @@ export function readTriage(): HubConfig['triage'] {
     concurrency: number('triage.concurrency', 2),
     // Seconds in settings, milliseconds in the hub, the way every other interval here is.
     timeoutMs: number('triage.timeoutSeconds', 180) * 1000,
+    // Anything that is not a string is dropped rather than pushed: this reaches a prompt, and the hub refuses a
+    // configuration it cannot parse whole, which would cost the developer triage entirely over one bad entry.
+    names: Object.fromEntries(
+      Object.entries(cfg.get<Record<string, unknown>>('triage.names', {}) ?? {}).flatMap(([login, name]) =>
+        typeof name === 'string' && name.trim() !== '' ? [[login, name.trim()] as const] : [],
+      ),
+    ),
   };
 }
 

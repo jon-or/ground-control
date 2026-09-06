@@ -38,4 +38,5 @@ export {
   withTriageFailure,
   withTriaged,
 } from './triage.js';
-export { TRIAGE_SYSTEM_PROMPT, buildTriagePrompt } from './triagePrompt.js';
+export { TRIAGE_SYSTEM_PROMPT, buildTriagePrompt, nameOf } from './triagePrompt.js';
+export type { NameOverrides } from './triagePrompt.js';

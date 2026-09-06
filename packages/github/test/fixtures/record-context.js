@@ -7,13 +7,18 @@
 // Each argument names a card. `<issue>:<pr>` records one with its pull request; a bare `<issue>` records one without.
 // The files are named by what they demonstrate, not by the issue, so re-recording against different cards keeps the
 // names the tests use. Pass no arguments to re-scrub what is already on disk.
+//
+//   context-review   the developer's own pull request under review, with a long issue body the clip has to cut
+//   context-fresh    a pull request with nothing on it yet, which is what the mergeability cases are derived from
+//   context-no-pr    an issue with no pull request linked
+//   context-bots     a colleague's pull request, commented on by bots — no profile name, no association
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { anonymiseContext, assertContextScrubbed, loginMap } = require('./anonymise-context.js');
 
 /** The file each recorded card becomes, in the order they are given on the command line. */
-const NAMES = ['context-review.json', 'context-fresh.json', 'context-no-pr.json'];
+const NAMES = ['context-review.json', 'context-fresh.json', 'context-no-pr.json', 'context-bots.json'];
 
 function query() {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'queries.ts'), 'utf8');
