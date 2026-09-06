@@ -42,6 +42,16 @@ function anonymiseContext(response, logins, { longBody = false } = {}) {
     issue.title = title(issue.number);
     issue.body = longBody ? remark(issue.number, 0, LONG_BODY_CHARS) : remark(issue.number, 0);
     scrubComments(issue.comments?.nodes, issue.number, logins, 1);
+
+    // Who moved a card names them as surely as a comment author does. The statuses themselves stay: they are the
+    // project's own column names, the tests turn on them, and the shipped defaults already carry the same list.
+    for (const node of issue.timelineItems?.nodes ?? []) {
+      scrubActor(node.actor, logins);
+
+      if (node.assignee?.login) {
+        node.assignee.login = logins.of(node.assignee.login);
+      }
+    }
   }
 
   const pr = repository?.pullRequest;
@@ -88,6 +98,10 @@ function identifyingValues(response) {
     issue?.title,
     issue?.body,
     ...fromComments(issue?.comments?.nodes),
+    ...(issue?.timelineItems?.nodes ?? []).flatMap((node) => [
+      ...named(node.actor),
+      synthetic(node.assignee?.login) ? null : node.assignee?.login,
+    ]),
     pr?.title,
     pr?.body,
     ...named(pr?.author),

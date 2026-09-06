@@ -18,7 +18,7 @@ query($cards:String!, $all:String!, $after:String){
       }}
       projectItems(first:20){ nodes{
         project{ number }
-        fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name color } }
+        fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name color updatedAt } }
       }}
     }}
   }
@@ -32,6 +32,9 @@ query($cards:String!, $all:String!, $after:String){
  * (`docs/mechanics.md` §31); `reviews` and `reviewRequests` are what tell a first review round from a later one, and
  * a colleague's pull request awaiting the developer from their own. The `profile` fragment resolves to nothing on
  * a bot — `claude` and `github-actions` are not `User` — so those keep the login the board already had.
+ *
+ * `timelineItems` is what says when the card became what it is: on this team's board a status names the work and the
+ * assignee names who does it, so a move with no comment on it is still an instruction (`docs/mechanics.md` §32).
  */
 export const CARD_CONTEXT_QUERY = `
 query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
@@ -39,6 +42,12 @@ query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
     issue(number:$issue){
       number title body
       comments(last:5){ nodes{ body createdAt authorAssociation author{ login ...profile } } }
+      timelineItems(last:100, itemTypes:[ASSIGNED_EVENT, UNASSIGNED_EVENT, PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){ nodes{
+        __typename
+        ... on AssignedEvent{ createdAt actor{ login ...profile } assignee{ ... on User{ login } } }
+        ... on UnassignedEvent{ createdAt actor{ login ...profile } assignee{ ... on User{ login } } }
+        ... on ProjectV2ItemStatusChangedEvent{ createdAt actor{ login ...profile } previousStatus status project{ number } }
+      }}
     }
     pullRequest(number:$pr) @include(if:$withPr){
       number title body state isDraft

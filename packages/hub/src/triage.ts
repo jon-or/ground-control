@@ -5,6 +5,7 @@ import type {
   AgentAdapter,
   IssueCard,
   Lane,
+  LaneId,
   ReadFailure,
   TriageSettings,
   WorkSource,
@@ -15,9 +16,11 @@ import {
   evidenceOf,
   forgetTriage,
   nextTriageState,
-  overrideAction,
   readTriageResult,
+  resolveTriage,
+  settledAction,
   triageJsonSchema,
+  triggerOf,
   TRIAGE_SYSTEM_PROMPT,
   withTriageFailure,
   TRIAGE_REVISION,
@@ -69,6 +72,8 @@ export class TriageRunner {
   readonly #asked = new Map<string, number>();
 
   #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 180_000, names: {} };
+  /** What a status means, which triage reads from the same map lane arrival does (R38). */
+  #statusLanes: Readonly<Record<string, LaneId>> = {};
   #agentPaths = new Map<string, { path: string; model: string | null }>();
   #disposed = false;
   #considering = false;
@@ -107,8 +112,13 @@ export class TriageRunner {
   }
 
   /** Takes the settings the hub is running on. Turning triage off stands down what is already in flight. */
-  configure(settings: TriageSettings, agents: readonly { id: string; path: string; model?: string | undefined }[]): void {
+  configure(
+    settings: TriageSettings,
+    agents: readonly { id: string; path: string; model?: string | undefined }[],
+    statusLanes: Readonly<Record<string, LaneId>>,
+  ): void {
     this.#settings = settings;
+    this.#statusLanes = statusLanes;
     this.#agentPaths = new Map(agents.map((agent) => [agent.id, { path: agent.path, model: agent.model ?? null }]));
 
     if (!settings.enabled) {
@@ -297,13 +307,17 @@ export class TriageRunner {
       return reading.failure ?? { kind: 'context-empty', message: 'The card conversation could not be read.' };
     }
 
+    // Settled before the ask, not after it: a model told the action writes a sentence that agrees with the label,
+    // where one corrected afterwards leaves a card describing a problem it no longer has (R24).
+    const settled = settledAction(reading.context, this.#statusLanes);
+
     const answered = await due.agent.classify!({
       path: due.path,
       sessionId,
       model: due.model,
       systemPrompt: TRIAGE_SYSTEM_PROMPT,
-      prompt: buildTriagePrompt(reading.context, this.#deps.now(), this.#settings.names),
-      schema: triageJsonSchema,
+      prompt: buildTriagePrompt(reading.context, this.#deps.now(), this.#settings.names, settled),
+      schema: triageJsonSchema(settled),
       // A directory with no project of its own, so nothing of the developer's is discovered or loaded.
       cwd: triageCwd(this.#deps.home),
       timeoutMs: this.#settings.timeoutMs,
@@ -314,13 +328,13 @@ export class TriageRunner {
       return answered.failure;
     }
 
-    const result = readTriageResult(answered.value);
+    const result = readTriageResult(answered.value, settled);
 
     if (result === null) {
       return { kind: 'triage-unreadable', message: 'The classifier answered with an action the board does not have.' };
     }
 
-    const { action, qualifier, detail } = overrideAction(result, reading.context);
+    const { action, qualifier, detail } = resolveTriage(settled, result, reading.context);
 
     this.#deps.store.write(
       withTriaged(this.#deps.store.read(), due.key, {
@@ -332,6 +346,7 @@ export class TriageRunner {
         agent: due.agent.id,
         wasArchived: false,
         evidence: evidenceOf(due.card),
+        trigger: triggerOf(due.card),
       }),
     );
 

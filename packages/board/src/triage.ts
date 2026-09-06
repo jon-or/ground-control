@@ -4,6 +4,7 @@ import type {
   CardTriage,
   IssueCard,
   Lane,
+  LaneId,
   LanedCard,
   TriageAction,
   TriageContext,
@@ -11,7 +12,6 @@ import type {
   TriageFailure,
   TriageQualifier,
   TriageResult,
-  TriagePullRequest,
   TriageState,
 } from '@ground-control/core';
 
@@ -36,7 +36,7 @@ const BACKOFF_MS = [60_000, 120_000, 300_000, 1_800_000];
  * which is what makes its card due again. Without it the board goes on showing sentences a fixed classifier would
  * no longer write, since a card is read once and nothing else re-reads it.
  */
-export const TRIAGE_REVISION = 3;
+export const TRIAGE_REVISION = 4;
 
 /** The actions the hub reads off the pull request itself, whatever anybody wrote about it. */
 export const DERIVED_ACTIONS: readonly TriageAction[] = ['fix-checks', 'merge-upstream', 'resolve-conflicts', 'land'];
@@ -52,16 +52,23 @@ export const MODEL_MAY_NOT_SAY: readonly TriageAction[] = ['land'];
 /** What the model may answer. `derivedAction` still outranks it wherever GitHub has computed a fact. */
 export const CLASSIFIED_ACTIONS = TRIAGE_ACTIONS.filter((action) => !MODEL_MAY_NOT_SAY.includes(action));
 
-/** What the model is held to. Two fields, and an action outside the list is refused rather than read as `other`. */
-export const triageJsonSchema = {
-  type: 'object',
-  properties: {
-    action: { type: 'string', enum: CLASSIFIED_ACTIONS },
-    detail: { type: 'string', maxLength: DETAIL_LIMIT },
-  },
-  required: ['action', 'detail'],
-  additionalProperties: false,
-} as const;
+const detailProperty = { type: 'string', maxLength: DETAIL_LIMIT } as const;
+
+/**
+ * What the model is held to. Where the evidence already settled the action it is asked for the sentence alone: the
+ * label is then a thing the model cannot get wrong, and its whole attention goes on the one field only it can write.
+ * An action outside the list is refused rather than read as `other`.
+ */
+export function triageJsonSchema(settled: TriageAction | null): object {
+  return settled !== null
+    ? { type: 'object', properties: { detail: detailProperty }, required: ['detail'], additionalProperties: false }
+    : {
+        type: 'object',
+        properties: { action: { type: 'string', enum: CLASSIFIED_ACTIONS }, detail: detailProperty },
+        required: ['action', 'detail'],
+        additionalProperties: false,
+      };
+}
 
 // The schema is what the model is asked for; this is what is accepted. Both name the classified actions only, so an
 // answer of `land` is refused rather than passed through on a pull request whose facts said nothing.
@@ -70,27 +77,30 @@ const parsed = z.object({
   detail: z.string().min(1),
 });
 
+const parsedDetail = z.object({ detail: z.string().min(1) });
+
 /**
  * The classifier's answer, or null where it is not one. `maxLength` in the schema is what the model is asked for and
  * a long sentence is not worth discarding a good classification over, so an over-long one is cut at a word here.
  */
-export function readTriageResult(value: unknown): TriageResult | null {
-  const result = parsed.safeParse(value);
+export function readTriageResult(value: unknown, settled: TriageAction | null): TriageResult | null {
+  const result = settled !== null ? parsedDetail.safeParse(value) : parsed.safeParse(value);
 
   if (!result.success) {
     return null;
   }
 
+  const action = settled ?? (result.data as z.infer<typeof parsed>).action;
   const detail = result.data.detail.trim();
 
   if (detail.length <= DETAIL_LIMIT) {
-    return { action: result.data.action, detail };
+    return { action, detail };
   }
 
   const cut = detail.slice(0, DETAIL_LIMIT - 1);
   const space = cut.lastIndexOf(' ');
 
-  return { action: result.data.action, detail: `${space > 0 ? cut.slice(0, space) : cut}…` };
+  return { action, detail: `${space > 0 ? cut.slice(0, space) : cut}…` };
 }
 
 /** What each action is called on a card. Duplicated into both clients, so it is pinned by a parity table in each. */
@@ -133,7 +143,17 @@ export const EVIDENCE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 export function evidenceOf(issue: IssueCard): string {
   const pr = issue.pullRequest;
 
-  return [issue.updatedAt, issue.status ?? '', pr?.number ?? '', pr?.state ?? '', pr?.reviewDecision ?? ''].join('|');
+  return [issue.updatedAt, issue.status ?? '', issue.statusChangedAt ?? '', pr?.number ?? '', pr?.state ?? '', pr?.reviewDecision ?? ''].join('|');
+}
+
+/**
+ * The one thing worth spending a model call to re-read (R38). On this board a status names the work and the assignee
+ * names who does it, so a card whose status has moved is a card that has been told something new — where a comment,
+ * a review and a check all move `evidenceOf` and none of them is an instruction. Empty off the project board, which
+ * is a card whose status can never move.
+ */
+export function triggerOf(issue: IssueCard): string {
+  return issue.statusChangedAt ?? '';
 }
 
 const triageEntry = z.object({
@@ -145,6 +165,7 @@ const triageEntry = z.object({
   agent: z.string(),
   wasArchived: z.boolean().default(false),
   evidence: z.string().default(''),
+  trigger: z.string().default(''),
 });
 
 const triageFailure = z.object({
@@ -199,8 +220,9 @@ function triageable(card: LanedCard): boolean {
 }
 
 /**
- * The cards to triage now, in board order. A card is due when it has never been read, or when the last reading
- * belongs to a pass through the developer's hands that has since ended.
+ * The cards to triage now, in board order. A card is due when it has never been read, when the last reading belongs
+ * to a pass through the developer's hands that has since ended, or when its status has moved under the reading —
+ * which on this board is somebody saying what the card now needs, and the one change worth paying to re-read.
  *
  * An archived card is never due, and that is the whole of what keeps this from being a loop. Archived cards stay in
  * every snapshot — the source query does not filter on status — so a rule that made absence the trigger and dropped
@@ -222,8 +244,9 @@ export function dueForTriage(
     for (const card of lane.cards) {
       const failure = state.failures[card.key];
       const entry = state.entries[card.key];
+      const issue = card.issue;
 
-      if (!triageable(card) || running.has(card.key)) {
+      if (issue === null || !triageable(card) || running.has(card.key)) {
         continue;
       }
 
@@ -233,7 +256,7 @@ export function dueForTriage(
         continue;
       }
 
-      if (entry === undefined || entry.wasArchived) {
+      if (entry === undefined || entry.wasArchived || entry.trigger !== triggerOf(issue)) {
         due.push(card.key);
       }
     }
@@ -411,39 +434,59 @@ export function derivedAction(context: TriageContext): TriageAction | null {
   return null;
 }
 
-/** What a fact says, in a sentence, for a card whose reading it overruled. */
-function factSentence(action: TriageAction, pr: TriagePullRequest): string {
-  const at = `Pull request #${pr.number}`;
+/**
+ * What a status means, where the lane map says. That map already carries the only thing triage needs to know about a
+ * status — whether it names review, or work not yet begun — so it is read here rather than duplicated into a setting
+ * of its own. A status the map does not name leaves the action to the pull request and the conversation.
+ *
+ * Unlike lane arrival, nothing outranks this: the issue is where the team says what a card needs, and the pull
+ * request is an artefact of doing it. `hasOwn`, for the reason `inferredLane` gives.
+ */
+export function statusAction(status: string | null, statusLanes: Readonly<Record<string, LaneId>>): TriageAction | null {
+  if (status === null || !Object.hasOwn(statusLanes, status)) {
+    return null;
+  }
 
-  switch (action) {
-    case 'resolve-conflicts':
-      return `${at} has conflicts and will not merge.`;
-    case 'fix-checks':
-      return `${at} has failing checks.`;
-    case 'merge-upstream':
-      return `${at} is behind its base branch.`;
+  switch (statusLanes[status]) {
+    case 'review':
+      return 'review-others';
+    case 'unstarted':
+      return 'begin-work';
     default:
-      return `${at} is approved and ready to merge.`;
+      return null;
   }
 }
 
 /**
- * The card's action, with the facts given the last word.
+ * The action the evidence settles before the model is asked, or null where it leaves the choice open. The status
+ * comes first because it is the team's word on what the card needs; the pull request's own facts decide the flavour
+ * of work only where the status named none.
  *
- * The model's sentence survives where the facts agreed with it or said nothing, because it describes the work better
- * than anything generated here. Where a fact overruled the reading it does not: the sentence then describes a problem
- * the card no longer has, and "Land it — has merge conflicts to resolve" is a card contradicting itself (R24).
+ * The one thing a status cannot say is whose review it is. A status naming review means a review is pending, and on
+ * the developer's own open pull request that is somebody else's to give — so the card is left to the facts and the
+ * conversation, which is what puts a pull request with changes requested back on the developer as work (R7).
  */
-export function overrideAction(result: TriageResult, context: TriageContext): { action: TriageAction; qualifier: TriageQualifier | null; detail: string } {
-  const derived = derivedAction(context);
-  const action = derived ?? result.action;
-  const overruled = derived !== null && derived !== result.action && context.pullRequest !== null;
+export function settledAction(context: TriageContext, statusLanes: Readonly<Record<string, LaneId>>): TriageAction | null {
+  const named = statusAction(context.status, statusLanes);
+  const pr = context.pullRequest;
+  const own = named === 'review-others' && pr !== null && pr.state === 'OPEN' && mine(pr.author, context.logins);
 
-  return {
-    action,
-    qualifier: qualifierOf(action, context),
-    detail: overruled ? factSentence(derived, context.pullRequest!) : result.detail,
-  };
+  return (own ? null : named) ?? derivedAction(context);
+}
+
+/**
+ * The card's action and its sentence. Where `settled` decided the action the model was told so and wrote its
+ * sentence knowing it, so both describe the same card — which is what a fact overruling a finished reading could
+ * never manage, and why there is no generated sentence here (R24).
+ */
+export function resolveTriage(
+  settled: TriageAction | null,
+  result: TriageResult,
+  context: TriageContext,
+): { action: TriageAction; qualifier: TriageQualifier | null; detail: string } {
+  const action = settled ?? result.action;
+
+  return { action, qualifier: qualifierOf(action, context), detail: result.detail };
 }
 
 /** Every lane again, each triageable card carrying what the board knows about it. */

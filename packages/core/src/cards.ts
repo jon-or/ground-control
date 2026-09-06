@@ -11,6 +11,8 @@ export interface IssueCard {
   url: string;
   status: string | null;
   statusColor: string | null;
+  /** When the status last moved, or null off the board. The one change worth re-reading a card over (R38). */
+  statusChangedAt: string | null;
   assignees: string[];
   avatar: CardAvatar | null;
   /** The most recently updated pull request that would close this issue, or null when none is linked. */

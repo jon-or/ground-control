@@ -28,15 +28,20 @@ export {
   evidenceOf,
   forgetTriage,
   nextTriageState,
-  overrideAction,
   qualifierOf,
   readTriageResult,
   readTriageState,
+  resolveTriage,
+  settledAction,
+  statusAction,
   triageJsonSchema,
   triageLabel,
+  triggerOf,
   withTriage,
   withTriageFailure,
   withTriaged,
 } from './triage.js';
 export { TRIAGE_SYSTEM_PROMPT, buildTriagePrompt, nameOf } from './triagePrompt.js';
 export type { NameOverrides } from './triagePrompt.js';
+export { collapseStateChanges, foldInstruction, liveComments } from './stateChanges.js';
+export type { TriageInstruction, TriageStateChange } from './stateChanges.js';

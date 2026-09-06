@@ -14,12 +14,15 @@ import {
   evidenceOf,
   forgetTriage,
   nextTriageState,
-  overrideAction,
   qualifierOf,
   readTriageResult,
   readTriageState,
+  resolveTriage,
+  settledAction,
+  statusAction,
   triageJsonSchema,
   triageLabel,
+  triggerOf,
   withTriage,
   withTriageFailure,
   withTriaged,
@@ -54,6 +57,7 @@ function issue(over: Partial<IssueCard> = {}): IssueCard {
     url: 'https://github.com/example-org/example-repo/issues/17198',
     status: '⚒️ Dev',
     statusColor: 'BLUE',
+    statusChangedAt: '2026-08-30T09:00:00Z',
     assignees: ['dev-1'],
     avatar: null,
     pullRequest: null,
@@ -80,6 +84,7 @@ function entry(over: Partial<TriageEntry> = {}): TriageEntry {
     agent: 'claude',
     wasArchived: false,
     evidence: evidenceOf(issue()),
+    trigger: triggerOf(issue()),
     ...over,
   };
 }
@@ -259,34 +264,39 @@ describe('reading the stored state', () => {
   });
 });
 
+/** The actions the open-mode schema offers, read back out of the document the model is actually sent. */
+function offered(): readonly string[] {
+  return (triageJsonSchema(null) as { properties: { action: { enum: string[] } } }).properties.action.enum;
+}
+
 describe('the classifier answer', () => {
   it('takes an answer that is one of the actions the model was offered', () => {
-    expect(readTriageResult({ action: 'uat-failure', detail: 'Safari.' })).toEqual({ action: 'uat-failure', detail: 'Safari.' });
+    expect(readTriageResult({ action: 'uat-failure', detail: 'Safari.' }, null)).toEqual({ action: 'uat-failure', detail: 'Safari.' });
   });
 
   it('refuses an action no build has, rather than reading it as other', () => {
-    expect(readTriageResult({ action: 'ship-it', detail: 'go' })).toBeNull();
-    expect(readTriageResult({ action: 'other' })).toBeNull();
-    expect(readTriageResult({ detail: 'go' })).toBeNull();
-    expect(readTriageResult({ action: 'other', detail: '' })).toBeNull();
-    expect(readTriageResult('other')).toBeNull();
+    expect(readTriageResult({ action: 'ship-it', detail: 'go' }, null)).toBeNull();
+    expect(readTriageResult({ action: 'other' }, null)).toBeNull();
+    expect(readTriageResult({ detail: 'go' }, null)).toBeNull();
+    expect(readTriageResult({ action: 'other', detail: '' }, null)).toBeNull();
+    expect(readTriageResult('other', null)).toBeNull();
   });
 
   it('refuses only the one action the hub alone may say', () => {
     // The model may report a problem somebody named — the commonest comment on a pull request is that its auto-merge
     // failed, and `mergeable` reads UNKNOWN in the window a card arrives. Only "everything is fine" is a fact.
-    expect(readTriageResult({ action: 'land', detail: 'go' })).toBeNull();
-    expect(triageJsonSchema.properties.action.enum).not.toContain('land');
+    expect(readTriageResult({ action: 'land', detail: 'go' }, null)).toBeNull();
+    expect(offered()).not.toContain('land');
 
     for (const action of ['resolve-conflicts', 'merge-upstream', 'fix-checks'] as const) {
-      expect(readTriageResult({ action, detail: 'go' })).toEqual({ action, detail: 'go' });
-      expect(triageJsonSchema.properties.action.enum).toContain(action);
+      expect(readTriageResult({ action, detail: 'go' }, null)).toEqual({ action, detail: 'go' });
+      expect(offered()).toContain(action);
     }
   });
 
   it('cuts an over-long sentence at a word rather than discarding a good classification', () => {
     const long = `${'word '.repeat(60)}end`;
-    const result = readTriageResult({ action: 'other', detail: long });
+    const result = readTriageResult({ action: 'other', detail: long }, null);
 
     expect(result?.detail.length).toBeLessThanOrEqual(160);
     expect(result?.detail.endsWith('…')).toBe(true);
@@ -294,7 +304,7 @@ describe('the classifier answer', () => {
   });
 
   it('offers the model every action but the one only the hub may say, and labels all twelve', () => {
-    expect(triageJsonSchema.properties.action.enum).toEqual([...CLASSIFIED_ACTIONS]);
+    expect(offered()).toEqual([...CLASSIFIED_ACTIONS]);
     expect([...CLASSIFIED_ACTIONS, ...MODEL_MAY_NOT_SAY].sort()).toEqual([...TRIAGE_ACTIONS].sort());
     expect(Object.keys(TRIAGE_LABELS).sort()).toEqual([...TRIAGE_ACTIONS].sort());
     // Still the hub's to decide wherever GitHub has computed one, whatever the model was allowed to answer.
@@ -302,13 +312,14 @@ describe('the classifier answer', () => {
   });
 });
 
-describe('the facts overruling the model', () => {
+describe('what the evidence settles before the model is asked', () => {
   function context(over: Partial<TriageContext['pullRequest']> = {}, logins = ['dev-1']): TriageContext {
     return {
       issueNumber: 17198,
       title: 'x',
       body: '',
       status: '⚒️ Dev',
+      stateEvents: [],
       comments: [],
       logins,
       pullRequest: {
@@ -365,49 +376,64 @@ describe('the facts overruling the model', () => {
     expect(derivedAction({ ...context(), pullRequest: null })).toBeNull();
   });
 
-  it('replaces the sentence when it overrules the reading, so the card cannot contradict itself', () => {
-    // "Land it — has merge conflicts to resolve" is a card saying two things at once. Measured against the real
-    // model: told a bot had reported a failed auto-merge on a pull request GitHub since called clean, it answered
-    // resolve-conflicts, and the fact has to take the sentence with the label (R24).
-    const landed = overrideAction(
-      { action: 'resolve-conflicts', detail: 'Resolve merge conflicts in the paging fix.' },
-      context({ mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED' }),
-    );
+  it('reads the action off the status, whatever the pull request says about itself', () => {
+    // The issue is where the team says what a card needs; the pull request is an artefact of doing it. A colleague's
+    // pull request moved to review is a card to review even where the branch beneath it will not merge.
+    const lanes = { '🎁 Assigned': 'unstarted', '🔍 Dev Review': 'review' } as const;
 
-    expect(landed).toEqual({ action: 'land', qualifier: null, detail: 'Pull request #42 is approved and ready to merge.' });
-
-    expect(overrideAction({ action: 'begin-work', detail: 'x' }, context({ mergeable: 'CONFLICTING' })).detail).toBe(
-      'Pull request #42 has conflicts and will not merge.',
-    );
-    expect(overrideAction({ action: 'begin-work', detail: 'x' }, context({ checkState: 'FAILURE' })).detail).toBe(
-      'Pull request #42 has failing checks.',
-    );
-    expect(overrideAction({ action: 'begin-work', detail: 'x' }, context({ mergeStateStatus: 'BEHIND' })).detail).toBe(
-      'Pull request #42 is behind its base branch.',
-    );
+    expect(statusAction('🔍 Dev Review', lanes)).toBe('review-others');
+    expect(statusAction('🎁 Assigned', lanes)).toBe('begin-work');
+    expect(settledAction({ ...context({ author: 'dev-9', mergeable: 'CONFLICTING' }), status: '🔍 Dev Review' }, lanes)).toBe('review-others');
+    expect(settledAction({ ...context({ checkState: 'FAILURE' }), status: '🎁 Assigned' }, lanes)).toBe('begin-work');
   });
 
-  it('keeps the sentence where the fact agreed with the reading, since the model describes the work better', () => {
-    const agreed = overrideAction(
-      { action: 'resolve-conflicts', detail: 'Resolve merge conflicts in the paging fix.' },
-      context({ mergeable: 'CONFLICTING' }),
-    );
+  it('never calls the developer own open pull request theirs to review, whatever the status says', () => {
+    // The one thing a status cannot say is whose review it is. Without this a card under a review status reads
+    // "Review their PR" about the developer's own branch, which is the guess R24 refuses.
+    const lanes = { '🔍 Dev Review': 'review' } as const;
+    const own = (over = {}) => ({ ...context(over), status: '🔍 Dev Review' });
 
-    expect(agreed).toEqual({
-      action: 'resolve-conflicts',
-      qualifier: null,
-      detail: 'Resolve merge conflicts in the paging fix.',
+    expect(settledAction(own({ mergeable: 'CONFLICTING' }), lanes)).toBe('resolve-conflicts');
+    // And Land it stays reachable: it is read off the pull request alone, so a review status must not swallow it.
+    expect(settledAction(own({ mergeStateStatus: 'CLEAN', reviewDecision: 'APPROVED' }), lanes)).toBe('land');
+    // Nothing computed about it either, so the conversation decides — a pull request awaiting a reviewer is Other.
+    expect(settledAction(own(), lanes)).toBeNull();
+    // A merged or closed one is read as nothing, the way lane arrival reads it, so the status stands again.
+    expect(settledAction(own({ state: 'MERGED' }), lanes)).toBe('review-others');
+    expect(settledAction({ ...own(), pullRequest: null }, lanes)).toBe('review-others');
+  });
+
+  it('leaves the action to the pull request and the model where the status names none', () => {
+    const lanes = { '🎁 Assigned': 'unstarted', '🔍 Dev Review': 'review' } as const;
+
+    // ⚒️ Dev spans planning, building and answering review alike, so it settles nothing on its own.
+    expect(statusAction('⚒️ Dev', lanes)).toBeNull();
+    expect(statusAction(null, lanes)).toBeNull();
+    expect(statusAction('⚒️ Dev', {})).toBeNull();
+    expect(settledAction(context({ mergeable: 'CONFLICTING' }), lanes)).toBe('resolve-conflicts');
+    expect(settledAction(context(), lanes)).toBeNull();
+  });
+
+  it('reads a status named after something on Object, rather than calling a lane out of the prototype', () => {
+    expect(statusAction('toString', {})).toBeNull();
+    expect(statusAction('constructor', {})).toBeNull();
+  });
+
+  it('keeps the model sentence, because it was written knowing the action', () => {
+    // Nothing is overruled after the fact any more: the action is settled before the ask and the model is told it,
+    // so a card can no longer carry a label and a sentence describing different states (R24).
+    expect(resolveTriage('review-others', { action: 'begin-work', detail: 'Rich sent it over for review.' }, context())).toEqual({
+      action: 'review-others',
+      qualifier: 'initial',
+      detail: 'Rich sent it over for review.',
     });
   });
 
-  it('keeps the sentence where the facts said nothing at all', () => {
-    expect(
-      overrideAction({ action: 'resolve-conflicts', detail: 'A bot says the auto-merge failed.' }, context({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' })),
-    ).toMatchObject({ action: 'resolve-conflicts', detail: 'A bot says the auto-merge failed.' });
-  });
-
-  it('leaves the model its answer where the facts say nothing', () => {
-    expect(overrideAction({ action: 'uat-failure', detail: 'Safari.' }, context())).toMatchObject({ action: 'uat-failure' });
+  it('takes the model action where nothing settled one', () => {
+    expect(resolveTriage(null, { action: 'uat-failure', detail: 'Safari.' }, context())).toMatchObject({
+      action: 'uat-failure',
+      detail: 'Safari.',
+    });
   });
 
   it('calls a review round initial until the developer has spoken on it', () => {

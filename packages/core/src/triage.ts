@@ -46,6 +46,8 @@ export interface TriageEntry {
   agent: string;
   wasArchived: boolean;
   evidence: string;
+  /** What the card looked like on the one axis worth spending a model call over: when its status last moved. */
+  trigger: string;
 }
 
 /**
@@ -140,12 +142,29 @@ export interface TriagePullRequest {
   threads: TriageThread[];
 }
 
+/**
+ * One thing somebody did to a card's state: a status move, an assignment, or an unassignment. Carried as read,
+ * because what a run of these means is the board's judgement and a work source's job is to report what happened.
+ * A status move out of nothing is the card being added to the board rather than anybody moving it.
+ */
+export interface TriageStateEvent {
+  at: string;
+  actor: string | null;
+  actorName: string | null;
+  /** Where the status went, or null on an assignment. `from` is empty only when the card was added to the board. */
+  status: { from: string; to: string } | null;
+  assigned: string | null;
+  unassigned: string | null;
+}
+
 /** Everything one card's triage reads. Assembled by a work source; the prompt is a pure function of it. */
 export interface TriageContext {
   issueNumber: number;
   title: string;
   body: string;
   status: string | null;
+  /** Status moves and assignments, oldest first, on the project the board reads. What says when the card became this. */
+  stateEvents: TriageStateEvent[];
   comments: TriageComment[];
   pullRequest: TriagePullRequest | null;
   /** The developer's own logins, so the prompt can say which words are theirs. */

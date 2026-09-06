@@ -13,6 +13,7 @@ function card(over: Partial<IssueCard> = {}): IssueCard {
     url: 'https://github.com/example-org/example-repo/issues/19072',
     status: '⚒️ Dev',
     statusColor: 'BLUE',
+    statusChangedAt: '2026-08-19T20:16:30Z',
     assignees: ['dev-1'],
     avatar: null,
     pullRequest: {
@@ -50,8 +51,8 @@ function failingRunner(error: { kind: string; message: string; remedy: string })
   return async () => ({ ok: false, error }) as Result<unknown>;
 }
 
-async function contextOf(name: string, over: Partial<IssueCard> = {}): Promise<TriageContext> {
-  const reading = await fetchCardContext(config(), card(over), runnerOf(fixture(name)), new AbortController().signal);
+async function contextOf(name: string, over: Partial<IssueCard> = {}, cfg = config()): Promise<TriageContext> {
+  const reading = await fetchCardContext(cfg, card(over), runnerOf(fixture(name)), new AbortController().signal);
 
   expect(reading.failure).toBeNull();
   expect(reading.context).not.toBeNull();
@@ -238,6 +239,72 @@ describe('refusing a context it cannot read', () => {
 
     expect(reading.failure).toMatchObject({ kind: 'bad-response' });
     expect(run.calls).toHaveLength(0);
+  });
+});
+
+describe('the state changes on a card', () => {
+  it('reads the status moves and assignments the board asked for, oldest first', async () => {
+    // Recorded from a real hand-over: the status moved and the mover took themselves off it eight seconds later,
+    // and somebody else put the developer on it two and a half hours after that (`docs/mechanics.md` §32).
+    const events = (await contextOf('context-handover', { number: 19192, pullRequest: null })).stateEvents;
+
+    expect(events.map((e) => [e.at, e.actor, e.status?.to ?? null, e.assigned, e.unassigned])).toEqual([
+      ['2026-08-24T20:41:34Z', 'dev-4', '\u{1F195} New', null, null],
+      ['2026-08-24T21:47:40Z', 'dev-3', null, 'dev-3', null],
+      ['2026-08-24T21:47:42Z', 'dev-3', '\u{1F381} Assigned', null, null],
+      ['2026-09-02T22:32:32Z', 'dev-3', '⚒️ Dev', null, null],
+      ['2026-09-04T13:53:36Z', 'dev-3', '\u{1F50D} Dev Review', null, null],
+      ['2026-09-04T13:53:44Z', 'dev-3', null, null, 'dev-3'],
+      ['2026-09-04T16:28:42Z', 'dev-5', null, 'dev-1', null],
+    ]);
+  });
+
+  it('carries where a move came from, since the last act on a card is often a bare assignment', async () => {
+    const events = (await contextOf('context-handover', { number: 19192, pullRequest: null })).stateEvents;
+
+    expect(events.find((e) => e.at === '2026-09-04T13:53:36Z')?.status).toEqual({
+      from: '⚒️ Dev',
+      to: '\u{1F50D} Dev Review',
+    });
+    // The card being added to the project, which is GitHub's own write and the one move nobody made.
+    expect(events[0]?.status).toEqual({ from: '', to: '\u{1F195} New' });
+  });
+
+  it('ignores a status move on a project that is not the board’s own', async () => {
+    // An issue sits on as many projects as anybody adds it to, and another team's column names say nothing here.
+    const elsewhere = await contextOf('context-handover', { number: 19192, pullRequest: null }, config({ projectNumber: 99 }));
+
+    expect(elsewhere.stateEvents.filter((e) => e.status !== null)).toEqual([]);
+    expect(elsewhere.stateEvents.filter((e) => e.status === null)).toHaveLength(3);
+  });
+
+  it('drops a status cleared rather than reading it as a move to nowhere', async () => {
+    // Derived: an item whose Status is emptied answers a null `status`, which the live API will not produce on
+    // demand. An empty destination would print an arrow pointing at nothing, and the empty `from` already means
+    // something else — the card being added to the board.
+    const cleared = structuredClone(fixture('context-handover')) as {
+      data: { repository: { issue: { timelineItems: { nodes: { __typename: string; status?: string | null }[] } } } };
+    };
+
+    for (const node of cleared.data.repository.issue.timelineItems.nodes) {
+      if (node.__typename === 'ProjectV2ItemStatusChangedEvent') {
+        node.status = null;
+      }
+    }
+
+    const reading = await fetchCardContext(
+      config(),
+      card({ number: 19192, pullRequest: null }),
+      runnerOf(cleared),
+      new AbortController().signal,
+    );
+
+    expect(reading.context?.stateEvents.filter((e) => e.status !== null)).toEqual([]);
+    expect(reading.context?.stateEvents).toHaveLength(3);
+  });
+
+  it('reads a card recorded before the timeline was asked for as having no state changes', async () => {
+    expect((await contextOf('context-no-pr', { pullRequest: null })).stateEvents).toEqual([]);
   });
 });
 

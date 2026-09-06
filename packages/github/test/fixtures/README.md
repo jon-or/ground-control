@@ -47,11 +47,16 @@ GC_SELF_LOGINS=<your gh logins> GC_CONTEXT_REPO=owner/name \
   node test/fixtures/record-context.js <issue>:<pr> <issue>:<pr> <issue>
 ```
 
+A `-` in a slot leaves that fixture alone, so one card can be re-recorded without disturbing the rest:
+`node test/fixtures/record-context.js - - - - <issue>`.
+
 | File | What it demonstrates |
 |---|---|
 | `context-review.json` | A card with an open pull request carrying a submitted review and one resolved thread — `MERGEABLE`/`BLOCKED`, checks green. Its issue body is padded past the reader's 2 KB limit, so one fixture exercises clipping |
 | `context-fresh.json` | The same shape with no reviews, no threads and no review requests: a pull request nobody has looked at yet |
 | `context-no-pr.json` | An issue with comments and no pull request at all, recorded with `withPr=false` |
+| `context-bots.json` | A colleague's pull request commented on by bots — no profile name, no author association |
+| `context-handover.json` | A card handed over with nothing written on it: the status moved and the mover took themselves off it eight seconds later, and somebody else assigned the developer two and a half hours after that. Every comment predates all of it, which is what the live/background split is read against |
 
 Run with no arguments to re-scrub what is on disk.
 
@@ -69,7 +74,8 @@ read alike and the diff stays readable across re-records. Logins go through the 
 person is the same `dev-N` in every file; a requested team becomes `team-N` for the same reason a login does.
 
 Kept, because the tests turn on them: issue and pull request numbers, comment order, author associations, review
-states and timestamps, thread resolution, and every merge and check field.
+states and timestamps, thread resolution, every merge and check field, and the project statuses on the timeline —
+those are the project's own column names, they identify nobody, and the shipped defaults already carry the same list.
 
 It asserts twice before writing — that each recorded value is gone, and that nothing shaped like a link, an email
 address or an `@mention` survives anywhere in the file. The second is the sweep that catches what the first never

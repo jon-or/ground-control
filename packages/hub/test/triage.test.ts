@@ -38,6 +38,7 @@ function issue(over: Partial<IssueCard> = {}): IssueCard {
     url: 'https://github.com/example-org/example-repo/issues/17198',
     status: '⚒️ Dev',
     statusColor: 'BLUE',
+    statusChangedAt: '2026-08-30T09:00:00Z',
     assignees: ['dev-1'],
     avatar: null,
     pullRequest: null,
@@ -55,6 +56,7 @@ function contextOf(card: IssueCard): TriageContext {
     comments: [
       { author: 'buildfriday', authorName: 'Friday', authorAssociation: 'MEMBER', body: 'Rebased.', createdAt: '2026-09-01T09:00:00Z' },
     ],
+    stateEvents: [],
     logins: ['dev-1'],
     pullRequest: null,
   };
@@ -202,14 +204,17 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
 }
 
 /** What a client pushes. Every test but one runs on this; that one turns triage off. */
-function hubConfig(triage: HubConfig['triage'] = { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} }): HubConfig {
+function hubConfig(
+  triage: HubConfig['triage'] = { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} },
+  statusLanes: HubConfig['statusLanes'] = {},
+): HubConfig {
   return {
     agents: [{ id: 'claude', path: 'claude-cli', model: 'claude-haiku-4-5-20251001' }],
     branchIssuePattern: '^(\d+)-',
     hosts: {},
     sources: { github: { repo: 'example-org/example-repo', logins: ['dev-1'] } },
-    boardStatuses: ['⚒️ Dev'],
-    statusLanes: {},
+    boardStatuses: ['⚒️ Dev', '🔍 Dev Review'],
+    statusLanes,
     refreshIntervalMs: 300_000,
     sessionIntervalMs: 30_000,
     installActivity: false,
@@ -242,6 +247,66 @@ describe('reading a card that arrives', () => {
     await control.pass();
 
     expect(control.contexts).toEqual([17198]);
+  });
+
+  it('reads a card again once its status has moved, which is somebody saying what it now needs', async () => {
+    // The one change worth paying to re-read. A comment moves the card's `updatedAt` and settles nothing; a status
+    // move is the team's word on what the work is (R38).
+    const control = harness();
+    watch(control.hub);
+    await control.hub.refresh('asked');
+    await control.settle();
+
+    expect(control.contexts).toEqual([17198]);
+
+    control.cards = [issue({ status: '🔍 Dev Review', statusChangedAt: '2026-09-04T13:53:36Z' })];
+    await control.pass();
+
+    expect(control.contexts).toEqual([17198, 17198]);
+  });
+
+  it('does not read a card again for a comment, which costs the developer usage and settles nothing', async () => {
+    const control = harness();
+    watch(control.hub);
+    await control.hub.refresh('asked');
+    await control.settle();
+
+    control.cards = [issue({ updatedAt: '2026-09-04T18:00:00Z' })];
+    await control.pass();
+
+    expect(control.contexts).toEqual([17198]);
+    // It does say the reading has aged, which is the honest half of what a new comment means (R24).
+    expect(triageOf(control.snapshot())).toMatchObject({ state: 'done', stale: true });
+  });
+
+  it('tells the model the action where the status settled one, and takes it whatever the model says', async () => {
+    const control = harness(
+      {},
+      [issue({ status: '🔍 Dev Review' })],
+    );
+    control.hub.configure(hubConfig(undefined, { '🔍 Dev Review': 'review' }));
+    control.answer = { value: { detail: 'dev-5 sent it over for your review.' } };
+    watch(control.hub);
+    await control.hub.refresh('asked');
+    await control.settle();
+
+    expect(control.classified[0]?.prompt).toContain('The action is already decided: review-others');
+    expect(control.classified[0]?.schema).not.toHaveProperty('properties.action');
+    expect(triageOf(control.snapshot(), 'issue:17198')).toMatchObject({
+      state: 'done',
+      action: 'review-others',
+      detail: 'dev-5 sent it over for your review.',
+    });
+  });
+
+  it('asks the model for the action where the status settled none', async () => {
+    const control = harness();
+    watch(control.hub);
+    await control.hub.refresh('asked');
+    await control.settle();
+
+    expect(control.classified[0]?.prompt).toContain('Answer with the action and the sentence.');
+    expect(control.classified[0]?.schema).toHaveProperty('properties.action');
   });
 
   it('classifies with the configured model, in the hub own directory, and never in a checkout', async () => {
@@ -372,7 +437,7 @@ describe('when a reading cannot be made', () => {
   it('refuses an action the hub decides for itself, however confidently the model answers it', () => {
     // `land` is read off the pull request or not at all. A model that answered it about mergeability nobody has
     // computed would put "Land it" on a card that cannot merge, which is the guess R38 exists to refuse.
-    expect(triageJsonSchema.properties.action.enum).not.toContain('land');
+    expect((triageJsonSchema(null) as { properties: { action: { enum: string[] } } }).properties.action.enum).not.toContain('land');
   });
 });
 

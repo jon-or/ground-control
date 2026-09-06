@@ -48,6 +48,7 @@ function card(number: number, author: string | null = null): IssueCard {
     url: `https://example.invalid/issues/${number}`,
     status: null,
     statusColor: null,
+    statusChangedAt: null,
     assignees: [],
     avatar: null,
     pullRequest:

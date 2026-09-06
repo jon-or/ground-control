@@ -43,6 +43,7 @@ function card(issueNumber: number, over: Partial<LanedCard> = {}, repo = REPO): 
       url: `https://github.com/${repo}/issues/${issueNumber}`,
       status: null,
       statusColor: null,
+      statusChangedAt: null,
       assignees: [],
       avatar: null,
       pullRequest: null,

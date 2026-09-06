@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TriageContext } from '@ground-control/core';
+import type { TriageContext, TriageStateEvent } from '@ground-control/core';
 import { TRIAGE_SYSTEM_PROMPT, buildTriagePrompt } from '../src/triagePrompt.js';
 import { CLASSIFIED_ACTIONS, TRIAGE_ACTIONS } from '../src/triage.js';
 
@@ -11,6 +11,9 @@ const NEVER_OFFERED = ['land'];
 
 const NOW = Date.parse('2026-09-05T12:00:00Z');
 
+/** The one heading the comments and the state changes share, which is the whole point of the merge. */
+const ACTIVITY = 'Recent activity — comments and state changes, oldest first:';
+
 function comment(author: string, body: string, association = 'MEMBER', authorName: string | null = null) {
   return { author, authorName, authorAssociation: association, body, createdAt: '2026-09-01T09:00:00Z' };
 }
@@ -21,11 +24,20 @@ function context(over: Partial<TriageContext> = {}): TriageContext {
     title: 'Channel mapping drops rows past the first page',
     body: 'The second page comes back empty.',
     status: '⚒️ Dev',
+    stateEvents: [],
     comments: [comment('dev-2', 'Still broken on Safari.', 'CONTRIBUTOR')],
     logins: ['dev-1'],
     pullRequest: null,
     ...over,
   };
+}
+
+function moved(at: string, actor: string, from: string, to: string): TriageStateEvent {
+  return { at, actor, actorName: `${actor} Surname`, status: { from, to }, assigned: null, unassigned: null };
+}
+
+function assigned(at: string, actor: string, login: string): TriageStateEvent {
+  return { at, actor, actorName: `${actor} Surname`, status: null, assigned: login, unassigned: null };
 }
 
 function pullRequest(over = {}) {
@@ -117,10 +129,9 @@ describe('the system prompt', () => {
     }
   });
 
-  it('gives the board status the last word over the conversation, and lets Opened by decide whose review it is', () => {
+  it('lets Opened by decide whose review it is, for the statuses the board rules leave open', () => {
     // A colleague's pull request, stacked on a parent, on an issue at Dev Review: what it waits on to merge is not
     // what the card waits on, and without this every such card read as blocked on somebody else.
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('it outranks the conversation');
     expect(TRIAGE_SYSTEM_PROMPT).toContain('"Opened by" says whose job that is');
     expect(TRIAGE_SYSTEM_PROMPT).toContain('review even when it cannot merge yet');
   });
@@ -262,7 +273,7 @@ describe('building the prompt', () => {
       NOW,
     );
 
-    expect(bare).toContain('Recent issue comments (the most recent few, oldest first):\n(none)');
+    expect(bare).toContain(`${ACTIVITY}\n(none)`);
     expect(bare).toContain('Review decision: (none)');
     expect(bare).toContain('Reviewers asked for: (none)');
     expect(bare).toContain('Reviews submitted: (none)');
@@ -298,9 +309,77 @@ describe('building the prompt', () => {
       expect(heading).not.toMatch(/\(\d+\)/);
     }
 
-    expect(prompt).toContain('Recent issue comments (the most recent few, oldest first):');
+    expect(prompt).toContain(ACTIVITY);
     expect(prompt).toContain('Recent pull request comments (the most recent few, oldest first):');
     expect(prompt).toContain('Unresolved review threads (the most recent few):');
+  });
+
+  it('sorts state changes in among the comments, so the last line is the last thing that happened', () => {
+    const prompt = buildTriagePrompt(
+      context({
+        status: '🔍 Dev Review',
+        comments: [comment('dev-3', 'Rebased.')],
+        stateEvents: [moved('2026-09-04T13:53:36Z', 'dev-3', '⚒️ Dev', '🔍 Dev Review'), assigned('2026-09-04T16:28:42Z', 'dev-5', 'dev-1')],
+      }),
+      NOW,
+    );
+    const activity = prompt.split(`${ACTIVITY}\n`)[1]!.split('\n\n')[0]!.split('\n');
+
+    expect(activity[0]).toContain('dev-3, member on 2026-09-01T09:00:00Z');
+    expect(activity[2]).toBe('► dev-3 on 2026-09-04T13:53:36Z: moved the status ⚒️ Dev → 🔍 Dev Review');
+    expect(activity[3]).toBe('► dev-5 on 2026-09-04T16:28:42Z: handed it to you');
+  });
+
+  it('leads with what the card was last told to be, and says how much of the talk that answered', () => {
+    // The whole point: a question asked before the hand-over is background, and a classifier reading the last
+    // comment for what to do next reads a card that was tasked as a card still waiting on an answer.
+    const prompt = buildTriagePrompt(
+      context({
+        status: '🔍 Dev Review',
+        comments: [comment('dev-3', 'Should this respect the account time zone?')],
+        stateEvents: [moved('2026-09-04T13:53:36Z', 'dev-3', '⚒️ Dev', '🔍 Dev Review'), assigned('2026-09-04T16:28:42Z', 'dev-5', 'dev-1')],
+      }),
+      NOW,
+    );
+
+    expect(prompt).toContain('dev-5 handed this to you on 2026-09-04T16:28:42Z, moving it ⚒️ Dev → 🔍 Dev Review.');
+    expect(prompt).toContain('Nothing has been said on the issue since. Every comment below is background.');
+  });
+
+  it('says what is still open where somebody spoke after the hand-over', () => {
+    const prompt = buildTriagePrompt(
+      context({
+        comments: [{ ...comment('dev-3', 'Actually, one more thing.'), createdAt: '2026-09-04T18:00:00Z' }],
+        stateEvents: [assigned('2026-09-04T16:28:42Z', 'dev-5', 'dev-1')],
+      }),
+      NOW,
+    );
+
+    expect(prompt).toContain('Only what was said after that is still open.');
+  });
+
+  it('drops the card being added to the project, so an automation is never read as somebody tasking you', () => {
+    const prompt = buildTriagePrompt(context({ stateEvents: [moved('2026-08-24T20:41:34Z', 'dev-4', '', '🆕 New')] }), NOW);
+
+    expect(prompt).not.toContain('►');
+    expect(prompt).not.toContain('handed this to you');
+  });
+
+  it('names the developer as you wherever a state change touches them, never by login', () => {
+    const prompt = buildTriagePrompt(
+      context({ stateEvents: [moved('2026-09-04T13:00:00Z', 'dev-1', '🔍 Dev Review', '⚒️ Dev'), assigned('2026-09-04T13:00:04Z', 'dev-1', 'dev-3')] }),
+      NOW,
+    );
+
+    expect(prompt).toContain('► you on 2026-09-04T13:00:00Z: moved the status 🔍 Dev Review → ⚒️ Dev, handed it to dev-3');
+    expect(prompt).toContain('you last changed its state on');
+  });
+
+  it('tells the model the action where the evidence settled one, and asks for it where it did not', () => {
+    expect(buildTriagePrompt(context(), NOW, {}, 'review-others')).toContain(
+      'The action is already decided: review-others — Review their PR. Write only the sentence',
+    );
+    expect(buildTriagePrompt(context(), NOW)).toContain('Answer with the action and the sentence.');
   });
 
   it('is a pure function of its context, so what reached the model can always be read back', () => {

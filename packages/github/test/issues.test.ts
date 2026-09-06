@@ -25,6 +25,8 @@ describe('fetchAssignedIssues', () => {
       url: 'https://github.com/example-org/example-repo/issues/18953',
       status: '⚒️ Dev',
       statusColor: 'GRAY',
+      // Null because this recording predates the selection, which is exactly what an older recording must read as.
+      statusChangedAt: null,
       assignees: ['dev-1', 'dev-1-bot'],
       avatar: { login: 'dev-1', url: 'https://avatars.githubusercontent.com/dev-1?s=40', source: 'issue' },
       pullRequest: {
@@ -37,6 +39,27 @@ describe('fetchAssignedIssues', () => {
       },
       updatedAt: "2026-08-31T20:51:27Z",
     });
+  });
+
+  it('carries when the status last moved, which is what makes a card due to be read again', async () => {
+    // Derived rather than recorded: every search fixture on disk predates the selection, and re-recording one would
+    // rewrite fifteen nodes to prove one field. The shape is `ProjectV2ItemFieldSingleSelectValue.updatedAt`.
+    const stamped = structuredClone(fixture('project-mode')) as {
+      data: { cards: { nodes: { number: number; projectItems: { nodes: { fieldValueByName: { updatedAt?: string } | null }[] } }[] } };
+    };
+    const node = stamped.data.cards.nodes.find((n) => n.number === 18953)!;
+
+    for (const item of node.projectItems.nodes) {
+      if (item.fieldValueByName) {
+        item.fieldValueByName.updatedAt = '2026-09-04T13:53:36Z';
+      }
+    }
+
+    const value = await unwrap(config(), runnerOf(stamped));
+
+    expect(value.cards.find((c) => c.number === 18953)?.statusChangedAt).toBe('2026-09-04T13:53:36Z');
+    // Every other card keeps the null its own recording carries, so one stamped item cannot stand in for the board.
+    expect(value.cards.filter((c) => c.statusChangedAt !== null)).toHaveLength(1);
   });
 
   it('uses the linked pull request author for a review card', async () => {

@@ -1417,3 +1417,41 @@ The tool definitions and the default system prompt were the whole of the overhea
 **`--model haiku` is not a documented alias.** The CLI's help names `fable`, `opus` and `sonnet`; `haiku` resolved to `claude-haiku-4-5-20251001` here, but an alias that silently resolves elsewhere changes cost and quality with no signal, so the full name is what gets passed.
 
 **Version-fragile.** What `--setting-sources` and `--no-session-persistence` *do* is the whole of the invisibility; a flag that keeps its name and changes its meaning puts activity markers and transcripts back, and only re-measuring this section catches it.
+
+## 32. What a card was told, and when — status and assignment on the issue timeline
+
+**Measured 2026-09-05**, against `ownerrez/orez` and the project the board reads. This is what makes a state change evidence rather than a bare fact (`prd.md` R38).
+
+**A status move is a timeline event, with everything the board needs on it.** `PROJECT_V2_ITEM_STATUS_CHANGED_EVENT` is a documented `IssueTimelineItemsItemType`, needs no preview header, and carries `createdAt`, `actor`, `previousStatus`, `status`, `wasAutomated` and `project { number }`. Asked for beside `ASSIGNED_EVENT` and `UNASSIGNED_EVENT` on the issue the board is already reading, it costs no extra round trip:
+
+```graphql
+timelineItems(last:100, itemTypes:[ASSIGNED_EVENT, UNASSIGNED_EVENT, PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]){ nodes{
+  __typename
+  ... on AssignedEvent{ createdAt actor{ login ...profile } assignee{ ... on User{ login } } }
+  ... on ProjectV2ItemStatusChangedEvent{ createdAt actor{ login ...profile } previousStatus status project{ number } }
+}}
+```
+
+`actor` is an `Actor`, so §31's `... on User { name }` fragment resolves the profile name on the same field. An issue sits on as many projects as anybody adds it to, so the events must be filtered on the project number the board reads — another team's column names say nothing about this card.
+
+**`wasAutomated` does not mean what its name suggests.** Every project item's opening status event is written by the `github-project-automation` account with `previousStatus: ""` — and `wasAutomated: false`. Measured on three issues, all three. So the flag is no guide to whether a person moved a card. **The empty `previousStatus` is**: it is the item being added to the board, and it is the only event that carries one. That shape is what the board matches on, because the automation's login is a repository setting where the shape is not — and a scrubbed fixture renames the login while keeping the shape.
+
+**One act arrives as several events, seconds apart, and two acts can share a status.** Issue #19209's hand-over is three writes inside six seconds, all by the same person:
+
+```
+17:46:29  railapex assigned jon-or
+17:46:32  railapex unassigned buildfriday
+17:46:35  railapex moved ⚒️ Dev → 🔍 Dev Review
+```
+
+Issue #19192's is not:
+
+```
+13:53:36  mayur      moved ⚒️ Dev → 🔍 Dev Review
+13:53:44  mayur      unassigned mayur
+16:28:42  eesquibel  assigned jon-or          ← 2h 35m later, a different person
+```
+
+Both are one instruction — *review this* — but the second reaches the board as two acts, and its later one carries no status at all. So what the card is now and when it was last told something are separate reads: the instruction time is the most recent event of any kind, the status it was moved *out of* comes from the most recent event that moved one, and the status it is now is the card's own — a project option renamed since rewrites every event that names it. A rule keyed on the latest event alone sees a bare assignment on #19192 and nothing else.
+
+**`ProjectV2ItemFieldSingleSelectValue.updatedAt` tracks the Status value alone.** On #19192 it reads `2026-09-04T13:53:36Z` — exactly the status event — and eesquibel's 16:28 assignment left it where it was. It rides the cheap board query rather than the per-card one, which is what lets a status move make a card due to be read again without fetching a timeline for every card on the board. That it moves for the Status value **only** is what stops the re-read rule spending money on its own: were it to move on an unrelated write, every card would be re-read once per board refresh. Measured here on three issues; re-measure it before trusting a board that suddenly costs more than it did.

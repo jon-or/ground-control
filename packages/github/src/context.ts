@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import type { ContextReading, IssueCard, TriageComment, TriageContext, TriagePullRequest } from '@ground-control/core';
+import type {
+  ContextReading,
+  IssueCard,
+  TriageComment,
+  TriageContext,
+  TriagePullRequest,
+  TriageStateEvent,
+} from '@ground-control/core';
 import { CARD_CONTEXT_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
 import type { GithubConfig } from './types.js';
@@ -26,6 +33,21 @@ const comment = z.object({
   author: actor,
 });
 
+/**
+ * One timeline entry the board asked for. Every field but the type is optional because three event types share the
+ * shape, and an unrecognised one is dropped rather than refused — a new type on the timeline is not a bad response.
+ */
+const timelineItem = z.object({
+  __typename: z.string(),
+  createdAt: z.string().optional(),
+  actor: actor.optional(),
+  assignee: z.object({ login: z.string().optional() }).nullable().optional(),
+  // Nullable as well as optional: GitHub declares both `String`, and a cleared status answers null rather than absent.
+  previousStatus: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  project: z.object({ number: z.number() }).nullable().optional(),
+});
+
 const contextResponse = z.object({
   data: z.object({
     repository: z
@@ -36,6 +58,8 @@ const contextResponse = z.object({
             title: z.string(),
             body: z.string().nullable(),
             comments: z.object({ nodes: z.array(comment) }),
+            // Defaulted: the context fixtures recorded before the timeline was selected must stay readable.
+            timelineItems: z.object({ nodes: z.array(timelineItem) }).default({ nodes: [] }),
           })
           .nullable(),
         pullRequest: z
@@ -138,6 +162,39 @@ function commentsOf(nodes: z.infer<typeof comment>[], limit = COMMENT_LIMIT): Tr
     body: clip(node.body, limit),
     createdAt: node.createdAt,
   }));
+}
+
+/**
+ * The status moves and assignments on one project, oldest first. Anything the board cannot place is dropped: an
+ * event on another project the issue also sits on, one GitHub gave no time, and any type added to the timeline
+ * since. What a run of these means is the board's to decide — this only reports what happened.
+ */
+function stateEventsOf(nodes: z.infer<typeof timelineItem>[], projectNumber: number): TriageStateEvent[] {
+  const events: TriageStateEvent[] = [];
+
+  for (const node of nodes) {
+    if (node.createdAt === undefined) {
+      continue;
+    }
+
+    const at = { at: node.createdAt, actor: node.actor?.login ?? null, actorName: node.actor?.name ?? null };
+
+    // A move with no destination is a status cleared, which names no work — and an empty `from` already means the
+    // card being added to the board, so the same sentinel cannot stand for both.
+    if (node.__typename === 'ProjectV2ItemStatusChangedEvent' && node.project?.number === projectNumber && node.status) {
+      events.push({ ...at, status: { from: node.previousStatus ?? '', to: node.status }, assigned: null, unassigned: null });
+    }
+
+    if (node.__typename === 'AssignedEvent' && node.assignee?.login) {
+      events.push({ ...at, status: null, assigned: node.assignee.login, unassigned: null });
+    }
+
+    if (node.__typename === 'UnassignedEvent' && node.assignee?.login) {
+      events.push({ ...at, status: null, assigned: null, unassigned: node.assignee.login });
+    }
+  }
+
+  return events;
 }
 
 /** The owner and name a card's own URL carries, so a board reading two repositories asks each about its own cards. */
@@ -258,6 +315,7 @@ export async function fetchCardContext(
       title: issue.title,
       body: clip(issue.body, BODY_LIMIT),
       status: card.status,
+      stateEvents: stateEventsOf(issue.timelineItems.nodes, config.projectNumber),
       comments: commentsOf(issue.comments.nodes),
       pullRequest: pullRequestOf(parsed.data.data.repository.pullRequest),
       logins: config.logins,

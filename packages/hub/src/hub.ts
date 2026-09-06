@@ -188,7 +188,7 @@ export class Hub {
       changed: () => this.#broadcast(),
       announce: (message) => this.#tellOnceAboutTriage(message),
     });
-    this.#triage.configure(this.#config.triage, this.#config.agents);
+    this.#triage.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes);
     pruneMarkers(deps.registries.agents, deps.home);
     this.#armWatchers();
   }
@@ -358,7 +358,7 @@ export class Hub {
 
   /** Hands each host and each source its own entry. Every id the registries do not carry is named here (R25). */
   #applyConfig(): ReadFailure[] {
-    this.#triage?.configure(this.#config.triage, this.#config.agents);
+    this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes);
 
     const refused = configureSources(this.#deps.registries, this.#config.sources);
 

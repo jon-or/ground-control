@@ -1,0 +1,129 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 19192,
+        "title": "Quote email overwrites a manual edit",
+        "body": "I think we settled on the second approach in the design review. (inbox badge)",
+        "comments": {
+          "nodes": [
+            {
+              "body": "Blocked on the other change landing first. (payment retry)",
+              "createdAt": "2026-09-03T14:43:28Z",
+              "authorAssociation": "NONE",
+              "author": {
+                "login": "dev-2"
+              }
+            },
+            {
+              "body": "Verified in UAT, the totals line up now. (listing sync)",
+              "createdAt": "2026-09-03T15:27:10Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              }
+            },
+            {
+              "body": "Should this respect the account time zone, or the property one? (guest portal)",
+              "createdAt": "2026-09-04T13:38:50Z",
+              "authorAssociation": "MEMBER",
+              "author": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              }
+            }
+          ]
+        },
+        "timelineItems": {
+          "nodes": [
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-24T20:41:34Z",
+              "actor": {
+                "login": "dev-4"
+              },
+              "previousStatus": "",
+              "status": "🆕 New",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-08-24T21:47:40Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-08-24T21:47:42Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "previousStatus": "🆕 New",
+              "status": "🎁 Assigned",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-09-02T22:32:32Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "previousStatus": "🎁 Assigned",
+              "status": "⚒️ Dev",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-09-04T13:53:36Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "previousStatus": "⚒️ Dev",
+              "status": "🔍 Dev Review",
+              "project": {
+                "number": 3
+              }
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-09-04T13:53:44Z",
+              "actor": {
+                "login": "dev-3",
+                "name": "dev-3 Surname"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-09-04T16:28:42Z",
+              "actor": {
+                "login": "dev-5",
+                "name": "dev-5 Surname"
+              },
+              "assignee": {
+                "login": "dev-1"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

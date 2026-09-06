@@ -18,8 +18,11 @@ export const DEFAULT_BOARD_STATUSES: readonly string[] = ['🎁 Assigned', '⚒�
 /**
  * The statuses that carry a lane, for a card the developer has never placed. Most say nothing about stage — ⚒️ Dev spans planning,
  * building and checking alike — so only the ones that do appear here, and a status the map does not name leaves the card to its other signals.
+ *
+ * Triage reads the same map for what a status means (R38), which is why 🎁 Assigned is named although an unmapped status already
+ * arrives in Unstarted: the lane it gives is the one the card had anyway, and the meaning it gives is what the label turns on.
  */
-export const DEFAULT_STATUS_LANES: Readonly<Record<string, LaneId>> = { '🔍 Dev Review': 'review' };
+export const DEFAULT_STATUS_LANES: Readonly<Record<string, LaneId>> = { '🎁 Assigned': 'unstarted', '🔍 Dev Review': 'review' };
 
 /** What the board judges a card against: which statuses keep it, which carry a lane, and whose pull requests are the developer's own. */
 export interface BoardRules {

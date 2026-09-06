@@ -79,6 +79,7 @@ function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
     url: node.url,
     status,
     statusColor: item?.fieldValueByName?.color ?? null,
+    statusChangedAt: item?.fieldValueByName?.updatedAt ?? null,
     assignees: node.assignees.nodes.map((a) => a.login),
     avatar: selectCardAvatar(node, cfg.logins, status),
     pullRequest: selectPullRequest(node),

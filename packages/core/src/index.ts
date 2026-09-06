@@ -19,6 +19,7 @@ export type {
   TriageResult,
   TriageReview,
   TriageState,
+  TriageStateEvent,
   TriageThread,
 } from './triage.js';
 export { CHROME_EXTENSION_ID, NATIVE_HOST_NAME } from './chrome.js';

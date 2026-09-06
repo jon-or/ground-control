@@ -94,6 +94,7 @@ const liveCard: LanedCard = {
     typeColor: 'RED',
     status: '🔍 Dev Review',
     statusColor: 'GRAY',
+    statusChangedAt: null,
     assignees: ['dev-1'],
     pullRequest: {
       number: 19403,

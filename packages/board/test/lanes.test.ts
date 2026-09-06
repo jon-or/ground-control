@@ -547,10 +547,15 @@ describe('inferredLane', () => {
   });
 
   it('leaves a status that carries no lane in Unstarted — ⚒️ Dev spans planning, building and checking alike', () => {
-    for (const status of ['🎁 Assigned', '⚒️ Dev']) {
-      expect(DEFAULT_STATUS_LANES[status]).toBeUndefined();
-      expect(issueIn(lanes(restatus(19072, status), []), 19072)).toBe('unstarted');
-    }
+    expect(DEFAULT_STATUS_LANES['⚒️ Dev']).toBeUndefined();
+    expect(issueIn(lanes(restatus(19072, '⚒️ Dev'), []), 19072)).toBe('unstarted');
+  });
+
+  it('places a 🎁 Assigned card exactly where an unmapped status would have, which is why triage may read the map', () => {
+    // The entry is there for what a status *means* (R38); it must cost the arrival table nothing, or a triage fix
+    // would be a card silently moving lane.
+    expect(DEFAULT_STATUS_LANES['🎁 Assigned']).toBe('unstarted');
+    expect(issueIn(lanes(restatus(19072, '🎁 Assigned'), []), 19072)).toBe('unstarted');
   });
 
   it("arrives the developer's own open pull request in Review", () => {
