@@ -33,6 +33,10 @@ const STYLE_ID = 'gc-style';
 const BADGE_CLASS = 'gc-badge';
 const POPOVER_CLASS = 'gc-popover';
 const HIDDEN_ATTR = 'data-gc-hidden';
+const ACTOR_CLASS = 'gc-actor';
+
+/** Written on the assignee figure the overlay has taken over, so a scan that no longer wants it can hand it back. */
+const ACTOR_ATTR = 'data-gc-actor';
 
 /**
  * The board's address in VS Code, written by hand: this file is what Chrome loads, so it imports nothing. The same
@@ -219,6 +223,20 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-state 
 .${POPOVER_CLASS} .gc-tick { width: 16px; flex: none; }
 .${POPOVER_CLASS} .gc-actions { display: flex; justify-content: flex-end; padding: 4px 12px 8px; }
 [${HIDDEN_ATTR}] { display: none !important; }
+
+/* The whole stack goes, its caption included: a screen reader left with "Assignees: …" would read the name the
+   swap exists to replace. Same size and shape as the avatar GitHub drew, so the card's header does not reflow. */
+figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
+/* The initials wait behind the avatar rather than in front of it: every scan builds this slot again, and a class
+   the image's own load event adds back would show them for a frame each time — measured, on a cached avatar. */
+.${ACTOR_CLASS} { position: relative; display: grid; place-items: center; overflow: hidden;
+  width: 20px; height: 20px; border-radius: 50%;
+  font-size: 8px; font-weight: 600; line-height: 1; letter-spacing: 0.02em;
+  color: transparent; background: var(--bgColor-neutral-muted, #eaeef2); }
+.${ACTOR_CLASS}[data-avatar="failed"] { color: var(--fgColor-muted, #59636e); }
+.${ACTOR_CLASS} img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* The [hidden] attribute is styled by a user-agent rule, which this page's own stylesheet outranks. */
+.${ACTOR_CLASS} img[hidden] { display: none !important; }
 #${MENU_ID} { display: inline-flex; gap: 4px; }
 #${MENU_ID} .gc-collapse { padding-left: 6px; padding-right: 6px; }
 #${MENU_ID} button[data-stale="true"]::after { content: ""; width: 6px; height: 6px; margin-left: 6px;
@@ -425,6 +443,71 @@ export function issueRefOf(card) {
   }
 
   return null;
+}
+
+/**
+ * The `figure` GitHub wraps a card's assignees in — its caption and its avatar stack together — or null when the
+ * card has none. Classed per build, so it is reached by climbing from the Primer attribute on the stack inside it
+ * (`mechanics.md` §27). The whole figure, because the caption names the assignee as surely as the avatar shows them.
+ *
+ * The climb is bounded by the card. `closest` has no limit of its own, so a build that dropped the `figure` while
+ * keeping the stack — the change §27 marks version-fragile — would hand back a `figure` above the card, and the
+ * rule that empties one would blank a region of the board that no later scan looks inside to undo.
+ *
+ * @param {Element} card
+ * @returns {Element | null} the figure, not the stack within it
+ */
+export function assigneeStackOf(card) {
+  const figure = card.querySelector('[data-component="AvatarStack"]')?.closest('figure') ?? null;
+
+  return figure !== null && card.contains(figure) ? figure : null;
+}
+
+/**
+ * Who the card is for, in place of who it is assigned to. On a card in review the assignee is who was asked and the
+ * pull request's author is who answered, so where the hub picked an author GitHub's stack is hidden and that author
+ * drawn in its place. The pick is `selectCardAvatar` in `@ground-control/github`, made once for both boards — this
+ * reads its answer and never re-decides it, which is what keeps the two boards naming the same person.
+ *
+ * @param {Document} doc
+ * @param {Element} element
+ * @param {LanedCard} card
+ */
+function renderActor(doc, element, card) {
+  const actor = card.issue?.avatar;
+  const figure = assigneeStackOf(element);
+
+  if (actor?.source !== 'pull-request' || figure === null) {
+    return;
+  }
+
+  const slot = doc.createElement('span');
+
+  slot.className = ACTOR_CLASS;
+  slot.textContent = actor.login.slice(0, 2).toUpperCase();
+  slot.title = `${actor.login} · pull request author`;
+  slot.setAttribute('role', 'img');
+  slot.setAttribute('aria-label', `${actor.login}, pull request author`);
+
+  const image = doc.createElement('img');
+
+  image.src = actor.url;
+  image.alt = '';
+
+  // An avatar that fails is hidden rather than removed, and the initials it uncovers are marked rather than added.
+  // The scan's own observer watches for nodes and is armed again by the time this fires, so taking the image out
+  // would schedule a scan that draws it again — a repaint loop.
+  image.addEventListener('error', () => {
+    image.hidden = true;
+    slot.dataset.avatar = 'failed';
+  });
+  slot.appendChild(image);
+
+  // Emptied of its caption, the figure is a boundary with no name left on it — measured as `figure ""` in Chrome's
+  // own tree — so it is taken out of the reading and the avatar inside it is what remains.
+  figure.setAttribute('role', 'presentation');
+  figure.setAttribute(ACTOR_ATTR, actor.login);
+  figure.appendChild(slot);
 }
 
 /**
@@ -1604,8 +1687,13 @@ export function clear(doc) {
     doc.getElementById(id)?.remove();
   }
 
-  for (const element of doc.querySelectorAll(`.${BADGE_CLASS}, .${POPOVER_CLASS}`)) {
+  for (const element of doc.querySelectorAll(`.${BADGE_CLASS}, .${POPOVER_CLASS}, .${ACTOR_CLASS}`)) {
     element.remove();
+  }
+
+  for (const figure of doc.querySelectorAll(`[${ACTOR_ATTR}]`)) {
+    figure.removeAttribute(ACTOR_ATTR);
+    figure.removeAttribute('role');
   }
 
   for (const card of doc.querySelectorAll('[data-gc-issue]')) {
@@ -1658,8 +1746,15 @@ export function paint(doc, state, now, actions) {
   for (const element of doc.querySelectorAll(CARD)) {
     scanned += 1;
 
-    for (const stale of element.querySelectorAll(`.${BADGE_CLASS}`)) {
+    for (const stale of element.querySelectorAll(`.${BADGE_CLASS}, .${ACTOR_CLASS}`)) {
       stale.remove();
+    }
+
+    // GitHub's own figure, handed back before anything is decided: a card that has lost its pull request shows the
+    // assignees again without this scan needing to know it ever had one. A bare `figure` carries no role to restore.
+    for (const figure of element.querySelectorAll(`[${ACTOR_ATTR}]`)) {
+      figure.removeAttribute(ACTOR_ATTR);
+      figure.removeAttribute('role');
     }
 
     const ref = issueRefOf(element);
@@ -1681,6 +1776,7 @@ export function paint(doc, state, now, actions) {
       continue;
     }
 
+    renderActor(doc, element, card);
     open.push(...renderBadge(doc, element, card, now, actions, state.snapshot?.openable ?? []));
 
     badges += 1;

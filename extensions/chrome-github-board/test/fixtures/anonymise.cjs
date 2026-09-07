@@ -8,6 +8,17 @@ const REPO = 'example-org/example-repo';
 /** The issues the fixture carries. Fixed, because the tests name them, and the recorder maps real cards onto them. */
 const ISSUES = [4501, 4502, 4503];
 
+/** The two the recorder grafts an assignee stack onto. The third is left unassigned, which is a shape a board has. */
+const ASSIGNED = [4501, 4502];
+
+/**
+ * Who the fixture's cards are assigned to, and the avatar the stack points at. A data URI rather than an
+ * `avatars.githubusercontent.com` one of the right shape: a browser test loading this fixture fetches what the
+ * markup points at, and `docs/testing.md` says no test leaves the machine. Nothing reads the `src`.
+ */
+const ASSIGNEE = 'example-dev';
+const AVATAR = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+
 /** Neutral names for the two columns kept. The overlay reads neither; a recorded one would still name a real board. */
 const COLUMNS = ['Backlog', 'In progress'];
 
@@ -38,6 +49,8 @@ const ALLOWED = new Set([
   'Discard',
   'Project',
   'Select view',
+  ASSIGNEE,
+  `Assignees: ${ASSIGNEE}`,
 ]);
 
 /** Every attribute and text node a person could have written into. Anything not enumerated is a leak by default. */
@@ -73,6 +86,18 @@ function assertScrubbed(html, recorded) {
     }
   }
 
+  /*
+   * An asset the markup points at is a request the moment a browser renders the fixture, and `docs/testing.md` says
+   * no test leaves the machine. So the only absolute addresses allowed are the synthetic repository's issue links,
+   * which nothing fetches; everything a browser would load is a `data:` URI. Named per attribute rather than by
+   * host, because the leak is any host — an avatar is only the one that was there.
+   */
+  for (const [, attribute, url] of html.matchAll(/\b(src|srcset|href|poster|data-src)="(https?:[^"]*)"/g)) {
+    if (!url.startsWith(`https://github.com/${REPO}/issues/`)) {
+      throw new Error(`anonymise left an address the fixture would fetch: ${attribute}="${url}"`);
+    }
+  }
+
   for (const [, attribute, text] of html.matchAll(FREE_TEXT)) {
     const value = (attribute ?? text ?? '').trim();
     // Entities out first, or `&nbsp;` reads as the word it is spelled with and every count in the markup is a leak.
@@ -87,4 +112,4 @@ function assertScrubbed(html, recorded) {
   assertNoAbsolutePaths(html, []);
 }
 
-module.exports = { COLUMNS, ISSUES, PROJECT, REPO, VIEWS, assertScrubbed, titles };
+module.exports = { ASSIGNED, ASSIGNEE, AVATAR, COLUMNS, ISSUES, PROJECT, REPO, VIEWS, assertScrubbed, titles };

@@ -1258,11 +1258,28 @@ Two things follow. A hub killed with `/F` never removes `hub.json`, so **a stale
 | `[data-board-column]` | one column | the column's own name, in the attribute — `data-board-column="Shipped"` |
 | `[data-board-card-id]` | one card | the project item id, and `data-hovercard-subject-tag="issue:<node id>"` |
 | `a[href*="/issues/"]` inside a card | the issue link | the issue number, in the href |
+| `[data-component="AvatarStack"]` inside a card | the assignee stack | one `img` per assignee, in a `figure` beside the card's header title |
 | `[role="region"][aria-label="View filters"]` | the filter bar | GitHub’s own View button; the overlay’s menu goes after it |
 | `[role="navigation"][aria-label="Project"]` | the project's title bar | the project name, in an `h1` |
 | `nav[aria-label="Select view"]` | the view tabs | one `[role="tab"]` per view |
 
 So the overlay reads the issue number off the link and nothing off a class. A draft item has no such link, which is how a card with no issue is told from one whose issue is not on the developer's board.
+
+**The assignee stack is a `figure`, and the caption is half of it.** Measured 2026-09-06 on `https://github.com/orgs/nodejs/projects/14`, which is public and has assignees where the roadmap board has none. The stack sits in the last child of the card's header row — a hashed `div` that is empty when nobody is assigned — and reads:
+
+```html
+<figure class="assignee-stack-module__…"><figcaption class="sr-only">Assignees: octocat</figcaption>
+  <span data-component="AvatarStack" …><div data-component="AvatarStack.Body" …>
+    <span class="pc-AvatarItem …"><span role="button" aria-labelledby="_r_v_">
+      <img data-component="Avatar" alt="octocat" width="20" height="20" data-testid="github-avatar"
+        src="https://avatars.githubusercontent.com/u/583231?s=40&v=4"></span>
+      <span data-component="Tooltip" id="_r_v_">octocat</span></span>
+  </div></span></figure>
+```
+
+Every class on it is hashed, so the stack is reached through `[data-component="AvatarStack"]` — Primer's own attribute — and the `figure` by climbing to it. Both the caption and the stack are direct children of the `figure`, which is what lets the overlay's swap hide the pair with one rule and leave its own avatar showing.
+
+**What the swap does to the accessibility tree, measured 2026-09-06 through CDP `Accessibility.getPartialAXTree` in the same Chromium.** On an untouched card the caption is a live `Figcaption` node and the avatar an `image` named for the assignee, both non-ignored — so hiding the images alone would leave a reader announcing the assignee the swap exists to replace. On a swapped card the caption, the avatar and the focusable wrapper around it all come back `ignored` for `notRendered`, and the overlay's own `image "<login>, pull request author"` is non-ignored: the card's `role="button"` does not prune it. What survives is the emptied `figure`, which without its caption computes as `figure ""` — a boundary with no name — so the overlay marks it `role="presentation"` and hands that back with the rest. A card whose view does not show the Assignees field, or whose issue has none, carries no `figure` at all — so the swap is a thing the overlay does where GitHub already drew a face, never a face it adds. **Version-fragile**: re-verify after a GitHub board release.
 
 **The rows above the board are found by attribute and then climbed.** Both header rows sit in wrappers whose classes are hashed, so the overlay locates each by the attribute above and climbs to the last ancestor that still does not contain `#project-items-region`: for the title bar that is the bar itself, and for the tabs it is the container holding the row and its new-view button, whose parent is `#memex-project-view-root`. Hiding the `nav` alone leaves that container as a stripe of empty page. The Save and Discard of an unsaved filter are in a third wrapper, a child of the filter bar, and it is found by the words on its buttons — nothing else in it is stable, and GitHub draws Save only for someone who can write to the board.
 
@@ -1277,6 +1294,8 @@ The column is `#f6f8fa` with a `6px` radius and `overflow: auto hidden`. A gradi
 **A view switch replaces every card node.** Clicking through to another view of the same project and back — a soft navigation, no page load — left the held card node `isConnected === false`, and both the appended badge and a `data-gc-issue` attribute set on the card were gone with it. A `MutationObserver` on the board container saw 89 records across the round trip.
 
 Two consequences, and they are what the overlay is built on. **Nothing may be stored on a card**: no badge, no attribute, no map keyed by node — every scan rewrites from scratch, which makes the replaced case and the survived case the same code. And **the observer is the trigger**, so it must be disarmed while painting: the badges are DOM changes of its own, and an observer left armed schedules the next scan forever.
+
+Disarming covers the paint and nothing after it. Anything the paint sets running that later adds or removes a node fires with the observer armed again — an avatar's `error` handler taking the failed image out of the card was measured at **182 paints in three seconds**, each one drawing the image that failed again. So work that outlives a paint changes attributes rather than nodes: the observer is `{ childList: true, subtree: true }` and sees no attribute at all, which is why the failed avatar is hidden where it stands.
 
 **Playwright loads the unpacked extension headless.** `chromium.launchPersistentContext` with `--disable-extensions-except=<dir>` and `--load-extension=<dir>` under `channel: 'chromium'` and `headless: true`: the content script ran, imported the overlay module through `web_accessible_resources`, and painted, and `context.serviceWorkers()` held the MV3 worker — the whole round trip inside a second, with no window. The page has to be answered at a `github.com` URL for any of it to happen, since a content script's `matches` are the page's URL; `context.route` fulfilling from the recorded fixture keeps the URL and touches no network.
 

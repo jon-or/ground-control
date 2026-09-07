@@ -70,6 +70,13 @@ describe('the overlay as Chrome loads it', () => {
   let profile = '';
   let loaded = '';
   let context: BrowserContext;
+  /**
+   * What the browser asked for: the addresses the route answered, and the addresses nothing would have. The first
+   * is what says the board really loaded; the second is what `docs/testing.md` refuses. `chrome-extension://` is
+   * neither — it is the extension reading its own files, and never leaves the machine.
+   */
+  const answered: string[] = [];
+  const offsite: string[] = [];
 
   beforeAll(async () => {
     profile = mkdtempSync(join(tmpdir(), 'gc-chrome-'));
@@ -106,6 +113,27 @@ describe('the overlay as Chrome loads it', () => {
     await context.route('https://github.com/**', (route) =>
       route.fulfill({ status: 200, contentType: 'text/html', body: BOARD }),
     );
+
+    /*
+     * Registered after the route above, which Playwright therefore checks first: this catches everything that one
+     * did not answer and refuses it. Enforcement rather than observation — a fixture pointing at a real host would
+     * otherwise fetch it, pass every assertion, and leave only the network wrong. Predicated on the protocol so the
+     * content script's own `chrome-extension://` module imports are none of its business.
+     */
+    await context.route(
+      (url) => url.protocol.startsWith('http') && url.hostname !== 'github.com',
+      (route) => route.abort(),
+    );
+
+    context.on('request', (request) => {
+      const url = request.url();
+
+      if (url.startsWith('https://github.com/')) {
+        answered.push(url);
+      } else if (!url.startsWith('chrome-extension:')) {
+        offsite.push(url);
+      }
+    });
   });
 
   afterAll(async () => {
@@ -216,6 +244,17 @@ describe('the overlay as Chrome loads it', () => {
 
     expect(await page.locator('#gc-log').count()).toBe(1);
     expect(await page.locator('#gc-log').getAttribute('data-pinned')).toBe('true');
+  });
+
+  /**
+   * The fixture is real GitHub markup, and real markup points at real hosts — an assignee's avatar most of all. A
+   * recording that keeps one turns every browser test that loads the fixture into a request off the machine, which
+   * nothing else here would notice: the page renders, the assertions pass, and only the network is wrong.
+   */
+  it('asks nothing of any host but the one the route answers', () => {
+    // The board's own request first, or an empty offsite list would only mean nothing was ever loaded.
+    expect(answered).toContain(BOARD_URL);
+    expect(offsite).toEqual([]);
   });
 
   /**

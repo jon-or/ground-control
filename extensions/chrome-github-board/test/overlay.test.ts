@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { LOG_LIMIT, ago, agentIcon, appendLog, cardsByIssue, clear, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText } from '../src/overlay.js';
+import type { IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
+import { LOG_LIMIT, ago, agentIcon, appendLog, assigneeStackOf, cardsByIssue, clear, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText } from '../src/overlay.js';
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
@@ -109,6 +109,33 @@ function badges(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>('.gc-badge')];
 }
 
+/** The card element the fixture carries for an issue, which is what the swap reads GitHub's own assignees off. */
+function cardElement(issueNumber: number): Element {
+  const element = [...document.querySelectorAll('[data-board-card-id]')].find((held) =>
+    held.querySelector(`a[href$="/issues/${issueNumber}"]`),
+  );
+
+  if (element === undefined) {
+    throw new Error(`The fixture has no card for issue ${issueNumber}.`);
+  }
+
+  return element;
+}
+
+const AUTHOR = { login: 'colleague', url: 'https://avatars.example.test/colleague.png', source: 'pull-request' } as const;
+const ASSIGNEE = { login: 'example-dev', url: 'https://avatars.example.test/example-dev.png', source: 'issue' } as const;
+
+/** A card whose issue carries the actor the hub picked, which is the only input the swap has. */
+function actorCard(issueNumber: number, avatar: IssueCard['avatar']): LanedCard {
+  const base = card(issueNumber);
+
+  return { ...base, issue: { ...base.issue!, avatar } };
+}
+
+function laneOf(...cards: LanedCard[]): Snapshot {
+  return snapshot({ lanes: [{ id: 'build', title: 'Build', cards }] });
+}
+
 describe('reading GitHub board markup', () => {
   it('finds the repository and issue every card links to', () => {
     const cards = [...document.querySelectorAll('[data-board-card-id]')];
@@ -158,6 +185,151 @@ describe('reading GitHub board markup', () => {
 
     expect([...index.byRef.keys()]).toEqual([]);
     expect([...index.byNumber.keys()]).toEqual([4501]);
+  });
+});
+
+/**
+ * The board names who a card is assigned to, which on a card in review is who was asked rather than who answered.
+ * The hub has already picked between the two — `selectCardAvatar` in `@ground-control/github` — and this is the
+ * overlay honouring that pick on GitHub's own markup rather than making it again.
+ */
+describe('swapping the assignee for the pull request author', () => {
+  it('finds the assignee figure GitHub draws, and reports none where it draws none', () => {
+    expect(assigneeStackOf(cardElement(4501))).not.toBeNull();
+    expect(assigneeStackOf(cardElement(4503))).toBeNull();
+  });
+
+  /**
+   * `closest` climbs without a limit of its own. A build that dropped the `figure` while keeping the stack would
+   * otherwise hand back one above the card, and the rule that empties a taken-over figure would blank a region of
+   * the board that no later scan looks inside to hand back.
+   */
+  it("refuses a figure that is not the card's own", () => {
+    const element = cardElement(4501);
+    const figure = assigneeStackOf(element)!;
+    const stack = figure.querySelector('[data-component="AvatarStack"]')!;
+
+    // GitHub's own figure gone and the stack kept, with a figure still standing above the card.
+    figure.replaceWith(stack);
+
+    const outer = document.createElement('figure');
+
+    element.parentElement!.insertBefore(outer, element);
+    outer.appendChild(element);
+
+    expect(element.querySelector('[data-component="AvatarStack"]')).not.toBeNull();
+    expect(element.closest('figure')).toBe(outer);
+    expect(assigneeStackOf(element)).toBeNull();
+  });
+
+  it('hides the assignees and draws the author the hub picked', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+
+    const stack = assigneeStackOf(cardElement(4501))!;
+    const actor = stack.querySelector<HTMLElement>('.gc-actor')!;
+
+    expect(stack.getAttribute('data-gc-actor')).toBe('colleague');
+    expect(actor.querySelector('img')!.getAttribute('src')).toBe(AUTHOR.url);
+    expect(actor.title).toBe('colleague · pull request author');
+    expect(actor.getAttribute('aria-label')).toBe('colleague, pull request author');
+    // GitHub's own avatar is still in the tree — the swap hides it rather than destroying it, so it comes back.
+    expect(stack.querySelector('img[data-testid="github-avatar"]')).not.toBeNull();
+  });
+
+  /** The caption is the one thing a reader would still hear: it names the assignee the avatar no longer shows. */
+  it('takes the whole stack over, its caption included', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+
+    const stack = assigneeStackOf(cardElement(4501))!;
+
+    expect(getComputedStyle(stack.querySelector<HTMLElement>('figcaption')!).display).toBe('none');
+    expect(getComputedStyle(stack.querySelector<HTMLElement>('[data-component="AvatarStack"]')!).display).toBe('none');
+    expect(getComputedStyle(stack.querySelector<HTMLElement>('.gc-actor')!).display).toBe('grid');
+    // And the figure itself, left with no caption, is a boundary with no name — so it is taken out of the reading.
+    expect(stack.getAttribute('role')).toBe('presentation');
+  });
+
+  it("leaves the assignees alone where the hub picked the issue's own assignee", () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, ASSIGNEE)) }), NOW, actions);
+
+    expect(assigneeStackOf(cardElement(4501))!.hasAttribute('data-gc-actor')).toBe(false);
+    expect(document.querySelector('.gc-actor')).toBeNull();
+  });
+
+  it('leaves the assignees alone on a card the hub does not know', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+
+    expect(assigneeStackOf(cardElement(4502))!.hasAttribute('data-gc-actor')).toBe(false);
+  });
+
+  /** A pull request that closed, or a card that left review: the hub stops naming an author and the board goes back. */
+  it('hands the stack back when the author goes away', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+    paint(document, state({ snapshot: laneOf(actorCard(4501, ASSIGNEE)) }), NOW, actions);
+
+    expect(assigneeStackOf(cardElement(4501))!.hasAttribute('data-gc-actor')).toBe(false);
+    expect(assigneeStackOf(cardElement(4501))!.hasAttribute('role')).toBe(false);
+    expect(document.querySelector('.gc-actor')).toBeNull();
+  });
+
+  /** Every scan rewrites from scratch (`mechanics.md` §27), so a second paint must not stack a second avatar. */
+  it('draws one author however many times the board is painted', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+
+    expect(document.querySelectorAll('.gc-actor')).toHaveLength(1);
+  });
+
+  it('draws no author on a card GitHub gave no assignee stack', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4503, AUTHOR)) }), NOW, actions);
+
+    expect(cardElement(4503).querySelector('.gc-actor')).toBeNull();
+    expect(badges()).toHaveLength(1);
+  });
+
+  /**
+   * The scan's own observer watches for nodes and is armed again by the time an avatar finishes loading, so an
+   * image taken out of the tree on failure schedules a scan that draws it again — a repaint loop at frame rate,
+   * measured at 182 paints in three seconds before the image was hidden instead.
+   */
+  it('hides an avatar that fails rather than taking it out of the card', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+
+    const slot = document.querySelector<HTMLElement>('.gc-actor')!;
+    const image = slot.querySelector('img')!;
+
+    image.dispatchEvent(new Event('error'));
+
+    expect(image.parentElement).toBe(slot);
+    expect(image.hidden).toBe(true);
+    // The attribute alone is a user-agent rule GitHub's own stylesheet outranks; the overlay's own rule is what holds.
+    expect(getComputedStyle(image).display).toBe('none');
+    // And the initials behind it are what the developer is left looking at.
+    expect(slot.textContent).toBe('CO');
+    expect(getComputedStyle(slot).color).not.toBe('rgba(0, 0, 0, 0)');
+  });
+
+  /**
+   * Every scan builds the slot again, and the board rescans on a ten-second clock. Initials the image's own load
+   * event had to clear showed for a frame on each of those, measured in Chromium against a cached avatar — so they
+   * wait behind the image rather than in front of it, and nothing has to fire for the avatar to be what is drawn.
+   */
+  it('draws the avatar with no frame of initials before it', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+
+    const slot = document.querySelector<HTMLElement>('.gc-actor')!;
+
+    expect(slot.dataset.avatar).toBeUndefined();
+    expect(getComputedStyle(slot).color).toBe('rgba(0, 0, 0, 0)');
+  });
+
+  it('gives the stack back when the overlay leaves the board', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+    clear(document);
+
+    expect(document.querySelector('.gc-actor')).toBeNull();
+    expect(document.querySelector('[data-gc-actor]')).toBeNull();
+    expect(document.querySelector('figure[role]')).toBeNull();
   });
 });
 

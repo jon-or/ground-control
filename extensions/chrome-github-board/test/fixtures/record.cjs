@@ -4,13 +4,79 @@
 const { writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { chromium } = require('playwright');
-const { COLUMNS, ISSUES, PROJECT, REPO, VIEWS, assertScrubbed, titles } = require('./anonymise.cjs');
+const { ASSIGNED, ASSIGNEE, AVATAR, COLUMNS, ISSUES, PROJECT, REPO, VIEWS, assertScrubbed, titles } = require('./anonymise.cjs');
 
 /** GitHub's own public roadmap, in its board view. Public, so a recording needs no account of the developer's. */
 const SOURCE = 'https://github.com/orgs/github/projects/4247/views/21';
 
+/**
+ * Where the assignee stack comes from. Nobody is assigned on the roadmap board, and the stack is the node the
+ * overlay's swap takes over — so it is recorded from a public board that has one and grafted into the slot GitHub
+ * leaves empty. First board that yields one wins; a public board's assignees are its own team's and do change.
+ */
+const ASSIGNEE_SOURCES = [
+  'https://github.com/orgs/nodejs/projects/14',
+  'https://github.com/orgs/nodejs/projects/11',
+  'https://github.com/orgs/rust-lang/projects/69',
+];
+
+/**
+ * One real assignee stack, with the person on it replaced. The login is written into the stack three times — the
+ * caption, the `alt` and the tooltip — so it is replaced by value rather than by field. The tooltip's id is read
+ * off the markup rather than written down: React mints it per render (`_r_v_`, `_r_1a_`, …), and a literal that
+ * stopped matching would graft the same id onto two cards with nothing to catch it.
+ *
+ * @returns {Promise<{ html: string, tooltipId: string, recorded: string[] }>}
+ */
+async function recordAssigneeStack(browser) {
+  for (const url of ASSIGNEE_SOURCES) {
+    const page = await browser.newPage();
+
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page.waitForSelector('[data-board-card-id]', { timeout: 20_000 });
+
+      const found = await page.evaluate(() => {
+        for (const card of document.querySelectorAll('[data-board-card-id]')) {
+          const figure = card.querySelector('[data-component="AvatarStack"]')?.closest('figure');
+          const image = figure?.querySelector('img[alt]');
+          const tooltipId = figure?.querySelector('[aria-labelledby]')?.getAttribute('aria-labelledby');
+
+          if (figure && image && tooltipId && figure.querySelectorAll('img').length === 1) {
+            return { html: figure.outerHTML, login: image.getAttribute('alt'), src: image.getAttribute('src'), tooltipId };
+          }
+        }
+
+        return null;
+      });
+
+      await page.close();
+
+      if (found) {
+        // The avatar goes by pattern, not by the value read back: `getAttribute` decodes the `&amp;` the serialised
+        // markup carries, so the two never match and a replace by value leaves the real one in place.
+        const html = found.html
+          .split(found.login)
+          .join(ASSIGNEE)
+          .replace(/https:\/\/avatars\.githubusercontent\.com\/[^"'\s]+/g, AVATAR);
+
+        process.stdout.write(`Recorded an assignee stack from ${url}.\n`);
+
+        return { html, tooltipId: found.tooltipId, recorded: [found.login, found.src] };
+      }
+    } catch (error) {
+      // Named, because a board that timed out and an `evaluate` that threw read identically from the message below.
+      console.log(`No assignee stack from ${url}: ${error}`);
+      await page.close();
+    }
+  }
+
+  throw new Error(`No public board in ${ASSIGNEE_SOURCES.join(', ')} showed an assignee stack.`);
+}
+
 async function main() {
   const browser = await chromium.launch();
+  const stack = await recordAssigneeStack(browser);
   const page = await browser.newPage();
 
   await page.goto(SOURCE, { waitUntil: 'networkidle' });
@@ -25,7 +91,7 @@ async function main() {
   await page.getByRole('button', { name: 'Discard', exact: true }).waitFor();
 
   const captured = await page.evaluate(
-    ({ issues, names, repo, columns, project, viewNames }) => {
+    ({ issues, names, repo, columns, project, viewNames, assigned, assigneeStack, tooltipId }) => {
       const region = document.getElementById('project-items-region');
       const clone = region.cloneNode(true);
       const recorded = [];
@@ -98,6 +164,19 @@ async function main() {
 
         // Labels are free text too, and nothing here reads them. Removed whole rather than rewritten.
         card.querySelector('ul[aria-label="Fields"]')?.remove();
+
+        // The assignee slot: GitHub's own, the last child of the header row the title sits in, and empty on this
+        // board because nobody is assigned. One card is left unassigned, which is the case the overlay must not act on.
+        if (assigned.includes(number)) {
+          const slot = card.querySelector('[id^="board-card-header-title"]').parentElement.parentElement.lastElementChild;
+
+          if (slot.childElementCount > 0) {
+            throw new Error('The assignee slot is no longer the empty last child of the card header.');
+          }
+
+          // The stack carries a tooltip and the `aria-labelledby` pointing at it, so a second graft would repeat the id.
+          slot.innerHTML = assigneeStack.split(tooltipId).join(`_r_a${number}_`);
+        }
       }
 
       // The filter bar, trimmed to the View button and the unsaved-filter actions: the overlay hangs its own
@@ -182,7 +261,17 @@ async function main() {
         recorded: recorded.filter(Boolean),
       };
     },
-    { issues: ISSUES, names: titles(), repo: REPO, columns: COLUMNS, project: PROJECT, viewNames: VIEWS },
+    {
+      issues: ISSUES,
+      names: titles(),
+      repo: REPO,
+      columns: COLUMNS,
+      project: PROJECT,
+      viewNames: VIEWS,
+      assigned: ASSIGNED,
+      assigneeStack: stack.html,
+      tooltipId: stack.tooltipId,
+    },
   );
 
   await browser.close();
@@ -207,7 +296,7 @@ async function main() {
     '',
   ].join('\n');
 
-  assertScrubbed(document, captured.recorded);
+  assertScrubbed(document, [...captured.recorded, ...stack.recorded]);
   writeFileSync(join(__dirname, 'project-board.html'), document);
 
   process.stdout.write(`Recorded ${ISSUES.length} cards from ${SOURCE}.\n`);
