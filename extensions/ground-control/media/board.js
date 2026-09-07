@@ -413,8 +413,7 @@ function sessionLine(session) {
   // One state per row, never two. The board's own observation where it has one, the CLI's own word where it does
   // not - a row reading "idle" beside a shimmering label is two of the board's claims disagreeing (R24).
   if (activity) {
-    state.dataset.activitySince = String(activity.since);
-    state.textContent = ago(Date.now() - activity.since);
+    age(state, activity.since);
     tip(state, stateTitle(activity));
     el.appendChild(state);
 
@@ -449,9 +448,8 @@ function historyLine(session) {
   }
   const state = document.createElement('span');
   state.className = 'state';
-  state.dataset.historyUpdated = String(session.updatedAt);
   // The value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
-  state.textContent = ago(Date.now() - session.updatedAt);
+  age(state, session.updatedAt);
   // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops.
   tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
 
@@ -528,28 +526,49 @@ function stateTitle(activity) {
 }
 
 /**
+ * The moment an element's text is the age of. One attribute for every duration on the board — a session's state, a
+ * saved session's, the age of a card's status — because all three are `ago(now - x)` and one pass advances them all.
+ */
+const AGE_ATTR = 'data-gc-since';
+
+/** @param {Element} el @param {number} at */
+function age(el, at) {
+  el.setAttribute(AGE_ATTR, String(at));
+  setAge(el, ago(Date.now() - at));
+}
+
+/**
+ * Writes an age into the text node already there rather than over the element's children. `textContent` replaces
+ * the node, which is a `childList` record and a relayout of the row - once a second, under the shimmering label
+ * beside it. Writing `nodeValue` is a `characterData` record, which nothing on either board watches for.
+ *
+ * @param {Element} el
+ * @param {string} text
+ */
+function setAge(el, text) {
+  const node = el.firstChild;
+
+  if (node === null || node.nodeType !== Node.TEXT_NODE) {
+    el.textContent = text;
+
+    return;
+  }
+
+  if (node.nodeValue !== text) {
+    node.nodeValue = text;
+  }
+}
+
+/**
  * Advances every rendered duration where it stands. A rebuild would cost the lane's scroll and the keyboard focus,
  * and the phase itself only changes when a hook fires - so the text is rewritten and the elements are left alone.
  */
 function tickDurations() {
-  for (const el of document.querySelectorAll('[data-history-updated], [data-status-since]')) {
-    const at = Number(el.dataset.historyUpdated ?? el.dataset.statusSince);
+  for (const el of document.querySelectorAll(`[${AGE_ATTR}]`)) {
+    const at = Number(el.getAttribute(AGE_ATTR));
 
     if (Number.isFinite(at)) {
-      el.textContent = ago(Date.now() - at);
-    }
-  }
-  for (const el of document.querySelectorAll('[data-activity-since]')) {
-    const since = Number(el.dataset.activitySince);
-
-    if (!Number.isFinite(since)) {
-      continue;
-    }
-
-    const text = ago(Date.now() - since);
-
-    if (el.textContent !== text) {
-      el.textContent = text;
+      setAge(el, ago(Date.now() - at));
     }
   }
 }
@@ -566,7 +585,7 @@ function syncActivity(el, boardCard) {
     const state = activity ? row.querySelector('.state') : null;
 
     if (state) {
-      state.dataset.activitySince = String(activity.since);
+      age(state, activity.since);
       // The event too, not only the time: a tooltip naming what the board saw two events ago beside a duration
       // that just refreshed is two of the board's own claims about one session disagreeing (R24).
       tip(state, stateTitle(activity));
@@ -1271,12 +1290,11 @@ function card(boardCard, avatarPool, placeable) {
     const moved = issue?.statusChangedAt ? Date.parse(issue.statusChangedAt) : NaN;
 
     if (Number.isFinite(moved)) {
-      const age = document.createElement('span');
+      const held = document.createElement('span');
 
-      age.className = 'triage-age';
-      age.dataset.statusSince = String(moved);
-      age.textContent = ago(Date.now() - moved);
-      end.appendChild(age);
+      held.className = 'triage-age';
+      age(held, moved);
+      end.appendChild(held);
       // Only where there is an age to separate: a card off the project board carries the control and nothing before it.
       chip.append(' · ');
     }

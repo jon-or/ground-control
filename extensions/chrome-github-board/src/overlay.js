@@ -43,6 +43,13 @@ const TIP_ATTR = 'data-gc-tip';
 const ACTOR_ATTR = 'data-gc-actor';
 
 /**
+ * The moment an element's text is the age of. One attribute for every duration the overlay draws — a session's
+ * state, a saved session's, the age of a card's status, the age of the reading itself — because all four are
+ * `ago(now - x)`, and one pass advances them all. Copied on the editor board, pinned by the parity table.
+ */
+const AGE_ATTR = 'data-gc-since';
+
+/**
  * The board's address in VS Code, written by hand: this file is what Chrome loads, so it imports nothing. The same
  * string is built by `openSessionUri` in `@ground-control/host-vscode`, and both are asserted against the literal.
  */
@@ -184,7 +191,10 @@ ${COLUMN} { margin-right: -1px !important;
    editor board takes from --vscode-foreground, so one session row reads the same on either board (mechanics.md §38). */
 .gc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: color-mix(in srgb, var(--fgColor-default, #1f2328) 55%, var(--fgColor-muted, #59636e)); }
-.gc-state { flex: none; white-space: nowrap; }
+/* A column wide enough for the value, so a second turning over does not relay out the row under the lit name
+   beside it — every value ago returns below 100 weeks is three characters or fewer, and a word sizes past it. */
+.gc-state { flex: none; white-space: nowrap; min-width: 3ch; text-align: right;
+  font-variant-numeric: tabular-nums; }
 .gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
 .gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
   color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-severe-emphasis, #bc4c00); }
@@ -195,7 +205,7 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-mark[data-mark="triaging"] { animation: gc-triage-pulse 1.8s ease-in-out infinite; }
 .gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
 /* How long the card has held its status. The label's own colour and weight: part of the label, not an aside. */
-.gc-triage-age { font-variant-numeric: tabular-nums; }
+.gc-triage-age { font-variant-numeric: tabular-nums; display: inline-block; min-width: 3ch; text-align: right; }
 @keyframes gc-triage-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
@@ -495,6 +505,46 @@ function sessionDot(doc, phase, live, title = dotTitle(phase, live)) {
 }
 
 /**
+ * Marks an element as an age and writes its first value.
+ *
+ * @param {Element} el
+ * @param {number} at
+ * @param {number} now
+ */
+function age(el, at, now) {
+  el.setAttribute(AGE_ATTR, String(at));
+  setAge(el, ago(now - at));
+}
+
+/**
+ * Writes an age into the text node already there rather than over the element's children. `textContent` replaces
+ * that node, which is a `childList` record — and this runs outside the disarmed paint, so the scan observer answers
+ * one with a rebuild of the whole board (`mechanics.md` §27). A `nodeValue` write is a `characterData` record,
+ * which the observer does not ask for.
+ *
+ * @param {Element} el
+ * @param {string} text
+ * @returns {boolean} whether the value moved
+ */
+function setAge(el, text) {
+  const node = el.firstChild;
+
+  if (node === null || node.nodeType !== 3) {
+    el.textContent = text;
+
+    return true;
+  }
+
+  if (node.nodeValue === text) {
+    return false;
+  }
+
+  node.nodeValue = text;
+
+  return true;
+}
+
+/**
  * Advances every rendered duration where it stands, once a second (R5). A repaint would rebuild every footer and
  * fight the observer that watches for one, and the phase itself only changes when a hook fires — so the text is
  * rewritten and every other node is left alone.
@@ -504,22 +554,14 @@ function sessionDot(doc, phase, live, title = dotTitle(phase, live)) {
  * @returns {number} how many durations were advanced, which is what a test has to go on
  */
 export function tickDurations(doc, now) {
-  for (const el of doc.querySelectorAll('[data-history-updated], [data-status-since]')) {
-    const at = Number(el.getAttribute('data-history-updated') ?? el.getAttribute('data-status-since'));
-
-    if (Number.isFinite(at)) {
-      el.textContent = ago(now - at);
-    }
-  }
   let moved = 0;
 
-  // Scoped to the overlay's own rows rather than to the attribute: this runs over a page GitHub owns, and a bare
-  // attribute selector would rewrite the text of anything of theirs that happened to carry the same name.
-  for (const el of doc.querySelectorAll(`.${BADGE_CLASS} .gc-session[data-phase] > [data-activity-since]`)) {
-    const text = ago(now - Number(el.getAttribute('data-activity-since')));
+  // Scoped to what the overlay itself drew rather than to the attribute alone: this runs over a page GitHub owns,
+  // and a bare attribute selector would rewrite the text of anything of theirs carrying the same name.
+  for (const el of doc.querySelectorAll(`.${BADGE_CLASS} [${AGE_ATTR}], #${MENU_ID} [${AGE_ATTR}]`)) {
+    const at = Number(el.getAttribute(AGE_ATTR));
 
-    if (el.textContent !== text) {
-      el.textContent = text;
+    if (Number.isFinite(at) && setAge(el, ago(now - at))) {
       moved += 1;
     }
   }
@@ -1295,20 +1337,28 @@ export function renderMenu(doc, state, now, actions) {
   }
 
   const panel = popover(doc, 'Ground Control');
+  const read = doc.createElement('div');
 
-  for (const text of [
-    snapshot === null
-      ? 'Ground Control has not read this machine yet.'
-      : `Read this machine ${ago(now - Date.parse(snapshot.fetchedAt))} ago.`,
-    snapshot?.hooks?.notice ?? '',
-  ]) {
-    if (text !== '') {
-      const note = doc.createElement('div');
+  read.className = 'gc-note';
 
-      note.className = 'gc-note';
-      note.textContent = text;
-      panel.appendChild(note);
-    }
+  if (snapshot === null) {
+    read.textContent = 'Ground Control has not read this machine yet.';
+  } else {
+    // The age is a node of its own so the tick advances it where it stands, like every other duration on the page.
+    const held = doc.createElement('span');
+
+    age(held, Date.parse(snapshot.fetchedAt), now);
+    read.append('Read this machine ', held, ' ago.');
+  }
+
+  panel.appendChild(read);
+
+  if (snapshot?.hooks?.notice) {
+    const note = doc.createElement('div');
+
+    note.className = 'gc-note';
+    note.textContent = snapshot.hooks.notice;
+    panel.appendChild(note);
   }
 
   panel.appendChild(doc.createElement('hr'));
@@ -1557,8 +1607,7 @@ function sessionRow(doc, session, now, openable) {
 
   if (session.activity) {
     // The `since` too, so the second-by-second tick can advance this without a snapshot behind it.
-    state.setAttribute('data-activity-since', String(session.activity.since));
-    state.textContent = ago(now - session.activity.since);
+    age(state, session.activity.since, now);
     row.appendChild(state);
   } else {
     const reported = session.details.state ?? session.details.status;
@@ -1618,9 +1667,8 @@ function historyRow(doc, session, now, openable) {
   name.textContent = session.title ?? basename(session.cwd);
   const state = doc.createElement('span');
   state.className = 'gc-state';
-  state.dataset.historyUpdated = String(session.updatedAt);
   // The value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
-  state.textContent = ago(now - session.updatedAt);
+  age(state, session.updatedAt, now);
   // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops.
   tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
   row.setAttribute('aria-label', `${name.textContent} — ${reachable ? 'resume this session in VS Code' : 'historical session'}.`);
@@ -1793,12 +1841,11 @@ function renderTriage(doc, head, card, now) {
   const moved = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
 
   if (Number.isFinite(moved)) {
-    const age = doc.createElement('span');
+    const held = doc.createElement('span');
 
-    age.className = 'gc-triage-age';
-    age.dataset.statusSince = String(moved);
-    age.textContent = ago(now - moved);
-    mark.append(' · ', age);
+    held.className = 'gc-triage-age';
+    age(held, moved, now);
+    mark.append(' · ', held);
   }
 }
 

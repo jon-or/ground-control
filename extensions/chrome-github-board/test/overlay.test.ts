@@ -1592,6 +1592,13 @@ describe('the card that wants something from you', () => {
 });
 
 describe('durations that advance on their own', () => {
+  /** The reading's own age is in the menu panel, which is shut until it is opened and painted again. */
+  function withPanel(shown: State): void {
+    paint(document, shown, NOW, actions);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, shown, NOW, actions);
+  }
+
   it('rewrites the phase where it stands, without rebuilding the chip', () => {
     paint(document, state(), NOW, actions);
 
@@ -1618,12 +1625,92 @@ describe('durations that advance on their own', () => {
 
     const theirs = document.createElement('span');
 
-    theirs.setAttribute('data-activity-since', String(NOW - 125_000));
+    theirs.setAttribute('data-gc-since', String(NOW - 125_000));
     theirs.textContent = 'GitHub own text';
     document.body.appendChild(theirs);
 
     expect(tickDurations(document, NOW + 60_000)).toBe(1);
     expect(theirs.textContent).toBe('GitHub own text');
+  });
+
+  /**
+   * The whole point of the tick writing through a text node. `content.js` answers a record from this observer with
+   * a repaint of the board, so a duration that added or removed a node would rebuild every footer once a second —
+   * and the options come out of `content.js` itself, or a product that started watching `characterData` would leave
+   * this test green while the board repainted every second again.
+   */
+  it('adds and removes no node the scan observer would answer', () => {
+    const content = readFileSync(join(__dirname, '..', 'src', 'content.js'), 'utf8');
+    const armed = [...content.matchAll(/observer\.observe\(document\.documentElement, (\{[^}]+\})\)/g)];
+
+    // Four arming sites, all the same options: the first one, and the three that re-arm after a paint, a log line
+    // and a tick — each of which writes to the page itself and is done with the observer off.
+    expect(armed).toHaveLength(4);
+    expect(new Set(armed.map(([, options]) => options))).toEqual(new Set(['{ childList: true, subtree: true }']));
+
+    const shown = snapshot({
+      lanes: [
+        {
+          id: 'build',
+          title: 'Build',
+          cards: [
+            card(4501, {
+              triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW - 7_200_000, stale: false },
+              issue: { ...card(4501).issue!, statusChangedAt: '2026-09-04T09:00:00Z' },
+            }),
+            card(4502, { sessions: [], lastSession: { agent: 'claude', sessionId: OTHER_ID, title: 'Past attempt', cwd: '/work/4502', branch: '4502', issueNumber: 4502, repository: `github.com/${REPO}`, updatedAt: NOW - 10_800_000 } }),
+          ],
+        },
+      ],
+    });
+
+    withPanel(state({ snapshot: shown }));
+
+    // A live row, a saved row, a card's status age and the menu's own reading age — every kind, all at once.
+    expect(document.querySelectorAll('[data-gc-since]')).toHaveLength(4);
+
+    const seen: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => seen.push(...records));
+
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+
+    const moved = tickDurations(document, NOW + 3_600_000);
+    const records = observer.takeRecords();
+
+    observer.disconnect();
+
+    expect(moved).toBe(4);
+    expect([...seen, ...records]).toEqual([]);
+  });
+
+  it('carries one age attribute and none of the three it replaced', () => {
+    withPanel(state());
+
+    expect(document.querySelectorAll('[data-activity-since], [data-history-updated], [data-status-since]')).toHaveLength(0);
+    // The live row and the menu's own reading age; this snapshot has no saved row and no status age.
+    expect(document.querySelectorAll('[data-gc-since]')).toHaveLength(2);
+  });
+
+  it('leaves an age it cannot read alone rather than writing NaN into it', () => {
+    paint(document, state(), NOW, actions);
+
+    const said = badges()[0]!.querySelector('.gc-state')!;
+
+    said.setAttribute('data-gc-since', 'whenever');
+    said.firstChild!.nodeValue = 'held';
+
+    expect(tickDurations(document, NOW + 60_000)).toBe(0);
+    expect(said.textContent).toBe('held');
+  });
+
+  it('reserves the width of the value so a digit does not relay the row out', () => {
+    paint(document, state(), NOW, actions);
+
+    const drawn = getComputedStyle(badges()[0]!.querySelector('.gc-state')!);
+
+    expect(drawn.minWidth).toBe('3ch');
+    expect(drawn.textAlign).toBe('right');
+    expect(drawn.fontVariantNumeric).toBe('tabular-nums');
   });
 
   it('leaves a session with no reported phase alone', () => {
@@ -1716,7 +1803,9 @@ describe('historical session rows', () => {
     show(card(4501, { sessions: [], lastSession }));
     const row = document.querySelector<HTMLElement>('.gc-historical')!;
     expect(row.tagName).toBe('SPAN'); expect(row.hasAttribute('href')).toBe(false);
-    expect(row.querySelector('a, button, [data-activity-since]')).toBeNull();
+    // Not the age attribute, which every duration the overlay draws now carries: what says this row reports no
+    // phase is the row carrying none and its mark saying so, both asserted below.
+    expect(row.querySelector('a, button')).toBeNull();
     // One line: the value alone floats to the right, and what it is a value of is said by the hollow mark.
     expect(row.dataset.phase).toBeUndefined();
     expect(row.querySelector('.gc-dot')?.getAttribute('data-phase')).toBe('none');
@@ -2141,6 +2230,61 @@ describe('the log sidebar', () => {
 
   it('appends nothing when there is no sidebar to append to', () => {
     expect(appendLog(document, [line()])).toBe(0);
+  });
+});
+
+/**
+ * The parity table for the durations. Both boards write the same attribute and tick it the same way, and neither
+ * can import the other, so each suite asserts the same rows: the element a kind of age is drawn on, the attribute
+ * that marks it, and the literal the tick puts in it. A board that renamed the attribute on its own would leave
+ * the other's tick selecting nothing, which is a board whose durations quietly stop.
+ */
+describe('the age attribute both boards share', () => {
+  const AGE_ROWS: [string, string, number, string][] = [
+    ['a session state', '.gc-state', 125_000, '2m'],
+    ['a saved session', '.gc-historical .gc-state', 60_000, '1m'],
+    ['the age of a status', '.gc-triage-age', 10_800_000, '3h'],
+    ["the reading's own age", '#gc-menu .gc-popover [data-gc-since]', 90_000, '1m'],
+  ];
+
+  it.each(AGE_ROWS)('marks %s and reads it %s', (kind, selector, held, expected) => {
+    const drawn: LanedCard =
+      kind === 'a saved session'
+        ? card(4501, { sessions: [], lastSession: { agent: 'claude', sessionId: OTHER_ID, title: 'Past attempt', cwd: '/work/4501', branch: '4501', issueNumber: 4501, repository: `github.com/${REPO}`, updatedAt: NOW - held } })
+        : card(4501, {
+            sessions: [session({ activity: { phase: 'running', since: NOW - held, event: 'PreToolUse' } })],
+            triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW - 60_000, stale: false },
+            issue: { ...card(4501).issue!, statusChangedAt: new Date(NOW - held).toISOString() },
+          });
+    const shown = state({
+      snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [drawn] }], fetchedAt: new Date(NOW - held).toISOString() }),
+    });
+
+    paint(document, shown, NOW, actions);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, shown, NOW, actions);
+
+    const element = document.querySelector(selector)!;
+
+    expect(element.getAttribute('data-gc-since')).toBe(String(NOW - held));
+    expect(element.textContent).toBe(expected);
+  });
+
+  /** The reserved column, copied onto both boards so a turning digit relays out neither one. */
+  const COLUMN: [string, string][] = [
+    ['min-width', '3ch'],
+    ['text-align', 'right'],
+    ['font-variant-numeric', 'tabular-nums'],
+  ];
+
+  it.each(COLUMN)('reserves %s at %s on every age it draws', (property, expected) => {
+    const source = readFileSync(join(__dirname, '..', 'src', 'overlay.js'), 'utf8');
+
+    for (const rule of ['.gc-state {', '.gc-triage-age {']) {
+      const from = source.indexOf(rule);
+
+      expect(source.slice(from, source.indexOf('}', from))).toContain(`${property}: ${expected}`);
+    }
   });
 });
 

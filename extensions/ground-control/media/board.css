@@ -636,9 +636,17 @@ button.session:focus-visible {
   outline-offset: 1px;
 }
 
+/*
+ * A column wide enough for the value, so a second turning over does not relay out the row. The label beside it is
+ * `background-clip: text` under a running animation, and a relayout re-derives that gradient once a second.
+ * Every value `ago` returns below 100 weeks is three characters or fewer; a longer word sizes past the floor.
+ */
 .state {
   flex: none;
   margin-left: auto;
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -962,6 +970,8 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 
 /* How long the card has held its status. The label's own colour and weight: it is a part of the label, not an aside. */
 .triage-age {
+  min-width: 3ch;
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 

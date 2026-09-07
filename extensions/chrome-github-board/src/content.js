@@ -147,10 +147,19 @@
   setInterval(schedule, 10_000);
 
   // R5: the number advances once a second, in place, so a duration never reads as though it stopped when the last
-  // scan did. Nothing else on the page is touched, so this schedules no scan of its own.
+  // scan did. Disarmed while it writes, the same way painting and appending a log line are: the value goes into a
+  // text node it already had, but an observer armed over a write of its own is what schedules a scan per second.
   setInterval(() => {
-    if (overlay !== null && helpers.isBoardPath(location.pathname)) {
+    if (overlay === null || !helpers.isBoardPath(location.pathname)) {
+      return;
+    }
+
+    observer.disconnect();
+
+    try {
       overlay.tickDurations(document, Date.now());
+    } finally {
+      observer.observe(document.documentElement, { childList: true, subtree: true });
     }
   }, 1_000);
 })();

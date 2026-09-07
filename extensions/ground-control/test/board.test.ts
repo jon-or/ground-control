@@ -1193,6 +1193,137 @@ describe('reported activity', () => {
   });
 });
 
+/**
+ * What the tick is allowed to cost. The overlay's twin runs under a `MutationObserver` that answers a `childList`
+ * record with a repaint of the whole board, so a duration advancing must write through the text node it already
+ * has. This board has no such observer, but the same write is what stops a row relaying out once a second under a
+ * label carrying a running animation — and the two copies are held to one rule.
+ */
+describe('what a second costs', () => {
+  const AGE = '[data-gc-since]';
+
+  function watch(run: () => void): MutationRecord[] {
+    const seen: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => seen.push(...records));
+
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+    run();
+
+    const records = observer.takeRecords();
+
+    observer.disconnect();
+
+    return [...seen, ...records];
+  }
+
+  /** A card carrying every kind of duration at once: a live row, a saved row, and the age of a card's status. */
+  function everyAge(): void {
+    send(
+      message({
+        lanes: lanes({
+          unstarted: [
+            {
+              ...liveCard,
+              sessions: [{ ...session, activity: { phase: 'running', since: Date.now() - 600_000, event: 'PostToolBatch' } }],
+              triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: Date.now() - 7_200_000, stale: false },
+              issue: { ...liveCard.issue!, statusChangedAt: '2026-09-06T12:00:00Z' },
+            },
+            {
+              ...liveCard,
+              key: 'issue:19001',
+              issueNumber: 19001,
+              sessions: [],
+              lastSession: { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/19001', branch: '19001', issueNumber: 19001, repository: 'github.com/org/repo', updatedAt: Date.now() - 10_800_000 },
+            },
+          ],
+        }),
+      }),
+    );
+  }
+
+  it('writes nothing at all when no duration has moved', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-07T12:00:00Z'));
+
+    try {
+      everyAge();
+
+      // Every value here is minutes or hours old, so a second later each one reads exactly the same.
+      expect(document.querySelectorAll(AGE)).toHaveLength(3);
+
+      vi.setSystemTime(new Date('2026-09-07T12:00:01Z'));
+
+      expect(watch(() => tick?.())).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('edits the text node rather than replacing it when one has', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-07T12:00:00Z'));
+
+    try {
+      const card = sendRunning(Date.now() - 59_000);
+
+      expect(card.querySelector('.state')?.textContent).toBe('59s');
+
+      vi.setSystemTime(new Date('2026-09-07T12:00:01Z'));
+
+      const records = watch(() => tick?.());
+
+      expect(records.map((record) => record.type)).toEqual(['characterData']);
+      expect(card.querySelector('.state')?.textContent).toBe('1m');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * One attribute for every duration, so one pass advances them all. A writer left on an old name would tick
+   * nothing and no other assertion here would notice — the count is what says every age is reached.
+   */
+  it('carries one age attribute and none of the three it replaced', () => {
+    everyAge();
+
+    expect(document.querySelectorAll('[data-activity-since], [data-history-updated], [data-status-since]')).toHaveLength(0);
+    expect(document.querySelectorAll(AGE)).toHaveLength(3);
+  });
+
+  it('leaves an age it cannot read alone rather than writing NaN into it', () => {
+    const card = sendRunning(Date.now());
+    const state = card.querySelector<HTMLElement>('.state')!;
+
+    state.setAttribute('data-gc-since', 'whenever');
+    state.firstChild!.nodeValue = 'held';
+
+    tick?.();
+
+    expect(state.textContent).toBe('held');
+  });
+
+  /** The reserved column: the rule has to reach the node, not merely sit in the stylesheet. */
+  it('reserves the width of the value so a digit does not relay the row out', () => {
+    const drawn = getComputedStyle(sendRunning(Date.now()).querySelector('.state')!);
+
+    expect(drawn.minWidth).toBe('3ch');
+    expect(drawn.textAlign).toBe('right');
+    expect(drawn.fontVariantNumeric).toBe('tabular-nums');
+  });
+
+  function sendRunning(since: number): HTMLElement {
+    send(
+      message({
+        lanes: lanes({
+          unstarted: [{ ...liveCard, sessions: [{ ...session, activity: { phase: 'running', since, event: 'PostToolBatch' } }] }],
+        }),
+      }),
+    );
+
+    return document.querySelector<HTMLElement>('.card')!;
+  }
+});
+
 describe('the manifest and the code agree on every default', () => {
   const manifest = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
     contributes: { configuration: { properties: Record<string, { default: unknown }> } };
@@ -1559,8 +1690,11 @@ describe('historical rows', () => {
     expect(tipOf(row)).toBe('');
     expect(tipOf(row.querySelector('.state'))).toContain('Last saved');
     expect(row.tagName).toBe('SPAN');
-    expect(row.querySelector('button, a, [data-activity-since]')).toBeNull();
+    expect(row.querySelector('button, a')).toBeNull();
+    // Not the age attribute, which every duration on the board now carries: what says this row reports no phase is
+    // the row carrying none and its mark saying so.
     expect(row.dataset.phase).toBeUndefined();
+    expect(row.querySelector<HTMLElement>('.dot')?.dataset['phase']).toBe('none');
     row.click(); expect(sent()).toEqual([]);
     send(message({ lanes: lanes({ build: [{ ...pastCard, lastSession: { ...lastSession, title: 'Renamed' } }] }) }));
     expect(document.querySelector('.historical')?.textContent).toContain('Renamed');
@@ -2827,6 +2961,66 @@ describe('the tooltip', () => {
     expect(document.querySelectorAll('[data-gc-tip]').length).toBeGreaterThan(0);
     // The agent glyph most of all: an SVG `<title>` child on a row that already carries one draws two at once.
     expect(document.querySelector('.agent-mark')).not.toBeNull();
+  });
+});
+
+/**
+ * The parity table for the durations. Both boards write the same attribute and tick it the same way, and neither
+ * can import the other, so each suite asserts the same rows: the element a kind of age is drawn on, the attribute
+ * that marks it, and the literal the tick puts in it. A board that renamed the attribute on its own would leave
+ * the other's tick selecting nothing, which is a board whose durations quietly stop.
+ */
+describe('the age attribute both boards share', () => {
+  const held = Date.UTC(2026, 8, 7, 12, 0, 0);
+
+  const rows: [string, string, number, string][] = [
+    ['a session state', '.state', 125_000, '2m'],
+    ['a saved session', '.historical .state', 60_000, '1m'],
+    ['the age of a status', '.triage-age', 10_800_000, '3h'],
+  ];
+
+  it.each(rows)('marks %s and reads it %s', (kind, selector, ms, expected) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(held));
+
+    try {
+      const at = held - ms;
+      const drawn: LanedCard =
+        kind === 'a saved session'
+          ? { ...liveCard, sessions: [], lastSession: { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953', branch: '18953', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: at } }
+          : {
+              ...liveCard,
+              sessions: [{ ...session, activity: { phase: 'running', since: at, event: 'PreToolUse' } }],
+              triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: held - 60_000, stale: false },
+              issue: { ...liveCard.issue!, statusChangedAt: new Date(at).toISOString() },
+            };
+
+      send(message({ lanes: lanes({ unstarted: [drawn] }) }));
+
+      const element = document.querySelector(selector)!;
+
+      expect(element.getAttribute('data-gc-since')).toBe(String(at));
+      expect(element.textContent).toBe(expected);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /** The reserved column, copied onto both boards so a turning digit relays out neither one. */
+  const column: [string, string][] = [
+    ['min-width', '3ch'],
+    ['text-align', 'right'],
+    ['font-variant-numeric', 'tabular-nums'],
+  ];
+
+  it.each(column)('reserves %s at %s on every age it draws', (property, expected) => {
+    const css = readFileSync(resolve(__dirname, '..', 'media', 'board.css'), 'utf8');
+
+    for (const rule of ['.state {', '.triage-age {']) {
+      const from = css.indexOf(rule);
+
+      expect(css.slice(from, css.indexOf('}', from))).toContain(`${property}: ${expected}`);
+    }
   });
 });
 
