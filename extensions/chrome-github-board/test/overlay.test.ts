@@ -1306,18 +1306,36 @@ describe('moving a card from the browser', () => {
   });
 });
 
+/**
+ * How long ago, one rung per unit and both sides of every threshold, as literal strings. The webview's suite in
+ * `extensions/ground-control/test/board.test.ts` asserts this table verbatim, through its own rendered card: `ago`
+ * exists in both clients because neither can import `core` at runtime, and a copy that drifts reads a duration in a
+ * unit the other board never shows.
+ */
+const AGO_ROWS: [string, number, string][] = [
+  ['the moment it happened', 0, '0s'],
+  ['a time in the future', -5_000, '0s'],
+  ['seconds, to the last one below a minute', 59_999, '59s'],
+  ['a minute, the moment it is one', 60_000, '1m'],
+  ['minutes, to the last one below an hour', 3_599_999, '59m'],
+  ['an hour, the moment it is one', 3_600_000, '1h'],
+  ['hours, to the last one below a day', 86_399_999, '23h'],
+  ['a day, the moment it is one', 86_400_000, '1d'],
+  ['days, to the last one below a week', 604_799_999, '6d'],
+  ['a week, the moment it is one', 604_800_000, '1w'],
+  ['weeks, however many', 31_536_000_000, '52w'],
+];
+
 describe('how long ago', () => {
-  it('is coarse and never rounds up', () => {
-    expect(ago(0)).toBe('0s');
-    expect(ago(59_999)).toBe('59s');
-    expect(ago(60_000)).toBe('1m');
-    expect(ago(59 * 60_000 + 59_000)).toBe('59m');
-    expect(ago(60 * 60_000)).toBe('1h');
-    expect(ago(150 * 60_000)).toBe('2h 30m');
+  it.each(AGO_ROWS)('reads %s', (_rung, ms, expected) => {
+    expect(ago(ms)).toBe(expected);
   });
 
-  it('never reads as the future', () => {
-    expect(ago(-5000)).toBe('0s');
+  // The rows above each pin one unit, so only this pins that a duration is ever only one of them.
+  it('is a single number, with no second unit behind it', () => {
+    expect(ago(90 * 60_000 + 30_000)).toBe('1h');
+    expect(ago(3 * 86_400_000 + 4 * 3_600_000)).toBe('3d');
+    expect(ago(16 * 86_400_000 + 5 * 3_600_000)).toBe('2w');
   });
 });
 

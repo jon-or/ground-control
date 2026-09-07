@@ -27,6 +27,24 @@ const session: Session = {
   details: { kind: 'interactive', name: 'cache-remediation', status: 'working', state: 'editing tests' },
 };
 
+/**
+ * How long ago, one rung per unit and both sides of every threshold, as literal strings. `extensions/chrome-github-board/test/overlay.test.ts`
+ * asserts this table verbatim: `ago` exists in both clients because neither can import `core` at runtime.
+ */
+const AGO_ROWS: [string, number, string][] = [
+  ['the moment it happened', 0, '0s'],
+  ['a time in the future', -5_000, '0s'],
+  ['seconds, to the last one below a minute', 59_999, '59s'],
+  ['a minute, the moment it is one', 60_000, '1m'],
+  ['minutes, to the last one below an hour', 3_599_999, '59m'],
+  ['an hour, the moment it is one', 3_600_000, '1h'],
+  ['hours, to the last one below a day', 86_399_999, '23h'],
+  ['a day, the moment it is one', 86_400_000, '1d'],
+  ['days, to the last one below a week', 604_799_999, '6d'],
+  ['a week, the moment it is one', 604_800_000, '1w'],
+  ['weeks, however many', 31_536_000_000, '52w'],
+];
+
 /** The bag is a whole field, so an override that names one key would otherwise drop the rest of it. */
 function withDetails(over: Record<string, string>): Record<string, string> {
   return { ...session.details, ...over };
@@ -872,40 +890,39 @@ describe('reported activity', () => {
     expect(tickMs).toBe(1_000);
   });
 
-  it('never rounds a duration up', () => {
+  /**
+   * The same table the overlay's suite asserts, against literal strings: `ago` exists in both clients because neither
+   * can import `core` at runtime, and a copy that drifts reads a duration in a unit the other board never shows.
+   */
+  it.each(AGO_ROWS)('reads a duration of %s', (_rung, ms, expected) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-02T12:00:00Z'));
 
     try {
-      const card = sendCard([
-        withPhase('idle', Date.now() - 59_900, { sessionId: 's-a' }),
-        withPhase('idle', Date.now() - 3_599_000, { sessionId: 's-b' }),
-      ]);
+      const card = sendCard([withPhase('idle', Date.now() - ms, { sessionId: 's-ago' })]);
 
-      expect(Array.from(card.querySelectorAll('.state')).map((el) => el.textContent)).toEqual([
-        'idle 59s',
-        'idle 59m',
-      ]);
+      expect(card.querySelector('.state')?.textContent).toBe(`idle ${expected}`);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('reads a duration under a minute in seconds and one over an hour in hours', () => {
+  // The rows above each pin one unit, so only this pins that a duration is ever only one of them.
+  it('reads a duration as a single number, with no second unit behind it', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-02T12:00:00Z'));
 
     try {
       const card = sendCard([
-        withPhase('idle', Date.now() - 4_000, { sessionId: 's-seconds' }),
-        withPhase('idle', Date.now() - 5_400_000, { sessionId: 's-hours' }),
-        withPhase('idle', Date.now() - 7_200_000, { sessionId: 's-round-hours' }),
+        withPhase('idle', Date.now() - (90 * 60_000 + 30_000), { sessionId: 's-h' }),
+        withPhase('idle', Date.now() - (3 * 86_400_000 + 4 * 3_600_000), { sessionId: 's-d' }),
+        withPhase('idle', Date.now() - (16 * 86_400_000 + 5 * 3_600_000), { sessionId: 's-w' }),
       ]);
 
       expect(Array.from(card.querySelectorAll('.state')).map((el) => el.textContent)).toEqual([
-        'idle 4s',
-        'idle 1h 30m',
-        'idle 2h',
+        'idle 1h',
+        'idle 3d',
+        'idle 2w',
       ]);
     } finally {
       vi.useRealTimers();

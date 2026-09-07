@@ -388,8 +388,8 @@ const PHASE_TITLES = {
 };
 
 /**
- * How long ago, coarsely, and never rounded up. Overstating is the one direction that matters: a session working
- * steadily must not read older than it is, because that is what a stuck one is supposed to look like.
+ * How long ago, as one number in the largest unit that fits, and never rounded up. Overstating is the one direction
+ * that matters: a session working steadily must not read older than it is, because that is what a stuck one looks like.
  */
 function ago(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -400,7 +400,19 @@ function ago(ms) {
 
   const minutes = Math.floor(seconds / 60);
 
-  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${minutes % 60 === 0 ? '' : ` ${minutes % 60}m`}`;
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+
+  const days = Math.floor(hours / 24);
+
+  return days < 7 ? `${days}d` : `${Math.floor(days / 7)}w`;
 }
 
 /** The phase and how long it has held: a running session's turn, and the reporting event for every other phase (R5). */

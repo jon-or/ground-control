@@ -356,8 +356,8 @@ const dismissed = new Set();
 let closer = null;
 
 /**
- * How long ago, coarsely, and never rounded up — the same rule the editor board follows. Overstating is the one
- * direction that matters: a session working steadily must not read older than it is.
+ * How long ago, as one number in the largest unit that fits, and never rounded up — the same rule the editor board
+ * follows. Overstating is the one direction that matters: a session working steadily must not read older than it is.
  *
  * @param {number} ms
  * @returns {string}
@@ -371,7 +371,19 @@ export function ago(ms) {
 
   const minutes = Math.floor(seconds / 60);
 
-  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${minutes % 60 === 0 ? '' : ` ${minutes % 60}m`}`;
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+
+  const days = Math.floor(hours / 24);
+
+  return days < 7 ? `${days}d` : `${Math.floor(days / 7)}w`;
 }
 
 /**
