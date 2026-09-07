@@ -335,7 +335,8 @@ describe('board webview', () => {
     const pr = document.querySelector<HTMLButtonElement>('.badges.github .badge.pull-request')!;
 
     expect(number.tagName).toBe('BUTTON');
-    expect(tipOf(number)).toBe('Open issue example-repo #18953 on GitHub');
+    // The number and its repository are the chip's whole fact, so it says nothing further on hover.
+    expect(tipOf(number)).toBe('');
     // The button's own text is a bare number, so without this a screen reader announces only "18953, button".
     expect(number.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
     expect(number.getAttribute('draggable')).toBe('false');
@@ -2601,16 +2602,16 @@ describe('the tooltip', () => {
   });
 
   it('draws nothing until a pointer has rested on something that says something', () => {
-    const number = document.querySelector('.number')!;
+    const avatarEl = document.querySelector('.avatar')!;
 
-    hover(number);
+    hover(avatarEl);
 
     expect(open()).toBeNull();
 
     vi.advanceTimersByTime(120);
 
     expect(open()).toBe('true');
-    expect(tip()?.textContent).toBe('Open issue example-repo #18953 on GitHub');
+    expect(tip()?.textContent).toBe('dev-2 · pull request author');
   });
 
   /** One node for the whole board: a render replaces every card, and a node per anchor would be built by the hundred. */
@@ -2625,24 +2626,24 @@ describe('the tooltip', () => {
 
   /** A child would be part of `textContent`, and every label that reads its own would gain the tooltip's words. */
   it('leaves the text of what it names alone', () => {
-    const number = document.querySelector('.number')!;
+    const avatarEl = document.querySelector('.avatar')!;
 
-    hover(number);
+    hover(avatarEl);
     vi.advanceTimersByTime(120);
 
-    expect(number.textContent).toBe('example-repo #18953');
+    expect(avatarEl.textContent).toBe('DE');
   });
 
   it('closes when the pointer leaves, and on Escape', () => {
-    const number = document.querySelector('.number')!;
+    const avatarEl = document.querySelector('.avatar')!;
 
-    hover(number);
+    hover(avatarEl);
     vi.advanceTimersByTime(120);
-    unhover(number);
+    unhover(avatarEl);
 
     expect(open()).toBeNull();
 
-    hover(number);
+    hover(avatarEl);
     vi.advanceTimersByTime(120);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
@@ -2651,7 +2652,7 @@ describe('the tooltip', () => {
 
   /** Placed once in viewport coordinates, so a lane scrolling under it would otherwise leave it behind. */
   it('closes when a lane scrolls under it', () => {
-    hover(document.querySelector('.number')!);
+    hover(document.querySelector('.avatar')!);
     vi.advanceTimersByTime(120);
     document.querySelector('.lane-cards')!.dispatchEvent(new Event('scroll', { bubbles: true }));
 
@@ -2659,11 +2660,11 @@ describe('the tooltip', () => {
   });
 
   it('never opens for a pointer that left before it was due', () => {
-    const number = document.querySelector('.number')!;
+    const avatarEl = document.querySelector('.avatar')!;
 
-    hover(number);
+    hover(avatarEl);
     vi.advanceTimersByTime(60);
-    unhover(number);
+    unhover(avatarEl);
     vi.advanceTimersByTime(600);
 
     expect(open()).toBeNull();
@@ -2691,13 +2692,13 @@ describe('the tooltip', () => {
     );
 
     expect(both.map((el) => el.getAttribute('aria-label'))).toEqual([]);
-    // The issue number is the one that would: it is named for a reader and its tooltip says the same thing.
-    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
-    expect(document.querySelector('.number')!.hasAttribute('aria-description')).toBe(false);
+    // The avatar is the one that would: it is named for a reader and its tooltip says the same thing.
+    expect(document.querySelector('.avatar')!.getAttribute('aria-label')).toBe('dev-2, pull request author');
+    expect(document.querySelector('.avatar')!.hasAttribute('aria-description')).toBe(false);
   });
 
   it('opens on focus, for a developer who never touches the pointer', () => {
-    document.querySelector('.number')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    document.querySelector('.avatar')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     vi.advanceTimersByTime(120);
 
     expect(open()).toBe('true');
@@ -2733,17 +2734,17 @@ describe('the tooltip', () => {
 
   /** A render inside the delay replaces what the pointer was over; a detached anchor measures zero at the origin. */
   it('never opens against an anchor the board has replaced', () => {
-    const number = document.querySelector('.number')!;
+    const avatarEl = document.querySelector('.avatar')!;
 
-    hover(number);
-    number.remove();
+    hover(avatarEl);
+    avatarEl.remove();
     vi.advanceTimersByTime(120);
 
     expect(open()).toBeNull();
   });
 
   it('closes one left over a card the render replaced', () => {
-    hover(document.querySelector('.number')!);
+    hover(document.querySelector('.avatar')!);
     vi.advanceTimersByTime(120);
 
     expect(open()).toBe('true');
@@ -2759,9 +2760,9 @@ describe('the tooltip', () => {
     const observer = new MutationObserver((records) => seen.push(...records));
 
     observer.observe(document.documentElement, { childList: true, subtree: true });
-    hover(document.querySelector('.number')!);
-    vi.advanceTimersByTime(120);
     hover(document.querySelector('.avatar')!);
+    vi.advanceTimersByTime(120);
+    hover(document.querySelector('.dot')!);
     vi.advanceTimersByTime(120);
 
     const records = observer.takeRecords();
@@ -2774,7 +2775,7 @@ describe('the tooltip', () => {
 
   /** The rule the parity table names, applied — a stylesheet that stopped reaching the node would pass that table. */
   it('draws it in the shape the parity table pins', () => {
-    hover(document.querySelector('.number')!);
+    hover(document.querySelector('.avatar')!);
     vi.advanceTimersByTime(120);
 
     const drawn = getComputedStyle(tip()!);
@@ -2794,7 +2795,7 @@ describe('the tooltip', () => {
   });
 
   function tipElementForTest(): HTMLElement {
-    hover(document.querySelector('.number')!);
+    hover(document.querySelector('.avatar')!);
     vi.advanceTimersByTime(120);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 

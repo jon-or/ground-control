@@ -1120,8 +1120,8 @@ function card(boardCard, avatarPool, placeable) {
     const said = repo === null ? `issue #${issue.number}` : `issue ${repo} #${issue.number}`;
 
     number.type = 'button';
-    tip(number, `Open ${said} on GitHub`);
-    // The button's text is a number and a name, neither of which says what pressing it does.
+    // No tooltip: the number and its repository are the whole fact, and opening the issue is what a link on a card
+    // does. The button's text says neither, so a reader still gets the action as the accessible name.
     nameFor(number, `Open ${said} on GitHub`);
     // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
     number.draggable = false;
