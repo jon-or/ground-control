@@ -5,6 +5,7 @@ dist/
 *.tsbuildinfo
 .DS_Store
 .claude/personal/
+.claude/worktrees/
 .tmp/
 .tmp-smoke/
 coverage/
