@@ -988,7 +988,17 @@ function ensureTips(doc) {
 
   // The tooltip is placed once, in viewport coordinates, so a board scrolling under it would leave it behind. Closed
   // rather than followed: the pointer is still over the anchor, and the next move opens it where the anchor now is.
-  const scrolled = () => hideTip(doc);
+  // A popover is fixed the same way and goes for the same reason — it would otherwise stand over another card, and
+  // no scan is coming to re-place it: the board is only scanned when something changes it.
+  const scrolled = () => {
+    hideTip(doc);
+
+    if (openMenu !== null || panelOpen) {
+      openMenu = null;
+      panelOpen = false;
+      repaintNow();
+    }
+  };
 
   doc.addEventListener('mouseover', over, true);
   doc.addEventListener('mouseout', out, true);
@@ -996,9 +1006,13 @@ function ensureTips(doc) {
   doc.addEventListener('focusout', out, true);
   doc.addEventListener('keydown', key, true);
   doc.addEventListener('scroll', scrolled, true);
+  doc.defaultView?.addEventListener('resize', scrolled);
 
   tips = { doc, over, out, key, scrolled };
 }
+
+/** How the scroll handler asks for the repaint its close needs, kept current by every scan. */
+let repaintNow = () => {};
 
 /** Takes the handlers and the tooltip itself back off, which is what leaving a board runs. */
 function removeTips() {
@@ -1014,6 +1028,7 @@ function removeTips() {
   doc.removeEventListener('focusout', out, true);
   doc.removeEventListener('keydown', key, true);
   doc.removeEventListener('scroll', scrolled, true);
+  doc.defaultView?.removeEventListener('resize', scrolled);
   hideTip(doc);
   doc.getElementById(TIP_ID)?.remove();
   tips = null;
@@ -1302,19 +1317,51 @@ function collapseButton(doc, host, actions) {
  * @returns {HTMLElement | null}
  */
 export function renderMenu(doc, state, now, actions) {
-  doc.getElementById(MENU_ID)?.remove();
-
   const host = perch(doc);
 
   if (host === null) {
+    doc.getElementById(MENU_ID)?.remove();
+
     return null;
   }
+
+  const snapshot = state.snapshot;
+  const held = doc.getElementById(MENU_ID);
+  // What the menu draws, less the reading's own age, which is a duration the tick advances where it stands. Kept
+  // rather than rebuilt so the item under the pointer survives a scan — a menu is opened and then read.
+  const sig = JSON.stringify([
+    state.trouble !== null || (snapshot?.stale ?? false),
+    panelOpen,
+    logOpen,
+    snapshot === null,
+    snapshot?.hooks?.notice ?? null,
+    isCollapsed(doc),
+  ]);
+
+  if (held !== null && held.dataset.sig === sig && held.parentElement === host) {
+    const panel = held.querySelector(`.${POPOVER_CLASS}`);
+    const read = held.querySelector(`.${POPOVER_CLASS} [${AGE_ATTR}]`);
+
+    // The newer reading onto the panel that was kept. The age is out of the signature because the tick advances
+    // it, and without this the panel counts on from the reading it was opened against — the one thing it is for.
+    if (read !== null && snapshot !== null) {
+      age(read, Date.parse(snapshot.fetchedAt), now);
+    }
+
+    // Read afresh even when nothing was rebuilt: the bar the panel hangs from moves with the window.
+    if (panel !== null) {
+      place(/** @type {HTMLElement} */ (panel), /** @type {Element} */ (held.firstElementChild));
+    }
+
+    return held;
+  }
+
+  held?.remove();
 
   const holder = doc.createElement('div');
 
   holder.id = MENU_ID;
-
-  const snapshot = state.snapshot;
+  holder.dataset.sig = sig;
   const button = nativeButton(doc, host);
 
   button.textContent = 'Ground Control';
@@ -1722,8 +1769,8 @@ function renderAttention(doc, element, head, card) {
 /**
  * One card's footer: the lane the board has it in, and a full-width row per session with its phase and how long
  * that phase has held. It goes inside the card's own box — the card element is a drag handle wrapped around it, and anything
- * appended there hangs below the border. Rebuilt from scratch every scan rather than patched: a re-render replaces
- * the card node and takes the old footer with it (`mechanics.md` §27).
+ * appended there hangs below the border. Built whole rather than patched, and kept by `drawn` until what it draws
+ * changes: a re-render replaces the card node and takes the footer with it (`mechanics.md` §27), which is a miss.
  *
  * @param {Document} doc
  * @param {Element} element
@@ -2082,6 +2129,10 @@ export function clear(doc) {
     doc.getElementById(id)?.remove();
   }
 
+  // The footers go, so every entry keyed on a card is a miss on the next scan; the map is emptied anyway, for the
+  // same reason the open menu is — what a board the overlay has left behind was carrying is not state to keep.
+  drawn = new WeakMap();
+
   for (const element of doc.querySelectorAll(`.${BADGE_CLASS}, .${POPOVER_CLASS}, .${ACTOR_CLASS}`)) {
     element.remove();
   }
@@ -2101,6 +2152,106 @@ export function clear(doc) {
 }
 
 /**
+ * The footer each card is carrying, and what it was drawn from. Beside GitHub's node rather than on it: a view
+ * switch replaces the node (`mechanics.md` §27), which is a miss here and rebuilds, so the replaced case and the
+ * survived case stay one path. What it buys is the survived case — a scan that rebuilt an unchanged footer
+ * restarted every running session's shimmer, dropped the hover under the pointer, and drew every avatar again.
+ *
+ * @type {WeakMap<Element, { sig: string, badge: Element }>}
+ */
+let drawn = new WeakMap();
+
+/**
+ * Everything a footer draws, except what the tick advances. `activity.since` and the event behind it are left out
+ * on purpose — a session working steadily would otherwise be rebuilt on every hook — and carried onto the kept
+ * footer by `syncActivity` instead.
+ *
+ * @param {LanedCard} card
+ * @param {readonly string[]} openable
+ * @returns {string}
+ */
+function footprint(card, openable) {
+  return JSON.stringify([
+    // The key first: a card with no sessions, no reading and no avatar draws the same as another in the same lane,
+    // and GitHub recycles a card node between issues. Every handler in the footer is closed over this.
+    card.key,
+    card.lane,
+    card.returned,
+    card.attention,
+    card.triage,
+    card.issue?.statusChangedAt ?? null,
+    card.issue?.avatar ?? null,
+    card.lastSession === undefined
+      ? null
+      : [card.lastSession.agent, card.lastSession.sessionId, card.lastSession.title, card.lastSession.cwd, card.lastSession.updatedAt, openable.includes(card.lastSession.sessionId)],
+    card.sessions.map((s) => [
+      s.agent,
+      s.sessionId,
+      s.title,
+      s.details.name,
+      s.details.shortId,
+      s.details.state,
+      s.details.status,
+      s.cwd,
+      s.finished,
+      s.activity?.phase ?? null,
+      openable.includes(s.sessionId),
+    ]),
+  ]);
+}
+
+/**
+ * Carries a newer observation onto a footer that was not rebuilt. The signature ignores `since` and the event, so
+ * a session working steadily keeps its rows — and without this its next turn would be counted from the prompt of
+ * the one before it, beside a tooltip naming a hook two events old (R24).
+ *
+ * @param {Element} badge
+ * @param {LanedCard} card
+ * @param {number} now
+ */
+function syncActivity(badge, card, now) {
+  const rows = badge.querySelectorAll('.gc-session:not(.gc-historical)');
+
+  card.sessions.forEach((session, at) => {
+    const state = session.activity ? rows[at]?.querySelector('.gc-state') : null;
+
+    if (state && session.activity) {
+      age(state, session.activity.since, now);
+      tip(state, stateTitle(session.activity));
+    }
+  });
+}
+
+/**
+ * Whether the footer this card is carrying is the one the snapshot would draw. The avatar is checked against the
+ * figure rather than taken on trust: GitHub re-renders its own assignee stack, and a footer otherwise unchanged
+ * would keep a slot that is no longer on the page.
+ *
+ * @param {Element} element
+ * @param {LanedCard} card
+ * @param {string} sig
+ * @returns {Element | null} the footer to keep, or null to rebuild
+ */
+function keptBadge(element, card, sig) {
+  const held = drawn.get(element);
+  const box = element.firstElementChild ?? element;
+
+  if (held === undefined || held.sig !== sig || !held.badge.isConnected || held.badge.parentElement !== box) {
+    return null;
+  }
+
+  const actor = card.issue?.avatar;
+
+  // The slot, not the attribute: GitHub re-rendering the figure takes the author's avatar with it and leaves the
+  // attribute behind, and the rule that hides GitHub's own is keyed on the attribute — the area would stay blank.
+  if (actor?.source === 'pull-request' && assigneeStackOf(element)?.querySelector(`.${ACTOR_CLASS}`) == null) {
+    return null;
+  }
+
+  return held.badge;
+}
+
+/**
  * Paints the whole board. Returns what it drew: a selector GitHub changed under it looks exactly like a developer
  * with no cards on the board, and only the scanned count tells those two apart.
  *
@@ -2113,10 +2264,12 @@ export function clear(doc) {
 export function paint(doc, state, now, actions) {
   ensureStyle(doc);
   ensureTips(doc);
+  repaintNow = actions.repaint;
 
-  // Every open panel is drawn fresh below, so the ones from the last scan go first — including a card's, whose own
-  // card may not be on the page any more.
-  for (const stale of doc.querySelectorAll(`.${POPOVER_CLASS}`)) {
+  // A lane menu is drawn fresh below by the card it belongs to, so the one from the last scan goes first — that
+  // card may not be on the page any more. Only those: they are what `renderBadge` hangs on the body, and the
+  // board's own panel is inside `#gc-menu`, which keeps it across a scan that changed nothing.
+  for (const stale of doc.querySelectorAll(`body > .${POPOVER_CLASS}`)) {
     stale.remove();
   }
 
@@ -2139,21 +2292,30 @@ export function paint(doc, state, now, actions) {
     open.push(log);
   }
 
+  const openable = state.snapshot?.openable ?? [];
+
   for (const element of doc.querySelectorAll(CARD)) {
     scanned += 1;
 
-    for (const stale of element.querySelectorAll(`.${BADGE_CLASS}, .${ACTOR_CLASS}`)) {
-      stale.remove();
-    }
-
-    // GitHub's own figure, handed back before anything is decided: a card that has lost its pull request shows the
-    // assignees again without this scan needing to know it ever had one. A bare `figure` carries no role to restore.
-    for (const figure of element.querySelectorAll(`[${ACTOR_ATTR}]`)) {
-      figure.removeAttribute(ACTOR_ATTR);
-      figure.removeAttribute('role');
-    }
-
     const ref = issueRefOf(element);
+    const card = ref === null ? undefined : index?.byRef.get(`${ref.repo}#${ref.number}`) ?? index?.byNumber.get(ref.number);
+    const sig = card === undefined ? null : footprint(card, openable);
+    // Never the card whose lane menu is open: the menu is swept above and only `renderBadge` draws one, so a kept
+    // footer is a card whose menu the developer opened and this scan took away.
+    const kept = card === undefined || sig === null || openMenu === card.key ? null : keptBadge(element, card, sig);
+
+    if (kept === null) {
+      for (const stale of element.querySelectorAll(`.${BADGE_CLASS}, .${ACTOR_CLASS}`)) {
+        stale.remove();
+      }
+
+      // GitHub's own figure, handed back before anything is decided: a card that has lost its pull request shows
+      // the assignees again without this scan knowing it ever had one. A bare `figure` carries no role to restore.
+      for (const figure of element.querySelectorAll(`[${ACTOR_ATTR}]`)) {
+        figure.removeAttribute(ACTOR_ATTR);
+        figure.removeAttribute('role');
+      }
+    }
 
     if (ref === null) {
       element.removeAttribute('data-gc-issue');
@@ -2164,16 +2326,23 @@ export function paint(doc, state, now, actions) {
 
     element.setAttribute('data-gc-issue', `${ref.repo}#${ref.number}`);
 
-    const card = index?.byRef.get(`${ref.repo}#${ref.number}`) ?? index?.byNumber.get(ref.number);
-
     if (card === undefined) {
       element.removeAttribute(ATTENTION_ATTR);
 
       continue;
     }
 
+    // A kept footer still takes the newer observation, and still counts: `badges` is how many cards carry one.
+    if (kept !== null) {
+      syncActivity(kept, card, now);
+      badges += 1;
+
+      continue;
+    }
+
     renderActor(doc, element, card);
-    open.push(...renderBadge(doc, element, card, now, actions, state.snapshot?.openable ?? []));
+    open.push(...renderBadge(doc, element, card, now, actions, openable));
+    drawn.set(element, { sig: /** @type {string} */ (sig), badge: element.querySelector(`.${BADGE_CLASS}`) ?? element });
 
     badges += 1;
   }

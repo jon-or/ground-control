@@ -207,6 +207,39 @@ describe('the overlay as Chrome loads it', () => {
   });
 
   /**
+   * The other half of the repaint contract, and the half jsdom cannot reach: that a scan the observer really
+   * scheduled leaves the item under the pointer where it was. The page is mutated to provoke one, because that is
+   * what the observer exists to answer — a board GitHub re-renders, which it does constantly.
+   */
+  it('keeps the menu item under the pointer across a scan the page provoked', async () => {
+    const page = await context.newPage();
+
+    await page.goto(BOARD_URL);
+    await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
+
+    await page.locator('#gc-menu button').first().click();
+
+    const item = page.getByRole('menuitem', { name: 'Show log' });
+
+    await expect.poll(() => item.count(), { timeout: 20_000 }).toBe(1);
+
+    // Marked from the page's own world: what this asks is whether the node survived, and a fresh one carries no mark.
+    await item.evaluate((element) => element.setAttribute('data-held', 'true'));
+
+    // A witness the scan has to put back, so this cannot pass by no scan running at all — which is the wiring it
+    // is here to prove. The overlay marks every card it scanned, whether or not the hub knew one.
+    await page.evaluate(() => document.querySelector('[data-gc-issue]')?.removeAttribute('data-gc-issue'));
+
+    // GitHub's own kind of change — a node appearing inside the board — which is what wakes the scan observer.
+    await page.evaluate(() => document.querySelector('#project-items-region')?.appendChild(document.createElement('div')));
+
+    await expect.poll(() => page.locator('[data-gc-issue]').count(), { timeout: 20_000 }).toBe(3);
+
+    expect(await item.count()).toBe(1);
+    expect(await item.getAttribute('data-held')).toBe('true');
+  });
+
+  /**
    * That a real click in a real browser reaches the dismissal at all, and that ticking the pin from the panel's own
    * header stops it. Which of the two guards behind that is doing the work is jsdom's to pin down, not this test's:
    * a stale handler from a menu that was open a frame earlier will close the sidebar just as well.

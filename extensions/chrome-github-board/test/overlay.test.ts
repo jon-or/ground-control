@@ -530,9 +530,23 @@ describe('the tooltip', () => {
 
     expect(open()).toBe('true');
 
-    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+    // A card the scan draws differently, or the footer and the figure with it are kept and the anchor never goes.
+    paint(document, state({ snapshot: laneOf({ ...actorCard(4501, AUTHOR), lane: 'review' }) }), NOW, actions);
 
     expect(open()).toBeNull();
+  });
+
+  /** The other half: an anchor a scan did not touch keeps what it is saying, rather than blinking once a scan. */
+  it('leaves one open over an anchor the scan kept', () => {
+    hover(document.querySelector('.gc-actor')!);
+    vi.advanceTimersByTime(120);
+
+    const anchor = document.querySelector('.gc-actor');
+
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+
+    expect(document.querySelector('.gc-actor')).toBe(anchor);
+    expect(open()).toBe('true');
   });
 
   /** Opening one is the board's own DOM change, and the scan's observer watches for exactly those (`mechanics.md` §27). */
@@ -1430,6 +1444,291 @@ const AGO_ROWS: [string, number, string][] = [
   ['a week, the moment it is one', 604_800_000, '1w'],
   ['weeks, however many', 31_536_000_000, '52w'],
 ];
+
+/**
+ * What a scan costs when it finds nothing new. GitHub re-renders its own board constantly and every one of those
+ * is a scan, so a footer rebuilt regardless restarts each running session's shimmer, drops the hover under the
+ * pointer, and draws every avatar again.
+ */
+describe('what a scan keeps', () => {
+  const three = () => laneOf(card(4501), card(4502), card(4503));
+
+  function footers(): Element[] {
+    return [...document.querySelectorAll(`.gc-badge`)];
+  }
+
+  function records(run: () => void): MutationRecord[] {
+    const seen: MutationRecord[] = [];
+    const observer = new MutationObserver((all) => seen.push(...all));
+
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    run();
+
+    const held = observer.takeRecords();
+
+    observer.disconnect();
+
+    return [...seen, ...held];
+  }
+
+  it('rebuilds nothing, and adds and removes no node, when the snapshot has not moved', () => {
+    const shown = state({ snapshot: three() });
+
+    paint(document, shown, NOW, actions);
+
+    const before = footers();
+
+    expect(before).toHaveLength(3);
+
+    const seen = records(() => paint(document, shown, NOW + 1_000, actions));
+
+    expect(footers()).toEqual(before);
+    expect(seen).toEqual([]);
+  });
+
+  it('reports the same counts for a scan that kept everything as for one that drew it', () => {
+    const shown = state({ snapshot: three() });
+
+    expect(paint(document, shown, NOW, actions)).toEqual({ scanned: 3, badges: 3, menu: true });
+    expect(paint(document, shown, NOW + 1_000, actions)).toEqual({ scanned: 3, badges: 3, menu: true });
+  });
+
+  /**
+   * One row per field. A row that changes two fields at once passes against a signature that pins either, so each
+   * of these moves exactly one thing and every other input is the same on both sides of it.
+   */
+  type Side = { card?: Partial<LanedCard>; openable?: string[] };
+
+  const bare = (over: Partial<Session> = {}) => ({ sessions: [session({ title: null, activity: null, details: {}, ...over })] });
+  const saved = (over: Record<string, unknown> = {}) => ({
+    sessions: [],
+    lastSession: { agent: 'claude', sessionId: OTHER_ID, title: 'Past attempt', cwd: '/work/4501', branch: '4501', issueNumber: 4501, repository: `github.com/${REPO}`, updatedAt: NOW - 60_000, ...over },
+  });
+
+  const moves: [string, Side, Side][] = [
+    ['the lane it is in', {}, { card: { lane: 'review' } }],
+    ['coming back', {}, { card: { returned: true } }],
+    ['what it wants', {}, { card: { attention: 'blocked' } }],
+    [
+      'a reading',
+      { card: { triage: { state: 'running' } } },
+      { card: { triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW, stale: false } } },
+    ],
+    [
+      'how long it has held its status',
+      { card: { issue: { ...card(4501).issue!, statusChangedAt: '2026-09-03T09:00:00Z' } } },
+      { card: { issue: { ...card(4501).issue!, statusChangedAt: '2026-09-04T09:00:00Z' } } },
+    ],
+    [
+      'who the avatar is',
+      { card: { issue: { ...card(4501).issue!, avatar: ASSIGNEE } } },
+      { card: { issue: { ...card(4501).issue!, avatar: AUTHOR } } },
+    ],
+    ['whether a session has ended', { card: { sessions: [session()] } }, { card: { sessions: [session({ finished: true })] } }],
+    [
+      'the phase a session is in',
+      { card: { sessions: [session({ activity: { phase: 'running', since: NOW - 1_000, event: 'PreToolUse' } })] } },
+      { card: { sessions: [session({ activity: { phase: 'idle', since: NOW - 1_000, event: 'Stop' } })] } },
+    ],
+    ['what a session calls itself', { card: { sessions: [session({ title: 'One thing' })] } }, { card: { sessions: [session({ title: 'Another' })] } }],
+    ['the name the CLI gave it', { card: bare({ details: { name: 'plucky-otter' } }) }, { card: bare({ details: { name: 'brave-newt' } }) }],
+    ['the short id it falls back to', { card: bare({ details: { shortId: 'a1b2' } }) }, { card: bare({ details: { shortId: 'c3d4' } }) }],
+    ['the word a CLI reports', { card: bare({ details: { state: 'editing tests' } }) }, { card: bare({ details: { state: 'running the suite' } }) }],
+    ['the status a CLI reports', { card: bare({ details: { status: 'working' } }) }, { card: bare({ details: { status: 'waiting' } }) }],
+    ['which session it is', {}, { card: { sessions: [session({ sessionId: OTHER_ID })] } }],
+    ['where a session runs', {}, { card: { sessions: [session({ cwd: 'd:/checkouts/elsewhere' })] } }],
+    // The session is the same on both sides, and the other two cards keep theirs: what moves is only whether this
+    // window can open the one this card names.
+    [
+      'whether a session can be opened',
+      { card: { sessions: [session({ sessionId: OTHER_ID })] }, openable: [OTHER_ID, SESSION_ID] },
+      { card: { sessions: [session({ sessionId: OTHER_ID })] }, openable: [SESSION_ID] },
+    ],
+    ['a saved session appearing', { card: { sessions: [] } }, { card: saved() }],
+    ['what a saved session is called', { card: saved() }, { card: saved({ title: 'Renamed' }) }],
+    ['when a saved session was written', { card: saved() }, { card: saved({ updatedAt: NOW - 120_000 }) }],
+    ['which saved session it is', { card: saved() }, { card: saved({ sessionId: SESSION_ID }) }],
+    ['where a saved session ran', { card: saved() }, { card: saved({ cwd: '/work/elsewhere' }) }],
+  ];
+
+  function laneFor(side: Side): Snapshot {
+    const shown = laneOf(card(4501, side.card ?? {}), card(4502), card(4503));
+
+    return side.openable === undefined ? shown : { ...shown, openable: side.openable };
+  }
+
+  it.each(moves)('draws the card again when %s changes, and leaves the others alone', (_what, before, after) => {
+    paint(document, state({ snapshot: laneFor(before) }), NOW, actions);
+
+    const [first, ...rest] = footers();
+
+    paint(document, state({ snapshot: laneFor(after) }), NOW, actions);
+
+    const drawn = footers();
+
+    expect(drawn).toHaveLength(3);
+    expect(drawn[0]).not.toBe(first);
+    // The other two are the proof the signature is reading the card rather than rebuilding the board.
+    expect(drawn.slice(1)).toEqual(rest);
+  });
+
+  /**
+   * The turn moved but the phase did not, which is the case the signature deliberately ignores: the row is kept,
+   * and without this it would go on counting the turn from the prompt of the one before it (R24).
+   */
+  it('carries a newer observation onto a row it kept', () => {
+    const running = (since: number, event = 'PreToolUse') =>
+      laneOf(card(4501, { sessions: [session({ activity: { phase: 'running', since, event } })] }));
+
+    paint(document, state({ snapshot: running(NOW - 600_000) }), NOW, actions);
+
+    const said = document.querySelector('.gc-state')!;
+
+    expect(said.textContent).toBe('10m');
+
+    paint(document, state({ snapshot: running(NOW - 5_000, 'PostToolUse') }), NOW, actions);
+
+    // What the board saw as well as when: a tooltip naming a hook two events back beside a duration that just
+    // moved is two of the board's own claims about one session disagreeing (R24).
+    expect(document.querySelector('.gc-state')?.getAttribute('data-gc-tip')).toContain('PostToolUse');
+    // The same node, carrying the newer turn — and reading it already, rather than a tick behind the scan.
+    expect(document.querySelector('.gc-state')).toBe(said);
+    expect(said.getAttribute('data-gc-since')).toBe(String(NOW - 5_000));
+    expect(said.textContent).toBe('5s');
+    expect(tickDurations(document, NOW + 55_000)).toBe(1);
+    expect(said.textContent).toBe('1m');
+  });
+
+  /** A view switch replaces every card node (`mechanics.md` §27), which is a miss rather than a footer left behind. */
+  it('draws a footer again on a card node the page replaced', () => {
+    const shown = state({ snapshot: three() });
+
+    paint(document, shown, NOW, actions);
+
+    const held = document.querySelector('[data-board-card-id]')!;
+    const fresh = held.cloneNode(true) as Element;
+
+    for (const stale of fresh.querySelectorAll('.gc-badge')) {
+      stale.remove();
+    }
+
+    held.replaceWith(fresh);
+    paint(document, shown, NOW, actions);
+
+    expect(fresh.querySelector('.gc-badge')).not.toBeNull();
+    expect(footers()).toHaveLength(3);
+  });
+
+  /** GitHub re-renders its own assignee stack, and a footer otherwise unchanged must not keep a slot that went. */
+  it('draws the author slot again when the page has taken it back', () => {
+    const shown = state({ snapshot: laneOf(actorCard(4501, AUTHOR)) });
+
+    paint(document, shown, NOW, actions);
+
+    // Only the slot, which is what GitHub re-rendering the figure takes: the attribute it hangs beside stays, and
+    // the rule keyed on that attribute is still hiding GitHub's own avatar — so a scan that kept this footer would
+    // leave the card's assignee area blank for as long as nothing else about the card moved.
+    document.querySelector('.gc-actor')!.remove();
+    paint(document, shown, NOW, actions);
+
+    expect(document.querySelector('.gc-actor')).not.toBeNull();
+    expect(document.querySelector('[data-gc-actor]')?.getAttribute('data-gc-actor')).toBe(AUTHOR.login);
+  });
+
+  /**
+   * The reading's own age is the line the menu exists for (R25), and it is out of the menu's signature because the
+   * tick advances it — so a panel the developer left open has to take the newer reading where it stands.
+   */
+  it('carries a newer reading onto the menu it kept', () => {
+    const read = (ago: number) => state({ snapshot: snapshot({ fetchedAt: new Date(NOW - ago).toISOString() }) });
+
+    paint(document, read(300_000), NOW, actions);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, read(300_000), NOW, actions);
+
+    const menu = document.getElementById('gc-menu');
+    const said = document.querySelector('#gc-menu .gc-popover [data-gc-since]')!;
+
+    expect(said.textContent).toBe('5m');
+
+    paint(document, read(1_000), NOW, actions);
+
+    expect(document.getElementById('gc-menu')).toBe(menu);
+    expect(said.textContent).toBe('1s');
+    expect(tickDurations(document, NOW + 60_000)).toBe(2);
+    expect(said.textContent).toBe('1m');
+  });
+
+  /**
+   * The card whose lane menu is open is the one card a scan always draws again: the sweep above takes the menu off
+   * the body and only `renderBadge` puts one back, so a footer kept here is a menu taken away under the pointer.
+   */
+  it('keeps a lane menu open across a scan the board provoked', () => {
+    const shown = state({ snapshot: three() });
+
+    paint(document, shown, NOW, actions);
+    document.querySelector<HTMLElement>('.gc-lane')!.click();
+    paint(document, shown, NOW, actions);
+
+    expect(document.querySelectorAll('.gc-lanes')).toHaveLength(1);
+
+    paint(document, shown, NOW + 1_000, actions);
+
+    expect(document.querySelectorAll('.gc-lanes')).toHaveLength(1);
+    expect(document.querySelector('.gc-lanes [data-lane="review"]')).not.toBeNull();
+  });
+
+  it('keeps its own menu, and the item under the pointer with it', () => {
+    const shown = state({ snapshot: three() });
+
+    paint(document, shown, NOW, actions);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, shown, NOW, actions);
+
+    const menu = document.getElementById('gc-menu');
+    const item = document.querySelector('#gc-menu .gc-popover button[role]');
+
+    expect(item?.textContent).toContain('Show log');
+
+    paint(document, shown, NOW + 1_000, actions);
+
+    expect(document.getElementById('gc-menu')).toBe(menu);
+    expect(document.querySelector('#gc-menu .gc-popover button[role]')).toBe(item);
+  });
+
+  it('draws its menu again when what the menu says has changed', () => {
+    const shown = state({ snapshot: three() });
+
+    paint(document, shown, NOW, actions);
+
+    const menu = document.getElementById('gc-menu');
+
+    paint(document, state({ snapshot: three(), trouble: 'The overlay lost its connection to Ground Control.' }), NOW, actions);
+
+    expect(document.getElementById('gc-menu')).not.toBe(menu);
+    expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('true');
+  });
+
+  /** Nothing re-places a popover between scans now, and a fixed one would stand over another card. */
+  it('closes what it has open when the board scrolls under it', () => {
+    const shown = state({ snapshot: three() });
+
+    paint(document, shown, NOW, actions);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, shown, NOW, actions);
+
+    expect(document.querySelectorAll('.gc-popover')).toHaveLength(1);
+
+    actions.repaint.mockClear();
+    document.querySelector('#project-items-region')!.dispatchEvent(new Event('scroll', { bubbles: true }));
+
+    expect(actions.repaint).toHaveBeenCalled();
+
+    paint(document, shown, NOW, actions);
+
+    expect(document.querySelectorAll('.gc-popover')).toHaveLength(0);
+  });
+});
 
 describe('how long ago', () => {
   it.each(AGO_ROWS)('reads %s', (_rung, ms, expected) => {
