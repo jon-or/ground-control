@@ -48,7 +48,7 @@ function emptyMemory(statuses: readonly string[]): CardMemory {
   return { placements: {}, seenPastMyHands: [], statuses: [...statuses] };
 }
 
-/** `mergeBoard` keys a card with no issue by the directory its sessions run in. R4 cards exist only while one does. */
+/** `mergeBoard` keys a card with no issue by the checkout its sessions share. R4 cards exist only while one runs. */
 const SESSION_KEY_PREFIX = 'session:';
 
 const laneId = z.enum(LANE_ORDER as [LaneId, ...LaneId[]]);

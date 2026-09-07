@@ -17,7 +17,7 @@ import type {
 
 export { TRIAGE_ACTIONS };
 
-/** `mergeBoard` keys work with no issue by the directory it runs in. Such a card has no conversation to read. */
+/** `mergeBoard` keys work with no issue by the checkout it runs in. Such a card has no conversation to read. */
 const SESSION_KEY_PREFIX = 'session:';
 
 /** One sentence. Long enough to name the work, short enough that a card stays a card. */

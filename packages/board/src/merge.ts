@@ -25,6 +25,16 @@ function groupSessions<K>(sessions: Session[], keyOf: (session: Session) => K): 
 }
 
 /**
+ * What a session with no issue has in common with the others beside it. The repository and the branch, so a worktree
+ * or a branch switch is a card of its own; the checkout directory where git names neither.
+ */
+function checkoutKey(session: Session): string {
+  return session.repository !== null && session.branch !== null
+    ? `${session.repository}#${session.branch}`
+    : dirKey(session.checkoutRoot ?? session.cwd);
+}
+
+/**
  * Every issue and every session on one board. Issue order is the order they were read; cards for issues the
  * developer does not own, then sessions with no issue, follow. Every session lands on exactly one card.
  */
@@ -34,10 +44,10 @@ export function mergeBoard(issues: IssueCard[], sessions: Session[], history: re
     (session) => session.issueNumber as number,
   );
 
-  // A session naming no issue belongs to its directory rather than to itself: the checkout is what such work shares.
-  const byCwd = groupSessions(
+  // A session naming no issue belongs to its checkout rather than to itself: that is what such work shares.
+  const byCheckout = groupSessions(
     sessions.filter((session) => session.issueNumber === null),
-    (session) => dirKey(session.cwd),
+    checkoutKey,
   );
 
   const onBoard = new Set(issues.map((issue) => issue.number));
@@ -75,8 +85,8 @@ export function mergeBoard(issues: IssueCard[], sessions: Session[], history: re
     }
   }
 
-  for (const [cwd, group] of byCwd) {
-    cards.push({ key: `session:${cwd}`, issue: null, issueNumber: null, sessions: group });
+  for (const [checkout, group] of byCheckout) {
+    cards.push({ key: `session:${checkout}`, issue: null, issueNumber: null, sessions: group });
   }
 
   return cards;

@@ -58,8 +58,12 @@ export interface Session {
    */
   title: string | null;
   cwd: string;
+  /** The checkout `cwd` sits in, which is above it for a session started in a subdirectory. Null outside a checkout. */
+  checkoutRoot: string | null;
   startedAt: number;
   branch: string | null;
+  /** Canonical remote identity (host/owner/repository), or null when the checkout cannot establish it. */
+  repository: string | null;
   issueNumber: number | null;
   /**
    * When the session's transcript was last written, or null when there is none. Not liveness: a live session can

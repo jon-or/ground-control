@@ -61,7 +61,12 @@ function activeAt(session: Session): number {
   return Math.max(session.activity?.since ?? 0, session.transcriptWrittenAt ?? 0, session.startedAt);
 }
 
-/** `only` is false where the card's sessions are spread over more than one directory, and one of them was picked. */
+/** Where a session's work sits: the checkout it runs in, or its own directory where it runs outside one. */
+function checkoutDir(session: Session): string {
+  return session.checkoutRoot ?? session.cwd;
+}
+
+/** `only` is false where the card's sessions are spread over more than one checkout, and one of them was picked. */
 export interface Checkout {
   cwd: string;
   only: boolean;
@@ -84,7 +89,7 @@ export function checkoutOf(card: Pick<BoardCard, 'sessions' | 'lastSession'>): C
   );
 
   // `lastSession` is carried only by a card with no live sessions, so it is the other case rather than a fallback.
-  const cwd = first?.cwd ?? card.lastSession?.cwd ?? null;
+  const cwd = first ? checkoutDir(first) : card.lastSession?.cwd ?? null;
 
-  return cwd === null ? null : { cwd, only: new Set(card.sessions.map((s) => dirKey(s.cwd))).size < 2 };
+  return cwd === null ? null : { cwd, only: new Set(card.sessions.map((s) => dirKey(checkoutDir(s)))).size < 2 };
 }

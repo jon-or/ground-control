@@ -1,8 +1,13 @@
 import type { ReadText } from './machine.js';
 import { basename, isAbsolute, join, normalize, parent } from './paths.js';
+import { repositoryOf } from './repository.js';
 
 export interface Link {
+  /** The checkout the session runs in, which is not its own directory when it was started below one. Null outside a checkout. */
+  checkoutRoot: string | null;
   branch: string | null;
+  /** Canonical remote identity (host/owner/repository), or null when the checkout cannot establish it. */
+  repository: string | null;
   issueNumber: number | null;
 }
 
@@ -86,13 +91,17 @@ export function compilePattern(source: string): CompiledPattern {
 export function linkOf(cwd: string, read: ReadText, pattern: RegExp | null): Link {
   const checkout = findCheckout(cwd, read);
   const branch = checkout?.branch ?? null;
+  // The root rather than `cwd`: the walk is already done, and a session started below the checkout would repeat it.
+  const repository = checkout === null ? null : repositoryOf(checkout.root, read);
+
+  const found = { checkoutRoot: checkout?.root ?? null, branch, repository };
 
   if (!pattern) {
-    return { branch, issueNumber: null };
+    return { ...found, issueNumber: null };
   }
 
   return {
-    branch,
+    ...found,
     issueNumber: issueNumberFrom(branch, pattern) ?? issueNumberFrom(basename(checkout?.root ?? cwd), pattern),
   };
 }

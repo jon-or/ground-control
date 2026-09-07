@@ -601,7 +601,7 @@ function changesControl(boardCard) {
   el.className = 'card-changes';
   el.textContent = 'Changes';
   tip(el, "Open this card's commits and uncommitted changes in one editor");
-  nameFor(el, `Open the commits and uncommitted changes of ${cardTitle(boardCard)}`);
+  nameFor(el, `Open the commits and uncommitted changes of ${cardName(boardCard)}`);
   // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
   el.draggable = false;
   el.addEventListener('click', () => vscode.postMessage({ type: 'openChanges', key: boardCard.key }));
@@ -609,14 +609,49 @@ function changesControl(boardCard) {
   return el;
 }
 
+/**
+ * What a card with no issue is called: the repository and the branch its sessions share. Every session on such a
+ * card is in one checkout, so the first speaks for all of them. Both fall back to the directory where git is silent.
+ */
+function checkoutName(boardCard) {
+  const session = boardCard.sessions[0];
+  const dir = basename(session.checkoutRoot ?? session.cwd);
+  const parts = session.repository === null ? [] : session.repository.split('/');
+
+  return {
+    repository: parts[parts.length - 1] ?? dir,
+    // Without the key's host, which is in it so two hosts' copies of one name compare unequal and says nothing about
+    // which checkout this is. The owner does, where two of one name are checked out at once.
+    owner: parts.length === 0 ? dir : parts.slice(1).join('/'),
+    branch: session.branch,
+    directory: dir,
+  };
+}
+
+/**
+ * The card in one phrase, for a control that is read rather than looked at. The title alone is enough on a card that
+ * carries an issue; on a checkout it is a branch, which names no repository, and two `master` cards would read alike.
+ */
+function cardName(boardCard) {
+  if (boardCard.issue || boardCard.issueNumber !== null) {
+    return cardTitle(boardCard);
+  }
+
+  const checkout = checkoutName(boardCard);
+
+  return checkout.branch === null ? checkout.directory : `${checkout.repository} ${checkout.branch}`;
+}
+
 function cardTitle(boardCard) {
   if (boardCard.issue) {
     return boardCard.issue.title;
   }
 
-  // A card with no issue is a directory, not one session, so it is named for the directory its sessions run in.
+  // A card with no issue is a checkout, not one session, so it is named for the branch its sessions are working on.
   if (boardCard.issueNumber === null) {
-    return basename(boardCard.sessions[0].cwd);
+    const checkout = checkoutName(boardCard);
+
+    return checkout.branch ?? checkout.directory;
   }
 
   // A session names an issue the developer does not own. R2 forbids hiding the session, so the card says why it is bare.
@@ -680,10 +715,22 @@ function card(boardCard, avatarPool, placeable) {
 
   const number = document.createElement(issue ? 'button' : 'span');
   number.className = issue ? 'number link' : 'number';
-  number.textContent =
-    boardCard.issueNumber === null
-      ? `${boardCard.sessions.length === 1 ? 'session' : 'sessions'}`
-      : `#${boardCard.issueNumber}`;
+
+  if (boardCard.issueNumber === null) {
+    const checkout = checkoutName(boardCard);
+
+    // The repository stands where an issue card carries its number. Under no branch the card is a bare directory,
+    // which the title already names, so the count of what is running there is the more useful word.
+    if (checkout.branch === null) {
+      number.textContent = boardCard.sessions.length === 1 ? 'session' : 'sessions';
+    } else {
+      number.className = 'number checkout';
+      number.textContent = checkout.repository;
+      tip(number, checkout.owner);
+    }
+  } else {
+    number.textContent = `#${boardCard.issueNumber}`;
+  }
 
   if (issue) {
     number.type = 'button';
@@ -1224,13 +1271,16 @@ const restored = vscode.getState();
 
 /**
  * Whether a revived payload is the shape this script reads. A panel revived after an upgrade holds the payload the
- * previous version stored, and rendering one whose sessions predate `details` throws before the first live message.
+ * previous version stored, and rendering one whose sessions predate a field a card reads throws before the first
+ * live message. `details` and `repository` are the two read without a guard of their own.
  */
 function isCurrentPayload(payload) {
   return (
     Array.isArray(payload?.lanes) &&
     payload.lanes.every((lane) =>
-      (lane.cards ?? []).every((card) => (card.sessions ?? []).every((session) => session.details !== undefined)),
+      (lane.cards ?? []).every((card) =>
+        (card.sessions ?? []).every((session) => session.details !== undefined && session.repository !== undefined),
+      ),
     )
   );
 }

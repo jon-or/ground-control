@@ -102,13 +102,48 @@ describe('compilePattern', () => {
 });
 
 describe('linkOf', () => {
-  it('links from the branch', () => {
-    expect(linkOf(WORKTREE, read, pattern)).toEqual({ branch: BRANCH, issueNumber: 18941 });
+  it('links from the branch, and names the checkout it read it from', () => {
+    expect(linkOf(WORKTREE, read, pattern)).toEqual({
+      checkoutRoot: WORKTREE,
+      branch: BRANCH,
+      repository: null,
+      issueNumber: 18941,
+    });
+  });
+
+  it('names the repository the checkout origin points at', () => {
+    const remote: ReadText = (path) =>
+      path === `${CLONE}/.git/config` ? '[remote "origin"]\n url = git@github.com:Org/Repo.git' : read(path);
+
+    expect(linkOf(`${CLONE}/packages/core`, remote, pattern)).toEqual({
+      checkoutRoot: CLONE,
+      branch: 'main',
+      repository: 'github.com/org/repo',
+      issueNumber: null,
+    });
+  });
+
+  it('reads the repository from the checkout it already found, rather than walking up a second time', () => {
+    const seen: string[] = [];
+    const remote: ReadText = (path) => {
+      seen.push(path);
+
+      return path === `${CLONE}/.git/config` ? '[remote "origin"]\n url = git@github.com:Org/Repo.git' : read(path);
+    };
+
+    expect(linkOf(`${CLONE}/packages/core`, remote, pattern).repository).toBe('github.com/org/repo');
+    // A walk that began at the subdirectory would ask these of it, and of every directory between, before the root.
+    expect(seen.filter((path) => /\/(commondir|config)$/.test(path))).toEqual([
+      `${CLONE}/.git/commondir`,
+      `${CLONE}/.git/config`,
+    ]);
   });
 
   it('falls back to the directory name when there is no checkout to read', () => {
     expect(linkOf('d:/work/repo.worktrees/17510-not-a-recorded-checkout', read, pattern)).toEqual({
+      checkoutRoot: null,
       branch: null,
+      repository: null,
       issueNumber: 17510,
     });
   });
@@ -120,14 +155,29 @@ describe('linkOf', () => {
         ? '9f2a1c0e4b7d\n'
         : read(path);
 
-    expect(linkOf(`${root}/99999-not-the-issue`, detached, pattern)).toEqual({ branch: null, issueNumber: 17198 });
+    expect(linkOf(`${root}/99999-not-the-issue`, detached, pattern)).toEqual({
+      checkoutRoot: root,
+      branch: null,
+      repository: null,
+      issueNumber: 17198,
+    });
   });
 
   it('leaves a checkout on a branch with no issue number unlinked', () => {
-    expect(linkOf(CLONE, read, pattern)).toEqual({ branch: 'main', issueNumber: null });
+    expect(linkOf(CLONE, read, pattern)).toEqual({
+      checkoutRoot: CLONE,
+      branch: 'main',
+      repository: null,
+      issueNumber: null,
+    });
   });
 
   it('reports the branch but links nothing when the pattern is unusable', () => {
-    expect(linkOf(WORKTREE, read, null)).toEqual({ branch: BRANCH, issueNumber: null });
+    expect(linkOf(WORKTREE, read, null)).toEqual({
+      checkoutRoot: WORKTREE,
+      branch: BRANCH,
+      repository: null,
+      issueNumber: null,
+    });
   });
 });

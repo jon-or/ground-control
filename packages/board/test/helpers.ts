@@ -45,8 +45,10 @@ const SESSION_KEYS = {
   pid: true,
   title: true,
   cwd: true,
+  checkoutRoot: true,
   startedAt: true,
   branch: true,
+  repository: true,
   issueNumber: true,
   transcriptWrittenAt: true,
   activity: true,
@@ -74,5 +76,12 @@ export const linkedOnBoard = sessions.filter((s) => s.issueNumber !== null && on
 export const linkedOffBoard = sessions.filter((s) => s.issueNumber !== null && !onBoard.has(s.issueNumber));
 export const unlinked = sessions.filter((s) => s.issueNumber === null);
 
-/** The directories the unlinked sessions run in — one card each, so the count the board produces is this set's size. */
-export const unlinkedCwds = new Set(unlinked.map((s) => dirKey(s.cwd)));
+/** The key `mergeBoard` gives a card with no issue: the repository and branch its sessions share, else the checkout. */
+export function checkoutKeyOf(session: Session): string {
+  return session.repository !== null && session.branch !== null
+    ? `${session.repository}#${session.branch}`
+    : dirKey(session.checkoutRoot ?? session.cwd);
+}
+
+/** The checkouts the unlinked sessions run in — one card each, so the count the board produces is this set's size. */
+export const unlinkedCheckouts = new Set(unlinked.map(checkoutKeyOf));

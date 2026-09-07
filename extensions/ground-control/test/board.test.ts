@@ -18,8 +18,10 @@ const session: Session = {
   pid: 4242,
   title: null,
   cwd: 'c:/work/18953-cache-remediation',
+  checkoutRoot: 'c:/work/18953-cache-remediation',
   startedAt: 1,
   branch: '18953-cache-remediation',
+  repository: 'github.com/example-org/example-repo',
   issueNumber: 18953,
   transcriptWrittenAt: null,
   activity: null,
@@ -52,6 +54,15 @@ function withDetails(over: Record<string, string>): Record<string, string> {
 
 /** Every key the session's own words are read from, cleared, for a row that must fall back past all of them. */
 const NO_WORDS = { kind: 'interactive' };
+
+/** One checkout of ad-hoc work: what the sessions on a card with no issue share, and what the card is named for. */
+const checkout = {
+  cwd: 'd:/git/ground-control',
+  checkoutRoot: 'd:/git/ground-control',
+  branch: 'master',
+  repository: 'github.com/ownerrez/ground-control',
+  issueNumber: null,
+} satisfies Partial<Session>;
 
 /** Every lane, always, so a payload here has the shape `assignLanes` produces rather than a hand-picked subset. */
 function lanes(cards: Partial<Record<LaneId, LanedCard[]>>): Lane[] {
@@ -424,7 +435,39 @@ describe('board webview', () => {
     expect(labels).toEqual(['Grouping orphan sessions', 'scratch-7b']);
   });
 
-  it('names a card for its directory when the CLI reports a Windows path', () => {
+  it('names a card with no issue for its repository and branch, and lists every session in the checkout', () => {
+    const grouped: LanedCard = {
+      key: 'session:github.com/ownerrez/ground-control#master',
+      issue: null,
+      issueNumber: null,
+      lane: 'build',
+      returned: false,
+      attention: null,
+      reason: 'Ad-hoc work with no issue.',
+      sessions: [
+        { ...session, sessionId: 'a', ...checkout, details: withDetails({ name: 'reading logs' }) },
+        { ...session, sessionId: 'b', ...checkout, details: withDetails({ name: 'drafting notes' }) },
+      ],
+    };
+
+    send(message({ lanes: lanes({ build: [grouped] }) }));
+
+    const card = document.querySelector<HTMLElement>('.card')!;
+    const number = card.querySelector<HTMLElement>('.card-meta .number')!;
+    const labels = Array.from(card.querySelectorAll<HTMLElement>('.session-label')).map((el) => el.textContent);
+
+    expect(document.querySelectorAll('.card')).toHaveLength(1);
+    expect(number.tagName).toBe('SPAN');
+    expect(number.classList).not.toContain('link');
+    expect(number.textContent).toBe('ground-control');
+    // The owner, not the whole key: the host is in it so two hosts' copies of one name compare unequal, and it
+    // tells the developer nothing about which checkout they are looking at.
+    expect(tipOf(number)).toBe('ownerrez/ground-control');
+    expect(card.querySelector('.title')?.textContent).toBe('master');
+    expect(labels).toEqual(['reading logs', 'drafting notes']);
+  });
+
+  it('stands the checkout directory in for the repository where git reports none, past a Windows path', () => {
     const win = 'd:\\git\\ground-control';
     const grouped: LanedCard = {
       key: 'session:d:/git/ground-control',
@@ -435,73 +478,49 @@ describe('board webview', () => {
       attention: null,
       reason: 'Ad-hoc work with no issue.',
       sessions: [
-        { ...session, sessionId: 'a', cwd: win, issueNumber: null, details: NO_WORDS },
-        { ...session, sessionId: 'b', cwd: win, issueNumber: null, details: NO_WORDS },
+        { ...session, sessionId: 'a', ...checkout, cwd: win, checkoutRoot: win, repository: null, details: NO_WORDS },
       ],
     };
 
     send(message({ lanes: lanes({ build: [grouped] }) }));
 
     const card = document.querySelector<HTMLElement>('.card')!;
+    const number = card.querySelector<HTMLElement>('.card-meta .number')!;
 
-    expect(document.querySelectorAll('.card')).toHaveLength(1);
-    expect(card.querySelector('.title')?.textContent).toBe('ground-control');
-    expect(Array.from(card.querySelectorAll('.session-label')).map((el) => el.textContent)).toEqual([
-      'ground-control',
-      'ground-control',
-    ]);
+    expect(number.textContent).toBe('ground-control');
+    expect(tipOf(number)).toBe('ground-control');
+    expect(card.querySelector('.title')?.textContent).toBe('master');
   });
 
-  it('names a card with no issue for its directory and lists every session running there', () => {
-    const grouped: LanedCard = {
-      key: 'session:c:/work/scratch',
-      issue: null,
-      issueNumber: null,
-      lane: 'build',
-      returned: false,
-      attention: null,
-      reason: 'Ad-hoc work with no issue.',
-      sessions: [
-        { ...session, sessionId: 'a', cwd: 'c:/work/scratch', issueNumber: null, details: withDetails({ name: 'reading logs' }) },
-        { ...session, sessionId: 'b', cwd: 'c:/work/scratch', issueNumber: null, details: withDetails({ name: 'drafting notes' }) },
-      ],
-    };
+  it('counts the sessions on a card whose work is under no checkout at all', () => {
+    const loose = { ...session, cwd: 'c:/work/scratch', checkoutRoot: null, branch: null, repository: null, issueNumber: null };
 
-    send(message({ lanes: lanes({ build: [grouped] }) }));
-
-    const card = document.querySelector<HTMLElement>('.card')!;
-    const labels = Array.from(card.querySelectorAll<HTMLElement>('.session-label')).map((el) => el.textContent);
-
-    expect(card.querySelector('.title')?.textContent).toBe('scratch');
-    expect(card.querySelector('.number')?.textContent).toBe('sessions');
-    expect(labels).toEqual(['reading logs', 'drafting notes']);
-  });
-
-  it('leaves the number as plain text on a card with no issue behind it', () => {
     send(
       message({
         lanes: lanes({
           unstarted: [
             {
-              key: 'session:c:/work/18953-cache-remediation',
+              key: 'session:c:/work/scratch',
               issue: null,
               issueNumber: null,
               lane: 'unstarted',
               returned: false,
               attention: null,
               reason: 'Ad-hoc work with no issue.',
-              sessions: [session],
+              sessions: [loose],
             },
           ],
         }),
       }),
     );
 
-    const number = document.querySelector<HTMLElement>('.card-meta .number')!;
+    const card = document.querySelector<HTMLElement>('.card')!;
+    const number = card.querySelector<HTMLElement>('.card-meta .number')!;
 
     expect(number.tagName).toBe('SPAN');
     expect(number.textContent).toBe('session');
-    expect(number.classList).not.toContain('link');
+    expect(tipOf(number)).toBe('');
+    expect(card.querySelector('.title')?.textContent).toBe('scratch');
   });
 
   it('leaves out a badge the issue has nothing for', () => {
@@ -1376,6 +1395,25 @@ describe('the changes control', () => {
     expect(el.getAttribute('aria-label')).toBe('Open the commits and uncommitted changes of Cached counts do not update');
     // Without this a few pixels of drift on the way to a click starts a drag of the card instead.
     expect(el.getAttribute('draggable')).toBe('false');
+  });
+
+  it('names the repository beside the branch on a card with no issue, which a branch alone would not', () => {
+    const adHoc: LanedCard = {
+      key: 'session:github.com/ownerrez/ground-control#master',
+      issue: null,
+      issueNumber: null,
+      lane: 'build',
+      returned: false,
+      attention: null,
+      reason: 'Ad-hoc work with no issue.',
+      sessions: [{ ...session, ...checkout }],
+    };
+
+    send(message({ lanes: lanes({ build: [adHoc] }) }));
+
+    expect(changes()!.getAttribute('aria-label')).toBe(
+      'Open the commits and uncommitted changes of ground-control master',
+    );
   });
 
   it('names the card, never its directory', () => {

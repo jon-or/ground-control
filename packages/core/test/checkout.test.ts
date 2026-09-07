@@ -4,17 +4,22 @@ import type { HistoricalSession, Session } from '../src/types.js';
 
 /**
  * Whole, not cast: a partial literal would go on compiling the day `Session` grows a field, and the pick reads
- * three of its timestamps.
+ * three of its timestamps. A moved `cwd` moves the checkout with it unless a row says otherwise, which is the
+ * ordinary case — a session started below its checkout is the exception and names both.
  */
 function session(over: Partial<Session> = {}): Session {
+  const cwd = over.cwd ?? 'd:/work/repo.worktrees/18941-inbox-badge';
+
   return {
     agent: 'claude',
     sessionId: 'a1b2c3d4-0000-4000-8000-000000000000',
     pid: 4242,
     title: 'the session',
-    cwd: 'd:/work/repo.worktrees/18941-inbox-badge',
+    cwd,
+    checkoutRoot: cwd,
     startedAt: 1_788_000_000_000,
     branch: '18941-inbox-badge',
+    repository: 'github.com/org/repo',
     issueNumber: 18941,
     transcriptWrittenAt: null,
     activity: null,
@@ -83,6 +88,19 @@ describe('the checkout a card is working in', () => {
     const elsewhere = session({ sessionId: 'elsewhere', cwd: 'd:/work/repo' });
 
     expect(checkoutOf({ sessions: [session(), elsewhere] })?.only).toBe(false);
+  });
+
+  it('is the checkout, not the subdirectory a session was started in', () => {
+    const below = session({ sessionId: 'below', cwd: 'd:/work/repo/packages/core', checkoutRoot: 'd:/work/repo' });
+
+    expect(checkoutOf({ sessions: [below] })).toEqual({ cwd: 'd:/work/repo', only: true });
+  });
+
+  it('reads two sessions of one checkout as one, however far below it they were started', () => {
+    const root = session({ sessionId: 'root', cwd: 'd:/work/repo' });
+    const below = session({ sessionId: 'below', cwd: 'd:/work/repo/packages/core', checkoutRoot: 'd:/work/repo' });
+
+    expect(checkoutOf({ sessions: [root, below] })).toEqual({ cwd: 'd:/work/repo', only: true });
   });
 
   it('reads one directory two agents cased differently as one checkout', () => {

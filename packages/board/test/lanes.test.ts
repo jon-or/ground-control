@@ -8,12 +8,11 @@ import {
   boardStatuses,
   statusLanes,
 } from '../src/lanes.js';
-import { dirKey } from '@ground-control/core';
 import type { CardPullRequest } from '@ground-control/github';
 import type { ActivityPhase } from '@ground-control/core';
 import type { BoardRules, CardMemory, Lane, LaneId } from '../src/index.js';
 import type { IssueCard, Session } from '../src/types.js';
-import { issues, sessions } from './helpers.js';
+import { checkoutKeyOf, issues, sessions } from './helpers.js';
 
 /** The shipped rules. No login, so the recording's own pull requests are nobody's and a lane turns only on what a test derives. */
 const RULES: BoardRules = { boardStatuses: DEFAULT_BOARD_STATUSES, statusLanes: DEFAULT_STATUS_LANES, logins: [] };
@@ -222,19 +221,19 @@ describe('assignLanes', () => {
     expect(nextMemory(board, memory, true).placements).toEqual(memory.placements);
   });
 
-  it('gives ad-hoc work a card per directory rather than hiding it — R4', () => {
+  it('gives ad-hoc work a card per checkout rather than hiding it — R4', () => {
     const adHoc = sessions.filter((session) => session.issueNumber === null);
-    const directories = new Set(adHoc.map((session) => dirKey(session.cwd)));
+    const checkouts = new Set(adHoc.map(checkoutKeyOf));
     const only = lanes([], adHoc);
 
-    expect(adHoc.length).toBeGreaterThan(directories.size);
-    expect(lane(only, 'build').cards).toHaveLength(directories.size);
+    expect(adHoc.length).toBeGreaterThan(checkouts.size);
+    expect(lane(only, 'build').cards).toHaveLength(checkouts.size);
     expect(lane(only, 'build').cards.every((c) => c.reason === 'Ad-hoc work with no issue.')).toBe(true);
   });
 
   it('keeps a card with no issue where the developer dragged it, entry lane notwithstanding', () => {
     const adHoc = sessions.find((session) => session.issueNumber === null)!;
-    const key = `session:${dirKey(adHoc.cwd)}`;
+    const key = `session:${checkoutKeyOf(adHoc)}`;
     const moved = lanes([], [adHoc], remember({ [key]: 'unstarted' }));
 
     expect(lane(moved, 'unstarted').cards.map((c) => c.key)).toEqual([key]);
@@ -296,7 +295,7 @@ describe('the returned badge', () => {
 
   it('never marks a card with no issue — it was never on the board to leave it', () => {
     const adHoc = sessions.find((s) => s.issueNumber === null)!;
-    const key = `session:${dirKey(adHoc.cwd)}`;
+    const key = `session:${checkoutKeyOf(adHoc)}`;
     const marked = lanes([], [adHoc], remember({}, [key]));
 
     expect(marked.flatMap((l) => l.cards).find((c) => c.key === key)?.returned).toBe(false);
@@ -491,9 +490,9 @@ describe('nextMemory', () => {
     expect(nextMemory(lanes(issues, sessions, memory), memory, true).placements).toEqual({});
   });
 
-  it('keeps a placement for a directory that still has a session running', () => {
+  it('keeps a placement for a checkout that still has a session running', () => {
     const adHoc = sessions.find((s) => s.issueNumber === null)!;
-    const key = `session:${dirKey(adHoc.cwd)}`;
+    const key = `session:${checkoutKeyOf(adHoc)}`;
     const memory = remember({ [key]: 'build' });
 
     expect(nextMemory(lanes(issues, sessions, memory), memory, true).placements).toEqual({ [key]: 'build' });
@@ -728,10 +727,10 @@ describe('the attention on a card', () => {
     expect(marked).toEqual([
       ['issue:19072', 'your-turn'],
       ['issue:19357', 'your-turn'],
-      ['session:d:/checkouts/project-1', null],
-      ['session:d:/checkouts/project-2', 'your-turn'],
-      ['session:d:/checkouts/project-3', 'your-turn'],
-      ['session:d:/checkouts/project-4', null],
+      ['session:github.com/example-org/project-1#main', null],
+      ['session:github.com/example-org/project-2#main', 'your-turn'],
+      ['session:github.com/example-org/project-3#main', 'your-turn'],
+      ['session:github.com/example-org/project-4#main', null],
     ]);
   });
 

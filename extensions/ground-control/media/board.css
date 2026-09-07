@@ -599,6 +599,15 @@ button.session-label:focus-visible {
   color: var(--vscode-descriptionForeground);
 }
 
+/* A repository name, unlike an issue number, has no bound — left to push, it would carry the badges off the card. */
+.number.checkout {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* Kept optically flush with the card's left edge, since the link's own padding is what makes it a 24px target. */
 .number.link {
   padding-inline: 0.25rem;

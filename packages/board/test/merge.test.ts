@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mergeBoard } from '../src/index.js';
-import { dirKey } from '@ground-control/core';
 import type { Session } from '../src/types.js';
-import { issues, linkedOffBoard, linkedOnBoard, onBoard, sessions, unlinked, unlinkedCwds } from './helpers.js';
+import { checkoutKeyOf, issues, linkedOffBoard, linkedOnBoard, onBoard, sessions, unlinked, unlinkedCheckouts } from './helpers.js';
 
 const board = mergeBoard(issues, sessions);
 
@@ -13,9 +12,9 @@ describe('the recording these tests rest on', () => {
     expect(unlinked.length).toBeGreaterThan(0);
   });
 
-  it('covers two directories of issue-less work, one of them holding several sessions', () => {
-    expect(unlinkedCwds.size).toBeGreaterThan(1);
-    expect(unlinked.length).toBeGreaterThan(unlinkedCwds.size);
+  it('covers two checkouts of issue-less work, one of them holding several sessions', () => {
+    expect(unlinkedCheckouts.size).toBeGreaterThan(1);
+    expect(unlinked.length).toBeGreaterThan(unlinkedCheckouts.size);
   });
 
   it('covers an issue card holding more than one session', () => {
@@ -87,16 +86,17 @@ describe('mergeBoard', () => {
     expect(onBoard.has(off.issueNumber!)).toBe(false);
   });
 
-  it('gives each directory of issue-less work one card, holding every session running there', () => {
+  it('gives each checkout of issue-less work one card, holding every session running there', () => {
     const cards = board.filter((c) => c.issueNumber === null);
 
-    expect(cards).toHaveLength(unlinkedCwds.size);
+    expect(cards).toHaveLength(unlinkedCheckouts.size);
 
     for (const card of cards) {
-      const running = unlinked.filter((s) => dirKey(s.cwd) === dirKey(card.sessions[0]!.cwd));
+      const key = checkoutKeyOf(card.sessions[0]!);
+      const running = unlinked.filter((s) => checkoutKeyOf(s) === key);
 
       expect(card.issue).toBeNull();
-      expect(card.key).toBe(`session:${dirKey(card.sessions[0]!.cwd)}`);
+      expect(card.key).toBe(`session:${key}`);
       expect(card.sessions).toHaveLength(running.length);
       expect(card.sessions.map((s) => s.startedAt)).toEqual([...running.map((s) => s.startedAt)].sort((a, b) => b - a));
     }
@@ -105,7 +105,7 @@ describe('mergeBoard', () => {
   it('orders the board as issues, then issues the developer does not own, then sessions alone', () => {
     const offBoardNumbers = new Set(linkedOffBoard.map((s) => s.issueNumber));
 
-    expect(board).toHaveLength(issues.length + offBoardNumbers.size + unlinkedCwds.size);
+    expect(board).toHaveLength(issues.length + offBoardNumbers.size + unlinkedCheckouts.size);
     expect(board.slice(issues.length, issues.length + offBoardNumbers.size).every((c) => c.issueNumber !== null)).toBe(
       true,
     );
@@ -136,7 +136,7 @@ describe('mergeBoard', () => {
     expect(cards[0]?.sessions.map((s) => s.sessionId)).toEqual([twin.sessionId, off.sessionId]);
   });
 
-  it('puts two agents in one directory on one card — the directory is the work, not the CLI', () => {
+  it('puts two agents in one checkout on one card — the checkout is the work, not the CLI', () => {
     const mine = unlinked[0]!;
     const twin: Session = { ...mine, agent: 'other-cli', startedAt: mine.startedAt + 1000 };
     const cards = mergeBoard([], [mine, twin]);
@@ -145,26 +145,57 @@ describe('mergeBoard', () => {
     expect(cards[0]?.sessions.map((s) => s.agent)).toEqual(['other-cli', mine.agent]);
   });
 
-  it('groups a directory reported with a trailing separator, a backslash, or another case as one', () => {
+  it('puts a session started below the checkout on the card the checkout already has', () => {
     const mine = unlinked[0]!;
+    const below: Session = { ...mine, sessionId: 'below', cwd: `${mine.cwd}/packages/core` };
+    const cards = mergeBoard([], [mine, below]);
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.sessions).toHaveLength(2);
+  });
+
+  it('gives each branch of one repository a card of its own, so a worktree is never folded into the clone', () => {
+    const mine = unlinked[0]!;
+    const worktree: Session = {
+      ...mine,
+      sessionId: 'worktree',
+      cwd: `${mine.cwd}/.worktrees/spike`,
+      checkoutRoot: `${mine.cwd}/.worktrees/spike`,
+      branch: 'spike',
+    };
+
+    expect(mergeBoard([], [mine, worktree]).map((c) => c.key)).toEqual([
+      `session:${mine.repository}#${mine.branch}`,
+      `session:${mine.repository}#spike`,
+    ]);
+  });
+
+  it('falls back to the checkout directory where git names no repository, past separators and case', () => {
+    const below = `${unlinked[0]!.checkoutRoot}/packages/core`;
+    const mine: Session = { ...unlinked[0]!, repository: null, cwd: below };
     const variants: Session[] = [
       mine,
-      { ...mine, sessionId: 'trailing', cwd: `${mine.cwd}/` },
-      { ...mine, sessionId: 'backslash', cwd: mine.cwd.split('/').join('\\') },
-      { ...mine, sessionId: 'upper', cwd: mine.cwd.toUpperCase() },
+      { ...mine, sessionId: 'trailing', checkoutRoot: `${mine.checkoutRoot}/` },
+      { ...mine, sessionId: 'backslash', checkoutRoot: mine.checkoutRoot!.split('/').join('\\') },
+      { ...mine, sessionId: 'upper', checkoutRoot: mine.checkoutRoot!.toUpperCase() },
     ];
     const cards = mergeBoard([], variants);
 
     expect(cards).toHaveLength(1);
+    expect(cards[0]?.key).toBe(`session:${mine.checkoutRoot}`);
     expect(cards[0]?.sessions).toHaveLength(4);
   });
 
-  it('keeps two directories apart', () => {
-    const mine = unlinked[0]!;
-    const elsewhere: Session = { ...mine, sessionId: 'elsewhere', cwd: `${mine.cwd}-other` };
-    const cards = mergeBoard([], [mine, elsewhere]);
+  it('keeps two repository-less checkouts apart, and a session outside one on its own directory', () => {
+    const mine: Session = { ...unlinked[0]!, repository: null };
+    const elsewhere: Session = { ...mine, sessionId: 'elsewhere', checkoutRoot: `${mine.checkoutRoot}-other` };
+    const loose: Session = { ...mine, sessionId: 'loose', checkoutRoot: null, branch: null, cwd: 'd:/notes' };
 
-    expect(cards).toHaveLength(2);
+    expect(mergeBoard([], [mine, elsewhere, loose]).map((c) => c.key)).toEqual([
+      `session:${mine.checkoutRoot}`,
+      `session:${mine.checkoutRoot}-other`,
+      'session:d:/notes',
+    ]);
   });
 });
 

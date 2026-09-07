@@ -57,6 +57,11 @@ function detailsFor(details, replacement, sessionId) {
   return written;
 }
 
+/** A canonical remote identity in the shape `repositoryKey` produces, under the same synthetic owner as every issue URL. */
+function remote(name) {
+  return `github.com/${REPO.split('/')[0]}/${name}`.toLowerCase();
+}
+
 /**
  * Session ids, timings, links and reported activity are kept — they carry no names and the tests turn on them.
  * Everything that spells out real work is rebuilt: a branch, the checkout path it sits in, the display name derived
@@ -73,7 +78,9 @@ function anonymiseSessions(sessions) {
         ...session,
         title: session.title === null ? null : title(session.issueNumber),
         cwd: `${CHECKOUTS}/${name}`,
+        checkoutRoot: session.checkoutRoot === null ? null : `${CHECKOUTS}/${name}`,
         branch: session.branch === null ? null : name,
+        repository: session.repository === null ? null : `github.com/${REPO}`,
         details: detailsFor(session.details, name, session.sessionId),
       };
     }
@@ -86,7 +93,9 @@ function anonymiseSessions(sessions) {
       ...session,
       title: session.title === null ? null : title(index),
       cwd: root,
+      checkoutRoot: session.checkoutRoot === null ? null : root,
       branch: session.branch === null ? null : 'main',
+      repository: session.repository === null ? null : remote(root.split('/').pop()),
       details: detailsFor(session.details, root.split('/').pop(), session.sessionId),
     };
   });
@@ -141,7 +150,9 @@ function assertScrubbed(recorded, written) {
     // kept deliberately, so asserting it is gone would fail every recording.
     ...recorded.sessions.flatMap((s) => [
       s.cwd,
+      s.checkoutRoot,
       s.branch,
+      s.repository,
       s.title,
       ...Object.entries(s.details).flatMap(([key, value]) => (NEUTRAL_DETAIL_KEYS.has(key) ? [] : [value])),
     ]),

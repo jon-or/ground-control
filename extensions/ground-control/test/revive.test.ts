@@ -53,8 +53,10 @@ const CURRENT: Session = {
   pid: 4242,
   title: null,
   cwd: 'c:/work/18953-cache-remediation',
+  checkoutRoot: 'c:/work/18953-cache-remediation',
   startedAt: 1,
   branch: '18953-cache-remediation',
+  repository: 'github.com/example-org/example-repo',
   issueNumber: 18953,
   transcriptWrittenAt: null,
   activity: null,
@@ -62,9 +64,31 @@ const CURRENT: Session = {
   details: { kind: 'interactive', name: 'cache-remediation' },
 };
 
+/**
+ * The same board as one card with no issue, which is where a session's own fields are read to name the card — an
+ * issue card takes the issue's title and never touches them.
+ */
+function checkoutPayload(session: Session | Record<string, unknown>): Record<string, unknown> {
+  const current = payloadWith(CURRENT) as unknown as {
+    lanes: { cards: { key: string; issueNumber: number | null; sessions: unknown[] }[] }[];
+  };
+  const board = structuredClone(current);
+
+  board.lanes.flatMap((lane) => lane.cards).forEach((card) => {
+    card.key = 'session:c:/work/18953-cache-remediation';
+    card.issueNumber = null;
+    card.sessions = [session];
+  });
+
+  return board as unknown as Record<string, unknown>;
+}
+
 /** What a version before the neutral session stored: the agent's words at the top level, and no bag at all. */
 const { details, ...rest } = CURRENT;
 const LEGACY = { ...rest, kind: 'interactive', name: 'cache-remediation', state: 'editing tests', status: 'working' };
+
+/** What the version before this one stored: a whole session in every other respect, with no repository on it. */
+const { repository, ...NO_REPOSITORY } = CURRENT;
 
 async function revive(state: unknown): Promise<void> {
   vi.resetModules();
@@ -108,5 +132,19 @@ describe('reviving a stored board', () => {
     // would be left looking at until the first live message arrives.
     expect(document.querySelectorAll('.card')).toHaveLength(0);
     expect(document.getElementById('lanes')?.children).toHaveLength(0);
+  });
+
+  it('draws nothing from a board stored before a session carried the repository its card is named for', async () => {
+    await revive({ payload: checkoutPayload(NO_REPOSITORY), showArchived: false });
+
+    expect(document.querySelectorAll('.card')).toHaveLength(0);
+    expect(document.getElementById('lanes')?.children).toHaveLength(0);
+  });
+
+  it('draws a card with no issue once the stored session carries what names it', async () => {
+    await revive({ payload: checkoutPayload(CURRENT), showArchived: false });
+
+    expect(document.querySelectorAll('.card')).toHaveLength(1);
+    expect(document.querySelector('.title')?.textContent).toBe('18953-cache-remediation');
   });
 });

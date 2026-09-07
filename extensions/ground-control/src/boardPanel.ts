@@ -42,7 +42,7 @@ type Inbound =
 
 /**
  * What the editor tab is called, so two open at once are told apart: the issue where there is one, the checkout's
- * own directory where there is not. A card whose sessions are spread over more than one directory names the one
+ * own directory where there is not. A card whose sessions are spread over more than one checkout names the one
  * that was picked, because which of them the diff came from is otherwise invisible.
  */
 function cardLabel(card: { issueNumber: number | null; issue: { title: string } | null }, checkout: Checkout): string {
