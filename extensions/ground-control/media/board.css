@@ -4,7 +4,6 @@
   --gc-gutter: 1.25rem;
   /* 1.62:1 against a Dark Modern card and 1.42:1 in Light Modern, against GitHub's own 1.76 and 1.43. */
   --gc-edge: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
-  --gc-edge-hover: color-mix(in srgb, var(--vscode-foreground) 32%, transparent);
   /*
    * The lane is recessed. The page and the card are the same tone and never touch: the only surface either of them
    * meets is this one, which is what separates two surfaces the theme is free to paint identically. 1.07:1 against
@@ -316,8 +315,8 @@ main.dragging .lane-idle {
 }
 
 /*
- * `:hover` is matched too, and both rules are declared here rather than left to source order — the ring must not
- * disappear at the moment it is pointed at.
+ * `:hover` is matched too, and declared here rather than left to source order — the ring must not disappear at the
+ * moment it is pointed at. It is the same tint either way: what a card is asking for does not change under a pointer.
  */
 .card[data-attention='blocked'],
 .card[data-attention='blocked']:hover {
@@ -325,19 +324,11 @@ main.dragging .lane-idle {
   background: color-mix(in srgb, var(--vscode-charts-yellow) 7%, var(--vscode-editor-background));
 }
 
-.card[data-attention='blocked']:hover {
-  background: color-mix(in srgb, var(--vscode-charts-yellow) 14%, var(--vscode-editor-background));
-}
-
 /* A finished turn is the developer's move too, but it is not an agent stuck on them - so it is marked, and marked more quietly. */
 .card[data-attention='your-turn'],
 .card[data-attention='your-turn']:hover {
   border-color: var(--vscode-charts-blue);
   background: color-mix(in srgb, var(--vscode-charts-blue) 5%, var(--vscode-editor-background));
-}
-
-.card[data-attention='your-turn']:hover {
-  background: color-mix(in srgb, var(--vscode-charts-blue) 11%, var(--vscode-editor-background));
 }
 
 /* Number left, the avatar and the card's menu against the right edge - GitHub's own header, in that order. */
@@ -481,6 +472,15 @@ main.dragging .lane-idle {
   cursor: default;
 }
 
+/*
+ * The one thing on a card that opens the issue, and until now the only control on it with no affordance of its own.
+ * On the title rather than the button, which is the full width of the card and would rule the whitespace beside it.
+ */
+.card-open:hover:not(:disabled) .title {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .card-open:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 2px;
@@ -544,11 +544,15 @@ main.dragging .lane-idle {
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  /* The click target on an openable label is 24px, and the row owns that height so a plain label does not sit lower. */
+  /* The row is the 24px click target, and it owns the height so a row with nothing to click does not sit lower. */
   min-height: 1.5rem;
   min-width: 0;
+  /* Out to the sides and back in, so the surface a hover paints runs wider than the words without moving them. */
+  margin-inline: -0.35rem;
+  padding-inline: 0.35rem;
   color: var(--vscode-descriptionForeground);
   font-size: 0.78rem;
+  border-radius: 4px;
 }
 
 .agent {
@@ -559,8 +563,32 @@ main.dragging .lane-idle {
   text-transform: uppercase;
 }
 
-.session.historical { flex-wrap: wrap; }
-.session.historical .state { flex-basis: 100%; padding-inline-start: 1.15rem; }
+/*
+ * The session's state, at the head of the row: the phase in the colour, whether the agent still has the session open
+ * in the fill. Three colours, because the phase is the fact - the two of them that want the developer are said again
+ * by the row's own colour and weight, which is what keeps R6's channels unmistakable without one.
+ */
+.dot {
+  --gc-dot: var(--vscode-descriptionForeground);
+
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 1px solid var(--gc-dot);
+  border-radius: 50%;
+}
+
+.dot[data-live='true'] {
+  background: var(--gc-dot);
+}
+
+.dot[data-phase='running'] {
+  --gc-dot: var(--vscode-charts-green);
+}
+
+.dot[data-phase='waiting'] {
+  --gc-dot: var(--vscode-charts-yellow);
+}
 
 .agent-mark {
   width: 0.85rem;
@@ -568,45 +596,43 @@ main.dragging .lane-idle {
   fill: #d97757;
 }
 
+/*
+ * The name is the row's own subject and reads a step above the marks around it, which stay at the description
+ * colour. `--vscode-foreground` is the editor's own body text: muted against white without being the grey the
+ * duration beside it is. The browser overlay lands on the same tone out of Primer's pair (`mechanics.md` §38).
+ */
 .session-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--vscode-foreground);
 }
 
 /*
- * Reset here rather than reusing `.link`, whose flex line box would stop the name ellipsising. The line box and the
- * inline padding are the click target, and every session row pays the 24px height so a mixed card does not step.
+ * Reset for the row that is a control. Its own font size again after `font`, which would otherwise take the card's.
  */
-button.session-label {
-  padding: 0 0.25rem;
-  margin-inline-start: -0.25rem;
+button.session {
   font: inherit;
-  line-height: 1.5rem;
-  color: inherit;
+  font-size: 0.78rem;
   text-align: left;
   background: none;
   border: 0;
   cursor: pointer;
-  /*
-   * It has to be the underline: a phase colour already claims the text colour, and a running label is painted by a
-   * gradient clipped to its text — which is why the decoration colour is named rather than left as `currentColor`.
-   */
-  text-decoration: underline;
-  text-decoration-color: var(--vscode-descriptionForeground);
-  text-decoration-style: dotted;
-  text-underline-offset: 3px;
 }
 
-button.session-label:hover {
-  text-decoration: underline;
-  text-decoration-color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+/*
+ * A surface under the whole row rather than a decoration on its words, which is what the browser overlay paints on
+ * the same row. It is also the only treatment available here: the words are already spoken for — a phase colour
+ * claims their colour, and a running name is a gradient clipped to them — where a surface takes nothing from either.
+ */
+button.session:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
 }
 
-button.session-label:focus-visible {
+button.session:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 .state {
@@ -629,13 +655,33 @@ button.session-label:focus-visible {
   }
 }
 
+/*
+ * How far the pass of light travels from the name's own colour. It cannot be derived: the peak is the end of the
+ * range the theme runs to, and that is white in one and black in the other, so it is set off VS Code's own theme-kind
+ * body class (`mechanics.md` §36). Flat where no class was stamped, which is legible rather than invisible.
+ */
 .session[data-phase='running'] .session-label {
-  /* Monochrome: the session's own name, lit rather than recoloured. A chart colour would read as a category. */
+  --gc-peak: var(--vscode-foreground);
+}
+
+body.vscode-dark .session[data-phase='running'] .session-label,
+body.vscode-high-contrast .session[data-phase='running'] .session-label {
+  --gc-peak: #ffffff;
+}
+
+body.vscode-light .session[data-phase='running'] .session-label,
+body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
+  --gc-peak: #000000;
+}
+
+.session[data-phase='running'] .session-label {
+  /* Monochrome: the session's own name, lit rather than recoloured. A chart colour would read as a category. The
+     trough is the name's own colour, so a working session is that name with a light run over it, never a dimmed one. */
   background-image: linear-gradient(
     95deg,
-    color-mix(in srgb, var(--vscode-descriptionForeground) 60%, var(--vscode-editor-background)) 43%,
-    var(--vscode-foreground) 50%,
-    color-mix(in srgb, var(--vscode-descriptionForeground) 60%, var(--vscode-editor-background)) 57%
+    var(--vscode-foreground) 43%,
+    var(--gc-peak) 50%,
+    var(--vscode-foreground) 57%
   );
   background-size: 300% 100%;
   background-repeat: no-repeat;
@@ -650,10 +696,18 @@ button.session-label:focus-visible {
   animation-iteration-count: infinite;
 }
 
+/*
+ * One colour for the whole of a marked row: the card's edge, the words, and the mark at the head of them. A mark
+ * left on its phase colour beside words the card had already recoloured read as two claims about one session.
+ */
 .card[data-attention='blocked'] .session[data-phase='waiting'] .session-label,
 .card[data-attention='blocked'] .session[data-phase='waiting'] .state {
   color: var(--vscode-charts-yellow);
   font-weight: 600;
+}
+
+.card[data-attention='blocked'] .session[data-phase='waiting'] .dot {
+  --gc-dot: var(--vscode-charts-yellow);
 }
 
 /* Scoped to the marked card: an idle row on a card asking nothing - one parked in Done - must not be painted as if it were. */
@@ -661,6 +715,10 @@ button.session-label:focus-visible {
 .card[data-attention='your-turn'] .session[data-phase='idle'] .state {
   color: var(--vscode-charts-blue);
   font-weight: 600;
+}
+
+.card[data-attention='your-turn'] .session[data-phase='idle'] .dot {
+  --gc-dot: var(--vscode-charts-blue);
 }
 
 /* Reduced motion must not mean less information: the running session stays marked, it just stops moving. */
@@ -683,15 +741,25 @@ button.session-label:focus-visible {
     animation-name: none;
   }
 
-  /* An openable label is a button, and a forced button surface pairs with ButtonText, not the card's CanvasText. */
-  .session[data-phase='running'] button.session-label,
-  button.session-label {
+  /* An openable row is a button, and a forced button surface pairs with ButtonText, not the card's CanvasText. */
+  button.session[data-phase='running'] .session-label,
+  button.session {
     color: ButtonText;
   }
 
   .card-menu,
-  #board-menu {
+  #board-menu,
+  .triage-again {
     color: ButtonText;
+  }
+
+  /* The hue is the one thing forced colours drop, so the fill is what is left to tell an open session from an ended one. */
+  .dot {
+    border-color: CanvasText;
+  }
+
+  .dot[data-live='true'] {
+    background: CanvasText;
   }
 
   /* The one sign that the hub log is being read, so it takes a forced colour rather than being dropped with the theme's. */
@@ -719,11 +787,6 @@ button.session-label:focus-visible {
   .card[data-attention]:hover {
     border-color: Highlight;
   }
-}
-
-.card:hover {
-  background: var(--vscode-list-hoverBackground, var(--vscode-editor-background));
-  border-color: var(--gc-edge-hover);
 }
 
 /*
@@ -855,10 +918,12 @@ button.session-label:focus-visible {
   fill: var(--gc-badge, currentColor);
 }
 
-/* A title wraps rather than truncating: a card is read once and its whole subject has to be on it. */
+/*
+ * A title wraps rather than truncating: a card is read once and its whole subject has to be on it. Inline, because
+ * the button around it is the width of the card and a block title would carry its underline across the empty half
+ * of the last line. The button remains the target; what the underline marks is the words.
+ */
 .title {
-  display: block;
-  min-width: 0;
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.35;
@@ -894,22 +959,95 @@ button.session-label:focus-visible {
   }
 }
 
+/* How long the card has held its status. The label's own colour and weight: it is a part of the label, not an aside. */
+.triage-age {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The chip holds its own control, so the words are a label again rather than a button: reading a card costs the
+ * developer's usage, and that is not what should happen to anyone who clicked the chip to see the sentence behind it.
+ * The control and the age stand in one another's place, stacked in one cell so the chip is the width it was either
+ * way. A lane is a list to read, not a row of buttons, so the age is what a card at rest carries.
+ */
+.badge.triage {
+  padding-inline-end: 0.25rem;
+}
+
+.triage-end {
+  display: grid;
+  place-items: center;
+}
+
+.triage-end > * {
+  grid-area: 1 / 1;
+}
+
+.triage-again {
+  display: grid;
+  place-items: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  /* Not opacity: the two share a cell, and a control nobody can see must not be one the pointer can still press. */
+  visibility: hidden;
+}
+
+/*
+ * `:focus-within` as well as hover, and the card is itself focusable — so a keyboard reaches the card, the control
+ * becomes visible, and the next tab lands on it. Hidden means out of the tab order until then, which is the point.
+ */
+.card:hover .triage-again,
+.card:focus-within .triage-again {
+  visibility: visible;
+}
+
+.card:hover .triage-age,
+.card:focus-within .triage-age {
+  visibility: hidden;
+}
+
+/* Nothing hovers on a touch screen, so the two sit side by side there rather than one of them never appearing. */
+@media (hover: none), (pointer: coarse) {
+  .triage-end {
+    display: inline-flex;
+    gap: 0.25rem;
+  }
+
+  .triage-end > * {
+    grid-area: auto;
+  }
+
+  .triage-again {
+    visibility: visible;
+  }
+}
+
+.triage-again:hover {
+  color: var(--vscode-foreground);
+  background: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
+}
+
+.triage-again:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.sync-mark {
+  width: 0.7rem;
+  height: 0.7rem;
+  fill: currentColor;
+}
+
 /* A reading is only as good as the card it was made against, so one the card has moved under says so by fading. */
 .badge.triage[data-stale='true'] {
   opacity: 0.6;
   border-style: dashed;
-}
-
-.triage-detail {
-  margin: 0.15rem 0 0;
-  font-size: 0.78rem;
-  line-height: 1.35;
-  color: var(--vscode-descriptionForeground);
-}
-
-.triage-detail[data-stale='true'] {
-  /* Gentle, because this text is already the card's quietest and has to stay legible against the theme. */
-  opacity: 0.8;
 }
 
 @media (prefers-reduced-motion: reduce) {

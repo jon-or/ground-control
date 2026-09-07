@@ -449,7 +449,13 @@ describe('the tooltip', () => {
   it('describes what it names before anything is hovered at all', () => {
     const row = document.querySelector('.gc-session')!;
 
-    expect(row.getAttribute('aria-description')).toContain('go to this session in VS Code');
+    // The row is named rather than described: its words are on it, so a tooltip repeating them says it twice. What
+    // it does not say — what the board saw — is the description, and it hangs from the state at the end of the row.
+    expect(row.getAttribute('aria-label')).toContain('go to this session in VS Code');
+    expect(row.hasAttribute('aria-description')).toBe(false);
+    // The mark is named rather than described, so the described half of the row is the duration beside it.
+    expect(row.querySelector('.gc-state')!.getAttribute('aria-description')).toContain('Counts from the event');
+    expect(row.querySelector('.gc-dot')!.hasAttribute('aria-description')).toBe(false);
     // And nothing is wired up as the tooltip opens: GitHub's own cards carry `aria-describedby`, the overlay's do not.
     expect(document.querySelector(`[data-gc-tip][aria-describedby]`)).toBeNull();
   });
@@ -465,11 +471,11 @@ describe('the tooltip', () => {
   });
 
   it('opens on focus, for a developer who never touches the pointer', () => {
-    document.querySelector('.gc-session')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    document.querySelector('.gc-actor')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     vi.advanceTimersByTime(120);
 
     expect(open()).toBe('true');
-    expect(tip()?.textContent).toContain('go to this session in VS Code');
+    expect(tip()?.textContent).toContain('pull request author');
   });
 
   /**
@@ -477,13 +483,28 @@ describe('the tooltip', () => {
    * tooltip and reopens it as the pointer travels the width of what it is describing.
    */
   it('stays open as the pointer crosses its anchor own children', () => {
-    const row = document.querySelector('.gc-session')!;
-    const name = row.querySelector('.gc-name')!;
+    // The reading is the mark that carries a tooltip and holds children of its own: an age, and the words before it.
+    paint(
+      document,
+      state({
+        snapshot: laneOf({
+          ...actorCard(4501, AUTHOR),
+          issue: { ...actorCard(4501, AUTHOR).issue!, statusChangedAt: new Date(NOW - 86_400_000).toISOString() },
+          triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW, stale: false },
+        }),
+      }),
+      NOW,
+      actions,
+    );
 
-    hover(row);
+    const mark = document.querySelector('.gc-mark[data-mark="triage"]')!;
+
+    hover(mark);
     vi.advanceTimersByTime(120);
 
-    name.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: row.querySelector('.gc-state') }));
+    mark
+      .querySelector('.gc-triage-age')!
+      .dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: mark.firstChild }));
 
     expect(open()).toBe('true');
   });
@@ -522,7 +543,7 @@ describe('the tooltip', () => {
     observer.observe(document.documentElement, { childList: true, subtree: true });
     hover(document.querySelector('.gc-actor')!);
     vi.advanceTimersByTime(120);
-    hover(document.querySelector('.gc-session')!);
+    hover(document.querySelector('.gc-state')!);
     vi.advanceTimersByTime(120);
 
     const records = observer.takeRecords();
@@ -796,18 +817,100 @@ describe('the footer on a card', () => {
     expect(getComputedStyle(badge.querySelector<HTMLElement>('.gc-session')!).width).toBe('100%');
   });
 
-  it('marks a Claude session with Claude’s own mark, names it, and says the phase beside it', () => {
+  it('marks a Claude session with Claude’s own mark, names it, and marks the phase ahead of it', () => {
     paint(document, state(), NOW, actions);
 
     const chip = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
 
     expect(chip.querySelector('svg.gc-agent-icon')).not.toBeNull();
     expect(chip.querySelector('.gc-name')!.textContent).toBe('Working on it');
-    expect(chip.querySelector('.gc-state')!.textContent).toBe('needs you 2m');
-    // The whole name because the label ellipsises, and what the board saw because the duration does not say it.
-    expect(tipOf(chip)).toBe(
-      'Working on it — go to this session in VS Code. This session is waiting on you. Last seen at the PermissionRequest hook.',
+    // The phase is the mark at the head of the row, so the words beside the name are the duration and nothing else.
+    expect(chip.querySelector('.gc-state')!.textContent).toBe('2m');
+    expect(chip.firstElementChild!.className).toBe('gc-dot');
+    // Nothing on the row: its words are on it. What the board saw is on the state, which is the part that is not.
+    expect(tipOf(chip)).toBe('');
+    expect(chip.getAttribute('aria-label')).toBe('Working on it — go to this session in VS Code.');
+    // The phase is the mark's; the duration says only what it counts, or the row would say the same thing twice.
+    expect(tipOf(chip.querySelector('.gc-dot'))).toBe('This session is waiting on you.');
+    expect(tipOf(chip.querySelector('.gc-state'))).toBe(
+      'Counts from the event that reported the phase. Last seen at the PermissionRequest hook.',
     );
+    // 13, matching the mark the editor board draws at 13.6px - the two boards are read side by side.
+    expect(chip.querySelector('svg.gc-agent-icon')!.getAttribute('width')).toBe('13');
+  });
+
+  /**
+   * The phase in the colour and whether the session is still open in the fill — the two facts the row used to spend
+   * a word on. The word is not lost: it is the mark's own accessible name, because a hue reaches only some readers.
+   */
+  it.each([
+    ['running', false, 'var(--fgColor-success, #1a7f37)', 'running, open'],
+    ['waiting', false, 'var(--fgColor-attention, #9a6700)', 'needs you, open'],
+    ['idle', false, '', 'idle, open'],
+    ['idle', true, '', 'idle, ended'],
+  ] as const)('marks a %s session, finished %s, in its own colour and fill', (phase, finished, colour, named) => {
+    paint(
+      document,
+      state({
+        snapshot: snapshot({
+          lanes: [
+            {
+              id: 'build',
+              title: 'Build',
+              cards: [
+                card(4501, {
+                  sessions: [
+                    session({ activity: { phase, since: NOW - 120_000, event: 'Stop' }, finished }),
+                  ],
+                }),
+              ],
+            },
+          ],
+        }),
+      }),
+      NOW,
+      actions,
+    );
+
+    const dot = document.querySelector<HTMLElement>('.gc-dot')!;
+
+    expect(dot.dataset.phase).toBe(phase);
+    expect(dot.dataset.live).toBe(String(!finished));
+    expect(getComputedStyle(dot).getPropertyValue('--gc-dot')).toBe(colour);
+    expect(dot.getAttribute('aria-label')).toBe(named);
+    expect(dot.getAttribute('role')).toBe('img');
+  });
+
+  /**
+   * A colour is the one thing on a row that cannot be read, so the mark is the one thing on it that earns a hover.
+   * The fill is the second half of what it means. The same table the editor board's suite asserts, row for row:
+   * neither client can import `core`, so a copy that drifts explains a mark one way on one board and another on the
+   * other (`docs/testing.md`).
+   */
+  it.each([
+    ['running', false, 'This session is working.'],
+    ['waiting', false, 'This session is waiting on you.'],
+    ['idle', false, 'The board last saw this session finish.'],
+    ['idle', true, 'The board last saw this session finish. The agent has since ended it.'],
+  ] as const)('says what the mark means for a %s session, finished %s', (phase, finished, said) => {
+    paint(
+      document,
+      state({
+        snapshot: laneOf(
+          card(4501, { sessions: [session({ activity: { phase, since: NOW - 120_000, event: 'Stop' }, finished })] }),
+        ),
+      }),
+      NOW,
+      actions,
+    );
+
+    expect(tipOf(document.querySelector('.gc-dot'))).toBe(said);
+  });
+
+  it('says the mark means nothing has reported, where nothing has', () => {
+    paint(document, state({ snapshot: laneOf(card(4501, { sessions: [session({ activity: null })] })) }), NOW, actions);
+
+    expect(tipOf(document.querySelector('.gc-dot'))).toBe('No hook has reported on this session.');
   });
 
   /** One mark, drawn for one agent. A second agent showing Claude's would be worse than showing none. */
@@ -1398,10 +1501,39 @@ describe('the card that wants something from you', () => {
     const row = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
 
     expect(row.dataset.phase).toBe('waiting');
-    expect(row.querySelector('.gc-state')!.textContent).toBe('needs you 2m');
+    expect(row.querySelector('.gc-state')!.textContent).toBe('2m');
     expect(getComputedStyle(row).boxShadow).toContain('inset 3px 0 0');
     expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-name')!).fontWeight).toBe('600');
     expect(badges()[0]!.querySelector('.gc-mark')).toBeNull();
+  });
+
+  /**
+   * One colour for the whole channel — the ring GitHub's card wears, the rule down the row, its words, and the mark
+   * ahead of them. Primer's foreground pair, not its emphasis pair: the latter is a surface colour, so the ring came
+   * out a shade off the words it was ringing, and further from the chart colours the editor board takes.
+   */
+  it.each([
+    ['blocked', 'waiting', 'var(--fgColor-attention, #9a6700)'],
+    ['your-turn', 'idle', 'var(--fgColor-accent, #0969da)'],
+  ] as const)('paints a %s card its ring, its rule, its words and its mark in one colour', (attention, phase, colour) => {
+    paint(
+      document,
+      state({ snapshot: marked(attention, { sessions: [session({ activity: { phase, since: NOW - 120_000, event: 'Stop' } })] }) }),
+      NOW,
+      actions,
+    );
+
+    const row = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
+    const card = document.querySelector<HTMLElement>('[data-gc-attention]')!;
+
+    // The ring is read off the sheet for `blocked`: it is written as the `outline` shorthand, which jsdom will not
+    // expand while it holds a `var()`. `your-turn` overrides the longhand, which it does compute.
+    const sheet = document.getElementById('gc-style')!.textContent!;
+
+    expect(sheet.includes(`outline: 2px solid ${colour}`) || getComputedStyle(card).outlineColor === colour).toBe(true);
+    expect(getComputedStyle(row).boxShadow).toContain(colour);
+    expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-name')!).color).toBe(colour);
+    expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-dot')!).getPropertyValue('--gc-dot')).toBe(colour);
   });
 
   it('paints only the row a your-turn card is about, and leaves the working one lit instead', () => {
@@ -1466,9 +1598,9 @@ describe('durations that advance on their own', () => {
     const chip = badges()[0]!.querySelector('.gc-session')!;
     const said = chip.querySelector('.gc-state')!;
 
-    expect(said.textContent).toBe('needs you 2m');
+    expect(said.textContent).toBe('2m');
     expect(tickDurations(document, NOW + 60_000)).toBe(1);
-    expect(said.textContent).toBe('needs you 3m');
+    expect(said.textContent).toBe('3m');
     // The same nodes: a rebuild would cost the keyboard focus and any menu open over the card.
     expect(badges()[0]!.querySelector('.gc-session')).toBe(chip);
     expect(chip.querySelector('.gc-state')).toBe(said);
@@ -1535,7 +1667,7 @@ describe('going to a session from the browser', () => {
 
     expect(chip.tagName).toBe('SPAN');
     expect(chip.getAttribute('href')).toBeNull();
-    expect(tipOf(chip)).toContain('no editor of yours can open this one');
+    expect(chip.getAttribute('aria-label')).toContain('no editor of yours can open this one');
   });
 
   it('offers a link only for the sessions the hub named', () => {
@@ -1585,10 +1717,15 @@ describe('historical session rows', () => {
     const row = document.querySelector<HTMLElement>('.gc-historical')!;
     expect(row.tagName).toBe('SPAN'); expect(row.hasAttribute('href')).toBe(false);
     expect(row.querySelector('a, button, [data-activity-since]')).toBeNull();
-    expect(row.dataset.phase).toBeUndefined(); expect(row.textContent).toContain('Last session · updated 1m ago');
+    // One line: the value alone floats to the right, and what it is a value of is said by the hollow mark.
+    expect(row.dataset.phase).toBeUndefined();
+    expect(row.querySelector('.gc-dot')?.getAttribute('data-phase')).toBe('none');
+    expect(row.querySelector('.gc-dot')?.getAttribute('data-live')).toBe('false');
+    expect(row.querySelector('.gc-state')!.textContent).toBe('1m');
+    expect(row.textContent).not.toContain('Last session');
     row.click(); expect(actions.move).not.toHaveBeenCalled(); expect(actions.repaint).not.toHaveBeenCalled();
     tickDurations(document, NOW + 60000);
-    expect(row.textContent).toContain('updated 2m ago');
+    expect(row.querySelector('.gc-state')!.textContent).toBe('2m');
     show(card(4501, { lastSession })); expect(document.querySelector('.gc-historical')).toBeNull();
     show(card(4501, { sessions: [], lastSession: { ...lastSession, title: 'Renamed' } }));
     expect(document.querySelector('.gc-historical')?.textContent).toContain('Renamed');
@@ -1608,7 +1745,9 @@ it('links historical rows through the same VS Code handler without opening the G
   paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [SESSION_ID] }) }), NOW, actions);
   const link = document.querySelector<HTMLAnchorElement>('a.gc-historical')!;
   expect(link.href).toBe(`vscode://ownerrez.ground-control/open?session=${SESSION_ID}`);
-  expect(link.draggable).toBe(false); expect(tipOf(link)).toContain('Resume this session');
+  expect(link.draggable).toBe(false);
+  expect(link.getAttribute('aria-label')).toContain('resume this session in VS Code');
+  expect(tipOf(link.querySelector('.gc-state'))).toContain('Resume this session');
   const parentClick = vi.fn(); link.parentElement!.addEventListener('click', parentClick);
   link.addEventListener('click', (event) => event.preventDefault()); link.click();
   expect(parentClick).not.toHaveBeenCalled();
@@ -1618,6 +1757,8 @@ describe('what a card was read to be waiting on (R38)', () => {
   const show = (entry: LanedCard) =>
     paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
   const mark = () => document.querySelector<HTMLElement>('.gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"]');
+  /** The status moved at `at`, which is a different time from the reading's — a test must not pass on the wrong one. */
+  const moved = (entry: LanedCard, at: string): LanedCard => ({ ...entry, issue: { ...entry.issue!, statusChangedAt: at } });
 
   it('says a card is being read, and rings nothing while it does', () => {
     show(card(4501, { sessions: [], triage: { state: 'running' } }));
@@ -1628,17 +1769,48 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(document.querySelector('.gc-triage-detail')).toBeNull();
   });
 
-  it('names the action on the head line and writes the sentence under it', () => {
+  it('names the action, ages the status beside it, and holds the sentence and the reading age on hover', () => {
+    show(
+      moved(card(4501, {
+        sessions: [],
+        triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'Safari still shows an empty second page.', at: NOW - 3_600_000, stale: false },
+      }), new Date(NOW - 2 * 86_400_000).toISOString()),
+    );
+
+    // The action, then how long the card has held its status — the reading was an hour ago, which is not this
+    // number. The sentence it produced, and when it was read, are on hover rather than on the card.
+    expect(mark()?.textContent).toBe('QA failure · 2d');
+    expect(mark()?.querySelector('.gc-triage-age')?.textContent).toBe('2d');
+    expect(tipOf(mark())).toBe('Safari still shows an empty second page. Read 1h ago.');
+    expect(document.querySelector('.gc-triage-detail')).toBeNull();
+  });
+
+  // A card the project board records no move for — one off the board — carries the action and nothing after it.
+  it('writes no age where GitHub records no status move', () => {
     show(
       card(4501, {
         sessions: [],
-        triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'Safari still shows an empty second page.', at: NOW - 3_600_000, stale: false },
+        triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'Still empty.', at: NOW - 3_600_000, stale: false },
       }),
     );
 
     expect(mark()?.textContent).toBe('QA failure');
-    expect(tipOf(mark())).toBe('Read 1h ago.');
-    expect(document.querySelector('.gc-triage-detail')?.textContent).toBe('Safari still shows an empty second page.');
+    expect(mark()?.querySelector('.gc-triage-age')).toBeNull();
+  });
+
+  it('advances the status age where it stands, on the same clock as a session duration', () => {
+    show(
+      moved(card(4501, {
+        sessions: [],
+        triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'Still empty.', at: NOW, stale: false },
+      }), new Date(NOW - 3_600_000).toISOString()),
+    );
+
+    const age = document.querySelector<HTMLElement>('.gc-triage-age')!;
+
+    tickDurations(document, NOW + 3_600_000);
+
+    expect(age.textContent).toBe('2h');
   });
 
   it('marks a reading the card has moved under', () => {
@@ -1650,8 +1822,8 @@ describe('what a card was read to be waiting on (R38)', () => {
     );
 
     expect(mark()?.dataset.stale).toBe('true');
-    expect(tipOf(mark())).toContain('has moved since');
-    expect(document.querySelector<HTMLElement>('.gc-triage-detail')?.dataset.stale).toBe('true');
+    // The sentence, when it was read, and the caveat — the caveat is about the sentence, so they read together.
+    expect(tipOf(mark())).toBe('Pick it up. Read 1m ago; the card has moved since.');
   });
 
   it('says a card could not be read, and offers no control — reading again is the editor own', () => {

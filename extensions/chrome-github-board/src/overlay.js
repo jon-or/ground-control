@@ -96,11 +96,36 @@ export function triageText(triage) {
 }
 
 /** @type {Record<string, string>} */
+/** @type {Record<string, string>} */
 const PHASE_TITLES = {
-  running: 'This session is working. The duration counts the turn it is in, from the prompt that began it where the board saw one.',
+  running: 'This session is working.',
   waiting: 'This session is waiting on you.',
   idle: 'The board last saw this session finish.',
 };
+
+/**
+ * What the mark means, since a colour is the one thing on a row that cannot be read. Its fill is the second half.
+ *
+ * @param {string | undefined} phase
+ * @param {boolean} live
+ * @returns {string}
+ */
+function dotTitle(phase, live) {
+  const what = PHASE_TITLES[phase ?? ''] ?? 'No hook has reported on this session.';
+
+  return live ? what : `${what} The agent has since ended it.`;
+}
+
+/**
+ * What the duration counts, and what the board last saw. Not the phase, which is the mark's at the other end of the
+ * row: a hover on one repeating the other is two tooltips to learn to ignore.
+ */
+/** @type {Record<string, string>} */
+const DURATION_TITLES = {
+  running: 'Counts the turn it is in, from the prompt that began it where the board saw one.',
+};
+
+const DURATION_TITLE = 'Counts from the event that reported the phase.';
 
 /**
  * Where a card's attention is written, so a scan that no longer finds one can take it off again. It is the card's
@@ -140,16 +165,25 @@ ${COLUMN} { margin-right: -1px !important;
 /* No box of its own: a row is a line of the card, and a border around each one turned the footer into a stack of chips. */
 .${BADGE_CLASS} .gc-session {
   display: flex; box-sizing: border-box; width: 100%; align-items: center; gap: 5px;
-  font: inherit; font-size: 11px; line-height: 20px; padding: 0 6px 0 8px; border: 0; border-radius: 0;
+  font: inherit; font-size: 11px; line-height: 20px; padding: 0 6px 0 8px; border: 0; border-radius: 6px;
   background: none; color: var(--fgColor-default, #1f2328); cursor: pointer; }
 .${BADGE_CLASS} a.gc-session { text-decoration: none; }
 .${BADGE_CLASS} a.gc-session:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
 .${BADGE_CLASS} span.gc-session { cursor: default; }
-.${BADGE_CLASS} .gc-historical { flex-wrap: wrap; }
-.${BADGE_CLASS} .gc-historical .gc-state { flex-basis: 100%; padding-inline-start: 1.15rem; }
+/* The session's state at the head of the row: the phase in the colour, and whether the agent still has it open in
+   the fill. The two phases that want the developer are said again by the row's colour and weight, so R6's channels
+   do not rest on a hue that a 5mm circle is the only carrier of. */
+.gc-dot { flex: none; box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%;
+  border: 1px solid var(--gc-dot, var(--fgColor-muted, #59636e)); }
+.gc-dot[data-live="true"] { background: var(--gc-dot, var(--fgColor-muted, #59636e)); }
+.gc-dot[data-phase="running"] { --gc-dot: var(--fgColor-success, #1a7f37); }
+.gc-dot[data-phase="waiting"] { --gc-dot: var(--fgColor-attention, #9a6700); }
 .${BADGE_CLASS} svg { flex: none; }
 .gc-agent { flex: none; }
-.gc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A step above the marks around it and a step below Primer's own body text: 55% of the pair lands on the tone the
+   editor board takes from --vscode-foreground, so one session row reads the same on either board (mechanics.md §38). */
+.gc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: color-mix(in srgb, var(--fgColor-default, #1f2328) 55%, var(--fgColor-muted, #59636e)); }
 .gc-state { flex: none; white-space: nowrap; }
 .gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
 .gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
@@ -160,15 +194,18 @@ ${COLUMN} { margin-right: -1px !important;
   background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 600; }
 .gc-mark[data-mark="triaging"] { animation: gc-triage-pulse 1.8s ease-in-out infinite; }
 .gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
-.gc-triage-detail { font-size: 11px; line-height: 15px; padding: 2px 0 0; color: var(--fgColor-muted, #59636e); }
-.gc-triage-detail[data-stale="true"] { opacity: 0.8; }
+/* How long the card has held its status. The label's own colour and weight: part of the label, not an aside. */
+.gc-triage-age { font-variant-numeric: tabular-nums; }
 @keyframes gc-triage-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
 }
-${CARD}[${ATTENTION_ATTR}] { outline: 2px solid var(--bgColor-attention-emphasis, #bf8700); outline-offset: -1px;
+/* One colour per channel, and the same one the row beneath it takes: Primer's foreground pair rather than its
+   emphasis pair, which is a surface colour and read a shade off the words it was ringing. It is also what puts the
+   ring within a few percent of the chart colours the editor board takes for the same two states (mechanics.md §38). */
+${CARD}[${ATTENTION_ATTR}] { outline: 2px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
   border-radius: 6px; }
-${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--bgColor-accent-emphasis, #0969da); }
+${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--fgColor-accent, #0969da); }
 
 /*
  * One highlight, one pass, left to right, over the session's own name rather than its row: a working session is lit,
@@ -176,9 +213,23 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--bgColor-accent-emp
  * times the name and never repeats, so the band leads in from off the left and leaves with nothing behind it.
  */
 @keyframes gc-shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+/* How far the pass of light travels from the name's own colour. It cannot be derived: the peak is the end of the
+   range the theme runs to, which is white in one and black in the other. GitHub says which on the document element —
+   an explicit choice as dark or light, and auto deferring to the operating system (mechanics.md §38). */
+.gc-session[data-phase="running"] .gc-name { --gc-peak: var(--fgColor-default, #1f2328); }
+[data-color-mode="dark"] .gc-session[data-phase="running"] .gc-name { --gc-peak: #ffffff; }
+[data-color-mode="light"] .gc-session[data-phase="running"] .gc-name { --gc-peak: #000000; }
+@media (prefers-color-scheme: dark) {
+  [data-color-mode="auto"] .gc-session[data-phase="running"] .gc-name { --gc-peak: #ffffff; }
+}
+@media (prefers-color-scheme: light) {
+  [data-color-mode="auto"] .gc-session[data-phase="running"] .gc-name { --gc-peak: #000000; }
+}
 .gc-session[data-phase="running"] .gc-name {
-  background-image: linear-gradient(95deg, var(--fgColor-muted, #59636e) 43%,
-    var(--fgColor-default, #1f2328) 50%, var(--fgColor-muted, #59636e) 57%);
+  background-image: linear-gradient(95deg,
+    color-mix(in srgb, var(--fgColor-default, #1f2328) 55%, var(--fgColor-muted, #59636e)) 43%,
+    var(--gc-peak) 50%,
+    color-mix(in srgb, var(--fgColor-default, #1f2328) 55%, var(--fgColor-muted, #59636e)) 57%);
   background-size: 300% 100%; background-repeat: no-repeat;
   background-clip: text; -webkit-background-clip: text; color: transparent; font-weight: 600;
   animation-name: gc-shimmer; animation-duration: 1.8s; animation-timing-function: linear;
@@ -191,15 +242,21 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--bgColor-accent-emp
  * these read as a stack of boxes rather than lines of the card.
  */
 ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] {
-  box-shadow: inset 3px 0 0 var(--bgColor-attention-emphasis, #bf8700); }
+  box-shadow: inset 3px 0 0 var(--fgColor-attention, #9a6700); }
 ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-name,
 ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-state {
   color: var(--fgColor-attention, #9a6700); font-weight: 600; }
+/* One colour for the whole of a marked row: the card's ring, the rule down its edge, the words, and the mark ahead
+   of them. A mark left on its phase colour beside recoloured words read as two claims about one session. */
+${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-dot {
+  --gc-dot: var(--fgColor-attention, #9a6700); }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] {
-  box-shadow: inset 3px 0 0 var(--bgColor-accent-emphasis, #0969da); }
+  box-shadow: inset 3px 0 0 var(--fgColor-accent, #0969da); }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-name,
 ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-state {
   color: var(--fgColor-accent, #0969da); font-weight: 600; }
+${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
+  --gc-dot: var(--fgColor-accent, #0969da); }
 
 /* Reduced motion must not mean less information: the running session stays marked, it just stops moving. */
 @media (prefers-reduced-motion: reduce) {
@@ -212,6 +269,9 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-state 
   .gc-session[data-phase="running"] .gc-name {
     background-image: none; color: CanvasText; animation-name: none; }
   ${CARD}[${ATTENTION_ATTR}] { outline-color: Highlight; }
+  /* The hue is what forced colours drop, so the fill is all that is left to tell an open session from an ended one. */
+  .gc-dot { border-color: CanvasText; }
+  .gc-dot[data-live="true"] { background: CanvasText; }
 }
 .${POPOVER_CLASS} { position: fixed; z-index: 100; min-width: 200px; max-width: 320px; padding: 4px 0;
   font-size: 12px; color: var(--fgColor-default, #1f2328);
@@ -410,16 +470,28 @@ export function sessionLabel(session) {
 }
 
 /**
- * The phase and how long it has held (R5). Read from the element rather than the session so the tick below can
- * rewrite it without a snapshot.
+ * The session's own state, at the head of its row: the phase in the colour, and whether the agent still has the
+ * session open in whether the ring is filled. The word is the mark's accessible name, because a colour is not a
+ * fact that reaches everyone who reads this board.
  *
- * @param {string} phase
- * @param {number} since
- * @param {number} now
- * @returns {string}
+ * @param {Document} doc
+ * @param {string | undefined} phase
+ * @param {boolean} live
+ * @param {string} [title]
+ * @returns {HTMLElement}
  */
-function phaseText(phase, since, now) {
-  return `${PHASE_WORDS[phase] ?? phase} ${ago(now - since)}`;
+function sessionDot(doc, phase, live, title = dotTitle(phase, live)) {
+  const el = doc.createElement('span');
+
+  el.className = 'gc-dot';
+  el.dataset.phase = phase ?? 'none';
+  el.dataset.live = String(live);
+  el.setAttribute('role', 'img');
+  // Named for a reader and described for a pointer: the colour is the one thing on the row that cannot be read.
+  el.setAttribute('aria-label', `${PHASE_WORDS[phase ?? ''] ?? 'no state reported'}, ${live ? 'open' : 'ended'}`);
+  tip(el, title);
+
+  return el;
 }
 
 /**
@@ -432,16 +504,19 @@ function phaseText(phase, since, now) {
  * @returns {number} how many durations were advanced, which is what a test has to go on
  */
 export function tickDurations(doc, now) {
-  for (const el of doc.querySelectorAll('[data-history-updated]')) {
-    el.textContent = `Last session · updated ${ago(now - Number(el.getAttribute('data-history-updated')))} ago`;
+  for (const el of doc.querySelectorAll('[data-history-updated], [data-status-since]')) {
+    const at = Number(el.getAttribute('data-history-updated') ?? el.getAttribute('data-status-since'));
+
+    if (Number.isFinite(at)) {
+      el.textContent = ago(now - at);
+    }
   }
   let moved = 0;
 
   // Scoped to the overlay's own rows rather than to the attribute: this runs over a page GitHub owns, and a bare
   // attribute selector would rewrite the text of anything of theirs that happened to carry the same name.
   for (const el of doc.querySelectorAll(`.${BADGE_CLASS} .gc-session[data-phase] > [data-activity-since]`)) {
-    const phase = /** @type {Element} */ (el.parentElement).getAttribute('data-phase') ?? '';
-    const text = phaseText(phase, Number(el.getAttribute('data-activity-since')), now);
+    const text = ago(now - Number(el.getAttribute('data-activity-since')));
 
     if (el.textContent !== text) {
       el.textContent = text;
@@ -621,8 +696,10 @@ export function agentIcon(doc, agent) {
 
   svg.setAttribute('class', 'gc-agent-icon');
   svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', '11');
-  svg.setAttribute('height', '11');
+  // 13, not the 11 the row's own type is set at: the editor board draws the same mark at 13.6px, and the two boards
+  // are read side by side. It is the one thing on the row that is a picture rather than words.
+  svg.setAttribute('width', '13');
+  svg.setAttribute('height', '13');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('fill', '#d97757');
   mark.setAttribute('d', CLAUDE_MARK);
@@ -1451,6 +1528,8 @@ function sessionRow(doc, session, now, openable) {
     row.setAttribute('draggable', 'false');
   }
 
+  row.appendChild(sessionDot(doc, session.activity?.phase, !session.finished));
+
   const icon = agentIcon(doc, session.agent);
 
   // R2: which agent reported a session is always said. A mark where there is one, the CLI's own name where there
@@ -1479,7 +1558,7 @@ function sessionRow(doc, session, now, openable) {
   if (session.activity) {
     // The `since` too, so the second-by-second tick can advance this without a snapshot behind it.
     state.setAttribute('data-activity-since', String(session.activity.since));
-    state.textContent = phaseText(session.activity.phase, session.activity.since, now);
+    state.textContent = ago(now - session.activity.since);
     row.appendChild(state);
   } else {
     const reported = session.details.state ?? session.details.status;
@@ -1490,12 +1569,16 @@ function sessionRow(doc, session, now, openable) {
     }
   }
 
-  // The whole name, because the label ellipsises, and what the board saw, because the duration alone does not say.
-  const seen = session.activity ? ` ${stateTitle(session.activity)}` : '';
+  // Nothing on the row: its words are on it already, and a hover repeating them is a hover to learn to ignore. What
+  // the board saw goes on the state instead, the way the editor board carries it — that is the part not on the row.
+  if (session.activity) {
+    tip(state, stateTitle(session.activity));
+  }
 
-  const does = reachable ? 'go to this session in VS Code' : 'no editor of yours can open this one';
-
-  tip(row, `${name} — ${does}.${seen}`);
+  row.setAttribute(
+    'aria-label',
+    `${name} — ${reachable ? 'go to this session in VS Code' : 'no editor of yours can open this one'}.`,
+  );
   // Only the propagation: the card underneath is GitHub's own button, and a click reaching it opens the issue
   // instead. The navigation itself is the browser's to make, which is what gives VS Code the foreground.
   row.addEventListener('click', (event) => event.stopPropagation());
@@ -1521,6 +1604,7 @@ function historyRow(doc, session, now, openable) {
     row.setAttribute('draggable', 'false');
   }
   row.className = 'gc-session gc-historical';
+  row.appendChild(sessionDot(doc, undefined, false, 'The last session that ran here. Nothing is running on this card now.'));
   const icon = agentIcon(doc, session.agent);
   if (icon) row.appendChild(icon);
   else {
@@ -1535,8 +1619,11 @@ function historyRow(doc, session, now, openable) {
   const state = doc.createElement('span');
   state.className = 'gc-state';
   state.dataset.historyUpdated = String(session.updatedAt);
-  state.textContent = `Last session · updated ${ago(now - session.updatedAt)} ago`;
-  tip(row, `${name.textContent} — ${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
+  // The value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
+  state.textContent = ago(now - session.updatedAt);
+  // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops.
+  tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
+  row.setAttribute('aria-label', `${name.textContent} — ${reachable ? 'resume this session in VS Code' : 'historical session'}.`);
   row.append(name, state);
   row.addEventListener('click', (event) => event.stopPropagation());
   return row;
@@ -1549,9 +1636,9 @@ function historyRow(doc, session, now, openable) {
  * @returns {string}
  */
 function stateTitle(activity) {
-  const what = PHASE_TITLES[activity.phase] ?? '';
+  const what = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
 
-  return activity.event ? `${what} Last seen at the ${activity.event} hook.`.trim() : what;
+  return activity.event ? `${what} Last seen at the ${activity.event} hook.` : what;
 }
 
 /**
@@ -1625,7 +1712,7 @@ function renderBadge(doc, element, card, now, actions, openable) {
   head.appendChild(lane);
 
   renderAttention(doc, element, head, card);
-  renderTriage(doc, badge, head, card, now);
+  renderTriage(doc, head, card, now);
 
   for (const session of card.sessions) {
     badge.appendChild(sessionRow(doc, session, now, openable));
@@ -1653,18 +1740,18 @@ function renderBadge(doc, element, card, now, actions, openable) {
 }
 
 /**
- * R38 on the project board's card: the action on the head line beside the lane, and the sentence on its own line
- * under it. Neither is an attention channel — a card being read asks for nothing, and R36 keeps colour for the two
- * things that do want the developer, so this is text and weight only. There is no control here: re-reading a card
- * spends the developer's usage, and the bridge refuses anything but refresh, watching and move.
+ * R38 on the project board's card: the action on the head line beside the lane, with how old the reading is, and the
+ * sentence it produced on hover rather than on a line of its own — a paragraph of prose per card was more of the
+ * footer than the cards. Not an attention channel: a card being read asks for nothing, and R36 keeps colour for the
+ * two things that do want the developer. There is no control here: re-reading a card spends the developer's usage,
+ * and the bridge takes refresh, watching and move and nothing else — the editor's own chip is where that press is.
  *
  * @param {Document} doc
- * @param {HTMLElement} badge
  * @param {HTMLElement} head
  * @param {LanedCard} card
  * @param {number} now
  */
-function renderTriage(doc, badge, head, card, now) {
+function renderTriage(doc, head, card, now) {
   const triage = card.triage;
 
   if (!triage) {
@@ -1697,15 +1784,22 @@ function renderTriage(doc, badge, head, card, now) {
   mark.dataset.stale = String(triage.stale);
   tip(
     mark,
-    triage.stale ? `Read ${ago(now - triage.at)} ago; the card has moved since.` : `Read ${ago(now - triage.at)} ago.`,
+    `${triage.detail} ${triage.stale ? `Read ${ago(now - triage.at)} ago; the card has moved since.` : `Read ${ago(now - triage.at)} ago.`}`,
   );
 
-  const detail = doc.createElement('div');
+  // How long the card has held the status it is in — not when the board read it, which is in the tooltip with the
+  // sentence it produced. A reading is about a card in a state, and how long that state has held is what says
+  // whether it is still the card to pick up. Null off the project board, where GitHub records no move to date.
+  const moved = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
 
-  detail.className = 'gc-triage-detail';
-  detail.dataset.stale = String(triage.stale);
-  detail.textContent = triage.detail;
-  badge.appendChild(detail);
+  if (Number.isFinite(moved)) {
+    const age = doc.createElement('span');
+
+    age.className = 'gc-triage-age';
+    age.dataset.statusSince = String(moved);
+    age.textContent = ago(now - moved);
+    mark.append(' · ', age);
+  }
 }
 
 

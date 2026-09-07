@@ -357,17 +357,24 @@ describe('board webview', () => {
   it('opens a session from its own row, naming the session and never its directory', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
-    const label = document.querySelector<HTMLButtonElement>('.session .session-label')!;
+    const row = document.querySelector<HTMLButtonElement>('.session')!;
+    const label = row.querySelector<HTMLElement>('.session-label')!;
 
-    expect(label.tagName).toBe('BUTTON');
-    // The whole name, because the label ellipsises - and the action, because the label alone does not imply it.
-    expect(tipOf(label)).toBe('cache-remediation - go to this session');
-    expect(getComputedStyle(label).cursor).toBe('pointer');
-    // A button brings its own colour, and on a dark card the UA default is the wrong one.
-    expect(getComputedStyle(label).color).toBe('inherit');
+    // The whole row is the control, as the overlay makes it: a hover then paints the row rather than the words.
+    expect(row.tagName).toBe('BUTTON');
+    expect(label.tagName).toBe('SPAN');
+    // Nothing on hover: the name is on the row already. What a reader needs beyond it — that this one opens — is
+    // the accessible name instead, since a hover repeating a row's own words is a hover to learn to ignore.
+    expect(tipOf(row)).toBe('');
+    expect(row.getAttribute('aria-label')).toBe('cache-remediation - go to this session');
+    expect(getComputedStyle(row).cursor).toBe('pointer');
+    // A button brings its own colour, and on a dark card the UA default is the wrong one. The name is a step above
+    // the marks around it, which stay at the description colour - the tone the overlay mixes to (`mechanics.md` §38).
+    expect(getComputedStyle(label).color).toBe('var(--vscode-foreground)');
+    expect(getComputedStyle(row).color).toBe('var(--vscode-descriptionForeground)');
     // Without this, a few pixels of drift on the way to a click drags the card and the click never fires. The
     // attribute, not the property: a button reads false either way, so only the attribute proves the line is there.
-    expect(label.getAttribute('draggable')).toBe('false');
+    expect(row.getAttribute('draggable')).toBe('false');
 
     label.click();
 
@@ -377,13 +384,15 @@ describe('board webview', () => {
   it('offers no control for a session no command can open, such as another agent’s', () => {
     send(message({ lanes: lanes({ build: [liveCard] }), openable: [] }));
 
-    const label = document.querySelector<HTMLElement>('.session .session-label')!;
+    const row = document.querySelector<HTMLElement>('.session')!;
 
-    expect(label.tagName).toBe('SPAN');
-    expect(tipOf(label)).toBe('cache-remediation');
-    expect(getComputedStyle(label).cursor).not.toBe('pointer');
+    expect(row.tagName).toBe('SPAN');
+    // Nothing to open and nothing to say: the name is its own text, so it is neither named again nor described.
+    expect(tipOf(row)).toBe('');
+    expect(row.hasAttribute('aria-label')).toBe(false);
+    expect(getComputedStyle(row).cursor).not.toBe('pointer');
 
-    label.click();
+    row.click();
 
     expect(sent()).toEqual([]);
   });
@@ -399,21 +408,21 @@ describe('board webview', () => {
 
     send(message({ lanes: lanes({ build: [mixed] }), openable: ['here'] }));
 
-    const labels = Array.from(document.querySelectorAll<HTMLElement>('.session .session-label'));
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('.session'));
 
-    expect(labels.map((el) => el.tagName)).toEqual(['BUTTON', 'SPAN']);
+    expect(rows.map((el) => el.tagName)).toEqual(['BUTTON', 'SPAN']);
 
-    labels[0]!.click();
+    rows[0]!.click();
 
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'openSession', sessionId: 'here' });
   });
 
   it('rebuilds a card when a session stops being openable, rather than leaving a dead button', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
-    expect(document.querySelector('.session .session-label')!.tagName).toBe('BUTTON');
+    expect(document.querySelector('.session')!.tagName).toBe('BUTTON');
 
     send(message({ lanes: lanes({ build: [liveCard] }), openable: [] }));
-    expect(document.querySelector('.session .session-label')!.tagName).toBe('SPAN');
+    expect(document.querySelector('.session')!.tagName).toBe('SPAN');
   });
 
   it('opens the session whose row was clicked, not the first on the card', () => {
@@ -427,7 +436,7 @@ describe('board webview', () => {
 
     send(message({ lanes: lanes({ build: [two] }) }));
 
-    const labels = document.querySelectorAll<HTMLButtonElement>('.session .session-label');
+    const labels = document.querySelectorAll<HTMLButtonElement>('.session');
 
     labels[1]!.click();
 
@@ -788,49 +797,43 @@ describe('reported activity', () => {
     expect(Math.max(...stops)).toBeLessThan(200 / 3);
   });
 
+  /**
+   * The card's edge carries R6, and so does the row it is about — its mark, its words and its weight. No chip: a pill
+   * reading `Needs you` beside a row already painted yellow was the same claim twice.
+   */
   it('marks the card, not only the row, when an agent is blocked on the developer', () => {
     const card = sendCard([withPhase('idle'), withPhase('waiting', Date.now(), { sessionId: 's-2' })], 'blocked');
 
     expect(card.dataset.attention).toBe('blocked');
-    expect(card.querySelector('.badge.blocked')?.textContent).toBe('Needs you');
-    expect(tipOf(card.querySelector('.badge.blocked'))).toContain('waiting on you');
-  });
-
-  /** The mark refuses a finished agent (R23), so the words under it must refuse the same session rather than name it as blocked. */
-  it('leaves a finished session out of the blocked mark, whatever its last event was', () => {
-    const card = sendCard(
-      [
-        withPhase('waiting', Date.now(), { sessionId: 's-1', details: withDetails({ name: 'still asking' }) }),
-        withPhase('waiting', Date.now(), { sessionId: 's-2', finished: true, details: withDetails({ name: 'long gone' }) }),
-      ],
-      'blocked',
-    );
-    const said = tipOf(card.querySelector('.badge.blocked'));
-
-    expect(said).toContain('still asking');
-    expect(said).not.toContain('long gone');
+    expect(card.querySelector('.badge.blocked')).toBeNull();
+    expect(card.textContent).not.toContain('Needs you');
   });
 
   it('marks the card when an agent ended its turn and nothing has replied', () => {
     const card = sendCard([withPhase('running'), withPhase('idle', Date.now(), { sessionId: 's-2' })], 'your-turn');
 
     expect(card.dataset.attention).toBe('your-turn');
-    expect(card.querySelector('.badge.your-turn')?.textContent).toBe('Your turn');
-    expect(tipOf(card.querySelector('.badge.your-turn'))).toContain('finished its turn');
+    expect(card.querySelector('.badge.your-turn')).toBeNull();
+    expect(card.textContent).not.toContain('Your turn');
   });
 
-  it('names in the mark only the sessions the mark is about', () => {
+  /**
+   * A colour is not a fact that reaches everyone, and with the words gone the mark's own name is what carries it:
+   * a reader gets the phase per row, which is more than a card-level pill ever said about which session it meant.
+   */
+  it('leaves the phase on the mark a reader can hear, now that no words carry it', () => {
     const card = sendCard(
       [
-        withPhase('idle', Date.now(), { sessionId: 's-1', details: withDetails({ name: 'reading logs' }) }),
+        withPhase('waiting', Date.now(), { sessionId: 's-1', details: withDetails({ name: 'still asking' }) }),
         withPhase('running', Date.now(), { sessionId: 's-2', details: withDetails({ name: 'drafting notes' }) }),
       ],
-      'your-turn',
+      'blocked',
     );
-    const said = tipOf(card.querySelector('.badge.your-turn'));
 
-    expect(said).toContain('reading logs');
-    expect(said).not.toContain('drafting notes');
+    expect(Array.from(card.querySelectorAll('.dot')).map((el) => el.getAttribute('aria-label'))).toEqual([
+      'needs you, open',
+      'running, open',
+    ]);
   });
 
   it('marks nothing when the board asked nothing of the developer', () => {
@@ -859,31 +862,141 @@ describe('reported activity', () => {
     const css = readFileSync(resolve('media/board.css'), 'utf8');
     const forced = /@media \(forced-colors: active\) \{([\s\S]*?)\n\}/.exec(css)?.[1];
 
-    // A running label paints from a gradient clipped to its text, so its own colour is transparent: an underline is
-    // the only hover that shows, and its colour has to be named because currentColor there is transparent too.
-    expect(/button\.session-label:hover \{[^}]*text-decoration: underline/.test(css)).toBe(true);
-    expect(/button\.session-label:hover \{[^}]*text-decoration-color:/.test(css)).toBe(true);
+    // A surface under the whole row rather than a decoration on its words, which is what the overlay paints: the
+    // words are already spoken for — a phase claims their colour, and a running name is a gradient clipped to them.
+    expect(/\.session \{[^}]*border-radius: 4px/.test(css)).toBe(true);
+    expect(/button\.session:hover \{\s*background: var\(--vscode-toolbar-hoverBackground/.test(css)).toBe(true);
+    expect(/\.session[^{]*\{[^}]*text-decoration: underline/.test(css)).toBe(false);
 
-    // A forced button surface pairs with ButtonText; CanvasText is the card's pairing, kept for a label that is text.
-    expect(/button\.session-label \{\s*color: ButtonText/.test(forced ?? '')).toBe(true);
+    // A forced button surface pairs with ButtonText; CanvasText is the card's pairing, kept for a row that is text.
+    expect(/button\.session \{\s*color: ButtonText/.test(forced ?? '')).toBe(true);
     expect(forced).toContain('color: CanvasText');
 
     // Both overflow controls are buttons on the surface behind them, so both take a forced button's own colour.
-    expect(/\.card-menu,\s*#board-menu \{\s*color: ButtonText;/.test(forced ?? '')).toBe(true);
+    expect(/\.card-menu,\s*#board-menu,\s*\.triage-again \{\s*color: ButtonText;/.test(forced ?? '')).toBe(true);
+    // The hue is what forced colours drop, so an open session is told from an ended one by the fill alone.
+    expect(/\.dot \{\s*border-color: CanvasText;/.test(forced ?? '')).toBe(true);
+    expect(/\.dot\[data-live='true'\] \{\s*background: CanvasText;/.test(forced ?? '')).toBe(true);
     // The dot is the only sign the hub log is streaming, so it is repainted rather than left to a dropped theme colour.
     expect(/#board-menu\.on::after \{\s*background: Highlight;/.test(forced ?? '')).toBe(true);
     // The footer's tint is the one thing forced colours drop, so its rule is what sets it apart there.
     expect(/\.card-foot \{\s*border-top-color: CanvasText;/.test(forced ?? '')).toBe(true);
   });
 
-  it('paints the marked label its attention colour even though the label is a button', () => {
+  /**
+   * The phase in the colour and whether the agent still has the session open in the fill — the two facts the row
+   * used to spend a word on. The word is not lost: it is the mark's own name, because a hue reaches only some readers.
+   */
+  it.each([
+    ['running', false, 'var(--vscode-charts-green)', 'running, open'],
+    ['waiting', false, 'var(--vscode-charts-yellow)', 'needs you, open'],
+    ['idle', false, 'var(--vscode-descriptionForeground)', 'idle, open'],
+    ['idle', true, 'var(--vscode-descriptionForeground)', 'idle, ended'],
+  ] as const)('marks a %s session, finished %s, in its own colour and fill', (phase, finished, colour, named) => {
+    const row = sendCard([{ ...withPhase(phase), finished }]).querySelector<HTMLElement>('.session')!;
+    const dot = row.querySelector<HTMLElement>('.dot')!;
+
+    // Ahead of the agent's own mark: the row is read left to right, and its state is the first thing wanted from it.
+    expect(row.firstElementChild).toBe(dot);
+    expect(dot.dataset['live']).toBe(String(!finished));
+    expect(getComputedStyle(dot).getPropertyValue('--gc-dot')).toBe(colour);
+    expect(getComputedStyle(dot).background).toBe(finished ? 'rgba(0, 0, 0, 0)' : 'var(--gc-dot)');
+    expect(dot.getAttribute('aria-label')).toBe(named);
+    expect(dot.getAttribute('role')).toBe('img');
+  });
+
+  // A row the board has no phase for still gets a mark: an absent one would read as a row with nothing to report.
+  it('marks a session no hook has reported on as having no state, rather than leaving the row unmarked', () => {
+    const dot = sendCard([{ ...session, activity: null }]).querySelector<HTMLElement>('.dot')!;
+
+    expect(dot.dataset['phase']).toBe('none');
+    expect(dot.getAttribute('aria-label')).toBe('no state reported, open');
+  });
+
+  /**
+   * A card is not a control: what opens on it is the title, the chips and the rows, and each answers for itself. So
+   * the pointer gets an edge and nothing else — a lit card offered something the card as a whole does not do.
+   */
+  it('does not light a card under the pointer, and marks one that is asking at the same strength either way', () => {
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+    const hover = /\.card:hover \{[^}]*\}/.exec(css)?.[0] ?? '';
+
+    // Nothing at all: not a fill, and not an edge either. Neither is a claim the card as a whole can answer for.
+    expect(hover).toBe('');
+    expect(css).not.toContain('--gc-edge-hover');
+    // The tint that says a card is asking holds under a pointer: what it is asking for does not change there, so
+    // the two strengths the hover used to raise it to are gone and the resting one is declared once.
+    expect(css).not.toContain('var(--vscode-charts-yellow) 14%');
+    expect(css).not.toContain('var(--vscode-charts-blue) 11%');
+    expect(css).toContain('var(--vscode-charts-yellow) 7%');
+    expect(css).toContain('var(--vscode-charts-blue) 5%');
+  });
+
+  // The title is the one thing on a card that opens the issue, and was the only control on it with no affordance.
+  it('underlines the title on hover, and only where there is an issue to open', () => {
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+
+    expect(/\.card-open:hover:not\(:disabled\) \.title \{[^}]*text-decoration: underline/.test(css)).toBe(true);
+    // Inline, or the underline runs on across the empty half of the last line rather than under the words.
+    expect(/\.title \{[^}]*display:/.test(css)).toBe(false);
+
+    send(message({ lanes: lanes({ build: [liveCard, { ...liveCard, key: 'session:x', issueNumber: null, issue: null }] }) }));
+
+    const [withIssue, without] = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-open'));
+
+    expect(withIssue!.disabled).toBe(false);
+    expect(without!.disabled).toBe(true);
+  });
+
+  it('paints the marked label its attention colour even though the row is a button', () => {
     const waiting = sendCard([withPhase('waiting', Date.now())], 'blocked');
     const label = waiting.querySelector<HTMLElement>('.session-label')!;
 
-    // A button carries its own colour, so the reset on it must lose to the attention rule rather than win.
-    expect(label.tagName).toBe('BUTTON');
+    // The row carries its own colour, so the reset on it must lose to the attention rule rather than win.
+    expect(waiting.querySelector('.session')?.tagName).toBe('BUTTON');
     expect(getComputedStyle(label).color).toBe('var(--vscode-charts-yellow)');
     expect(getComputedStyle(label).fontWeight).toBe('600');
+  });
+
+  /**
+   * One colour for the whole of a marked row — the card's edge, the words, and the mark ahead of them. A mark left on
+   * its phase colour beside words the card had already recoloured read as two claims about one session.
+   */
+  it.each([
+    ['blocked', 'waiting', 'var(--vscode-charts-yellow)'],
+    ['your-turn', 'idle', 'var(--vscode-charts-blue)'],
+  ] as const)('paints the mark on a %s card the same colour as its border and its words', (attention, phase, colour) => {
+    const card = sendCard([withPhase(phase, Date.now())], attention);
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+
+    // The border is read off the source: jsdom cannot expand a shorthand that holds a `var()`.
+    const rule = css.slice(css.indexOf(`.card[data-attention='${attention}'],`));
+
+    expect(rule.slice(0, rule.indexOf('}'))).toContain(`border-color: ${colour}`);
+    expect(getComputedStyle(card.querySelector<HTMLElement>('.session-label')!).color).toBe(colour);
+    expect(getComputedStyle(card.querySelector<HTMLElement>('.dot')!).getPropertyValue('--gc-dot')).toBe(colour);
+  });
+
+  /**
+   * A card holds several sessions, and the loudest of them is what the card is: `attentionOf` returns `blocked` where
+   * any live session waits, so the border is the most urgent. Only the row it is about is painted with it.
+   */
+  it('paints only the row the mark is about, and leaves the others on their own state', () => {
+    const card = sendCard(
+      [withPhase('idle', Date.now(), { sessionId: 's-idle' }), withPhase('waiting', Date.now(), { sessionId: 's-wait' })],
+      'blocked',
+    );
+    const [idle, waiting] = Array.from(card.querySelectorAll<HTMLElement>('.session'));
+
+    expect(card.dataset['attention']).toBe('blocked');
+    expect(getComputedStyle(waiting!.querySelector<HTMLElement>('.dot')!).getPropertyValue('--gc-dot')).toBe(
+      'var(--vscode-charts-yellow)',
+    );
+    // The idle row is a different session in a different state, and the card's mark is not a claim about it.
+    expect(getComputedStyle(idle!.querySelector<HTMLElement>('.dot')!).getPropertyValue('--gc-dot')).toBe(
+      'var(--vscode-descriptionForeground)',
+    );
+    expect(getComputedStyle(idle!.querySelector<HTMLElement>('.session-label')!).color).toBe('var(--vscode-foreground)');
   });
 
   it('shows one state per row, and it is the board own observation', () => {
@@ -891,7 +1004,8 @@ describe('reported activity', () => {
       .querySelector<HTMLElement>('.session')!;
 
     expect(row.querySelectorAll('.state')).toHaveLength(1);
-    expect(row.querySelector('.state')?.textContent).toContain('running');
+    // The board's own phase is the mark; the CLI's own words are neither on the row nor behind the mark.
+    expect(row.querySelector<HTMLElement>('.dot')?.dataset['phase']).toBe('running');
     expect(row.textContent).not.toContain('editing tests');
     expect(row.textContent).not.toContain('idle');
   });
@@ -927,19 +1041,19 @@ describe('reported activity', () => {
       const since = Date.now() - 90_000;
       const card = sendCard([withPhase('running', since)]);
 
-      expect(card.querySelector('.state')?.textContent).toBe('running 1m');
+      expect(card.querySelector('.state')?.textContent).toBe('1m');
 
       vi.advanceTimersByTime(10 * 60 * 1000);
       sendCard([withPhase('running', since)]);
 
       expect(document.querySelector('.card')).toBe(card);
-      expect(card.querySelector('.state')?.textContent).toBe('running 11m');
+      expect(card.querySelector('.state')?.textContent).toBe('11m');
 
       // A render inside the same turn keeps the count where it is; the next turn starts it again, on the same element.
       sendCard([withPhase('running', Date.now())]);
 
       expect(document.querySelector('.card')).toBe(card);
-      expect(card.querySelector('.state')?.textContent).toBe('running 0s');
+      expect(card.querySelector('.state')?.textContent).toBe('0s');
     } finally {
       vi.useRealTimers();
     }
@@ -948,9 +1062,32 @@ describe('reported activity', () => {
   it('says what the duration counts, and what it last saw, on hover', () => {
     const state = sendCard([withPhase('running')]).querySelector<HTMLElement>('.state')!;
 
+    // Not the phase: that is the mark's at the other end of the row, and saying it twice is two hovers to ignore.
     expect(tipOf(state)).toBe(
-      'This session is working. The duration counts the turn it is in, from the prompt that began it where the board saw one. Last seen at the PostToolBatch hook.',
+      'Counts the turn it is in, from the prompt that began it where the board saw one. Last seen at the PostToolBatch hook.',
     );
+    expect(tipOf(state)).not.toContain('working');
+  });
+
+  /**
+   * A colour is the one thing on a row that cannot be read, so the mark is the one thing on it that earns a hover.
+   * The fill is the second half of what it means, and a saved row says what its own hollow mark is about.
+   */
+  it.each([
+    ['running', false, 'This session is working.'],
+    ['waiting', false, 'This session is waiting on you.'],
+    ['idle', false, 'The board last saw this session finish.'],
+    ['idle', true, 'The board last saw this session finish. The agent has since ended it.'],
+  ] as const)('says what the mark means for a %s session, finished %s', (phase, finished, said) => {
+    const card = sendCard([{ ...withPhase(phase, Date.now()), finished }]);
+
+    expect(tipOf(card.querySelector('.dot'))).toBe(said);
+  });
+
+  it('says the mark means nothing has reported, where nothing has', () => {
+    const card = sendCard([{ ...session, activity: null }]);
+
+    expect(tipOf(card.querySelector('.dot'))).toBe('No hook has reported on this session.');
   });
 
   /**
@@ -964,14 +1101,14 @@ describe('reported activity', () => {
     try {
       const card = sendCard([withPhase('running', Date.now())]);
 
-      expect(card.querySelector('.state')?.textContent).toBe('running 0s');
+      expect(card.querySelector('.state')?.textContent).toBe('0s');
 
       api.postMessage.mockClear();
       vi.setSystemTime(new Date('2026-09-02T12:00:07Z'));
       tick?.();
 
       expect(document.querySelector('.card')).toBe(card);
-      expect(card.querySelector('.state')?.textContent).toBe('running 7s');
+      expect(card.querySelector('.state')?.textContent).toBe('7s');
       expect(sent()).toEqual([]);
     } finally {
       vi.useRealTimers();
@@ -994,7 +1131,7 @@ describe('reported activity', () => {
     try {
       const card = sendCard([withPhase('idle', Date.now() - ms, { sessionId: 's-ago' })]);
 
-      expect(card.querySelector('.state')?.textContent).toBe(`idle ${expected}`);
+      expect(card.querySelector('.state')?.textContent).toBe(expected);
     } finally {
       vi.useRealTimers();
     }
@@ -1012,11 +1149,7 @@ describe('reported activity', () => {
         withPhase('idle', Date.now() - (16 * 86_400_000 + 5 * 3_600_000), { sessionId: 's-w' }),
       ]);
 
-      expect(Array.from(card.querySelectorAll('.state')).map((el) => el.textContent)).toEqual([
-        'idle 1h',
-        'idle 3d',
-        'idle 2w',
-      ]);
+      expect(Array.from(card.querySelectorAll('.state')).map((el) => el.textContent)).toEqual(['1h', '3d', '2w']);
     } finally {
       vi.useRealTimers();
     }
@@ -1417,8 +1550,14 @@ describe('historical rows', () => {
     send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
     const row = document.querySelector<HTMLElement>('.historical')!;
     expect(row.textContent).toContain('Past attempt');
-    expect(row.textContent).toContain('Last session · updated');
-    expect(tipOf(row)).toContain('Last saved');
+    // One line: the value alone floats to the right, and what it is a value of is said by the hollow mark.
+    expect(row.querySelector('.state')?.textContent).toBe('1m');
+    expect(row.textContent).not.toContain('Last session');
+    expect(row.querySelector<HTMLElement>('.dot')?.dataset['live']).toBe('false');
+    // On the age, as a live row's is: the row itself says nothing on hover, and the exact moment is what `1m` drops.
+    expect(tipOf(row)).toBe('');
+    expect(tipOf(row.querySelector('.state'))).toContain('Last saved');
+    expect(row.tagName).toBe('SPAN');
     expect(row.querySelector('button, a, [data-activity-since]')).toBeNull();
     expect(row.dataset.phase).toBeUndefined();
     row.click(); expect(sent()).toEqual([]);
@@ -1444,14 +1583,16 @@ it('makes a historical title openable when the host offers it, including after a
   const lastSession = { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: Date.now() - 60000 };
   const pastCard = { ...liveCard, sessions: [], lastSession };
   send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
-  expect(document.querySelector('.historical button')).toBeNull();
+  expect(document.querySelector('button.historical')).toBeNull();
   send(message({ lanes: lanes({ build: [pastCard] }), openable: ['past'] }));
-  const button = document.querySelector<HTMLButtonElement>('.historical button')!;
-  expect(button.textContent).toBe('Past attempt'); expect(button.draggable).toBe(false);
+  const button = document.querySelector<HTMLButtonElement>('button.historical')!;
+  expect(button.querySelector('.session-label')?.textContent).toBe('Past attempt'); expect(button.draggable).toBe(false);
   button.click(); expect(sent()).toEqual([{ type: 'openSession', sessionId: 'past' }]);
-  expect(tipOf(button.closest('.historical'))).toContain('Resume this session');
+  expect(tipOf(button)).toBe('');
+  expect(button.getAttribute('aria-label')).toBe('Past attempt - resume this session');
+  expect(tipOf(button.querySelector('.state'))).toContain('Resume this session');
   send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
-  expect(document.querySelector('.historical button')).toBeNull();
+  expect(document.querySelector('button.historical')).toBeNull();
 });
 
 /**
@@ -1469,7 +1610,6 @@ describe('what GitHub says, and what the board adds', () => {
     ['pull-request', '.badges.github'],
     ['returned', '.card-foot .badges.marks'],
     ['triage', '.card-foot .badges.marks'],
-    ['blocked', '.card-foot .badges.marks'],
   ];
 
   function full(): void {
@@ -1502,8 +1642,6 @@ describe('what GitHub says, and what the board adds', () => {
     // Read off the rule: jsdom resolves a custom property holding a color-mix down to the inner var, not the mix.
     expect(/\.card \{[^}]*border: 1px solid var\(--gc-edge\)/.test(css)).toBe(true);
 
-    // Hover must not be the weaker of the two: the theme's own panel border is fainter than this edge.
-    expect(/\.card:hover \{[^}]*border-color: var\(--gc-edge-hover\)/.test(css)).toBe(true);
     expect(css).not.toContain('border: 1px solid transparent');
   });
 
@@ -1569,8 +1707,8 @@ describe('what GitHub says, and what the board adds', () => {
     expect(document.querySelector<HTMLElement>('.badge.pull-request')!.style.getPropertyValue('--gc-badge')).toBe(
       'var(--vscode-charts-green)',
     );
-    // The mark beside them keeps its fill: what wants the developer is the one thing on a card that is loud.
-    expect(getComputedStyle(document.querySelector<HTMLElement>('.badge.blocked')!).background).toContain('color-mix');
+    // A label GitHub put on the issue keeps its fill, which is what a quiet chip is quiet against.
+    expect(getComputedStyle(document.querySelector<HTMLElement>('.badge.type')!).background).toContain('color-mix');
   });
 
   // GitHub writes the number in its own UI font; a monospace one was the card's only fixed-width text.
@@ -1617,10 +1755,9 @@ describe('what GitHub says, and what the board adds', () => {
 
     const foot = document.querySelector<HTMLElement>('.card-foot')!;
 
-    expect(foot.querySelector('.triage-detail')?.textContent).toBe('Answer the naming notes.');
+    expect(tipOf(foot.querySelector('.badge.triage'))).toContain('Answer the naming notes.');
     expect(foot.querySelectorAll('.session')).toHaveLength(1);
     expect(document.querySelectorAll('.card > .session')).toHaveLength(0);
-    expect(document.querySelectorAll('.card > .triage-detail')).toHaveLength(0);
   });
 
   /**
@@ -1638,7 +1775,7 @@ describe('what GitHub says, and what the board adds', () => {
 
     send(message({ lanes: lanes({ build: [{ ...bare, triage }] }) }));
     expect(document.querySelector('.card-foot .badge.triage')?.textContent).toBe('Answer review · followup');
-    expect(document.querySelector('.card-foot .triage-detail')?.textContent).toBe('Answer the naming notes.');
+    expect(tipOf(document.querySelector('.card-foot .badge.triage'))).toContain('Answer the naming notes.');
 
     send(message({ lanes: lanes({ build: [{ ...bare, triage, action: { state: 'available', action: 'merge-upstream' } }] }) }));
     expect(document.querySelector('.card-foot .badge.action')?.textContent).toBe('Run merge upstream');
@@ -1961,8 +2098,9 @@ describe('which cards have a checkout, against core', () => {
 describe('what a card was read to be waiting on (R38)', () => {
   const at = Date.UTC(2026, 8, 1, 19, 0, 0);
 
-  function triaged(triage: NonNullable<LanedCard['triage']>): LanedCard {
-    return { ...liveCard, sessions: [], triage };
+  /** The status moved at `moved`, which is a different time from `at` — a test must not pass on the wrong one. */
+  function triaged(triage: NonNullable<LanedCard['triage']>, moved: string | null = null): LanedCard {
+    return { ...liveCard, sessions: [], triage, issue: { ...liveCard.issue!, statusChangedAt: moved } };
   }
 
   function chip(): HTMLElement | null {
@@ -1975,30 +2113,88 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(chip()?.textContent).toBe('Reading…');
     // R6's channels are for the two things that want the developer. Being read is not one of them.
     expect(document.querySelector<HTMLElement>('.card')?.dataset['attention']).toBeUndefined();
-    expect(document.querySelector('.triage-detail')).toBeNull();
+    expect(document.querySelector('.triage-again')).toBeNull();
   });
 
-  it('names the action and writes the sentence under the title', () => {
+  /**
+   * Two ages are in play and only one is on the chip: how long the card has held its status, which is what says
+   * whether a reading is still the card to pick up. When the board decided is in the tooltip with the sentence.
+   */
+  it('names the action, ages the status on the chip, and holds the sentence and the reading age on hover', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T19:00:00Z'));
+
+    try {
+      send(
+        message({
+          lanes: lanes({
+            unstarted: [
+              triaged(
+                {
+                  state: 'done',
+                  action: 'address-review',
+                  qualifier: 'followup',
+                  detail: 'Answer the naming notes on the paging fix.',
+                  at: Date.now() - 3_600_000,
+                  stale: false,
+                },
+                '2026-09-04T19:00:00Z',
+              ),
+            ],
+          }),
+        }),
+      );
+
+      // 2d is the status move; the reading itself was an hour ago, and saying that here would be the wrong number.
+      expect(chip()?.textContent).toBe('Answer review · followup · 2d');
+      expect(chip()?.querySelector('.triage-age')?.textContent).toBe('2d');
+      expect(tipOf(chip())).toBe('Answer the naming notes on the paging fix. Read 1h ago.');
+      expect(chip()?.dataset['stale']).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // A card the project board records no move for — one off the board — carries the action and nothing after it.
+  it('writes no age where GitHub records no status move', () => {
     send(
       message({
-        lanes: lanes({
-          unstarted: [
-            triaged({
-              state: 'done',
-              action: 'address-review',
-              qualifier: 'followup',
-              detail: 'Answer the naming notes on the paging fix.',
-              at,
-              stale: false,
-            }),
-          ],
-        }),
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: false })] }),
       }),
     );
 
-    expect(chip()?.textContent).toBe('Answer review · followup');
-    expect(document.querySelector('.triage-detail')?.textContent).toBe('Answer the naming notes on the paging fix.');
-    expect(document.querySelector<HTMLElement>('.triage-detail')?.dataset['stale']).toBe('false');
+    expect(chip()?.textContent).toBe('Develop');
+    expect(chip()?.querySelector('.triage-age')).toBeNull();
+  });
+
+  it('advances the status age where it stands, on the clock the durations run on', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T19:00:00Z'));
+
+    try {
+      send(
+        message({
+          lanes: lanes({
+            unstarted: [
+              triaged(
+                { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: Date.now(), stale: false },
+                '2026-09-06T18:00:00Z',
+              ),
+            ],
+          }),
+        }),
+      );
+
+      const age = document.querySelector<HTMLElement>('.triage-age')!;
+
+      vi.setSystemTime(new Date('2026-09-06T21:00:00Z'));
+      tick?.();
+
+      expect(document.querySelector('.triage-age')).toBe(age);
+      expect(age.textContent).toBe('3h');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('writes no qualifier where there is none', () => {
@@ -2019,22 +2215,21 @@ describe('what a card was read to be waiting on (R38)', () => {
     );
 
     expect(chip()?.dataset['stale']).toBe('true');
-    expect(document.querySelector<HTMLElement>('.triage-detail')?.dataset['stale']).toBe('true');
-    expect(tipOf(chip())).toContain('has moved since');
+    // The sentence, when it was read, and the caveat — the caveat is about the sentence, so they read together.
+    expect(tipOf(chip())).toBe('Pick it up. Read 5d ago; the card has moved since.');
   });
 
   it('carries nothing at all on a card that has not been read', () => {
     send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
 
     expect(chip()).toBeNull();
-    expect(document.querySelector('.triage-detail')).toBeNull();
+    expect(document.querySelector('.triage-again')).toBeNull();
   });
 
   it('gives a card it could not read somewhere to press, with no words about why', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 2, exhausted: false })] }) }));
 
     expect(chip()?.textContent).toBe('Not read');
-    expect(document.querySelector('.triage-detail')).toBeNull();
 
     chip()?.click();
 
@@ -2058,7 +2253,42 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(chip()?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
   });
 
-  it('asks for the card to be read again on a click, naming the card and never a URL', () => {
+  /**
+   * A lane is a list to read, not a row of controls waiting to be used, so the age is what a card at rest carries and
+   * the control stands in its place under the pointer. They share one cell, so the chip is the width it was either
+   * way; the control is hidden rather than transparent, since one nobody can see must not be one the pointer presses.
+   */
+  it('stands the control in the age own place, and only while the card is pointed at', () => {
+    send(
+      message({
+        lanes: lanes({
+          unstarted: [
+            triaged({ state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: false }, '2026-09-04T19:00:00Z'),
+          ],
+        }),
+      }),
+    );
+
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+    const end = chip()!.querySelector('.triage-end')!;
+
+    expect(Array.from(end.children).map((el) => el.className)).toEqual(['triage-age', 'triage-again']);
+    expect(/\.triage-end > \* \{\s*grid-area: 1 \/ 1;/.test(css)).toBe(true);
+    expect(/\.triage-again \{[^}]*visibility: hidden/.test(css)).toBe(true);
+    // The card is focusable, so a keyboard reaches it, the control appears, and the next tab lands on it.
+    expect(/\.card:hover \.triage-again,\s*\.card:focus-within \.triage-again \{\s*visibility: visible;/.test(css)).toBe(true);
+    expect(/\.card:hover \.triage-age,\s*\.card:focus-within \.triage-age \{\s*visibility: hidden;/.test(css)).toBe(true);
+    // Nothing hovers on a touch screen, so there the two sit side by side rather than one never appearing.
+    const touch = css.slice(css.lastIndexOf('@media (hover: none), (pointer: coarse)'));
+
+    expect(touch.slice(0, touch.indexOf('\n}'))).toContain('visibility: visible');
+  });
+
+  /**
+   * Reading a card again spends the developer's usage, so it takes a press of its own: the chip carries a sentence
+   * worth clicking to see in full, and that click must not have been the one that started a read.
+   */
+  it('asks for the card to be read again from its own control, and from nowhere else on the chip', () => {
     send(
       message({
         lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'other', qualifier: null, detail: 'Unclear.', at, stale: false })] }),
@@ -2066,8 +2296,18 @@ describe('what a card was read to be waiting on (R38)', () => {
     );
 
     chip()?.click();
+    chip()?.querySelector<HTMLElement>('.triage-age')?.click();
 
-    expect(sent()).toContainEqual({ type: 'retriage', key: 'issue:18953' });
+    expect(sent()).toEqual([]);
+    expect(chip()?.tagName).toBe('SPAN');
+
+    const again = chip()!.querySelector<HTMLButtonElement>('button.triage-again')!;
+
+    expect(again.getAttribute('aria-label')).toBe('Read this card again');
+    expect(tipOf(again)).toBe('Read this card again.');
+    again.click();
+
+    expect(sent()).toEqual([{ type: 'retriage', key: 'issue:18953' }]);
   });
 
   it('is not a drag handle, through the attribute the platform reflects rather than the property', () => {
@@ -2077,7 +2317,7 @@ describe('what a card was read to be waiting on (R38)', () => {
       }),
     );
 
-    expect(chip()?.getAttribute('draggable')).toBe('false');
+    expect(chip()?.querySelector('.triage-again')?.getAttribute('draggable')).toBe('false');
   });
 });
 
@@ -2210,7 +2450,7 @@ describe('triage labels read the same on every board', () => {
       }),
     );
 
-    expect(document.querySelector('.badge.triage')?.textContent).toBe(expected);
+    expect(document.querySelector('.badge.triage')?.firstChild?.textContent).toBe(expected);
   });
 });
 
@@ -2428,7 +2668,12 @@ describe('the tooltip', () => {
    */
   it('describes what it names before anything is hovered at all', () => {
     expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
-    expect(document.querySelector('.session-label')!.getAttribute('aria-description')).toContain('go to this session');
+    expect(document.querySelector('.session')!.getAttribute('aria-label')).toContain('go to this session');
+    // The state is the row's described half: what the board saw is the part not written on the row.
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, activity: { phase: 'running', since: Date.now(), event: 'PostToolBatch' } }] }] }) }));
+    // The mark is named rather than described, so the described half of the row is the duration beside it.
+    expect(document.querySelector('.state')!.getAttribute('aria-description')).toContain('Counts the turn it is in');
+    expect(document.querySelector('.dot')!.hasAttribute('aria-description')).toBe(false);
     expect(document.querySelector('[aria-describedby]')).toBeNull();
   });
 
@@ -2453,7 +2698,7 @@ describe('the tooltip', () => {
 
   /** `mouseout` fires as the pointer crosses an anchor's own children; closing there shuts and reopens it. */
   it('stays open as the pointer crosses its anchor own children', () => {
-    // The historical row is the one that carries a tooltip and holds children of its own.
+    // The reading is the chip that carries a tooltip and holds children of its own: an age, and a control.
     send(
       message({
         lanes: lanes({
@@ -2461,20 +2706,20 @@ describe('the tooltip', () => {
             {
               ...liveCard,
               sessions: [],
-              lastSession: { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: Date.now() - 60000 },
+              triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: Date.now(), stale: false },
             },
           ],
         }),
       }),
     );
 
-    const row = document.querySelector('.historical')!;
+    const chip = document.querySelector('.badge.triage')!;
 
-    hover(row);
+    hover(chip);
     vi.advanceTimersByTime(120);
-    row
-      .querySelector('.session-label')!
-      .dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: row.querySelector('.state') }));
+    chip
+      .querySelector('.triage-again')!
+      .dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: chip.firstChild }));
 
     expect(open()).toBe('true');
   });
@@ -2509,7 +2754,7 @@ describe('the tooltip', () => {
     observer.observe(document.documentElement, { childList: true, subtree: true });
     hover(document.querySelector('.number')!);
     vi.advanceTimersByTime(120);
-    hover(document.querySelector('.session-label')!);
+    hover(document.querySelector('.avatar')!);
     vi.advanceTimersByTime(120);
 
     const records = observer.takeRecords();

@@ -350,32 +350,56 @@ function agentMark(agent) {
   return svg;
 }
 
-function sessionLine(session) {
+/**
+ * The session's own state, at the head of its row: the phase in the colour, and whether the agent still has the
+ * session open in whether the ring is filled. The word is the mark's accessible name, because a colour is not a
+ * fact that reaches everyone who reads this board.
+ */
+function sessionDot(phase, live, title = dotTitle(phase, live)) {
   const el = document.createElement('span');
+
+  el.className = 'dot';
+  el.dataset.phase = phase ?? 'none';
+  el.dataset.live = String(live);
+  el.setAttribute('role', 'img');
+  // Named for a reader and described for a pointer: the colour is the one thing on the row that cannot be read.
+  nameFor(el, `${PHASE_WORDS[phase] ?? 'no state reported'}, ${live ? 'open' : 'ended'}`);
+  tip(el, title);
+
+  return el;
+}
+
+/**
+ * The whole row is the control where there is a command to run, which is what the browser overlay makes of the same
+ * row: the surface a hover paints is then the row rather than the words in it, and everything the surface covers is
+ * the target. A control only where there is something to run — another CLI's session has none, and a button that
+ * could only ever refuse is worse than no button, as well as costing the card a strip it could be dragged by.
+ */
+function sessionLine(session) {
+  const reachable = openable.has(session.sessionId);
+  const el = document.createElement(reachable ? 'button' : 'span');
+
   el.className = 'session';
   el.dataset.sessionId = session.sessionId;
 
   const agent = agentMark(session.agent);
-
-  // A control only where there is a command to run: another CLI's session has none, and a button that could only ever
-  // refuse is worse than no button - it also costs the card a strip it could be dragged by.
   const name = sessionLabel(session);
-  const label = document.createElement(openable.has(session.sessionId) ? 'button' : 'span');
+  const label = document.createElement('span');
+
   label.className = 'session-label';
   label.textContent = name;
 
-  if (label.tagName === 'BUTTON') {
-    label.type = 'button';
-    // The label ellipsises, so the tooltip is where the whole name stays readable.
-    tip(label, `${name} - go to this session`);
+  // No tooltip on the row: its words are on it, and a hover that repeats them is a hover to learn to ignore. What
+  // the row does not say — what the board saw, and when — stays on the state at the other end of it.
+  if (reachable) {
+    el.type = 'button';
+    nameFor(el, `${name} - go to this session`);
     // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
-    label.draggable = false;
-    label.addEventListener('click', () => vscode.postMessage({ type: 'openSession', sessionId: session.sessionId }));
-  } else {
-    tip(label, name);
+    el.draggable = false;
+    el.addEventListener('click', () => vscode.postMessage({ type: 'openSession', sessionId: session.sessionId }));
   }
 
-  el.append(agent, label);
+  el.append(sessionDot(session.activity?.phase, !session.finished), agent, label);
 
   const activity = session.activity;
 
@@ -390,7 +414,7 @@ function sessionLine(session) {
   // not - a row reading "idle" beside a shimmering label is two of the board's claims disagreeing (R24).
   if (activity) {
     state.dataset.activitySince = String(activity.since);
-    state.textContent = phaseText(activity);
+    state.textContent = ago(Date.now() - activity.since);
     tip(state, stateTitle(activity));
     el.appendChild(state);
 
@@ -412,33 +436,61 @@ function historyLine(session) {
   if (!session || typeof session.agent !== 'string' || typeof session.cwd !== 'string' ||
       !(session.title === null || typeof session.title === 'string') ||
       !Number.isFinite(session.updatedAt) || !Number.isFinite(new Date(session.updatedAt).getTime())) return null;
-  const el = document.createElement('span');
-  el.className = 'session historical';
   const reachable = openable.has(session.sessionId);
-  const label = document.createElement(reachable ? 'button' : 'span');
+  const el = document.createElement(reachable ? 'button' : 'span');
+  el.className = 'session historical';
+  const label = document.createElement('span');
   label.className = 'session-label';
   label.textContent = session.title ?? basename(session.cwd);
   if (reachable) {
-    label.type = 'button';
-    label.draggable = false;
-    label.addEventListener('click', () => vscode.postMessage({ type: 'openSession', sessionId: session.sessionId }));
+    el.type = 'button';
+    el.draggable = false;
+    el.addEventListener('click', () => vscode.postMessage({ type: 'openSession', sessionId: session.sessionId }));
   }
   const state = document.createElement('span');
   state.className = 'state';
   state.dataset.historyUpdated = String(session.updatedAt);
-  state.textContent = `Last session · updated ${ago(Date.now() - session.updatedAt)} ago`;
-  tip(el, `${label.textContent} — ${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
-  el.append(agentMark(session.agent), label, state);
+  // The value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
+  state.textContent = ago(Date.now() - session.updatedAt);
+  // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops.
+  tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
+
+  if (reachable) {
+    nameFor(el, `${label.textContent} - resume this session`);
+  }
+  el.append(
+    sessionDot(undefined, false, 'The last session that ran here. Nothing is running on this card now.'),
+    agentMark(session.agent),
+    label,
+    state,
+  );
   return el;
 }
 
 const PHASE_WORDS = { running: 'running', waiting: 'needs you', idle: 'idle' };
 
 const PHASE_TITLES = {
-  running: 'This session is working. The duration counts the turn it is in, from the prompt that began it where the board saw one.',
+  running: 'This session is working.',
   waiting: 'This session is waiting on you.',
   idle: 'The board last saw this session finish.',
 };
+
+/** What the mark means, since a colour is the one thing on a row that cannot be read. Its fill is the second half. */
+function dotTitle(phase, live) {
+  const what = PHASE_TITLES[phase] ?? 'No hook has reported on this session.';
+
+  return live ? what : `${what} The agent has since ended it.`;
+}
+
+/**
+ * What the duration counts, and what the board last saw. Not the phase, which is the mark's at the other end of the
+ * row: a hover on one repeating the other is two tooltips to learn to ignore.
+ */
+const DURATION_TITLES = {
+  running: 'Counts the turn it is in, from the prompt that began it where the board saw one.',
+};
+
+const DURATION_TITLE = 'Counts from the event that reported the phase.';
 
 /**
  * How long ago, as one number in the largest unit that fits, and never rounded up. Overstating is the one direction
@@ -468,16 +520,11 @@ function ago(ms) {
   return days < 7 ? `${days}d` : `${Math.floor(days / 7)}w`;
 }
 
-/** The phase and how long it has held: a running session's turn, and the reporting event for every other phase (R5). */
-function phaseText(activity) {
-  return `${PHASE_WORDS[activity.phase] ?? activity.phase} ${ago(Date.now() - activity.since)}`;
-}
-
 /** What the row says on hover: what the board concluded, and the hook event it concluded it from. */
 function stateTitle(activity) {
-  const what = PHASE_TITLES[activity.phase] ?? '';
+  const what = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
 
-  return activity.event ? `${what} Last seen at the ${activity.event} hook.`.trim() : what;
+  return activity.event ? `${what} Last seen at the ${activity.event} hook.` : what;
 }
 
 /**
@@ -485,18 +532,21 @@ function stateTitle(activity) {
  * and the phase itself only changes when a hook fires - so the text is rewritten and the elements are left alone.
  */
 function tickDurations() {
-  for (const el of document.querySelectorAll('[data-history-updated]')) {
-    el.textContent = `Last session · updated ${ago(Date.now() - Number(el.dataset.historyUpdated))} ago`;
+  for (const el of document.querySelectorAll('[data-history-updated], [data-status-since]')) {
+    const at = Number(el.dataset.historyUpdated ?? el.dataset.statusSince);
+
+    if (Number.isFinite(at)) {
+      el.textContent = ago(Date.now() - at);
+    }
   }
   for (const el of document.querySelectorAll('[data-activity-since]')) {
     const since = Number(el.dataset.activitySince);
-    const phase = el.closest('.session')?.dataset.phase;
 
-    if (!Number.isFinite(since) || !phase) {
+    if (!Number.isFinite(since)) {
       continue;
     }
 
-    const text = phaseText({ phase, since });
+    const text = ago(Date.now() - since);
 
     if (el.textContent !== text) {
       el.textContent = text;
@@ -566,15 +616,6 @@ const BADGE_COLORS = {
   PURPLE: 'purple',
   PINK: 'purple',
   GRAY: 'foreground',
-};
-
-/**
- * How each kind of attention reads on a card. `blocked` is an agent that cannot go on without the developer; `your-turn` is one that ended
- * its turn and handed control back. `phase` is the session phase whose rows the badge names, so the tooltip says which session it means.
- */
-const ATTENTION = {
-  blocked: { text: 'Needs you', color: 'YELLOW', phase: 'waiting', said: 'is waiting on you.' },
-  'your-turn': { text: 'Your turn', color: 'BLUE', phase: 'idle', said: 'finished its turn — you have not replied since.' },
 };
 
 /** A pull request's own state colours, matching what GitHub paints them. */
@@ -979,6 +1020,24 @@ function repoName(issue) {
 }
 
 /** GitHub's own pull-request glyph, so the badge reads as a PR rather than a second issue number. */
+/** Octicon `sync`, on the control that reads a card again. */
+function syncMark() {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'sync-mark');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const path = document.createElementNS(SVG, 'path');
+  path.setAttribute(
+    'd',
+    'M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .655-.835ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z',
+  );
+
+  svg.appendChild(path);
+
+  return svg;
+}
+
 function pullRequestMark() {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('class', 'pr-mark');
@@ -1127,14 +1186,6 @@ function card(boardCard, avatarPool, placeable) {
   foot.appendChild(marks);
   el.appendChild(foot);
 
-  if (boardCard.triage?.state === 'done') {
-    const detail = document.createElement('p');
-    detail.className = 'triage-detail';
-    detail.dataset.stale = String(boardCard.triage.stale);
-    detail.textContent = boardCard.triage.detail;
-    foot.appendChild(detail);
-  }
-
   if (issue?.type) {
     // No tooltip on any of the three below: the chip is the whole fact, and a hover repeating it is a hover to learn
     // to ignore. What the pull-request chip's colour says about its state stays in its own accessible name.
@@ -1162,25 +1213,11 @@ function card(boardCard, avatarPool, placeable) {
     badges.appendChild(pr);
   }
 
-  // R6: on the card, not only on the session row, so it reads from across a full board, and first in the footer -
-  // the loudest thing the board has to say about a card leads what the board has to say. Three channels - the word,
-  // the border, and the row's own weight - because colour alone is not unmistakable to everyone who uses this.
-  const attention = ATTENTION[boardCard.attention];
-
-  if (attention) {
-    const named = boardCard.sessions.filter(
-      (session) => session.activity?.phase === attention.phase && !(attention.phase === 'waiting' && session.finished),
-    );
-
+  // R6, and no chip of its own: the card's edge carries it, and so does the row it is about, whose mark, words and
+  // weight all take that colour. A pill saying `Needs you` beside a row already painted yellow was the same claim
+  // twice. What a colour cannot reach is carried instead by the state mark's own accessible name.
+  if (boardCard.attention) {
     el.dataset.attention = boardCard.attention;
-    marks.appendChild(
-      badge(
-        boardCard.attention,
-        attention.text,
-        attention.color,
-        named.map((s) => `${sessionLabel(s)} ${attention.said}`).join(' '),
-      ),
-    );
   }
 
   if (boardCard.returned) {
@@ -1212,16 +1249,54 @@ function card(boardCard, avatarPool, placeable) {
     );
   } else if (triage?.state === 'done') {
     // GRAY rather than a colour: R6 keeps colour for the two things that want the developer, and BLUE is `your-turn`.
-    const chip = badge(
-      'triage',
-      triageText(triage),
-      'GRAY',
-      triage.stale
-        ? `Read ${ago(Date.now() - triage.at)} ago; the card has moved since. Click to read it again.`
-        : `Read ${ago(Date.now() - triage.at)} ago. Click to read it again.`,
-      readAgain,
-    );
+    // The sentence the reading produced is the chip's tooltip rather than a line of the card: it is a paragraph of
+    // prose on every card that has one, and a lane of them was more of the footer than the cards themselves.
+    const read = triage.stale
+      ? `Read ${ago(Date.now() - triage.at)} ago; the card has moved since.`
+      : `Read ${ago(Date.now() - triage.at)} ago.`;
+    const chip = badge('triage', triageText(triage), 'GRAY', `${triage.detail} ${read}`);
+
     chip.dataset.stale = String(triage.stale);
+
+    // The age and the control stand in one another's place at the end of the chip: the reading is what a lane is
+    // scanned for, and a button per card is a row of controls waiting to be used rather than a list to read.
+    const end = document.createElement('span');
+
+    end.className = 'triage-end';
+
+    // How long the card has held the status it is in — not when the board read it, which is in the tooltip with the
+    // sentence it produced. A reading is about a card in a state, and how long that state has held is what says
+    // whether it is still the card to pick up: a review handed over an hour ago and one sitting a week read alike
+    // otherwise. Null off the project board, where GitHub records no move to date.
+    const moved = issue?.statusChangedAt ? Date.parse(issue.statusChangedAt) : NaN;
+
+    if (Number.isFinite(moved)) {
+      const age = document.createElement('span');
+
+      age.className = 'triage-age';
+      age.dataset.statusSince = String(moved);
+      age.textContent = ago(Date.now() - moved);
+      end.appendChild(age);
+      // Only where there is an age to separate: a card off the project board carries the control and nothing before it.
+      chip.append(' · ');
+    }
+
+    // The control, not the chip: reading a card again spends the developer's usage, so it takes a press of its own
+    // rather than being what happens to anyone who clicked the words to see them in full.
+    const again = document.createElement('button');
+
+    again.type = 'button';
+    again.className = 'triage-again';
+    again.draggable = false;
+    again.appendChild(syncMark());
+    nameFor(again, 'Read this card again');
+    tip(again, 'Read this card again.');
+    again.addEventListener('click', (event) => {
+      event.stopPropagation();
+      readAgain();
+    });
+    end.appendChild(again);
+    chip.appendChild(end);
     marks.appendChild(chip);
   }
 

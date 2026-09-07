@@ -1581,3 +1581,24 @@ The label's raw channels arrive as inline custom properties on the button — `-
 **Only the dark recipe transfers.** A board whose palette comes from the editor's theme has no lightness math to fill a pill opaquely and pick a legible text colour for it, and a solid `--vscode-charts-red` under black text is unreadable. So the VS Code board draws the tint recipe in both schemes and takes the 18%/30% figures from the dark column.
 
 Three more numbers off the same card: the label row is `gap: 4px` and sits `8px` under the title; the card's content is inset **12px** at the sides; and the number above the title is **12px, weight 400**, in Primer's UI font (`Mona Sans VF`) rather than a monospace one, coloured `#9198a1` on dark against a `#f0f6fc` title. GitHub's title is **14px weight 400** — its hierarchy over the number is carried by colour alone, where this board's `--vscode-foreground` is a dimmer `#cccccc` and needs weight 600 as well.
+
+## 38. GitHub says which theme it is in on the document element, and its text pair
+
+Measured 2026-09-07 with Playwright against `https://github.com/orgs/github/projects/4247/views/21`, unauthenticated, in both colour schemes. Version-fragile: these are Primer tokens and a GitHub attribute, and either can be renamed.
+
+**The scheme is an attribute, not a media query.** `<html>` carries `data-color-mode`, `data-light-theme` and `data-dark-theme`. `data-color-mode` was `auto` on both runs, with `data-light-theme="light"` and `data-dark-theme="dark"` — so under `auto` the page follows the operating system and `prefers-color-scheme` is right, but a developer who picks a theme explicitly gets `data-color-mode="dark"` or `"light"` and the media query would then be wrong. Anything that has to know the scheme reads all three states: the two explicit values, and `auto` deferring to `prefers-color-scheme`.
+
+**The text pair, and where a session name sits in it.**
+
+| token | light | dark |
+|---|---|---|
+| `--fgColor-default` | `#1f2328` | `#f0f6fc` |
+| `--fgColor-muted` | `#59636e` | `#9198a1` |
+| `--fgColor-success` | `#1a7f37` | `#3fb950` |
+| `--fgColor-attention` | `#9a6700` | `#d29922` |
+| `--borderColor-default` | `#d1d9e0` | `#3d444d` |
+| `--bgColor-default` | `#fff` | `#0d1117` |
+
+A session name is 55% of `--fgColor-default` over `--fgColor-muted`, which resolves to `#394047` light and `#c5ccd3` dark. That is the closest either board gets to the other on this element: VS Code's `--vscode-foreground` is `#3b3b3b` in Light Modern and `#cccccc` in Dark Modern, so the two boards land within a few units per channel and a row reads the same on both.
+
+**The attention pair is a foreground pair, not an emphasis pair.** `--bgColor-attention-emphasis` (`#bf8700` light, `#9e6a03` dark) is a surface colour, and a ring drawn in it sits a visible shade off the words it rings, which take `--fgColor-attention`. Using the foreground token for both puts them on one colour and lands within a few percent of the chart colours the editor board takes for the same two states — `--vscode-charts-yellow` is `#cca700` in Dark Modern against `#d29922`, and `--vscode-charts-blue` is `#3794ff` against `--fgColor-accent`'s `#4493f8`.
