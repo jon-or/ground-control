@@ -594,17 +594,218 @@ function badge(kind, text, color, title, onOpen) {
   return el;
 }
 
-/** The control that opens what this card's checkout has done - its commits and its uncommitted work in one editor. */
-function changesControl(boardCard) {
+/**
+ * What this card can be asked to do beyond its own chips. An item that could only ever refuse is worse than none —
+ * the rule the session rows already follow — so a card with nothing to offer draws no control at all.
+ */
+function cardActions(boardCard) {
+  const actions = [];
+
+  if (hasCheckout(boardCard)) {
+    actions.push({
+      label: 'View changes',
+      hint: "Open this card's commits and uncommitted changes in one editor",
+      run: () => vscode.postMessage({ type: 'openChanges', key: boardCard.key }),
+    });
+  }
+
+  return actions;
+}
+
+/** The card whose overflow menu is open: the menu itself, the control it hangs from, and how to stop watching for a close. */
+let openMenu = null;
+
+const MENU_MARGIN = 8;
+
+/**
+ * Hangs the menu under the control that opened it, right edges aligned and measured after it is on the document — a
+ * guess at its width puts a menu on a right-hand lane hundreds of pixels from it. Flipped above rather than off the
+ * bottom, and read afresh on every draw so it follows a card the board moved under it.
+ */
+function place(menu, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const own = menu.getBoundingClientRect();
+  const below = rect.bottom + 4;
+  const overflows = below + own.height > window.innerHeight - MENU_MARGIN;
+
+  menu.style.top = `${overflows ? Math.max(MENU_MARGIN, rect.top - 4 - own.height) : below}px`;
+  menu.style.left = `${Math.max(MENU_MARGIN, Math.min(rect.right - own.width, window.innerWidth - own.width - MENU_MARGIN))}px`;
+}
+
+/** Takes the open menu off the document. The focus goes back to the control whenever the keyboard is what closed it. */
+function closeMenu(refocus) {
+  if (openMenu === null) {
+    return;
+  }
+
+  const { menu, anchor, unwatch } = openMenu;
+
+  openMenu = null;
+  unwatch();
+  menu.remove();
+  anchor.setAttribute('aria-expanded', 'false');
+  anchor.removeAttribute('aria-controls');
+
+  if (refocus && anchor.isConnected) {
+    anchor.focus();
+  }
+}
+
+/**
+ * What closes a menu from outside itself, installed while one is open and torn down with it. Every handler reads
+ * `openMenu` rather than closing over what opened them, because a draw can re-anchor a menu to a rebuilt card.
+ */
+function watchMenu() {
+  const away = (event) => {
+    if (openMenu && !openMenu.menu.contains(event.target) && !openMenu.anchor.contains(event.target)) {
+      closeMenu(false);
+    }
+  };
+
+  const escape = (event) => {
+    if (event.key === 'Escape' && openMenu) {
+      event.preventDefault();
+      closeMenu(true);
+    }
+  };
+
+  // The menu is fixed to the viewport and the lanes scroll under it, so a scroll would leave it over another card.
+  const moved = () => closeMenu(false);
+
+  document.addEventListener('click', away, true);
+  document.addEventListener('keydown', escape, true);
+  document.addEventListener('scroll', moved, true);
+  window.addEventListener('resize', moved);
+
+  return () => {
+    document.removeEventListener('click', away, true);
+    document.removeEventListener('keydown', escape, true);
+    document.removeEventListener('scroll', moved, true);
+    window.removeEventListener('resize', moved);
+  };
+}
+
+/** Menus come and go, so each is named afresh: `aria-controls` has to point at the one on the document right now. */
+let menuSeq = 0;
+
+function showMenu(boardCard, anchor, from = 'first') {
+  const menu = document.createElement('div');
+  menu.className = 'card-popover';
+  menu.id = `card-menu-${++menuSeq}`;
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', `Actions for ${cardName(boardCard)}`);
+
+  for (const action of cardActions(boardCard)) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.setAttribute('role', 'menuitem');
+    item.textContent = action.label;
+    // The label names the item, so the tooltip is what it does rather than a second copy of the name.
+    tip(item, action.hint);
+    item.addEventListener('click', (event) => {
+      event.stopPropagation();
+      // Back to the control, not to the top of the document: an action the host refuses must leave the keyboard here.
+      closeMenu(true);
+      action.run();
+    });
+    menu.appendChild(item);
+  }
+
+  menu.addEventListener('keydown', (event) => {
+    const items = Array.from(menu.querySelectorAll('button'));
+
+    // Not preventing the default: the focus is on the control by the time the browser acts on it, so Tab leaves for
+    // whatever follows the card rather than for the end of the board, which is where this menu sits in the document.
+    if (event.key === 'Tab') {
+      closeMenu(true);
+
+      return;
+    }
+
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      items[event.key === 'Home' ? 0 : items.length - 1]?.focus();
+
+      return;
+    }
+
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+      return;
+    }
+
+    event.preventDefault();
+
+    const at = items.indexOf(document.activeElement);
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+
+    (at === -1 ? items[step === 1 ? 0 : items.length - 1] : items[(at + step + items.length) % items.length])?.focus();
+  });
+
+  document.body.appendChild(menu);
+  place(menu, anchor);
+  anchor.setAttribute('aria-expanded', 'true');
+  anchor.setAttribute('aria-controls', menu.id);
+
+  const items = menu.querySelectorAll('button');
+
+  // Focused before the watch is armed: a menu that lands partly off screen scrolls the document to bring its item
+  // into view, and a scroll watch already armed would read that as the board moving and close what it just opened.
+  items[from === 'last' ? items.length - 1 : 0]?.focus();
+
+  openMenu = { key: boardCard.key, menu, anchor, unwatch: watchMenu() };
+}
+
+/** GitHub's own overflow glyph, so the control reads as a menu rather than as one more of the chips beside it. */
+function menuMark() {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'menu-mark');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const path = document.createElementNS(SVG, 'path');
+  path.setAttribute(
+    'd',
+    'M8 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM1.5 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm13 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z',
+  );
+
+  svg.appendChild(path);
+
+  return svg;
+}
+
+function cardMenuControl(boardCard) {
   const el = document.createElement('button');
   el.type = 'button';
-  el.className = 'card-changes';
-  el.textContent = 'Changes';
-  tip(el, "Open this card's commits and uncommitted changes in one editor");
-  nameFor(el, `Open the commits and uncommitted changes of ${cardName(boardCard)}`);
+  el.className = 'card-menu';
+  el.setAttribute('aria-haspopup', 'menu');
+  el.setAttribute('aria-expanded', 'false');
+  // The glyph says nothing on its own, so the pointer gets a tooltip; the name is what carries which card it is about.
+  tip(el, 'More actions');
+  nameFor(el, `More actions for ${cardName(boardCard)}`);
   // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
   el.draggable = false;
-  el.addEventListener('click', () => vscode.postMessage({ type: 'openChanges', key: boardCard.key }));
+  el.appendChild(menuMark());
+  el.addEventListener('click', (event) => {
+    event.stopPropagation();
+
+    const reopening = openMenu?.key === boardCard.key;
+
+    closeMenu(false);
+
+    if (!reopening) {
+      showMenu(boardCard, el);
+    }
+  });
+
+  el.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+      return;
+    }
+
+    event.preventDefault();
+    closeMenu(false);
+    showMenu(boardCard, el, event.key === 'ArrowUp' ? 'last' : 'first');
+  });
 
   return el;
 }
@@ -640,6 +841,34 @@ function cardName(boardCard) {
   const checkout = checkoutName(boardCard);
 
   return checkout.branch === null ? checkout.directory : `${checkout.repository} ${checkout.branch}`;
+}
+
+/**
+ * A menu open while the board redrew. A card whose element was rebuilt hands the menu its new control; a card that
+ * left the board takes its menu with it, rather than leaving one hanging off an element no longer on the page.
+ */
+function followMenu() {
+  if (openMenu === null) {
+    return;
+  }
+
+  if (!openMenu.anchor.isConnected) {
+    const anchor = cardEls.get(openMenu.key)?.el.querySelector('.card-menu');
+
+    // The element itself, never the roster: `cardEls` keeps the card an archived lane is holding off screen, and a
+    // menu re-anchored to one measures a zero rect and parks itself in the corner of the board.
+    if (!anchor?.isConnected) {
+      closeMenu(false);
+
+      return;
+    }
+
+    openMenu.anchor = anchor;
+    anchor.setAttribute('aria-expanded', 'true');
+    anchor.setAttribute('aria-controls', openMenu.menu.id);
+  }
+
+  place(openMenu.menu, openMenu.anchor);
 }
 
 function cardTitle(boardCard) {
@@ -749,18 +978,28 @@ function card(boardCard, avatarPool, placeable) {
     avatarSlot.appendChild(avatar(issue.avatar, avatarPool));
   }
 
+  // What GitHub says the card is, under its title: the type, the stage the team put it in, and its pull request.
   const badges = document.createElement('span');
-  badges.className = 'badges';
+  badges.className = 'badges github';
+  badges.setAttribute('role', 'group');
+  badges.setAttribute('aria-label', 'GitHub labels');
 
-  meta.append(number, badges);
+  // What this board adds on top of that, set apart in the card's own footer so the two are never read as one row.
+  // Named as well as painted: a tint and a rule split them for the eye and for nothing else.
+  const marks = document.createElement('span');
+  marks.className = 'badges marks';
+  marks.setAttribute('role', 'group');
+  marks.setAttribute('aria-label', 'Board status');
 
-  // A card with no session has no directory to read, and a control that could only ever refuse is worse than none,
-  // which is the rule the session rows already follow.
-  if (hasCheckout(boardCard)) {
-    meta.appendChild(changesControl(boardCard));
+  meta.appendChild(number);
+  meta.appendChild(avatarSlot);
+
+  const actions = cardActions(boardCard);
+
+  if (actions.length > 0) {
+    meta.appendChild(cardMenuControl(boardCard));
   }
 
-  meta.appendChild(avatarSlot);
   el.appendChild(meta);
 
   const open = document.createElement('button');
@@ -780,13 +1019,21 @@ function card(boardCard, avatarPool, placeable) {
   }
 
   el.appendChild(open);
+  el.appendChild(badges);
+
+  // The board's own reading of the card, its sessions, and the controls it will grow — set apart from GitHub's facts
+  // above it. Drawn on every card, including one with nothing in it yet, so a lane of cards has one silhouette.
+  const foot = document.createElement('div');
+  foot.className = 'card-foot';
+  foot.appendChild(marks);
+  el.appendChild(foot);
 
   if (boardCard.triage?.state === 'done') {
     const detail = document.createElement('p');
     detail.className = 'triage-detail';
     detail.dataset.stale = String(boardCard.triage.stale);
     detail.textContent = boardCard.triage.detail;
-    el.appendChild(detail);
+    foot.appendChild(detail);
   }
 
   if (issue?.type) {
@@ -814,10 +1061,31 @@ function card(boardCard, avatarPool, placeable) {
     badges.appendChild(pr);
   }
 
+  // R6: on the card, not only on the session row, so it reads from across a full board, and first in the footer -
+  // the loudest thing the board has to say about a card leads what the board has to say. Three channels - the word,
+  // the border, and the row's own weight - because colour alone is not unmistakable to everyone who uses this.
+  const attention = ATTENTION[boardCard.attention];
+
+  if (attention) {
+    const named = boardCard.sessions.filter(
+      (session) => session.activity?.phase === attention.phase && !(attention.phase === 'waiting' && session.finished),
+    );
+
+    el.dataset.attention = boardCard.attention;
+    marks.appendChild(
+      badge(
+        boardCard.attention,
+        attention.text,
+        attention.color,
+        named.map((s) => `${sessionLabel(s)} ${attention.said}`).join(' '),
+      ),
+    );
+  }
+
   if (boardCard.returned) {
     const mark = badge('returned', 'Returned', 'ORANGE');
     tip(mark, 'This card was past your hands and has come back.');
-    badges.appendChild(mark);
+    marks.appendChild(mark);
   }
 
   // R38. Deliberately none of R6's three channels: a card being read, or one that has been, is asking for nothing.
@@ -826,11 +1094,11 @@ function card(boardCard, avatarPool, placeable) {
   const readAgain = () => vscode.postMessage({ type: 'retriage', key: boardCard.key });
 
   if (triage?.state === 'running') {
-    badges.appendChild(badge('triage-running', 'Reading…', 'GRAY', 'Working out what this card is waiting on.'));
+    marks.appendChild(badge('triage-running', 'Reading…', 'GRAY', 'Working out what this card is waiting on.'));
   } else if (triage?.state === 'failed') {
     // No words about what went wrong: that is one line above the lanes (R25). What this is, is somewhere to click,
     // without which the cards that most need reading again are the only ones with nothing to press.
-    badges.appendChild(
+    marks.appendChild(
       badge(
         'triage-failed',
         'Not read',
@@ -853,7 +1121,7 @@ function card(boardCard, avatarPool, placeable) {
       readAgain,
     );
     chip.dataset.stale = String(triage.stale);
-    badges.appendChild(chip);
+    marks.appendChild(chip);
   }
 
   // R39. Beside the reading it acts on, and never one of R6's channels: work the board started is work in progress,
@@ -861,35 +1129,15 @@ function card(boardCard, avatarPool, placeable) {
   const action = boardCard.action;
 
   if (action) {
-    badges.appendChild(actionChip(action, boardCard.key));
-  }
-
-  // R6: on the card, not only on the session row, so it reads from across a full board. Three channels - the word,
-  // the border, and the row's own weight - because colour alone is not unmistakable to everyone who uses this.
-  const attention = ATTENTION[boardCard.attention];
-
-  if (attention) {
-    const named = boardCard.sessions.filter(
-      (session) => session.activity?.phase === attention.phase && !(attention.phase === 'waiting' && session.finished),
-    );
-
-    el.dataset.attention = boardCard.attention;
-    badges.appendChild(
-      badge(
-        boardCard.attention,
-        attention.text,
-        attention.color,
-        named.map((s) => `${sessionLabel(s)} ${attention.said}`).join(' '),
-      ),
-    );
+    marks.appendChild(actionChip(action, boardCard.key));
   }
 
   for (const session of boardCard.sessions) {
-    el.appendChild(sessionLine(session));
+    foot.appendChild(sessionLine(session));
   }
   if (!boardCard.sessions.some((session) => !session.finished)) {
     const historical = historyLine(boardCard.lastSession);
-    if (historical) el.appendChild(historical);
+    if (historical) foot.appendChild(historical);
   }
 
   // The lane is the developer's own placement, so a card carries its own way to move. Alt+arrow is the same move from
@@ -899,6 +1147,8 @@ function card(boardCard, avatarPool, placeable) {
 
     el.draggable = true;
     el.addEventListener('dragstart', (event) => {
+      // A drag emits no click, so nothing else would take the menu off a card about to move to another lane.
+      closeMenu(false);
       dragging = boardCard.key;
       el.classList.add('dragging');
       lanesEl.classList.add('dragging');
@@ -998,6 +1248,9 @@ function signature(boardCard) {
   return JSON.stringify([
     boardCard.lane,
     boardCard.returned,
+    boardCard.attention,
+    boardCard.triage,
+    boardCard.action,
     boardCard.issue,
     boardCard.lastSession,
     boardCard.lastSession ? openable.has(boardCard.lastSession.sessionId) : false,
@@ -1222,6 +1475,7 @@ function draw(payload) {
   if (countCards(payload.lanes) === 0) {
     emptyEl.textContent = emptyText(payload);
     reconcile(lanesEl, [emptyEl]);
+    followMenu();
 
     return;
   }
@@ -1230,6 +1484,8 @@ function draw(payload) {
     lanesEl,
     shown.map((lane) => syncLane(lane, placeable)),
   );
+
+  followMenu();
 
   // After the cards, never before: a reused card is handed its newer observation time as it is reconciled.
   tickDurations();

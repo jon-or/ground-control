@@ -219,7 +219,8 @@ describe('board webview', () => {
     expect(avatar.classList).not.toContain('has-image');
     expect(card.querySelector('.card-meta')?.contains(card.querySelector('.avatar'))).toBe(true);
     expect(getComputedStyle(card.querySelector('.title')!).overflowWrap).toBe('anywhere');
-    expect(card.querySelector('.card-meta')?.contains(card.querySelector('.status'))).toBe(true);
+    // What GitHub says the card is reads under the title; what the board says about it is set apart below.
+    expect(card.querySelector('.badges.github')?.contains(card.querySelector('.status'))).toBe(true);
     expect(renderedSession.textContent).toContain('editing tests');
 
     image.dispatchEvent(new Event('load'));
@@ -280,7 +281,7 @@ describe('board webview', () => {
   it('badges the type before the status, then the pull request, in GitHub own colours', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
-    const badges = Array.from(document.querySelectorAll<HTMLElement>('.card-meta .badge'));
+    const badges = Array.from(document.querySelectorAll<HTMLElement>('.badges.github .badge'));
 
     expect(badges.map((b) => b.className.replace('badge ', ''))).toEqual([
       'type',
@@ -298,7 +299,7 @@ describe('board webview', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
     const number = document.querySelector<HTMLButtonElement>('.card-meta .number')!;
-    const pr = document.querySelector<HTMLButtonElement>('.card-meta .badge.pull-request')!;
+    const pr = document.querySelector<HTMLButtonElement>('.badges.github .badge.pull-request')!;
 
     expect(number.tagName).toBe('BUTTON');
     expect(tipOf(number)).toBe('Open issue #18953 on GitHub');
@@ -528,7 +529,9 @@ describe('board webview', () => {
 
     send(message({ lanes: lanes({ build: [bare] }) }));
 
-    expect(document.querySelectorAll('.card-meta .badge')).toHaveLength(0);
+    expect(document.querySelectorAll('.badges.github .badge')).toHaveLength(0);
+    // No row rather than an empty one, so the card's own gap does not leave a blank line where GitHub said nothing.
+    expect(getComputedStyle(document.querySelector<HTMLElement>('.badges.github')!).display).toBe('none');
   });
 
   it('marks a Claude session with its own icon, and names any other agent in text — R2', () => {
@@ -798,8 +801,9 @@ describe('reported activity', () => {
     expect(/button\.session-label \{\s*color: ButtonText/.test(forced ?? '')).toBe(true);
     expect(forced).toContain('color: CanvasText');
 
-    // The changes control is drawn by its underline, and a border colour left to currentColor is unspecified here.
-    expect(/\.card-changes \{\s*color: ButtonText;\s*border-bottom-color: ButtonText/.test(forced ?? '')).toBe(true);
+    // The card's menu is a button on the card's own surface, and the footer's tint is the one thing forced colours drop.
+    expect(/\.card-menu \{\s*color: ButtonText;/.test(forced ?? '')).toBe(true);
+    expect(/\.card-foot \{\s*border-top-color: CanvasText;/.test(forced ?? '')).toBe(true);
   });
 
   it('paints the marked label its attention colour even though the label is a button', () => {
@@ -1085,7 +1089,7 @@ describe('lanes', () => {
 
     const card = document.querySelector<HTMLElement>('.card')!;
 
-    expect(card.querySelector('.card-meta .badges .returned')?.textContent).toBe('Returned');
+    expect(card.querySelector('.card-foot .badges.marks .returned')?.textContent).toBe('Returned');
     expect(tipOf(card.querySelector('.card-open'))).toBe('');
     expect(tipOf(card)).toBe('');
   });
@@ -1382,19 +1386,154 @@ it('makes a historical title openable when the host offers it, including after a
   expect(document.querySelector('.historical button')).toBeNull();
 });
 
-describe('the changes control', () => {
-  const changes = () => document.querySelector<HTMLButtonElement>('.card-changes');
+/**
+ * The card reads in two halves, the way the browser overlay's does: what GitHub says about the issue, and then what
+ * this board adds on top of it. A chip that drifts from one half to the other puts the board's own reading among
+ * GitHub's facts, which is the confusion the split exists to end.
+ */
+describe('what GitHub says, and what the board adds', () => {
+  const triage: NonNullable<LanedCard['triage']> = { state: 'done', action: 'address-review', qualifier: 'followup', detail: 'Answer the naming notes.', at: Date.now(), stale: false };
+  const waiting: Session = { ...session, activity: { phase: 'waiting', since: Date.now(), event: 'Notification' } };
 
-  it('is a button on a card with a session', () => {
+  const rows: [string, string][] = [
+    ['type', '.badges.github'],
+    ['status', '.badges.github'],
+    ['pull-request', '.badges.github'],
+    ['returned', '.card-foot .badges.marks'],
+    ['triage', '.card-foot .badges.marks'],
+    ['blocked', '.card-foot .badges.marks'],
+  ];
+
+  function full(): void {
+    send(
+      message({
+        lanes: lanes({
+          build: [
+            {
+              ...liveCard,
+              returned: true,
+              attention: 'blocked',
+              triage,
+              sessions: [waiting],
+            },
+          ],
+        }),
+      }),
+    );
+  }
+
+  it('reads down: the header, the title, GitHub own labels, then everything this board adds', () => {
+    full();
+
+    const card = document.querySelector<HTMLElement>('.card')!;
+
+    expect(Array.from(card.children).map((el) => el.className)).toEqual([
+      'card-meta',
+      'card-open',
+      'badges github',
+      'card-foot',
+    ]);
+  });
+
+  it.each(rows)('draws the %s chip in %s', (kind, where) => {
+    full();
+
+    expect(document.querySelector(`${where} .${kind}`)).not.toBeNull();
+  });
+
+  it('carries the reading sentence and every session row inside the footer, never above it', () => {
+    full();
+
+    const foot = document.querySelector<HTMLElement>('.card-foot')!;
+
+    expect(foot.querySelector('.triage-detail')?.textContent).toBe('Answer the naming notes.');
+    expect(foot.querySelectorAll('.session')).toHaveLength(1);
+    expect(document.querySelectorAll('.card > .session')).toHaveLength(0);
+    expect(document.querySelectorAll('.card > .triage-detail')).toHaveLength(0);
+  });
+
+  /**
+   * A reading and a run change nothing else about a card, so a card already on the board is only redrawn for them if
+   * the signature says so. Without that the footer stays empty for the whole time a card sits on a live board.
+   */
+  it('fills in when a reading lands on a card already on the board', () => {
+    const bare = { ...liveCard, sessions: [] };
+
+    send(message({ lanes: lanes({ build: [bare] }) }));
+    expect(document.querySelector('.card-foot .badge')).toBeNull();
+
+    send(message({ lanes: lanes({ build: [{ ...bare, triage: { state: 'running' } }] }) }));
+    expect(document.querySelector('.card-foot .badge.triage-running')).not.toBeNull();
+
+    send(message({ lanes: lanes({ build: [{ ...bare, triage }] }) }));
+    expect(document.querySelector('.card-foot .badge.triage')?.textContent).toBe('Answer review · followup');
+    expect(document.querySelector('.card-foot .triage-detail')?.textContent).toBe('Answer the naming notes.');
+
+    send(message({ lanes: lanes({ build: [{ ...bare, triage, action: { state: 'available', action: 'merge-upstream' } }] }) }));
+    expect(document.querySelector('.card-foot .badge.action')?.textContent).toBe('Run merge upstream');
+  });
+
+  // Settled: the footer is where this board's controls go, so it is drawn on a card that has nothing in it yet.
+  it('is drawn on a card the board has read nothing about and nobody has worked on', () => {
+    send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
+
+    const foot = document.querySelector<HTMLElement>('.card-foot')!;
+
+    expect(foot).not.toBeNull();
+    expect(foot.querySelector('.badge')).toBeNull();
+  });
+
+  it('sets the footer apart by a tint and a rule, and reaches the card three edges', () => {
+    full();
+
+    const card = getComputedStyle(document.querySelector<HTMLElement>('.card')!);
+    const foot = getComputedStyle(document.querySelector<HTMLElement>('.card-foot')!);
+
+    expect(foot.background).toContain('color-mix');
+    // jsdom will not expand a shorthand carrying a var(), so the rule itself is what the divider is asserted from.
+    expect(/\.card-foot \{[^}]*border-top: 1px solid color-mix\(/.test(readFileSync(resolve('media/board.css'), 'utf8'))).toBe(true);
+    // Cancels the card's padding on the three sides it touches, so the tint runs edge to edge rather than inset.
+    expect(card.paddingLeft).toBe('0.75rem');
+    expect(foot.marginLeft).toBe('-0.75rem');
+    expect(foot.marginRight).toBe('-0.75rem');
+    expect(card.paddingBottom).toBe('0.6rem');
+    expect(foot.marginBottom).toBe('-0.6rem');
+  });
+
+  // The footer's own background would paint over an inset shadow the card cast, cutting the accent bar in two.
+  it('draws the type accent as an element of its own rather than a shadow the footer covers', () => {
+    full();
+
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+
+    expect(css).toContain('inset: 0 auto 0 0');
+    expect(css).toContain('background: var(--gc-accent);');
+    expect(css).not.toContain('box-shadow: inset 3px 0 0');
+    expect(getComputedStyle(document.querySelector<HTMLElement>('.card')!).position).toBe('relative');
+  });
+});
+
+describe("the card's own menu", () => {
+  const control = () => document.querySelector<HTMLButtonElement>('.card-menu');
+  const menu = () => document.querySelector<HTMLElement>('.card-popover');
+  const items = () => Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button'));
+
+  // Closed the way the board closes it, not by yanking the node: the document handlers a menu installs are
+  // released by `closeMenu`, and a test that left them installed would leak one pair per test.
+  afterEach(() => document.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+  it('hangs from a control on the card header, named for the card it acts on', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
-    const el = changes()!;
-    expect(el.tagName).toBe('BUTTON');
-    expect(el.textContent).toBe('Changes');
-    expect(tipOf(el)).toBe("Open this card's commits and uncommitted changes in one editor");
-    expect(el.getAttribute('aria-label')).toBe('Open the commits and uncommitted changes of Cached counts do not update');
+    const el = control()!;
+
+    expect(el.closest('.card-meta')).not.toBeNull();
+    expect(el.getAttribute('aria-haspopup')).toBe('menu');
+    expect(el.getAttribute('aria-expanded')).toBe('false');
+    expect(el.getAttribute('aria-label')).toBe('More actions for Cached counts do not update');
     // Without this a few pixels of drift on the way to a click starts a drag of the card instead.
     expect(el.getAttribute('draggable')).toBe('false');
+    expect(menu()).toBeNull();
   });
 
   it('names the repository beside the branch on a card with no issue, which a branch alone would not', () => {
@@ -1410,17 +1549,178 @@ describe('the changes control', () => {
     };
 
     send(message({ lanes: lanes({ build: [adHoc] }) }));
+    control()!.click();
 
-    expect(changes()!.getAttribute('aria-label')).toBe(
-      'Open the commits and uncommitted changes of ground-control master',
-    );
+    expect(control()!.getAttribute('aria-label')).toBe('More actions for ground-control master');
+    expect(menu()!.getAttribute('aria-label')).toBe('Actions for ground-control master');
   });
 
-  it('names the card, never its directory', () => {
+  it('opens on a click and offers the changes the card has, closing again on a second one', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
-    changes()!.click();
+    control()!.click();
+
+    expect(control()!.getAttribute('aria-expanded')).toBe('true');
+    expect(menu()!.getAttribute('role')).toBe('menu');
+    expect(menu()!.getAttribute('aria-label')).toBe('Actions for Cached counts do not update');
+    expect(items().map((item) => item.textContent)).toEqual(['View changes']);
+    expect(tipOf(items()[0])).toBe("Open this card's commits and uncommitted changes in one editor");
+    // The first item takes the focus, so the menu can be driven from where the control left the keyboard.
+    expect(document.activeElement).toBe(items()[0]);
+
+    control()!.click();
+    expect(menu()).toBeNull();
+    expect(control()!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('names the card, never its directory, and closes as it acts', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    control()!.click();
+    items()[0]!.click();
 
     expect(sent()).toEqual([{ type: 'openChanges', key: 'issue:18953' }]);
+    expect(menu()).toBeNull();
+  });
+
+  it('closes on a click anywhere else, and on Escape with the focus put back', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    control()!.click();
+    document.getElementById('meta')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(menu()).toBeNull();
+
+    control()!.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(control());
+  });
+
+  it('walks its items with the arrow keys, wrapping at either end', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    control()!.click();
+
+    // One item today, so both arrows land back on it — the wrap is what a second item would otherwise break.
+    menu()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(items()[0]);
+    menu()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(document.activeElement).toBe(items()[0]);
+
+    // Anything else is the item's own to handle, so the menu neither swallows it nor moves the focus for it.
+    const typed = new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true });
+
+    menu()!.dispatchEvent(typed);
+    expect(typed.defaultPrevented).toBe(false);
+  });
+
+  // The menu is the last thing in the document, so a Tab it did not handle would land at the far end of the board.
+  it('closes on Tab, leaving the focus on the control the browser then tabs on from', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    control()!.click();
+
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+
+    items()[0]!.dispatchEvent(tab);
+
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(control());
+    // Never prevented: the browser's own Tab is what moves on from the control this just focused.
+    expect(tab.defaultPrevented).toBe(false);
+  });
+
+  it('opens from the keyboard on either arrow, taking the end the arrow points at', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    control()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(items()[0]);
+
+    control()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(document.activeElement).toBe(items()[items().length - 1]);
+
+    // One menu, not two: opening from the control again must take the first one off the document.
+    expect(document.querySelectorAll('.card-popover')).toHaveLength(1);
+  });
+
+  it('jumps to either end on Home and End', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    control()!.click();
+
+    menu()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(document.activeElement).toBe(items()[items().length - 1]);
+
+    menu()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    expect(document.activeElement).toBe(items()[0]);
+  });
+
+  // An action the host refuses would otherwise leave the keyboard at the top of the document with nothing said.
+  it('puts the focus back on the control when an item is chosen', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    control()!.click();
+    items()[0]!.click();
+
+    expect(document.activeElement).toBe(control());
+  });
+
+  // A drag emits no click, so without this the menu rides along and is re-placed over the card's new lane.
+  it('closes when the card it belongs to starts being dragged', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    control()!.click();
+
+    const card = document.querySelector('.card')!;
+
+    card.dispatchEvent(new Event('dragstart'));
+
+    expect(menu()).toBeNull();
+
+    // The board defers every render while a drag is live, so a drag left open stops the next test drawing anything.
+    card.dispatchEvent(new Event('dragend'));
+  });
+
+  // `cardEls` keeps the element of a card the archive toggle is hiding, so being on the board is not being on screen.
+  it('closes rather than re-anchoring to a card the archive toggle has taken off screen', () => {
+    const archived = { ...liveCard, key: 'issue:404', lane: 'archived' as const };
+
+    send(message({ lanes: lanes({ archived: [archived] }) }));
+    (document.getElementById('show-archived') as HTMLInputElement).checked = true;
+    send(message({ lanes: lanes({ archived: [archived] }) }));
+
+    control()!.click();
+    expect(menu()).not.toBeNull();
+
+    (document.getElementById('show-archived') as HTMLInputElement).checked = false;
+    send(message({ lanes: lanes({ archived: [{ ...archived, returned: true }] }) }));
+
+    expect(menu()).toBeNull();
+  });
+
+  it('keeps naming its menu after a refresh has rebuilt the card under it', () => {
+    const running: Session = { ...session, activity: { phase: 'running', since: Date.now(), event: 'UserPromptSubmit' } };
+
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [running] }] }) }));
+    control()!.click();
+
+    const stopped: Session = { ...running, activity: { phase: 'waiting', since: Date.now(), event: 'Notification' } };
+
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [stopped] }] }) }));
+
+    expect(control()!.getAttribute('aria-controls')).toBe(menu()!.id);
+  });
+
+  it('closes when the lane it is anchored in scrolls under it', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    control()!.click();
+
+    document.querySelector('.lane-cards')!.dispatchEvent(new Event('scroll'));
+
+    expect(menu()).toBeNull();
+  });
+
+  it('names the menu it opened, so the control points at the one on the document', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    control()!.click();
+
+    expect(control()!.getAttribute('aria-controls')).toBe(menu()!.id);
+
+    control()!.click();
+    expect(control()!.getAttribute('aria-controls')).toBeNull();
   });
 
   it('is drawn on a card whose sessions have all ended, from the session it saved', () => {
@@ -1428,23 +1728,44 @@ describe('the changes control', () => {
 
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], lastSession }] }) }));
 
-    expect(changes()).not.toBeNull();
+    expect(control()).not.toBeNull();
   });
 
-  // A card nobody has worked on has no directory to read, and a control that could only ever refuse is worse than
-  // no control — the rule the session rows already follow.
-  it('is absent on a card with no session at all', () => {
+  // A card nobody has worked on has no directory to read, and a menu whose every item could only refuse is worse
+  // than no menu — the rule the session rows already follow.
+  it('is absent on a card with nothing to offer', () => {
     send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
 
-    expect(changes()).toBeNull();
+    expect(control()).toBeNull();
+  });
+
+  it('follows the card it belongs to when a refresh rebuilds it, and goes when the card does', () => {
+    const running: Session = { ...session, activity: { phase: 'running', since: Date.now(), event: 'UserPromptSubmit' } };
+    const working: LanedCard = { ...liveCard, sessions: [running] };
+
+    send(message({ lanes: lanes({ build: [working] }) }));
+    control()!.click();
+
+    const first = control()!;
+
+    // A phase change rebuilds the card, so the menu would otherwise be left hanging off a detached control.
+    const stopped: Session = { ...running, activity: { phase: 'waiting', since: Date.now(), event: 'Notification' } };
+
+    send(message({ lanes: lanes({ build: [{ ...working, sessions: [stopped] }] }) }));
+    expect(menu()).not.toBeNull();
+    expect(control()).not.toBe(first);
+    expect(control()!.getAttribute('aria-expanded')).toBe('true');
+
+    send(message({ lanes: lanes({}) }));
+    expect(menu()).toBeNull();
   });
 });
 
 /**
- * The board draws the control on exactly the cards `core` would hand a checkout for. `media/board.js` is a classic
+ * The board offers the item on exactly the cards `core` would hand a checkout for. `media/board.js` is a classic
  * script and can import nothing, so the condition exists twice; this is the table asserted against `core`'s own
  * copy in `packages/core/test/checkout.test.ts`, with literal answers rather than a computed expectation. A copy
- * that drifts draws a control that can only refuse, or hides one that would have worked.
+ * that drifts offers an item that can only refuse, or hides one that would have worked.
  */
 describe('which cards have a checkout, against core', () => {
   const past = { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: 1 };
@@ -1460,7 +1781,7 @@ describe('which cards have a checkout, against core', () => {
   it.each(rows)('a card with %s', (_row, over, expected) => {
     send(message({ lanes: lanes({ build: [{ ...liveCard, ...over }] }) }));
 
-    expect(document.querySelector('.card-changes') !== null).toBe(expected);
+    expect(document.querySelector('.card-menu') !== null).toBe(expected);
   });
 });
 

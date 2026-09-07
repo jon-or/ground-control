@@ -283,8 +283,12 @@ main.dragging .lane-idle {
 
 /* Cards ------------------------------------------------------------------- */
 
-/* A lane is too narrow for one row, so the card wraps: header, then badges, then a row per session. */
+/*
+ * A lane is too narrow for one row, so the card reads down: what GitHub says the card is - its number, its title and
+ * its labels - and then, set apart below, everything this board adds on top of that.
+ */
 .card {
+  position: relative;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -295,12 +299,25 @@ main.dragging .lane-idle {
   background: var(--vscode-editorWidget-background, transparent);
   border: 1px solid transparent;
   border-radius: var(--gc-radius);
-  box-shadow: inset 3px 0 0 var(--gc-accent);
+}
+
+/* Its own element rather than an inset shadow: the footer's background would paint over a shadow the card cast. */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  /* Above the footer's own background, which is the whole reason the accent is an element rather than a shadow. */
+  z-index: 1;
+  background: var(--gc-accent);
+  border-start-start-radius: calc(var(--gc-radius) - 1px);
+  border-end-start-radius: calc(var(--gc-radius) - 1px);
+  pointer-events: none;
 }
 
 /*
- * The type accent is an inset shadow, so a border does not collide with it. `:hover` is matched too, and both rules
- * are declared here rather than left to source order — the ring must not disappear at the moment it is pointed at.
+ * `:hover` is matched too, and both rules are declared here rather than left to source order — the ring must not
+ * disappear at the moment it is pointed at.
  */
 .card[data-attention='blocked'],
 .card[data-attention='blocked']:hover {
@@ -323,11 +340,126 @@ main.dragging .lane-idle {
   background: color-mix(in srgb, var(--vscode-charts-blue) 11%, var(--vscode-editorWidget-background, transparent));
 }
 
-/* Number left, avatar right, its labels between - the card says what it is and who has it before the title is read. */
+/* Number left, the avatar and the card's menu against the right edge - GitHub's own header, in that order. */
 .card-meta {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  /* The height of the avatar and the menu, held whether or not the card has either, so headers line up down a lane. */
+  min-height: 1.5rem;
+}
+
+.card-meta .number {
+  margin-inline-end: auto;
+}
+
+/*
+ * Everything this board adds on top of GitHub's own facts, set apart the way the browser overlay sets it apart: a
+ * tint over whatever the card is painted, so it holds against a hover and against an attention colour alike. It
+ * reaches the card's three edges by cancelling the padding on those three sides.
+ */
+.card-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15rem;
+  margin: 0 -0.75rem -0.6rem;
+  padding: 0.4rem 0.75rem 0.45rem;
+  background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
+  /* The theme's panel border is barely a shade off the card, so the rule is mixed from the foreground like the tint. */
+  border-top: 1px solid color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
+  border-radius: 0 0 calc(var(--gc-radius) - 1px) calc(var(--gc-radius) - 1px);
+}
+
+/*
+ * GitHub reveals its own on hover. This one is revealed by the keyboard too: it stays in the tab order whether or
+ * not it can be seen, and a control the focus reaches invisibly is one nobody can use.
+ */
+.card-menu {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  color: var(--vscode-descriptionForeground);
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  /*
+   * Transparent rather than hidden, and still hit-testable. `visibility: hidden` would take the control out of the
+   * tab order and with it the focus that reveals it, and `pointer-events: none` makes it unreachable by the very
+   * hover that reveals it - the pointer has to land on the control to click it, and the hit test that decides
+   * whether it may resolves before the hover recalculates. So a transparent target sits at the card's top-right
+   * corner, which costs a stray click there an unwanted menu and nothing worse.
+   */
+  opacity: 0;
+}
+
+/* `:focus`, not `:focus-visible`: Escape puts the focus back here itself, which is not a focus the heuristic shows. */
+.card:hover .card-menu,
+.card-menu:focus,
+.card-menu[aria-expanded='true'] {
+  opacity: 1;
+}
+
+/* Nothing hovers on a touch screen, so a control revealed by hover alone is one that never appears there at all. */
+@media (hover: none), (pointer: coarse) {
+  .card-menu {
+    opacity: 1;
+  }
+}
+
+.card-menu:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.card-menu:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+.menu-mark {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: currentColor;
+}
+
+/* On the body and fixed, not in the card: a lane scrolls its own cards, and a menu inside one would be clipped by it. */
+.card-popover {
+  position: fixed;
+  z-index: 20;
+  min-width: 11rem;
+  padding: 0.25rem 0;
+  font-size: 0.8rem;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  border-radius: var(--gc-radius);
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
+
+.card-popover button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  padding: 0.3rem 0.75rem;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+/* The open menu focuses an item itself, so this is `:focus` too - a mouse-opened menu must still show where it is. */
+.card-popover button:hover,
+.card-popover button:focus {
+  color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  outline: 0;
 }
 
 .card-open {
@@ -555,9 +687,24 @@ button.session-label:focus-visible {
     color: ButtonText;
   }
 
-  .card-changes {
+  .card-menu {
     color: ButtonText;
-    border-bottom-color: ButtonText;
+  }
+
+  /* Both halves of the pair are forced, so the selected item would otherwise paint exactly like an unselected one. */
+  .card-popover button:hover,
+  .card-popover button:focus {
+    color: HighlightText;
+    background: Highlight;
+  }
+
+  /* A tint over the card is the one thing forced colours drop, so the footer is set apart by its rule alone. */
+  .card-foot {
+    border-top-color: CanvasText;
+  }
+
+  .card-menu:focus {
+    outline: 1px solid Highlight;
   }
 
   .card[data-attention],
@@ -618,46 +765,20 @@ button.session-label:focus-visible {
   color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
 }
 
-/*
- * The card's one action that is not the issue. Squared and underlined rather than a pill, because every chip beside
- * it is a badge saying what the issue is, and a control that borrows their shape reads as one more of them.
- */
-.card-changes {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 0.15rem;
-  font: inherit;
-  font-size: 0.7rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--vscode-descriptionForeground);
-  background: none;
-  border: 0;
-  border-bottom: 1px solid currentColor;
-  border-radius: 0;
-  cursor: pointer;
-}
-
-.card-changes:hover {
-  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
-}
-
-.card-changes:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 2px;
-}
-
 /* Badges ----------------------------------------------------------------- */
 
-/* Type first, then status - the kind of work before where it sits, both reading left from the issue number. */
+/* Type first, then status - the kind of work before where it sits, both reading left under the title. */
 .badges {
-  flex: 1;
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.3rem;
+}
+
+/* No row where there is nothing to put in it: the card's own gap would otherwise leave a blank line behind. */
+.badges:empty {
+  display: none;
 }
 
 /* GitHub's own colour for the label, tinted against the card rather than filled, so a row of them stays readable. */
