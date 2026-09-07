@@ -8,6 +8,179 @@ const archivedEl = /** @type {HTMLInputElement} */ (document.getElementById('sho
 
 const logsEl = document.getElementById('logs');
 
+/**
+ * What an element says on hover, in place of the browser's own tooltip: `title` opens after about a second, in the
+ * operating system's shape rather than the editor's. The geometry and the timing are GitHub's own, measured off a
+ * live board (`docs/mechanics.md` §35) and copied here, because this script imports nothing — pinned by the parity
+ * table in both suites, since a tooltip that behaves differently on one board is the drift that table exists for.
+ */
+const TIP_ATTR = 'data-gc-tip';
+
+/** How long a pointer rests on something before its tooltip opens, and how far the tooltip sits from it. */
+const TIP_DELAY = 120;
+const TIP_GAP = 4;
+
+/** What a tooltip keeps between itself and the edge it would otherwise run off. */
+const TIP_MARGIN = 8;
+
+/** @type {ReturnType<typeof setTimeout> | null} */
+let tipTimer = null;
+/** @type {Element | null} */
+let tipAnchor = null;
+
+/**
+ * What an element says on hover, and what a reader is told about it. `aria-description` rather than a description
+ * written while the tooltip shows: that one arrives after focus has already been announced, and a reader in browse
+ * mode never reaches a tooltip on something it cannot focus. Chromium exposes it exactly as it exposed `title`,
+ * which is what both boards run in.
+ *
+ * @param {Element} el
+ * @param {string} text
+ */
+function tip(el, text) {
+  el.setAttribute(TIP_ATTR, text);
+
+  // Not where the element is already named with these words — a reader would say them twice, once as the name and
+  // once as the description. Order-independent, because `nameFor` takes the description back off.
+  if (!el.hasAttribute('aria-label')) {
+    el.setAttribute('aria-description', text);
+  }
+}
+
+/**
+ * Names an element for a reader. Its tooltip then says what the name says, so it stops being the description too.
+ *
+ * @param {Element} el
+ * @param {string} text
+ */
+function nameFor(el, text) {
+  el.setAttribute('aria-label', text);
+  el.removeAttribute('aria-description');
+}
+
+/**
+ * One tooltip for the whole board, moved and re-worded rather than built per element. The text lives in an
+ * attribute rather than in a child, because a child is part of `textContent` and every label that reads its own
+ * would gain it.
+ */
+function tipElement() {
+  const held = document.getElementById('tip');
+
+  if (held !== null) {
+    return held;
+  }
+
+  const panel = document.createElement('div');
+
+  panel.id = 'tip';
+  panel.setAttribute('role', 'tooltip');
+  // Its own text node, written through rather than replaced, so opening one adds and removes no nodes at all.
+  panel.appendChild(document.createTextNode(''));
+  document.body.appendChild(panel);
+
+  return panel;
+}
+
+/**
+ * Centred over what it names and pushed to the side that has room. Measured after the text is in it: a tooltip's
+ * width is its words, and a guess at that centres it somewhere else entirely.
+ *
+ * @param {HTMLElement} panel
+ * @param {Element} anchor
+ */
+function placeTip(panel, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const own = panel.getBoundingClientRect();
+  const above = rect.top - TIP_GAP - own.height;
+
+  // Below where it will not fit above, and then held inside the window either way: a tooltip long enough to wrap,
+  // on an anchor near the bottom, is drawn off the edge by the flip that was meant to rescue it.
+  const top = above < TIP_MARGIN ? rect.bottom + TIP_GAP : above;
+
+  panel.style.top = `${Math.max(TIP_MARGIN, Math.min(top, window.innerHeight - own.height - TIP_MARGIN))}px`;
+  panel.style.left = `${Math.max(
+    TIP_MARGIN,
+    Math.min(rect.left + rect.width / 2 - own.width / 2, window.innerWidth - own.width - TIP_MARGIN),
+  )}px`;
+}
+
+/** @param {Element} anchor */
+function showTip(anchor) {
+  const text = anchor.getAttribute(TIP_ATTR);
+
+  // A render inside the delay replaces what the pointer was over, and an anchor off the page measures zero at the
+  // origin — the tooltip would open in the corner of the window, naming something no longer there.
+  if (text === null || text === '' || !anchor.isConnected) {
+    return;
+  }
+
+  const panel = tipElement();
+  const words = panel.firstChild ?? panel.appendChild(document.createTextNode(''));
+
+  words.nodeValue = text;
+  panel.dataset.open = 'true';
+  placeTip(panel, anchor);
+}
+
+function hideTip() {
+  if (tipTimer !== null) {
+    clearTimeout(tipTimer);
+    tipTimer = null;
+  }
+
+  tipAnchor = null;
+  document.getElementById('tip')?.removeAttribute('data-open');
+}
+
+/**
+ * On the document rather than on each element: a render replaces cards wholesale, and listeners bound to the
+ * elements themselves would be re-bound every time. `mouseover` rather than `mouseenter` for the same reason — only
+ * the first of the two carries far enough up to be delegated.
+ *
+ * @param {Event} event
+ */
+function tipOver(event) {
+  const anchor = /** @type {Element} */ (event.target)?.closest?.(`[${TIP_ATTR}]`) ?? null;
+
+  if (anchor === tipAnchor) {
+    return;
+  }
+
+  hideTip();
+
+  // Held from the moment the pointer arrives rather than from when the tooltip opens, so a pointer that leaves
+  // inside the delay is one `hideTip` still recognises — otherwise it opens over something already left behind.
+  tipAnchor = anchor;
+
+  if (anchor !== null) {
+    tipTimer = setTimeout(() => showTip(anchor), TIP_DELAY);
+  }
+}
+
+/** @param {Event} event */
+function tipOut(event) {
+  const going = /** @type {Element} */ (event.target)?.closest?.(`[${TIP_ATTR}]`) ?? null;
+  const to = /** @type {Node | null} */ (event.relatedTarget ?? null);
+
+  // Not for a pointer crossing between an anchor's own children: `mouseout` fires on each of those, and closing
+  // there means the tooltip shuts and reopens as the pointer travels the width of what it is describing.
+  if (going !== null && going === tipAnchor && !(to !== null && going.contains(to))) {
+    hideTip();
+  }
+}
+
+document.addEventListener('mouseover', tipOver, true);
+document.addEventListener('focusin', tipOver, true);
+document.addEventListener('mouseout', tipOut, true);
+document.addEventListener('focusout', tipOut, true);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') hideTip();
+}, true);
+
+// Placed once, in viewport coordinates, so a lane scrolling under it would leave it behind. Closed rather than
+// followed: the pointer is still over the anchor, and the next move opens it where the anchor now is.
+document.addEventListener('scroll', hideTip, true);
+
 document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
 logsEl.addEventListener('click', () => vscode.postMessage({ type: 'toggleLogs' }));
 document.getElementById('board-log').addEventListener('click', () => vscode.postMessage({ type: 'showBoardLog' }));
@@ -19,9 +192,12 @@ document.getElementById('board-log').addEventListener('click', () => vscode.post
 function paintLogs(streaming) {
   logsEl.setAttribute('aria-pressed', String(streaming));
   logsEl.classList.toggle('on', streaming);
-  logsEl.title = streaming
-    ? 'The hub log is streaming into Output. Click to stop reading it.'
-    : 'Stream the hub log into the Output panel.';
+  tip(
+    logsEl,
+    streaming
+      ? 'The hub log is streaming into Output. Click to stop reading it.'
+      : 'Stream the hub log into the Output panel.',
+  );
 }
 
 paintLogs(false);
@@ -110,14 +286,13 @@ function agentMark(agent) {
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', agent);
 
-  const title = document.createElementNS(SVG, 'title');
-  title.textContent = agent;
-
   const path = document.createElementNS(SVG, 'path');
   path.setAttribute('d', CLAUDE_MARK);
   path.setAttribute('fill-rule', 'nonzero');
 
-  svg.append(title, path);
+  // No `<title>` child: an SVG one draws the browser's own tooltip exactly as the attribute does, and on a row that
+  // carries a tooltip already it draws a second one beside it. `aria-label` above is what names the mark.
+  svg.appendChild(path);
 
   return svg;
 }
@@ -139,12 +314,12 @@ function sessionLine(session) {
   if (label.tagName === 'BUTTON') {
     label.type = 'button';
     // The label ellipsises, so the tooltip is where the whole name stays readable.
-    label.title = `${name} - go to this session`;
+    tip(label, `${name} - go to this session`);
     // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
     label.draggable = false;
     label.addEventListener('click', () => vscode.postMessage({ type: 'openSession', sessionId: session.sessionId }));
   } else {
-    label.title = name;
+    tip(label, name);
   }
 
   el.append(agent, label);
@@ -163,7 +338,7 @@ function sessionLine(session) {
   if (activity) {
     state.dataset.activitySince = String(activity.since);
     state.textContent = phaseText(activity);
-    state.title = stateTitle(activity);
+    tip(state, stateTitle(activity));
     el.appendChild(state);
 
     return el;
@@ -199,7 +374,7 @@ function historyLine(session) {
   state.className = 'state';
   state.dataset.historyUpdated = String(session.updatedAt);
   state.textContent = `Last session · updated ${ago(Date.now() - session.updatedAt)} ago`;
-  el.title = `${label.textContent} — ${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`;
+  tip(el, `${label.textContent} — ${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
   el.append(agentMark(session.agent), label, state);
   return el;
 }
@@ -279,7 +454,7 @@ function syncActivity(el, boardCard) {
       state.dataset.activitySince = String(activity.since);
       // The event too, not only the time: a tooltip naming what the board saw two events ago beside a duration
       // that just refreshed is two of the board's own claims about one session disagreeing (R24).
-      state.title = stateTitle(activity);
+      tip(state, stateTitle(activity));
     }
   }
 }
@@ -401,7 +576,7 @@ function badge(kind, text, color, title, onOpen) {
   }
 
   if (title) {
-    el.title = title;
+    tip(el, title);
   }
 
   return el;
@@ -413,8 +588,8 @@ function changesControl(boardCard) {
   el.type = 'button';
   el.className = 'card-changes';
   el.textContent = 'Changes';
-  el.title = "Open this card's commits and uncommitted changes in one editor";
-  el.setAttribute('aria-label', `Open the commits and uncommitted changes of ${cardTitle(boardCard)}`);
+  tip(el, "Open this card's commits and uncommitted changes in one editor");
+  nameFor(el, `Open the commits and uncommitted changes of ${cardTitle(boardCard)}`);
   // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
   el.draggable = false;
   el.addEventListener('click', () => vscode.postMessage({ type: 'openChanges', key: boardCard.key }));
@@ -475,9 +650,10 @@ function avatar(actor, pool) {
   }
 
   const role = actor.source === 'pull-request' ? 'pull request author' : 'issue assignee';
-  el.title = `${actor.login} · ${role}`;
+
+  tip(el, `${actor.login} · ${role}`);
   el.setAttribute('role', 'img');
-  el.setAttribute('aria-label', `${actor.login}, ${role}`);
+  nameFor(el, `${actor.login}, ${role}`);
 
   return el;
 }
@@ -499,9 +675,9 @@ function card(boardCard, avatarPool, placeable) {
 
   if (issue) {
     number.type = 'button';
-    number.title = `Open issue #${issue.number} on GitHub`;
-    // The button's text is a bare number, and that is the name a screen reader uses — `title` is only a description.
-    number.setAttribute('aria-label', `Open issue #${issue.number} on GitHub`);
+    tip(number, `Open issue #${issue.number} on GitHub`);
+    // The button's text is a bare number, and that is the name a screen reader uses.
+    nameFor(number, `Open issue #${issue.number} on GitHub`);
     // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
     number.draggable = false;
     number.addEventListener('click', () => vscode.postMessage({ type: 'openIssue', number: issue.number }));
@@ -571,8 +747,8 @@ function card(boardCard, avatarPool, placeable) {
       `Pull request #${issue.pullRequest.number} — ${issue.pullRequest.state.toLowerCase()}`,
       () => vscode.postMessage({ type: 'openPullRequest', number: issue.number }),
     );
-    pr.setAttribute(
-      'aria-label',
+    nameFor(
+      pr,
       `Open pull request #${issue.pullRequest.number}, ${issue.pullRequest.state.toLowerCase()}, on GitHub`,
     );
     pr.prepend(pullRequestMark());
@@ -581,7 +757,7 @@ function card(boardCard, avatarPool, placeable) {
 
   if (boardCard.returned) {
     const mark = badge('returned', 'Returned', 'ORANGE');
-    mark.title = 'This card was past your hands and has come back.';
+    tip(mark, 'This card was past your hands and has come back.');
     badges.appendChild(mark);
   }
 
@@ -877,6 +1053,11 @@ function countCards(lanes) {
  */
 function render(payload) {
   draw(payload);
+
+  // A card this render replaced is one the tooltip is still open over, and its rect is gone with it.
+  if (tipAnchor !== null && !tipAnchor.isConnected) {
+    hideTip();
+  }
 
   // Every field is read off the document, never off the payload: a report that echoed what it was given would
   // hold just as well for a board that drew nothing at all.

@@ -1513,3 +1513,39 @@ That is what makes the board's Logs button an explicit toggle rather than a subs
 **A line below the channel's level is dropped, not held.** Each writer is declared as logging "only if the channel is configured to display" that level or lower, and `logLevel` "Defaults to the editor log level" — which the editor's own default is Info, though that number is read off the product rather than measured here, and whether a line below the level can be recovered by raising it afterwards is not stated either way. Neither uncertainty changes what a client should do: writing the connection story at `info` puts it in the pane whatever the default turns out to be, and leaving the line-per-message wire at `debug` costs nothing if it is dropped. A pane that says nothing to whoever opens it after a stall is the failure to avoid.
 
 **Version-fragile**: a release that adds a visibility event would let the subscription follow the pane instead — re-check this before assuming the button has to carry state.
+
+## 35. GitHub's own tooltip, and why neither board uses `title`
+
+**Measured 2026-09-07, Chromium 151.0.7922.34 (Playwright 1.62.1) on Windows 11, against `https://github.com/orgs/nodejs/projects/14` — a public board whose cards carry assignees.**
+
+GitHub does not use the browser's tooltip anywhere on its board. Its own is a Primer `TooltipV2`: a `<span data-component="Tooltip" popover="auto">` sitting beside what it names, with every class on it hashed per build. What is worth writing down is the shape, because that is what both boards copy:
+
+| | |
+| --- | --- |
+| Background / colour | `var(--bgColor-emphasis)` — `#25292e` light, `#3d444d` dark — on `var(--fgColor-onEmphasis)`, white in both |
+| Type | 12px, weight 400, line-height 19.5px (1.625) |
+| Box | `4px 8px` padding, `6px` radius, no border, no shadow, no arrow (`::before` is `content: none`) |
+| Width | `max-content`, capped at `250px`, then `white-space: normal` with `overflow-wrap: break-word` |
+| Alignment | `text-align: center`, centred on the anchor to the pixel |
+| Placement | 4px clear of the anchor, above it where there is room and below where there is not — `data-direction` reads `n` or `s` |
+| Timing | opens **120ms** after the pointer arrives, with a 0.1s `opacity: 0 → 1` fade and nothing else |
+
+The editor board keeps the geometry and the timing and takes its colours from `--vscode-editorHoverWidget-*` instead, with the 1px border and the shadow those imply: GitHub's pill is borderless because it sits on a light board, where a `#202020` pill on a `#1f1f1f` editor would have no edge at all.
+
+The native tooltip matches none of that: it opens after about a second, in the operating system's shape rather than the page's, and no stylesheet reaches it. So neither board sets `title` on anything it draws — nor an SVG `<title>` child, which draws the same tooltip from inside a glyph and, on a row that already carries one, draws two at once. The webview suite counts `[title], title` across the whole document; the overlay's counts them before and after a paint and requires the number not to move, since GitHub's own markup carries `title` of its own.
+
+**Both boards copy the shape rather than the mechanism.** GitHub's tooltip is a node per anchor, kept in the top layer by `popover` and placed by CSS anchor positioning; Chromium supports both, and the board uses neither. A scan replaces every card, so a node per anchor would be built and discarded by the hundred — and jsdom implements no `showPopover`, which would put the real path outside the only suite that can reach it. Instead there is one element per document, moved and re-worded, held in front by `position: fixed` and `z-index`, and placed by `placeTip` — the lane menu's `place` hangs a panel from an anchor's left edge, where a tooltip is centred on it. `position: fixed` is enough because nothing above a card on GitHub's board carries a `transform`, `filter` or paint `contain` — measured, and the thing that would trap it. The board's columns clip with `overflow`, which does not.
+
+**The text lives in an attribute, not in a child.** `data-gc-tip` on the anchor, read by one delegated `mouseover` handler. A child would be part of the anchor's `textContent`, and both boards have labels that read their own — a session row builds its tooltip out of the name beside it. Listeners are on the document rather than on each element for the same reason a node per anchor was rejected: `mouseover` bubbles where `mouseenter` does not, so one pair of handlers survives every rebuild.
+
+**Four things a hover tooltip has to get right, every one found by measuring rather than reading.** A pointer that leaves inside the 120ms delay must cancel it — the anchor is held from the moment the pointer arrives, not from when the tooltip opens, or it opens over something already left behind. `mouseout` fires between an anchor's own children, so leaving is `relatedTarget` being outside the anchor rather than the event alone; without that the tooltip shuts and reopens as the pointer crosses what it is describing. Opening one must add and remove no nodes: appending the element and writing `textContent` were **two `childList` records per hover**, measured, and the overlay's scan observer schedules a rebuild off exactly those — so the element is built inside the disarmed paint and its text written through a node of its own with `nodeValue`. And the anchor is checked for `isConnected` both when the tooltip is about to open and after every rebuild, because a detached one measures zero at the origin and draws the tooltip in the corner of the window naming a card that is gone.
+
+**The flip is not a rescue on its own.** Below is as unreadable as above when neither fits, so the placement is clamped to the window on both axes after the side is chosen — a tooltip long enough to wrap, on an anchor near the bottom, is otherwise drawn off the edge by the very flip meant to save it.
+
+**Accessibility: the words are on the anchor, in `aria-description`.** Not `aria-describedby` pointing at the shared element — that can only be written as the tooltip opens, which is 120ms after focus was announced and therefore never heard, and it leaves a reader in browse mode nothing at all on the anchors that cannot take focus, which is most of them. `aria-description` is on the anchor from the moment it is drawn, exactly as `title` was. Measured in the same Chromium: it is exposed as the accessible description on a non-focusable `<span>` as well as on a button, and `aria-describedby` overrides it where both are present. Both boards run in Chromium — one in Chrome, one in the editor's own — which is what makes it usable here.
+
+Where the element is already named for a reader the description is left off, or the name and the description are the same words and both are announced: `tip` skips it when an `aria-label` is present, `nameFor` takes it back off when the label comes second, and both suites assert that nothing carries both.
+
+**What it does not do is stay open while the pointer is on it** (WCAG 1.4.13 "Hoverable"). `pointer-events: none` is what stops the tooltip taking the hover it is explaining; the cost is that a magnifier user cannot travel onto a wrapped one to read it. GitHub's own tooltip behaves the same way, and `title` — which this replaces — is exempt from that criterion as user-agent content rather than meeting it.
+
+**Version-fragile**: re-verify the palette and the 120ms after a GitHub board release.

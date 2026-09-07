@@ -761,3 +761,50 @@ button.session-label:focus-visible {
   border-style: dashed;
 }
 
+/*
+ * The board's own tooltip, in place of the browser's: `title` opens after about a second, in the operating system's
+ * shape rather than the editor's. Geometry is GitHub's own, measured off a live board (`docs/mechanics.md` §35) so
+ * the two boards read the same; the colours are the editor's hover widget, because a tooltip that ignored the
+ * user's theme would be the one thing on this board that did.
+ */
+#tip {
+  position: fixed;
+  z-index: 300;
+  display: none;
+  pointer-events: none;
+  width: max-content;
+  max-width: 250px;
+  padding: 4px 8px;
+  border-radius: var(--gc-radius);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.625;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: break-word;
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, transparent));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
+}
+
+#tip[data-open='true'] {
+  display: block;
+  animation: tip-appear 0.1s ease-out;
+}
+
+@keyframes tip-appear {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #tip[data-open='true'] {
+    animation: none;
+  }
+}

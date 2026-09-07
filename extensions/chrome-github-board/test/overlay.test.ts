@@ -109,6 +109,11 @@ function badges(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>('.gc-badge')];
 }
 
+/** What an element says on hover. Not `title` — the board draws its own tooltip, in GitHub's shape. */
+function tipOf(el: Element | null | undefined): string {
+  return el?.getAttribute('data-gc-tip') ?? '';
+}
+
 /** The card element the fixture carries for an issue, which is what the swap reads GitHub's own assignees off. */
 function cardElement(issueNumber: number): Element {
   const element = [...document.querySelectorAll('[data-board-card-id]')].find((held) =>
@@ -230,7 +235,7 @@ describe('swapping the assignee for the pull request author', () => {
 
     expect(stack.getAttribute('data-gc-actor')).toBe('colleague');
     expect(actor.querySelector('img')!.getAttribute('src')).toBe(AUTHOR.url);
-    expect(actor.title).toBe('colleague · pull request author');
+    expect(tipOf(actor)).toBe('colleague · pull request author');
     expect(actor.getAttribute('aria-label')).toBe('colleague, pull request author');
     // GitHub's own avatar is still in the tree — the swap hides it rather than destroying it, so it comes back.
     expect(stack.querySelector('img[data-testid="github-avatar"]')).not.toBeNull();
@@ -330,6 +335,281 @@ describe('swapping the assignee for the pull request author', () => {
     expect(document.querySelector('.gc-actor')).toBeNull();
     expect(document.querySelector('[data-gc-actor]')).toBeNull();
     expect(document.querySelector('figure[role]')).toBeNull();
+  });
+});
+
+/**
+ * The board draws its own tooltip rather than leaving `title` to the browser: the native one opens after about a
+ * second, in the operating system's shape, and cannot be made to match the page it sits on. GitHub's own geometry
+ * and timing, measured (`docs/mechanics.md` §35) and pinned by the parity table both suites carry.
+ */
+describe('the tooltip', () => {
+  const tip = () => document.getElementById('gc-tip');
+  const open = () => tip()?.getAttribute('data-open') ?? null;
+
+  function hover(el: Element): void {
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  }
+
+  function unhover(el: Element): void {
+    el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('draws nothing until a pointer has rested on something that says something', () => {
+    const avatar = document.querySelector('.gc-actor')!;
+
+    hover(avatar);
+
+    expect(open()).toBeNull();
+
+    vi.advanceTimersByTime(120);
+
+    expect(open()).toBe('true');
+    expect(tip()?.textContent).toBe('colleague · pull request author');
+  });
+
+  /** One node for the whole document: a scan replaces every card, and a node per anchor would be built by the hundred. */
+  it('reuses one element however many things are hovered', () => {
+    const avatar = document.querySelector('.gc-actor')!;
+    const lane = document.querySelector('.gc-lane')!;
+
+    hover(avatar);
+    vi.advanceTimersByTime(120);
+    hover(document.querySelector('.gc-session')!);
+    vi.advanceTimersByTime(120);
+    hover(lane);
+    vi.advanceTimersByTime(120);
+
+    expect(document.querySelectorAll('#gc-tip')).toHaveLength(1);
+  });
+
+  /** A child would be part of `textContent`, and every label that reads its own would gain the tooltip's words. */
+  it('leaves the text of what it names alone', () => {
+    const avatar = document.querySelector('.gc-actor')!;
+    const lane = document.querySelector('.gc-lane')!;
+
+    hover(avatar);
+    vi.advanceTimersByTime(120);
+
+    expect(avatar.textContent).toBe('CO');
+    expect(lane.textContent).toBe('Build');
+  });
+
+  it('closes when the pointer leaves, and on Escape', () => {
+    const avatar = document.querySelector('.gc-actor')!;
+
+    hover(avatar);
+    vi.advanceTimersByTime(120);
+    unhover(avatar);
+
+    expect(open()).toBeNull();
+
+    hover(avatar);
+    vi.advanceTimersByTime(120);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(open()).toBeNull();
+  });
+
+  /** Placed once in viewport coordinates, so a column scrolling under it would otherwise leave it behind. */
+  it('closes when the board scrolls under it', () => {
+    hover(document.querySelector('.gc-actor')!);
+    vi.advanceTimersByTime(120);
+    document.querySelector('[data-board-column]')!.dispatchEvent(new Event('scroll', { bubbles: true }));
+
+    expect(open()).toBeNull();
+  });
+
+  it('never opens for a pointer that left before it was due', () => {
+    const avatar = document.querySelector('.gc-actor')!;
+
+    hover(avatar);
+    vi.advanceTimersByTime(60);
+    unhover(avatar);
+    vi.advanceTimersByTime(600);
+
+    expect(open()).toBeNull();
+  });
+
+  /**
+   * The description is on the anchor and always there, not written as the tooltip opens: one written on `focusin`
+   * lands 120ms after focus was announced, and a reader never hears it. `title` had this for free.
+   */
+  it('describes what it names before anything is hovered at all', () => {
+    const row = document.querySelector('.gc-session')!;
+
+    expect(row.getAttribute('aria-description')).toContain('go to this session in VS Code');
+    // And nothing is wired up as the tooltip opens: GitHub's own cards carry `aria-describedby`, the overlay's do not.
+    expect(document.querySelector(`[data-gc-tip][aria-describedby]`)).toBeNull();
+  });
+
+  /** A reader says the name, then the description. The same words in both is the board saying it twice. */
+  it('never gives one element both a name and a description', () => {
+    const both = [...document.querySelectorAll('[aria-description]')].filter((el) => el.hasAttribute('aria-label'));
+
+    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual([]);
+    // The avatar is the one that would: it is named for a reader and its tooltip says the same thing.
+    expect(document.querySelector('.gc-actor')!.getAttribute('aria-label')).toBe('colleague, pull request author');
+    expect(document.querySelector('.gc-actor')!.hasAttribute('aria-description')).toBe(false);
+  });
+
+  it('opens on focus, for a developer who never touches the pointer', () => {
+    document.querySelector('.gc-session')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    vi.advanceTimersByTime(120);
+
+    expect(open()).toBe('true');
+    expect(tip()?.textContent).toContain('go to this session in VS Code');
+  });
+
+  /**
+   * `mouseout` fires as the pointer crosses between an anchor's own children, and closing on one of those shuts the
+   * tooltip and reopens it as the pointer travels the width of what it is describing.
+   */
+  it('stays open as the pointer crosses its anchor own children', () => {
+    const row = document.querySelector('.gc-session')!;
+    const name = row.querySelector('.gc-name')!;
+
+    hover(row);
+    vi.advanceTimersByTime(120);
+
+    name.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: row.querySelector('.gc-state') }));
+
+    expect(open()).toBe('true');
+  });
+
+  /**
+   * A scan inside the delay replaces the card the pointer was over. A detached anchor measures zero at the origin,
+   * so the tooltip would open in the corner of the window naming a card that is gone.
+   */
+  it('never opens against an anchor the board has replaced', () => {
+    const avatar = document.querySelector('.gc-actor')!;
+
+    hover(avatar);
+    avatar.remove();
+    vi.advanceTimersByTime(120);
+
+    expect(open()).toBeNull();
+  });
+
+  /** And one already open when the scan lands is closed by it, rather than left over a node that is gone. */
+  it('closes one left over a card the scan replaced', () => {
+    hover(document.querySelector('.gc-actor')!);
+    vi.advanceTimersByTime(120);
+
+    expect(open()).toBe('true');
+
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+
+    expect(open()).toBeNull();
+  });
+
+  /** Opening one is the board's own DOM change, and the scan's observer watches for exactly those (`mechanics.md` §27). */
+  it('adds and removes no nodes when it opens', () => {
+    const seen: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => seen.push(...records));
+
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    hover(document.querySelector('.gc-actor')!);
+    vi.advanceTimersByTime(120);
+    hover(document.querySelector('.gc-session')!);
+    vi.advanceTimersByTime(120);
+
+    const records = observer.takeRecords();
+
+    observer.disconnect();
+
+    expect(open()).toBe('true');
+    expect([...seen, ...records]).toEqual([]);
+  });
+
+  /**
+   * jsdom lays nothing out, so every rectangle here is given. The arithmetic is what is being pinned: centred on
+   * the anchor, above it where there is room, below where there is not, and never outside the window either way.
+   */
+  describe('where it is drawn', () => {
+    function placedAt(anchorBox: Partial<DOMRect>, tipBox: Partial<DOMRect>): { top: string; left: string } {
+      const el = document.querySelector<HTMLElement>('.gc-actor')!;
+      const box = (over: Partial<DOMRect>) => () =>
+        ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, ...over }) as DOMRect;
+
+      el.getBoundingClientRect = box(anchorBox);
+      tip()!.getBoundingClientRect = box(tipBox);
+
+      // Closed first, or a second placement on the same anchor is the re-entrancy guard returning early.
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      hover(el);
+      vi.advanceTimersByTime(120);
+
+      return { top: tip()!.style.top, left: tip()!.style.left };
+    }
+
+    // jsdom's window is 1024 x 768.
+    const TALL = { width: 120, height: 28 };
+
+    it('sits centred, one gap above the anchor', () => {
+      expect(placedAt({ top: 300, bottom: 320, left: 500, right: 520, width: 20, height: 20 }, TALL)).toEqual({
+        top: '268px',
+        left: '450px',
+      });
+    });
+
+    it('flips below an anchor with nothing above it', () => {
+      expect(placedAt({ top: 2, bottom: 22, left: 500, right: 520, width: 20, height: 20 }, TALL)).toEqual({
+        top: '26px',
+        left: '450px',
+      });
+    });
+
+    /** The flip is not a rescue on its own: below the fold is as unreadable as above it. */
+    it('is held inside the window when neither side has room', () => {
+      expect(
+        placedAt({ top: 10, bottom: 710, left: 500, right: 520, width: 20, height: 700 }, { width: 120, height: 100 }),
+      ).toEqual({ top: '660px', left: '450px' });
+    });
+
+    it('is pulled back from the edge it would run off', () => {
+      expect(placedAt({ top: 300, bottom: 320, left: 1010, right: 1024, width: 14, height: 20 }, TALL).left).toBe(
+        '896px',
+      );
+      expect(placedAt({ top: 300, bottom: 320, left: 0, right: 14, width: 14, height: 20 }, TALL).left).toBe('8px');
+    });
+  });
+
+  it('takes itself off the page when the overlay leaves the board', () => {
+    hover(document.querySelector('.gc-actor')!);
+    vi.advanceTimersByTime(120);
+    clear(document);
+
+    expect(tip()).toBeNull();
+  });
+
+  /**
+   * Nothing the overlay draws may carry `title`, in the attribute or as an SVG `<title>` child: the browser draws
+   * its own from either, beside ours, saying the same thing. Counted across the whole page rather than under a list
+   * of the overlay's own roots — GitHub's markup has `title` of its own, so what is asserted is that painting adds
+   * none.
+   */
+  it('adds no native tooltip anywhere on the page', () => {
+    const native = () => document.querySelectorAll('[title], title').length;
+
+    clear(document);
+
+    const before = native();
+
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+
+    expect(native()).toBe(before);
+    // And it drew something, so the count above is not holding for a board that painted nothing.
+    expect(document.querySelectorAll('[data-gc-tip]').length).toBeGreaterThan(0);
   });
 });
 
@@ -523,7 +803,7 @@ describe('the footer on a card', () => {
     expect(chip.querySelector('.gc-name')!.textContent).toBe('Working on it');
     expect(chip.querySelector('.gc-state')!.textContent).toBe('needs you 2m');
     // The whole name because the label ellipsises, and what the board saw because the duration does not say it.
-    expect(chip.title).toBe(
+    expect(tipOf(chip)).toBe(
       'Working on it — go to this session in VS Code. This session is waiting on you. Last seen at the PermissionRequest hook.',
     );
   });
@@ -1235,7 +1515,7 @@ describe('going to a session from the browser', () => {
 
     expect(chip.tagName).toBe('SPAN');
     expect(chip.getAttribute('href')).toBeNull();
-    expect(chip.title).toContain('no editor of yours can open this one');
+    expect(tipOf(chip)).toContain('no editor of yours can open this one');
   });
 
   it('offers a link only for the sessions the hub named', () => {
@@ -1308,7 +1588,7 @@ it('links historical rows through the same VS Code handler without opening the G
   paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [SESSION_ID] }) }), NOW, actions);
   const link = document.querySelector<HTMLAnchorElement>('a.gc-historical')!;
   expect(link.href).toBe(`vscode://ownerrez.ground-control/open?session=${SESSION_ID}`);
-  expect(link.draggable).toBe(false); expect(link.title).toContain('Resume this session');
+  expect(link.draggable).toBe(false); expect(tipOf(link)).toContain('Resume this session');
   const parentClick = vi.fn(); link.parentElement!.addEventListener('click', parentClick);
   link.addEventListener('click', (event) => event.preventDefault()); link.click();
   expect(parentClick).not.toHaveBeenCalled();
@@ -1337,7 +1617,7 @@ describe('what a card was read to be waiting on (R38)', () => {
     );
 
     expect(mark()?.textContent).toBe('QA failure');
-    expect(mark()?.title).toBe('Read 1h ago.');
+    expect(tipOf(mark())).toBe('Read 1h ago.');
     expect(document.querySelector('.gc-triage-detail')?.textContent).toBe('Safari still shows an empty second page.');
   });
 
@@ -1350,7 +1630,7 @@ describe('what a card was read to be waiting on (R38)', () => {
     );
 
     expect(mark()?.dataset.stale).toBe('true');
-    expect(mark()?.title).toContain('has moved since');
+    expect(tipOf(mark())).toContain('has moved since');
     expect(document.querySelector<HTMLElement>('.gc-triage-detail')?.dataset.stale).toBe('true');
   });
 
@@ -1669,5 +1949,37 @@ describe('the log sidebar', () => {
 
   it('appends nothing when there is no sidebar to append to', () => {
     expect(appendLog(document, [line()])).toBe(0);
+  });
+});
+
+/**
+ * The parity table. Neither board imports the other's tooltip — both are classic scripts — so the shape they share
+ * is pinned by asserting the same numbers in both suites (`docs/testing.md`). Measured off GitHub's own tooltip,
+ * `docs/mechanics.md` §35.
+ */
+describe('the tooltip shape both boards share', () => {
+  const source = readFileSync(join(__dirname, '..', 'src', 'overlay.js'), 'utf8');
+  const rule = source.slice(source.indexOf('#${TIP_ID} {'), source.indexOf('#${TIP_ID}[data-open'));
+
+  const numbers: [string, RegExp, number][] = [
+    ['delay', /const TIP_DELAY = (\d+);/, 120],
+    ['gap', /const TIP_GAP = (\d+);/, 4],
+    ['margin', /const TIP_MARGIN = (\d+);/, 8],
+  ];
+
+  it.each(numbers)('pins %s at %s', (_name, pattern, expected) => {
+    expect(Number(pattern.exec(source)?.[1])).toBe(expected);
+  });
+
+  const declarations: [string, string][] = [
+    ['font-size', '12px'],
+    ['padding', '4px 8px'],
+    ['max-width', '250px'],
+    ['line-height', '1.625'],
+    ['text-align', 'center'],
+  ];
+
+  it.each(declarations)('pins %s at %s', (name, expected) => {
+    expect(rule).toContain(`${name}: ${expected}`);
   });
 });

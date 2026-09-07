@@ -34,6 +34,10 @@ const BADGE_CLASS = 'gc-badge';
 const POPOVER_CLASS = 'gc-popover';
 const HIDDEN_ATTR = 'data-gc-hidden';
 const ACTOR_CLASS = 'gc-actor';
+const TIP_ID = 'gc-tip';
+
+/** What an element says on hover, in place of `title`: the browser's own tooltip is slow, plain, and unstyleable. */
+const TIP_ATTR = 'data-gc-tip';
 
 /** Written on the assignee figure the overlay has taken over, so a scan that no longer wants it can hand it back. */
 const ACTOR_ATTR = 'data-gc-actor';
@@ -242,6 +246,19 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${MENU_ID} button[data-stale="true"]::after { content: ""; width: 6px; height: 6px; margin-left: 6px;
   border-radius: 50%; background: var(--bgColor-attention-emphasis, #bf8700); }
 #${PERCH_ID} { display: flex; justify-content: flex-end; margin: 8px 16px; }
+/*
+ * GitHub's own tooltip, measured off a live board (mechanics.md s35): 12px/1.625 on --bgColor-emphasis, 4px 8px,
+ * a 6px radius, centred, capped at 250px and wrapping rather than truncating. Above everything the overlay draws,
+ * and deaf to the pointer - a tooltip that took the hover it is explaining would flicker against its own anchor.
+ */
+#${TIP_ID} { position: fixed; z-index: 300; display: none; box-sizing: border-box; pointer-events: none;
+  width: max-content; max-width: 250px; padding: 4px 8px; border-radius: 6px;
+  font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.625;
+  text-align: center; white-space: normal; overflow-wrap: break-word;
+  color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-emphasis, #25292e); }
+#${TIP_ID}[data-open="true"] { display: block; animation: gc-tip-appear 0.1s ease-out; }
+@keyframes gc-tip-appear { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { #${TIP_ID}[data-open="true"] { animation: none; } }
 #${TOASTS_ID} { position: fixed; left: 16px; bottom: 16px; z-index: 200; display: flex; flex-direction: column;
   gap: 8px; max-width: 420px; }
 #${TOASTS_ID} .gc-toast { display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; border-radius: 6px;
@@ -485,9 +502,9 @@ function renderActor(doc, element, card) {
 
   slot.className = ACTOR_CLASS;
   slot.textContent = actor.login.slice(0, 2).toUpperCase();
-  slot.title = `${actor.login} · pull request author`;
+  tip(slot, `${actor.login} · pull request author`);
   slot.setAttribute('role', 'img');
-  slot.setAttribute('aria-label', `${actor.login}, pull request author`);
+  nameFor(slot, `${actor.login}, pull request author`);
 
   const image = doc.createElement('img');
 
@@ -648,6 +665,227 @@ function place(panel, anchor) {
 
   panel.style.top = `${overflows ? Math.max(MARGIN, rect.top - 4 - own.height) : below}px`;
   panel.style.left = `${Math.max(MARGIN, Math.min(rect.left, right - own.width - MARGIN))}px`;
+}
+
+/** How long a pointer rests on something before its tooltip opens. GitHub's own, measured at 120ms. */
+const TIP_DELAY = 120;
+
+/** What a tooltip keeps between itself and what it names. GitHub's own, measured at 4px. */
+const TIP_GAP = 4;
+
+/** And between itself and the edge it would otherwise run off. Its own, not the lane menu's `MARGIN`. */
+const TIP_MARGIN = 8;
+
+/** @type {ReturnType<typeof setTimeout> | null} */
+let tipTimer = null;
+/** @type {Element | null} */
+let tipAnchor = null;
+/** @type {{ doc: Document, over: (event: Event) => void, out: (event: Event) => void, key: (event: Event) => void, scrolled: () => void } | null} */
+let tips = null;
+
+/**
+ * What an element says on hover, and what a reader is told about it. `title` is neither: it opens after about a
+ * second, in the operating system's shape rather than the board's, and cannot be styled to match the page it sits
+ * on. `aria-description` rather than a description written while the tooltip shows — that one arrives after focus
+ * has already been announced, and a reader in browse mode never reaches a tooltip on something it cannot focus.
+ * Chromium exposes it exactly as it exposed `title`, and Chromium is what loads this.
+ *
+ * @param {Element} el
+ * @param {string} text
+ */
+function tip(el, text) {
+  el.setAttribute(TIP_ATTR, text);
+
+  // Not where the element is already named with these words — a reader would say them twice, once as the name and
+  // once as the description. Order-independent, because `nameFor` takes the description back off.
+  if (!el.hasAttribute('aria-label')) {
+    el.setAttribute('aria-description', text);
+  }
+}
+
+/**
+ * Names an element for a reader. Its tooltip then says what the name says, so it stops being the description too.
+ *
+ * @param {Element} el
+ * @param {string} text
+ */
+function nameFor(el, text) {
+  el.setAttribute('aria-label', text);
+  el.removeAttribute('aria-description');
+}
+
+/**
+ * Centred over what it names and pushed to the side that has room, the way GitHub places its own. Measured after
+ * the text is in it: a tooltip's width is its words, and a guess at that centres it somewhere else entirely.
+ *
+ * @param {HTMLElement} panel
+ * @param {Element} anchor
+ */
+function placeTip(panel, anchor) {
+  const view = panel.ownerDocument.defaultView;
+  const rect = anchor.getBoundingClientRect();
+  const own = panel.getBoundingClientRect();
+  const above = rect.top - TIP_GAP - own.height;
+
+  // Below where it will not fit above, and then held inside the window either way: a tooltip long enough to wrap,
+  // on an anchor near the bottom, is drawn off the edge by the flip that was meant to rescue it.
+  const top = above < TIP_MARGIN ? rect.bottom + TIP_GAP : above;
+
+  panel.style.top = `${Math.max(TIP_MARGIN, Math.min(top, (view?.innerHeight ?? 0) - own.height - TIP_MARGIN))}px`;
+  panel.style.left = `${Math.max(
+    TIP_MARGIN,
+    Math.min(rect.left + rect.width / 2 - own.width / 2, (view?.innerWidth ?? 0) - own.width - TIP_MARGIN),
+  )}px`;
+}
+
+/**
+ * One tooltip for the whole document, moved and re-worded rather than built per element. Every scan replaces every
+ * card, so a node per anchor would be built and thrown away by the hundred; and the text lives in an attribute
+ * rather than in a child, because a child is part of `textContent` and every label that reads its own would gain it.
+ *
+ * @param {Document} doc
+ * @returns {HTMLElement}
+ */
+function tipElement(doc) {
+  const held = doc.getElementById(TIP_ID);
+
+  if (held !== null) {
+    return /** @type {HTMLElement} */ (held);
+  }
+
+  const panel = doc.createElement('div');
+
+  panel.id = TIP_ID;
+  panel.setAttribute('role', 'tooltip');
+  // Its own text node, written through rather than replaced. `textContent` swaps the child, which is a `childList`
+  // record, and the scan's observer watches for exactly those — every hover would schedule a rebuild of the board.
+  panel.appendChild(doc.createTextNode(''));
+  (doc.body ?? doc.documentElement).appendChild(panel);
+
+  return panel;
+}
+
+/**
+ * @param {Document} doc
+ * @param {Element} anchor
+ */
+function showTip(doc, anchor) {
+  const text = anchor.getAttribute(TIP_ATTR);
+
+  // A scan inside the delay replaces the card the pointer was over, and an anchor off the page measures zero at the
+  // origin — the tooltip would open in the corner of the window, naming something no longer there.
+  if (text === null || text === '' || !anchor.isConnected) {
+    return;
+  }
+
+  const panel = tipElement(doc);
+  const words = panel.firstChild ?? panel.appendChild(doc.createTextNode(''));
+
+  words.nodeValue = text;
+  panel.dataset.open = 'true';
+  placeTip(panel, anchor);
+}
+
+/** @param {Document} doc */
+function hideTip(doc) {
+  if (tipTimer !== null) {
+    clearTimeout(tipTimer);
+    tipTimer = null;
+  }
+
+  tipAnchor = null;
+  doc.getElementById(TIP_ID)?.removeAttribute('data-open');
+}
+
+/**
+ * The handlers that open and close it, on the document rather than on each element: a scan rebuilds every card, and
+ * listeners bound to the elements themselves would be re-bound by the hundred every ten seconds. `mouseover` rather
+ * than `mouseenter` for the same reason — only the first of the two carries far enough up to be delegated.
+ *
+ * @param {Document} doc
+ */
+function ensureTips(doc) {
+  // Built here rather than at the first hover: a scan runs with the observer disarmed, and appending this to the
+  // body at any other moment is a `childList` record that schedules the next scan (`mechanics.md` §27).
+  tipElement(doc);
+
+  if (tips?.doc === doc) {
+    return;
+  }
+
+  if (tips !== null) {
+    removeTips();
+  }
+
+  /** @param {Event} event */
+  const over = (event) => {
+    const anchor = /** @type {Element} */ (event.target)?.closest?.(`[${TIP_ATTR}]`) ?? null;
+
+    if (anchor === tipAnchor) {
+      return;
+    }
+
+    hideTip(doc);
+
+    // Held from the moment the pointer arrives rather than from when the tooltip opens, so a pointer that leaves
+    // inside the delay is one `hideTip` still recognises — otherwise it opens over something already left behind.
+    tipAnchor = anchor;
+
+    if (anchor !== null) {
+      tipTimer = setTimeout(() => showTip(doc, anchor), TIP_DELAY);
+    }
+  };
+
+  /** @param {Event} event */
+  const out = (event) => {
+    const going = /** @type {Element} */ (event.target)?.closest?.(`[${TIP_ATTR}]`) ?? null;
+    const to = /** @type {Node | null} */ (/** @type {MouseEvent | FocusEvent} */ (event).relatedTarget ?? null);
+
+    // Not for a pointer crossing between an anchor's own children: `mouseout` fires on each of those, and closing
+    // there means the tooltip shuts and reopens as the pointer travels the width of what it is describing.
+    if (going !== null && going === tipAnchor && !(to !== null && going.contains(to))) {
+      hideTip(doc);
+    }
+  };
+
+  /** @param {Event} event */
+  const key = (event) => {
+    if (/** @type {KeyboardEvent} */ (event).key === 'Escape') {
+      hideTip(doc);
+    }
+  };
+
+  // The tooltip is placed once, in viewport coordinates, so a board scrolling under it would leave it behind. Closed
+  // rather than followed: the pointer is still over the anchor, and the next move opens it where the anchor now is.
+  const scrolled = () => hideTip(doc);
+
+  doc.addEventListener('mouseover', over, true);
+  doc.addEventListener('mouseout', out, true);
+  doc.addEventListener('focusin', over, true);
+  doc.addEventListener('focusout', out, true);
+  doc.addEventListener('keydown', key, true);
+  doc.addEventListener('scroll', scrolled, true);
+
+  tips = { doc, over, out, key, scrolled };
+}
+
+/** Takes the handlers and the tooltip itself back off, which is what leaving a board runs. */
+function removeTips() {
+  if (tips === null) {
+    return;
+  }
+
+  const { doc, over, out, key, scrolled } = tips;
+
+  doc.removeEventListener('mouseover', over, true);
+  doc.removeEventListener('mouseout', out, true);
+  doc.removeEventListener('focusin', over, true);
+  doc.removeEventListener('focusout', out, true);
+  doc.removeEventListener('keydown', key, true);
+  doc.removeEventListener('scroll', scrolled, true);
+  hideTip(doc);
+  doc.getElementById(TIP_ID)?.remove();
+  tips = null;
 }
 
 /**
@@ -907,8 +1145,10 @@ function collapseButton(doc, host, actions) {
   button.id = 'gc-collapse';
   button.appendChild(svg);
   button.setAttribute('aria-pressed', String(folded));
-  button.title = folded ? 'Show the project header' : 'Hide the project header';
-  button.setAttribute('aria-label', button.title);
+  const says = folded ? 'Show the project header' : 'Hide the project header';
+
+  tip(button, says);
+  nameFor(button, says);
   button.addEventListener('click', (event) => {
     event.stopPropagation();
     event.preventDefault();
@@ -1243,7 +1483,7 @@ function sessionRow(doc, session, now, openable) {
 
   const does = reachable ? 'go to this session in VS Code' : 'no editor of yours can open this one';
 
-  row.title = `${name} — ${does}.${seen}`;
+  tip(row, `${name} — ${does}.${seen}`);
   // Only the propagation: the card underneath is GitHub's own button, and a click reaching it opens the issue
   // instead. The navigation itself is the browser's to make, which is what gives VS Code the foreground.
   row.addEventListener('click', (event) => event.stopPropagation());
@@ -1284,7 +1524,7 @@ function historyRow(doc, session, now, openable) {
   state.className = 'gc-state';
   state.dataset.historyUpdated = String(session.updatedAt);
   state.textContent = `Last session · updated ${ago(now - session.updatedAt)} ago`;
-  row.title = `${name.textContent} — ${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`;
+  tip(row, `${name.textContent} — ${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
   row.append(name, state);
   row.addEventListener('click', (event) => event.stopPropagation());
   return row;
@@ -1319,7 +1559,7 @@ function renderAttention(doc, element, head, card) {
     mark.className = 'gc-mark';
     mark.dataset.mark = 'returned';
     mark.textContent = 'Returned';
-    mark.title = 'This card was past your hands and has come back.';
+    tip(mark, 'This card was past your hands and has come back.');
     head.appendChild(mark);
   }
 
@@ -1427,7 +1667,7 @@ function renderTriage(doc, badge, head, card, now) {
 
   if (triage.state === 'running') {
     mark.textContent = 'Reading…';
-    mark.title = 'Working out what this card is waiting on.';
+    tip(mark, 'Working out what this card is waiting on.');
 
     return;
   }
@@ -1436,16 +1676,17 @@ function renderTriage(doc, badge, head, card, now) {
   // browser bridge takes refresh, watching and move and nothing else (R38).
   if (triage.state === 'failed') {
     mark.textContent = 'Not read';
-    mark.title = 'The board could not read this card. Its triage chip in the editor will try again.';
+    tip(mark, 'The board could not read this card. Its triage chip in the editor will try again.');
 
     return;
   }
 
   mark.textContent = triageText(triage);
   mark.dataset.stale = String(triage.stale);
-  mark.title = triage.stale
-    ? `Read ${ago(now - triage.at)} ago; the card has moved since.`
-    : `Read ${ago(now - triage.at)} ago.`;
+  tip(
+    mark,
+    triage.stale ? `Read ${ago(now - triage.at)} ago; the card has moved since.` : `Read ${ago(now - triage.at)} ago.`,
+  );
 
   const detail = doc.createElement('div');
 
@@ -1538,7 +1779,7 @@ function buildLog(doc, actions) {
     logPinned = pin.checked;
     panel.dataset.pinned = String(logPinned);
   });
-  pinLabel.title = 'Keep the log open when you click back onto the board.';
+  tip(pinLabel, 'Keep the log open when you click back onto the board.');
   pinLabel.append(pin, doc.createTextNode('pin'));
   bar.appendChild(pinLabel);
 
@@ -1670,6 +1911,7 @@ function logLine(doc, entry) {
  * @param {Document} doc
  */
 export function clear(doc) {
+  removeTips();
   openMenu = null;
   panelOpen = false;
   logOpen = false;
@@ -1717,6 +1959,7 @@ export function clear(doc) {
  */
 export function paint(doc, state, now, actions) {
   ensureStyle(doc);
+  ensureTips(doc);
 
   // Every open panel is drawn fresh below, so the ones from the last scan go first — including a card's, whose own
   // card may not be on the page any more.
@@ -1780,6 +2023,12 @@ export function paint(doc, state, now, actions) {
     open.push(...renderBadge(doc, element, card, now, actions, state.snapshot?.openable ?? []));
 
     badges += 1;
+  }
+
+  // After the rebuild rather than before it: a card replaced by this scan is one the tooltip is still open over,
+  // and its rect is gone with it.
+  if (tipAnchor !== null && !tipAnchor.isConnected) {
+    hideTip(doc);
   }
 
   closeOnOutsideClick(doc, panelOpen || openMenu !== null || (logOpen && !logPinned) ? open : [], () => {

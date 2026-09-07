@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANE_ORDER, LANE_TITLES, boardStatuses } from '@ground-control/board';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
 import type { Session } from '@ground-control/core';
@@ -73,6 +73,11 @@ function send(data: BoardMessage): void {
 /** What the board sent because someone clicked. Every render also reports what it drew, which is not that. */
 function sent(): unknown[] {
   return api.postMessage.mock.calls.map(([message]) => message).filter((m) => (m as { type: string }).type !== 'drew');
+}
+
+/** What an element says on hover. Not `title` — the board draws its own tooltip, in GitHub's shape. */
+function tipOf(el: Element | null | undefined): string {
+  return el?.getAttribute('data-gc-tip') ?? '';
 }
 
 function laneEl(id: LaneId): HTMLElement | null {
@@ -177,7 +182,7 @@ describe('board webview', () => {
     expect(api.setState).toHaveBeenCalledWith({ payload, showArchived: false });
     expect(card.classList).toContain('type-bug');
     expect(card.querySelector('.status')?.textContent).toBe('Dev Review');
-    expect(card.querySelector<HTMLElement>('.status')?.title).toBe('🔍 Dev Review');
+    expect(tipOf(card.querySelector('.status'))).toBe('🔍 Dev Review');
     expect(card.querySelector('.type')?.textContent).toBe('Bug');
     expect(avatar.getAttribute('role')).toBe('img');
     expect(avatar.getAttribute('aria-label')).toBe('dev-2, pull request author');
@@ -267,12 +272,12 @@ describe('board webview', () => {
     const pr = document.querySelector<HTMLButtonElement>('.card-meta .badge.pull-request')!;
 
     expect(number.tagName).toBe('BUTTON');
-    expect(number.title).toBe('Open issue #18953 on GitHub');
+    expect(tipOf(number)).toBe('Open issue #18953 on GitHub');
     // The button's own text is a bare number, so without this a screen reader announces only "18953, button".
     expect(number.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
     expect(number.getAttribute('draggable')).toBe('false');
     expect(pr.tagName).toBe('BUTTON');
-    expect(pr.title).toBe('Pull request #19403 — open');
+    expect(tipOf(pr)).toBe('Pull request #19403 — open');
     expect(pr.getAttribute('aria-label')).toBe('Open pull request #19403, open, on GitHub');
     expect(pr.getAttribute('draggable')).toBe('false');
     expect(getComputedStyle(pr).cursor).toBe('pointer');
@@ -291,7 +296,7 @@ describe('board webview', () => {
 
     expect(label.tagName).toBe('BUTTON');
     // The whole name, because the label ellipsises - and the action, because the label alone does not imply it.
-    expect(label.title).toBe('cache-remediation - go to this session');
+    expect(tipOf(label)).toBe('cache-remediation - go to this session');
     expect(getComputedStyle(label).cursor).toBe('pointer');
     // A button brings its own colour, and on a dark card the UA default is the wrong one.
     expect(getComputedStyle(label).color).toBe('inherit');
@@ -310,7 +315,7 @@ describe('board webview', () => {
     const label = document.querySelector<HTMLElement>('.session .session-label')!;
 
     expect(label.tagName).toBe('SPAN');
-    expect(label.title).toBe('cache-remediation');
+    expect(tipOf(label)).toBe('cache-remediation');
     expect(getComputedStyle(label).cursor).not.toBe('pointer');
 
     label.click();
@@ -496,7 +501,8 @@ describe('board webview', () => {
 
     expect(mark).not.toBeNull();
     expect(mark.getAttribute('aria-label')).toBe('claude');
-    expect(mark.querySelector('title')?.textContent).toBe('claude');
+    // No `<title>` child: the browser draws its own tooltip from one, beside the row's (`docs/mechanics.md` §35).
+    expect(mark.querySelector('title')).toBeNull();
 
     send(
       message({
@@ -680,7 +686,7 @@ describe('reported activity', () => {
 
     expect(card.dataset.attention).toBe('blocked');
     expect(card.querySelector('.badge.blocked')?.textContent).toBe('Needs you');
-    expect(card.querySelector<HTMLElement>('.badge.blocked')?.title).toContain('waiting on you');
+    expect(tipOf(card.querySelector('.badge.blocked'))).toContain('waiting on you');
   });
 
   /** The mark refuses a finished agent (R23), so the words under it must refuse the same session rather than name it as blocked. */
@@ -692,7 +698,7 @@ describe('reported activity', () => {
       ],
       'blocked',
     );
-    const said = card.querySelector<HTMLElement>('.badge.blocked')?.title ?? '';
+    const said = tipOf(card.querySelector('.badge.blocked'));
 
     expect(said).toContain('still asking');
     expect(said).not.toContain('long gone');
@@ -703,7 +709,7 @@ describe('reported activity', () => {
 
     expect(card.dataset.attention).toBe('your-turn');
     expect(card.querySelector('.badge.your-turn')?.textContent).toBe('Your turn');
-    expect(card.querySelector<HTMLElement>('.badge.your-turn')?.title).toContain('finished its turn');
+    expect(tipOf(card.querySelector('.badge.your-turn'))).toContain('finished its turn');
   });
 
   it('names in the mark only the sessions the mark is about', () => {
@@ -714,7 +720,7 @@ describe('reported activity', () => {
       ],
       'your-turn',
     );
-    const said = card.querySelector<HTMLElement>('.badge.your-turn')?.title ?? '';
+    const said = tipOf(card.querySelector('.badge.your-turn'));
 
     expect(said).toContain('reading logs');
     expect(said).not.toContain('drafting notes');
@@ -831,7 +837,7 @@ describe('reported activity', () => {
   it('says what the duration counts, and what it last saw, on hover', () => {
     const state = sendCard([withPhase('running')]).querySelector<HTMLElement>('.state')!;
 
-    expect(state.title).toBe(
+    expect(tipOf(state)).toBe(
       'This session is working. The duration counts the turn it is in, from the prompt that began it where the board saw one. Last seen at the PostToolBatch hook.',
     );
   });
@@ -1044,8 +1050,8 @@ describe('lanes', () => {
     const card = document.querySelector<HTMLElement>('.card')!;
 
     expect(card.querySelector('.card-meta .badges .returned')?.textContent).toBe('Returned');
-    expect(card.querySelector<HTMLElement>('.card-open')?.title).toBe('');
-    expect(card.title).toBe('');
+    expect(tipOf(card.querySelector('.card-open'))).toBe('');
+    expect(tipOf(card)).toBe('');
   });
 
   it('moves a focused card one lane with alt and an arrow', () => {
@@ -1304,7 +1310,7 @@ describe('historical rows', () => {
     const row = document.querySelector<HTMLElement>('.historical')!;
     expect(row.textContent).toContain('Past attempt');
     expect(row.textContent).toContain('Last session · updated');
-    expect(row.title).toContain('Last saved');
+    expect(tipOf(row)).toContain('Last saved');
     expect(row.querySelector('button, a, [data-activity-since]')).toBeNull();
     expect(row.dataset.phase).toBeUndefined();
     row.click(); expect(sent()).toEqual([]);
@@ -1335,7 +1341,7 @@ it('makes a historical title openable when the host offers it, including after a
   const button = document.querySelector<HTMLButtonElement>('.historical button')!;
   expect(button.textContent).toBe('Past attempt'); expect(button.draggable).toBe(false);
   button.click(); expect(sent()).toEqual([{ type: 'openSession', sessionId: 'past' }]);
-  expect(button.closest('.historical')?.getAttribute('title')).toContain('Resume this session');
+  expect(tipOf(button.closest('.historical'))).toContain('Resume this session');
   send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
   expect(document.querySelector('.historical button')).toBeNull();
 });
@@ -1349,7 +1355,7 @@ describe('the changes control', () => {
     const el = changes()!;
     expect(el.tagName).toBe('BUTTON');
     expect(el.textContent).toBe('Changes');
-    expect(el.title).toBe("Open this card's commits and uncommitted changes in one editor");
+    expect(tipOf(el)).toBe("Open this card's commits and uncommitted changes in one editor");
     expect(el.getAttribute('aria-label')).toBe('Open the commits and uncommitted changes of Cached counts do not update');
     // Without this a few pixels of drift on the way to a click starts a drag of the card instead.
     expect(el.getAttribute('draggable')).toBe('false');
@@ -1465,7 +1471,7 @@ describe('what a card was read to be waiting on (R38)', () => {
 
     expect(chip()?.dataset['stale']).toBe('true');
     expect(document.querySelector<HTMLElement>('.triage-detail')?.dataset['stale']).toBe('true');
-    expect(chip()?.title).toContain('has moved since');
+    expect(tipOf(chip())).toContain('has moved since');
   });
 
   it('carries nothing at all on a card that has not been read', () => {
@@ -1489,7 +1495,7 @@ describe('what a card was read to be waiting on (R38)', () => {
   it('says when the board has stopped trying on its own', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 5, exhausted: true })] }) }));
 
-    expect(chip()?.title).toContain('has stopped trying');
+    expect(tipOf(chip())).toContain('has stopped trying');
   });
 
   it('never paints a reading in a colour R6 keeps for the two things that want the developer', () => {
@@ -1573,7 +1579,7 @@ describe('what the board can do about a card reading (R39)', () => {
       send(message({ lanes: lanes({ unstarted: [acting(action)] }) }));
 
       expect(chip()?.textContent).toBe(text);
-      expect(chip()?.title).toContain(action.detail);
+      expect(tipOf(chip())).toContain(action.detail);
     });
   }
 
@@ -1596,7 +1602,7 @@ describe('what the board can do about a card reading (R39)', () => {
     );
 
     expect(chip()?.textContent).toBe('Not run');
-    expect(chip()?.title).toBe('It merges into a feature branch.');
+    expect(tipOf(chip())).toBe('It merges into a feature branch.');
     expect(chip()?.tagName).toBe('SPAN');
   });
 
@@ -1680,13 +1686,13 @@ describe('the Logs button', () => {
 
     expect(logsEl().getAttribute('aria-pressed')).toBe('true');
     expect(logsEl().classList).toContain('on');
-    expect(logsEl().title).toContain('Click to stop');
+    expect(tipOf(logsEl())).toContain('Click to stop');
 
     send({ type: 'logs', streaming: false });
 
     expect(logsEl().getAttribute('aria-pressed')).toBe('false');
     expect(logsEl().classList).not.toContain('on');
-    expect(logsEl().title).toBe('Stream the hub log into the Output panel.');
+    expect(tipOf(logsEl())).toBe('Stream the hub log into the Output panel.');
   });
 
   /**
@@ -1696,5 +1702,288 @@ describe('the Logs button', () => {
    */
   it('says it is ready, so the extension can tell it the state of the controls it owns', () => {
     expect(onLoad).toContainEqual({ type: 'ready' });
+  });
+});
+
+/**
+ * The board draws its own tooltip rather than leaving `title` to the browser: the native one opens after about a
+ * second, in the operating system's shape, and cannot be made to match the editor. GitHub's own geometry and
+ * timing (`docs/mechanics.md` §35), so the two boards read the same — the parity table below is what pins that.
+ */
+describe('the tooltip', () => {
+  const tip = () => document.getElementById('tip');
+  const open = () => tip()?.getAttribute('data-open') ?? null;
+
+  const hover = (el: Element) => el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  const unhover = (el: Element) => el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('draws nothing until a pointer has rested on something that says something', () => {
+    const number = document.querySelector('.number')!;
+
+    hover(number);
+
+    expect(open()).toBeNull();
+
+    vi.advanceTimersByTime(120);
+
+    expect(open()).toBe('true');
+    expect(tip()?.textContent).toBe('Open issue #18953 on GitHub');
+  });
+
+  /** One node for the whole board: a render replaces every card, and a node per anchor would be built by the hundred. */
+  it('reuses one element however many things are hovered', () => {
+    for (const el of Array.from(document.querySelectorAll('[data-gc-tip]'))) {
+      hover(el);
+      vi.advanceTimersByTime(120);
+    }
+
+    expect(document.querySelectorAll('#tip')).toHaveLength(1);
+  });
+
+  /** A child would be part of `textContent`, and every label that reads its own would gain the tooltip's words. */
+  it('leaves the text of what it names alone', () => {
+    const number = document.querySelector('.number')!;
+
+    hover(number);
+    vi.advanceTimersByTime(120);
+
+    expect(number.textContent).toBe('#18953');
+  });
+
+  it('closes when the pointer leaves, and on Escape', () => {
+    const number = document.querySelector('.number')!;
+
+    hover(number);
+    vi.advanceTimersByTime(120);
+    unhover(number);
+
+    expect(open()).toBeNull();
+
+    hover(number);
+    vi.advanceTimersByTime(120);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(open()).toBeNull();
+  });
+
+  /** Placed once in viewport coordinates, so a lane scrolling under it would otherwise leave it behind. */
+  it('closes when a lane scrolls under it', () => {
+    hover(document.querySelector('.number')!);
+    vi.advanceTimersByTime(120);
+    document.querySelector('.lane-cards')!.dispatchEvent(new Event('scroll', { bubbles: true }));
+
+    expect(open()).toBeNull();
+  });
+
+  it('never opens for a pointer that left before it was due', () => {
+    const number = document.querySelector('.number')!;
+
+    hover(number);
+    vi.advanceTimersByTime(60);
+    unhover(number);
+    vi.advanceTimersByTime(600);
+
+    expect(open()).toBeNull();
+  });
+
+  /**
+   * The description is on the anchor and always there, not written as the tooltip opens: one written on `focusin`
+   * lands 120ms after focus was announced, and a reader never hears it. `title` had this for free.
+   */
+  it('describes what it names before anything is hovered at all', () => {
+    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
+    expect(document.querySelector('.session-label')!.getAttribute('aria-description')).toContain('go to this session');
+    expect(document.querySelector('[aria-describedby]')).toBeNull();
+  });
+
+  /** A reader says the name, then the description. The same words in both is the board saying it twice. */
+  it('never gives one element both a name and a description', () => {
+    const both = Array.from(document.querySelectorAll('[aria-description]')).filter((el) =>
+      el.hasAttribute('aria-label'),
+    );
+
+    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual([]);
+    // The issue number is the one that would: it is named for a reader and its tooltip says the same thing.
+    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
+    expect(document.querySelector('.number')!.hasAttribute('aria-description')).toBe(false);
+  });
+
+  it('opens on focus, for a developer who never touches the pointer', () => {
+    document.querySelector('.number')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    vi.advanceTimersByTime(120);
+
+    expect(open()).toBe('true');
+  });
+
+  /** `mouseout` fires as the pointer crosses an anchor's own children; closing there shuts and reopens it. */
+  it('stays open as the pointer crosses its anchor own children', () => {
+    // The historical row is the one that carries a tooltip and holds children of its own.
+    send(
+      message({
+        lanes: lanes({
+          build: [
+            {
+              ...liveCard,
+              sessions: [],
+              lastSession: { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: Date.now() - 60000 },
+            },
+          ],
+        }),
+      }),
+    );
+
+    const row = document.querySelector('.historical')!;
+
+    hover(row);
+    vi.advanceTimersByTime(120);
+    row
+      .querySelector('.session-label')!
+      .dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: row.querySelector('.state') }));
+
+    expect(open()).toBe('true');
+  });
+
+  /** A render inside the delay replaces what the pointer was over; a detached anchor measures zero at the origin. */
+  it('never opens against an anchor the board has replaced', () => {
+    const number = document.querySelector('.number')!;
+
+    hover(number);
+    number.remove();
+    vi.advanceTimersByTime(120);
+
+    expect(open()).toBeNull();
+  });
+
+  it('closes one left over a card the render replaced', () => {
+    hover(document.querySelector('.number')!);
+    vi.advanceTimersByTime(120);
+
+    expect(open()).toBe('true');
+
+    send(message({ lanes: lanes({ build: [{ ...liveCard, key: 'issue-99', issueNumber: 99 }] }) }));
+
+    expect(open()).toBeNull();
+  });
+
+  /** Opening one must add and remove no nodes: the overlay's twin is watched by a MutationObserver that repaints. */
+  it('adds and removes no nodes when it opens', () => {
+    const seen: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => seen.push(...records));
+
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    hover(document.querySelector('.number')!);
+    vi.advanceTimersByTime(120);
+    hover(document.querySelector('.session-label')!);
+    vi.advanceTimersByTime(120);
+
+    const records = observer.takeRecords();
+
+    observer.disconnect();
+
+    expect(open()).toBe('true');
+    expect([...seen, ...records]).toEqual([]);
+  });
+
+  /** The rule the parity table names, applied — a stylesheet that stopped reaching the node would pass that table. */
+  it('draws it in the shape the parity table pins', () => {
+    hover(document.querySelector('.number')!);
+    vi.advanceTimersByTime(120);
+
+    const drawn = getComputedStyle(tip()!);
+
+    expect(drawn.display).toBe('block');
+    expect(drawn.position).toBe('fixed');
+    expect(drawn.fontSize).toBe('12px');
+    expect(drawn.padding).toBe('4px 8px');
+    expect(drawn.maxWidth).toBe('250px');
+    expect(drawn.textAlign).toBe('center');
+    // Deaf to the pointer, or the tooltip takes the hover it is explaining and flickers against its own anchor.
+    expect(drawn.pointerEvents).toBe('none');
+  });
+
+  it('is drawn nowhere until something is hovered', () => {
+    expect(getComputedStyle(tipElementForTest()).display).toBe('none');
+  });
+
+  function tipElementForTest(): HTMLElement {
+    hover(document.querySelector('.number')!);
+    vi.advanceTimersByTime(120);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    return tip()!;
+  }
+
+  /**
+   * Nothing may set `title`, in the attribute or as an SVG `<title>` child — the browser draws its own from either,
+   * beside ours. The card carries every branch that draws one, or the count holds for a board that drew none of them.
+   */
+  it('sets no native tooltip anywhere on the board', () => {
+    send(
+      message({
+        lanes: lanes({
+          build: [
+            {
+              ...liveCard,
+              returned: true,
+              attention: 'blocked' as Attention,
+              triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'It came back.', at: Date.now(), stale: false },
+              lastSession: { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: Date.now() - 60000 },
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(document.querySelectorAll('[title], title')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-gc-tip]').length).toBeGreaterThan(0);
+    // The agent glyph most of all: an SVG `<title>` child on a row that already carries one draws two at once.
+    expect(document.querySelector('.agent-mark')).not.toBeNull();
+  });
+});
+
+/**
+ * The parity table. Neither board imports the other's tooltip — both are classic scripts — so the shape they share
+ * is pinned by asserting the same numbers in both suites (`docs/testing.md`). Measured off GitHub's own tooltip,
+ * `docs/mechanics.md` §35.
+ */
+describe('the tooltip shape both boards share', () => {
+  const rows: [string, string | number][] = [
+    ['delay', 120],
+    ['gap', 4],
+    ['margin', 8],
+    ['font-size', '12px'],
+    ['padding', '4px 8px'],
+    ['max-width', '250px'],
+    ['line-height', '1.625'],
+    ['text-align', 'center'],
+  ];
+
+  it.each(rows)('pins %s at %s', (name, expected) => {
+    const css = readFileSync(resolve(__dirname, '..', 'media', 'board.css'), 'utf8');
+    const rule = css.slice(css.indexOf('#tip {'), css.indexOf('#tip[data-open'));
+    const script = readFileSync(resolve(__dirname, '..', 'media', 'board.js'), 'utf8');
+
+    if (typeof expected === 'number') {
+      const constants: Record<string, RegExp> = {
+        delay: /const TIP_DELAY = (\d+);/,
+        gap: /const TIP_GAP = (\d+);/,
+        margin: /const TIP_MARGIN = (\d+);/,
+      };
+
+      expect(Number(constants[name]!.exec(script)?.[1])).toBe(expected);
+
+      return;
+    }
+
+    expect(rule).toContain(`${name}: ${expected}`);
   });
 });
