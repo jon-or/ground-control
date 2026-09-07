@@ -33,8 +33,47 @@ The docs are updated as part of the work that changed them, in the same commit �
 - Exercise UI-visible changes in a real VS Code before calling them done: `npm run test:integration` runs the extension in one. A one-off check is a scratch test under `extensions/ground-control/test-integration/`, run and then deleted — never a request that someone else click through it.
 - One commit per story or task. Commit when a self-contained task is complete, reviewed, verified, and accepted by the user.
 - **Finish by rebuilding and reinstalling the extension.** The board is the installed VSIX, which carries its own bundled hub and never reads this repo's `dist/` — so until it is repackaged and reinstalled, a green build puts nothing in front of the developer. Then tell them it is installed and takes effect when they reload the window; reloading is theirs, not yours. See [Reinstalling after a change](#reinstalling-after-a-change).
-- When a commit fixes a GitHub issue, put a closing reference on the first line (`fix(board): summary (fixes #123)`).
 - Once assigned work, continue until all tasks are complete or you hit a blocker. Raise to the user if you need credentials, clarification, better requirements, a deviation from the PRD, or you cannot adequately verify the change.
+
+### Commit messages
+
+`type(scope): summary`, and `(fixes #123)` on that same line when the commit closes an issue.
+
+```
+feat(overlay): add a log sidebar
+fix(hub): stop queuing watchLog behind the restate (fixes #123)
+docs(architecture): record how the log viewer subscribes
+```
+
+- **type** — `feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`, `build`, etc.
+- **scope** — the area, not a file: `hub`, `board`, `overlay`, `core`, `github`, `transport`, `architecture`, etc.
+- **summary** — imperative, lower case, no full stop, under about 70 characters.
+
+**Name the thing.** Every summary and every bullet says which identifier changed and what changed about it — the module, function, class, setting, flag, file, message type or CLI argument, spelled as it appears in the code. Numbers are literal: `120s`, `64 kB`, `two at a time`. A summary that could describe three different commits is too vague, and an evocative phrase is never clearer than the identifier it stands in for.
+
+```
+BAD   fix(board): give a card the time a real one takes
+GOOD  fix(board): raise the triage timeout from 60s to 120s
+
+BAD   feat(board): show what each card is waiting on, on both boards
+GOOD  feat(board): render the triage action chip and sentence on both boards
+
+BAD   feat(hub): say what it is doing, and let a board ask to watch
+GOOD  feat(hub): add levelled logging and the watchLog subscription
+```
+
+The banned register is metaphor and personification: a card does not want anything, the hub does not say anything, nothing is put in front of anybody. Write what the code does.
+
+**The body is bullet points, never prose.** A trivial change is its summary alone. Anything larger gets two to five bullets, one line each, and only for what a reader cannot get from the diff: a measurement, an external constraint that forced the approach, or a defect the change fixes that the code does not make obvious.
+
+```
+fix(hub): read every response as bytes
+
+- setEncoding('utf8') hands the inspector's listener strings, which have no byteLength, so it throws once per chunk.
+- The stream decodes through a StringDecoder, which is what actually holds a multi-byte character split across two chunks.
+```
+
+Never a paragraph, never a review narrative, never a closing note that the gate passed. Reasoning lives in the code comments and in `docs/`; a commit message that retells them is one nobody reads.
 
 ## Testing
 
