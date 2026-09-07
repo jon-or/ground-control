@@ -2208,15 +2208,22 @@ describe('what a card was read to be waiting on (R38)', () => {
   });
 
   it('marks a reading the card has moved under, rather than presenting it as current', () => {
-    send(
-      message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: true })] }),
-      }),
-    );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-06T19:00:00Z'));
 
-    expect(chip()?.dataset['stale']).toBe('true');
-    // The sentence, when it was read, and the caveat — the caveat is about the sentence, so they read together.
-    expect(tipOf(chip())).toBe('Pick it up. Read 5d ago; the card has moved since.');
+    try {
+      send(
+        message({
+          lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: true })] }),
+        }),
+      );
+
+      expect(chip()?.dataset['stale']).toBe('true');
+      // The sentence, when it was read, and the caveat — the caveat is about the sentence, so they read together.
+      expect(tipOf(chip())).toBe('Pick it up. Read 5d ago; the card has moved since.');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('carries nothing at all on a card that has not been read', () => {
