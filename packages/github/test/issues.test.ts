@@ -35,6 +35,7 @@ describe('fetchAssignedIssues', () => {
     expect(value.cards.find((c) => c.number === 18953)).toEqual({
       number: 18953,
       title: "Guest portal drops rows past the first page",
+      repository: 'example-org/example-repo',
       type: 'Bug',
       typeColor: 'RED',
       url: 'https://github.com/example-org/example-repo/issues/18953',

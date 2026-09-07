@@ -2,7 +2,15 @@
   color-scheme: light dark;
   --gc-radius: 6px;
   --gc-gutter: 1.25rem;
-  --gc-accent: var(--vscode-charts-lines, var(--vscode-panel-border));
+  /* 1.62:1 against a Dark Modern card and 1.42:1 in Light Modern, against GitHub's own 1.76 and 1.43. */
+  --gc-edge: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
+  --gc-edge-hover: color-mix(in srgb, var(--vscode-foreground) 32%, transparent);
+  /*
+   * The lane is recessed. The page and the card are the same tone and never touch: the only surface either of them
+   * meets is this one, which is what separates two surfaces the theme is free to paint identically. 1.07:1 against
+   * the page here, where GitHub's own board is 1.06:1.
+   */
+  --gc-lane: color-mix(in srgb, black 3%, var(--vscode-editor-background));
 }
 
 * {
@@ -21,6 +29,15 @@ body {
   line-height: 1.45;
   color: var(--vscode-foreground);
   background: var(--vscode-editor-background);
+}
+
+/*
+ * The same recess costs a much larger step on a dark ground - 3% of `#ffffff` is eight levels and 3% of `#1f1f1f`
+ * is one - so the depth is set per theme kind. The class is VS Code's own, put on the webview body by its preload
+ * (`mechanics.md` §36). 1.10:1 against the page, where GitHub's own board is 1.09:1.
+ */
+body.vscode-dark {
+  --gc-lane: color-mix(in srgb, black 30%, var(--vscode-editor-background));
 }
 
 /* Header ------------------------------------------------------------------ */
@@ -58,48 +75,42 @@ h1 {
   color: var(--vscode-list-warningForeground, var(--vscode-descriptionForeground));
 }
 
-#archived-toggle {
+/* The board's own overflow menu. Always drawn, unlike a card's: nothing reveals it and it is the only way in. */
+#board-menu {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--vscode-descriptionForeground);
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-#archived-toggle[hidden] {
-  display: none;
-}
-
-#refresh,
-#logs,
-#board-log {
-  flex: none;
-  font: inherit;
-  font-size: 0.8rem;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
   color: var(--vscode-foreground);
   background: transparent;
   border: 1px solid var(--vscode-panel-border);
   border-radius: 4px;
-  padding: 0.2rem 0.7rem;
   cursor: pointer;
 }
 
-#refresh:hover,
-#logs:hover,
-#board-log:hover,
-#logs.on {
-  color: var(--vscode-button-foreground);
-  background: var(--vscode-button-background);
-  border-color: var(--vscode-button-background);
+#board-menu:hover,
+#board-menu[aria-expanded='true'] {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
 }
 
-#refresh:focus-visible,
-#logs:focus-visible,
-#board-log:focus-visible {
+#board-menu:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 2px;
+}
+
+/* What a closed menu cannot say: the hub log is being read. The dot is the mark the overlay's own control carries. */
+#board-menu.on::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 0.4rem;
+  height: 0.4rem;
+  background: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  border-radius: 50%;
 }
 
 /* Notices ----------------------------------------------------------------- */
@@ -163,7 +174,7 @@ main {
   padding-bottom: 0;
   display: flex;
   align-items: stretch;
-  gap: 0.75rem;
+  gap: 0.375rem;
   margin: 1rem calc(var(--gc-gutter) * -1) 0;
   padding: 0 var(--gc-gutter);
   overflow-x: auto;
@@ -177,10 +188,14 @@ main.stale {
 /* Every lane runs the full height of the panel, so the column below the last card is still a drop target. */
 .lane {
   flex: none;
-  width: 19.5rem;
+  /* GitHub's own column, at a 16px root: 350px (`mechanics.md` §27), which lands this board's card within 2px of one of theirs. */
+  width: 21.875rem;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  padding: 0.5rem 0.5rem 0;
+  background: var(--gc-lane);
+  border-radius: var(--gc-radius);
 }
 
 /* Only the cards scroll. The lane's own heading stays put, so the count is readable at any depth. */
@@ -189,7 +204,7 @@ main.stale {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.5rem;
   padding-bottom: 1.5rem;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -288,7 +303,6 @@ main.dragging .lane-idle {
  * its labels - and then, set apart below, everything this board adds on top of that.
  */
 .card {
-  position: relative;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -296,23 +310,9 @@ main.dragging .lane-idle {
   gap: 0.4rem;
   padding: 0.6rem 0.75rem;
   color: var(--vscode-foreground);
-  background: var(--vscode-editorWidget-background, transparent);
-  border: 1px solid transparent;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--gc-edge);
   border-radius: var(--gc-radius);
-}
-
-/* Its own element rather than an inset shadow: the footer's background would paint over a shadow the card cast. */
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  /* Above the footer's own background, which is the whole reason the accent is an element rather than a shadow. */
-  z-index: 1;
-  background: var(--gc-accent);
-  border-start-start-radius: calc(var(--gc-radius) - 1px);
-  border-end-start-radius: calc(var(--gc-radius) - 1px);
-  pointer-events: none;
 }
 
 /*
@@ -322,22 +322,22 @@ main.dragging .lane-idle {
 .card[data-attention='blocked'],
 .card[data-attention='blocked']:hover {
   border-color: var(--vscode-charts-yellow);
-  background: color-mix(in srgb, var(--vscode-charts-yellow) 7%, var(--vscode-editorWidget-background, transparent));
+  background: color-mix(in srgb, var(--vscode-charts-yellow) 7%, var(--vscode-editor-background));
 }
 
 .card[data-attention='blocked']:hover {
-  background: color-mix(in srgb, var(--vscode-charts-yellow) 14%, var(--vscode-editorWidget-background, transparent));
+  background: color-mix(in srgb, var(--vscode-charts-yellow) 14%, var(--vscode-editor-background));
 }
 
 /* A finished turn is the developer's move too, but it is not an agent stuck on them - so it is marked, and marked more quietly. */
 .card[data-attention='your-turn'],
 .card[data-attention='your-turn']:hover {
   border-color: var(--vscode-charts-blue);
-  background: color-mix(in srgb, var(--vscode-charts-blue) 5%, var(--vscode-editorWidget-background, transparent));
+  background: color-mix(in srgb, var(--vscode-charts-blue) 5%, var(--vscode-editor-background));
 }
 
 .card[data-attention='your-turn']:hover {
-  background: color-mix(in srgb, var(--vscode-charts-blue) 11%, var(--vscode-editorWidget-background, transparent));
+  background: color-mix(in srgb, var(--vscode-charts-blue) 11%, var(--vscode-editor-background));
 }
 
 /* Number left, the avatar and the card's menu against the right edge - GitHub's own header, in that order. */
@@ -349,8 +349,8 @@ main.dragging .lane-idle {
   min-height: 1.5rem;
 }
 
-.card-meta .number {
-  margin-inline-end: auto;
+.card-meta .avatar-slot {
+  margin-inline-start: auto;
 }
 
 /*
@@ -365,9 +365,10 @@ main.dragging .lane-idle {
   gap: 0.15rem;
   margin: 0 -0.75rem -0.6rem;
   padding: 0.4rem 0.75rem 0.45rem;
-  background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
+  /* 1.09:1 against the card in Dark Modern and 1.07:1 in Light Modern, against GitHub's own 1.09 and 1.07. */
+  background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
   /* The theme's panel border is barely a shade off the card, so the rule is mixed from the foreground like the tint. */
-  border-top: 1px solid color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
+  border-top: 1px solid var(--gc-edge);
   border-radius: 0 0 calc(var(--gc-radius) - 1px) calc(var(--gc-radius) - 1px);
 }
 
@@ -445,6 +446,7 @@ main.dragging .lane-idle {
   display: flex;
   width: 100%;
   align-items: center;
+  gap: 0.4rem;
   padding: 0.3rem 0.75rem;
   font: inherit;
   text-align: left;
@@ -631,9 +633,9 @@ button.session-label:focus-visible {
   /* Monochrome: the session's own name, lit rather than recoloured. A chart colour would read as a category. */
   background-image: linear-gradient(
     95deg,
-    color-mix(in srgb, var(--vscode-descriptionForeground) 60%, var(--vscode-editorWidget-background, transparent)) 43%,
+    color-mix(in srgb, var(--vscode-descriptionForeground) 60%, var(--vscode-editor-background)) 43%,
     var(--vscode-foreground) 50%,
-    color-mix(in srgb, var(--vscode-descriptionForeground) 60%, var(--vscode-editorWidget-background, transparent)) 57%
+    color-mix(in srgb, var(--vscode-descriptionForeground) 60%, var(--vscode-editor-background)) 57%
   );
   background-size: 300% 100%;
   background-repeat: no-repeat;
@@ -687,8 +689,14 @@ button.session-label:focus-visible {
     color: ButtonText;
   }
 
-  .card-menu {
+  .card-menu,
+  #board-menu {
     color: ButtonText;
+  }
+
+  /* The one sign that the hub log is being read, so it takes a forced colour rather than being dropped with the theme's. */
+  #board-menu.on::after {
+    background: Highlight;
   }
 
   /* Both halves of the pair are forced, so the selected item would otherwise paint exactly like an unselected one. */
@@ -714,8 +722,8 @@ button.session-label:focus-visible {
 }
 
 .card:hover {
-  background: var(--vscode-list-hoverBackground, var(--vscode-editorWidget-background));
-  border-color: var(--vscode-panel-border);
+  background: var(--vscode-list-hoverBackground, var(--vscode-editor-background));
+  border-color: var(--gc-edge-hover);
 }
 
 /*
@@ -740,7 +748,6 @@ button.session-label:focus-visible {
 
 .number {
   flex: none;
-  font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   color: var(--vscode-descriptionForeground);
@@ -773,7 +780,7 @@ button.session-label:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.25rem;
 }
 
 /* No row where there is nothing to put in it: the card's own gap would otherwise leave a blank line behind. */
@@ -781,18 +788,25 @@ button.session-label:focus-visible {
   display: none;
 }
 
-/* GitHub's own colour for the label, tinted against the card rather than filled, so a row of them stays readable. */
+/*
+ * GitHub's own label, measured on a live card (`mechanics.md` §37): 20px tall, 8px of side padding, the colour at
+ * full strength on 18% of it, edged with 30%. The height is set by the line box rather than left to the font's
+ * metrics, so a chip that is a button does not stand taller than one that is a span.
+ */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
-  padding: 0.05rem 0.5rem;
+  /* `.link` gives a bare text link a 24px target, which a chip carrying its own box must not take. */
+  min-height: 0;
+  padding: 0 0.5rem;
   font-size: 0.7rem;
   font-weight: 600;
+  line-height: 1.125rem;
   white-space: nowrap;
   color: var(--gc-badge, var(--vscode-foreground));
-  background: color-mix(in srgb, var(--gc-badge, var(--vscode-foreground)) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--gc-badge, var(--vscode-foreground)) 45%, transparent);
+  background: color-mix(in srgb, var(--gc-badge, var(--vscode-foreground)) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gc-badge, var(--vscode-foreground)) 30%, transparent);
   border-radius: 999px;
 }
 
@@ -802,34 +816,53 @@ button.session-label:focus-visible {
   border-color: var(--gc-badge, var(--vscode-foreground));
 }
 
+/* Held open on every item so the one carrying a mark does not indent the labels beside it. */
+.menu-check {
+  flex: none;
+  width: 0.7rem;
+  text-align: center;
+}
+
+/*
+ * A chip that is a reference or a reading rather than a claim on the developer: unfilled, muted words, a neutral
+ * edge. GitHub's own pull-request chip is drawn this way and so is the browser overlay's own reading, and the reason
+ * is R6 — colour here means the two things that want the developer, which is why the marks beside these keep theirs.
+ * The pull request's glyph is the one part of any of them carrying a colour, and it says which state the branch is
+ * in. Declared after the link rule above, whose hover would otherwise paint one of these on the way to a click.
+ */
+.badge.pull-request,
+.badge.triage,
+.badge.triage-running,
+.badge.triage-failed {
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
+}
+
+/* Without `triage-running`: it is the one of these that is a state rather than a button, with nothing to press. */
+.badge.pull-request:hover,
+.badge.triage:hover,
+.badge.triage-failed:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  border-color: color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
+}
+
 .pr-mark {
   width: 0.72rem;
   height: 0.72rem;
-  fill: currentColor;
+  /* The state's own colour, and the one thing on the chip that carries it - `currentColor` would take the grey. */
+  fill: var(--gc-badge, currentColor);
 }
 
 /* A title wraps rather than truncating: a card is read once and its whole subject has to be on it. */
 .title {
   display: block;
   min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
   overflow-wrap: anywhere;
-}
-
-/* Type sets the card's accent bar and its chip's colour. */
-.type-bug {
-  --gc-accent: var(--vscode-charts-red, var(--vscode-errorForeground));
-}
-
-.type-feature {
-  --gc-accent: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
-}
-
-.type-task {
-  --gc-accent: var(--vscode-charts-green, var(--vscode-descriptionForeground));
-}
-
-.type-epic {
-  --gc-accent: var(--vscode-charts-purple, var(--vscode-descriptionForeground));
 }
 
 /* Empty state ------------------------------------------------------------- */

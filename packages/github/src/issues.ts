@@ -80,6 +80,7 @@ function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
   return {
     number: node.number,
     title: node.title,
+    repository: node.repository.nameWithOwner,
     type: node.issueType?.name ?? null,
     typeColor: node.issueType?.color ?? null,
     url: node.url,

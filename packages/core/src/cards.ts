@@ -5,6 +5,8 @@
 export interface IssueCard {
   number: number;
   title: string;
+  /** `owner/name`, as GitHub reports it. Shortened where it is drawn; a snapshot cached by an older hub omits it. */
+  repository?: string;
   type: string | null;
   /** GitHub's own colour name for the type and the status — `RED`, `BLUE`, `GRAY` … — or null when there is none. */
   typeColor: string | null;

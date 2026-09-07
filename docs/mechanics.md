@@ -1506,7 +1506,7 @@ claude --bg --permission-mode <mode> -n <name> "<prompt>"
 
 There is no `visible`, and no `onDidChangeVisibility`. Nothing tells an extension that a developer opened its channel, switched away from it, or closed the panel it lives in — the whole surface is write and reveal.
 
-That is what makes the board's Logs button an explicit toggle rather than a subscription that follows the pane. A channel the developer is looking at and one they are not are indistinguishable from inside the extension, so the state has to be something the board holds and paints, and turning it off has to be an act rather than a consequence of looking elsewhere.
+That is what makes the board's hub-log item an explicit toggle rather than a subscription that follows the pane. A channel the developer is looking at and one they are not are indistinguishable from inside the extension, so the state has to be something the board holds and paints, and turning it off has to be an act rather than a consequence of looking elsewhere.
 
 `show(preserveFocus)` reveals the channel in the output panel; `show(true)` leaves focus where it was, which is what a button on the board wants. Nothing here calls `hide()` — what it does to a panel holding a terminal or a problems view has not been measured, and a control that turns streaming off has no need to take the panel away as well.
 
@@ -1549,3 +1549,35 @@ Where the element is already named for a reader the description is left off, or 
 **What it does not do is stay open while the pointer is on it** (WCAG 1.4.13 "Hoverable"). `pointer-events: none` is what stops the tooltip taking the hover it is explaining; the cost is that a magnifier user cannot travel onto a wrapped one to read it. GitHub's own tooltip behaves the same way, and `title` — which this replaces — is exempt from that criterion as user-agent content rather than meeting it.
 
 **Version-fragile**: re-verify the palette and the 120ms after a GitHub board release.
+
+## 36. The theme kind reaches a webview as a class on its body
+
+**Measured 2026-09-07 against VS Code 1.136.1 on Windows 11, reading `resources/app/out/vs/workbench/contrib/webview/browser/pre/index.html`. Version-fragile.**
+
+The webview preload's `applyStyles` removes and re-adds one of `vscode-light`, `vscode-dark`, `vscode-high-contrast`, `vscode-high-contrast-light` on `body.classList`, alongside `vscode-reduce-motion` and `vscode-using-screen-reader`. It is the only thing in a webview that says which kind of theme is on: the injected `--vscode-*` variables carry colours and no classification, and `prefers-color-scheme` follows the operating system rather than the editor.
+
+**Why the board needs it at all.** Every other surface it draws is derived with `color-mix` against a theme variable, which needs no classification because mixing the foreground in moves away from the background in whichever direction the theme runs. One thing does not survive that treatment: an equal *ratio* of recess costs a wildly different step depending on how dark the ground is. 3% of black over `#ffffff` is eight levels and 1.07:1; 3% over `#1f1f1f` is one level and 1.01:1. The lane is the board's one recessed surface (`prd.md` R5), so its depth is 3% under `.vscode-light` and 30% under `.vscode-dark`, which lands on 1.07:1 and 1.10:1 against GitHub's own 1.06:1 and 1.09:1.
+
+A high-contrast theme takes the light figure and so gets no usable recess on a black ground - deliberately. Those themes separate by border, which the card already has, and a tint over a pure-black ground is the thing forced colours drop anyway.
+
+## 37. GitHub's own card: what a label pill is made of
+
+**Measured 2026-09-07, Chromium via Playwright, against `https://github.com/orgs/github/projects/4247/views/21` in its board view, unauthenticated, in both colour schemes. Version-fragile: these are Primer's own values, and a Primer release moves them.**
+
+A label on a project card is `button[aria-label^="Label: "]` — a Primer `IssueLabel` token. Its geometry is one set of numbers in both schemes, and its colour is two different recipes:
+
+| | Light | Dark |
+| --- | --- | --- |
+| Height | 20px | 20px |
+| Font | 14px, weight 400, line-height 18.2px | same |
+| Padding | 1px 8px | same |
+| Radius | pill | same |
+| Text | `#000000` | the label's colour at full strength |
+| Fill | the label's colour, opaque | the label's colour at **18%** |
+| Border | 1px, transparent | the label's colour at **30%** |
+
+The label's raw channels arrive as inline custom properties on the button — `--label-r/g/b` and `--label-h/s/l` — which is how one recipe serves any label colour.
+
+**Only the dark recipe transfers.** A board whose palette comes from the editor's theme has no lightness math to fill a pill opaquely and pick a legible text colour for it, and a solid `--vscode-charts-red` under black text is unreadable. So the VS Code board draws the tint recipe in both schemes and takes the 18%/30% figures from the dark column.
+
+Three more numbers off the same card: the label row is `gap: 4px` and sits `8px` under the title; the card's content is inset **12px** at the sides; and the number above the title is **12px, weight 400**, in Primer's UI font (`Mona Sans VF`) rather than a monospace one, coloured `#9198a1` on dark against a `#f0f6fc` title. GitHub's title is **14px weight 400** — its hierarchy over the number is carried by colour alone, where this board's `--vscode-foreground` is a dimmer `#cccccc` and needs weight 600 as well.

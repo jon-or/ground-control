@@ -4,9 +4,8 @@ const vscode = acquireVsCodeApi();
 const lanesEl = document.getElementById('lanes');
 const metaEl = document.getElementById('meta');
 const noticesEl = document.getElementById('notices');
-const archivedEl = /** @type {HTMLInputElement} */ (document.getElementById('show-archived'));
 
-const logsEl = document.getElementById('logs');
+const boardMenuEl = document.getElementById('board-menu');
 
 /**
  * What an element says on hover, in place of the browser's own tooltip: `title` opens after about a second, in the
@@ -142,6 +141,12 @@ function hideTip() {
 function tipOver(event) {
   const anchor = /** @type {Element} */ (event.target)?.closest?.(`[${TIP_ATTR}]`) ?? null;
 
+  // A menu hands the keyboard to an item as it opens, and a tooltip below that item covers the items under it. So
+  // a hint inside a menu is the pointer's alone: the label is what a keyboard reads, and the item is the target.
+  if (event.type === 'focusin' && anchor?.closest('.card-popover') !== null) {
+    return;
+  }
+
   if (anchor === tipAnchor) {
     return;
   }
@@ -181,26 +186,74 @@ document.addEventListener('keydown', (event) => {
 // followed: the pointer is still over the anchor, and the next move opens it where the anchor now is.
 document.addEventListener('scroll', hideTip, true);
 
-document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
-logsEl.addEventListener('click', () => vscode.postMessage({ type: 'toggleLogs' }));
-document.getElementById('board-log').addEventListener('click', () => vscode.postMessage({ type: 'showBoardLog' }));
+/**
+ * Whether the hub's log is being streamed into the Output panel. Nothing else carries it - the Output panel gives no
+ * sign of which channel is subscribed, and the hub is read only while this says on. Read when the menu is opened.
+ */
+let streamingLogs = false;
 
 /**
- * Whether the hub's log is being streamed into the Output panel. The button carries it, because nothing else does -
- * the panel gives no sign of which channel is subscribed, and the hub is read only while this says on.
+ * Whether the archived lane is drawn, and how many cards are in it. The count decides whether the toggle is offered
+ * at all: an archive nothing has reached is a control that could only ever show an empty column.
  */
-function paintLogs(streaming) {
-  logsEl.setAttribute('aria-pressed', String(streaming));
-  logsEl.classList.toggle('on', streaming);
-  tip(
-    logsEl,
-    streaming
-      ? 'The hub log is streaming into Output. Click to stop reading it.'
-      : 'Stream the hub log into the Output panel.',
+let showArchived = false;
+let archivedCount = 0;
+
+/**
+ * What the board itself can be asked to do. A toggle among these is checked rather than acted on, and its own words
+ * say what choosing it will do.
+ */
+function boardActions() {
+  const actions = [];
+
+  if (archivedCount > 0) {
+    actions.push({
+      label: `Show archived (${archivedCount})`,
+      hint: showArchived ? 'Take the Archived lane back off the board.' : 'Draw the Archived lane beside the others.',
+      checked: showArchived,
+      run: () => {
+        showArchived = !showArchived;
+
+        if (board) {
+          render(board);
+        }
+      },
+    });
+  }
+
+  actions.push(
+    {
+      label: 'Stream hub log',
+      hint: streamingLogs
+        ? 'The hub log is streaming into Output. Choose this to stop reading it.'
+        : 'Stream the hub log into the Output panel.',
+      checked: streamingLogs,
+      run: () => vscode.postMessage({ type: 'toggleLogs' }),
+    },
+    {
+      label: 'Show board log',
+      hint: "Reveal this board's own output channel in the Output panel.",
+      run: () => vscode.postMessage({ type: 'showBoardLog' }),
+    },
+    {
+      label: 'Refresh',
+      hint: 'Read the sessions and the project board again now.',
+      run: () => vscode.postMessage({ type: 'refresh' }),
+    },
   );
+
+  return actions;
 }
 
-paintLogs(false);
+function paintLogs(streaming) {
+  streamingLogs = streaming;
+  // The state is inside a menu that is shut almost all of the time, so the control it hangs from carries a mark too.
+  boardMenuEl.classList.toggle('on', streaming);
+  tip(boardMenuEl, streaming ? 'Board actions. The hub log is streaming into Output.' : 'Board actions');
+}
+
+// A key no card can have: every card's is its kind and a colon, so the board's own menu can never be taken for one.
+const BOARD_MENU_KEY = 'board';
 
 /** The last board the extension sent, kept so the archive toggle can re-render without a refresh. */
 let board = null;
@@ -688,18 +741,31 @@ function watchMenu() {
 /** Menus come and go, so each is named afresh: `aria-controls` has to point at the one on the document right now. */
 let menuSeq = 0;
 
-function showMenu(boardCard, anchor, from = 'first') {
+function showMenu(key, name, actions, anchor, from = 'first') {
   const menu = document.createElement('div');
   menu.className = 'card-popover';
   menu.id = `card-menu-${++menuSeq}`;
   menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', `Actions for ${cardName(boardCard)}`);
+  menu.setAttribute('aria-label', name);
 
-  for (const action of cardActions(boardCard)) {
+  for (const action of actions) {
     const item = document.createElement('button');
     item.type = 'button';
-    item.setAttribute('role', 'menuitem');
-    item.textContent = action.label;
+    // A checked item is a state the menu is about to change rather than an action, and the two read differently.
+    item.setAttribute('role', action.checked === undefined ? 'menuitem' : 'menuitemcheckbox');
+
+    if (action.checked !== undefined) {
+      item.setAttribute('aria-checked', String(action.checked));
+    }
+
+    const check = document.createElement('span');
+
+    // Drawn on every item, checkable or not, so one item carrying a mark does not indent the labels beside it.
+    check.className = 'menu-check';
+    check.setAttribute('aria-hidden', 'true');
+    check.textContent = action.checked ? '✓' : '';
+    item.appendChild(check);
+    item.append(action.label);
     // The label names the item, so the tooltip is what it does rather than a second copy of the name.
     tip(item, action.hint);
     item.addEventListener('click', (event) => {
@@ -752,7 +818,7 @@ function showMenu(boardCard, anchor, from = 'first') {
   // into view, and a scroll watch already armed would read that as the board moving and close what it just opened.
   items[from === 'last' ? items.length - 1 : 0]?.focus();
 
-  openMenu = { key: boardCard.key, menu, anchor, unwatch: watchMenu() };
+  openMenu = { key, menu, anchor, unwatch: watchMenu() };
 }
 
 /** GitHub's own overflow glyph, so the control reads as a menu rather than as one more of the chips beside it. */
@@ -773,27 +839,24 @@ function menuMark() {
   return svg;
 }
 
-function cardMenuControl(boardCard) {
-  const el = document.createElement('button');
-  el.type = 'button';
-  el.className = 'card-menu';
+/**
+ * The behaviour every overflow control shares: a second click on the one already open closes it rather than drawing
+ * a second, and either arrow opens it with the keyboard already on an item. The items are fetched at the moment of
+ * opening, because a toggle among them carries the state it had then.
+ */
+function wireMenuControl(el, key, name, actions) {
   el.setAttribute('aria-haspopup', 'menu');
   el.setAttribute('aria-expanded', 'false');
-  // The glyph says nothing on its own, so the pointer gets a tooltip; the name is what carries which card it is about.
-  tip(el, 'More actions');
-  nameFor(el, `More actions for ${cardName(boardCard)}`);
-  // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
-  el.draggable = false;
   el.appendChild(menuMark());
   el.addEventListener('click', (event) => {
     event.stopPropagation();
 
-    const reopening = openMenu?.key === boardCard.key;
+    const reopening = openMenu?.key === key;
 
     closeMenu(false);
 
     if (!reopening) {
-      showMenu(boardCard, el);
+      showMenu(key, name, actions(), el);
     }
   });
 
@@ -804,8 +867,20 @@ function cardMenuControl(boardCard) {
 
     event.preventDefault();
     closeMenu(false);
-    showMenu(boardCard, el, event.key === 'ArrowUp' ? 'last' : 'first');
+    showMenu(key, name, actions(), el, event.key === 'ArrowUp' ? 'last' : 'first');
   });
+}
+
+function cardMenuControl(boardCard) {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'card-menu';
+  // The glyph says nothing on its own, so the pointer gets a tooltip; the name is what carries which card it is about.
+  tip(el, 'More actions');
+  nameFor(el, `More actions for ${cardName(boardCard)}`);
+  // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
+  el.draggable = false;
+  wireMenuControl(el, boardCard.key, `Actions for ${cardName(boardCard)}`, () => cardActions(boardCard));
 
   return el;
 }
@@ -887,6 +962,22 @@ function cardTitle(boardCard) {
   return 'Not among your assigned issues';
 }
 
+/**
+ * An issue's repository as the card draws it: the name without its owner, which is how GitHub writes it on a card of
+ * its own. Absent on a snapshot an older hub cached, and the card then carries the number alone rather than a blank.
+ */
+function repoName(issue) {
+  const full = issue.repository;
+
+  if (typeof full !== 'string' || full === '') {
+    return null;
+  }
+
+  const parts = full.split('/');
+
+  return parts[parts.length - 1] ?? null;
+}
+
 /** GitHub's own pull-request glyph, so the badge reads as a PR rather than a second issue number. */
 function pullRequestMark() {
   const svg = document.createElementNS(SVG, 'svg');
@@ -937,7 +1028,7 @@ function avatar(actor, pool) {
 function card(boardCard, avatarPool, placeable) {
   const el = document.createElement('article');
   const issue = boardCard.issue;
-  el.className = issue?.type ? `card type-${issue.type.toLowerCase()}` : 'card';
+  el.className = 'card';
 
   const meta = document.createElement('span');
   meta.className = 'card-meta';
@@ -958,14 +1049,21 @@ function card(boardCard, avatarPool, placeable) {
       tip(number, checkout.owner);
     }
   } else {
-    number.textContent = `#${boardCard.issueNumber}`;
+    // The repository beside the number, as GitHub writes it on its own card: two boards' cards for one issue read alike,
+    // and a board spanning repositories says which one a card is from.
+    const repo = issue === null ? null : repoName(issue);
+
+    number.textContent = repo === null ? `#${boardCard.issueNumber}` : `${repo} #${boardCard.issueNumber}`;
   }
 
   if (issue) {
+    const repo = repoName(issue);
+    const said = repo === null ? `issue #${issue.number}` : `issue ${repo} #${issue.number}`;
+
     number.type = 'button';
-    tip(number, `Open issue #${issue.number} on GitHub`);
-    // The button's text is a bare number, and that is the name a screen reader uses.
-    nameFor(number, `Open issue #${issue.number} on GitHub`);
+    tip(number, `Open ${said} on GitHub`);
+    // The button's text is a number and a name, neither of which says what pressing it does.
+    nameFor(number, `Open ${said} on GitHub`);
     // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
     number.draggable = false;
     number.addEventListener('click', () => vscode.postMessage({ type: 'openIssue', number: issue.number }));
@@ -992,13 +1090,14 @@ function card(boardCard, avatarPool, placeable) {
   marks.setAttribute('aria-label', 'Board status');
 
   meta.appendChild(number);
-  meta.appendChild(avatarSlot);
 
   const actions = cardActions(boardCard);
 
   if (actions.length > 0) {
     meta.appendChild(cardMenuControl(boardCard));
   }
+
+  meta.appendChild(avatarSlot);
 
   el.appendChild(meta);
 
@@ -1037,12 +1136,14 @@ function card(boardCard, avatarPool, placeable) {
   }
 
   if (issue?.type) {
-    badges.appendChild(badge('type', issue.type, issue.typeColor, issue.type));
+    // No tooltip on any of the three below: the chip is the whole fact, and a hover repeating it is a hover to learn
+    // to ignore. What the pull-request chip's colour says about its state stays in its own accessible name.
+    badges.appendChild(badge('type', issue.type, issue.typeColor, null));
   }
 
   if (issue?.status) {
     // The board's own status word without its emoji: the badge is the marker, so the emoji would say it twice.
-    badges.appendChild(badge('status', statusLabel(issue.status), issue.statusColor, issue.status));
+    badges.appendChild(badge('status', statusLabel(issue.status), issue.statusColor, null));
   }
 
   if (issue?.pullRequest) {
@@ -1050,7 +1151,7 @@ function card(boardCard, avatarPool, placeable) {
       'pull-request',
       `#${issue.pullRequest.number}`,
       PR_COLORS[issue.pullRequest.state] ?? null,
-      `Pull request #${issue.pullRequest.number} — ${issue.pullRequest.state.toLowerCase()}`,
+      null,
       () => vscode.postMessage({ type: 'openPullRequest', number: issue.number }),
     );
     nameFor(
@@ -1398,14 +1499,17 @@ function draw(payload) {
   const placeable = payload.lanes.filter((lane) => lane.id !== 'archived').map((lane) => lane.id);
   const archived = payload.lanes.find((lane) => lane.id === 'archived');
 
-  // Nothing archived means no toggle, so the box is cleared too - otherwise an empty Archived column has no control.
-  if (!archived || archived.cards.length === 0) {
-    archivedEl.checked = false;
+  archivedCount = archived ? archived.cards.length : 0;
+
+  // Nothing archived means no toggle, so the state is cleared too - otherwise an empty Archived column is stranded
+  // on screen with nothing left in the menu to take it off again.
+  if (archivedCount === 0) {
+    showArchived = false;
   }
 
-  vscode.setState({ payload, showArchived: archivedEl.checked });
+  vscode.setState({ payload, showArchived });
 
-  const shown = payload.lanes.filter((lane) => lane.id !== 'archived' || archivedEl.checked);
+  const shown = payload.lanes.filter((lane) => lane.id !== 'archived' || showArchived);
 
   onBoard.clear();
 
@@ -1414,13 +1518,10 @@ function draw(payload) {
       onBoard.add(boardCard.key);
     }
   }
-  document.getElementById('archived-toggle').hidden = !archived || archived.cards.length === 0;
-  document.getElementById('archived-count').textContent = archived ? String(archived.cards.length) : '0';
-
   const total = countCards(shown);
   const when = readTime(payload);
   const count = `${total} card${total === 1 ? '' : 's'}`;
-  metaEl.textContent = when === null ? count : `${count} · read ${when.toLocaleTimeString()}`;
+  metaEl.textContent = when === null ? count : `${count} · updated ${when.toLocaleTimeString()}`;
 
   if (stale) {
     metaEl.textContent = `${metaEl.textContent} · could not refresh`;
@@ -1491,12 +1592,6 @@ function draw(payload) {
   tickDurations();
 }
 
-archivedEl.addEventListener('change', () => {
-  if (board) {
-    render(board);
-  }
-});
-
 window.addEventListener('message', (event) => {
   const message = event.data;
 
@@ -1541,8 +1636,17 @@ function isCurrentPayload(payload) {
   );
 }
 
+/*
+ * The board's own overflow control, wired once: the header is in the document from the start, so unlike a card's
+ * this one is never rebuilt. Wired here rather than beside `boardActions` because the glyph needs `SVG`, which a
+ * `const` declared further down the file does not hoist to there.
+ */
+nameFor(boardMenuEl, 'Board actions');
+wireMenuControl(boardMenuEl, BOARD_MENU_KEY, 'Board actions', boardActions);
+paintLogs(false);
+
 if (isCurrentPayload(restored?.payload)) {
-  archivedEl.checked = restored.showArchived === true;
+  showArchived = restored.showArchived === true;
   render(restored.payload);
 }
 

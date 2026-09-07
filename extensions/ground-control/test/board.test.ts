@@ -123,6 +123,7 @@ const liveCard: LanedCard = {
   issue: {
     number: 18953,
     title: 'Cached counts do not update',
+    repository: 'example-org/example-repo',
     type: 'Bug',
     url: 'https://github.com/example-org/example-repo/issues/18953',
     typeColor: 'RED',
@@ -167,10 +168,7 @@ beforeAll(async () => {
   document.body.innerHTML = `
     <header>
       <div id="meta"></div>
-      <label id="archived-toggle" hidden><input id="show-archived" type="checkbox"> Show archived (<span id="archived-count">0</span>)</label>
-      <button id="logs" type="button" aria-pressed="false">Hub log</button>
-      <button id="board-log" type="button">Board log</button>
-      <button id="refresh" type="button">Refresh</button>
+      <button id="board-menu" type="button"></button>
     </header>
     <div id="notices"></div><main id="lanes"></main>
   `;
@@ -193,8 +191,42 @@ beforeEach(() => {
   send(message());
   document.getElementById('lanes')!.replaceChildren();
   document.getElementById('lanes')!.className = '';
-  (document.getElementById('show-archived') as HTMLInputElement).checked = false;
 });
+
+/**
+ * The archive toggle is an item in the board's own menu, so a test reaches it the way a developer does. Its label
+ * carries the count, read off the trailing text node because the mark column ahead of it is part of `textContent`.
+ */
+const archiveItem = (): { label: string; checked: boolean } | null => {
+  document.getElementById('board-menu')!.click();
+
+  const el = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button')).find((item) =>
+    item.lastChild?.nodeValue?.startsWith('Show archived'),
+  );
+  const read =
+    el === undefined
+      ? null
+      : { label: el.lastChild!.nodeValue!, checked: el.getAttribute('aria-checked') === 'true' };
+
+  document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+  return read;
+};
+
+/** Flips it. An absent item is a failure rather than a no-op: a test that meant to show the archive would pass. */
+const toggleArchived = () => {
+  document.getElementById('board-menu')!.click();
+
+  const el = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button')).find((item) =>
+    item.lastChild?.nodeValue?.startsWith('Show archived'),
+  );
+
+  if (el === undefined) {
+    throw new Error('the board is offering no archive toggle');
+  }
+
+  el.click();
+};
 
 describe('board webview', () => {
   it('renders an accessible avatar, retains fallback initials until load, and lays sessions out below the header', () => {
@@ -209,10 +241,11 @@ describe('board webview', () => {
     const renderedSession = card.querySelector<HTMLElement>('.session')!;
 
     expect(api.setState).toHaveBeenCalledWith({ payload, showArchived: false });
-    expect(card.classList).toContain('type-bug');
     expect(card.querySelector('.status')?.textContent).toBe('Dev Review');
-    expect(tipOf(card.querySelector('.status'))).toBe('🔍 Dev Review');
     expect(card.querySelector('.type')?.textContent).toBe('Bug');
+    // Nothing on hover: a chip that is its own whole fact has nothing left to say when it is pointed at.
+    expect(tipOf(card.querySelector('.status'))).toBe('');
+    expect(tipOf(card.querySelector('.type'))).toBe('');
     expect(avatar.getAttribute('role')).toBe('img');
     expect(avatar.getAttribute('aria-label')).toBe('dev-2, pull request author');
     expect(avatar.textContent).toContain('DE');
@@ -302,12 +335,14 @@ describe('board webview', () => {
     const pr = document.querySelector<HTMLButtonElement>('.badges.github .badge.pull-request')!;
 
     expect(number.tagName).toBe('BUTTON');
-    expect(tipOf(number)).toBe('Open issue #18953 on GitHub');
+    expect(tipOf(number)).toBe('Open issue example-repo #18953 on GitHub');
     // The button's own text is a bare number, so without this a screen reader announces only "18953, button".
-    expect(number.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
+    expect(number.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
     expect(number.getAttribute('draggable')).toBe('false');
     expect(pr.tagName).toBe('BUTTON');
-    expect(tipOf(pr)).toBe('Pull request #19403 — open');
+    // The number and its glyph are the chip's whole fact, so it says nothing further on hover. The state is not
+    // lost with it: the accessible name carries the word, which is what a reader gets in place of the colour.
+    expect(tipOf(pr)).toBe('');
     expect(pr.getAttribute('aria-label')).toBe('Open pull request #19403, open, on GitHub');
     expect(pr.getAttribute('draggable')).toBe('false');
     expect(getComputedStyle(pr).cursor).toBe('pointer');
@@ -524,6 +559,35 @@ describe('board webview', () => {
     expect(card.querySelector('.title')?.textContent).toBe('scratch');
   });
 
+  /**
+   * The repository beside the number, the way GitHub writes it on a card of its own — a board spanning repositories
+   * says which one each card came from. Named without its owner, as `checkoutName` names a session's.
+   */
+  it('writes the repository beside the issue number, without its owner', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    const number = document.querySelector<HTMLElement>('.number')!;
+
+    expect(number.textContent).toBe('example-repo #18953');
+    expect(number.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
+  });
+
+  // A snapshot an older hub cached carries no repository, and the card must read as it did rather than as a blank.
+  it('carries the number alone where the snapshot has no repository on it', () => {
+    const issue = { ...liveCard.issue! };
+
+    // Absent, not undefined: `exactOptionalPropertyTypes` separates the two, and a snapshot without the field is the
+    // first of them.
+    delete issue.repository;
+
+    send(message({ lanes: lanes({ build: [{ ...liveCard, issue }] }) }));
+
+    const number = document.querySelector<HTMLElement>('.number')!;
+
+    expect(number.textContent).toBe('#18953');
+    expect(number.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
+  });
+
   it('leaves out a badge the issue has nothing for', () => {
     const bare = { ...liveCard, issue: { ...liveCard.issue!, type: null, status: null, pullRequest: null } };
 
@@ -641,7 +705,10 @@ describe('board webview', () => {
     send({ type: 'loading' });
     expect(document.getElementById('meta')?.textContent).toBe('Reading GitHub…');
 
-    document.getElementById('refresh')!.click();
+    document.getElementById('board-menu')!.click();
+    Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button'))
+      .find((item) => item.textContent === 'Refresh')!
+      .click();
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'refresh' });
   });
 });
@@ -801,8 +868,11 @@ describe('reported activity', () => {
     expect(/button\.session-label \{\s*color: ButtonText/.test(forced ?? '')).toBe(true);
     expect(forced).toContain('color: CanvasText');
 
-    // The card's menu is a button on the card's own surface, and the footer's tint is the one thing forced colours drop.
-    expect(/\.card-menu \{\s*color: ButtonText;/.test(forced ?? '')).toBe(true);
+    // Both overflow controls are buttons on the surface behind them, so both take a forced button's own colour.
+    expect(/\.card-menu,\s*#board-menu \{\s*color: ButtonText;/.test(forced ?? '')).toBe(true);
+    // The dot is the only sign the hub log is streaming, so it is repainted rather than left to a dropped theme colour.
+    expect(/#board-menu\.on::after \{\s*background: Highlight;/.test(forced ?? '')).toBe(true);
+    // The footer's tint is the one thing forced colours drop, so its rule is what sets it apart there.
     expect(/\.card-foot \{\s*border-top-color: CanvasText;/.test(forced ?? '')).toBe(true);
   });
 
@@ -1042,17 +1112,14 @@ describe('lanes', () => {
   it('hides archived work until the toggle asks for it — R9', () => {
     send(message({ lanes: lanes({ plan: [planCard], archived: [archivedCard] }) }));
 
-    const toggle = document.getElementById('show-archived') as HTMLInputElement;
-
     expect(laneEl('archived')).toBeNull();
-    expect(document.getElementById('archived-toggle')?.hidden).toBe(false);
-    expect(document.getElementById('archived-count')?.textContent).toBe('1');
+    expect(archiveItem()).toEqual({ label: 'Show archived (1)', checked: false });
     expect(document.getElementById('meta')?.textContent).toContain('1 card');
 
-    toggle.checked = true;
-    toggle.dispatchEvent(new Event('change'));
+    toggleArchived();
 
     expect(laneEl('archived')?.querySelectorAll('.card')).toHaveLength(1);
+    expect(archiveItem()?.checked).toBe(true);
     expect(document.getElementById('meta')?.textContent).toContain('2 cards');
   });
 
@@ -1078,10 +1145,11 @@ describe('lanes', () => {
     }
   });
 
+  // Absent rather than disabled: an item that could only ever draw an empty column is worse than no item at all.
   it('offers no archive toggle when nothing is archived', () => {
     send(message({ lanes: lanes({ plan: [planCard] }) }));
 
-    expect(document.getElementById('archived-toggle')?.hidden).toBe(true);
+    expect(archiveItem()).toBeNull();
   });
 
   it('marks a returned card, and leaves the card itself without a tooltip — R6', () => {
@@ -1158,19 +1226,21 @@ describe('lanes', () => {
   });
 
   it('clears the archive toggle when the last archived card leaves, so no empty column is stranded', () => {
-    const toggle = document.getElementById('show-archived') as HTMLInputElement;
-
     send(message({ lanes: lanes({ plan: [planCard], archived: [archivedCard] }) }));
-    toggle.checked = true;
-    toggle.dispatchEvent(new Event('change'));
+    toggleArchived();
 
     expect(laneEl('archived')).not.toBeNull();
 
     send(message({ lanes: lanes({ plan: [planCard] }) }));
 
-    expect(toggle.checked).toBe(false);
     expect(laneEl('archived')).toBeNull();
-    expect(document.getElementById('archived-toggle')?.hidden).toBe(true);
+    expect(archiveItem()).toBeNull();
+
+    // Cleared rather than remembered: the archive filling again must not bring back a column nobody asked for.
+    send(message({ lanes: lanes({ plan: [planCard], archived: [archivedCard] }) }));
+
+    expect(laneEl('archived')).toBeNull();
+    expect(archiveItem()?.checked).toBe(false);
   });
 
   it('keeps the element of a card a refresh did not change, so its lane stays scrolled where it was', () => {
@@ -1284,10 +1354,8 @@ describe('lanes', () => {
   });
 
   it('offers no way to move an archived card — only a status takes a card off the board', () => {
-    const toggle = document.getElementById('show-archived') as HTMLInputElement;
-    toggle.checked = true;
-
     send(message({ lanes: lanes({ archived: [archivedCard] }) }));
+    toggleArchived();
 
     const card = laneEl('archived')!.querySelector<HTMLElement>('.card')!;
 
@@ -1422,6 +1490,109 @@ describe('what GitHub says, and what the board adds', () => {
     );
   }
 
+  /**
+   * A lane of cards was told apart by fill alone, which the theme puts at 1.01:1 in Dark Modern — GitHub's own
+   * cards are 1.09:1 of fill and a 1.76:1 border, so the border is the channel, and it was the one missing.
+   */
+  it('draws an edge on every card, and strengthens it under the pointer', () => {
+    full();
+
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+
+    // Read off the rule: jsdom resolves a custom property holding a color-mix down to the inner var, not the mix.
+    expect(/\.card \{[^}]*border: 1px solid var\(--gc-edge\)/.test(css)).toBe(true);
+
+    // Hover must not be the weaker of the two: the theme's own panel border is fainter than this edge.
+    expect(/\.card:hover \{[^}]*border-color: var\(--gc-edge-hover\)/.test(css)).toBe(true);
+    expect(css).not.toContain('border: 1px solid transparent');
+  });
+
+  /**
+   * Three tones, as GitHub's own board has: the page and the card are the same one and never touch, the lane is
+   * recessed under both, and the card's footer is one step off the card. Recessed rather than raised is the whole
+   * point — it is what separates a page and a card the theme is free to paint identically.
+   */
+  it('recesses the lane under a page and a card that share one tone', () => {
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+
+    // Black, never the foreground: mixing the foreground in would lighten the lane on a dark theme and raise it.
+    expect(/--gc-lane: color-mix\(in srgb, black 3%, var\(--vscode-editor-background\)\)/.test(css)).toBe(true);
+    expect(/body\.vscode-dark \{\s*--gc-lane: color-mix\(in srgb, black 30%, var\(--vscode-editor-background\)\)/.test(css)).toBe(true);
+    expect(/\.lane \{[^}]*background: var\(--gc-lane\)/.test(css)).toBe(true);
+    // GitHub's column width, so a card is the same size on either board.
+    expect(/\.lane \{[^}]*width: 21\.875rem/.test(css)).toBe(true);
+    // The card takes the page's own tone, so what tells it apart is the lane under it and its own edge.
+    expect(/\.card \{[^}]*background: var\(--vscode-editor-background\)/.test(css)).toBe(true);
+  });
+
+  // A chip that is a button took `.link`'s 24px target and stood 4px taller than one that is a span.
+  it('draws every pill at one height, whether or not it is clickable', () => {
+    full();
+
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+    const rule = /\.badge \{[^}]*\}/.exec(css)?.[0] ?? '';
+
+    // GitHub's own label is 20px: an 18px line box inside two 1px edges, set here rather than left to font metrics.
+    expect(rule).toContain('line-height: 1.125rem');
+    expect(rule).toContain('min-height: 0');
+    expect(rule).toContain('padding: 0 0.5rem');
+    // Both kinds are drawn, so the rule above is the only thing deciding either one's height.
+    expect(document.querySelector('span.badge')).not.toBeNull();
+    expect(document.querySelector('button.badge')).not.toBeNull();
+  });
+
+  // GitHub's dark recipe, measured off a live card (`mechanics.md` §37). The old 45% edge read 1.5x its label.
+  it('tints a pill and edges it at the strengths GitHub uses', () => {
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+    const rule = /\.badge \{[^}]*\}/.exec(css)?.[0] ?? '';
+
+    expect(rule).toContain('18%, transparent)');
+    expect(rule).toContain('30%, transparent)');
+  });
+
+  // A reference and a reading are outlines with muted words; only a claim on the developer (R6) keeps a fill.
+  it('leaves a reference or a reading unfilled and unpainted, and a mark filled', () => {
+    full();
+
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+    const quiet = /\.badge\.pull-request,\s*\.badge\.triage,\s*\.badge\.triage-running,\s*\.badge\.triage-failed \{[^}]*\}/.exec(css)?.[0] ?? '';
+
+    expect(quiet).toContain('background: transparent');
+    expect(quiet).toContain('color: var(--vscode-descriptionForeground)');
+    expect(quiet).toContain('var(--vscode-foreground) 30%');
+    // After the link rule, or a chip on the way to being clicked would take a colour back off it.
+    expect(css.indexOf('.badge.pull-request:hover')).toBeGreaterThan(css.indexOf('.badge.link:hover'));
+    // Nothing to press while a reading is being taken, so that one is left out of the hover.
+    expect(/\.badge\.pull-request:hover,\s*\.badge\.triage:hover,\s*\.badge\.triage-failed:hover \{/.test(css)).toBe(true);
+    expect(/\.pr-mark \{[^}]*fill: var\(--gc-badge/.test(css)).toBe(true);
+    // The state still reaches the glyph, which is the one part of the chip that carries it.
+    expect(document.querySelector<HTMLElement>('.badge.pull-request')!.style.getPropertyValue('--gc-badge')).toBe(
+      'var(--vscode-charts-green)',
+    );
+    // The mark beside them keeps its fill: what wants the developer is the one thing on a card that is loud.
+    expect(getComputedStyle(document.querySelector<HTMLElement>('.badge.blocked')!).background).toContain('color-mix');
+  });
+
+  // GitHub writes the number in its own UI font; a monospace one was the card's only fixed-width text.
+  it('writes the issue number in the editor ui font, not its editor font', () => {
+    const css = readFileSync(resolve('media/board.css'), 'utf8');
+
+    expect(/\.number \{[^}]*font-family/.test(css)).toBe(false);
+    expect(/\.number \{[^}]*font-variant-numeric: tabular-nums/.test(css)).toBe(true);
+  });
+
+  // Every other line on a card is 12.5px at 400, so a title that inherits the body carries no hierarchy at all.
+  it('sets the title apart from the metadata around it by size and weight', () => {
+    full();
+
+    const title = getComputedStyle(document.querySelector<HTMLElement>('.title')!);
+    const number = getComputedStyle(document.querySelector<HTMLElement>('.number')!);
+
+    expect(title.fontSize).toBe('0.875rem');
+    expect(title.fontWeight).toBe('600');
+    expect(number.fontSize).toBe('0.78rem');
+  });
+
   it('reads down: the header, the title, GitHub own labels, then everything this board adds', () => {
     full();
 
@@ -1490,26 +1661,16 @@ describe('what GitHub says, and what the board adds', () => {
     const foot = getComputedStyle(document.querySelector<HTMLElement>('.card-foot')!);
 
     expect(foot.background).toContain('color-mix');
+    // One step off the card, no further: the rule above carries the separation, so the tint only has to be read as a step.
+    expect(/\.card-foot \{[^}]*var\(--vscode-foreground\) 4%, transparent\)/.test(readFileSync(resolve('media/board.css'), 'utf8'))).toBe(true);
     // jsdom will not expand a shorthand carrying a var(), so the rule itself is what the divider is asserted from.
-    expect(/\.card-foot \{[^}]*border-top: 1px solid color-mix\(/.test(readFileSync(resolve('media/board.css'), 'utf8'))).toBe(true);
+    expect(/\.card-foot \{[^}]*border-top: 1px solid var\(--gc-edge\)/.test(readFileSync(resolve('media/board.css'), 'utf8'))).toBe(true);
     // Cancels the card's padding on the three sides it touches, so the tint runs edge to edge rather than inset.
     expect(card.paddingLeft).toBe('0.75rem');
     expect(foot.marginLeft).toBe('-0.75rem');
     expect(foot.marginRight).toBe('-0.75rem');
     expect(card.paddingBottom).toBe('0.6rem');
     expect(foot.marginBottom).toBe('-0.6rem');
-  });
-
-  // The footer's own background would paint over an inset shadow the card cast, cutting the accent bar in two.
-  it('draws the type accent as an element of its own rather than a shadow the footer covers', () => {
-    full();
-
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-
-    expect(css).toContain('inset: 0 auto 0 0');
-    expect(css).toContain('background: var(--gc-accent);');
-    expect(css).not.toContain('box-shadow: inset 3px 0 0');
-    expect(getComputedStyle(document.querySelector<HTMLElement>('.card')!).position).toBe('relative');
   });
 });
 
@@ -1534,6 +1695,19 @@ describe("the card's own menu", () => {
     // Without this a few pixels of drift on the way to a click starts a drag of the card instead.
     expect(el.getAttribute('draggable')).toBe('false');
     expect(menu()).toBeNull();
+  });
+
+  // Between the number it acts on and the face at the card's edge, which is where GitHub keeps its own.
+  it('sits beside the issue number rather than past the avatar', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    const meta = document.querySelector<HTMLElement>('.card-meta')!;
+
+    expect(Array.from(meta.children).map((el) => el.className)).toEqual([
+      'number link',
+      'card-menu',
+      'avatar-slot',
+    ]);
   });
 
   it('names the repository beside the branch on a card with no issue, which a branch alone would not', () => {
@@ -1679,13 +1853,12 @@ describe("the card's own menu", () => {
     const archived = { ...liveCard, key: 'issue:404', lane: 'archived' as const };
 
     send(message({ lanes: lanes({ archived: [archived] }) }));
-    (document.getElementById('show-archived') as HTMLInputElement).checked = true;
-    send(message({ lanes: lanes({ archived: [archived] }) }));
+    toggleArchived();
 
     control()!.click();
     expect(menu()).not.toBeNull();
 
-    (document.getElementById('show-archived') as HTMLInputElement).checked = false;
+    toggleArchived();
     send(message({ lanes: lanes({ archived: [{ ...archived, returned: true }] }) }));
 
     expect(menu()).toBeNull();
@@ -2041,34 +2214,112 @@ describe('triage labels read the same on every board', () => {
   });
 });
 
-describe('the Logs button', () => {
-  const logsEl = () => document.getElementById('logs')!;
+describe("the board's own menu", () => {
+  const control = () => document.getElementById('board-menu')!;
+  const items = () => Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button'));
+  const item = (label: string) => items().find((el) => el.textContent?.endsWith(label))!;
 
   beforeEach(() => {
     send({ type: 'logs', streaming: false });
   });
 
-  it('asks the extension to toggle rather than deciding for itself', () => {
-    logsEl().click();
+  // Closed the way the board closes it, so the document handlers a menu installs are released with it.
+  afterEach(() => document.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-    expect(sent()).toEqual([{ type: 'toggleLogs' }]);
-    // Still off: the button paints what the extension says, so a click that the extension refused leaves no mark.
-    expect(logsEl().getAttribute('aria-pressed')).toBe('false');
-    expect(logsEl().classList).not.toContain('on');
+  it('holds what the board itself can be asked to do, the archive among them where there is one', () => {
+    control().click();
+
+    expect(items().map((el) => el.textContent)).toEqual(['Stream hub log', 'Show board log', 'Refresh']);
+    expect(control().getAttribute('aria-expanded')).toBe('true');
+    expect(document.querySelector('.card-popover')?.getAttribute('aria-label')).toBe('Board actions');
+
+    document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    send(message({ lanes: lanes({ archived: [{ ...liveCard, lane: 'archived' as const }] }) }));
+    control().click();
+
+    // First, because what is on the board is read before what the board is doing about it.
+    expect(items().map((el) => el.textContent)).toEqual([
+      'Show archived (1)',
+      'Stream hub log',
+      'Show board log',
+      'Refresh',
+    ]);
   });
 
-  it('paints on when the extension says the hub log is streaming, and off again when it stops', () => {
+  it('shows the board log and refreshes on the items that say so', () => {
+    control().click();
+    item('Show board log').click();
+    expect(sent()).toEqual([{ type: 'showBoardLog' }]);
+
+    control().click();
+    item('Refresh').click();
+    expect(sent()).toEqual([{ type: 'showBoardLog' }, { type: 'refresh' }]);
+  });
+
+  it('asks the extension to toggle the hub log rather than deciding for itself', () => {
+    control().click();
+    item('Stream hub log').click();
+
+    expect(sent()).toEqual([{ type: 'toggleLogs' }]);
+    // Still off: the board paints what the extension says, so a click the extension refused leaves no mark.
+    expect(control().classList).not.toContain('on');
+
+    control().click();
+    expect(item('Stream hub log').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('checks the hub log item and marks the control while the log is streaming', () => {
     send({ type: 'logs', streaming: true });
 
-    expect(logsEl().getAttribute('aria-pressed')).toBe('true');
-    expect(logsEl().classList).toContain('on');
-    expect(tipOf(logsEl())).toContain('Click to stop');
+    expect(control().classList).toContain('on');
+    expect(tipOf(control())).toContain('streaming into Output');
 
+    control().click();
+
+    const toggle = item('Stream hub log');
+
+    // A state the menu will change, not an action, so it is a checkbox item rather than a plain one.
+    expect(toggle.getAttribute('role')).toBe('menuitemcheckbox');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(toggle.querySelector('.menu-check')?.textContent).toBe('\u2713');
+    expect(tipOf(toggle)).toContain('Choose this to stop');
+
+    document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     send({ type: 'logs', streaming: false });
 
-    expect(logsEl().getAttribute('aria-pressed')).toBe('false');
-    expect(logsEl().classList).not.toContain('on');
-    expect(tipOf(logsEl())).toBe('Stream the hub log into the Output panel.');
+    expect(control().classList).not.toContain('on');
+    expect(tipOf(control())).toBe('Board actions');
+  });
+
+  // Three items deep, a tooltip under the first one covers the two below it, and the menu opens with focus on it.
+  it('leaves the tooltip shut when a menu hands its first item the keyboard', () => {
+    vi.useFakeTimers();
+
+    try {
+      control().click();
+      item('Stream hub log').dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      vi.advanceTimersByTime(2000);
+
+      // Undefined where nothing has opened one yet: the panel is built on the first tooltip the board draws.
+      expect(document.getElementById('tip')?.getAttribute('data-open') ?? null).toBeNull();
+
+      // Still the pointer's to read, where nothing is covered by it opening.
+      item('Stream hub log').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      vi.advanceTimersByTime(2000);
+
+      expect(document.getElementById('tip')?.getAttribute('data-open')).toBe('true');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Nothing on a plain item is checked, so its mark column is empty rather than absent - the labels have to line up.
+  it('leaves the mark column empty on an item that is not a state', () => {
+    control().click();
+
+    expect(item('Refresh').getAttribute('role')).toBe('menuitem');
+    expect(item('Refresh').hasAttribute('aria-checked')).toBe(false);
+    expect(item('Refresh').querySelector('.menu-check')?.textContent).toBe('');
   });
 
   /**
@@ -2112,7 +2363,7 @@ describe('the tooltip', () => {
     vi.advanceTimersByTime(120);
 
     expect(open()).toBe('true');
-    expect(tip()?.textContent).toBe('Open issue #18953 on GitHub');
+    expect(tip()?.textContent).toBe('Open issue example-repo #18953 on GitHub');
   });
 
   /** One node for the whole board: a render replaces every card, and a node per anchor would be built by the hundred. */
@@ -2132,7 +2383,7 @@ describe('the tooltip', () => {
     hover(number);
     vi.advanceTimersByTime(120);
 
-    expect(number.textContent).toBe('#18953');
+    expect(number.textContent).toBe('example-repo #18953');
   });
 
   it('closes when the pointer leaves, and on Escape', () => {
@@ -2176,7 +2427,7 @@ describe('the tooltip', () => {
    * lands 120ms after focus was announced, and a reader never hears it. `title` had this for free.
    */
   it('describes what it names before anything is hovered at all', () => {
-    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
+    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
     expect(document.querySelector('.session-label')!.getAttribute('aria-description')).toContain('go to this session');
     expect(document.querySelector('[aria-describedby]')).toBeNull();
   });
@@ -2189,7 +2440,7 @@ describe('the tooltip', () => {
 
     expect(both.map((el) => el.getAttribute('aria-label'))).toEqual([]);
     // The issue number is the one that would: it is named for a reader and its tooltip says the same thing.
-    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
+    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
     expect(document.querySelector('.number')!.hasAttribute('aria-description')).toBe(false);
   });
 
