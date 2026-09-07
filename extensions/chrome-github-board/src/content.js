@@ -19,6 +19,8 @@
   let attempt = 0;
   let scheduled = false;
   let reconnecting = false;
+  /** What the worker was last told about the sidebar, restated on every connect: a restarted worker holds nothing. */
+  let watchingLog = false;
 
   const observer = new MutationObserver(() => schedule());
 
@@ -26,6 +28,10 @@
     refresh: () => post({ type: 'refresh' }),
     move: (key, lane) => post({ type: 'move', key, lane }),
     repaint: () => schedule(),
+    watchLog: (open) => {
+      watchingLog = open;
+      post({ type: 'logView', open });
+    },
   };
 
   function post(message) {
@@ -55,6 +61,12 @@
           overlay.paint(document, state, Date.now(), actions);
         } else {
           overlay.clear(document);
+
+          // The sidebar went with the board, so the hub stops being read: a tab on some other page of github.com is
+          // not a viewer, and nothing about the hub's log crosses to one (R40).
+          if (watchingLog) {
+            actions.watchLog(false);
+          }
         }
       } finally {
         observer.observe(document.documentElement, { childList: true, subtree: true });
@@ -73,6 +85,21 @@
 
     port.onMessage.addListener((message) => {
       attempt = 0;
+
+      // Appended rather than repainted, and the observer is off while it happens: a line is a DOM change of our
+      // own, and one left armed would schedule a whole board scan per line of a burst.
+      if (message.type === 'log') {
+        observer.disconnect();
+
+        try {
+          overlay.appendLog(document, message.entries ?? []);
+        } finally {
+          observer.observe(document.documentElement, { childList: true, subtree: true });
+        }
+
+        return;
+      }
+
       state = helpers.applyMessage(state, message);
       schedule();
     });
@@ -86,6 +113,12 @@
       schedule();
       later();
     });
+
+    // Chrome stops an idle worker, which loses every tab it had streaming. A sidebar the developer left open has to
+    // say so again, or it sits there showing the lines from before the worker went and no others.
+    if (watchingLog) {
+      post({ type: 'logView', open: true });
+    }
   }
 
   function later() {

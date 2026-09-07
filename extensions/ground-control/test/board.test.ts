@@ -4,7 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANE_ORDER, LANE_TITLES, boardStatuses } from '@ground-control/board';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
 import type { Session } from '@ground-control/core';
-import type { SnapshotMessage } from '@ground-control/core';
+import type { BoardMessage, SnapshotMessage } from '@ground-control/core';
 
 const api = {
   postMessage: vi.fn(),
@@ -66,7 +66,7 @@ function message(overrides: Partial<SnapshotMessage> = {}): SnapshotMessage {
   };
 }
 
-function send(data: SnapshotMessage | { type: 'loading' }): void {
+function send(data: BoardMessage): void {
   window.dispatchEvent(new MessageEvent('message', { data }));
 }
 
@@ -114,6 +114,9 @@ const liveCard: LanedCard = {
   sessions: [session],
 };
 
+/** What the script posted while it was loading. Read by the readiness test, which cannot re-run the module. */
+let onLoad: unknown[] = [];
+
 /** The board's own duration clock, captured rather than started: a test drives it, and no interval outlives the run. */
 let tick: (() => void) | null = null;
 let tickMs = 0;
@@ -131,6 +134,8 @@ beforeAll(async () => {
     <header>
       <div id="meta"></div>
       <label id="archived-toggle" hidden><input id="show-archived" type="checkbox"> Show archived (<span id="archived-count">0</span>)</label>
+      <button id="logs" type="button" aria-pressed="false">Hub log</button>
+      <button id="board-log" type="button">Board log</button>
       <button id="refresh" type="button">Refresh</button>
     </header>
     <div id="notices"></div><main id="lanes"></main>
@@ -138,6 +143,10 @@ beforeAll(async () => {
 
   const boardScript = '../media/board.js';
   await import(boardScript);
+
+  // Captured before any test clears the spy: the script runs once per module load, and what it says on the way up
+  // cannot be observed again from inside a test.
+  onLoad = api.postMessage.mock.calls.map(([sent]) => sent);
 });
 
 beforeEach(() => {
@@ -1647,5 +1656,45 @@ describe('triage labels read the same on every board', () => {
     );
 
     expect(document.querySelector('.badge.triage')?.textContent).toBe(expected);
+  });
+});
+
+describe('the Logs button', () => {
+  const logsEl = () => document.getElementById('logs')!;
+
+  beforeEach(() => {
+    send({ type: 'logs', streaming: false });
+  });
+
+  it('asks the extension to toggle rather than deciding for itself', () => {
+    logsEl().click();
+
+    expect(sent()).toEqual([{ type: 'toggleLogs' }]);
+    // Still off: the button paints what the extension says, so a click that the extension refused leaves no mark.
+    expect(logsEl().getAttribute('aria-pressed')).toBe('false');
+    expect(logsEl().classList).not.toContain('on');
+  });
+
+  it('paints on when the extension says the hub log is streaming, and off again when it stops', () => {
+    send({ type: 'logs', streaming: true });
+
+    expect(logsEl().getAttribute('aria-pressed')).toBe('true');
+    expect(logsEl().classList).toContain('on');
+    expect(logsEl().title).toContain('Click to stop');
+
+    send({ type: 'logs', streaming: false });
+
+    expect(logsEl().getAttribute('aria-pressed')).toBe('false');
+    expect(logsEl().classList).not.toContain('on');
+    expect(logsEl().title).toBe('Stream the hub log into the Output panel.');
+  });
+
+  /**
+   * The one signal that this script has run. A webview reloads on its own — a tab returning from the background, a
+   * renderer restored — and the panel is not told; without this the button would sit reading off while the window
+   * was streaming, and the developer's first click would stop the stream instead of starting it.
+   */
+  it('says it is ready, so the extension can tell it the state of the controls it owns', () => {
+    expect(onLoad).toContainEqual({ type: 'ready' });
   });
 });

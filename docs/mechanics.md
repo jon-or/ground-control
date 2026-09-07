@@ -1480,3 +1480,17 @@ claude --bg --permission-mode <mode> -n <name> "<prompt>"
 **`claude stop <short-id>` answers `stopped <short-id>`** and the session leaves the roster. `claude rm` is never used: its help says it deletes the session "and its worktree when that is safe", and a card's checkout holds the developer's work.
 
 **Version-fragile.** The id-bearing stdout line and `--bg`'s refusal of `--session-id` are both undocumented shapes; a release that changes either leaves a dispatch that runs and cannot be tracked.
+
+## 34. An output channel can be shown, and cannot be asked whether it is
+
+**Read 2026-09-06 from `@types/vscode@1.134.0`, the surface this extension compiles against (`engines.vscode: ^1.104.0`).** `OutputChannel` declares eight members — `name`, `append`, `appendLine`, `replace`, `clear`, `show` (two overloads), `hide`, `dispose` — and nothing else. `LogOutputChannel` adds seven: `logLevel`, `onDidChangeLogLevel`, and the `trace`/`debug`/`info`/`warn`/`error` writers.
+
+There is no `visible`, and no `onDidChangeVisibility`. Nothing tells an extension that a developer opened its channel, switched away from it, or closed the panel it lives in — the whole surface is write and reveal.
+
+That is what makes the board's Logs button an explicit toggle rather than a subscription that follows the pane. A channel the developer is looking at and one they are not are indistinguishable from inside the extension, so the state has to be something the board holds and paints, and turning it off has to be an act rather than a consequence of looking elsewhere.
+
+`show(preserveFocus)` reveals the channel in the output panel; `show(true)` leaves focus where it was, which is what a button on the board wants. Nothing here calls `hide()` — what it does to a panel holding a terminal or a problems view has not been measured, and a control that turns streaming off has no need to take the panel away as well.
+
+**A line below the channel's level is dropped, not held.** Each writer is declared as logging "only if the channel is configured to display" that level or lower, and `logLevel` "Defaults to the editor log level" — which the editor's own default is Info, though that number is read off the product rather than measured here, and whether a line below the level can be recovered by raising it afterwards is not stated either way. Neither uncertainty changes what a client should do: writing the connection story at `info` puts it in the pane whatever the default turns out to be, and leaving the line-per-message wire at `debug` costs nothing if it is dropped. A pane that says nothing to whoever opens it after a stall is the failure to avoid.
+
+**Version-fragile**: a release that adds a visibility event would let the subscription follow the pane instead — re-check this before assuming the button has to carry state.

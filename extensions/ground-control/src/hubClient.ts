@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { ClientHello, ClientMessage, HubConfig, HubMessage, Session, Snapshot } from '@ground-control/core';
 import { HubTransport } from '@ground-control/hub';
 import { makeHubProcess } from './hubProcess.js';
+import { boardLog, hubLog, showHubEntries } from './logging.js';
 import { host } from './registry.js';
 import { boardRoot, perform, refuse } from './resident.js';
 
@@ -15,10 +16,13 @@ export class HubClient {
   readonly #id = `vscode-${process.pid}`;
   readonly #transport: HubTransport;
   readonly #snapshots = new vscode.EventEmitter<Snapshot>();
+  readonly #streaming = new vscode.EventEmitter<boolean>();
 
   #config: HubConfig | undefined;
   #watching = false;
+  #watchingLog = false;
   #last: Snapshot | undefined;
+  #hubLines = 0;
 
   constructor(home: string, bundle: string) {
     const ensure = makeHubProcess(home, bundle);
@@ -31,10 +35,18 @@ export class HubClient {
       // A hub this window just started knows nothing about it, and so does one that restarted under a reconnect.
       afterHello: () => this.#restate(),
       onMessage: (message) => this.#onMessage(message),
+      // Levelled by the transport, not flattened to one: the channel's own filter starts at the editor's log level,
+      // so a connection story written at debug would be a pane that says nothing to whoever opens it after a stall.
+      log: (level, message) => boardLog()[level](message),
       onTrouble: (message) => {
-        if (message !== null) {
-          void vscode.window.showWarningMessage(message);
+        if (message === null) {
+          boardLog().info('the hub is reachable again');
+
+          return;
         }
+
+        boardLog().warn(message);
+        void vscode.window.showWarningMessage(message);
       },
     });
   }
@@ -45,6 +57,34 @@ export class HubClient {
   }
 
   readonly onSnapshot = this.#snapshots.event;
+
+  /** Fired whenever the hub's log starts or stops arriving, so every board in this window paints the same button. */
+  readonly onStreamingChanged = this.#streaming.event;
+
+  get streamingHubLog(): boolean {
+    return this.#watchingLog;
+  }
+
+  /** How many of the hub's lines have reached this window. The only report the stream arrived; nothing else reads it. */
+  get hubLines(): number {
+    return this.#hubLines;
+  }
+
+  /**
+   * The board's button, and the command that mirrors it for a window with no board open. Turning it on reveals the
+   * channel; turning it off says so there and leaves the panel where the developer put it. A toggle rather than a
+   * show, because the only thing that stops the hub's log crossing to this window is the developer saying so — and
+   * a board closed with it on would otherwise leave it streaming for the life of the window with no way off (R40).
+   */
+  toggleHubLog(): boolean {
+    const streaming = this.#watchLog(!this.#watchingLog);
+
+    if (streaming) {
+      hubLog().show(true);
+    }
+
+    return streaming;
+  }
 
   /**
    * The settings this window holds, pushed whole. `acknowledge` asks for the activity install's outcome back, and is
@@ -71,6 +111,7 @@ export class HubClient {
   dispose(): void {
     this.#transport.dispose();
     this.#snapshots.dispose();
+    this.#streaming.dispose();
   }
 
   #hello(): ClientHello {
@@ -87,6 +128,39 @@ export class HubClient {
     if (this.#config) {
       this.#transport.send({ type: 'configure', config: this.#config });
     }
+
+    // A hub that restarted under the reconnect holds no subscriber for this window, so a viewer left open would go
+    // quiet for good. What comes back is the whole tail of the file, most of which the channel has already shown —
+    // said out loud, because a hundred lines repeating themselves with nothing between reads as the hub looping.
+    // Only where something did precede it: a subscribe made while the stream was down was never sent, so its first
+    // hello is the channel's first content rather than a repeat of anything.
+    if (this.#watchingLog) {
+      if (this.#hubLines > 0) {
+        hubLog().appendLine('--- reconnected; what follows is the log again from the top ---');
+      }
+
+      this.#transport.send({ type: 'watchLog', watching: true });
+    }
+  }
+
+  #watchLog(watching: boolean): boolean {
+    if (watching === this.#watchingLog) {
+      return watching;
+    }
+
+    this.#watchingLog = watching;
+    this.#transport.send({ type: 'watchLog', watching });
+
+    // The channel keeps whatever it already holds, so the line is what tells a developer that the lines above it
+    // are the last there will be. Nothing else marks it: an unsubscribed channel and a quiet hub look the same.
+    if (!watching) {
+      hubLog().appendLine('--- this window stopped reading the hub’s log ---');
+    }
+
+    boardLog().info(watching ? 'reading the hub’s log' : 'stopped reading the hub’s log');
+    this.#streaming.fire(watching);
+
+    return watching;
   }
 
   #onMessage(message: HubMessage): void {
@@ -102,6 +176,18 @@ export class HubClient {
       // the board that asked may be gone by the time the plan comes back.
       case 'perform':
         void perform(message.route, () => this.roster());
+
+        return;
+
+      case 'log':
+        // Dropped once this window has stopped reading: the unsubscribe is a round trip, and whatever was already
+        // in the stream would otherwise land underneath the line saying nothing more is coming.
+        if (!this.#watchingLog) {
+          return;
+        }
+
+        this.#hubLines += message.entries.length;
+        showHubEntries(message.entries);
 
         return;
 

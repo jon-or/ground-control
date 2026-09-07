@@ -11,7 +11,8 @@
  * @typedef {import('@ground-control/core').Session} Session
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void }} Actions
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void }} Actions
+ * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
 
@@ -24,6 +25,8 @@ export const PROJECT_NAV = '[role="navigation"][aria-label="Project"]';
 export const VIEW_TABS = 'nav[aria-label="Select view"]';
 
 const MENU_ID = 'gc-menu';
+const LOG_ID = 'gc-log';
+const LOG_LINES_ID = 'gc-log-lines';
 const PERCH_ID = 'gc-perch';
 const TOASTS_ID = 'gc-toasts';
 const STYLE_ID = 'gc-style';
@@ -230,6 +233,43 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-state 
 #${TOASTS_ID} .gc-remedy { display: block; opacity: 0.8; }
 #${TOASTS_ID} .gc-dismiss { margin-left: auto; font: inherit; background: none; border: 0; cursor: pointer;
   color: inherit; opacity: 0.8; }
+
+/*
+ * The log sidebar. Fixed and over the board rather than beside it: making room would reflow GitHub's own columns,
+ * and a developer reading a log wants the board where they left it when they close the panel.
+ *
+ * Wide, because the lines are the hub's own and they run long — a cwd, a branch, a CLI's own words about why it
+ * failed. They wrap rather than truncate, so a narrow panel costs nothing but reading three lines to take in one.
+ * That the panel goes when the developer clicks back onto the board is what makes taking this much of it cheap.
+ * A character measure leads, so the width follows the text rather than the monitor; the viewport cap is the laptop.
+ */
+#${LOG_ID} { position: fixed; top: 0; right: 0; bottom: 0; width: min(140ch, 80vw); z-index: 100;
+  display: flex; flex-direction: column; font-size: 12px;
+  background: var(--bgColor-default, #ffffff); border-left: 1px solid var(--borderColor-default, #d1d9e0);
+  box-shadow: -2px 0 12px rgba(31, 35, 40, 0.12); }
+#${LOG_ID} header { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+/* Pinned reads at a glance, off the panel's own edge: a tick in a row of ticks is not a state a developer scans. */
+#${LOG_ID}[data-pinned="true"] { border-left-color: var(--borderColor-accent-emphasis, #0969da); }
+#${LOG_ID} h2 { flex: 1; margin: 0; font-size: 12px; font-weight: 600; }
+#${LOG_ID} label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
+  color: var(--fgColor-muted, #59636e); }
+#${LOG_ID} .gc-close { font: inherit; background: none; border: 0; cursor: pointer; padding: 0 2px;
+  color: var(--fgColor-muted, #59636e); }
+#${LOG_LINES_ID} { flex: 1; margin: 0; padding: 6px 10px; overflow: auto; overscroll-behavior: contain;
+  font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; line-height: 16px; }
+.gc-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--fgColor-default, #1f2328); }
+.gc-line .gc-when { color: var(--fgColor-muted, #59636e); }
+.gc-line[data-source="browser"] .gc-tag { color: var(--fgColor-accent, #0969da); }
+.gc-line[data-source="hub"] .gc-tag { color: var(--fgColor-done, #8250df); }
+.gc-line[data-level="warn"] { color: var(--fgColor-attention, #9a6700); }
+.gc-line[data-level="error"] { color: var(--fgColor-danger, #d1242f); }
+.gc-line[data-level="debug"] { opacity: 0.75; }
+#${LOG_ID}[data-shows-browser="false"] .gc-line[data-source="browser"],
+#${LOG_ID}[data-shows-hub="false"] .gc-line[data-source="hub"],
+#${LOG_ID}[data-shows-debug="false"] .gc-line[data-level="debug"] { display: none; }
+#${LOG_LINES_ID} .gc-empty { color: var(--fgColor-muted, #59636e); font-family: inherit; }
 `;
 
 /**
@@ -241,6 +281,28 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-state 
  */
 let openMenu = null;
 let panelOpen = false;
+
+/**
+ * Whether the log sidebar is on screen. Held here with the rest of the overlay's display state, and the one panel
+ * a scan does not rebuild: it is appended to a line at a time, so a repaint that replaced it would drop what the
+ * developer has scrolled back through and reset them to the bottom.
+ */
+let logOpen = false;
+
+/**
+ * What the sidebar shows. Both sources by default, because telling a stuck board from a stuck hub is the point of
+ * one stream; the line-per-message detail off by default, because a panel where every reading writes four lines is
+ * one nothing is found in (R40).
+ */
+const LOG_SHOWS_BY_DEFAULT = { browser: true, hub: true, debug: false };
+const logShows = { ...LOG_SHOWS_BY_DEFAULT };
+
+/**
+ * Whether a click off the sidebar leaves it alone. Off by default, because the panel covers the right of the board
+ * and a developer who has gone back to the cards is no longer a viewer — pinned is for the case they are watching
+ * the log *while* working, and are willing to keep the hub being read to do it.
+ */
+let logPinned = false;
 
 /**
  * Whether the project's own header is folded away, cached from page storage on first read: the collapse is applied
@@ -839,6 +901,14 @@ export function renderMenu(doc, state, now, actions) {
 
   panel.appendChild(doc.createElement('hr'));
 
+  // The one item here that is not a fact about the board. It is in the menu rather than on the filter bar because a
+  // second button beside GitHub's own would cost the board width for something a developer opens rarely.
+  panel.appendChild(
+    item(doc, logOpen ? 'Hide log' : 'Show log', () => setLogOpen(doc, !logOpen, actions), logOpen ? '✓' : ''),
+  );
+
+  panel.appendChild(doc.createElement('hr'));
+
   const actionRow = doc.createElement('div');
   const refresh = nativeButton(doc, host);
 
@@ -1302,6 +1372,212 @@ function renderTriage(doc, badge, head, card, now) {
   badge.appendChild(detail);
 }
 
+
+/**
+ * How many lines the sidebar holds. The same number the worker's spool caps at, because what it is handed on the
+ * way in is that spool: a smaller ceiling here would drop the oldest of a backlog on arrival. A copy rather than an
+ * import, since this file imports nothing — held to the spool's by the parity test both suites run.
+ */
+export const LOG_LIMIT = 4000;
+
+/**
+ * The log sidebar, and the one thing on the page a scan does not rebuild. Everything else here is redrawn from the
+ * snapshot every few seconds (`mechanics.md` §27), but the log is appended to a line at a time — so this creates
+ * the panel once, by id, and afterwards only reconciles it being open or closed and which sources it shows.
+ *
+ * @param {Document} doc
+ * @param {Actions} actions
+ * @returns {HTMLElement | null}
+ */
+export function renderLog(doc, actions) {
+  const existing = doc.getElementById(LOG_ID);
+
+  if (!logOpen) {
+    existing?.remove();
+
+    return null;
+  }
+
+  const panel = existing ?? buildLog(doc, actions);
+
+  panel.dataset.showsBrowser = String(logShows.browser);
+  panel.dataset.showsHub = String(logShows.hub);
+  panel.dataset.showsDebug = String(logShows.debug);
+  panel.dataset.pinned = String(logPinned);
+
+  return panel;
+}
+
+/** Which dataset key each tick writes. Spelled out, because the attribute name is what the stylesheet reads. */
+const SHOWS = { browser: 'showsBrowser', hub: 'showsHub', debug: 'showsDebug' };
+
+/**
+ * @param {Document} doc
+ * @param {Actions} actions
+ * @returns {HTMLElement}
+ */
+function buildLog(doc, actions) {
+  const panel = doc.createElement('aside');
+
+  panel.id = LOG_ID;
+  panel.setAttribute('aria-label', 'Ground Control log');
+
+  const bar = doc.createElement('header');
+  const title = doc.createElement('h2');
+
+  title.textContent = 'Ground Control log';
+  bar.appendChild(title);
+
+  // Applied to the panel rather than by rebuilding it: hiding a source has to be reversible, so the lines stay in
+  // the document and the stylesheet is what takes them off screen.
+  for (const shown of /** @type {const} */ (['browser', 'hub', 'debug'])) {
+    const label = doc.createElement('label');
+    const box = doc.createElement('input');
+
+    box.type = 'checkbox';
+    box.checked = logShows[shown];
+    box.dataset.shows = shown;
+    box.addEventListener('change', () => {
+      logShows[shown] = box.checked;
+      panel.dataset[SHOWS[shown]] = String(box.checked);
+    });
+    label.append(box, doc.createTextNode(shown));
+    bar.appendChild(label);
+  }
+
+  const pinLabel = doc.createElement('label');
+  const pin = doc.createElement('input');
+
+  pin.type = 'checkbox';
+  pin.checked = logPinned;
+  pin.dataset.pin = 'true';
+  pin.addEventListener('change', () => {
+    logPinned = pin.checked;
+    panel.dataset.pinned = String(logPinned);
+  });
+  pinLabel.title = 'Keep the log open when you click back onto the board.';
+  pinLabel.append(pin, doc.createTextNode('pin'));
+  bar.appendChild(pinLabel);
+
+  const close = doc.createElement('button');
+
+  close.type = 'button';
+  close.className = 'gc-close';
+  close.textContent = '×';
+  close.setAttribute('aria-label', 'Close the log');
+  close.addEventListener('click', (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    setLogOpen(doc, false, actions);
+  });
+  bar.appendChild(close);
+
+  const lines = doc.createElement('div');
+
+  lines.id = LOG_LINES_ID;
+  lines.setAttribute('role', 'log');
+  lines.setAttribute('aria-live', 'polite');
+
+  const empty = doc.createElement('span');
+
+  empty.className = 'gc-empty';
+  empty.textContent = 'Waiting for the first line…';
+  lines.appendChild(empty);
+
+  panel.append(bar, lines);
+  (doc.body ?? doc.documentElement).appendChild(panel);
+
+  return panel;
+}
+
+/**
+ * Opened or closed, and the hub told either way. Nothing about the hub's log crosses to this browser until this
+ * says open, and it stops the moment it says closed (R40).
+ *
+ * The panel is built here rather than left to the repaint below: a scan runs on the next frame, and what the
+ * subscription is answered with comes back sooner than that — so a sidebar that did not exist yet would drop the
+ * one thing it was opened for.
+ *
+ * @param {Document} doc
+ * @param {boolean} open
+ * @param {Actions} actions
+ */
+export function setLogOpen(doc, open, actions) {
+  if (open === logOpen) {
+    return;
+  }
+
+  logOpen = open;
+  panelOpen = false;
+  renderLog(doc, actions);
+  actions.watchLog(open);
+  actions.repaint();
+}
+
+/**
+ * New lines, appended rather than rendered. Sticks to the bottom only when the developer already was there: one
+ * that scrolled on every line would make reading back through a burst impossible.
+ *
+ * @param {Document} doc
+ * @param {readonly LogEntry[]} entries
+ * @returns {number} how many lines the sidebar now holds
+ */
+export function appendLog(doc, entries) {
+  const lines = doc.getElementById(LOG_LINES_ID);
+
+  if (lines === null) {
+    return 0;
+  }
+
+  lines.querySelector('.gc-empty')?.remove();
+
+  // Read before anything is added: the measurement is whether they were at the bottom, and appending moves it.
+  const atBottom = lines.scrollHeight - lines.scrollTop - lines.clientHeight < 24;
+
+  for (const entry of entries) {
+    lines.appendChild(logLine(doc, entry));
+  }
+
+  for (let over = lines.childElementCount - LOG_LIMIT; over > 0; over--) {
+    lines.firstElementChild?.remove();
+  }
+
+  if (atBottom) {
+    lines.scrollTop = lines.scrollHeight;
+  }
+
+  return lines.childElementCount;
+}
+
+/**
+ * @param {Document} doc
+ * @param {LogEntry} entry
+ * @returns {HTMLElement}
+ */
+function logLine(doc, entry) {
+  const line = doc.createElement('span');
+
+  line.className = 'gc-line';
+  line.dataset.source = entry.source;
+  line.dataset.level = entry.level;
+
+  const when = doc.createElement('span');
+
+  // The clock and not the date: every line in the panel is from the session the developer is sitting in, and the
+  // hub's own timestamps are what the tail carries, so a restart shows the gap without spelling out the day.
+  when.className = 'gc-when';
+  when.textContent = `${entry.at.slice(11, 19)} `;
+
+  const tag = doc.createElement('span');
+
+  tag.className = 'gc-tag';
+  tag.textContent = `${entry.source}${entry.scope === undefined ? '' : `/${entry.scope}`} `;
+
+  line.append(when, tag, doc.createTextNode(entry.message));
+
+  return line;
+}
+
 /**
  * Everything the overlay put on the page, taken off it: what a soft navigation away from a board runs. The content
  * script is injected across github.com, because a board reached by clicking through the site is a soft navigation
@@ -1313,6 +1589,9 @@ function renderTriage(doc, badge, head, card, now) {
 export function clear(doc) {
   openMenu = null;
   panelOpen = false;
+  logOpen = false;
+  logPinned = false;
+  Object.assign(logShows, LOG_SHOWS_BY_DEFAULT);
   collapsed = null;
   dismissed.clear();
   closeOnOutsideClick(doc, [], () => {});
@@ -1321,7 +1600,7 @@ export function clear(doc) {
     row.removeAttribute(HIDDEN_ATTR);
   }
 
-  for (const id of [MENU_ID, PERCH_ID, TOASTS_ID]) {
+  for (const id of [MENU_ID, PERCH_ID, TOASTS_ID, LOG_ID]) {
     doc.getElementById(id)?.remove();
   }
 
@@ -1358,6 +1637,7 @@ export function paint(doc, state, now, actions) {
   }
 
   const menu = renderMenu(doc, state, now, actions);
+  const log = renderLog(doc, actions);
 
   applyCollapse(doc);
   renderToasts(doc, state);
@@ -1368,6 +1648,12 @@ export function paint(doc, state, now, actions) {
   let scanned = 0;
   /** @type {Element[]} */
   const open = menu === null ? [] : [menu];
+
+  // The sidebar is dismissed by a click off it, like every other panel here. That also stops the hub being read,
+  // which is the point: a developer who has gone back to working the board is no longer a viewer (R40).
+  if (log !== null) {
+    open.push(log);
+  }
 
   for (const element of doc.querySelectorAll(CARD)) {
     scanned += 1;
@@ -1400,7 +1686,16 @@ export function paint(doc, state, now, actions) {
     badges += 1;
   }
 
-  closeOnOutsideClick(doc, panelOpen || openMenu !== null ? open : [], () => actions.repaint());
+  closeOnOutsideClick(doc, panelOpen || openMenu !== null || (logOpen && !logPinned) ? open : [], () => {
+    // Read after the handler has cleared the menu's own state, so one click off the board shuts everything the
+    // overlay had open — and the log's close is the one that reaches across to the hub. A pinned sidebar is left
+    // where it is, including when the click was really about a menu that was open over it.
+    if (logOpen && !logPinned) {
+      setLogOpen(doc, false, actions);
+    }
+
+    actions.repaint();
+  });
 
   return { scanned, badges, menu: menu !== null };
 }

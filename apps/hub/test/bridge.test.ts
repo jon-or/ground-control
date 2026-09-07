@@ -176,6 +176,46 @@ describe('the bridge Chrome starts', () => {
     await new Promise((done) => stop.on('exit', done));
   });
 
+  /**
+   * The one thing the bridge has to say again. Its hello carries whether a board is watching, so that survives a
+   * reconnect on its own; the log subscription is a plain message the transport deliberately does not queue, and a
+   * hub restarts every time a VS Code window reloads — so without the restate a sidebar left open in Chrome would
+   * show the lines from before the restart and never another one (R40).
+   */
+  it('asks a restarted hub for its log again, so a sidebar left open keeps filling', async () => {
+    const home = tempHome();
+
+    copyFileSync(BUNDLE, join(home, '.claude', 'ground-control', 'hub.js'));
+
+    const wrapper = join(home, '.claude', 'ground-control', 'hub.js');
+    const bridge = run(wrapper, ['--native-messaging', `--home=${home}`], {});
+    const seen = reader(bridge);
+
+    bridge.stdin?.write(encodeFrame({ type: 'watching', watching: true }));
+    bridge.stdin?.write(encodeFrame({ type: 'watchLog', watching: true }));
+
+    const logs = () => seen.messages.filter((message) => message.type === 'log');
+
+    await until(() => (logs().length > 0 ? true : null));
+
+    const before = logs().length;
+
+    // What a VS Code window reloading does: the hub on this home is stopped and the bridge's transport, which is
+    // still up because Chrome's port is, reconnects and starts another.
+    const stop = run(ENTRY, ['--stop', `--home=${home}`], {});
+
+    await new Promise((done) => stop.on('exit', done));
+    await until(() => (logs().length > before ? true : null), 40_000);
+
+    expect(seen.failed).toBe('');
+
+    bridge.stdin?.end();
+
+    const last = run(ENTRY, ['--stop', `--home=${home}`], {});
+
+    await new Promise((done) => last.on('exit', done));
+  });
+
   it('tells the browser what it refused, rather than dropping it', async () => {
     const home = tempHome();
 

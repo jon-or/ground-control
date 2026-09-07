@@ -15,6 +15,12 @@ export interface TransportDeps {
   afterHello(): void;
   /** Said once per outage, and once when it clears. A board that cannot reach its hub shows nothing otherwise. */
   onTrouble(message: string | null): void;
+  /**
+   * Every step of the connection and every message over it, for the client's own log. Levelled, because a client
+   * writes these to a channel a developer opens after something went wrong: the connection's own story has to be
+   * there at the default filter, and the line per message must not be.
+   */
+  log?(level: 'debug' | 'info' | 'warn', message: string): void;
   /** How long a request may take before it is treated as a hub that is gone. Injected only so a test can wait. */
   deadlineMs?: number;
 }
@@ -37,6 +43,16 @@ const PENDING_LIMIT = 32;
 
 /** A request the hub never received, as against one it received and refused. Only the first is worth trying again. */
 type Posted = 'ok' | 'refused' | 'unreachable';
+
+/**
+ * What a client says again after every hello, and so must never be queued. A `configure` held over a reconnect is
+ * by then the settings of some earlier minute, and replayed on top of the restated one it would undo the change the
+ * developer had just made; a queued `watchLog` would arrive behind the restated one and have the hub re-read and
+ * re-send the whole tail of its log, which the viewer has by then already been shown.
+ */
+function restated(message: ClientMessage): boolean {
+  return message.type === 'configure' || message.type === 'watchLog';
+}
 
 /**
  * This window's connection to the hub: an event stream in, actions out, and a reconnect when either goes. The
@@ -70,10 +86,8 @@ export class HubTransport {
       return;
     }
 
-    // A configuration is never queued: the client restates it after every hello, and a queued one is by then the
-    // settings of some earlier minute — replayed on top, it would undo the change the developer just made.
     if (!this.#live) {
-      if (message.type !== 'configure' && this.#pending.length < PENDING_LIMIT) {
+      if (!restated(message) && this.#pending.length < PENDING_LIMIT) {
         this.#pending.push(message);
       }
 
@@ -94,6 +108,7 @@ export class HubTransport {
   }
 
   dispose(): void {
+    this.#say('info', 'closing this window’s connection');
     this.#disposed = true;
     clearTimeout(this.#retry);
     this.#stream?.destroy();
@@ -116,6 +131,7 @@ export class HubTransport {
     }
 
     if ('failed' in ensured) {
+      this.#say('warn', `no hub to connect to: ${ensured.failed}`);
       this.#trouble(ensured.failed);
       this.#later();
 
@@ -123,6 +139,7 @@ export class HubTransport {
     }
 
     this.#record = ensured.hub.record;
+    this.#say('info', `opening a stream to 127.0.0.1:${ensured.hub.record.port}`);
     this.#open(ensured.hub.record);
   }
 
@@ -202,7 +219,15 @@ export class HubTransport {
     }
 
     try {
-      this.#deps.onMessage(JSON.parse(data) as HubMessage);
+      const message = JSON.parse(data) as HubMessage;
+
+      // Every kind but the log itself: one line per hub line would double the traffic this window writes about, and
+      // the entries are being written to a channel of their own as they arrive anyway.
+      if (message.type !== 'log') {
+        this.#say('debug', `the hub sent ${message.type}`);
+      }
+
+      this.#deps.onMessage(message);
     } catch {
       // A frame this client cannot parse is a hub speaking something else, which the protocol check at connect is
       // what guards; dropping the frame beats taking the extension host down over it.
@@ -224,6 +249,7 @@ export class HubTransport {
     }
 
     this.#retryMs = FIRST_RETRY_MS;
+    this.#say('info', `the hub accepted this window, with ${this.#pending.length} action(s) queued`);
     this.#trouble(null);
     this.#deps.afterHello();
 
@@ -242,8 +268,13 @@ export class HubTransport {
   async #deliver(message: ClientMessage): Promise<Posted> {
     const posted = await this.#post(message);
 
+    this.#say(posted === 'ok' ? 'debug' : 'warn', `sent ${message.type}: ${posted}`);
+
     if (posted === 'unreachable' && message.type !== 'hello') {
-      if (this.#pending.length < PENDING_LIMIT) {
+      // The same rule the queue is guarded by above, and it has to be here too: this is the path a message takes
+      // when the socket died under a send the transport still thought was live, which is when a `watchLog` is most
+      // likely to be in flight — the restate is already going to say it, and both would land.
+      if (!restated(message) && this.#pending.length < PENDING_LIMIT) {
         this.#pending.unshift(message);
       }
 
@@ -262,6 +293,7 @@ export class HubTransport {
       return;
     }
 
+    this.#say('warn', `the stream went: ${why}`);
     this.#stream?.destroy();
     this.#stream = undefined;
     this.#live = false;
@@ -274,12 +306,28 @@ export class HubTransport {
       return;
     }
 
+    this.#say('info', `trying again in ${this.#retryMs}ms`);
+
     this.#retry = setTimeout(() => {
       this.#retry = undefined;
       void this.#connect();
     }, this.#retryMs);
 
     this.#retryMs = Math.min(MAX_RETRY_MS, this.#retryMs * 2);
+  }
+
+  /**
+   * The client's own narration, which is written whether or not anyone is looking — it is this window's file, not
+   * the hub's, so nothing crosses a process boundary to produce it (R40).
+   */
+  #say(level: 'debug' | 'info' | 'warn', message: string): void {
+    // Nothing after disposal: an action still in flight settles up to the request deadline later, and by then a
+    // client's log may have been torn down with the rest of it.
+    if (this.#disposed) {
+      return;
+    }
+
+    this.#deps.log?.(level, message);
   }
 
   /** Said on the way in and on the way out, and never twice: an outage is one message, not one per retry. */

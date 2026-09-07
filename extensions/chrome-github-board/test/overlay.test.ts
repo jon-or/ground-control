@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { ago, agentIcon, cardsByIssue, clear, foldedRows, issueRefOf, paint, sessionLabel, tickDurations, triageText } from '../src/overlay.js';
+import { LOG_LIMIT, ago, agentIcon, appendLog, cardsByIssue, clear, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText } from '../src/overlay.js';
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
@@ -81,7 +81,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   };
 }
 
-const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn() };
+const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn() };
 
 interface State {
   snapshot: Snapshot | null;
@@ -98,6 +98,7 @@ beforeEach(() => {
   actions.refresh.mockReset();
   actions.move.mockReset();
   actions.repaint.mockReset();
+  actions.watchLog.mockReset();
   // The open lane list is module state, so a test that left one open would leak into the next.
   clear(document);
   // And the collapse outlives a tab on purpose, which means it outlives a test unless the storage goes with it.
@@ -1216,5 +1217,285 @@ describe('what a card was read to be waiting on (R38)', () => {
 
   it.each(rows)('draws %s/%s as "%s"', (action, qualifier, expected) => {
     expect(triageText({ action, qualifier })).toBe(expected);
+  });
+});
+
+/** The browser board's half of R40: a sidebar, and the one panel a scan does not rebuild. */
+describe('the log sidebar', () => {
+  const line = (over: Partial<{ at: string; level: string; source: string; scope: string; message: string }> = {}) => ({
+    at: '2026-09-04T12:00:00.000Z',
+    level: 'info',
+    source: 'hub',
+    message: 'a line',
+    ...over,
+  });
+
+  const sidebar = () => document.getElementById('gc-log');
+  const lines = () => [...document.querySelectorAll<HTMLElement>('#gc-log-lines .gc-line')];
+
+  function openMenu(): void {
+    paint(document, state(), NOW, actions);
+    document.querySelector<HTMLButtonElement>('#gc-menu button')!.click();
+    paint(document, state(), NOW, actions);
+  }
+
+  it('paints no sidebar and asks for nothing until the developer opens it', () => {
+    paint(document, state(), NOW, actions);
+
+    expect(sidebar()).toBeNull();
+    expect(actions.watchLog).not.toHaveBeenCalled();
+  });
+
+  it('opens from the menu, and that is what asks the hub for its log', () => {
+    openMenu();
+
+    const entry = [...document.querySelectorAll<HTMLButtonElement>('#gc-menu button')].find(
+      (button) => button.textContent?.includes('Show log'),
+    );
+
+    expect(entry).toBeDefined();
+
+    entry!.click();
+
+    expect(actions.watchLog).toHaveBeenCalledWith(true);
+
+    // Built by the click rather than by the scan that follows it: what the subscription is answered with comes
+    // back before the next frame, and a panel that did not exist yet would drop it.
+    expect(sidebar()).not.toBeNull();
+  });
+
+  /** The exception to the rebuild rule: everything else on the page is redrawn, and this one is appended to. */
+  it('survives a scan rather than being rebuilt, so lines already in it are not lost', () => {
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+
+    const first = sidebar();
+
+    appendLog(document, [line({ message: 'the hub is listening' })]);
+    paint(document, state(), NOW, actions);
+
+    expect(sidebar()).toBe(first);
+    expect(lines().map((element) => element.textContent)).toEqual(['12:00:00 hub the hub is listening']);
+  });
+
+  it('tags each line by source and scope, and carries its level for the eye', () => {
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+    appendLog(document, [
+      line({ source: 'browser', scope: 'native', level: 'warn', message: 'the bridge went' }),
+      line({ source: 'hub', scope: 'sources', message: 'github read 3 cards' }),
+    ]);
+
+    expect(lines().map((element) => element.dataset.source)).toEqual(['browser', 'hub']);
+    expect(lines().map((element) => element.dataset.level)).toEqual(['warn', 'info']);
+    expect(lines()[0]!.textContent).toBe('12:00:00 browser/native the bridge went');
+  });
+
+  it('holds the newest lines and drops the oldest', () => {
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+
+    expect(appendLog(document, Array.from({ length: LOG_LIMIT + 5 }, (_, at) => line({ message: `#${at}` })))).toBe(
+      LOG_LIMIT,
+    );
+    expect(lines()[0]!.textContent).toContain('#5');
+  });
+
+  it('hides a source the developer unticked without dropping its lines', () => {
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+    appendLog(document, [line({ source: 'browser' }), line({ source: 'hub' })]);
+
+    const box = document.querySelector<HTMLInputElement>('#gc-log input[data-shows="hub"]')!;
+
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+
+    expect(sidebar()!.dataset.showsHub).toBe('false');
+    expect(sidebar()!.dataset.showsBrowser).toBe('true');
+    // Hidden by the stylesheet, not deleted: ticking it again has to bring the same lines back.
+    expect(lines()).toHaveLength(2);
+  });
+
+  /** R40 asks for the line-per-message detail a level down and off by default, on whichever board is looking. */
+  it('starts with the detail level hidden, and shows it when the developer asks', () => {
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+    appendLog(document, [line({ level: 'debug' }), line({ level: 'info' })]);
+
+    const box = document.querySelector<HTMLInputElement>('#gc-log input[data-shows="debug"]')!;
+
+    expect(box.checked).toBe(false);
+    expect(sidebar()!.dataset.showsDebug).toBe('false');
+    expect(getComputedStyle(lines()[0]!).display).toBe('none');
+    expect(getComputedStyle(lines()[1]!).display).not.toBe('none');
+
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+
+    expect(sidebar()!.dataset.showsDebug).toBe('true');
+    expect(getComputedStyle(lines()[0]!).display).not.toBe('none');
+  });
+
+  it('closes from its own button, and that is what tells the hub to stop', () => {
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+    actions.watchLog.mockReset();
+
+    document.querySelector<HTMLButtonElement>('#gc-log .gc-close')!.click();
+
+    expect(actions.watchLog).toHaveBeenCalledWith(false);
+    expect(sidebar()).toBeNull();
+  });
+
+  /** A tab that clicked through to some other page of github.com is not a viewer, so nothing is left streaming. */
+  it('goes with the board when the overlay is cleared', () => {
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+
+    clear(document);
+
+    expect(sidebar()).toBeNull();
+
+    // And stays gone through the next scan: a `clear` that only took the element off the page would have the very
+    // next frame put an empty one back on a page that is not a board.
+    paint(document, state(), NOW, actions);
+
+    expect(sidebar()).toBeNull();
+  });
+
+  it('goes when the developer clicks off it, and tells the hub to stop', () => {
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+    actions.watchLog.mockReset();
+
+    document.querySelector<HTMLElement>('[data-board-card-id]')!.dispatchEvent(
+      new MouseEvent('click', { bubbles: true }),
+    );
+
+    expect(actions.watchLog).toHaveBeenCalledWith(false);
+    expect(sidebar()).toBeNull();
+  });
+
+  it('stays while the developer is working inside it', () => {
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+    appendLog(document, [line()]);
+    actions.watchLog.mockReset();
+
+    document
+      .querySelector<HTMLInputElement>('#gc-log input[data-shows="hub"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(actions.watchLog).not.toHaveBeenCalled();
+    expect(sidebar()).not.toBeNull();
+    expect(lines()).toHaveLength(1);
+  });
+
+  /** The menu is what the sidebar was opened from, so using it again is not clicking off the sidebar. */
+  it('stays while the developer is using the menu it was opened from', () => {
+    openMenu();
+    setLogOpen(document, true, actions);
+    paint(document, state(), NOW, actions);
+    document.querySelector<HTMLButtonElement>('#gc-menu button')!.click();
+    actions.watchLog.mockReset();
+    paint(document, state(), NOW, actions);
+
+    expect(sidebar()).not.toBeNull();
+    expect(actions.watchLog).not.toHaveBeenCalled();
+  });
+
+  describe('pinned', () => {
+    const pin = () => document.querySelector<HTMLInputElement>('#gc-log input[data-pin]')!;
+
+    function clickTheBoard(): void {
+      document.querySelector<HTMLElement>('[data-board-card-id]')!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true }),
+      );
+    }
+
+    it('starts off, so the sidebar is out of the way the moment it is not being read', () => {
+      setLogOpen(document, true, actions);
+      paint(document, state(), NOW, actions);
+
+      expect(pin().checked).toBe(false);
+      expect(sidebar()!.dataset.pinned).toBe('false');
+    });
+
+    it('keeps the sidebar and the hub when the developer clicks back onto the board', () => {
+      setLogOpen(document, true, actions);
+      paint(document, state(), NOW, actions);
+      pin().checked = true;
+      pin().dispatchEvent(new Event('change'));
+      paint(document, state(), NOW, actions);
+      actions.watchLog.mockReset();
+
+      clickTheBoard();
+
+      expect(sidebar()).not.toBeNull();
+      expect(sidebar()!.dataset.pinned).toBe('true');
+      expect(actions.watchLog).not.toHaveBeenCalled();
+    });
+
+    it('gives the auto-hide back when it is unticked', () => {
+      setLogOpen(document, true, actions);
+      paint(document, state(), NOW, actions);
+      pin().checked = true;
+      pin().dispatchEvent(new Event('change'));
+      paint(document, state(), NOW, actions);
+
+      pin().checked = false;
+      pin().dispatchEvent(new Event('change'));
+      paint(document, state(), NOW, actions);
+      actions.watchLog.mockReset();
+
+      clickTheBoard();
+
+      expect(actions.watchLog).toHaveBeenCalledWith(false);
+      expect(sidebar()).toBeNull();
+    });
+
+    /**
+     * The case the pin needs a second guard for. With nothing else open the outside-click handler is never armed,
+     * so a pinned sidebar survives on that alone; open the menu over it and the handler *is* armed — for the menu —
+     * and the click that dismisses the menu must leave the sidebar where it is.
+     */
+    it('survives the click that closes a menu opened over it', () => {
+      setLogOpen(document, true, actions);
+      paint(document, state(), NOW, actions);
+      pin().checked = true;
+      pin().dispatchEvent(new Event('change'));
+
+      document.querySelector<HTMLButtonElement>('#gc-menu button')!.click();
+      paint(document, state(), NOW, actions);
+
+      expect(document.querySelector('#gc-menu .gc-popover')).not.toBeNull();
+      actions.watchLog.mockReset();
+
+      clickTheBoard();
+      paint(document, state(), NOW, actions);
+
+      expect(sidebar()).not.toBeNull();
+      expect(actions.watchLog).not.toHaveBeenCalled();
+      expect(document.querySelector('#gc-menu .gc-popover')).toBeNull();
+    });
+
+    /** Leaving a board takes the sidebar with it, so the pin cannot outlive what it was pinning. */
+    it('does not survive the overlay being cleared', () => {
+      setLogOpen(document, true, actions);
+      paint(document, state(), NOW, actions);
+      pin().checked = true;
+      pin().dispatchEvent(new Event('change'));
+
+      clear(document);
+      setLogOpen(document, true, actions);
+      paint(document, state(), NOW, actions);
+
+      expect(pin().checked).toBe(false);
+    });
+  });
+
+  it('appends nothing when there is no sidebar to append to', () => {
+    expect(appendLog(document, [line()])).toBe(0);
   });
 });

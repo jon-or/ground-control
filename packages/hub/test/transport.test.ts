@@ -93,6 +93,7 @@ interface Watched {
   transport: HubTransport;
   inbox: HubMessage[];
   trouble: (string | null)[];
+  said: string[];
   hellos: number;
   restated: number;
   ensures: number;
@@ -103,6 +104,7 @@ function connecting(id: string, ensure: () => Promise<Ensured>, deadlineMs?: num
     transport: undefined as unknown as HubTransport,
     inbox: [],
     trouble: [],
+    said: [],
     hellos: 0,
     restated: 0,
     ensures: 0,
@@ -124,6 +126,7 @@ function connecting(id: string, ensure: () => Promise<Ensured>, deadlineMs?: num
     },
     onMessage: (message) => shape.inbox.push(message),
     onTrouble: (message) => shape.trouble.push(message),
+    log: (level, message) => shape.said.push(`${level} ${message}`),
     ...(deadlineMs === undefined ? {} : { deadlineMs }),
   });
 
@@ -397,5 +400,84 @@ describe('what a client does over the wire', () => {
 
     expect(hub.sends.size).toBe(0);
     expect(client.hellos).toBe(0);
+  });
+});
+
+describe('what a client can write about its own connection (R40)', () => {
+  it('narrates the connection, what it sent, and what came back, without waiting for anyone to be watching', async () => {
+    const { hub, server } = await serving();
+    const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
+    const client = connecting('board-1', () => Promise.resolve(found as Ensured));
+
+    await until(() => hub.sends.size === 1, 'never connected');
+
+    client.transport.send({ type: 'refresh' });
+    hub.sends.get('board-1')!({ type: 'snapshot', snapshot: SNAPSHOT });
+
+    await until(() => hub.received.some((message) => message.type === 'refresh'), 'never sent');
+    await until(() => client.inbox.length > 0, 'the snapshot never arrived');
+
+    expect(client.said).toContain(`info opening a stream to 127.0.0.1:${server.port}`);
+    expect(client.said).toContain('info the hub accepted this window, with 0 action(s) queued');
+    expect(client.said).toContain('debug sent hello: ok');
+    expect(client.said).toContain('debug sent refresh: ok');
+    expect(client.said).toContain('debug the hub sent snapshot');
+  });
+
+  /** One line per hub line would double what this window writes about, and the entries reach a channel of their own. */
+  it('says nothing about a log message, which is the one kind the hub sends in bulk', async () => {
+    const { hub, server } = await serving();
+    const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
+    const client = connecting('board-1', () => Promise.resolve(found as Ensured));
+
+    await until(() => hub.sends.size === 1, 'never connected');
+
+    hub.sends.get('board-1')!({
+      type: 'log',
+      entries: [{ at: '2026-09-06T12:00:00.000Z', level: 'info', source: 'hub', message: 'listening' }],
+    });
+
+    await until(() => client.inbox.some((message) => message.type === 'log'), 'the log never arrived');
+
+    expect(client.said.filter((line) => line.includes('log'))).toEqual([]);
+  });
+
+  it('says why there is nothing to connect to, and when it will try again', async () => {
+    const client = connecting('board-1', () => Promise.resolve({ failed: 'the hub would not start' } as Ensured));
+
+    await until(() => client.said.length >= 2, 'never gave up');
+
+    expect(client.said).toContain('warn no hub to connect to: the hub would not start');
+    expect(client.said).toContain('info trying again in 1000ms');
+  });
+});
+
+describe('what is never queued while the stream is down', () => {
+  /**
+   * `watchLog` is restated after every hello, the way a configuration is. Queued as well, it would arrive behind
+   * the restated one and have the hub re-read and re-send the whole tail of its log — which the viewer has by then
+   * already been shown, so the panel would carry a hundred lines twice.
+   */
+  it('drops a watchLog sent while the stream is down rather than replaying it behind the restate', async () => {
+    const { hub, server } = await serving();
+    const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
+
+    let reachable = false;
+    const client = connecting('board-1', () =>
+      Promise.resolve(reachable ? (found as Ensured) : ({ failed: 'not yet' } as Ensured)),
+    );
+
+    await until(() => client.said.includes('warn no hub to connect to: not yet'), 'never tried');
+
+    client.transport.send({ type: 'watchLog', watching: true });
+    client.transport.send({ type: 'refresh' });
+
+    reachable = true;
+
+    await until(() => hub.received.some((message) => message.type === 'refresh'), 'the queue never drained');
+    await new Promise((done) => setTimeout(done, 150));
+
+    // The refresh was queued and delivered; the subscription was not, and re-sending it is the client's own job.
+    expect(hub.received.filter((message) => message.type === 'watchLog')).toEqual([]);
   });
 });

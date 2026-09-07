@@ -54,6 +54,8 @@ describe('the extension in a real window', () => {
         'groundControl.openChanges',
         'groundControl.refresh',
         'groundControl.removeSessionHooks',
+        'groundControl.showBoardLog',
+        'groundControl.toggleHubLog',
       ],
     );
   });

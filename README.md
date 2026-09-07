@@ -68,6 +68,8 @@ Run **Ground Control: Open Board** from the command palette. Team-wide facts shi
 
 Opening the board is also what starts the hub and installs the activity hooks into your Claude Code settings. A developer who never opens it has nothing running and nothing written to `~/.claude`.
 
+**When something looks wrong,** press **Logs** on the board. That reveals what the background process is doing, streamed as it happens, and stops reading it again when you press it again — until you ask, nothing about that file crosses to the board. **Ground Control: Toggle Hub Log** does the same from the palette, which is how you turn it off after closing the board that turned it on; **Ground Control: Show Board Log** opens the window's own half, which is written whether or not anybody is looking. The browser overlay carries the same pair in a sidebar, from **Show log** in its own menu.
+
 **The browser overlay** is loaded by hand — it is not on the Chrome Web Store. Run **Ground Control: Enable GitHub Overlay**, which writes the native-messaging manifest and, on Windows, the `HKCU` key Chrome finds it by. Then load `extensions/chrome-github-board` at `chrome://extensions` with Developer mode on. **Ground Control: Disable GitHub Overlay** reverses the registration, and uninstalling the extension does too.
 
 ## Architecture

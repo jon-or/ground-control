@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Snapshot } from '@ground-control/core';
-import { applyMessage, initialState, isBoardPath, retryDelay } from '../src/state.js';
+import { LOG_LIMIT, applyMessage, initialState, isBoardPath, makeLogSpool, retryDelay } from '../src/state.js';
 
 const SNAPSHOT: Snapshot = {
   lanes: [],
@@ -85,4 +85,96 @@ describe('trying the worker again', () => {
   it('doubles from a second and stops at half a minute', () => {
     expect([1, 2, 3, 4, 5, 6, 7, 8].map(retryDelay)).toEqual([1000, 2000, 4000, 8000, 16_000, 30_000, 30_000, 30_000]);
   });
+});
+
+/** The browser client's half of R40: what decides whether the hub's log is read at all. */
+describe('the log spool', () => {
+  const line = (source: 'browser' | 'hub', message: string) => ({
+    at: '2026-09-06T12:00:00.000Z',
+    level: 'info',
+    source,
+    message,
+  });
+
+  it('asks the hub only when the first sidebar opens, and never again while one is open', () => {
+    const spool = makeLogSpool();
+    const a = {};
+    const b = {};
+
+    expect(spool.watching()).toBe(false);
+    expect(spool.view(a, true).tell).toBe(true);
+    // The second tab is not a second subscription: telling the hub again would have it backfill over the first.
+    expect(spool.view(b, true).tell).toBeNull();
+    expect(spool.view(a, true).tell).toBeNull();
+    expect(spool.watching()).toBe(true);
+  });
+
+  it('tells the hub to stop only when the last sidebar closes', () => {
+    const spool = makeLogSpool();
+    const a = {};
+    const b = {};
+
+    spool.view(a, true);
+    spool.view(b, true);
+
+    expect(spool.view(a, false).tell).toBeNull();
+    expect(spool.watching()).toBe(true);
+    expect(spool.view(b, false).tell).toBe(false);
+    expect(spool.watching()).toBe(false);
+    // Closing one that was never open changes nothing, which is what a disconnect of a tab with no sidebar is.
+    expect(spool.view(a, false).tell).toBeNull();
+  });
+
+  it('keeps the browser half after the last sidebar closes, and drops the hub half', () => {
+    const spool = makeLogSpool();
+    const a = {};
+
+    spool.view(a, true);
+    spool.hold([line('browser', 'the port opened'), line('hub', 'listening on 127.0.0.1:5001')]);
+
+    expect(spool.held().map((entry) => entry.source)).toEqual(['browser', 'hub']);
+
+    spool.view(a, false);
+
+    // The hub's own file is the durable copy and a reopen is answered with a fresh tail of it, so a copy kept here
+    // would show that history twice. The browser's own lines have no other home and stay.
+    expect(spool.held().map((entry) => entry.message)).toEqual(['the port opened']);
+  });
+
+  it('hands a newly opened sidebar what it missed, and does not count it as watching until it has', () => {
+    const spool = makeLogSpool();
+    const a = {};
+    const b = {};
+
+    spool.hold([line('browser', 'before anyone looked')]);
+
+    expect(spool.view(a, true).backlog.map((entry) => entry.message)).toEqual(['before anyone looked']);
+
+    spool.hold([line('hub', 'a card moved')]);
+
+    // What the second tab gets is the spool's whole run, not just what arrived after it asked.
+    expect(spool.view(b, true).backlog.map((entry) => entry.message)).toEqual(['before anyone looked', 'a card moved']);
+    // And a tab already watching is handed nothing: it has been receiving them live.
+    expect(spool.view(a, true).backlog).toEqual([]);
+  });
+
+  it('holds the newest lines and drops the oldest, so a board left open all day does not grow without bound', () => {
+    const spool = makeLogSpool(3);
+
+    spool.hold([line('browser', '1'), line('browser', '2')]);
+    spool.hold([line('browser', '3'), line('browser', '4')]);
+
+    expect(spool.held().map((entry) => entry.message)).toEqual(['2', '3', '4']);
+  });
+
+  it('holds more than the hub backfills, so opening a sidebar never drops part of what the hub just sent', () => {
+    expect(LOG_LIMIT).toBeGreaterThan(1024);
+  });
+});
+
+/** Two files hold this number, so the pair is pinned: the smaller one silently drops the other's oldest lines. */
+it('caps the sidebar and the spool at the same number of lines', async () => {
+  const drawing = (await import('../src/overlay.js')) as { LOG_LIMIT: number };
+
+  expect(drawing.LOG_LIMIT).toBe(LOG_LIMIT);
 });

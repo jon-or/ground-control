@@ -6,7 +6,25 @@ const metaEl = document.getElementById('meta');
 const noticesEl = document.getElementById('notices');
 const archivedEl = /** @type {HTMLInputElement} */ (document.getElementById('show-archived'));
 
+const logsEl = document.getElementById('logs');
+
 document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
+logsEl.addEventListener('click', () => vscode.postMessage({ type: 'toggleLogs' }));
+document.getElementById('board-log').addEventListener('click', () => vscode.postMessage({ type: 'showBoardLog' }));
+
+/**
+ * Whether the hub's log is being streamed into the Output panel. The button carries it, because nothing else does -
+ * the panel gives no sign of which channel is subscribed, and the hub is read only while this says on.
+ */
+function paintLogs(streaming) {
+  logsEl.setAttribute('aria-pressed', String(streaming));
+  logsEl.classList.toggle('on', streaming);
+  logsEl.title = streaming
+    ? 'The hub log is streaming into Output. Click to stop reading it.'
+    : 'Stream the hub log into the Output panel.';
+}
+
+paintLogs(false);
 
 /** The last board the extension sent, kept so the archive toggle can re-render without a refresh. */
 let board = null;
@@ -991,6 +1009,11 @@ window.addEventListener('message', (event) => {
     return;
   }
 
+  if (message.type === 'logs') {
+    paintLogs(message.streaming === true);
+    return;
+  }
+
   if (message.type === 'board') {
     if (dragging === null) {
       render(message);
@@ -1023,3 +1046,7 @@ if (isCurrentPayload(restored?.payload)) {
   archivedEl.checked = restored.showArchived === true;
   render(restored.payload);
 }
+
+// Last, and once per run of this script. The extension answers with the state of the controls it owns - a webview
+// reloads on its own (a tab returning from the background, a renderer restored) and nothing else tells it that.
+vscode.postMessage({ type: 'ready' });

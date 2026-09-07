@@ -149,6 +149,76 @@ describe('the overlay as Chrome loads it', () => {
   });
 
   /**
+   * The whole browser half of R40 in one page: the menu item, the port to the worker, the spool, and the lines
+   * coming back into a panel the scan does not rebuild. jsdom covers each piece and can cover none of the wiring.
+   */
+  it('opens its log from the menu and shows what the overlay itself has been through', async () => {
+    const page = await context.newPage();
+
+    await page.goto(BOARD_URL);
+    await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
+
+    expect(await page.locator('#gc-log').count()).toBe(0);
+
+    await page.locator('#gc-menu button').first().click();
+    await page.getByRole('menuitem', { name: 'Show log' }).click();
+
+    const lines = page.locator('#gc-log-lines .gc-line');
+
+    await expect.poll(() => lines.count(), { timeout: 20_000 }).toBeGreaterThan(0);
+
+    // What the worker has been through, held before anybody asked and handed over on the way in: here that is the
+    // native port it could not open, which is the failure a developer opens this panel to find.
+    expect(await lines.first().textContent()).toContain('browser');
+
+    // The board is still there behind it, and the sidebar is not rebuilt out from under the developer by a scan.
+    expect(await page.locator('[data-gc-issue]').count()).toBe(3);
+
+    await page.locator('#gc-log .gc-close').click();
+    await expect.poll(() => page.locator('#gc-log').count()).toBe(0);
+  });
+
+  /**
+   * That a real click in a real browser reaches the dismissal at all, and that ticking the pin from the panel's own
+   * header stops it. Which of the two guards behind that is doing the work is jsdom's to pin down, not this test's:
+   * a stale handler from a menu that was open a frame earlier will close the sidebar just as well.
+   */
+  it('closes the log when the developer clicks back onto the board, unless it is pinned', async () => {
+    const page = await context.newPage();
+
+    await page.goto(BOARD_URL);
+    await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
+
+    // Dispatched rather than clicked: every visible part of a card is a link, and following one would take the
+    // board off the page along with the panel under test. The event still crosses into the content script's world.
+    const clickTheBoard = () =>
+      page.evaluate(() =>
+        document
+          .querySelector('#project-items-region')
+          ?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+      );
+
+    const openTheLog = async () => {
+      await page.locator('#gc-menu button').first().click();
+      await page.getByRole('menuitem', { name: 'Show log' }).click();
+      await expect.poll(() => page.locator('#gc-log').count(), { timeout: 20_000 }).toBe(1);
+    };
+
+    await openTheLog();
+    await clickTheBoard();
+
+    await expect.poll(() => page.locator('#gc-log').count(), { timeout: 20_000 }).toBe(0);
+
+    await openTheLog();
+    await page.locator('#gc-log input[data-pin]').check();
+    await clickTheBoard();
+    await page.waitForTimeout(500);
+
+    expect(await page.locator('#gc-log').count()).toBe(1);
+    expect(await page.locator('#gc-log').getAttribute('data-pinned')).toBe('true');
+  });
+
+  /**
    * This route serves the same board markup at an issue URL, so only the path check can be what keeps the page
    * clean — an over-broad `matches` alone would leave this test green.
    */

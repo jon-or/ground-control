@@ -72,7 +72,9 @@ h1 {
   display: none;
 }
 
-#refresh {
+#refresh,
+#logs,
+#board-log {
   flex: none;
   font: inherit;
   font-size: 0.8rem;
@@ -84,13 +86,18 @@ h1 {
   cursor: pointer;
 }
 
-#refresh:hover {
+#refresh:hover,
+#logs:hover,
+#board-log:hover,
+#logs.on {
   color: var(--vscode-button-foreground);
   background: var(--vscode-button-background);
   border-color: var(--vscode-button-background);
 }
 
-#refresh:focus-visible {
+#refresh:focus-visible,
+#logs:focus-visible,
+#board-log:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 2px;
 }

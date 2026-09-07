@@ -28,15 +28,30 @@ export function startBridge(home: string): void {
   const streams = chromeStreams();
 
   let watching = false;
+  let watchingLog = false;
   let toChrome: (message: BridgeMessage) => void = () => {};
 
   const transport = new HubTransport(id, {
     ensure: makeEnsure(realEnsureDeps(home, () => startHub(home))),
     hello: () => bridgeHello(id, watching),
     onMessage: (message) => toChrome(message),
-    // Nothing to restate: the browser pushes no configuration, and the hub it may have just started runs on its own
-    // defaults until a VS Code window connects with the developer's settings.
-    afterHello: () => {},
+    // This process is the browser board's client, and its log has nowhere else to go — so its own story is relayed
+    // rather than written, from `info` up. The line per message is left out: each one costs a frame across Chrome's
+    // port, and on this side the frames themselves are what it would be describing (R40).
+    log: (level, message) => {
+      if (level !== 'debug') {
+        toChrome({ type: 'log', entries: [{ at: new Date().toISOString(), level, source: 'browser', scope: 'bridge', message }] });
+      }
+    },
+    // No configuration — the browser pushes none, and a hub this bridge just started runs on its own defaults until
+    // a VS Code window connects with the developer's. What does have to be said again is the log: the hello carries
+    // whether a board is watching, and a hub restarted under the reconnect holds no log subscriber for this client,
+    // so a sidebar left open in Chrome would go quiet for good (R40).
+    afterHello: () => {
+      if (watchingLog) {
+        transport.send({ type: 'watchLog', watching: true });
+      }
+    },
     onTrouble: (message) => toChrome({ type: 'trouble', message }),
   });
 
@@ -45,6 +60,10 @@ export function startBridge(home: string): void {
     send: (message) => {
       if (message.type === 'watching') {
         watching = message.watching;
+      }
+
+      if (message.type === 'watchLog') {
+        watchingLog = message.watching;
       }
 
       transport.send(message);

@@ -10,6 +10,7 @@ import { migrateLaneMemory } from './migrate.js';
 import { registerOverlayCommands } from './overlay.js';
 import { registerChangesCommand } from './changes.js';
 import { registerUriHandler } from './openUri.js';
+import { boardLog, disposeChannels } from './logging.js';
 import type { Snapshot } from '@ground-control/core';
 
 /**
@@ -19,6 +20,8 @@ import type { Snapshot } from '@ground-control/core';
 export interface GroundControl {
   snapshot(): Snapshot | undefined;
   drew(): Drawn | null;
+  /** Whether this window is streaming the hub's log, and how many of its lines have arrived. */
+  logs(): { streaming: boolean; lines: number };
 }
 
 export function activate(context: vscode.ExtensionContext): GroundControl {
@@ -27,6 +30,7 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   const home = homedir();
   const version = String((context.extension.packageJSON as { version?: unknown }).version ?? '0.0.0');
 
+  boardLog().info(`Ground Control ${version} activating against ${home}`);
   migrateLaneMemory(context.globalState, home);
 
   const bundle = bundlePathOf(home);
@@ -36,6 +40,7 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   } catch (error) {
     // Everything else in this window still works, and a hub already on disk from an earlier run still starts. What
     // must not happen is the commands, the board, and the settings listener going with it.
+    boardLog().error(`could not write the hub to ${bundle}: ${String(error)}`);
     void vscode.window.showErrorMessage(`The board could not write its background process to ${bundle}: ${String(error)}`);
   }
 
@@ -55,6 +60,15 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
     }),
     vscode.commands.registerCommand('groundControl.openBoard', () => {
       BoardPanel.show(context);
+    }),
+    // The board's Logs button by another route, for a window with no board open — which is also the only way off
+    // when the board that turned it on has been closed.
+    vscode.commands.registerCommand('groundControl.toggleHubLog', () => {
+      client.toggleHubLog();
+    }),
+    // No toggle: this channel is written whether or not anybody is looking, so there is nothing here to turn off.
+    vscode.commands.registerCommand('groundControl.showBoardLog', () => {
+      boardLog().show(true);
     }),
     vscode.commands.registerCommand('groundControl.refresh', () => {
       // Asked for on the board it opens too: what a board's arrival triggers is a read the source floor may hold,
@@ -79,11 +93,16 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
     }),
     { dispose: () => BoardPanel.current?.dispose() },
     { dispose: disposeClient },
+    { dispose: disposeChannels },
   );
 
   // What this window has, so an integration test running inside this host reads the board a developer would see
   // rather than a screenshot of one. Nothing in the product reads it.
-  return { snapshot: () => client.snapshot, drew: () => BoardPanel.current?.drew ?? null };
+  return {
+    snapshot: () => client.snapshot,
+    drew: () => BoardPanel.current?.drew ?? null,
+    logs: () => ({ streaming: client.streamingHubLog, lines: client.hubLines }),
+  };
 }
 
 export function deactivate(): void {}

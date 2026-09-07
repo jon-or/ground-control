@@ -1,19 +1,18 @@
 import * as vscode from 'vscode';
 import { basename, checkoutOf } from '@ground-control/core';
-import type { Checkout, ClientMessage, LaneId, Snapshot, SnapshotMessage } from '@ground-control/core';
+import type { BoardMessage, Checkout, ClientMessage, LaneId, Snapshot } from '@ground-control/core';
 import { readHubConfig, userDirOf } from './config.js';
 import { promptForLogins } from './identity.js';
 import { client } from './hubClient.js';
 import type { HubClient } from './hubClient.js';
 import { agentExtensionReady } from './resident.js';
 import { OPEN_CHANGES } from './changes.js';
+import { boardLog } from './logging.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 
 /** Long enough for a first render on a cold extension host, short enough that nobody sits looking at nothing. */
 const BLANK_AFTER_MS = 10_000;
-
-export type Outbound = { type: 'loading' } | SnapshotMessage;
 
 /** What the webview drew, which is the only report that its script ran at all. */
 export interface Drawn {
@@ -25,6 +24,9 @@ export interface Drawn {
 
 type Inbound =
   | ({ type: 'drew' } & Drawn)
+  // Posted once per run of the board script. The only signal a webview has reloaded: the panel is not told, no
+  // visibility changes, and the button would otherwise sit reading off while this window was streaming.
+  | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'openIssue'; number: number }
   | { type: 'openPullRequest'; number: number }
@@ -33,7 +35,9 @@ type Inbound =
   | { type: 'runAction'; key: string }
   | { type: 'stopAction'; key: string }
   | { type: 'openSession'; sessionId: string }
-  | { type: 'openChanges'; key: string };
+  | { type: 'openChanges'; key: string }
+  | { type: 'toggleLogs' }
+  | { type: 'showBoardLog' };
 
 
 /**
@@ -152,7 +156,11 @@ export class BoardPanel {
   }
 
   #connect(): void {
-    this.#disposables.push(this.#client.onSnapshot((snapshot) => this.#render(snapshot)));
+    this.#disposables.push(
+      this.#client.onSnapshot((snapshot) => this.#render(snapshot)),
+      // Fired by the client, so a board and the command that runs with no board open cannot disagree about it.
+      this.#client.onStreamingChanged((streaming) => this.#post({ type: 'logs', streaming })),
+    );
 
     const known = this.#client.snapshot;
 
@@ -172,6 +180,11 @@ export class BoardPanel {
 
   #onWebview(msg: Inbound): void {
     switch (msg.type) {
+      case 'ready':
+        this.#postLogs();
+
+        return;
+
       case 'drew':
         this.#drew = msg;
         this.#stopWatchingForBlank();
@@ -222,6 +235,17 @@ export class BoardPanel {
 
       case 'openChanges':
         void this.#changes(msg.key);
+
+        return;
+
+      case 'toggleLogs':
+        this.#client.toggleHubLog();
+
+        return;
+
+      // Nothing to toggle: this channel is written whether or not anybody is looking, so the control only reveals.
+      case 'showBoardLog':
+        boardLog().show(true);
 
         return;
     }
@@ -339,7 +363,11 @@ export class BoardPanel {
     this.#tell({ type: 'refresh' });
   }
 
-  #post(message: Outbound): void {
+  #postLogs(): void {
+    this.#post({ type: 'logs', streaming: this.#client.streamingHubLog });
+  }
+
+  #post(message: BoardMessage): void {
     if (this.#disposed) {
       return;
     }
@@ -366,6 +394,8 @@ export class BoardPanel {
   <h1>Ground Control</h1>
   <div id="meta"></div>
   <label id="archived-toggle" hidden><input id="show-archived" type="checkbox"> Show archived (<span id="archived-count">0</span>)</label>
+  <button id="logs" type="button" aria-pressed="false">Hub log</button>
+  <button id="board-log" type="button">Board log</button>
   <button id="refresh" type="button">Refresh</button>
 </header>
 <div id="notices"></div>

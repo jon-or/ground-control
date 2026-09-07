@@ -18,7 +18,7 @@ export const LOG_FLOORS = ['debug', 'info'] as const;
 export type LogFloor = (typeof LOG_FLOORS)[number];
 
 /** Which process said it. One interleaved stream is only readable if every line carries who it came from. */
-export type LogSource = 'hub' | 'board' | 'browser';
+export type LogSource = 'hub' | 'browser';
 
 /**
  * One line of what a process is doing. The hub writes these to `hub.log` and streams them to whichever client has

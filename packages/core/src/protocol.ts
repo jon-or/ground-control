@@ -87,3 +87,15 @@ export type HubMessage =
 
 /** What the webview parses. The snapshot flattened, because the board script reads its fields directly. */
 export type SnapshotMessage = { type: 'board' } & Snapshot;
+
+/**
+ * Everything an editor board's panel posts into its webview. Here rather than in the extension so both halves of
+ * that contract are one type: the panel and the script are different languages in different processes, and a field
+ * renamed on one side of a hand-written literal is silent — it renders a board with a dead control (`testing.md`).
+ */
+export type BoardMessage =
+  | { type: 'loading' }
+  // Whether the hub's log is arriving. The panel's to say, because the control's state cannot be read off the
+  // editor's output panel (`mechanics.md` §34) and a board reopened has to be told rather than remember.
+  | { type: 'logs'; streaming: boolean }
+  | SnapshotMessage;

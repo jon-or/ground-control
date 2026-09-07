@@ -352,6 +352,21 @@ Where the board is an overlay on a page that is not its own, "once" is once per 
 
 Newly installed hooks are one of those conditions: sessions already running cannot report what they are doing until they restart, and a board showing no state for any of them looks like a board where nothing is happening. The board says how many, **once** — an install is something that happened, not a condition of the board, and a line the developer has already read and cannot act on is noise on every subsequent refresh. Removing the hooks and installing them again says it again.
 
+**R40. The developer can watch what the board and the background process are doing.**
+Two logs, on whichever board they are looking at: the board's own, and the background process's. Every board carries both, because the two halves are what tell a stuck board from a stuck hub — a board with nothing on it and a hub that has not read anything look identical from outside.
+
+**The board's own half is written whether or not anybody is looking.** There is nothing to hold back — a board's own account of itself is not somebody else's process — so a developer who opens it after a board went quiet gets the connect, the retries and the outage that led there, rather than an empty pane that starts recording from the moment they arrived. The line-per-message detail behind that is a level down and off by default on either board, because a pane where every reading writes four lines is one nothing is found in.
+
+**The background process's half is read only while a viewer is open.** It is another process, on a machine the developer shares with nothing else that should see it, and streaming it costs a subscription across a boundary. So nothing about it crosses until the developer asks: no subscriber, no file read, no traffic. Opening a viewer is answered with the recent past as well as the present, because the thing worth seeing has usually already happened.
+
+**Turning it on and off is visible on the board.** Nothing else can say whether the log is streaming — the pane looks the same subscribed or not — so the control carries its own state, and turning it off says so in the log rather than clearing what is there. It is reachable without a board too: the state outlives any one board, so a board closed with the log streaming must still leave a way to stop it.
+
+**Where the log covers the board, going back to the board closes it.** A browser overlay paints over the work it is about, so clicking off the log puts the cards back and stops the reading in one gesture — the developer did not have to decide they were finished. Watching the log while working is the case that has to be asked for, so it is a pin on the panel rather than the default.
+
+**Watching the log is not watching the board.** A developer reading a log is not a board on screen, and the background process keeps its own idea of when to stop working (R35) regardless.
+
+**A browser board is shown less of it than an editor board is.** The background process records the origin of every web page that reached it and was refused, which is a slice of the developer's own browsing; a board painted into somebody else's page must not be handed that. The refusal itself stays, because a page probing the port is the thing worth seeing. Which page it was is not the browser's to be told.
+
 ## 4. What success looks like
 
 - The user can answer "what is every agent on this machine doing?" in one glance, from one window.

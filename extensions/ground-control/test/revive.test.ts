@@ -76,6 +76,8 @@ async function revive(state: unknown): Promise<void> {
     <header>
       <div id="meta"></div>
       <label id="archived-toggle" hidden><input id="show-archived" type="checkbox"> Show archived (<span id="archived-count">0</span>)</label>
+      <button id="logs" type="button" aria-pressed="false">Hub log</button>
+      <button id="board-log" type="button">Board log</button>
       <button id="refresh" type="button">Refresh</button>
     </header>
     <div id="notices"></div><main id="lanes"></main>

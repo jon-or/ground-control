@@ -29,6 +29,16 @@
         "category": "Ground Control"
       },
       {
+        "command": "groundControl.toggleHubLog",
+        "title": "Toggle Hub Log",
+        "category": "Ground Control"
+      },
+      {
+        "command": "groundControl.showBoardLog",
+        "title": "Show Board Log",
+        "category": "Ground Control"
+      },
+      {
         "command": "groundControl.removeSessionHooks",
         "title": "Remove Session Hooks",
         "category": "Ground Control"

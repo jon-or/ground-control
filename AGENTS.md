@@ -122,6 +122,8 @@ The developer reloads the window when they choose; on activation the extension r
 
 `npm run test:integration` launches a VS Code of its own, loads the extension into it, and runs the tests in `extensions/ground-control/test-integration/` inside its extension host — against a temporary home, so it never touches the board you are using. That is how the extension is exercised.
 
+The board's **Logs** button and **Ground Control: Toggle Hub Log** stream `hub.log` into an output channel as it is written, which is usually faster than opening the file — and **Ground Control: Show Board Log** carries what the extension itself is doing. Neither reads the hub until asked.
+
 `npm run hub` runs the hub as its own process against your real home. It prints the port; `~/.claude/ground-control/hub.json` carries the token, `config.json` the settings it last accepted from a client, and `hub.log` its own lines. `node apps/hub/dist/main.js --stop` stops it — there is no signal that will (`docs/mechanics.md` §25). `--home=<path>` points it at a home of its own, which is how to run one without touching your board's.
 
 The browser overlay is loaded by hand, because it is not on the Chrome Web Store. Run **Ground Control: Enable GitHub Overlay** in VS Code — that writes the native-messaging manifest and, on Windows, the `HKCU` key Chrome finds it by — then load `extensions/chrome-github-board` at `chrome://extensions` with Developer mode on. **Ground Control: Disable GitHub Overlay** undoes the registration, and uninstalling the extension does too. The overlay reaches the same hub the editor board does, through `hub.js --native-messaging`, which Chrome starts on demand.

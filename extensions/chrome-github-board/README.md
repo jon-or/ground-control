@@ -4,6 +4,8 @@ The board, painted onto the team's GitHub project board (`prd.md` R36). Each car
 
 It watches and it moves cards. It does not take a session over: that needs the editor (R14, R15), so the chip says where that happens rather than raising a window from a browser tab.
 
+**Show log** in that same line opens a sidebar over the right of the board: one run of what the overlay itself has been through and what the hub is doing, tagged by source and tickable off (R40). Clicking back onto the board closes it and stops the reading; **pin** keeps it open while you work. The hub's half is read only while the sidebar is open, and the origin of any web page the hub turned away is taken out before the browser is shown the refusal.
+
 ## Loading it
 
 It is not on the Chrome Web Store. Two steps, in this order:
@@ -18,7 +20,7 @@ There is no build step: what Chrome loads is what is in `src/`. The extension's 
 | File | Holds | Reached by |
 | --- | --- | --- |
 | `src/overlay.js` | which cards match, what a badge says, what the banner says | vitest under jsdom, against the recorded board in `test/fixtures/` |
-| `src/state.js` | what a worker message does to what is drawn, which pages are boards, how long to wait before trying again | vitest |
+| `src/state.js` | what a worker message does to what is drawn, which pages are boards, how long to wait before trying again, and when the hub is asked for its log | vitest |
 | `src/content.js` | the port to the worker, the mutation observer, and the repaint | the Playwright run — it is wiring, not decisions |
 | `src/worker.js` | the native port to the hub, one port per board tab, and the alarm that reconnects | the same |
 
@@ -28,4 +30,4 @@ The content script runs on every `github.com` page, because a board reached by c
 
 ## Where the data comes from
 
-No GitHub API call and no token. The worker opens a native-messaging port to `ground-control-hub --native-messaging`, which is another client of the same hub the VS Code board talks to — so a hook firing repaints the badge here and the card there from one reading of the machine (R35). The worker keeps the last snapshot in `chrome.storage.session` and nowhere else, so it goes when Chrome does.
+No GitHub API call and no token. The worker opens a native-messaging port to `ground-control-hub --native-messaging`, which is another client of the same hub the VS Code board talks to — so a hook firing repaints the badge here and the card there from one reading of the machine (R35). The worker keeps the last snapshot in `chrome.storage.session` and nowhere else, so it goes when Chrome does. Log lines are held in the worker's memory and never in storage: the hub's own file is the durable copy, and the hub's half is dropped the moment the last sidebar closes.
