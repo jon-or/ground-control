@@ -192,19 +192,20 @@ main.stale {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 0.5rem 0.5rem 0;
+  padding: 0.5rem 0 0;
   background: var(--gc-lane);
   border-radius: var(--gc-radius);
 }
 
 /* Only the cards scroll. The lane's own heading stays put, so the count is readable at any depth. */
+/* The side gutters are here rather than on .lane, so the scrollbar rides the lane's edge instead of the card's. */
 .lane-cards {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding-bottom: 1.5rem;
+  padding: 0 0.5rem 1.5rem;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
@@ -247,7 +248,7 @@ main.stale {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  margin: 0 0 0.5rem;
+  margin: 0 0.5rem 0.5rem;
   padding-bottom: 0.35rem;
   font-size: 0.78rem;
   font-weight: 600;
