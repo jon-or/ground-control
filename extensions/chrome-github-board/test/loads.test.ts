@@ -304,4 +304,34 @@ describe('the overlay as Chrome loads it', () => {
     expect(await page.locator('#gc-toasts').count()).toBe(0);
     expect(await page.locator('[data-gc-issue]').count()).toBe(0);
   });
+
+  /**
+   * Reloading the unpacked extension is what the developer does all day, and Chrome leaves the old content script
+   * running in every board tab it was already in. `chrome.runtime.connect` from that orphan throws
+   * `Extension context invalidated`, so the reconnect has to end in the one line that fixes it — a reload of the tab.
+   *
+   * Last in the file: it takes the extension every test above is loaded against away with it.
+   */
+  it('tells a tab orphaned by an extension reload to reload itself', async () => {
+    const page = await context.newPage();
+
+    await page.goto(BOARD_URL);
+    await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
+
+    const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+
+    // Scheduled rather than called: the reload tears down the context this `evaluate` is waiting on.
+    await worker.evaluate('setTimeout(() => chrome.runtime.reload(), 0)');
+
+    await expect
+      .poll(() => page.locator('#gc-toasts .gc-toast').last().textContent(), { timeout: 20_000 })
+      .toMatch(/Reload this tab/);
+
+    // And then nothing: the menu taken out of the page stays out. Longer than the 10s scan interval, because
+    // clearing the observer alone leaves that timer repainting the frozen snapshot and re-arming the observer with it.
+    await page.locator('#gc-menu').evaluate((menu) => menu.remove());
+    await page.waitForTimeout(12_000);
+
+    expect(await page.locator('#gc-menu').count()).toBe(0);
+  });
 });

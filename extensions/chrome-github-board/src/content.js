@@ -19,6 +19,10 @@
   let attempt = 0;
   let scheduled = false;
   let reconnecting = false;
+  /** Set once the extension this script belongs to is gone: nothing in this tab can reach the new one. */
+  let stopped = false;
+  /** The scan and the duration tick, held so an orphaned script can stop them: both re-arm the observer. */
+  const timers = [];
   /** What the worker was last told about the sidebar, restated on every connect: a restarted worker holds nothing. */
   let watchingLog = false;
 
@@ -69,9 +73,36 @@
           }
         }
       } finally {
-        observer.observe(document.documentElement, { childList: true, subtree: true });
+        if (!stopped) {
+          observer.observe(document.documentElement, { childList: true, subtree: true });
+        }
       }
     });
+  }
+
+  /**
+   * The port is gone, and `state.js` says whether that is worth answering. An orphaned script paints the line once
+   * more and then holds still: an observer or a scan timer left running repaints a snapshot frozen at the reload.
+   */
+  function lost() {
+    const { retry, trouble } = helpers.disconnection(chrome.runtime);
+
+    port = null;
+    stopped = !retry;
+    state = helpers.applyMessage(state, { type: 'trouble', message: trouble });
+    schedule();
+
+    if (retry) {
+      later();
+
+      return;
+    }
+
+    observer.disconnect();
+
+    for (const timer of timers) {
+      clearInterval(timer);
+    }
   }
 
   /**
@@ -80,7 +111,16 @@
    * it reconnects the native port only while a board tab is registered, and this is what registers one.
    */
   function connect() {
-    port = chrome.runtime.connect({ name: 'gc-board' });
+    try {
+      port = chrome.runtime.connect({ name: 'gc-board' });
+    } catch {
+      // Reloaded between the disconnect and this retry: `chrome.runtime` is still an object, and calls on it throw.
+      reconnecting = false;
+      lost();
+
+      return;
+    }
+
     reconnecting = false;
 
     port.onMessage.addListener((message) => {
@@ -104,15 +144,7 @@
       schedule();
     });
 
-    port.onDisconnect.addListener(() => {
-      port = null;
-      state = helpers.applyMessage(state, {
-        type: 'trouble',
-        message: 'The overlay lost its connection to Ground Control.',
-      });
-      schedule();
-      later();
-    });
+    port.onDisconnect.addListener(() => lost());
 
     // Chrome stops an idle worker, which loses every tab it had streaming. A sidebar the developer left open has to
     // say so again, or it sits there showing the lines from before the worker went and no others.
@@ -144,22 +176,24 @@
   // A card that has not changed produces no mutation, so the board is rescanned on its own clock for anything the
   // snapshot moved. Structure only — the durations advance below, and rebuilding a footer every second to move a
   // number would fight the observer that watches for one.
-  setInterval(schedule, 10_000);
+  timers.push(setInterval(schedule, 10_000));
 
   // R5: the number advances once a second, in place, so a duration never reads as though it stopped when the last
   // scan did. Disarmed while it writes, the same way painting and appending a log line are: the value goes into a
   // text node it already had, but an observer armed over a write of its own is what schedules a scan per second.
-  setInterval(() => {
-    if (overlay === null || !helpers.isBoardPath(location.pathname)) {
-      return;
-    }
+  timers.push(
+    setInterval(() => {
+      if (overlay === null || !helpers.isBoardPath(location.pathname)) {
+        return;
+      }
 
-    observer.disconnect();
+      observer.disconnect();
 
-    try {
-      overlay.tickDurations(document, Date.now());
-    } finally {
-      observer.observe(document.documentElement, { childList: true, subtree: true });
-    }
-  }, 1_000);
+      try {
+        overlay.tickDurations(document, Date.now());
+      } finally {
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+      }
+    }, 1_000),
+  );
 })();

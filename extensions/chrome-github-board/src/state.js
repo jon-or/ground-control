@@ -62,6 +62,20 @@ export function retryDelay(attempt) {
 }
 
 /**
+ * What a dropped port means, and whether reconnecting can mean anything at all. Chrome leaves the content script
+ * running in every open tab when the extension is reloaded, and every `chrome.runtime` call from that orphan throws
+ * from then on — `chrome.runtime.id` going undefined is what separates it from a worker Chrome merely stopped.
+ *
+ * @param {{ id?: string } | undefined} runtime
+ * @returns {{ retry: boolean, trouble: string }}
+ */
+export function disconnection(runtime) {
+  return runtime?.id === undefined
+    ? { retry: false, trouble: 'Ground Control was reloaded. Reload this tab to bring the overlay back.' }
+    : { retry: true, trouble: 'The overlay lost its connection to Ground Control.' };
+}
+
+/**
  * How many lines the spool holds. Over twice what the hub's 64 KB backfill can carry at its shortest line — the ISO
  * timestamp alone puts a floor near 35 bytes — so a sidebar opening beside a spool already holding the browser's
  * own half does not drop part of what the hub has just sent.

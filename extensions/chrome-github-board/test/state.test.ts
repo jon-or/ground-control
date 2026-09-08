@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Snapshot } from '@ground-control/core';
-import { LOG_LIMIT, applyMessage, initialState, isBoardPath, makeLogSpool, retryDelay } from '../src/state.js';
+import {
+  LOG_LIMIT,
+  applyMessage,
+  disconnection,
+  initialState,
+  isBoardPath,
+  makeLogSpool,
+  retryDelay,
+} from '../src/state.js';
 
 const SNAPSHOT: Snapshot = {
   lanes: [],
@@ -84,6 +92,26 @@ describe('what a message from the worker changes', () => {
 describe('trying the worker again', () => {
   it('doubles from a second and stops at half a minute', () => {
     expect([1, 2, 3, 4, 5, 6, 7, 8].map(retryDelay)).toEqual([1000, 2000, 4000, 8000, 16_000, 30_000, 30_000, 30_000]);
+  });
+
+  it('tries again when the worker is what went away', () => {
+    expect(disconnection({ id: 'kmhcihpebfmpgmihbkipmjlmmioameka' })).toEqual({
+      retry: true,
+      trouble: 'The overlay lost its connection to Ground Control.',
+    });
+  });
+
+  /**
+   * A reloaded extension leaves this script running in every open tab, and every retry from it throws
+   * `Extension context invalidated`. Retrying is not the answer and the developer's tab reload is, so the line has
+   * to say so — an orphan that kept the ordinary wording would sit on a snapshot frozen at the reload.
+   */
+  it('gives up and asks for a tab reload when the extension is what went away', () => {
+    expect(disconnection({})).toEqual({
+      retry: false,
+      trouble: 'Ground Control was reloaded. Reload this tab to bring the overlay back.',
+    });
+    expect(disconnection(undefined).retry).toBe(false);
   });
 });
 
