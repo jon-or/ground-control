@@ -207,7 +207,7 @@ ${COLUMN} { margin-right: -1px !important;
 /* R38. Not an attention channel: no fill and no outline, because colour on this board means the two things that
    want the developer (R36). The reading is text; a reading the card has moved under fades and dashes instead. */
 .gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"] { color: var(--fgColor-muted, #59636e);
-  background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 600; }
+  background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
 .gc-mark[data-mark="triaging"] { animation: gc-triage-pulse 1.8s ease-in-out infinite; }
 .gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
 /* How long the card has held its status. The label's own colour and weight: part of the label, not an aside. */

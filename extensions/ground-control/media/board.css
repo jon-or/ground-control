@@ -908,6 +908,13 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
 }
 
+/* A reading is a sentence about the card, so it is set as words rather than as a mark: the chip's own weight is 400. */
+.badge.triage,
+.badge.triage-running,
+.badge.triage-failed {
+  font-weight: 400;
+}
+
 /* Without `triage-running`: it is the one of these that is a state rather than a button, with nothing to press. */
 .badge.pull-request:hover,
 .badge.triage:hover,
