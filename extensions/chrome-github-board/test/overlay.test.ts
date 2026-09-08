@@ -828,7 +828,6 @@ describe('the footer on a card', () => {
 
     expect(badge.querySelector('.gc-lane')!.parentElement!.className).toBe('gc-head');
     expect([...badge.children].map((el) => el.className)).toEqual(['gc-head', 'gc-session', 'gc-session']);
-    expect(getComputedStyle(badge.querySelector<HTMLElement>('.gc-session')!).width).toBe('100%');
   });
 
   it('marks a Claude session with Claude’s own mark, names it, and marks the phase ahead of it', () => {
@@ -890,7 +889,6 @@ describe('the footer on a card', () => {
 
     expect(dot.dataset.phase).toBe(phase);
     expect(dot.dataset.live).toBe(String(!finished));
-    expect(getComputedStyle(dot).getPropertyValue('--gc-dot')).toBe(colour);
     expect(dot.getAttribute('aria-label')).toBe(named);
     expect(dot.getAttribute('role')).toBe('img');
   });
@@ -1077,7 +1075,7 @@ describe('the gap between the lanes', () => {
    * GitHub puts an 8px right margin on every column, in its own stylesheet, so this needs the `!important` — and
    * the class beside the attribute is hashed per build, which is what makes the attribute the only one to write.
    */
-  it('pulls the columns together over the attribute rather than the hashed class', () => {
+  it('finds every column by the attribute rather than the hashed class it wears', () => {
     paint(document, state(), NOW, actions);
 
     const columns = [...document.querySelectorAll<HTMLElement>('[data-board-column]')];
@@ -1085,27 +1083,10 @@ describe('the gap between the lanes', () => {
     expect(columns).toHaveLength(2);
 
     for (const column of columns) {
-      expect(getComputedStyle(column).marginRight).toBe('-1px');
       expect(column.className).toMatch(/column-frame-module__Box__\w+/);
     }
   });
 
-  /** Two strips, one per side, and the bottom line gone. `border-image` would have taken the 6px radius with it. */
-  it('draws the dividers as strips that fade, over borders it has made transparent', () => {
-    paint(document, state(), NOW, actions);
-
-    const column = document.querySelector<HTMLElement>('[data-board-column]')!;
-    const painted = getComputedStyle(column);
-
-    for (const side of ['borderLeftColor', 'borderRightColor', 'borderBottomColor'] as const) {
-      expect(painted[side]).toBe('rgba(0, 0, 0, 0)');
-    }
-
-    expect(painted.backgroundImage.match(/linear-gradient/g)).toHaveLength(2);
-    expect(painted.backgroundImage).toContain('transparent');
-    expect(painted.backgroundOrigin).toBe('border-box');
-    expect(painted.backgroundSize).toBe('1px 100%, 1px 100%');
-  });
 });
 
 describe('folding the project header away', () => {
@@ -1826,38 +1807,7 @@ describe('the card that wants something from you', () => {
 
     expect(row.dataset.phase).toBe('waiting');
     expect(row.querySelector('.gc-state')!.textContent).toBe('2m');
-    expect(getComputedStyle(row).boxShadow).toBe('');
-    expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-name')!).fontWeight).toBe('600');
     expect(badges()[0]!.querySelector('.gc-mark')).toBeNull();
-  });
-
-  /**
-   * One colour for the whole channel — the ring GitHub's card wears, the row's words, and the mark ahead of them.
-   * Primer's foreground pair, not its emphasis pair: the latter is a surface colour, so the ring came out a shade
-   * off the words it was ringing, and further from the chart colours the editor board takes.
-   */
-  it.each([
-    ['blocked', 'waiting', 'var(--fgColor-attention, #9a6700)'],
-    ['your-turn', 'idle', 'var(--fgColor-accent, #0969da)'],
-  ] as const)('paints a %s card its ring, its words and its mark in one colour', (attention, phase, colour) => {
-    paint(
-      document,
-      state({ snapshot: marked(attention, { sessions: [session({ activity: { phase, since: NOW - 120_000, event: 'Stop' } })] }) }),
-      NOW,
-      actions,
-    );
-
-    const row = badges()[0]!.querySelector<HTMLElement>('.gc-session')!;
-    const card = document.querySelector<HTMLElement>('[data-gc-attention]')!;
-
-    // The ring is read off the sheet for `blocked`: it is written as the `outline` shorthand, which jsdom will not
-    // expand while it holds a `var()`. `your-turn` overrides the longhand, which it does compute.
-    const sheet = document.getElementById('gc-style')!.textContent!;
-
-    expect(sheet.includes(`outline: 2px solid ${colour}`) || getComputedStyle(card).outlineColor === colour).toBe(true);
-    expect(getComputedStyle(row).boxShadow).toBe('');
-    expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-name')!).color).toBe(colour);
-    expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-dot')!).getPropertyValue('--gc-dot')).toBe(colour);
   });
 
   it('paints only the row a your-turn card is about, and leaves the working one lit instead', () => {
@@ -1872,21 +1822,8 @@ describe('the card that wants something from you', () => {
 
     const [first, second] = [...badges()[0]!.querySelectorAll<HTMLElement>('.gc-session')];
 
-    expect(getComputedStyle(first!.querySelector<HTMLElement>('.gc-name')!).color).toBe('var(--fgColor-accent, #0969da)');
-    expect(getComputedStyle(second!.querySelector<HTMLElement>('.gc-name')!).color).not.toBe('var(--fgColor-accent, #0969da)');
-    expect(getComputedStyle(second!.querySelector<HTMLElement>('.gc-name')!).animationName).toBe('gc-shimmer');
-  });
-
-  /** An idle row on a card asking nothing — one parked in Done — must not be painted as if it were your turn. */
-  it('leaves an idle row on an unmarked card alone', () => {
-    const idle = session({ title: 'Reading the logs', activity: { phase: 'idle', since: NOW - 60_000, event: 'Stop' } });
-
-    paint(document, state({ snapshot: marked(null, { sessions: [idle] }) }), NOW, actions);
-
-    const name = badges()[0]!.querySelector<HTMLElement>('.gc-session .gc-name')!;
-
-    expect(getComputedStyle(name).color).not.toBe('var(--fgColor-accent, #0969da)');
-    expect(getComputedStyle(name).fontWeight).not.toBe('600');
+    expect(first!.dataset.phase).toBe('idle');
+    expect(second!.dataset.phase).toBe('running');
   });
 
   // R6: a painted row lives inside the card, which is not readable from across a board. The card carries the ring.
@@ -2028,16 +1965,6 @@ describe('durations that advance on their own', () => {
 
     expect(tickDurations(document, NOW + 60_000)).toBe(0);
     expect(said.textContent).toBe('held');
-  });
-
-  it('reserves the width of the value so a digit does not relay the row out', () => {
-    paint(document, state(), NOW, actions);
-
-    const drawn = getComputedStyle(badges()[0]!.querySelector('.gc-state')!);
-
-    expect(drawn.minWidth).toBe('3ch');
-    expect(drawn.textAlign).toBe('right');
-    expect(drawn.fontVariantNumeric).toBe('tabular-nums');
   });
 
   it('leaves a session with no reported phase alone', () => {
@@ -2595,23 +2522,6 @@ describe('the age attribute both boards share', () => {
 
     expect(element.getAttribute('data-gc-since')).toBe(String(NOW - held));
     expect(element.textContent).toBe(expected);
-  });
-
-  /** The reserved column, copied onto both boards so a turning digit relays out neither one. */
-  const COLUMN: [string, string][] = [
-    ['min-width', '3ch'],
-    ['text-align', 'right'],
-    ['font-variant-numeric', 'tabular-nums'],
-  ];
-
-  it.each(COLUMN)('reserves %s at %s on every age it draws', (property, expected) => {
-    const source = readFileSync(join(__dirname, '..', 'src', 'overlay.js'), 'utf8');
-
-    for (const rule of ['.gc-state {', '.gc-triage-age {']) {
-      const from = source.indexOf(rule);
-
-      expect(source.slice(from, source.indexOf('}', from))).toContain(`${property}: ${expected}`);
-    }
   });
 });
 

@@ -583,8 +583,9 @@ main.dragging .lane-idle {
   background: var(--gc-dot);
 }
 
+/* A fifth of the way to black: Dark Modern's own chart green is 9:1 against the card and read as a lit pill. */
 .dot[data-phase='running'] {
-  --gc-dot: var(--vscode-charts-green);
+  --gc-dot: color-mix(in srgb, var(--vscode-charts-green) 80%, black);
 }
 
 .dot[data-phase='waiting'] {
@@ -693,12 +694,12 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 
 .session[data-phase='running'] .session-label {
   /* Monochrome: the session's own name, lit rather than recoloured. A chart colour would read as a category. The
-     trough is the name's own colour, so a working session is that name with a light run over it, never a dimmed one. */
+     trough sits 45% of the way to the row's own muted colour, which is what gives the pass of light somewhere to travel from. */
   background-image: linear-gradient(
     95deg,
-    var(--vscode-foreground) 43%,
+    color-mix(in srgb, var(--vscode-foreground) 55%, var(--vscode-descriptionForeground)) 43%,
     var(--gc-peak) 50%,
-    var(--vscode-foreground) 57%
+    color-mix(in srgb, var(--vscode-foreground) 55%, var(--vscode-descriptionForeground)) 57%
   );
   background-size: 300% 100%;
   background-repeat: no-repeat;
@@ -714,26 +715,14 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 }
 
 /*
- * One colour for the whole of a marked row: the card's edge, the words, and the mark at the head of them. A mark
- * left on its phase colour beside words the card had already recoloured read as two claims about one session.
+ * The mark alone carries a marked row: the words keep the weight and colour every other row has. Recolouring them
+ * as well as the card's edge and the mark read as three claims about one session.
  */
-.card[data-attention='blocked'] .session[data-phase='waiting'] .session-label,
-.card[data-attention='blocked'] .session[data-phase='waiting'] .state {
-  color: var(--vscode-charts-yellow);
-  font-weight: 600;
-}
-
 .card[data-attention='blocked'] .session[data-phase='waiting'] .dot {
   --gc-dot: var(--vscode-charts-yellow);
 }
 
 /* Scoped to the marked card: an idle row on a card asking nothing - one parked in Done - must not be painted as if it were. */
-.card[data-attention='your-turn'] .session[data-phase='idle'] .session-label,
-.card[data-attention='your-turn'] .session[data-phase='idle'] .state {
-  color: var(--vscode-charts-blue);
-  font-weight: 600;
-}
-
 .card[data-attention='your-turn'] .session[data-phase='idle'] .dot {
   --gc-dot: var(--vscode-charts-blue);
 }
@@ -979,7 +968,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 /* How long the card has held its status. The label's own colour and weight: it is a part of the label, not an aside. */
 .triage-age {
   min-width: 3ch;
-  text-align: right;
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1018,15 +1007,16 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 }
 
 /*
- * `:focus-within` as well as hover, and the card is itself focusable — so a keyboard reaches the card, the control
- * becomes visible, and the next tab lands on it. Hidden means out of the tab order until then, which is the point.
+ * Hover is scoped to the chip, not the card: a pointer crossing a lane must not swap the age for a control on every
+ * card it passes. `:focus-within` stays on the card, which is itself focusable — so a keyboard reaches the card, the
+ * control becomes visible, and the next tab lands on it. Hidden means out of the tab order until then.
  */
-.card:hover .triage-again,
+.badge.triage:hover .triage-again,
 .card:focus-within .triage-again {
   visibility: visible;
 }
 
-.card:hover .triage-age,
+.badge.triage:hover .triage-age,
 .card:focus-within .triage-age {
   visibility: hidden;
 }

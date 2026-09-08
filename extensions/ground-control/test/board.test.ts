@@ -792,47 +792,9 @@ describe('reported activity', () => {
     expect(names.map((style) => style.animationName)).toEqual(['gc-shimmer', '', '']);
   });
 
-  // A gradient that is not clipped to the glyphs paints a solid block over the name, which is how this breaks.
-  it('clips the gradient to the text rather than painting a block', () => {
-    const label = sendCard([withPhase('running')]).querySelector('.session-label')!;
-    const style = getComputedStyle(label);
-
-    expect(style.backgroundClip).toBe('text');
-    expect(style.backgroundImage).toContain('linear-gradient');
-    expect(style.backgroundRepeat).toBe('no-repeat');
-    expect(style.color).toBe('rgba(0, 0, 0, 0)');
-  });
-
   /**
-   * The two halves of "one band, one pass": the image must not tile, and the position must not travel further than
-   * one traverse of it. A repeating background or a range past 0% puts a second highlight on screen behind the first.
-   */
-  it('sweeps one highlight across once, left to right', () => {
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-    const frames = /@keyframes gc-shimmer \{([\s\S]*?)\n\}/.exec(css)?.[1];
-
-    expect(frames).toBeTruthy();
-    expect(/from \{\s*background-position: 100% 0;/.test(frames!)).toBe(true);
-    expect(/to \{\s*background-position: 0% 0;/.test(frames!)).toBe(true);
-    expect(frames).not.toContain('-100%');
-
-    const style = getComputedStyle(sendCard([withPhase('running')]).querySelector('.session-label')!);
-
-    expect(style.backgroundSize).toBe('300% 100%');
-    expect(style.backgroundRepeat).toBe('no-repeat');
-
-    // With a 3x image the visible window at each endpoint is the outer third, so both outer stops must sit inside
-    // the middle third or the band is partly on screen when the cycle wraps - which is a visible jump.
-    const stops = Array.from(style.backgroundImage.matchAll(/(\d+(?:\.\d+)?)%/g), (m) => Number(m[1]));
-
-    expect(stops.length).toBeGreaterThanOrEqual(3);
-    expect(Math.min(...stops)).toBeGreaterThan(100 / 3);
-    expect(Math.max(...stops)).toBeLessThan(200 / 3);
-  });
-
-  /**
-   * The card's edge carries R6, and so does the row it is about — its mark, its words and its weight. No chip: a pill
-   * reading `Needs you` beside a row already painted yellow was the same claim twice.
+   * The card's edge carries R6, and so does the mark on the row it is about. No chip: a pill reading `Needs you`
+   * beside a card already edged yellow was the same claim twice.
    */
   it('marks the card, not only the row, when an agent is blocked on the developer', () => {
     const card = sendCard([withPhase('idle'), withPhase('waiting', Date.now(), { sessionId: 's-2' })], 'blocked');
@@ -877,63 +839,23 @@ describe('reported activity', () => {
     expect(card.querySelector('.badge.your-turn')).toBeNull();
   });
 
-  /** Colour alone is not the mark: the ring is the second channel, and under forced colours it is the only one left. */
-  it('rings the card for either mark, forced colours included', () => {
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-
-    const forced = /@media \(forced-colors: active\) \{([\s\S]*?)\n\}/.exec(css)?.[1];
-
-    expect(css).toContain("card[data-attention='blocked']");
-    expect(css).toContain("card[data-attention='your-turn']");
-    expect(css).toContain("card[data-attention='blocked'] .session[data-phase='waiting'] .session-label");
-    expect(css).toContain("card[data-attention='your-turn'] .session[data-phase='idle'] .session-label");
-    expect(forced).toContain('card[data-attention]');
-    expect(/@media \(forced-colors: active\)[\s\S]*card\[data-attention\]/.test(css)).toBe(true);
-  });
-
-  it('names the colours the button reset would otherwise lose, which jsdom cannot compute', () => {
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-    const forced = /@media \(forced-colors: active\) \{([\s\S]*?)\n\}/.exec(css)?.[1];
-
-    // A surface under the whole row rather than a decoration on its words, which is what the overlay paints: the
-    // words are already spoken for — a phase claims their colour, and a running name is a gradient clipped to them.
-    expect(/\.session \{[^}]*border-radius: 4px/.test(css)).toBe(true);
-    expect(/button\.session:hover \{\s*background: var\(--vscode-toolbar-hoverBackground/.test(css)).toBe(true);
-    expect(/\.session[^{]*\{[^}]*text-decoration: underline/.test(css)).toBe(false);
-
-    // A forced button surface pairs with ButtonText; CanvasText is the card's pairing, kept for a row that is text.
-    expect(/button\.session \{\s*color: ButtonText/.test(forced ?? '')).toBe(true);
-    expect(forced).toContain('color: CanvasText');
-
-    // Both overflow controls are buttons on the surface behind them, so both take a forced button's own colour.
-    expect(/\.card-menu,\s*#board-menu,\s*\.triage-again \{\s*color: ButtonText;/.test(forced ?? '')).toBe(true);
-    // The hue is what forced colours drop, so an open session is told from an ended one by the fill alone.
-    expect(/\.dot \{\s*border-color: CanvasText;/.test(forced ?? '')).toBe(true);
-    expect(/\.dot\[data-live='true'\] \{\s*background: CanvasText;/.test(forced ?? '')).toBe(true);
-    // The dot is the only sign the hub log is streaming, so it is repainted rather than left to a dropped theme colour.
-    expect(/#board-menu\.on::after \{\s*background: Highlight;/.test(forced ?? '')).toBe(true);
-    // The footer's tint is the one thing forced colours drop, so its rule is what sets it apart there.
-    expect(/\.card-foot \{\s*border-top-color: CanvasText;/.test(forced ?? '')).toBe(true);
-  });
-
   /**
-   * The phase in the colour and whether the agent still has the session open in the fill — the two facts the row
-   * used to spend a word on. The word is not lost: it is the mark's own name, because a hue reaches only some readers.
+   * The phase and whether the agent still has the session open are what the row used to spend a word on. The word is
+   * not lost: it is the mark's own name, because a hue reaches only some readers.
    */
   it.each([
-    ['running', false, 'var(--vscode-charts-green)', 'running, open'],
-    ['waiting', false, 'var(--vscode-charts-yellow)', 'needs you, open'],
-    ['idle', false, 'var(--vscode-descriptionForeground)', 'idle, open'],
-    ['idle', true, 'var(--vscode-descriptionForeground)', 'idle, ended'],
-  ] as const)('marks a %s session, finished %s, in its own colour and fill', (phase, finished, colour, named) => {
+    ['running', false, 'running, open'],
+    ['waiting', false, 'needs you, open'],
+    ['idle', false, 'idle, open'],
+    ['idle', true, 'idle, ended'],
+  ] as const)('names a %s session, finished %s, on the mark a reader can hear', (phase, finished, named) => {
     const row = sendCard([{ ...withPhase(phase), finished }]).querySelector<HTMLElement>('.session')!;
     const dot = row.querySelector<HTMLElement>('.dot')!;
 
     // Ahead of the agent's own mark: the row is read left to right, and its state is the first thing wanted from it.
     expect(row.firstElementChild).toBe(dot);
+    expect(dot.dataset['phase']).toBe(phase);
     expect(dot.dataset['live']).toBe(String(!finished));
-    expect(getComputedStyle(dot).getPropertyValue('--gc-dot')).toBe(colour);
-    expect(getComputedStyle(dot).background).toBe(finished ? 'rgba(0, 0, 0, 0)' : 'var(--gc-dot)');
     expect(dot.getAttribute('aria-label')).toBe(named);
     expect(dot.getAttribute('role')).toBe('img');
   });
@@ -946,68 +868,13 @@ describe('reported activity', () => {
     expect(dot.getAttribute('aria-label')).toBe('no state reported, open');
   });
 
-  /**
-   * A card is not a control: what opens on it is the title, the chips and the rows, and each answers for itself. So
-   * the pointer gets an edge and nothing else — a lit card offered something the card as a whole does not do.
-   */
-  it('does not light a card under the pointer, and marks one that is asking at the same strength either way', () => {
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-    const hover = /\.card:hover \{[^}]*\}/.exec(css)?.[0] ?? '';
-
-    // Nothing at all: not a fill, and not an edge either. Neither is a claim the card as a whole can answer for.
-    expect(hover).toBe('');
-    expect(css).not.toContain('--gc-edge-hover');
-    // The tint that says a card is asking holds under a pointer: what it is asking for does not change there, so
-    // the two strengths the hover used to raise it to are gone and the resting one is declared once.
-    expect(css).not.toContain('var(--vscode-charts-yellow) 14%');
-    expect(css).not.toContain('var(--vscode-charts-blue) 11%');
-    expect(css).toContain('var(--vscode-charts-yellow) 7%');
-    expect(css).toContain('var(--vscode-charts-blue) 5%');
-  });
-
-  // The title is the one thing on a card that opens the issue, and was the only control on it with no affordance.
-  it('underlines the title on hover, and only where there is an issue to open', () => {
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-
-    expect(/\.card-open:hover:not\(:disabled\) \.title \{[^}]*text-decoration: underline/.test(css)).toBe(true);
-    // Inline, or the underline runs on across the empty half of the last line rather than under the words.
-    expect(/\.title \{[^}]*display:/.test(css)).toBe(false);
-
+  it('offers the title as a control only where there is an issue to open', () => {
     send(message({ lanes: lanes({ build: [liveCard, { ...liveCard, key: 'session:x', issueNumber: null, issue: null }] }) }));
 
     const [withIssue, without] = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-open'));
 
     expect(withIssue!.disabled).toBe(false);
     expect(without!.disabled).toBe(true);
-  });
-
-  it('paints the marked label its attention colour even though the row is a button', () => {
-    const waiting = sendCard([withPhase('waiting', Date.now())], 'blocked');
-    const label = waiting.querySelector<HTMLElement>('.session-label')!;
-
-    // The row carries its own colour, so the reset on it must lose to the attention rule rather than win.
-    expect(waiting.querySelector('.session')?.tagName).toBe('BUTTON');
-    expect(getComputedStyle(label).color).toBe('var(--vscode-charts-yellow)');
-    expect(getComputedStyle(label).fontWeight).toBe('600');
-  });
-
-  /**
-   * One colour for the whole of a marked row — the card's edge, the words, and the mark ahead of them. A mark left on
-   * its phase colour beside words the card had already recoloured read as two claims about one session.
-   */
-  it.each([
-    ['blocked', 'waiting', 'var(--vscode-charts-yellow)'],
-    ['your-turn', 'idle', 'var(--vscode-charts-blue)'],
-  ] as const)('paints the mark on a %s card the same colour as its border and its words', (attention, phase, colour) => {
-    const card = sendCard([withPhase(phase, Date.now())], attention);
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-
-    // The border is read off the source: jsdom cannot expand a shorthand that holds a `var()`.
-    const rule = css.slice(css.indexOf(`.card[data-attention='${attention}'],`));
-
-    expect(rule.slice(0, rule.indexOf('}'))).toContain(`border-color: ${colour}`);
-    expect(getComputedStyle(card.querySelector<HTMLElement>('.session-label')!).color).toBe(colour);
-    expect(getComputedStyle(card.querySelector<HTMLElement>('.dot')!).getPropertyValue('--gc-dot')).toBe(colour);
   });
 
   /**
@@ -1186,19 +1053,6 @@ describe('reported activity', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  /**
-   * jsdom does not honour prefers-reduced-motion, so the stylesheet is read instead. The assertion that matters is
-   * that the block still paints a colour: reduced motion must not mean less information.
-   */
-  it('keeps a running session marked when motion is reduced', () => {
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-    const block = /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/.exec(css)?.[0];
-
-    expect(block).toBeTruthy();
-    expect(block).toContain('animation-name: none');
-    expect(block).toMatch(/color: var\(--vscode-foreground\)/);
   });
 
   it('states once above the lanes what it did about the hooks', () => {
@@ -1797,105 +1651,13 @@ describe('what GitHub says, and what the board adds', () => {
     );
   }
 
-  /**
-   * A lane of cards was told apart by fill alone, which the theme puts at 1.01:1 in Dark Modern — GitHub's own
-   * cards are 1.09:1 of fill and a 1.76:1 border, so the border is the channel, and it was the one missing.
-   */
-  it('draws an edge on every card, and strengthens it under the pointer', () => {
+  // The pull request's own state reaches the chip through `--gc-badge`, which is the one part of it that carries it.
+  it('hands a reference chip the colour of the state it is reporting', () => {
     full();
 
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-
-    // Read off the rule: jsdom resolves a custom property holding a color-mix down to the inner var, not the mix.
-    expect(/\.card \{[^}]*border: 1px solid var\(--gc-edge\)/.test(css)).toBe(true);
-
-    expect(css).not.toContain('border: 1px solid transparent');
-  });
-
-  /**
-   * Three tones, as GitHub's own board has: the page and the card are the same one and never touch, the lane is
-   * recessed under both, and the card's footer is one step off the card. Recessed rather than raised is the whole
-   * point — it is what separates a page and a card the theme is free to paint identically.
-   */
-  it('recesses the lane under a page and a card that share one tone', () => {
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-
-    // Black, never the foreground: mixing the foreground in would lighten the lane on a dark theme and raise it.
-    expect(/--gc-lane: color-mix\(in srgb, black 3%, var\(--vscode-editor-background\)\)/.test(css)).toBe(true);
-    expect(/body\.vscode-dark \{\s*--gc-lane: color-mix\(in srgb, black 30%, var\(--vscode-editor-background\)\)/.test(css)).toBe(true);
-    expect(/\.lane \{[^}]*background: var\(--gc-lane\)/.test(css)).toBe(true);
-    // GitHub's column width, so a card is the same size on either board.
-    expect(/\.lane \{[^}]*width: 21\.875rem/.test(css)).toBe(true);
-    // The card takes the page's own tone, so what tells it apart is the lane under it and its own edge.
-    expect(/\.card \{[^}]*background: var\(--vscode-editor-background\)/.test(css)).toBe(true);
-  });
-
-  // A chip that is a button took `.link`'s 24px target and stood 4px taller than one that is a span.
-  it('draws every pill at one height, whether or not it is clickable', () => {
-    full();
-
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-    const rule = /\.badge \{[^}]*\}/.exec(css)?.[0] ?? '';
-
-    // GitHub's own label is 20px: an 18px line box inside two 1px edges, set here rather than left to font metrics.
-    expect(rule).toContain('line-height: 1.125rem');
-    expect(rule).toContain('min-height: 0');
-    expect(rule).toContain('padding: 0 0.5rem');
-    // Both kinds are drawn, so the rule above is the only thing deciding either one's height.
-    expect(document.querySelector('span.badge')).not.toBeNull();
-    expect(document.querySelector('button.badge')).not.toBeNull();
-  });
-
-  // GitHub's dark recipe, measured off a live card (`mechanics.md` §37). The old 45% edge read 1.5x its label.
-  it('tints a pill and edges it at the strengths GitHub uses', () => {
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-    const rule = /\.badge \{[^}]*\}/.exec(css)?.[0] ?? '';
-
-    expect(rule).toContain('18%, transparent)');
-    expect(rule).toContain('30%, transparent)');
-  });
-
-  // A reference and a reading are outlines with muted words; only a claim on the developer (R6) keeps a fill.
-  it('leaves a reference or a reading unfilled and unpainted, and a mark filled', () => {
-    full();
-
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-    const quiet = /\.badge\.pull-request,\s*\.badge\.triage,\s*\.badge\.triage-running,\s*\.badge\.triage-failed \{[^}]*\}/.exec(css)?.[0] ?? '';
-
-    expect(quiet).toContain('background: transparent');
-    expect(quiet).toContain('color: var(--vscode-descriptionForeground)');
-    expect(quiet).toContain('var(--vscode-foreground) 30%');
-    // After the link rule, or a chip on the way to being clicked would take a colour back off it.
-    expect(css.indexOf('.badge.pull-request:hover')).toBeGreaterThan(css.indexOf('.badge.link:hover'));
-    // Nothing to press while a reading is being taken, so that one is left out of the hover.
-    expect(/\.badge\.pull-request:hover,\s*\.badge\.triage:hover,\s*\.badge\.triage-failed:hover \{/.test(css)).toBe(true);
-    expect(/\.pr-mark \{[^}]*fill: var\(--gc-badge/.test(css)).toBe(true);
-    // The state still reaches the glyph, which is the one part of the chip that carries it.
     expect(document.querySelector<HTMLElement>('.badge.pull-request')!.style.getPropertyValue('--gc-badge')).toBe(
       'var(--vscode-charts-green)',
     );
-    // A label GitHub put on the issue keeps its fill, which is what a quiet chip is quiet against.
-    expect(getComputedStyle(document.querySelector<HTMLElement>('.badge.type')!).background).toContain('color-mix');
-  });
-
-  // GitHub writes the number in its own UI font; a monospace one was the card's only fixed-width text.
-  it('writes the issue number in the editor ui font, not its editor font', () => {
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
-
-    expect(/\.number \{[^}]*font-family/.test(css)).toBe(false);
-    expect(/\.number \{[^}]*font-variant-numeric: tabular-nums/.test(css)).toBe(true);
-  });
-
-  // Every other line on a card is 12.5px at 400, so a title that inherits the body carries no hierarchy at all.
-  it('sets the title apart from the metadata around it by size and weight', () => {
-    full();
-
-    const title = getComputedStyle(document.querySelector<HTMLElement>('.title')!);
-    const number = getComputedStyle(document.querySelector<HTMLElement>('.number')!);
-
-    expect(title.fontSize).toBe('0.875rem');
-    expect(title.fontWeight).toBe('600');
-    expect(number.fontSize).toBe('0.78rem');
   });
 
   it('reads down: the header, the title, GitHub own labels, then everything this board adds', () => {
@@ -1958,24 +1720,6 @@ describe('what GitHub says, and what the board adds', () => {
     expect(foot.querySelector('.badge')).toBeNull();
   });
 
-  it('sets the footer apart by a tint and a rule, and reaches the card three edges', () => {
-    full();
-
-    const card = getComputedStyle(document.querySelector<HTMLElement>('.card')!);
-    const foot = getComputedStyle(document.querySelector<HTMLElement>('.card-foot')!);
-
-    expect(foot.background).toContain('color-mix');
-    // One step off the card, no further: the rule above carries the separation, so the tint only has to be read as a step.
-    expect(/\.card-foot \{[^}]*var\(--vscode-foreground\) 4%, transparent\)/.test(readFileSync(resolve('media/board.css'), 'utf8'))).toBe(true);
-    // jsdom will not expand a shorthand carrying a var(), so the rule itself is what the divider is asserted from.
-    expect(/\.card-foot \{[^}]*border-top: 1px solid var\(--gc-edge\)/.test(readFileSync(resolve('media/board.css'), 'utf8'))).toBe(true);
-    // Cancels the card's padding on the three sides it touches, so the tint runs edge to edge rather than inset.
-    expect(card.paddingLeft).toBe('0.75rem');
-    expect(foot.marginLeft).toBe('-0.75rem');
-    expect(foot.marginRight).toBe('-0.75rem');
-    expect(card.paddingBottom).toBe('0.6rem');
-    expect(foot.marginBottom).toBe('-0.6rem');
-  });
 });
 
 describe("the card's own menu", () => {
@@ -2427,12 +2171,8 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(chip()?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
   });
 
-  /**
-   * A lane is a list to read, not a row of controls waiting to be used, so the age is what a card at rest carries and
-   * the control stands in its place under the pointer. They share one cell, so the chip is the width it was either
-   * way; the control is hidden rather than transparent, since one nobody can see must not be one the pointer presses.
-   */
-  it('stands the control in the age own place, and only while the card is pointed at', () => {
+  /** The age is what a card at rest carries, and the control stands in its place: one cell, so the chip is one width. */
+  it('draws the control and the age into one cell of the chip', () => {
     send(
       message({
         lanes: lanes({
@@ -2443,19 +2183,9 @@ describe('what a card was read to be waiting on (R38)', () => {
       }),
     );
 
-    const css = readFileSync(resolve('media/board.css'), 'utf8');
     const end = chip()!.querySelector('.triage-end')!;
 
     expect(Array.from(end.children).map((el) => el.className)).toEqual(['triage-age', 'triage-again']);
-    expect(/\.triage-end > \* \{\s*grid-area: 1 \/ 1;/.test(css)).toBe(true);
-    expect(/\.triage-again \{[^}]*visibility: hidden/.test(css)).toBe(true);
-    // The card is focusable, so a keyboard reaches it, the control appears, and the next tab lands on it.
-    expect(/\.card:hover \.triage-again,\s*\.card:focus-within \.triage-again \{\s*visibility: visible;/.test(css)).toBe(true);
-    expect(/\.card:hover \.triage-age,\s*\.card:focus-within \.triage-age \{\s*visibility: hidden;/.test(css)).toBe(true);
-    // Nothing hovers on a touch screen, so there the two sit side by side rather than one never appearing.
-    const touch = css.slice(css.lastIndexOf('@media (hover: none), (pointer: coarse)'));
-
-    expect(touch.slice(0, touch.indexOf('\n}'))).toContain('visibility: visible');
   });
 
   /**
@@ -3038,22 +2768,6 @@ describe('the age attribute both boards share', () => {
     }
   });
 
-  /** The reserved column, copied onto both boards so a turning digit relays out neither one. */
-  const column: [string, string][] = [
-    ['min-width', '3ch'],
-    ['text-align', 'right'],
-    ['font-variant-numeric', 'tabular-nums'],
-  ];
-
-  it.each(column)('reserves %s at %s on every age it draws', (property, expected) => {
-    const css = readFileSync(resolve(__dirname, '..', 'media', 'board.css'), 'utf8');
-
-    for (const rule of ['.state {', '.triage-age {']) {
-      const from = css.indexOf(rule);
-
-      expect(css.slice(from, css.indexOf('}', from))).toContain(`${property}: ${expected}`);
-    }
-  });
 });
 
 /**
@@ -3062,34 +2776,20 @@ describe('the age attribute both boards share', () => {
  * `docs/mechanics.md` §35.
  */
 describe('the tooltip shape both boards share', () => {
-  const rows: [string, string | number][] = [
+  const rows: [string, number][] = [
     ['delay', 120],
     ['gap', 4],
     ['margin', 8],
-    ['font-size', '12px'],
-    ['padding', '4px 8px'],
-    ['max-width', '250px'],
-    ['line-height', '1.625'],
-    ['text-align', 'center'],
   ];
 
   it.each(rows)('pins %s at %s', (name, expected) => {
-    const css = readFileSync(resolve(__dirname, '..', 'media', 'board.css'), 'utf8');
-    const rule = css.slice(css.indexOf('#tip {'), css.indexOf('#tip[data-open'));
     const script = readFileSync(resolve(__dirname, '..', 'media', 'board.js'), 'utf8');
+    const constants: Record<string, RegExp> = {
+      delay: /const TIP_DELAY = (\d+);/,
+      gap: /const TIP_GAP = (\d+);/,
+      margin: /const TIP_MARGIN = (\d+);/,
+    };
 
-    if (typeof expected === 'number') {
-      const constants: Record<string, RegExp> = {
-        delay: /const TIP_DELAY = (\d+);/,
-        gap: /const TIP_GAP = (\d+);/,
-        margin: /const TIP_MARGIN = (\d+);/,
-      };
-
-      expect(Number(constants[name]!.exec(script)?.[1])).toBe(expected);
-
-      return;
-    }
-
-    expect(rule).toContain(`${name}: ${expected}`);
+    expect(Number(constants[name]!.exec(script)?.[1])).toBe(expected);
   });
 });

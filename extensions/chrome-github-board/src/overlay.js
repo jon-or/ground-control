@@ -211,7 +211,7 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-mark[data-mark="triaging"] { animation: gc-triage-pulse 1.8s ease-in-out infinite; }
 .gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
 /* How long the card has held its status. The label's own colour and weight: part of the label, not an aside. */
-.gc-triage-age { font-variant-numeric: tabular-nums; display: inline-block; min-width: 3ch; text-align: right; }
+.gc-triage-age { font-variant-numeric: tabular-nums; display: inline-block; min-width: 3ch; text-align: center; }
 @keyframes gc-triage-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
@@ -219,7 +219,7 @@ ${COLUMN} { margin-right: -1px !important;
 /* One colour per channel, and the same one the row beneath it takes: Primer's foreground pair rather than its
    emphasis pair, which is a surface colour and read a shade off the words it was ringing. It is also what puts the
    ring within a few percent of the chart colours the editor board takes for the same two states (mechanics.md §38). */
-${CARD}[${ATTENTION_ATTR}] { outline: 2px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
+${CARD}[${ATTENTION_ATTR}] { outline: 1px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
   border-radius: 6px; }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--fgColor-accent, #0969da); }
 
@@ -253,20 +253,12 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--fgColor-accent, #0
 
 /*
  * Scoped to the marked card, the way the editor board scopes its own: an idle row on a card asking nothing — one
- * parked in Done — must not be painted as if it were. Two channels on the row that wants you: colour and weight,
- * on the words and the mark ahead of them. No rule down the edge and no filled surface — either one made a footer
- * of these read as a stack of boxes rather than lines of the card.
+ * parked in Done — must not be painted as if it were. The mark alone carries the row: no rule down its edge, no
+ * recoloured words, no filled surface — a footer of rows carrying any of those read as a stack of boxes rather
+ * than lines of the card.
  */
-${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-name,
-${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-state {
-  color: var(--fgColor-attention, #9a6700); font-weight: 600; }
-/* One colour for the whole of a marked row: the card's ring, the words, and the mark ahead of them. A mark left on
-   its phase colour beside recoloured words read as two claims about one session. */
 ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-dot {
   --gc-dot: var(--fgColor-attention, #9a6700); }
-${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-name,
-${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-state {
-  color: var(--fgColor-accent, #0969da); font-weight: 600; }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   --gc-dot: var(--fgColor-accent, #0969da); }
 
