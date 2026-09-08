@@ -591,9 +591,17 @@ main.dragging .lane-idle {
   --gc-dot: var(--vscode-charts-yellow);
 }
 
+/*
+ * Keyed by agent, because the two marks are drawn differently by their owners: Claude's carries its brand colour, and
+ * OpenAI's ships black and white, so it takes the row's own description tone in both themes rather than one of them.
+ */
 .agent-mark {
   width: 0.85rem;
   height: 0.85rem;
+  fill: currentColor;
+}
+
+.agent-mark[data-agent='claude'] {
   fill: #d97757;
 }
 

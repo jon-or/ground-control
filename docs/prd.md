@@ -36,7 +36,7 @@ Everything else about a developer's environment is theirs, and the board adapts 
 One card per issue, with its number, title, and type. Issues nobody has assigned to the user do not appear.
 
 **R2. The board shows every active agent session on the machine.**
-No session is invisible. A session the user forgot about is exactly what this board exists to surface. Claude Code is the agent the board reads today; a developer running a second agent CLI sees its sessions on the same board, labelled by which agent reported them, rather than a second board.
+No session is invisible. A session the user forgot about is exactly what this board exists to surface. Claude Code is the agent the board reads today; a developer running a second agent CLI sees its sessions on the same board, labelled by which agent reported them, rather than a second board. The label is that agent's own official mark where the board has one — Claude's and OpenAI's, each taken verbatim from its owner's own editor extension — and the CLI's name in text where it does not, because an unmarked row would read as one of the agents that has a mark. A mark carrying a brand colour of its own keeps it; a mark its owner ships in black and white takes the tone the name would have had, so it reads in both themes.
 
 A session arrives on the board within a second of the first thing it does, and leaves within a second of ending: a session reports its own work and its own end, so neither edge waits on the board's next read of the machine. What reports nothing — a session killed outright, a renamed one — the board notices on that read instead.
 

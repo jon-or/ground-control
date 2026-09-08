@@ -927,8 +927,7 @@ describe('the footer on a card', () => {
     expect(tipOf(document.querySelector('.gc-dot'))).toBe('No hook has reported on this session.');
   });
 
-  /** One mark, drawn for one agent. A second agent showing Claude's would be worse than showing none. */
-  it('names an agent it has no mark for, rather than leaving the chip unattributed — R2', () => {
+  it("marks a Codex session with OpenAI's own icon rather than the word — R2", () => {
     const codex = snapshot({
       lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [session({ agent: 'codex' })] })] }],
     });
@@ -937,9 +936,35 @@ describe('the footer on a card', () => {
 
     const chip = badges()[0]!.querySelector('.gc-session')!;
 
+    expect(chip.querySelector('svg')).not.toBeNull();
+    expect(chip.querySelector('.gc-agent')).toBeNull();
+    expect(agentIcon(document, 'codex')?.getAttribute('data-agent')).toBe('codex');
+  });
+
+  /** The two marks are drawn differently by their owners: the fill is keyed by agent so a monochrome mark is not
+   * drawn in Claude's orange, and the CSS above is where each one is set. */
+  it('keys each mark by its agent, and draws no fill of its own', () => {
+    for (const agent of ['claude', 'codex']) {
+      const icon = agentIcon(document, agent)!;
+
+      expect(icon.getAttribute('data-agent')).toBe(agent);
+      expect(icon.getAttribute('fill')).toBeNull();
+    }
+  });
+
+  /** One mark per agent that has one. A third CLI showing either of theirs would be worse than showing none. */
+  it('names an agent it has no mark for, rather than leaving the chip unattributed — R2', () => {
+    const gemini = snapshot({
+      lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [session({ agent: 'gemini' })] })] }],
+    });
+
+    paint(document, state({ snapshot: gemini }), NOW, actions);
+
+    const chip = badges()[0]!.querySelector('.gc-session')!;
+
     expect(chip.querySelector('svg')).toBeNull();
-    expect(chip.querySelector('.gc-agent')!.textContent).toBe('codex');
-    expect(agentIcon(document, 'codex')).toBeNull();
+    expect(chip.querySelector('.gc-agent')!.textContent).toBe('gemini');
+    expect(agentIcon(document, 'gemini')).toBeNull();
   });
 });
 
@@ -1801,20 +1826,20 @@ describe('the card that wants something from you', () => {
 
     expect(row.dataset.phase).toBe('waiting');
     expect(row.querySelector('.gc-state')!.textContent).toBe('2m');
-    expect(getComputedStyle(row).boxShadow).toContain('inset 3px 0 0');
+    expect(getComputedStyle(row).boxShadow).toBe('');
     expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-name')!).fontWeight).toBe('600');
     expect(badges()[0]!.querySelector('.gc-mark')).toBeNull();
   });
 
   /**
-   * One colour for the whole channel — the ring GitHub's card wears, the rule down the row, its words, and the mark
-   * ahead of them. Primer's foreground pair, not its emphasis pair: the latter is a surface colour, so the ring came
-   * out a shade off the words it was ringing, and further from the chart colours the editor board takes.
+   * One colour for the whole channel — the ring GitHub's card wears, the row's words, and the mark ahead of them.
+   * Primer's foreground pair, not its emphasis pair: the latter is a surface colour, so the ring came out a shade
+   * off the words it was ringing, and further from the chart colours the editor board takes.
    */
   it.each([
     ['blocked', 'waiting', 'var(--fgColor-attention, #9a6700)'],
     ['your-turn', 'idle', 'var(--fgColor-accent, #0969da)'],
-  ] as const)('paints a %s card its ring, its rule, its words and its mark in one colour', (attention, phase, colour) => {
+  ] as const)('paints a %s card its ring, its words and its mark in one colour', (attention, phase, colour) => {
     paint(
       document,
       state({ snapshot: marked(attention, { sessions: [session({ activity: { phase, since: NOW - 120_000, event: 'Stop' } })] }) }),
@@ -1830,7 +1855,7 @@ describe('the card that wants something from you', () => {
     const sheet = document.getElementById('gc-style')!.textContent!;
 
     expect(sheet.includes(`outline: 2px solid ${colour}`) || getComputedStyle(card).outlineColor === colour).toBe(true);
-    expect(getComputedStyle(row).boxShadow).toContain(colour);
+    expect(getComputedStyle(row).boxShadow).toBe('');
     expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-name')!).color).toBe(colour);
     expect(getComputedStyle(row.querySelector<HTMLElement>('.gc-dot')!).getPropertyValue('--gc-dot')).toBe(colour);
   });
@@ -1847,8 +1872,8 @@ describe('the card that wants something from you', () => {
 
     const [first, second] = [...badges()[0]!.querySelectorAll<HTMLElement>('.gc-session')];
 
-    expect(getComputedStyle(first!).boxShadow).toContain('inset 3px 0 0');
-    expect(getComputedStyle(second!).boxShadow).toBe('');
+    expect(getComputedStyle(first!.querySelector<HTMLElement>('.gc-name')!).color).toBe('var(--fgColor-accent, #0969da)');
+    expect(getComputedStyle(second!.querySelector<HTMLElement>('.gc-name')!).color).not.toBe('var(--fgColor-accent, #0969da)');
     expect(getComputedStyle(second!.querySelector<HTMLElement>('.gc-name')!).animationName).toBe('gc-shimmer');
   });
 
@@ -1858,7 +1883,10 @@ describe('the card that wants something from you', () => {
 
     paint(document, state({ snapshot: marked(null, { sessions: [idle] }) }), NOW, actions);
 
-    expect(getComputedStyle(badges()[0]!.querySelector<HTMLElement>('.gc-session')!).boxShadow).toBe('');
+    const name = badges()[0]!.querySelector<HTMLElement>('.gc-session .gc-name')!;
+
+    expect(getComputedStyle(name).color).not.toBe('var(--fgColor-accent, #0969da)');
+    expect(getComputedStyle(name).fontWeight).not.toBe('600');
   });
 
   // R6: a painted row lives inside the card, which is not readable from across a board. The card carries the ring.

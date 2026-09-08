@@ -608,15 +608,37 @@ describe('board webview', () => {
     expect(getComputedStyle(document.querySelector<HTMLElement>('.badges.github')!).display).toBe('none');
   });
 
-  it('marks a Claude session with its own icon, and names any other agent in text — R2', () => {
+  it('marks a Claude session with its own icon — R2', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
     const mark = document.querySelector<SVGElement>('.session .agent-mark')!;
 
     expect(mark).not.toBeNull();
     expect(mark.getAttribute('aria-label')).toBe('claude');
+    expect(mark.getAttribute('data-agent')).toBe('claude');
     // No `<title>` child: the browser draws its own tooltip from one, beside the row's (`docs/mechanics.md` §35).
     expect(mark.querySelector('title')).toBeNull();
+  });
+
+  it("marks a Codex session with OpenAI's icon rather than the word — R2", () => {
+    send(
+      message({
+        lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, agent: 'codex' }] }] }),
+      }),
+    );
+
+    const mark = document.querySelector<SVGElement>('.session .agent-mark')!;
+
+    expect(mark).not.toBeNull();
+    expect(mark.getAttribute('aria-label')).toBe('codex');
+    expect(document.querySelector('.session .agent')?.textContent).toBe('');
+  });
+
+  /** The two marks are drawn differently by their owners, and a monochrome one at Claude's orange would be wrong. */
+  it('gives the brand colour to the mark that has one, and the row tone to the one that does not', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    expect(getComputedStyle(document.querySelector<SVGElement>('.session .agent-mark')!).fill).toBe('#d97757');
 
     send(
       message({
@@ -624,8 +646,18 @@ describe('board webview', () => {
       }),
     );
 
+    expect(getComputedStyle(document.querySelector<SVGElement>('.session .agent-mark')!).fill).toBe('currentColor');
+  });
+
+  it('names an agent it has no mark for, so an unmarked row never reads as one that has one — R2', () => {
+    send(
+      message({
+        lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, agent: 'gemini' }] }] }),
+      }),
+    );
+
     expect(document.querySelector('.session .agent-mark')).toBeNull();
-    expect(document.querySelector('.session .agent')?.textContent).toBe('codex');
+    expect(document.querySelector('.session .agent')?.textContent).toBe('gemini');
   });
 
   it('shows stale-source, pattern, project-filter, and truncation notices together', () => {

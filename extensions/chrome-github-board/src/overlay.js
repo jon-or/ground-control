@@ -187,6 +187,12 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-dot[data-phase="waiting"] { --gc-dot: var(--fgColor-attention, #9a6700); }
 .${BADGE_CLASS} svg { flex: none; }
 .gc-agent { flex: none; }
+/* No apostrophe in any comment in this sheet: jsdom reads one as a string delimiter even inside a comment, and the
+   rules up to the next one are dropped, which shows up as a test asserting a colour that is silently absent. */
+/* Keyed by agent: the Claude mark carries a brand colour, and the OpenAI one ships black and white, so it takes the
+   tone the agent name would have had in text. */
+.gc-agent-icon { fill: var(--fgColor-muted, #59636e); }
+.gc-agent-icon[data-agent="claude"] { fill: #d97757; }
 /* A step above the marks around it and a step below Primer's own body text: 55% of the pair lands on the tone the
    editor board takes from --vscode-foreground, so one session row reads the same on either board (mechanics.md §38). */
 .gc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -247,21 +253,17 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--fgColor-accent, #0
 
 /*
  * Scoped to the marked card, the way the editor board scopes its own: an idle row on a card asking nothing — one
- * parked in Done — must not be painted as if it were. Three channels on the row that wants you: a rule down its
- * edge — square, so it reads as a rule and not as the corner of a box — its colour, and its weight. No filled surface — a tint behind every marked row is what made a footer of
- * these read as a stack of boxes rather than lines of the card.
+ * parked in Done — must not be painted as if it were. Two channels on the row that wants you: colour and weight,
+ * on the words and the mark ahead of them. No rule down the edge and no filled surface — either one made a footer
+ * of these read as a stack of boxes rather than lines of the card.
  */
-${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] {
-  box-shadow: inset 3px 0 0 var(--fgColor-attention, #9a6700); }
 ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-name,
 ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-state {
   color: var(--fgColor-attention, #9a6700); font-weight: 600; }
-/* One colour for the whole of a marked row: the card's ring, the rule down its edge, the words, and the mark ahead
-   of them. A mark left on its phase colour beside recoloured words read as two claims about one session. */
+/* One colour for the whole of a marked row: the card's ring, the words, and the mark ahead of them. A mark left on
+   its phase colour beside recoloured words read as two claims about one session. */
 ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-dot {
   --gc-dot: var(--fgColor-attention, #9a6700); }
-${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] {
-  box-shadow: inset 3px 0 0 var(--fgColor-accent, #0969da); }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-name,
 ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-state {
   color: var(--fgColor-accent, #0969da); font-weight: 600; }
@@ -724,12 +726,29 @@ const CLAUDE_MARK =
   'm4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z';
 
 /**
+ * OpenAI's own mark, verbatim from the ChatGPT extension's resources/blossom-black.svg. It ships black and white
+ * rather than in a brand colour, so it is drawn at the row's own muted tone rather than at one of the two.
+ */
+const OPENAI_MARK =
+  'M13.795 23.856q-1.188 0-2.256-.448a6.1 6.1 0 0 1-1.9-1.247 5.8 5.8 0 0 1-1.875.306 5.8 5.8 0 0 1-2.944-.777 6.1 6.1 0 0 1-2.184-2.12q-.807-1.34-.808-2.99 0-.682.19-1.482a6.3 6.3 0 0 1-1.472-2.002 5.76 5.76 0 0 1 .024-4.85q.546-1.177 1.52-2.024a5.5 5.5 0 0 1 2.303-1.2A5.55 5.55 0 0 1 5.485 2.62 6.06 6.06 0 0 1 7.575.925 5.85 5.85 0 0 1 10.21.313q1.187 0 2.255.447a6.1 6.1 0 0 1 1.9 1.248 5.8 5.8 0 0 1 1.875-.306q1.59 0 2.944.776a5.9 5.9 0 0 1 2.16 2.12q.832 1.34.832 2.99 0 .682-.19 1.483a6.2 6.2 0 0 1 1.472 2.024q.522 1.13.522 2.378 0 1.272-.546 2.449a6.1 6.1 0 0 1-1.543 2.048 5.45 5.45 0 0 1-2.28 1.177 5.4 5.4 0 0 1-1.115 2.402 5.8 5.8 0 0 1-2.066 1.695 5.85 5.85 0 0 1-2.635.612M7.93 20.913q1.188 0 2.066-.495l4.463-2.542a.52.52 0 0 0 .238-.448v-2.024L8.95 18.676a.97.97 0 0 1-1.044 0L3.419 16.11a.7.7 0 0 1-.024.165v.282q0 1.201.57 2.213.594.99 1.639 1.554 1.044.59 2.326.589m.238-3.838q.143.07.26.07a.46.46 0 0 0 .238-.07l1.781-1.012-5.722-3.296q-.522-.306-.522-.918v-5.11a4.27 4.27 0 0 0-1.9 1.602 4.13 4.13 0 0 0-.712 2.354q0 1.155.594 2.213.593 1.06 1.543 1.601zm5.627 5.227q1.258 0 2.279-.565a4.25 4.25 0 0 0 1.614-1.554q.594-.99.594-2.213v-5.085q0-.283-.237-.424l-1.805-1.036v6.568q0 .613-.522.919l-4.487 2.566q1.163.825 2.564.824m.902-8.617v-3.202l-2.683-1.507-2.707 1.507v3.202l2.707 1.507zm-6.933-7.51q0-.612.522-.918l4.488-2.567a4.34 4.34 0 0 0-2.564-.824q-1.26 0-2.28.565a4.25 4.25 0 0 0-1.614 1.554q-.57.99-.57 2.213v5.062q0 .283.237.447l1.781 1.036zm12.061 11.253a4.13 4.13 0 0 0 1.876-1.6 4.2 4.2 0 0 0 .712-2.355q0-1.154-.593-2.213-.594-1.06-1.544-1.6l-4.44-2.543q-.142-.095-.26-.071a.46.46 0 0 0-.238.07l-1.78.99 5.745 3.319q.26.141.38.377a.9.9 0 0 1 .142.518zm-4.772-11.96q.522-.33 1.045 0l4.51 2.614v-.424q0-1.13-.57-2.142a4.1 4.1 0 0 0-1.59-1.648q-1.02-.613-2.374-.613-1.187 0-2.066.495L9.545 6.292a.52.52 0 0 0-.238.448v2.025z';
+
+/**
+ * The mark each agent is drawn with. A CLI absent here keeps its name in text, because an unmarked row would read as
+ * one of the agents that has a mark (R2).
+ *
+ * @type {Record<string, string>}
+ */
+const AGENT_MARKS = { claude: CLAUDE_MARK, codex: OPENAI_MARK };
+
+/**
  * @param {Document} doc
  * @param {string} agent
  * @returns {SVGElement | null}
  */
 export function agentIcon(doc, agent) {
-  if (agent !== 'claude') {
+  const drawn = AGENT_MARKS[agent];
+
+  if (drawn === undefined) {
     return null;
   }
 
@@ -737,14 +756,15 @@ export function agentIcon(doc, agent) {
   const mark = doc.createElementNS(SVG_NS, 'path');
 
   svg.setAttribute('class', 'gc-agent-icon');
+  // What the fill is keyed by: a mark with a brand colour of its own keeps it, and a monochrome one takes the row's.
+  svg.setAttribute('data-agent', agent);
   svg.setAttribute('viewBox', '0 0 24 24');
   // 13, not the 11 the row's own type is set at: the editor board draws the same mark at 13.6px, and the two boards
   // are read side by side. It is the one thing on the row that is a picture rather than words.
   svg.setAttribute('width', '13');
   svg.setAttribute('height', '13');
   svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('fill', '#d97757');
-  mark.setAttribute('d', CLAUDE_MARK);
+  mark.setAttribute('d', drawn);
   svg.appendChild(mark);
 
   return svg;
