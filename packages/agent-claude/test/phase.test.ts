@@ -105,6 +105,7 @@ describe('readActivity', () => {
     expect(reads(marker({ event: 'PostToolBatch', at }))).toEqual({
       phase: 'running',
       since: at,
+      at,
       event: 'PostToolBatch',
     });
   });
@@ -135,7 +136,7 @@ describe('readActivity', () => {
 
     delete older.turnAt;
 
-    expect(reads(older)).toEqual({ phase: 'running', since: at, event: 'PostToolBatch' });
+    expect(reads(older)).toEqual({ phase: 'running', since: at, at: at, event: 'PostToolBatch' });
   });
 
   // A turn cannot have begun after the event that rode on it; a stamp saying so came from a clock that moved.

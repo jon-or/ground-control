@@ -1711,7 +1711,11 @@ function historyRow(doc, session, now, openable) {
     row.setAttribute('draggable', 'false');
   }
   row.className = 'gc-session gc-historical';
-  row.appendChild(sessionDot(doc, undefined, false, 'The last session that ran here. Nothing is running on this card now.'));
+  const mark = retainedMark(session.retained);
+  // The phase colours the mark and nothing else on the row: `data-phase` also drives the running shimmer and the your-turn tone, and both
+  // are claims about a session with a process. An outline says the process is gone, which is the whole of what this row adds to the phase.
+  if (mark) row.dataset.phase = mark.phase;
+  row.appendChild(sessionDot(doc, mark?.phase, false, mark ? mark.title : 'The last session that ran here. Nothing is running on this card now.'));
   const icon = agentIcon(doc, session.agent);
   if (icon) row.appendChild(icon);
   else {
@@ -1725,14 +1729,43 @@ function historyRow(doc, session, now, openable) {
   name.textContent = session.title ?? basename(session.cwd);
   const state = doc.createElement('span');
   state.className = 'gc-state';
-  // The value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
-  age(state, session.updatedAt, now);
-  // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops.
-  tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
+  // The reading's own event where there is one, so the row's duration is the age of what the mark claims rather than of the last transcript
+  // write. Otherwise the value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
+  age(state, mark ? mark.at : session.updatedAt, now);
+  // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops. It names whichever
+  // moment the value counts from, so the hover and the number are never two claims about one row.
+  tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
   row.setAttribute('aria-label', `${name.textContent} — ${reachable ? 'resume this session in VS Code' : 'historical session'}.`);
   row.append(name, state);
   row.addEventListener('click', (event) => event.stopPropagation());
   return row;
+}
+
+/**
+ * What a reading kept past its own process draws: the phase to paint, the moment to count from, and what the mark means. The reasoning is on
+ * the copy in `extensions/ground-control/media/board.js`; `retainedPhase` in `packages/board/src/lanes.ts` decides the card's own mark.
+ *
+ * @param {{ phase?: string, event?: unknown, at?: unknown } | undefined} retained
+ * @returns {{ phase: string, at: number, title: string } | undefined}
+ */
+function retainedMark(retained) {
+  if (!retained || typeof retained.at !== 'number' || typeof retained.event !== 'string') return undefined;
+
+  const said = `Last seen at the ${retained.event} hook.`;
+
+  if (retained.phase === 'waiting') {
+    return { phase: 'waiting', at: retained.at, title: `This session was waiting on you when its process ended. ${said}` };
+  }
+
+  if (retained.phase === 'running') {
+    return { phase: 'idle', at: retained.at, title: `This session was working when its process ended, so it stopped short. ${said}` };
+  }
+
+  if (retained.phase === 'idle') {
+    return { phase: 'idle', at: retained.at, title: `This session finished its turn, and its process has since ended. ${said}` };
+  }
+
+  return undefined;
 }
 
 /**
@@ -2194,7 +2227,18 @@ function footprint(card, openable) {
     card.issue?.avatar ?? null,
     card.lastSession === undefined
       ? null
-      : [card.lastSession.agent, card.lastSession.sessionId, card.lastSession.title, card.lastSession.cwd, card.lastSession.updatedAt, openable.includes(card.lastSession.sessionId)],
+      : [
+          card.lastSession.agent,
+          card.lastSession.sessionId,
+          card.lastSession.title,
+          card.lastSession.cwd,
+          card.lastSession.updatedAt,
+          // In the signature rather than carried on by the tick: a retained reading is a fixed past observation, so it moves only when the
+          // session it belongs to does, and the row it draws has to be rebuilt when it does.
+          card.lastSession.retained?.phase ?? null,
+          card.lastSession.retained?.at ?? null,
+          openable.includes(card.lastSession.sessionId),
+        ],
     card.sessions.map((s) => [
       s.agent,
       s.sessionId,

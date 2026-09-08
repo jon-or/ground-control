@@ -62,7 +62,7 @@ describe('the phase a Codex event reports', () => {
   });
 
   it('counts a running session from the turn rather than from the last event', () => {
-    expect(activityOf(marker())).toEqual({ phase: 'running', since: NOW - 30_000, event: 'PostToolUse' });
+    expect(activityOf(marker())).toEqual({ phase: 'running', since: NOW - 30_000, at: NOW, event: 'PostToolUse' });
   });
 
   it('counts from the event itself when the turn stamp is later than the event, which is a clock step', () => {
@@ -73,6 +73,7 @@ describe('the phase a Codex event reports', () => {
     expect(activityOf(marker({ event: 'Stop', turnAt: NOW - 30_000 }))).toEqual({
       phase: 'idle',
       since: NOW,
+      at: NOW,
       event: 'Stop',
     });
   });

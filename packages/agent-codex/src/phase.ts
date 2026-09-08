@@ -100,7 +100,7 @@ export function activityOf(marker: ActivityMarker): SessionActivity | null {
   const phase = phaseOf(marker);
 
   // A null event reaches `phaseOf`'s default arm, so a phase at all proves the event was named.
-  return phase === null ? null : { phase, since: sinceOf(phase, marker), event: marker.event as string };
+  return phase === null ? null : { phase, since: sinceOf(phase, marker), at: marker.at, event: marker.event as string };
 }
 
 /**

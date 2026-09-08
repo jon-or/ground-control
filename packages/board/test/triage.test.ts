@@ -41,7 +41,7 @@ const TRIAGE_LABEL_ROWS: [TriageAction, TriageQualifier | null, string][] = [
 ];
 
 const RULES = { boardStatuses: ['⚒️ Dev'], statusLanes: {}, logins: ['dev-1'] };
-const MEMORY = { placements: {}, seenPastMyHands: [], statuses: ['⚒️ Dev'] };
+const MEMORY = { placements: {}, pastMyHandsAt: {}, archived: [], seen: [], statuses: ['⚒️ Dev'] };
 
 function issue(over: Partial<IssueCard> = {}): IssueCard {
   return {

@@ -10,6 +10,7 @@ import { makeLaneStore } from '../src/lanes.js';
 import { makeTriageStore } from '../src/triageStore.js';
 import { makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
+import { makeStatusStore } from '../src/statusStore.js';
 import { makeSettingsStore } from '../src/settings.js';
 import type { StoredConfig } from '../src/settings.js';
 import { makeMarkStore } from '../src/marks.js';
@@ -187,6 +188,7 @@ function harness(
     triage: makeTriageStore(home),
     actions: makeActionStore(home),
     issues: makeIssueStore(home),
+    status: makeStatusStore(home),
     // A hub built over a store that already holds a configuration is the browser-started case: nobody is here to
     // push one, and the developer set theirs in an editor that is not open.
     settings: {
@@ -498,7 +500,7 @@ describe('what an activity event costs', () => {
     await settle();
 
     const spawns = h.agent.calls;
-    h.agent.phases.set(session.sessionId, { phase: 'waiting', since: 1, event: 'Notification' });
+    h.agent.phases.set(session.sessionId, { phase: 'waiting', since: 1, at: 1, event: 'Notification' });
     h.signal([{ kind: 'changed', sessionId: session.sessionId }]);
     await settle();
 
@@ -518,7 +520,7 @@ describe('what an activity event costs', () => {
     await settle();
 
     const spawns = h.agent.calls;
-    h.agent.phases.set('a-new-session', { phase: 'running', since: 1, event: 'UserPromptSubmit' });
+    h.agent.phases.set('a-new-session', { phase: 'running', since: 1, at: 1, event: 'UserPromptSubmit' });
     h.signal([{ kind: 'created', sessionId: 'a-new-session' }]);
     await settle();
 
@@ -1994,7 +1996,7 @@ describe('historical fallback publication', () => {
     expect(inbox.filter((m) => m.type === 'changed')).toHaveLength(2);
     expect(inbox.filter((m) => m.type === 'changed').every((m) => m.type === 'changed' && m.snapshot.lanes.flatMap((l) => l.cards)[0]?.lastSession?.sessionId === 'past')).toBe(true);
     h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42 })];
-    h.agent.phases.set('past', { phase: 'running', since: 1, event: 'UserPromptSubmit' });
+    h.agent.phases.set('past', { phase: 'running', since: 1, at: 1, event: 'UserPromptSubmit' });
     h.signal([{ kind: 'created', sessionId: 'past' }]); await settle();
     expect(shown().lastSession).toBeUndefined();
     const reads = historyCalls;
@@ -2003,6 +2005,39 @@ describe('historical fallback publication', () => {
     expect(shown().lastSession?.sessionId).toBe('past'); expect(historyCalls).toBe(reads + 1);
     h.hub.dispose();
   });
+  /**
+   * R6 through the whole path a closing window takes: the CLI stops listing the session and the hook deletes the marker it read the phase
+   * from, so the last read before it went is the only chance to keep the reading. Both are dropped here, which is what a clean exit does.
+   */
+  it('keeps the phase of a session whose window closed, and drops it once the card has been past the developer hands', async () => {
+    const h = setup();
+    h.agent.adapter.listHistory = async () => ({ sessions: [past], failure: null });
+    h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42 })];
+    h.agent.phases.set('past', { phase: 'waiting', since: 400, at: 400, event: 'Notification' });
+    await h.hub.refresh('asked');
+
+    const shown = () => h.hub.snapshot().lanes.flatMap((l) => l.cards)[0]!;
+
+    expect(shown().attention).toBe('blocked');
+
+    h.agent.sessions = [];
+    h.agent.phases.delete('past');
+    await h.hub.roster();
+
+    expect(shown().lastSession?.sessionId).toBe('past');
+    expect(shown().lastSession?.retained).toEqual({ phase: 'waiting', event: 'Notification', at: 400 });
+    expect(shown().attention).toBe('blocked');
+
+    // A departure dated after the reading, which is the one thing that ends it. `nextMemory` is what dates one; this is that date on disk.
+    const store = makeLaneStore(home);
+
+    store.write({ ...store.read(h.config().boardStatuses), pastMyHandsAt: { 'issue:42': 900 } });
+
+    expect(shown().lastSession?.retained).toBeUndefined();
+    expect(shown().attention).toBeNull();
+    h.hub.dispose();
+  });
+
   it('suppresses history on complete or partial roster failure but retains readable live sessions', async () => {
     const h = setup(); let historyCalls = 0;
     h.agent.adapter.listHistory = async () => { historyCalls++; return { sessions: [past], failure: null }; };

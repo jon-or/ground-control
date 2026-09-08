@@ -67,7 +67,7 @@ describe('the checkout a card is working in', () => {
   });
 
   it('reads an activity signal as being active, over a transcript and a start', () => {
-    const signalled = session({ sessionId: 'signalled', activity: { phase: 'running', since: 1_788_002_000_000, event: 'UserPromptSubmit' } });
+    const signalled = session({ sessionId: 'signalled', activity: { phase: 'running', since: 1_788_002_000_000, at: 1_788_002_000_000, event: 'UserPromptSubmit' } });
     const wrote = session({ sessionId: 'wrote', cwd: 'd:/work/repo', transcriptWrittenAt: 1_788_001_000_000 });
 
     expect(checkoutOf({ sessions: [wrote, signalled] })?.cwd).toBe('d:/work/repo.worktrees/18941-inbox-badge');

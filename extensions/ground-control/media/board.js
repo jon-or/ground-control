@@ -444,6 +444,32 @@ function sessionLine(session) {
   return el;
 }
 
+/**
+ * What a reading kept past its own process draws: the phase to paint, the moment to count from, and what the mark means. Undefined where the
+ * saved session carries no usable reading, and `running` is never one of the three — the process is gone, so the work stopped mid-turn, which
+ * is the developer's move: `idle`'s answer, in `idle`'s colour, and with no shimmer. `retainedPhase` in `packages/board/src/lanes.ts` decides
+ * the card's own mark from the same reading.
+ */
+function retainedMark(retained) {
+  if (!retained || typeof retained.at !== 'number' || typeof retained.event !== 'string') return undefined;
+
+  const said = `Last seen at the ${retained.event} hook.`;
+
+  if (retained.phase === 'waiting') {
+    return { phase: 'waiting', at: retained.at, title: `This session was waiting on you when its process ended. ${said}` };
+  }
+
+  if (retained.phase === 'running') {
+    return { phase: 'idle', at: retained.at, title: `This session was working when its process ended, so it stopped short. ${said}` };
+  }
+
+  if (retained.phase === 'idle') {
+    return { phase: 'idle', at: retained.at, title: `This session finished its turn, and its process has since ended. ${said}` };
+  }
+
+  return undefined;
+}
+
 function historyLine(session) {
   // Cached snapshots can outlive the hub version that produced them.
   if (!session || typeof session.agent !== 'string' || typeof session.cwd !== 'string' ||
@@ -460,18 +486,26 @@ function historyLine(session) {
     el.draggable = false;
     el.addEventListener('click', () => vscode.postMessage({ type: 'openSession', sessionId: session.sessionId }));
   }
+  const mark = retainedMark(session.retained);
   const state = document.createElement('span');
   state.className = 'state';
-  // The value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
-  age(state, session.updatedAt);
-  // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops.
-  tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} Last saved ${new Date(session.updatedAt).toLocaleString()}.`);
+  // The reading's own event where there is one, so the row's duration is the age of what the mark claims rather than of the last transcript
+  // write. Otherwise the value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
+  age(state, mark ? mark.at : session.updatedAt);
+  // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops. It names whichever
+  // moment the value counts from, so the hover and the number are never two claims about one row.
+  tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
 
   if (reachable) {
     nameFor(el, `${label.textContent} - resume this session`);
   }
+
+  // The phase colours the mark and nothing else on the row: `data-phase` also drives the running shimmer and the your-turn tone, and both
+  // are claims about a session with a process. An outline says the process is gone, which is the whole of what this row adds to the phase.
+  if (mark) el.dataset.phase = mark.phase;
+
   el.append(
-    sessionDot(undefined, false, 'The last session that ran here. Nothing is running on this card now.'),
+    sessionDot(mark?.phase, false, mark ? mark.title : 'The last session that ran here. Nothing is running on this card now.'),
     agentMark(session.agent),
     label,
     state,

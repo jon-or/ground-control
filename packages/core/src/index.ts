@@ -77,6 +77,7 @@ export type {
   AgentConfig,
   HistoricalSession,
   ReadFailure,
+  RetainedActivity,
   Session,
   SessionActivity,
   SessionsConfig,

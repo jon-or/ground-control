@@ -26,7 +26,7 @@ function session(over: Partial<Session> = {}): Session {
     repository: `github.com/${REPO}`,
     issueNumber: 4501,
     transcriptWrittenAt: NOW - 30_000,
-    activity: { phase: 'waiting', since: NOW - 125_000, event: 'PermissionRequest' },
+    activity: { phase: 'waiting', since: NOW - 125_000, at: NOW - 125_000, event: 'PermissionRequest' },
     finished: false,
     details: {},
     ...over,
@@ -874,7 +874,7 @@ describe('the footer on a card', () => {
               cards: [
                 card(4501, {
                   sessions: [
-                    session({ activity: { phase, since: NOW - 120_000, event: 'Stop' }, finished }),
+                    session({ activity: { phase, since: NOW - 120_000, at: NOW - 120_000, event: 'Stop' }, finished }),
                   ],
                 }),
               ],
@@ -910,7 +910,7 @@ describe('the footer on a card', () => {
       document,
       state({
         snapshot: laneOf(
-          card(4501, { sessions: [session({ activity: { phase, since: NOW - 120_000, event: 'Stop' }, finished })] }),
+          card(4501, { sessions: [session({ activity: { phase, since: NOW - 120_000, at: NOW - 120_000, event: 'Stop' }, finished })] }),
         ),
       }),
       NOW,
@@ -1534,8 +1534,8 @@ describe('what a scan keeps', () => {
     ['whether a session has ended', { card: { sessions: [session()] } }, { card: { sessions: [session({ finished: true })] } }],
     [
       'the phase a session is in',
-      { card: { sessions: [session({ activity: { phase: 'running', since: NOW - 1_000, event: 'PreToolUse' } })] } },
-      { card: { sessions: [session({ activity: { phase: 'idle', since: NOW - 1_000, event: 'Stop' } })] } },
+      { card: { sessions: [session({ activity: { phase: 'running', since: NOW - 1_000, at: NOW - 1_000, event: 'PreToolUse' } })] } },
+      { card: { sessions: [session({ activity: { phase: 'idle', since: NOW - 1_000, at: NOW - 1_000, event: 'Stop' } })] } },
     ],
     ['what a session calls itself', { card: { sessions: [session({ title: 'One thing' })] } }, { card: { sessions: [session({ title: 'Another' })] } }],
     ['the name the CLI gave it', { card: bare({ details: { name: 'plucky-otter' } }) }, { card: bare({ details: { name: 'brave-newt' } }) }],
@@ -1585,7 +1585,7 @@ describe('what a scan keeps', () => {
    */
   it('carries a newer observation onto a row it kept', () => {
     const running = (since: number, event = 'PreToolUse') =>
-      laneOf(card(4501, { sessions: [session({ activity: { phase: 'running', since, event } })] }));
+      laneOf(card(4501, { sessions: [session({ activity: { phase: 'running', since, at: since, event } })] }));
 
     paint(document, state({ snapshot: running(NOW - 600_000) }), NOW, actions);
 
@@ -1812,11 +1812,11 @@ describe('the card that wants something from you', () => {
   });
 
   it('paints only the row a your-turn card is about, and leaves the working one lit instead', () => {
-    const idle = session({ title: 'Reading the logs', activity: { phase: 'idle', since: NOW - 60_000, event: 'Stop' } });
+    const idle = session({ title: 'Reading the logs', activity: { phase: 'idle', since: NOW - 60_000, at: NOW - 60_000, event: 'Stop' } });
     const running = session({
       sessionId: OTHER_ID,
       title: 'Still going',
-      activity: { phase: 'running', since: NOW - 10_000, event: 'Stop' },
+      activity: { phase: 'running', since: NOW - 10_000, at: NOW - 10_000, event: 'Stop' },
     });
 
     paint(document, state({ snapshot: marked('your-turn', { sessions: [idle, running] }) }), NOW, actions);
@@ -2074,6 +2074,59 @@ describe('historical session rows', () => {
     show(card(4501, { sessions: [], lastSession: { ...lastSession, title: 'Renamed' } }));
     expect(document.querySelector('.gc-historical')?.textContent).toContain('Renamed');
   });
+  /**
+   * R6 past the session's own process, and the same three rows the editor board's suite asserts: a filled mark says the process is running,
+   * so a reading kept past it is an outline in the phase's own colour. The row carries the rendered phase rather than the recorded one,
+   * because `data-phase` also drives the running shimmer and the your-turn tone, and both are claims about a session that has a process.
+   */
+  it.each([
+    ['waiting', 'waiting', 'waiting on you'],
+    ['idle', 'idle', 'finished its turn'],
+    ['running', 'idle', 'stopped short'],
+  ] as const)('outlines a %s reading kept past the process as %s, and says which on hover', (phase, drawn, said) => {
+    const at = NOW - 300_000;
+
+    show(card(4501, { sessions: [], lastSession: { ...lastSession, retained: { phase, event: 'PreToolUse', at } } }));
+
+    const row = document.querySelector<HTMLElement>('.gc-historical')!;
+
+    expect(row.dataset.phase).toBe(drawn);
+    expect(row.querySelector('.gc-dot')?.getAttribute('data-phase')).toBe(drawn);
+    // The fill is what says the process is gone, and it stays off whatever the phase.
+    expect(row.querySelector('.gc-dot')?.getAttribute('data-live')).toBe('false');
+    expect(tipOf(row.querySelector('.gc-dot'))).toContain(said);
+    expect(tipOf(row.querySelector('.gc-dot'))).toContain('PreToolUse');
+    // The reading's own event, so the duration is the age of what the mark claims rather than of the last transcript write — and the hover
+    // names that same moment, since a value and a tooltip disagreeing about one row is two of the board's claims about it (R24).
+    expect(row.querySelector('.gc-state')!.textContent).toBe('5m');
+    expect(tipOf(row.querySelector('.gc-state'))).toContain('Last seen');
+    expect(tipOf(row.querySelector('.gc-state'))).toContain(new Date(at).toLocaleString());
+  });
+
+  /** The signature is what decides whether a kept footer is rebuilt, and a reading is a fixed observation the duration tick never carries on. */
+  it('rebuilds a kept row when the reading on it changes', () => {
+    const withReading = (phase: 'waiting' | 'idle') =>
+      card(4501, { sessions: [], lastSession: { ...lastSession, retained: { phase, event: 'PreToolUse', at: NOW - 60_000 } } });
+
+    show(withReading('waiting'));
+    expect(document.querySelector<HTMLElement>('.gc-historical')!.dataset.phase).toBe('waiting');
+
+    show(withReading('idle'));
+    expect(document.querySelector<HTMLElement>('.gc-historical')!.dataset.phase).toBe('idle');
+  });
+
+  it('draws the plain hollow mark for a saved session carrying a reading it cannot read', () => {
+    for (const retained of [undefined, { phase: 'waiting', event: 'PreToolUse' }, { phase: 'napping', event: 'PreToolUse', at: 1 }]) {
+      show(card(4501, { sessions: [], lastSession: { ...lastSession, ...(retained ? { retained } : {}) } as typeof lastSession }));
+
+      const row = document.querySelector<HTMLElement>('.gc-historical')!;
+
+      expect(row.querySelector('.gc-dot')?.getAttribute('data-phase')).toBe('none');
+      expect(row.querySelector('.gc-state')!.textContent).toBe('1m');
+      expect(tipOf(row.querySelector('.gc-state'))).toContain('Last saved');
+    }
+  });
+
   it('handles cached payloads with absent or malformed history and falls back to the directory label', () => {
     show(card(4501, { sessions: [] })); expect(document.querySelector('.gc-historical')).toBeNull();
     show(card(4501, { sessions: [], lastSession: { ...lastSession, updatedAt: NaN } })); expect(document.querySelector('.gc-historical')).toBeNull();
@@ -2507,7 +2560,7 @@ describe('the age attribute both boards share', () => {
       kind === 'a saved session'
         ? card(4501, { sessions: [], lastSession: { agent: 'claude', sessionId: OTHER_ID, title: 'Past attempt', cwd: '/work/4501', branch: '4501', issueNumber: 4501, repository: `github.com/${REPO}`, updatedAt: NOW - held } })
         : card(4501, {
-            sessions: [session({ activity: { phase: 'running', since: NOW - held, event: 'PreToolUse' } })],
+            sessions: [session({ activity: { phase: 'running', since: NOW - held, at: NOW - held, event: 'PreToolUse' } })],
             triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW - 60_000, stale: false },
             issue: { ...card(4501).issue!, statusChangedAt: new Date(NOW - held).toISOString() },
           });

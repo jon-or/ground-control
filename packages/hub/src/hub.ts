@@ -14,6 +14,8 @@ import type { ActionStore } from './actionStore.js';
 import { TriageRunner } from './triage.js';
 import { makeTriageStore } from './triageStore.js';
 import type { TriageStore } from './triageStore.js';
+import { makeStatusStore, pruned, retaining } from './statusStore.js';
+import type { StatusStore } from './statusStore.js';
 import { afterInstall, announce } from './marks.js';
 import type { MarkStore } from './marks.js';
 import type { SettingsStore } from './settings.js';
@@ -43,6 +45,8 @@ export interface HubDeps {
   actions: ActionStore;
   /** The issues the board has looked up by number, so a session outliving its assignment still names one (R9). */
   issues: IssueStore;
+  /** The last phase each session was seen in, so closing its window does not take the card's mark with it (R6). */
+  status: StatusStore;
   /** The configuration a client last pushed. A hub starts on it, because the browser has none of its own to give. */
   settings: SettingsStore;
   /** What the hub says about itself. Written to `hub.log` whatever happens; streamed only to a client that asked. */
@@ -143,6 +147,7 @@ export function realHubDeps(
   triage: TriageStore = makeTriageStore(home),
   actions: ActionStore = makeActionStore(home),
   issues: IssueStore = makeIssueStore(home),
+  status: StatusStore = makeStatusStore(home),
 ): HubDeps {
   return {
     clock: REAL_CLOCK,
@@ -154,6 +159,7 @@ export function realHubDeps(
     triage,
     actions,
     issues,
+    status,
     settings,
     log,
     syncActivity: (regs, wanted, where, enabled) => syncActivity(regs.agents, wanted, where, false, enabled),
@@ -875,6 +881,7 @@ export class Hub {
     const liveIds = new Set(snapshot.sessions.filter((s) => !s.finished).map((s) => `${s.agent}:${s.sessionId}`));
     const endedIssues = new Set(this.#sessions?.sessions.filter((s) => !s.finished && !liveIds.has(`${s.agent}:${s.sessionId}`)).map((s) => s.issueNumber));
     this.#sessions = { ...snapshot, sessions: snapshot.sessions.map((session) => this.#withActivity(session)) };
+    this.#retain();
     this.#sessionsUnreadable = snapshot.sessions.length === 0 && snapshot.failures.length > 0;
     this.#sayAboutSessions(snapshot.failures, snapshot.sessions.length, this.#deps.clock.now() - startedAt);
     // Stable cards keep their rows while history refreshes. A just-ended attempt needs a fresh history read,
@@ -891,6 +898,11 @@ export class Hub {
     if (!current()) return;
     this.#history = history.sessions;
     this.#historyFailures = history.failures;
+    // Only where both reads landed: a session in neither list is one whose transcript is gone, and an incomplete read of either says nothing
+    // about that. Held readings would otherwise be discarded on the one refresh that could not see the sessions they belong to.
+    if (history.failures.length === 0) {
+      this.#deps.status.write(pruned(this.#deps.status.read(), this.#sessions?.sessions ?? [], this.#history));
+    }
 
     this.#broadcast();
   }
@@ -964,6 +976,7 @@ export class Hub {
       ...this.#sessions,
       sessions: this.#sessions.sessions.map((session) => this.#withActivity(session)),
     };
+    this.#retain();
 
     this.#broadcast();
   }
@@ -978,6 +991,14 @@ export class Hub {
     }
 
     return null;
+  }
+
+  /**
+   * Records the phase of every live session, so the reading outlives the process that reported it. Written here rather than at the snapshot:
+   * the marker is deleted the moment a session ends cleanly, so the last read before it went is the only chance to keep the reading (R6).
+   */
+  #retain(): void {
+    this.#deps.status.write(retaining(this.#deps.status.read(), this.#sessions?.sessions ?? []));
   }
 
   #withActivity(session: Session): Session {
@@ -1154,7 +1175,7 @@ export class Hub {
     // as an issue nobody assigned, and the board would archive itself on the way up (R24).
     const unassigned = items === null ? new Map<number, IssueCard>() : this.#issues.known(sessions, new Set(cards.map((card) => card.number)));
     const laned = assignLanes(
-      mergeBoard(cards, sessions, this.#history, unassigned),
+      mergeBoard(cards, sessions, this.#history, unassigned, this.#deps.status.read()),
       {
         boardStatuses: this.#config.boardStatuses,
         statusLanes: this.#config.statusLanes,
@@ -1238,7 +1259,7 @@ export class Hub {
     // Only a clean session read proves a session is gone; a failed one reports none, and would discard its placement.
     const sessionsRead = this.#sessions !== undefined && this.#sessions.failures.length === 0;
 
-    this.#deps.lanes.write(nextMemory(lanes, memory, sessionsRead));
+    this.#deps.lanes.write(nextMemory(lanes, memory, sessionsRead, this.#deps.clock.now()));
 
     const activity = this.#activity;
 

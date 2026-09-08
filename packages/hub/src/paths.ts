@@ -48,6 +48,11 @@ export function bundlePathOf(home: string): string {
   return `${groundControlDirOf(home)}/hub.js`;
 }
 
+/** The last phase the board saw each session in, kept past its process so a card holds its mark (R6). */
+export function statusPathOf(home: string): string {
+  return `${groundControlDirOf(home)}/status.json`;
+}
+
 /** What the board has read about each card. One record per machine, the way lane placement is (R38). */
 export function triagePathOf(home: string): string {
   return `${groundControlDirOf(home)}/triage.json`;

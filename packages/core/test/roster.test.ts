@@ -96,14 +96,14 @@ describe('unreportedSessions', () => {
     const sessions = [
       session({ startedAt: 10 }),
       session({ startedAt: 30 }),
-      session({ startedAt: 10, activity: { phase: 'running', since: 40, event: 'Stop' } }),
+      session({ startedAt: 10, activity: { phase: 'running', since: 40, at: 40, event: 'Stop' } }),
     ];
 
     expect(unreportedSessions(sessions, 20)).toBe(1);
   });
 
   it('counts nothing once every session reports', () => {
-    expect(unreportedSessions([session({ activity: { phase: 'idle', since: 1, event: 'Stop' } })], 20)).toBe(0);
+    expect(unreportedSessions([session({ activity: { phase: 'idle', since: 1, at: 1, event: 'Stop' } })], 20)).toBe(0);
   });
 });
 

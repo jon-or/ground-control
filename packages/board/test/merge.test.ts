@@ -226,7 +226,7 @@ describe('latest historical session fallback', () => {
   });
   it('lets every live phase suppress history and excludes resumed ids even after their issue link changes', () => {
     for (const phase of ['running', 'waiting', 'idle'] as const) {
-      const live = { ...sessions[0]!, agent: 'claude', issueNumber: 42, finished: false, activity: { phase, since: 1, event: 'test' } };
+      const live = { ...sessions[0]!, agent: 'claude', issueNumber: 42, finished: false, activity: { phase, since: 1, at: 1, event: 'test' } };
       expect(mergeBoard([issue], [live], [past('old', 10)])[0]?.lastSession).toBeUndefined();
       const moved = { ...live, issueNumber: 43, sessionId: 'old' };
       expect(mergeBoard([issue], [moved], [past('old', 10)])[0]?.lastSession).toBeUndefined();
@@ -236,6 +236,34 @@ describe('latest historical session fallback', () => {
     expect(mergeBoard([issue], [], [past('old', 1, { repository: null }), past('other', 2, { repository: 'github.com/other/repo' })])[0]?.lastSession).toBeUndefined();
     expect(mergeBoard([issue], [], [past('moved', 1), past('moved', 2, { issueNumber: 43 })])[0]?.lastSession).toBeUndefined();
   });
+  it('carries the reading the board kept for that session, so closing its window does not blank the card', () => {
+    const retained = new Map([['claude:old', { phase: 'waiting' as const, event: 'PreToolUse', at: 20 }]]);
+
+    expect(mergeBoard([issue], [], [past('old', 10)], new Map(), retained)[0]?.lastSession?.retained).toEqual({
+      phase: 'waiting',
+      event: 'PreToolUse',
+      at: 20,
+    });
+  });
+
+  /** A reading is about one session, not about the card: the saved session on the card is a different attempt than the one that reported it. */
+  it('carries no reading held under another session id, or under another agent', () => {
+    const other = new Map([['claude:other', { phase: 'waiting' as const, event: 'PreToolUse', at: 20 }]]);
+    const codex = new Map([['codex:old', { phase: 'waiting' as const, event: 'PreToolUse', at: 20 }]]);
+
+    expect(mergeBoard([issue], [], [past('old', 10)], new Map(), other)[0]?.lastSession?.retained).toBeUndefined();
+    expect(mergeBoard([issue], [], [past('old', 10)], new Map(), codex)[0]?.lastSession?.retained).toBeUndefined();
+  });
+
+  it('leaves the history it was handed unchanged, which several cards read in turn', () => {
+    const history = [past('old', 10)];
+    const retained = new Map([['claude:old', { phase: 'idle' as const, event: 'Stop', at: 20 }]]);
+
+    mergeBoard([issue], [], history, new Map(), retained);
+
+    expect(history[0]).not.toHaveProperty('retained');
+  });
+
   it('never creates cards from history or puts finished-session activity on the fallback', () => {
     expect(mergeBoard([], [], [past('old', 1)])).toEqual([]);
     const finished = { ...sessions[0]!, issueNumber: 42, finished: true };

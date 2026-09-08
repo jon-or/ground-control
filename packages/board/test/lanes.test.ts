@@ -6,20 +6,35 @@ import {
   PLACEABLE_LANES,
   attentionOf,
   boardStatuses,
+  retainedPhase,
   statusLanes,
 } from '../src/lanes.js';
 import type { CardPullRequest } from '@ground-control/github';
 import type { ActivityPhase } from '@ground-control/core';
-import type { BoardRules, CardMemory, Lane, LaneId } from '../src/index.js';
+import type { BoardCard, BoardRules, CardMemory, Lane, LaneId } from '../src/index.js';
 import type { IssueCard, Session } from '../src/types.js';
 import { checkoutKeyOf, issues, offBoardIssues, sessions } from './helpers.js';
 
 /** The shipped rules. No login, so the recording's own pull requests are nobody's and a lane turns only on what a test derives. */
 const RULES: BoardRules = { boardStatuses: DEFAULT_BOARD_STATUSES, statusLanes: DEFAULT_STATUS_LANES, logins: [] };
 
-/** A memory as the board stores it, against the membership set these tests run with. */
-function remember(placements: Record<string, LaneId> = {}, seenPastMyHands: string[] = []): CardMemory {
-  return { placements, seenPastMyHands, statuses: [...DEFAULT_BOARD_STATUSES] };
+/** When the cards these tests treat as having gone past the developer's hands went. Before every reading a test takes, so a reading stands. */
+const AWAY_AT = 5_000;
+
+/** A memory as the board stores it, against the membership set these tests run with. Keys are dated to `AWAY_AT` and read as still archived. */
+function remember(placements: Record<string, LaneId> = {}, away: string[] = []): CardMemory {
+  return {
+    placements,
+    pastMyHandsAt: Object.fromEntries(away.map((key) => [key, AWAY_AT])),
+    archived: [...away],
+    seen: [],
+    statuses: [...DEFAULT_BOARD_STATUSES],
+  };
+}
+
+/** The keys a memory holds a departure date for, which is what the returned mark and a retained reading are both judged on. */
+function pastMyHands(memory: CardMemory): string[] {
+  return Object.keys(memory.pastMyHandsAt);
 }
 
 function lanes(
@@ -36,7 +51,32 @@ function cardFor(all: Lane[], number: number) {
 }
 
 function withPhase(phase: ActivityPhase, over: Partial<Session> = {}): Session {
-  return { ...sessions[0]!, activity: { phase, since: 1, event: 'Stop' }, ...over };
+  return { ...sessions[0]!, activity: { phase, since: 1, at: 1, event: 'Stop' }, ...over };
+}
+
+/**
+ * A card carrying only a saved session, with a reading the board kept for it. `AWAY_AT` is the moment `remember` dates a departure to, so a
+ * reading after it stands and one before it has been outlived.
+ */
+function held(phase: ActivityPhase, at = AWAY_AT + 1_000, over: Partial<BoardCard> = {}): BoardCard {
+  return {
+    key: 'issue:18954',
+    issue: issues.find((issue) => issue.number === 18954)!,
+    issueNumber: 18954,
+    sessions: [],
+    lastSession: {
+      agent: 'claude',
+      sessionId: 'a-past-attempt',
+      title: 'The attempt before',
+      cwd: 'd:/work/18954-a-branch',
+      branch: '18954-a-branch',
+      issueNumber: 18954,
+      repository: 'github.com/example-org/example-repo',
+      updatedAt: at,
+      retained: { phase, event: 'PreToolUse', at },
+    },
+    ...over,
+  };
 }
 
 function lane(all: Lane[], id: LaneId): Lane {
@@ -213,7 +253,7 @@ describe('assignLanes', () => {
       ...sessions[0]!,
       issueNumber: 19072,
       finished: false,
-      activity: { phase, since: 1, event: 'Stop' },
+      activity: { phase, since: 1, at: 1, event: 'Stop' },
     };
 
     expect(issueIn(lanes(restatus(19072, '🏃 Testing'), [live]), 19072)).toBe('unstarted');
@@ -410,13 +450,17 @@ describe('withPlacement', () => {
     const moved = withPlacement(memory, 'issue:1', 'done');
 
     expect(moved.placements).toEqual({ 'issue:2': 'plan', 'issue:1': 'done' });
-    expect(moved.seenPastMyHands).toEqual(['issue:3']);
+    expect(pastMyHands(moved)).toEqual(['issue:3']);
   });
 
-  it('clears the returned mark on the card it moves — moving it is the developer seeing it', () => {
-    const memory = remember({}, ['issue:1', 'issue:2']);
+  /** The date stays: it is what a retained reading is judged against, and looking at a card is not the card leaving again. */
+  it('clears the returned mark on the card it moves, and keeps the date it went away', () => {
+    const memory = remember({}, ['issue:18954']);
+    const moved = withPlacement(memory, 'issue:18954', 'build');
 
-    expect(withPlacement(memory, 'issue:1', 'build').seenPastMyHands).toEqual(['issue:2']);
+    expect(cardFor(lanes(issues, [], memory), 18954)?.returned).toBe(true);
+    expect(cardFor(lanes(issues, [], moved), 18954)?.returned).toBe(false);
+    expect(moved.pastMyHandsAt['issue:18954']).toBe(AWAY_AT);
   });
 });
 
@@ -430,17 +474,17 @@ describe('readMemory', () => {
   });
 
   it('refuses a shape an older build stored, rather than throwing on every render afterwards', () => {
-    expect(read({ iced: ['issue:1'], seenPastMyHands: [] })).toEqual(remember());
+    expect(read({ iced: ['issue:1'] })).toEqual(remember());
   });
 
   it('refuses a hand-edited value of the wrong type', () => {
-    for (const bad of [undefined, null, 'build', [], { placements: [], seenPastMyHands: [] }]) {
+    for (const bad of [undefined, null, 'build', [], { placements: [] }]) {
       expect(read(bad)).toEqual(remember());
     }
   });
 
   it('refuses a placement naming a lane that does not exist', () => {
-    expect(read({ placements: { 'issue:1': 'blocked' }, seenPastMyHands: [] })).toEqual(remember());
+    expect(read({ placements: { 'issue:1': 'blocked' } })).toEqual(remember());
   });
 
   /**
@@ -448,27 +492,61 @@ describe('readMemory', () => {
    * would read as returned, and the lane each held belongs to a pass the old set had already ended.
    */
   it('drops the seen marks and their placements when the membership set changes', () => {
-    const stored = { placements: { 'issue:1': 'done', 'issue:2': 'plan' }, seenPastMyHands: ['issue:1'], statuses: ['⚒️ Dev'] };
+    const stored = { ...remember({ 'issue:1': 'done', 'issue:2': 'plan' }, ['issue:1']), statuses: ['⚒️ Dev'] };
     const memory = read(stored);
 
-    expect(memory.seenPastMyHands).toEqual([]);
+    expect(memory.seen).toEqual(['issue:1']);
     expect(memory.placements).toEqual({ 'issue:2': 'plan' });
     expect(memory.statuses).toEqual([...DEFAULT_BOARD_STATUSES]);
   });
 
-  it('keeps them when the same set comes back reordered — membership is a set', () => {
-    const stored = {
-      placements: { 'issue:1': 'done' },
-      seenPastMyHands: ['issue:1'],
-      statuses: [...DEFAULT_BOARD_STATUSES].reverse(),
-    };
+  /**
+   * Forgetting when a card went away would put back a reading that departure had ended, and R6 gives a settings edit no such power. The dates
+   * stay and read as seen, which is what keeps the edit from looking like a dozen cards returning at once.
+   */
+  it('keeps the departure dates when the membership set changes, with every one of them seen', () => {
+    const memory = read({ ...remember({}, ['issue:18954']), statuses: ['⚒️ Dev'] });
 
-    expect(read(stored).seenPastMyHands).toEqual(['issue:1']);
+    expect(memory.pastMyHandsAt).toEqual({ 'issue:18954': AWAY_AT });
+    expect(memory.seen).toEqual(['issue:18954']);
+    expect(cardFor(lanes(issues, [], memory), 18954)?.returned).toBe(false);
+    expect(assignLanes([held('waiting', AWAY_AT - 1)], RULES, memory).flatMap((l) => l.cards)[0]?.attention).toBeNull();
+  });
+
+  /** That card is in this pass past the developer's hands, not the one the old set ended, so taking its lane would be R8 broken by a setting. */
+  it('keeps the placement of a card that had come back before the membership set changed', () => {
+    const back = { ...remember({ 'issue:1': 'review' }, ['issue:1']), archived: [], seen: ['issue:1'], statuses: ['⚒️ Dev'] };
+
+    expect(read(back).placements).toEqual({ 'issue:1': 'review' });
+  });
+
+  it('keeps them when the same set comes back reordered — membership is a set', () => {
+    const stored = { ...remember({ 'issue:1': 'done' }, ['issue:1']), statuses: [...DEFAULT_BOARD_STATUSES].reverse() };
+
+    expect(pastMyHands(read(stored))).toEqual(['issue:1']);
     expect(read(stored).placements).toEqual({ 'issue:1': 'done' });
   });
 
   it('takes a memory written before the set was recorded as a change — it cannot know it was the same', () => {
-    expect(read({ placements: { 'issue:1': 'done' }, seenPastMyHands: ['issue:1'] })).toEqual(remember());
+    const { statuses: _absent, ...older } = remember({ 'issue:1': 'done' }, ['issue:1']);
+    const memory = read(older);
+
+    expect(memory.placements).toEqual({});
+    expect(memory.seen).toEqual(['issue:1']);
+  });
+
+  /**
+   * An older build recorded that a card had been archived but not when, and a reading is judged against that date. Dated to the read rather
+   * than to the epoch: the alternative lets a phase read before the card was archived stand as one read after it.
+   */
+  it('dates a bare key list an older build wrote to the moment it reads it', () => {
+    const memory = readMemory(
+      { placements: {}, seenPastMyHands: ['issue:1'], statuses: [...DEFAULT_BOARD_STATUSES] },
+      DEFAULT_BOARD_STATUSES,
+      4_000,
+    );
+
+    expect(memory.pastMyHandsAt).toEqual({ 'issue:1': 4_000 });
   });
 
   it('never hands back the shared empty memory, which a caller may keep', () => {
@@ -481,13 +559,65 @@ describe('readMemory', () => {
     const stored = nextMemory(lanes(issues, sessions, memory), memory, true);
 
     expect(read(stored)).toEqual(stored);
-    expect(read(stored).seenPastMyHands).toContain('issue:18655');
+    expect(pastMyHands(read(stored))).toContain('issue:18655');
   });
 
   it('reads a memory a move stored the same way', () => {
     const moved = withPlacement(remember({}, ['issue:2']), 'issue:1', 'build');
 
     expect(read(moved)).toEqual(moved);
+  });
+});
+
+/**
+ * R6 on a session whose process has gone. Closing a window is not the agent saying it finished, so an unanswered question is still one — and
+ * `retainedPhase` is what keeps a card's ring and its row's mark reading the same thing.
+ */
+describe('a reading kept past its own process', () => {
+  const cardOf = (card: BoardCard, memory: CardMemory = remember()) => assignLanes([card], RULES, memory).flatMap((l) => l.cards)[0]!;
+
+  it('asks for the developer on a session that was waiting when its process ended', () => {
+    expect(cardOf(held('waiting')).attention).toBe('blocked');
+  });
+
+  it('asks for the developer on one that had finished its turn', () => {
+    expect(cardOf(held('idle')).attention).toBe('your-turn');
+  });
+
+  /** The process is gone, so the work stopped mid-turn — which is the developer's move, and `idle`'s answer rather than a fourth state. */
+  it('reads a session that was working when its process ended as the developer own turn', () => {
+    expect(cardOf(held('running')).attention).toBe('your-turn');
+    expect(retainedPhase({ phase: 'running', event: 'PostToolBatch', at: 1 })).toBe('idle');
+    expect(retainedPhase({ phase: 'waiting', event: 'PreToolUse', at: 1 })).toBe('waiting');
+    expect(retainedPhase({ phase: 'idle', event: 'Stop', at: 1 })).toBe('idle');
+  });
+
+  /** R9: the pass past the developer's hands that the reading belonged to has ended, so the card comes back with no phase. */
+  it.each(['waiting', 'idle', 'running'] as const)('drops a %s reading the card has since outlived', (phase) => {
+    const card = cardOf(held(phase, AWAY_AT - 1_000), remember({}, ['issue:18954']));
+
+    expect(card.attention).toBeNull();
+    expect(card.lastSession).not.toHaveProperty('retained');
+  });
+
+  it('keeps a reading taken after the card came back', () => {
+    expect(cardOf(held('waiting', AWAY_AT + 1), remember({}, ['issue:18954'])).attention).toBe('blocked');
+  });
+
+  /** A card the developer has parked in Done is one they have said is not theirs to push on, and a your-turn there asks nothing of them. */
+  it('asks nothing on a card parked in a settled lane, and still says needs you there', () => {
+    const parked = remember({ 'issue:18954': 'done' });
+
+    expect(cardOf(held('idle'), parked).attention).toBeNull();
+    expect(cardOf(held('waiting'), parked).attention).toBe('blocked');
+  });
+
+  it('reads a saved session with no reading as the plain history it is', () => {
+    const bare = held('idle');
+
+    delete bare.lastSession!.retained;
+
+    expect(cardOf(bare).attention).toBeNull();
   });
 });
 
@@ -520,7 +650,7 @@ describe('nextMemory', () => {
     const away = lane(board, 'archived').cards.map((card) => card.key);
 
     expect(away.length).toBeGreaterThan(0);
-    expect(nextMemory(board, EMPTY_MEMORY, true).seenPastMyHands).toEqual(away);
+    expect(pastMyHands(nextMemory(board, EMPTY_MEMORY, true))).toEqual(away);
   });
 
   /** Sessions on an issue nobody assigned the developer are left out: those cards archive, which is the other case. */
@@ -528,25 +658,68 @@ describe('nextMemory', () => {
 
   it('remembers nothing about a card still on the board', () => {
     expect(onBoard.length).toBeGreaterThan(0);
-    expect(nextMemory(lanes(onBoard, mine), EMPTY_MEMORY, true).seenPastMyHands).toEqual([]);
+    expect(pastMyHands(nextMemory(lanes(onBoard, mine), EMPTY_MEMORY, true))).toEqual([]);
   });
 
   it('remembers an issue the developer is not assigned, which has gone past their hands like any other', () => {
     const off = sessions.find((s) => s.issueNumber !== null && !onBoard.some((i) => i.number === s.issueNumber))!;
 
-    expect(nextMemory(lanes(onBoard, [off]), EMPTY_MEMORY, true).seenPastMyHands).toEqual([`issue:${off.issueNumber}`]);
+    expect(pastMyHands(nextMemory(lanes(onBoard, [off]), EMPTY_MEMORY, true))).toEqual([`issue:${off.issueNumber}`]);
   });
 
   it('keeps a key after the card comes back, so a second departure is not a first', () => {
     const memory = remember({}, ['issue:18954']);
 
-    expect(nextMemory(lanes(onBoard, mine, memory), memory, true).seenPastMyHands).toEqual(['issue:18954']);
+    expect(pastMyHands(nextMemory(lanes(onBoard, mine, memory), memory, true))).toEqual(['issue:18954']);
+  });
+
+  /**
+   * A render before the first source read holds no cards, and one runs on every hub start — which is every window reload. A set rebuilt from
+   * the render would be empty there, and the next render would read every archived card as newly gone and re-date it.
+   */
+  it('keeps the archived set through a render that showed no cards at all', () => {
+    const away = restatus(18954, '🏃 Testing');
+    const first = nextMemory(lanes(away, [], remember()), remember(), true, 5_000);
+    const blank = nextMemory([], first, false, 9_000);
+
+    expect(blank.archived).toContain('issue:18954');
+    expect(blank.archived).toEqual(first.archived);
+    expect(blank.pastMyHandsAt).toEqual(first.pastMyHandsAt);
+    expect(nextMemory(lanes(away, [], blank), blank, true, 12_000).pastMyHandsAt['issue:18954']).toBe(5_000);
+  });
+
+  /** A lane chosen while the card was off the board belongs to a pass that had already ended, so it is not the developer seeing it come back. */
+  it('forgets a placement made while the card was archived, so its next return is still marked', () => {
+    const away = restatus(18954, '🏃 Testing');
+    const gone = nextMemory(lanes(away, [], remember()), remember(), true, 5_000);
+    const moved = withPlacement(gone, 'issue:18954', 'build');
+
+    expect(moved.seen).toContain('issue:18954');
+
+    const still = nextMemory(lanes(away, [], moved), moved, true, 6_000);
+
+    expect(still.seen).not.toContain('issue:18954');
+    expect(cardFor(lanes(onBoard, mine, still), 18954)?.returned).toBe(true);
+  });
+
+  /** A date that walked forward on every render would outrun a reading taken while the card sat there, and rewrite the file twice a minute. */
+  it('dates a card once while it stays archived, and again when it leaves a second time', () => {
+    const away = restatus(18954, '🏃 Testing');
+    const first = nextMemory(lanes(away, [], remember()), remember(), true, 5_000);
+
+    expect(first.pastMyHandsAt['issue:18954']).toBe(5_000);
+    expect(nextMemory(lanes(away, [], first), first, true, 9_000).pastMyHandsAt['issue:18954']).toBe(5_000);
+
+    const back = nextMemory(lanes(onBoard, mine, first), first, true, 9_000);
+
+    expect(back.archived).not.toContain('issue:18954');
+    expect(nextMemory(lanes(away, [], back), back, true, 12_000).pastMyHandsAt['issue:18954']).toBe(12_000);
   });
 
   it('does not remember a session-only card', () => {
     const adHoc = sessions.filter((session) => session.issueNumber === null);
 
-    expect(nextMemory(lanes([], adHoc), EMPTY_MEMORY, true).seenPastMyHands).toEqual([]);
+    expect(pastMyHands(nextMemory(lanes([], adHoc), EMPTY_MEMORY, true))).toEqual([]);
   });
 
   it('keeps an issue placement whether or not that issue is on the board', () => {

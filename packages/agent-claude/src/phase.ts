@@ -115,5 +115,5 @@ export function readActivity(
   // A null event reaches `phaseOf`'s default arm, so a phase at all proves the event was named.
   return phase === null
     ? null
-    : { phase, since: sinceOf(phase, marker.data), event: marker.data.event as string };
+    : { phase, since: sinceOf(phase, marker.data), at: marker.data.at, event: marker.data.event as string };
 }

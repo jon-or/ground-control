@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { LANE_ORDER, LANE_TITLES } from '@ground-control/core';
-import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/core';
+import type { Attention, Lane, LaneId, LanedCard, RetainedActivity } from '@ground-control/core';
 import type { BoardCard, IssueCard, Session } from './types.js';
 
 export { LANE_ORDER, LANE_TITLES };
@@ -35,21 +35,28 @@ export interface BoardRules {
   logins: readonly string[];
 }
 
-/** What the board remembers per card: where the developer put it, and whether it has ever been off the board. */
+/** What the board remembers per card: where the developer put it, and when it was last off the board. */
 export interface CardMemory {
   /** Card key to the lane the developer moved it into. A card absent here has never been moved, and arrives on its own evidence. */
   placements: Record<string, LaneId>;
-  /** Card keys seen archived, so a later return can be marked. Issue keys only — work with no issue never left. */
-  seenPastMyHands: string[];
+  /**
+   * Card key to when it was last rendered archived. Issue keys only — work with no issue never left. A date rather than a set, because it is
+   * what a session's retained reading is judged against: a card that came back after the reading has ended the pass the reading belonged to.
+   */
+  pastMyHandsAt: Record<string, number>;
+  /** The cards the last render put in Archived, so the next one can tell a card newly past the developer's hands from one that has sat there. */
+  archived: string[];
+  /** The returned cards the developer has placed since. Moving one is the only evidence they have seen it, and it is what clears the mark. */
+  seen: string[];
   /** The membership set this memory was written against. A changed one carries cards across the archive line for reasons no card caused. */
   statuses: string[];
 }
 
-export const EMPTY_MEMORY: CardMemory = { placements: {}, seenPastMyHands: [], statuses: [] };
+export const EMPTY_MEMORY: CardMemory = { placements: {}, pastMyHandsAt: {}, archived: [], seen: [], statuses: [] };
 
 /** A caller may keep what it is handed, so an unusable stored value yields its own empty memory, not a shared one. */
 function emptyMemory(statuses: readonly string[]): CardMemory {
-  return { placements: {}, seenPastMyHands: [], statuses: [...statuses] };
+  return { placements: {}, pastMyHandsAt: {}, archived: [], seen: [], statuses: [...statuses] };
 }
 
 /** `mergeBoard` keys a card with no issue by the checkout its sessions share. R4 cards exist only while one runs. */
@@ -59,7 +66,11 @@ const laneId = z.enum(LANE_ORDER as [LaneId, ...LaneId[]]);
 
 const cardMemory = z.object({
   placements: z.record(z.string(), z.string()),
-  seenPastMyHands: z.array(z.string()),
+  /** The bare key list an older build wrote: it carries the marks without the dates a reading is judged against. */
+  seenPastMyHands: z.array(z.string()).default([]),
+  pastMyHandsAt: z.record(z.string(), z.number()).default({}),
+  archived: z.array(z.string()).default([]),
+  seen: z.array(z.string()).default([]),
   // Absent from a memory written before the set was recorded, which reads as a change and costs that developer their seen marks once.
   statuses: z.array(z.string()).default([]),
 });
@@ -73,7 +84,7 @@ function sameStatuses(a: readonly string[], b: readonly string[]): boolean {
  * The stored memory, or an empty one. This is durable state a developer can hand-edit and an older build can have
  * written in another shape, and an unparsed read of it throws on every render with no way back but clearing it.
  */
-export function readMemory(stored: unknown, statuses: readonly string[]): CardMemory {
+export function readMemory(stored: unknown, statuses: readonly string[], now: number = Date.now()): CardMemory {
   const parsed = cardMemory.safeParse(stored);
 
   if (!parsed.success) {
@@ -89,17 +100,29 @@ export function readMemory(stored: unknown, statuses: readonly string[]): CardMe
     }
   }
 
-  // A changed membership set carries cards across the archive line wholesale, which is not any of them coming back. The placements those
-  // cards held go with the marks: each belongs to a pass past the developer's hands that the old set had already ended.
+  const pastMyHandsAt: Record<string, number> = { ...parsed.data.pastMyHandsAt };
+
+  // An older build recorded that a card had been archived but not when. Dated to this read, which is the earliest moment this build can
+  // stand behind: dating it to the epoch instead would let a reading taken before the archive read as one taken after it.
+  for (const key of parsed.data.seenPastMyHands) {
+    pastMyHandsAt[key] ??= now;
+  }
+
+  // A changed membership set carries cards across the archive line wholesale, which is not any of them coming back. The lane a card that is
+  // off the board holds goes with the marks: it belongs to a pass past the developer's hands that the old set had already ended. Only those —
+  // a card that returned and was placed since is in this pass, and taking its lane would be R8 broken by a settings edit.
+  //
+  // The departure dates stay and every one of them reads as seen: forgetting when a card went would un-end a reading the departure had
+  // ended, and R6 gives nothing that power, while marking them seen is what keeps the edit from reading as a dozen cards returning at once.
   if (!sameStatuses(parsed.data.statuses, statuses)) {
-    for (const key of parsed.data.seenPastMyHands) {
+    for (const key of parsed.data.archived) {
       delete placements[key];
     }
 
-    return { placements, seenPastMyHands: [], statuses: [...statuses] };
+    return { placements, pastMyHandsAt, archived: [], seen: Object.keys(pastMyHandsAt), statuses: [...statuses] };
   }
 
-  return { placements, seenPastMyHands: parsed.data.seenPastMyHands, statuses: [...statuses] };
+  return { placements, pastMyHandsAt, archived: parsed.data.archived, seen: parsed.data.seen, statuses: [...statuses] };
 }
 
 
@@ -107,13 +130,28 @@ export function readMemory(stored: unknown, statuses: readonly string[]): CardMe
 const SETTLED_LANES: readonly LaneId[] = ['done', 'icebox', 'archived'];
 
 /**
+ * The phase a reading kept past its own process renders and reads as. `running` is the one that cannot stand: the process is gone, so the work
+ * stopped mid-turn, and that is the developer's move — which is `idle`'s answer, drawn in `idle`'s colour so the row and the card agree.
+ */
+export function retainedPhase(retained: RetainedActivity): 'waiting' | 'idle' {
+  return retained.phase === 'waiting' ? 'waiting' : 'idle';
+}
+
+/**
  * What the card asks of the developer. `blocked` is an agent that cannot go on without them; `your-turn` is one that ended its turn and handed
  * control back — finished is not the same as done (R23). Null is a card working, or one whose sessions reported nothing at all (R24).
+ *
+ * `retained` is the reading a saved session kept past its process. A window closing is not the agent saying it finished, so an unanswered
+ * question still reads as one — and only the card leaving the developer's hands ends the reading, which `assignLanes` has already applied.
  */
-export function attentionOf(sessions: readonly Session[], lane: LaneId): Attention | null {
+export function attentionOf(sessions: readonly Session[], lane: LaneId, retained?: RetainedActivity): Attention | null {
   // A finished agent cannot be blocked on anybody. Its last event can still be a prompt it never got past, and reading that as blocked
   // would leave a dead session saying "needs you" for as long as the CLI keeps listing it.
   if (sessions.some((session) => session.activity?.phase === 'waiting' && !session.finished)) {
+    return 'blocked';
+  }
+
+  if (retained && retainedPhase(retained) === 'waiting') {
     return 'blocked';
   }
 
@@ -121,7 +159,7 @@ export function attentionOf(sessions: readonly Session[], lane: LaneId): Attenti
     return null;
   }
 
-  return sessions.some((session) => session.activity?.phase === 'idle') ? 'your-turn' : null;
+  return sessions.some((session) => session.activity?.phase === 'idle') || retained !== undefined ? 'your-turn' : null;
 }
 
 function authoredByDeveloper(login: string | null, logins: readonly string[]): boolean {
@@ -185,7 +223,8 @@ function offBoardReason(issue: IssueCard, rules: BoardRules): string {
 
 function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>, placements: Record<string, LaneId>): LanedCard {
   const lane = placed(card, rules, placements);
-  const base = { ...card, lane, returned: false, attention: attentionOf(card.sessions, lane) };
+  const retained = card.lastSession?.retained;
+  const base = { ...card, lane, returned: false, attention: attentionOf(card.sessions, lane, retained) };
 
   if (card.issue === null) {
     return { ...base, reason: 'Ad-hoc work with no issue.' };
@@ -196,7 +235,7 @@ function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>,
   const archive = (reason: string): LanedCard => ({
     ...base,
     lane: 'archived',
-    attention: attentionOf(card.sessions, 'archived'),
+    attention: attentionOf(card.sessions, 'archived', retained),
     reason,
   });
 
@@ -218,17 +257,40 @@ function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>,
 }
 
 /**
+ * A card's saved session with a reading the card has since outlived taken off it. The developer's hands are what end a reading: a card that
+ * went off the board after the reading was taken has finished the pass the reading belonged to, so the next one starts with no phase (R9).
+ *
+ * Taken off here rather than at the render, so every board is handed one answer and nothing downstream has the dates to disagree with.
+ */
+function withStandingReading(card: BoardCard, pastMyHandsAt: Record<string, number>): BoardCard {
+  const retained = card.lastSession?.retained;
+
+  if (!retained || retained.at > (pastMyHandsAt[card.key] ?? 0)) {
+    return card;
+  }
+
+  const { retained: _dropped, ...lastSession } = card.lastSession!;
+
+  return { ...card, lastSession };
+}
+
+/**
  * Every card in exactly one lane (R8), every lane present so a caller never has to invent an absent one. Within a
  * lane, returned cards come first and the rest keep the order `mergeBoard` produced.
  */
 export function assignLanes(cards: BoardCard[], rules: BoardRules, memory: CardMemory): Lane[] {
   const onBoard = new Set(rules.boardStatuses);
-  const seen = new Set(memory.seenPastMyHands);
+  const seen = new Set(memory.seen);
 
   const laned = cards.map((card) => {
-    const result = place(card, rules, onBoard, memory.placements);
+    const result = place(withStandingReading(card, memory.pastMyHandsAt), rules, onBoard, memory.placements);
+    const returned =
+      card.issueNumber !== null &&
+      memory.pastMyHandsAt[card.key] !== undefined &&
+      !seen.has(card.key) &&
+      result.lane !== 'archived';
 
-    return { ...result, returned: card.issueNumber !== null && seen.has(card.key) && result.lane !== 'archived' };
+    return { ...result, returned };
   });
 
   return LANE_ORDER.map((id) => {
@@ -243,8 +305,9 @@ export function assignLanes(cards: BoardCard[], rules: BoardRules, memory: CardM
 }
 
 /**
- * The memory after the developer moves a card. Every lane is recorded, because a card that would arrive in Build has to
- * remember being dragged to Unstarted; and moving it is what clears the returned mark — they have seen it.
+ * The memory after the developer moves a card. Every lane is recorded, because a card that would arrive in Build has to remember being
+ * dragged to Unstarted; and moving it is what clears the returned mark — they have seen it. The departure date stays: it is what a session's
+ * retained reading is judged against, and looking at a card is not the card going past the developer's hands again.
  */
 export function withPlacement(memory: CardMemory, key: string, lane: LaneId): CardMemory {
   if (!PLACEABLE_LANES.includes(lane)) {
@@ -254,7 +317,7 @@ export function withPlacement(memory: CardMemory, key: string, lane: LaneId): Ca
   return {
     ...memory,
     placements: { ...memory.placements, [key]: lane },
-    seenPastMyHands: memory.seenPastMyHands.filter((seen) => seen !== key),
+    seen: memory.seen.includes(key) ? memory.seen : [...memory.seen, key],
   };
 }
 
@@ -292,19 +355,36 @@ export function statusLanes(configured: unknown): Record<string, LaneId> {
  * The memory to store after a render. A card rendered archived loses its placement — it has gone past the developer's hands, so the lane it
  * held belongs to a pass that ended — and a directory's goes once a successful read shows nothing running there.
  */
-export function nextMemory(lanes: Lane[], memory: CardMemory, sessionsRead: boolean): CardMemory {
-  const seen = new Set(memory.seenPastMyHands);
+export function nextMemory(lanes: Lane[], memory: CardMemory, sessionsRead: boolean, now: number = Date.now()): CardMemory {
+  const pastMyHandsAt = { ...memory.pastMyHandsAt };
+  const seen = new Set(memory.seen);
   const shown = new Set<string>();
-  const archived = new Set<string>();
+  // Carried forward and edited card by card, never rebuilt from the render: a render before the first source read holds no cards at all, and
+  // one that replaced this set with its own would have the next render read every archived card as newly gone and re-date it.
+  const archived = new Set(memory.archived);
+  const nowArchived = new Set<string>();
 
   for (const lane of lanes) {
     for (const card of lane.cards) {
       shown.add(card.key);
 
-      if (lane.id === 'archived' && card.issueNumber !== null) {
-        seen.add(card.key);
-        archived.add(card.key);
+      if (lane.id !== 'archived' || card.issueNumber === null) {
+        archived.delete(card.key);
+
+        continue;
       }
+
+      // Dated on the render that put it there, and again on the render that puts it back after a return. Not on every render in between:
+      // a date walking forward would outrun a reading taken while the card was archived, and rewrite this file twice a minute.
+      if (!archived.has(card.key)) {
+        pastMyHandsAt[card.key] = now;
+      }
+
+      // Whether or not the date moved: a card sitting archived has not come back, so there is no return anybody can have seen — including
+      // one they placed while it was off the board, which is a lane they chose for a pass that had already ended.
+      seen.delete(card.key);
+      archived.add(card.key);
+      nowArchived.add(card.key);
     }
   }
 
@@ -313,7 +393,7 @@ export function nextMemory(lanes: Lane[], memory: CardMemory, sessionsRead: bool
   for (const [key, lane] of Object.entries(memory.placements)) {
     // A failed GitHub read re-renders the last good cards, so a card can be re-archived on a stale read — but only one whose placement
     // this rule already dropped. Nothing is lost twice. Narrowing the membership set is the one thing that drops placements wholesale.
-    if (archived.has(key)) {
+    if (nowArchived.has(key)) {
       continue;
     }
 
@@ -325,5 +405,5 @@ export function nextMemory(lanes: Lane[], memory: CardMemory, sessionsRead: bool
     placements[key] = lane;
   }
 
-  return { ...memory, placements, seenPastMyHands: [...seen] };
+  return { ...memory, placements, pastMyHandsAt, archived: [...archived], seen: [...seen] };
 }

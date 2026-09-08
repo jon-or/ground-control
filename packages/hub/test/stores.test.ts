@@ -25,7 +25,7 @@ describe('the lane store', () => {
 
   it('round trips what the developer placed', () => {
     const store = makeLaneStore(home);
-    const memory = { placements: { 'issue:4521': 'review' as const }, seenPastMyHands: ['issue:99'], statuses: [...STATUSES] };
+    const memory = { ...EMPTY_MEMORY, placements: { 'issue:4521': 'review' as const }, pastMyHandsAt: { 'issue:99': 1_000 }, statuses: [...STATUSES] };
 
     store.write(memory);
 
@@ -34,7 +34,7 @@ describe('the lane store', () => {
 
   /** One record per machine (R8), so a second store on the same home reads what the first wrote. */
   it('is one record every board reads, not one per board', () => {
-    makeLaneStore(home).write({ placements: { 'issue:1': 'done' }, seenPastMyHands: [], statuses: [...STATUSES] });
+    makeLaneStore(home).write({ ...EMPTY_MEMORY, placements: { 'issue:1': 'done' }, statuses: [...STATUSES] });
 
     expect(makeLaneStore(home).read(STATUSES).placements).toEqual({ 'issue:1': 'done' });
   });
@@ -50,7 +50,7 @@ describe('the lane store', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(
       lanesPathOf(home),
-      JSON.stringify({ placements: { 'issue:1': 'nowhere', 'issue:2': 'plan' }, seenPastMyHands: [], statuses: STATUSES }),
+      JSON.stringify({ placements: { 'issue:1': 'nowhere', 'issue:2': 'plan' }, statuses: STATUSES }),
     );
 
     expect(makeLaneStore(home).read(STATUSES).placements).toEqual({ 'issue:2': 'plan' });
@@ -58,9 +58,21 @@ describe('the lane store', () => {
 
   /** A changed membership set carries cards across the archive line for reasons no card caused (R9). */
   it('clears the returned marks when the membership set it was written against has changed', () => {
-    makeLaneStore(home).write({ placements: { 'issue:1': 'done' }, seenPastMyHands: ['issue:1'], statuses: ['⚒️ Dev'] });
+    makeLaneStore(home).write({
+      ...EMPTY_MEMORY,
+      placements: { 'issue:1': 'done' },
+      pastMyHandsAt: { 'issue:1': 1_000 },
+      archived: ['issue:1'],
+      statuses: ['⚒️ Dev'],
+    });
 
-    expect(makeLaneStore(home).read(STATUSES)).toEqual({ placements: {}, seenPastMyHands: [], statuses: STATUSES });
+    // The date stays and reads as seen: forgetting when a card went away would un-end a reading that departure had ended (R6).
+    expect(makeLaneStore(home).read(STATUSES)).toEqual({
+      ...EMPTY_MEMORY,
+      pastMyHandsAt: { 'issue:1': 1_000 },
+      seen: ['issue:1'],
+      statuses: STATUSES,
+    });
   });
 });
 

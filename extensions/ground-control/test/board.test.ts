@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANE_ORDER, LANE_TITLES, boardStatuses, statusLanes } from '@ground-control/board';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
-import type { Session } from '@ground-control/core';
+import type { HistoricalSession, Session } from '@ground-control/core';
 import type { BoardMessage, SnapshotMessage } from '@ground-control/core';
 
 const api = {
@@ -761,7 +761,7 @@ describe('reported activity', () => {
   const withPhase = (phase: 'running' | 'waiting' | 'idle', since = Date.now(), over: Partial<Session> = {}) => ({
     ...session,
     ...over,
-    activity: { phase, since, event: 'PostToolBatch' },
+    activity: { phase, since, at: since, event: 'PostToolBatch' },
   });
 
   const cardWith = (sessions: Session[], attention: Attention | null = null): LanedCard => ({
@@ -1112,7 +1112,7 @@ describe('what a second costs', () => {
           unstarted: [
             {
               ...liveCard,
-              sessions: [{ ...session, activity: { phase: 'running', since: Date.now() - 600_000, event: 'PostToolBatch' } }],
+              sessions: [{ ...session, activity: { phase: 'running', since: Date.now() - 600_000, at: Date.now() - 600_000, event: 'PostToolBatch' } }],
               triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: Date.now() - 7_200_000, stale: false },
               issue: { ...liveCard.issue!, statusChangedAt: '2026-09-06T12:00:00Z' },
             },
@@ -1203,7 +1203,7 @@ describe('what a second costs', () => {
     send(
       message({
         lanes: lanes({
-          unstarted: [{ ...liveCard, sessions: [{ ...session, activity: { phase: 'running', since, event: 'PostToolBatch' } }] }],
+          unstarted: [{ ...liveCard, sessions: [{ ...session, activity: { phase: 'running', since, at: since, event: 'PostToolBatch' } }] }],
         }),
       }),
     );
@@ -1615,6 +1615,53 @@ describe('historical rows', () => {
     send(message({ lanes: lanes({ build: [pastCard] }) }));
     expect(document.querySelector('.historical')).not.toBeNull();
   });
+  /**
+   * R6 past the session's own process: a filled mark says the process is running, so a reading kept past it is drawn as an outline in the
+   * phase's own colour. The row carries the rendered phase rather than the recorded one, because `data-phase` also drives the running
+   * shimmer and the your-turn tone, and both are claims about a session that still has a process.
+   */
+  it.each([
+    ['waiting', 'waiting', 'waiting on you'],
+    ['idle', 'idle', 'finished its turn'],
+    ['running', 'idle', 'stopped short'],
+  ] as const)('outlines a %s reading kept past the process as %s, and says which on hover', (phase, drawn, said) => {
+    const at = Date.now() - 300_000;
+    const retained = { ...lastSession, retained: { phase, event: 'PreToolUse', at } };
+
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], lastSession: retained }] }) }));
+
+    const row = document.querySelector<HTMLElement>('.historical')!;
+
+    expect(row.dataset.phase).toBe(drawn);
+    expect(row.querySelector<HTMLElement>('.dot')?.dataset['phase']).toBe(drawn);
+    // The fill is what says the process is gone, and it stays off whatever the phase.
+    expect(row.querySelector<HTMLElement>('.dot')?.dataset['live']).toBe('false');
+    expect(tipOf(row.querySelector('.dot'))).toContain(said);
+    expect(tipOf(row.querySelector('.dot'))).toContain('PreToolUse');
+    // The reading's own event, so the duration is the age of what the mark claims rather than of the last transcript write — and the hover
+    // names that same moment, since a value and a tooltip disagreeing about one row is two of the board's claims about it (R24).
+    expect(row.querySelector('.state')?.textContent).toBe('5m');
+    expect(tipOf(row.querySelector('.state'))).toContain('Last seen');
+    expect(tipOf(row.querySelector('.state'))).toContain(new Date(at).toLocaleString());
+  });
+
+  /** A snapshot an older hub cached, or one whose fields were redefined: the cast is what lets a shape the current type forbids be rendered. */
+  it('draws the plain hollow mark for a saved session carrying a reading it cannot read', () => {
+    const readings: unknown[] = [undefined, { phase: 'waiting', event: 'PreToolUse' }, { phase: 'napping', event: 'PreToolUse', at: 1 }];
+
+    for (const retained of readings) {
+      const saved = { ...lastSession, ...(retained ? { retained } : {}) } as HistoricalSession;
+
+      send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], lastSession: saved }] }) }));
+
+      const row = document.querySelector<HTMLElement>('.historical')!;
+
+      expect(row.querySelector<HTMLElement>('.dot')?.dataset['phase']).toBe('none');
+      expect(row.querySelector('.state')?.textContent).toBe('1m');
+      expect(tipOf(row.querySelector('.state'))).toContain('Last saved');
+    }
+  });
+
   it('tolerates absent and malformed history in cached payloads', () => {
     for (const history of [undefined, { ...lastSession, updatedAt: NaN }]) {
       send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], ...(history ? { lastSession: history } : {}) }] }) }));
@@ -1649,7 +1696,7 @@ it('makes a historical title openable when the host offers it, including after a
  */
 describe('what GitHub says, and what the board adds', () => {
   const triage: NonNullable<LanedCard['triage']> = { state: 'done', action: 'address-review', qualifier: 'followup', detail: 'Answer the naming notes.', at: Date.now(), stale: false };
-  const waiting: Session = { ...session, activity: { phase: 'waiting', since: Date.now(), event: 'Notification' } };
+  const waiting: Session = { ...session, activity: { phase: 'waiting', since: Date.now(), at: Date.now(), event: 'Notification' } };
 
   const rows: [string, string][] = [
     ['type', '.badges.github'],
@@ -1939,12 +1986,12 @@ describe("the card's own menu", () => {
   });
 
   it('keeps naming its menu after a refresh has rebuilt the card under it', () => {
-    const running: Session = { ...session, activity: { phase: 'running', since: Date.now(), event: 'UserPromptSubmit' } };
+    const running: Session = { ...session, activity: { phase: 'running', since: Date.now(), at: Date.now(), event: 'UserPromptSubmit' } };
 
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [running] }] }) }));
     control()!.click();
 
-    const stopped: Session = { ...running, activity: { phase: 'waiting', since: Date.now(), event: 'Notification' } };
+    const stopped: Session = { ...running, activity: { phase: 'waiting', since: Date.now(), at: Date.now(), event: 'Notification' } };
 
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [stopped] }] }) }));
 
@@ -1987,7 +2034,7 @@ describe("the card's own menu", () => {
   });
 
   it('follows the card it belongs to when a refresh rebuilds it, and goes when the card does', () => {
-    const running: Session = { ...session, activity: { phase: 'running', since: Date.now(), event: 'UserPromptSubmit' } };
+    const running: Session = { ...session, activity: { phase: 'running', since: Date.now(), at: Date.now(), event: 'UserPromptSubmit' } };
     const working: LanedCard = { ...liveCard, sessions: [running] };
 
     send(message({ lanes: lanes({ build: [working] }) }));
@@ -1996,7 +2043,7 @@ describe("the card's own menu", () => {
     const first = control()!;
 
     // A phase change rebuilds the card, so the menu would otherwise be left hanging off a detached control.
-    const stopped: Session = { ...running, activity: { phase: 'waiting', since: Date.now(), event: 'Notification' } };
+    const stopped: Session = { ...running, activity: { phase: 'waiting', since: Date.now(), at: Date.now(), event: 'Notification' } };
 
     send(message({ lanes: lanes({ build: [{ ...working, sessions: [stopped] }] }) }));
     expect(menu()).not.toBeNull();
@@ -2600,7 +2647,7 @@ describe('the tooltip', () => {
     expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
     expect(document.querySelector('.session')!.getAttribute('aria-label')).toContain('go to this session');
     // The state is the row's described half: what the board saw is the part not written on the row.
-    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, activity: { phase: 'running', since: Date.now(), event: 'PostToolBatch' } }] }] }) }));
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, activity: { phase: 'running', since: Date.now(), at: Date.now(), event: 'PostToolBatch' } }] }] }) }));
     // The mark is named rather than described, so the described half of the row is the duration beside it.
     expect(document.querySelector('.state')!.getAttribute('aria-description')).toContain('Counts the turn it is in');
     expect(document.querySelector('.dot')!.hasAttribute('aria-description')).toBe(false);
@@ -2778,7 +2825,7 @@ describe('the age attribute both boards share', () => {
           ? { ...liveCard, sessions: [], lastSession: { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953', branch: '18953', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: at } }
           : {
               ...liveCard,
-              sessions: [{ ...session, activity: { phase: 'running', since: at, event: 'PreToolUse' } }],
+              sessions: [{ ...session, activity: { phase: 'running', since: at, at, event: 'PreToolUse' } }],
               triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: held - 60_000, stale: false },
               issue: { ...liveCard.issue!, statusChangedAt: new Date(at).toISOString() },
             };

@@ -1,5 +1,5 @@
 import { dirKey, repositoryKey } from '@ground-control/core';
-import type { HistoricalSession } from '@ground-control/core';
+import type { HistoricalSession, RetainedActivity } from '@ground-control/core';
 import type { BoardCard, IssueCard, Session } from './types.js';
 
 /** Sessions bucketed by whatever they have in common, each bucket newest first. */
@@ -40,12 +40,16 @@ function checkoutKey(session: Session): string {
  *
  * `unassigned` is the issues a caller looked up for numbers the assigned read did not return. A number missing from
  * both is a guess off a branch name that named nothing, so the session keeps its checkout card instead (R4).
+ *
+ * `retained` is the last phase the board saw each session in, keyed `agent:sessionId`, which the saved session it
+ * belongs to carries onto the card. Only that session's: a reading is about one session, not about the card (R6).
  */
 export function mergeBoard(
   issues: IssueCard[],
   sessions: Session[],
   history: readonly HistoricalSession[] = [],
   unassigned: ReadonlyMap<number, IssueCard> = new Map(),
+  retained: ReadonlyMap<string, RetainedActivity> = new Map(),
 ): BoardCard[] {
   const onBoard = new Set(issues.map((issue) => issue.number));
   const known = (session: Session): boolean =>
@@ -84,7 +88,9 @@ export function mergeBoard(
     const repo = repositoryKey(card.issue!.url);
     const last = newest.find((s) => s.issueNumber === card.issueNumber && s.repository !== null && s.repository === repo);
     if (last) {
-      card.lastSession = last;
+      const held = retained.get(`${last.agent}:${last.sessionId}`);
+
+      card.lastSession = held ? { ...last, retained: held } : last;
       card.sessions = [];
     }
   }

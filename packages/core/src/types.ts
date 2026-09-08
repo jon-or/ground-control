@@ -15,7 +15,7 @@ export interface SessionsConfig {
   branchIssuePattern: string;
 }
 
-/** Saved work, separate from the live roster: no process, phase, or claim that the work completed. */
+/** Saved work, separate from the live roster: no process and no claim that the work completed. */
 export interface HistoricalSession {
   agent: string;
   sessionId: string;
@@ -26,9 +26,22 @@ export interface HistoricalSession {
   /** Canonical remote identity (host/owner/repository), or null when the checkout cannot establish it. */
   repository: string | null;
   updatedAt: number;
+  /** The last phase the board saw this session in while it was live, where that reading still stands (R6). Absent otherwise. */
+  retained?: RetainedActivity;
 }
 
 export type ActivityPhase = 'running' | 'waiting' | 'idle';
+
+/**
+ * A phase the board read off a session that is no longer live. Kept because a process going away is not the agent saying it finished: an
+ * unanswered question is still unanswered, and only the card leaving the developer's hands ends the reading (R6, R9).
+ */
+export interface RetainedActivity {
+  phase: ActivityPhase;
+  /** The hook event the phase came from, and epoch milliseconds of that event — what the reading is dated against. */
+  event: string;
+  at: number;
+}
 
 /**
  * The last phase an activity signal reported, and when it began. Never a guarantee the session is in it now — an agent CLI does not say what
@@ -38,6 +51,8 @@ export interface SessionActivity {
   phase: ActivityPhase;
   /** Epoch milliseconds the duration counts from: the turn's own prompt for a running session, the reporting event for the rest. */
   since: number;
+  /** Epoch milliseconds of the reporting event itself. What the reading is dated by, which for a running session `since` is not. */
+  at: number;
   /** The hook event the phase came from, so a card can say what it saw. */
   event: string;
 }

@@ -20,6 +20,7 @@ import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
 import { makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
+import { makeStatusStore } from '../src/statusStore.js';
 import { captureLog, fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
 
 let home: string;
@@ -204,6 +205,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     triage: makeTriageStore(home),
     actions: makeActionStore(home),
     issues: makeIssueStore(home),
+    status: makeStatusStore(home),
     settings: { read: () => null, write: () => undefined },
     log: logging.log,
     syncActivity: (_r, wanted) => ({ wanted, plan: 'up-to-date', added: 0, failure: null }),
