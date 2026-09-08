@@ -37,6 +37,7 @@ function run(input: string, home = root): { status: number; stdout: string } {
       input,
       encoding: 'utf8',
       env: { ...process.env, USERPROFILE: home, HOME: home },
+      windowsHide: true,
     });
   } catch (error) {
     const failure = error as { status?: number; stdout?: string };

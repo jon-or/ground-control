@@ -41,6 +41,7 @@ function run(input: HookPayload | string, home = root): number {
       input: typeof input === 'string' ? input : JSON.stringify(input),
       encoding: 'utf8',
       env: { ...process.env, USERPROFILE: home, HOME: home },
+      windowsHide: true,
     });
 
     return 0;
@@ -255,13 +256,14 @@ describe('the pid the writer walks to', () => {
       writeFileSync(
         join(root, 'relay.mjs'),
         "import { execFileSync } from 'node:child_process';\n" +
-          "execFileSync(process.argv[2], [process.argv[3]], { input: process.argv[4] });\n",
+          "execFileSync(process.argv[2], [process.argv[3]], { input: process.argv[4], windowsHide: true });\n",
       );
     }
 
     execFileSync(shim, [join(root, 'relay.mjs'), process.execPath, writer, JSON.stringify(sent)], {
       env: { ...process.env, USERPROFILE: root, HOME: root },
       encoding: 'utf8',
+      windowsHide: true,
     });
   }
 
@@ -308,7 +310,10 @@ describe('two writers at once', () => {
     // Measured in §40: two hooks landed in the same millisecond and one rename lost its event on Windows.
     const spawn = promisify(execFile);
     const start = (sent: HookPayload) => {
-      const running = spawn(process.execPath, [writer], { env: { ...process.env, USERPROFILE: root, HOME: root } });
+      const running = spawn(process.execPath, [writer], {
+        env: { ...process.env, USERPROFILE: root, HOME: root },
+        windowsHide: true,
+      });
       running.child.stdin?.end(JSON.stringify(sent));
 
       return running;

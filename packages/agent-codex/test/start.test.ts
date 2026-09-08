@@ -112,9 +112,18 @@ describe('ending a run', () => {
     const claimed = join(home, 'tool.pid');
 
     writeFileSync(grandchild, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(claimed)}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
-    writeFileSync(child, `import { spawn } from 'node:child_process';\nspawn(process.execPath, [${JSON.stringify(grandchild)}], { stdio: 'ignore' });\nsetInterval(() => {}, 1000);\n`);
+    // `windowsHide` on both: a vitest worker under the extension host has no console, so a console child without it
+    // gets one of its own — which Windows Terminal paints as a window on the developer's screen for the test's length.
+    writeFileSync(
+      child,
+      `import { spawn } from 'node:child_process';\nspawn(process.execPath, [${JSON.stringify(grandchild)}], { stdio: 'ignore', windowsHide: true });\nsetInterval(() => {}, 1000);\n`,
+    );
 
-    const running = (await import('node:child_process')).spawn(process.execPath, [child], { detached: true, stdio: 'ignore' });
+    const running = (await import('node:child_process')).spawn(process.execPath, [child], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
 
     for (let waited = 0; waited < 100 && !existsSync(claimed); waited++) {
       await new Promise<void>((resolve) => setTimeout(resolve, 100));
