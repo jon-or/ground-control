@@ -194,12 +194,14 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-agent-icon { fill: var(--fgColor-muted, #59636e); }
 .gc-agent-icon[data-agent="claude"] { fill: #d97757; }
 /* A step above the marks around it and a step below Primer's own body text: 55% of the pair lands on the tone the
-   editor board takes from --vscode-foreground, so one session row reads the same on either board (mechanics.md §38). */
-.gc-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+   editor board takes from --vscode-foreground, so one session row reads the same on either board (mechanics.md §38).
+   Shrink to fit rather than grow: the running gradient is 300% of this box, so a box wider than the words runs the
+   pass of light past them in a fraction of its 1.8s. The age pushes itself right instead. */
+.gc-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: color-mix(in srgb, var(--fgColor-default, #1f2328) 55%, var(--fgColor-muted, #59636e)); }
 /* A column wide enough for the value, so a second turning over does not relay out the row under the lit name
    beside it — every value ago returns below 100 weeks is three characters or fewer, and a word sizes past it. */
-.gc-state { flex: none; white-space: nowrap; min-width: 3ch; text-align: right;
+.gc-state { flex: none; margin-left: auto; white-space: nowrap; min-width: 3ch; text-align: right;
   font-variant-numeric: tabular-nums; }
 .gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
 .gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
