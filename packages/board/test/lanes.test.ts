@@ -914,8 +914,18 @@ describe('attentionOf', () => {
     expect(attentionOf([withPhase('idle')], 'build')).toBe('your-turn');
   });
 
-  it('asks nothing of a working agent', () => {
-    expect(attentionOf([withPhase('running')], 'build')).toBeNull();
+  it('marks a working agent as running, under both of the marks R6 draws', () => {
+    expect(attentionOf([withPhase('running')], 'build')).toBe('running');
+    expect(attentionOf([withPhase('running'), withPhase('idle')], 'build')).toBe('your-turn');
+    expect(attentionOf([withPhase('running'), withPhase('waiting')], 'build')).toBe('blocked');
+  });
+
+  it('reads a finished agent as working no more than it reads one as blocked', () => {
+    expect(attentionOf([withPhase('running', { finished: true })], 'build')).toBeNull();
+  });
+
+  it.each(['done', 'icebox', 'archived'] as const)('marks nothing on a working agent in %s', (id) => {
+    expect(attentionOf([withPhase('running')], id)).toBeNull();
   });
 
   it('asks nothing when nothing was reported at all — R24 forbids guessing a phase', () => {

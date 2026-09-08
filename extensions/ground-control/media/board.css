@@ -1,6 +1,8 @@
 :root {
   color-scheme: light dark;
   --gc-radius: 6px;
+  /* A fifth of the way to black: Dark Modern's own chart green is 9:1 against the card and read as a lit pill. */
+  --gc-working: color-mix(in srgb, var(--vscode-charts-green) 80%, black);
   --gc-gutter: 1.25rem;
   /* 1.62:1 against a Dark Modern card and 1.42:1 in Light Modern, against GitHub's own 1.76 and 1.43. */
   --gc-edge: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
@@ -328,6 +330,29 @@ main.dragging .lane-idle {
   background: color-mix(in srgb, var(--vscode-charts-blue) 5%, var(--vscode-editor-background));
 }
 
+/*
+ * A session is still working on this card. The green the row's own mark takes for `running`, so the card's edge and that mark are one colour -
+ * but dashed and unfilled where a mark is solid over a tint, because a card that is working asks for nothing and must not read as R6.
+ */
+.card[data-attention='running'],
+.card[data-attention='running']:hover {
+  border-style: dashed;
+  /* Where the edge rests between the two ends of its pulse, and all of it where the developer has asked for no motion. */
+  border-color: color-mix(in srgb, var(--gc-working) 55%, transparent);
+  animation: gc-working-edge 2.4s ease-in-out infinite;
+}
+
+@keyframes gc-working-edge {
+  0%,
+  100% {
+    border-color: color-mix(in srgb, var(--gc-working) 30%, transparent);
+  }
+
+  50% {
+    border-color: color-mix(in srgb, var(--gc-working) 85%, transparent);
+  }
+}
+
 /* Number left, the avatar and the card's menu against the right edge - GitHub's own header, in that order. */
 .card-meta {
   display: flex;
@@ -579,9 +604,8 @@ main.dragging .lane-idle {
   background: var(--gc-dot);
 }
 
-/* A fifth of the way to black: Dark Modern's own chart green is 9:1 against the card and read as a lit pill. */
 .dot[data-phase='running'] {
-  --gc-dot: color-mix(in srgb, var(--vscode-charts-green) 80%, black);
+  --gc-dot: var(--gc-working);
 }
 
 .dot[data-phase='waiting'] {
@@ -703,7 +727,6 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   -webkit-background-clip: text;
   color: transparent;
   font-weight: 600;
-  /* Longhands, not the shorthand: jsdom computes these, so the rule is assertable rather than taken on trust. */
   animation-name: gc-shimmer;
   animation-duration: 1.8s;
   animation-timing-function: linear;
@@ -725,6 +748,11 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 
 /* Reduced motion must not mean less information: the running session stays marked, it just stops moving. */
 @media (prefers-reduced-motion: reduce) {
+  .card[data-attention='running'],
+  .card[data-attention='running']:hover {
+    animation: none;
+  }
+
   .session[data-phase='running'] .session-label {
     background-image: none;
     color: var(--vscode-foreground);
@@ -788,6 +816,13 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   .card[data-attention],
   .card[data-attention]:hover {
     border-color: Highlight;
+  }
+
+  /* Hue is what forced colours drop, so the dash is the whole of a working edge and Highlight is left to R6's two marks. */
+  .card[data-attention='running'],
+  .card[data-attention='running']:hover {
+    border-color: CanvasText;
+    animation: none;
   }
 }
 

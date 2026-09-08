@@ -34,12 +34,16 @@ export interface BoardCard {
   unassigned?: true;
 }
 
-export type Attention = 'blocked' | 'your-turn';
+/**
+ * The one state a card's edge carries. `blocked` and `your-turn` are R6's two marks, in that order; `running` is a
+ * session still working, which asks nothing and is drawn as the quiet third rather than as a mark of its own.
+ */
+export type Attention = 'blocked' | 'your-turn' | 'running';
 
 export interface LanedCard extends BoardCard {
   lane: LaneId;
   returned: boolean;
-  /** What the card asks of the developer, or null when it asks nothing. */
+  /** What the card asks of the developer, or that a session on it is working. Null when there is nothing to say. */
   attention: Attention | null;
   /** What the card's status says about it being on the board. Never why it is in its lane. */
   reason: string;

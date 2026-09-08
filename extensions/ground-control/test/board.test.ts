@@ -834,7 +834,7 @@ describe('reported activity', () => {
   });
 
   it('marks nothing when the board asked nothing of the developer', () => {
-    const card = sendCard([withPhase('running'), withPhase('idle', Date.now(), { sessionId: 's-2' })]);
+    const card = sendCard([{ ...session, activity: null }]);
 
     expect(card.dataset.attention).toBeUndefined();
     expect(card.querySelector('.badge.blocked')).toBeNull();

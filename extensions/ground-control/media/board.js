@@ -1310,7 +1310,7 @@ function card(boardCard, avatarPool, placeable) {
       ),
     );
   } else if (triage?.state === 'done') {
-    // GRAY rather than a colour: R6 keeps colour for the two things that want the developer, and BLUE is `your-turn`.
+    // GRAY rather than a colour: YELLOW and BLUE are R6's two marks and GREEN is a working session, so none is free.
     // The sentence the reading produced is the chip's tooltip rather than a line of the card: it is a paragraph of
     // prose on every card that has one, and a lane of them was more of the footer than the cards themselves.
     const read = triage.stale

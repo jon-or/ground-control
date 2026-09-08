@@ -206,8 +206,8 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
 .gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
   color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-severe-emphasis, #bc4c00); }
-/* R38. Not an attention channel: no fill and no outline, because colour on this board means the two things that
-   want the developer (R36). The reading is text; a reading the card has moved under fades and dashes instead. */
+/* R38. Not an attention channel: no fill and no outline, because every colour a card edge takes is spoken for -
+   the two that want the developer and the green of a working session. The reading is text; a stale one fades. */
 .gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"] { color: var(--fgColor-muted, #59636e);
   background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
 .gc-mark[data-mark="triaging"] { animation: gc-triage-pulse 1.8s ease-in-out infinite; }
@@ -218,16 +218,26 @@ ${COLUMN} { margin-right: -1px !important;
 @media (prefers-reduced-motion: reduce) {
   .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
 }
-/* One colour per channel, and the same one the row beneath it takes: Primer's foreground pair rather than its
-   emphasis pair, which is a surface colour and read a shade off the words it was ringing. It is also what puts the
-   ring within a few percent of the chart colours the editor board takes for the same two states (mechanics.md §38). */
+/* One colour per state, and the same one the mark on the row beneath it takes: Primer's foreground tokens rather
+   than its emphasis pair, which is a surface colour and read a shade off the words it was ringing. It is also what
+   puts each ring within a few percent of the chart colour the editor board takes for that state (mechanics.md §38). */
 ${CARD}[${ATTENTION_ATTR}] { outline: 1px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
   border-radius: 6px; }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--fgColor-accent, #0969da); }
 
+/* A session still working. The green the row mark takes for running, dashed and faded where a mark is solid: the
+   card asks for nothing, so it must not read as one of the two marks R6 draws, from across the board. */
+${CARD}[${ATTENTION_ATTR}="running"] { outline-style: dashed;
+  outline-color: color-mix(in srgb, var(--fgColor-success, #1a7f37) 55%, transparent);
+  animation: gc-working-edge 2.4s ease-in-out infinite; }
+@keyframes gc-working-edge {
+  0%, 100% { outline-color: color-mix(in srgb, var(--fgColor-success, #1a7f37) 30%, transparent); }
+  50% { outline-color: color-mix(in srgb, var(--fgColor-success, #1a7f37) 85%, transparent); }
+}
+
 /*
  * One highlight, one pass, left to right, over the session's own name rather than its row: a working session is lit,
- * not recoloured, because yellow and blue already mean the two things that want the developer. The image is three
+ * not recoloured, because colour on a row is spent on the two things that want the developer. The image is three
  * times the name and never repeats, so the band leads in from off the left and leaves with nothing behind it.
  */
 @keyframes gc-shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
@@ -268,6 +278,7 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
 @media (prefers-reduced-motion: reduce) {
   .gc-session[data-phase="running"] .gc-name {
     background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
+  ${CARD}[${ATTENTION_ATTR}="running"] { animation: none; }
 }
 
 /* The gradient is the one thing forced colours may not paint, and the name's own colour is transparent under it. */
@@ -275,6 +286,8 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   .gc-session[data-phase="running"] .gc-name {
     background-image: none; color: CanvasText; animation-name: none; }
   ${CARD}[${ATTENTION_ATTR}] { outline-color: Highlight; }
+  /* Hue is what forced colours drop, so the dash is the whole of a working edge and Highlight is left to R6. */
+  ${CARD}[${ATTENTION_ATTR}="running"] { outline-color: CanvasText; animation: none; }
   /* The hue is what forced colours drop, so the fill is all that is left to tell an open session from an ended one. */
   .gc-dot { border-color: CanvasText; }
   .gc-dot[data-live="true"] { background: CanvasText; }
@@ -1783,9 +1796,9 @@ function stateTitle(activity) {
 }
 
 /**
- * R6, on the project board's own card: the attention goes onto GitHub's own element, which rings the card so it
- * reads from across a board, and the CSS paints the session row it is about. No word of its own — the row already
- * says `needs you` beside the session it means, and a card-level pill said the same thing without naming which one.
+ * R6 and the working edge, on the project board's own card: the state goes onto GitHub's own element, which rings
+ * the card so it reads from across a board, and the CSS paints the session row a mark is about. No word of its own —
+ * the row already says `needs you` beside the session it means, and a card-level pill said the same without naming one.
  *
  * @param {Document} doc
  * @param {Element} element
@@ -1883,8 +1896,8 @@ function renderBadge(doc, element, card, now, actions, openable) {
 /**
  * R38 on the project board's card: the action on the head line beside the lane, with how old the reading is, and the
  * sentence it produced on hover rather than on a line of its own — a paragraph of prose per card was more of the
- * footer than the cards. Not an attention channel: a card being read asks for nothing, and R36 keeps colour for the
- * two things that do want the developer. There is no control here: re-reading a card spends the developer's usage,
+ * footer than the cards. Not an attention channel: a card being read asks for nothing, and every colour a card edge
+ * takes is already spoken for. There is no control here: re-reading a card spends the developer's usage,
  * and the bridge takes refresh, watching and move and nothing else — the editor's own chip is where that press is.
  *
  * @param {Document} doc

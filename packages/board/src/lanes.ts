@@ -138,8 +138,9 @@ export function retainedPhase(retained: RetainedActivity): 'waiting' | 'idle' {
 }
 
 /**
- * What the card asks of the developer. `blocked` is an agent that cannot go on without them; `your-turn` is one that ended its turn and handed
- * control back — finished is not the same as done (R23). Null is a card working, or one whose sessions reported nothing at all (R24).
+ * What the card's edge carries. `blocked` is an agent that cannot go on without them; `your-turn` is one that ended its turn and handed control
+ * back — finished is not the same as done (R23). `running` ranks under both: a session with a process still working asks nothing, so it is the
+ * last thing an edge is spent on and never outranks a mark. Null is a card whose sessions reported nothing at all (R24).
  *
  * `retained` is the reading a saved session kept past its process. A window closing is not the agent saying it finished, so an unanswered
  * question still reads as one — and only the card leaving the developer's hands ends the reading, which `assignLanes` has already applied.
@@ -159,7 +160,12 @@ export function attentionOf(sessions: readonly Session[], lane: LaneId, retained
     return null;
   }
 
-  return sessions.some((session) => session.activity?.phase === 'idle') || retained !== undefined ? 'your-turn' : null;
+  if (sessions.some((session) => session.activity?.phase === 'idle') || retained !== undefined) {
+    return 'your-turn';
+  }
+
+  // A session the agent called finished is not working, whatever its last event was — the same reading `blocked` takes, for the same reason.
+  return sessions.some((session) => session.activity?.phase === 'running' && !session.finished) ? 'running' : null;
 }
 
 function authoredByDeveloper(login: string | null, logins: readonly string[]): boolean {
