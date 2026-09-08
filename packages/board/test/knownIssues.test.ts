@@ -119,7 +119,10 @@ describe('whether a card has changed since it was stored', () => {
   });
 
   it('reads a card whose pull request appeared as a different card', () => {
-    const withPr = { ...card, pullRequest: { number: 7, url: 'u', state: 'OPEN', author: null, isDraft: false, reviewDecision: null } };
+    const withPr = {
+      ...card,
+      pullRequest: { number: 7, url: 'u', state: 'OPEN', author: null, isDraft: false, reviewDecision: null, updatedAt: null, headOid: null, checksRed: null },
+    };
 
     expect(sameKnownCard({ card, at: 0 }, withPr)).toBe(false);
   });

@@ -1771,3 +1771,20 @@ A thread runs inside `codex.exe … app-server`, which the extension spawns from
 **This is what reaches a thread in the sidebar.** In the measured window the thread was in the secondary sidebar: `workbench.auxiliarybar.activepanelid` was `workbench.view.extension.codexSecondaryViewContainer`, `memento/webviewView.chatgpt.sidebarSecondaryView` was `{}` (§44), and the window's store carried no `memento/workbench.parts.editor` key at all. Nothing written to disk said which window held the thread. Its process did. **Not measured:** what the reveal does to a thread the sidebar is showing at that moment — §44 measured it against a tab, where it re-activates rather than forking.
 
 **The IPC router does not.** `\\.\pipe\codex-ipc` (§44) answered `thread-owner-discovery` `error: no-client-found` for all five threads on the machine, including two recorded in another window's editor memento, while `ide-context` for two open roots was answered, each naming a different `handledByClientId`. The router says which windows are connected; it does not say which one holds a thread.
+
+## 48. What a card's own poll query costs, and what it does not report
+
+Measured 2026-09-08 against `ownerrez/orez` — 13 assigned open issues, 31 open pull requests — with `rateLimit{ cost }` selected alongside `ASSIGNED_ISSUES_QUERY`. The GraphQL cost is a function of the nodes **asked for**, not the nodes returned, so a page size the board never fills is still paid for the moment anything nests inside it.
+
+| Selection | Cost |
+|---|---|
+| The card fields alone, `closedByPullRequestsReferences(first:100)` | 3 |
+| Plus `commits(last:1){ commit{ oid statusCheckRollup{ state } } }`, still `first:100` | 103 |
+| The same, `first:10` | 13 |
+| The same, `first:5` — what ships | 8 |
+
+`100 issues × 100 pull requests` is 10,000 nodes, which is the 100 points. The board's own maximum was **one** closing pull request per issue, and nine of the thirteen had none, so `first:5` is four more than anything measured. `selectPullRequest` returns one whatever the page holds. At a 300 s poll that is 96 points an hour against a 5,000/hour budget. Wall time did not move: 1019 ms before, 1167 ms with the rollup.
+
+**The ordering of `closedByPullRequestsReferences` is not documented**, and `selectPullRequest` sorts the page it gets by `updatedAt`. An issue with more than five closing pull requests could therefore be handed a page that does not hold the one that would have won. Not observed, and 10 closing pull requests on one issue is not a shape this board has seen.
+
+**What an issue's own `updatedAt` does not report.** Measured on the cards above: a comment on the linked pull request, a push to it, and a check rollup going red all leave `issue.updatedAt` untouched. Those are the changes a card's evidence (`prd.md` R24) reads `pullRequest.updatedAt`, `headOid` and `statusCheckRollup` for. `reviewDecision` is not among them — it is populated on 31 of 32 open pull requests here, but it lags: it stays `REVIEW_REQUIRED` on work the team approved by moving the issue's status instead.

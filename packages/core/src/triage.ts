@@ -119,6 +119,10 @@ export interface TriageThread {
  * The pull request the card is showing — the same one `selectPullRequest` chose, never a second answer to the same
  * question. GitHub's own mergeability is not read: whether a branch needs merging is what somebody asked for, and
  * whether a merge happened is what the run itself reported (`prd.md` R39).
+ *
+ * `reviewDecision` is not read either, and is not shown to the classifier. It lags what the team actually decided —
+ * a pull request sits at `REVIEW_REQUIRED` on work approved days ago by moving the status — so it reads as an
+ * outstanding review that is not outstanding. `reviews` and the status are what the round is judged from instead.
  */
 export interface TriagePullRequest {
   number: number;
@@ -138,7 +142,6 @@ export interface TriagePullRequest {
   headRefName: string;
   /** The head commit, and a run's whole evidence: one run per push, and never a second against the same commit. */
   headOid: string;
-  reviewDecision: string | null;
   /** `SUCCESS`, `FAILURE`, `ERROR`, `PENDING`, or null where the repository runs no checks at all. */
   checkState: string | null;
   comments: TriageComment[];

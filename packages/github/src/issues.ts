@@ -61,16 +61,26 @@ function selectPullRequest(node: Pick<SearchNode, 'pullRequests'>): CardPullRequ
   const byRecency = [...(node.pullRequests?.nodes ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const latest = byRecency.find((pr) => pr.state === 'OPEN') ?? byRecency[0];
 
-  return latest
-    ? {
-        number: latest.number,
-        url: latest.url,
-        state: latest.state,
-        author: latest.author?.login ?? null,
-        isDraft: latest.isDraft,
-        reviewDecision: latest.reviewDecision,
-      }
-    : null;
+  if (!latest) {
+    return null;
+  }
+
+  const commit = latest.commits?.nodes[0]?.commit;
+  const rollup = commit?.statusCheckRollup?.state ?? null;
+
+  return {
+    number: latest.number,
+    url: latest.url,
+    state: latest.state,
+    author: latest.author?.login ?? null,
+    isDraft: latest.isDraft,
+    reviewDecision: latest.reviewDecision,
+    updatedAt: latest.updatedAt,
+    headOid: commit?.oid ?? null,
+    // Coarse on purpose: `derivedAction` reads only whether the build failed, so pending and passing are one state
+    // here and a card does not go stale for the length of every build.
+    checksRed: rollup === null ? null : rollup === 'FAILURE' || rollup === 'ERROR',
+  };
 }
 
 function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {

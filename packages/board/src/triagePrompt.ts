@@ -212,7 +212,6 @@ export function buildTriagePrompt(
     `PULL REQUEST #${pr.number}: ${pr.title}`,
     `Opened by: ${own(pr.author, context.logins) ? 'you' : nameOf(pr.author, pr.authorName, names)}`,
     `State: ${pr.state}${pr.isDraft ? ' (draft)' : ''}`,
-    `Review decision: ${pr.reviewDecision ?? NOTHING}`,
     `Reviewers asked for: ${pr.reviewRequests.map((r) => shown(r.login, r.name, context.logins, names)).join(', ') || NOTHING}`,
     `Reviews submitted: ${pr.reviews.map((r) => `${shown(r.author, r.authorName, context.logins, names)} ${r.state}`).join('; ') || NOTHING}`,
     '',

@@ -77,7 +77,6 @@ const contextResponse = z.object({
             // board will not merge a branch it could not name.
             baseRefName: z.string().default(''),
             headRefName: z.string().default(''),
-            reviewDecision: z.string().nullable(),
             commits: z.object({
               nodes: z.array(
                 z.object({
@@ -230,7 +229,6 @@ function pullRequestOf(raw: NonNullable<z.infer<typeof contextResponse>['data'][
     baseRefName: raw.baseRefName,
     headRefName: raw.headRefName,
     headOid: raw.commits.nodes[0]?.commit.oid ?? '',
-    reviewDecision: raw.reviewDecision,
     // Null where the repository runs no checks at all, which is not the same as checks that have not passed.
     checkState: raw.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
     comments: commentsOf(raw.comments.nodes),

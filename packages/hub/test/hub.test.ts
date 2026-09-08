@@ -66,6 +66,9 @@ function card(number: number, author: string | null = null): IssueCard {
             author,
             isDraft: false,
             reviewDecision: null,
+            updatedAt: null,
+            headOid: null,
+            checksRed: null,
           },
     updatedAt: '2026-09-03T08:00:00Z',
   };

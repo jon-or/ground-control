@@ -46,6 +46,11 @@ const pullRequest = z.object({
   author: z.string().nullable(),
   isDraft: z.boolean(),
   reviewDecision: z.string().nullable(),
+  // Nullable rather than optional: a card an older build cached carries none of these, and reading them back as null
+  // costs that card one evidence comparison rather than making it unparseable.
+  updatedAt: z.string().nullable().default(null),
+  headOid: z.string().nullable().default(null),
+  checksRed: z.boolean().nullable().default(null),
 });
 
 /**

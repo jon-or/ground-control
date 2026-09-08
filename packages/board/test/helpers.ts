@@ -11,14 +11,17 @@ function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(here, 'fixtures', `${name}.json`), 'utf8'));
 }
 
-/** What `fetchAssignedIssues` returned when the recording was made, which predates three of the pull request's fields. */
+/** What `fetchAssignedIssues` returned when the recording was made, which predates six of the pull request's fields. */
 type RecordedCard = Omit<IssueCard, 'pullRequest'> & {
-  pullRequest: (Omit<CardPullRequest, 'author' | 'isDraft' | 'reviewDecision'> & Partial<CardPullRequest>) | null;
+  pullRequest:
+    | (Omit<CardPullRequest, 'author' | 'isDraft' | 'reviewDecision' | 'updatedAt' | 'headOid' | 'checksRed'> &
+        Partial<CardPullRequest>)
+    | null;
 };
 
 /**
- * A cast is not a check: it would hand every test `undefined` where the type promised a value, and a lane now reads all three of these.
- * So each is filled where the recording holds nothing, and a pull request is nobody's until a test says whose it is.
+ * A cast is not a check: it would hand every test `undefined` where the type promised a value, and a lane and the card's
+ * evidence now read these. So each is filled where the recording holds nothing, and a pull request is nobody's until a test says whose it is.
  */
 function completed(cards: RecordedCard[]): IssueCard[] {
   return cards.map((card) => ({
@@ -29,6 +32,9 @@ function completed(cards: RecordedCard[]): IssueCard[] {
         author: card.pullRequest.author ?? null,
         isDraft: card.pullRequest.isDraft ?? false,
         reviewDecision: card.pullRequest.reviewDecision ?? null,
+        updatedAt: card.pullRequest.updatedAt ?? null,
+        headOid: card.pullRequest.headOid ?? null,
+        checksRed: card.pullRequest.checksRed ?? null,
       },
   }));
 }

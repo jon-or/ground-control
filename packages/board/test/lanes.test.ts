@@ -60,6 +60,9 @@ const PULL_REQUEST: CardPullRequest = {
   author: 'dev-1',
   isDraft: false,
   reviewDecision: null,
+  updatedAt: null,
+  headOid: null,
+  checksRed: null,
 };
 
 function withPr(number: number, pr: Partial<CardPullRequest> | null, base: IssueCard[] = issues): IssueCard[] {

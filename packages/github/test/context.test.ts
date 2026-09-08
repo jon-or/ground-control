@@ -23,6 +23,9 @@ function card(over: Partial<IssueCard> = {}): IssueCard {
       author: 'dev-1-bot',
       isDraft: false,
       reviewDecision: 'REVIEW_REQUIRED',
+      updatedAt: null,
+      headOid: null,
+      checksRed: null,
     },
     updatedAt: '2026-08-19T20:16:30Z',
     ...over,
@@ -152,7 +155,6 @@ describe('reading a card context', () => {
       state: 'OPEN',
       isDraft: false,
       author: 'dev-1-bot',
-      reviewDecision: 'REVIEW_REQUIRED',
       checkState: 'SUCCESS',
     });
     expect(pr?.reviews).toEqual([

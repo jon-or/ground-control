@@ -34,7 +34,6 @@ function pullRequest(over: Partial<TriagePullRequest> = {}): TriagePullRequest {
     baseRefName: 'master',
     headRefName: '17198-channel-mapping',
     headOid: '9ab0cde1111111111111111111111111111111ff',
-    reviewDecision: null,
     checkState: 'SUCCESS',
     comments: [],
     reviews: [],
@@ -110,7 +109,7 @@ describe('what the board will act on', () => {
   it('plans the action it was given rather than deciding one from mergeability', () => {
     expect(plan()).toMatchObject({ plan: { action: 'merge-upstream' } });
     expect(plan({ checkState: 'FAILURE' })).toMatchObject({ plan: { action: 'merge-upstream' } });
-    expect(plan({ reviewDecision: 'APPROVED' })).toMatchObject({ plan: { action: 'merge-upstream' } });
+    expect(plan({ checkState: 'SUCCESS' })).toMatchObject({ plan: { action: 'merge-upstream' } });
   });
 
   /** The whole of the multi-leg case: merging the default branch into a stacked branch is the wrong merge. */
@@ -173,7 +172,7 @@ describe('what evidence a run is authorised against', () => {
    * head would spend a run every time somebody else landed something.
    */
   it('does not move for anything else about the card', () => {
-    expect(actionEvidence(context({ reviewDecision: 'APPROVED', checkState: 'FAILURE' }, { title: 'renamed', status: '🔍 Dev Review' }))).toBe(
+    expect(actionEvidence(context({ checkState: 'FAILURE' }, { title: 'renamed', status: '🔍 Dev Review' }))).toBe(
       actionEvidence(context()),
     );
   });

@@ -8,14 +8,23 @@ describe('ASSIGNED_ISSUES_QUERY', () => {
    * On the pull request itself, not merely somewhere in the document: the parser defaults all three, so a query that asked for them in the
    * wrong place would still parse and map every card as a non-draft nobody opened — and a card holds no lane at all without the author.
    */
-  it('asks the pull request for what a lane is read from', () => {
-    const selection = /closedByPullRequestsReferences\(first:100\)\{ nodes\{([\s\S]*?)\}\}/.exec(ASSIGNED_ISSUES_QUERY)?.[1];
+  it('asks the pull request for what a lane and a card evidence string are read from', () => {
+    const selection = /closedByPullRequestsReferences\(first:5\)\{ nodes\{([\s\S]*?)\n  \}\}/.exec(ASSIGNED_ISSUES_QUERY)?.[1];
 
     expect(selection).toBeTruthy();
 
-    for (const field of ['isDraft', 'reviewDecision', 'author']) {
+    for (const field of ['isDraft', 'reviewDecision', 'author', 'updatedAt', 'oid', 'statusCheckRollup']) {
       expect(selection).toContain(field);
     }
+  });
+
+  /**
+   * GraphQL bills the nodes asked for, not the nodes returned, so the `commits` selection above costs 8 points at
+   * `first:5` and 103 at `first:100` (`docs/mechanics.md` §48). `selectPullRequest` returns one.
+   */
+  it('asks for five closing pull requests, not a hundred', () => {
+    expect(ASSIGNED_ISSUES_QUERY).toContain('closedByPullRequestsReferences(first:5)');
+    expect(ASSIGNED_ISSUES_QUERY).not.toContain('closedByPullRequestsReferences(first:100)');
   });
 });
 

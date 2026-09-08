@@ -54,6 +54,9 @@ describe('fetchAssignedIssues', () => {
         author: 'dev-1-bot',
         isDraft: false,
         reviewDecision: null,
+        updatedAt: '2026-09-01T14:19:03Z',
+        headOid: null,
+        checksRed: null,
       },
       updatedAt: "2026-08-31T20:51:27Z",
     });
@@ -102,6 +105,10 @@ describe('fetchAssignedIssues', () => {
       author: 'dev-3',
       isDraft: false,
       reviewDecision: null,
+      updatedAt: '2026-09-02T00:52:30Z',
+      // Null for the same reason `statusChangedAt` is: the recording predates the commit selection.
+      headOid: null,
+      checksRed: null,
     });
   });
 
@@ -293,7 +300,7 @@ describe('fetchAssignedIssues', () => {
 
     expect(runner.calls[0]?.[0]).toBe('api');
     expect(
-      runner.calls[0]?.some((a) => a.startsWith('query=') && a.includes('closedByPullRequestsReferences(first:100)')),
+      runner.calls[0]?.some((a) => a.startsWith('query=') && a.includes('closedByPullRequestsReferences(first:5)')),
     ).toBe(true);
   });
 
@@ -428,6 +435,9 @@ describe('fetchIssue', () => {
         author: 'dev-1',
         isDraft: false,
         reviewDecision: 'REVIEW_REQUIRED',
+        updatedAt: '2026-08-04T21:19:52Z',
+        headOid: null,
+        checksRed: null,
       },
       updatedAt: '2026-08-04T19:40:41Z',
     });

@@ -138,6 +138,9 @@ const liveCard: LanedCard = {
       author: 'dev-1',
       isDraft: false,
       reviewDecision: null,
+      updatedAt: null,
+      headOid: null,
+      checksRed: null,
     },
     avatar: {
       login: 'dev-2',

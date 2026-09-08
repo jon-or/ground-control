@@ -48,7 +48,6 @@ function pullRequest(over = {}) {
     baseRefName: 'master',
     headRefName: '17198-channel-mapping',
     headOid: '9ab0cde1111111111111111111111111111111ff',
-    reviewDecision: 'CHANGES_REQUESTED',
     checkState: 'SUCCESS',
     comments: [comment('dev-4', 'A couple of naming notes.')],
     reviews: [{ author: 'dev-4', authorName: null, state: 'CHANGES_REQUESTED', submittedAt: '2026-09-01T09:30:00Z' }],
@@ -239,7 +238,6 @@ describe('building the prompt', () => {
     expect(prompt).toContain('PULL REQUEST #4021: Fix paging');
     expect(prompt).toContain('Opened by: you');
     expect(prompt).toContain('State: OPEN');
-    expect(prompt).toContain('Review decision: CHANGES_REQUESTED');
     expect(prompt).toContain('Reviewers asked for: dev-5');
     expect(prompt).toContain('Reviews submitted: dev-4 CHANGES_REQUESTED');
   });
@@ -265,13 +263,12 @@ describe('building the prompt', () => {
         body: '',
         comments: [],
         logins: [],
-        pullRequest: pullRequest({ comments: [], reviews: [], reviewRequests: [], threads: [], reviewDecision: null }),
+        pullRequest: pullRequest({ comments: [], reviews: [], reviewRequests: [], threads: [] }),
       }),
       NOW,
     );
 
     expect(bare).toContain(`${ACTIVITY}\n(none)`);
-    expect(bare).toContain('Review decision: (none)');
     expect(bare).toContain('Reviewers asked for: (none)');
     expect(bare).toContain('Reviews submitted: (none)');
     expect(bare).toContain('Unresolved review threads (the most recent few):\n(none)');

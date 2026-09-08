@@ -335,7 +335,6 @@ describe('what the evidence settles before the model is asked', () => {
         baseRefName: 'master',
         headRefName: '17198-channel-mapping',
         headOid: '9ab0cde1111111111111111111111111111111ff',
-        reviewDecision: null,
         checkState: 'SUCCESS',
         comments: [],
         reviews: [],
@@ -361,14 +360,14 @@ describe('what the evidence settles before the model is asked', () => {
     const states: Partial<TriageContext['pullRequest']>[] = [];
 
     for (const checkState of ['SUCCESS', 'PENDING', null]) {
-      for (const reviewDecision of ['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED', null]) {
+      for (const isDraft of [true, false]) {
         for (const baseRefName of ['master', '17000-parent-feature']) {
-          states.push({ checkState, reviewDecision, baseRefName });
+          states.push({ checkState, isDraft, baseRefName });
         }
       }
     }
 
-    expect(states).toHaveLength(24);
+    expect(states).toHaveLength(12);
     expect([...new Set(states.map((state) => derivedAction(context(state))))]).toEqual([null]);
   });
 
@@ -376,9 +375,9 @@ describe('what the evidence settles before the model is asked', () => {
    * R39: a branch going stale under a card is not an instruction to touch it, and one that will not merge is not the
    * developer's to fix. An approved, green pull request used to read `land`; now the conversation decides.
    */
-  it('says nothing about an approved pull request, whatever else is true of it', () => {
-    expect(derivedAction(context({ reviewDecision: 'APPROVED' }))).toBeNull();
-    expect(derivedAction(context({ reviewDecision: 'APPROVED', checkState: null }))).toBeNull();
+  it('says nothing about a green pull request, whatever else is true of it', () => {
+    expect(derivedAction(context({ checkState: 'SUCCESS' }))).toBeNull();
+    expect(derivedAction(context({ checkState: null }))).toBeNull();
   });
 
   it('reads a null check rollup as a repository with no checks, not as checks that failed', () => {
@@ -552,15 +551,38 @@ describe('what a card carries', () => {
     expect(lane?.cards[0]?.triage).toMatchObject({ stale: true });
   });
 
+  const PULL_REQUEST = {
+    number: 9,
+    url: 'u',
+    state: 'OPEN',
+    author: 'dev-1',
+    isDraft: false,
+    reviewDecision: null,
+    updatedAt: '2026-09-01T09:00:00Z',
+    headOid: 'a1b2c3d',
+    checksRed: false,
+  };
+
   it('reads a pull request opening as the card having moved', () => {
     const before = evidenceOf(issue());
-    const after = evidenceOf(
-      issue({ pullRequest: { number: 9, url: 'u', state: 'OPEN', author: 'dev-1', isDraft: false, reviewDecision: null } }),
-    );
 
-    expect(after).not.toBe(before);
+    expect(evidenceOf(issue({ pullRequest: PULL_REQUEST }))).not.toBe(before);
     expect(evidenceOf(issue({ updatedAt: '2026-09-02T10:00:00Z' }))).not.toBe(before);
     expect(evidenceOf(issue())).toBe(before);
+  });
+
+  /**
+   * The three the issue's own `updatedAt` never reports: GitHub does not touch an issue when somebody comments on
+   * its pull request, pushes to it, or when a build goes red under it.
+   */
+  it.each([
+    ['a comment or a review on the pull request', { updatedAt: '2026-09-02T11:00:00Z' }],
+    ['a push', { headOid: 'f9e8d7c' }],
+    ['a build going red', { checksRed: true }],
+  ])('reads %s as the card having moved', (_what, moved) => {
+    const before = evidenceOf(issue({ pullRequest: PULL_REQUEST }));
+
+    expect(evidenceOf(issue({ pullRequest: { ...PULL_REQUEST, ...moved } }))).not.toBe(before);
   });
 
   it('carries nothing on a card that has never been read', () => {
@@ -586,11 +608,12 @@ describe('what a card carries', () => {
     expect(withTriage(lanesOf(card()), failed, NONE, 1_000)[0]?.cards[0]?.triage).toMatchObject({ exhausted: true });
   });
 
-  it('draws a reading that has simply aged as stale, whatever the card still says', () => {
-    const held = state({ entries: { 'issue:17198': entry({ at: 0 }) } });
+  it('leaves a reading nothing has contradicted current, however old it is', () => {
+    const held = state({ entries: { 'issue:17198': entry({ at: 0, evidence: evidenceOf(issue()) }) } });
 
-    expect(withTriage(lanesOf(card()), held, NONE, 1_000)[0]?.cards[0]?.triage).toMatchObject({ stale: false });
-    expect(withTriage(lanesOf(card()), held, NONE, 13 * 60 * 60 * 1000)[0]?.cards[0]?.triage).toMatchObject({ stale: true });
+    for (const now of [1_000, 13 * 60 * 60 * 1000, 30 * 24 * 60 * 60 * 1000]) {
+      expect(withTriage(lanesOf(card()), held, NONE, now)[0]?.cards[0]?.triage).toMatchObject({ stale: false });
+    }
   });
 
   it('leaves every other card alone', () => {

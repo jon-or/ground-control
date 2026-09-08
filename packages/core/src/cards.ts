@@ -33,6 +33,12 @@ export interface CardPullRequest {
   isDraft: boolean;
   /** `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or null when no review has been asked for. */
   reviewDecision: string | null;
+  /** When the pull request last moved. What a comment, a review or a push all bump and nothing on the issue does. */
+  updatedAt: string | null;
+  /** The head commit. The sharpest thing a push changes, and null on a snapshot an older hub cached. */
+  headOid: string | null;
+  /** Whether the head commit's checks have failed. Null where the repository runs none, which is not the same as passing. */
+  checksRed: boolean | null;
 }
 
 export interface CardAvatar {

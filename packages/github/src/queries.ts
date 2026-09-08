@@ -5,15 +5,22 @@
 /**
  * What both issue reads select. Shared verbatim, because `toCard` maps one shape: a field the by-number read stopped
  * asking for would be a card that quietly lost its status the moment nobody was assigned to it.
+ *
+ * `closedByPullRequestsReferences` is how a card finds its pull request at all — an issue node carries no other link
+ * to one. Five of them, because `selectPullRequest` returns exactly one and GraphQL bills the nodes asked for, not
+ * the nodes returned: the `commits` selection inside costs 8 points at `first:5` and 103 at `first:100`
+ * (`docs/mechanics.md` §48). `statusCheckRollup` is there so a build going red moves the card's evidence, which is
+ * the one change a card can undergo that nothing else here reports (R24).
  */
 const ISSUE_FIELDS = `
   number title url state updatedAt
   issueType{ name color }
   repository{ nameWithOwner }
   assignees(first:10){ nodes{ login avatarUrl(size:40) } }
-  pullRequests: closedByPullRequestsReferences(first:100){ nodes{
+  pullRequests: closedByPullRequestsReferences(first:5){ nodes{
     number url state updatedAt isDraft reviewDecision
     author{ login avatarUrl(size:40) }
+    commits(last:1){ nodes{ commit{ oid statusCheckRollup{ state } } } }
   }}
   projectItems(first:20){ nodes{
     project{ number }
@@ -77,7 +84,6 @@ query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
       number title body state isDraft
       author{ login ...profile }
       baseRefName headRefName
-      reviewDecision
       commits(last:1){ nodes{ commit{ oid statusCheckRollup{ state } } } }
       comments(last:5){ nodes{ body createdAt authorAssociation author{ login ...profile } } }
       reviews(last:20){ nodes{ state submittedAt author{ login ...profile } } }

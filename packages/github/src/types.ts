@@ -82,6 +82,18 @@ const searchNode = z.object({
           isDraft: z.boolean().default(false),
           reviewDecision: z.string().nullable().default(null),
           author: z.object({ login: z.string(), avatarUrl: z.string() }).nullable(),
+          commits: z
+            .object({
+              nodes: z.array(
+                z.object({
+                  commit: z.object({
+                    oid: z.string(),
+                    statusCheckRollup: z.object({ state: z.string() }).nullable().default(null),
+                  }),
+                }),
+              ),
+            })
+            .optional(),
         }),
       ),
     })

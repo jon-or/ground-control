@@ -31,12 +31,18 @@ const DETAIL_LIMIT = 160;
 const BACKOFF_MS = [60_000, 120_000, 300_000, 1_800_000];
 
 /**
+ * Past which a card's next attempt is no attempt at all. The last `BACKOFF_MS` step sets `nextAt` to infinity, so
+ * anything beyond the longest real wait is a card that has spent its attempts rather than one still waiting.
+ */
+const SPENT_ATTEMPTS_MS = 60 * 60 * 1000;
+
+/**
  * What the board's reading of a card is worth. Bumped whenever the prompt, the action list or the qualifier rules
  * change what an answer to the same evidence would be: a stored entry from an older revision is dropped on read,
  * which is what makes its card due again. Without it the board goes on showing sentences a fixed classifier would
  * no longer write, since a card is read once and nothing else re-reads it.
  */
-export const TRIAGE_REVISION = 5;
+export const TRIAGE_REVISION = 6;
 
 const detailProperty = { type: 'string', maxLength: DETAIL_LIMIT } as const;
 
@@ -113,21 +119,30 @@ export function triageLabel(action: TriageAction, qualifier: TriageQualifier | n
 }
 
 /**
- * How long a reading is presented as current whatever else happens. The evidence below is everything the board can
- * see about a card, and it is not everything a card is: a comment on the pull request, a check going red and a
- * branch falling behind all move the work without moving any of it. So a reading also ages out, because saying
- * "this was true yesterday" is honest where claiming it is true now would not be (R24).
- */
-export const EVIDENCE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-
-/**
  * What the card looked like when it was triaged. A label is decided once, so this is what lets a card say the answer
- * has aged rather than presenting a Monday reading of a Thursday card as current (R24).
+ * was given about a card that has since changed (R24). The pull request's own timestamp is what a comment, a review
+ * and a push all move; the check rollup is the one thing about a card that changes with nobody touching it.
+ *
+ * `reviewDecision` is deliberately absent. Every change to it is a review somebody submitted, which moves the
+ * timestamp above at the moment it happens — and it is the laggier of the two, sitting at `REVIEW_REQUIRED` on work
+ * the team has long since approved by moving the status. Reading both marks such a card moved twice for one event.
+ *
+ * Age is not evidence. A reading nobody has contradicted is as true today as it was yesterday, and marking it stale
+ * on a clock said "something moved" about cards where nothing had, on every card, every morning.
  */
 export function evidenceOf(issue: IssueCard): string {
   const pr = issue.pullRequest;
 
-  return [issue.updatedAt, issue.status ?? '', issue.statusChangedAt ?? '', pr?.number ?? '', pr?.state ?? '', pr?.reviewDecision ?? ''].join('|');
+  return [
+    issue.updatedAt,
+    issue.status ?? '',
+    issue.statusChangedAt ?? '',
+    pr?.number ?? '',
+    pr?.state ?? '',
+    pr?.updatedAt ?? '',
+    pr?.headOid ?? '',
+    pr?.checksRed ?? '',
+  ].join('|');
 }
 
 /**
@@ -486,7 +501,7 @@ export function withTriage(
         // and no words: what went wrong is stated once above the lanes, and this is where the developer asks again.
         return failure === undefined
           ? card
-          : { ...card, triage: { state: 'failed', attempts: failure.attempts, exhausted: failure.nextAt > now + EVIDENCE_MAX_AGE_MS } };
+          : { ...card, triage: { state: 'failed', attempts: failure.attempts, exhausted: failure.nextAt > now + SPENT_ATTEMPTS_MS } };
       }
 
       const triage: CardTriage = {
@@ -495,7 +510,7 @@ export function withTriage(
         qualifier: entry.qualifier,
         detail: entry.detail,
         at: entry.at,
-        stale: (entry.evidence !== '' && entry.evidence !== evidenceOf(card.issue)) || now - entry.at > EVIDENCE_MAX_AGE_MS,
+        stale: entry.evidence !== '' && entry.evidence !== evidenceOf(card.issue),
       };
 
       return { ...card, triage };
