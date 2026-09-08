@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PROMPT_PLACEHOLDERS, dispatchName, fillPrompt, promptValues } from '../src/prompt.js';
+import { dispatchName, promptValues } from '../src/prompt.js';
+import { fillTemplate } from '@ground-control/core';
 import type { ActionPlan } from '../src/plan.js';
 
 const PLAN: ActionPlan = {
@@ -17,7 +18,7 @@ const VALUES = promptValues(PLAN, 'C:/Users/dev/.claude/ground-control/runs/issu
 
 describe('the prompt the board hands a run', () => {
   it('fills every placeholder from the board own read', () => {
-    expect(fillPrompt('/or-merge {base} {branch} {issue} --single', VALUES)).toBe(
+    expect(fillTemplate('/or-merge {base} {branch} {issue} --single', VALUES)).toBe(
       '/or-merge master 17198-channel-mapping 17198 --single',
     );
   });
@@ -28,8 +29,8 @@ describe('the prompt the board hands a run', () => {
    * manifest, which is prose in another package — that pairing is held by a reader, not by a runner.
    */
   it('fills every placeholder it publishes, and the list is what it says it is', () => {
-    expect(PROMPT_PLACEHOLDERS).toEqual(['issue', 'repo', 'pr', 'branch', 'base', 'checkout', 'resultPath']);
-    expect(fillPrompt('{issue} {repo} {pr} {branch} {base} {checkout} {resultPath}', VALUES)).toBe(
+    expect(Object.keys(VALUES)).toEqual(['issue', 'repo', 'pr', 'branch', 'base', 'checkout', 'resultPath']);
+    expect(fillTemplate('{issue} {repo} {pr} {branch} {base} {checkout} {resultPath}', VALUES)).toBe(
       '17198 example-org/example-repo 4021 17198-channel-mapping master ' +
         'd:/work/repo.worktrees/17198-channel-mapping ' +
         'C:/Users/dev/.claude/ground-control/runs/issue-17198.json',
@@ -38,15 +39,15 @@ describe('the prompt the board hands a run', () => {
 
   /** A developer prompt is their own text, and rewriting braces the board does not own would corrupt it. */
   it('leaves a placeholder it does not fill exactly as it was typed', () => {
-    expect(fillPrompt('run {issue} in {somethingElse} with {}', VALUES)).toBe('run 17198 in {somethingElse} with {}');
+    expect(fillTemplate('run {issue} in {somethingElse} with {}', VALUES)).toBe('run 17198 in {somethingElse} with {}');
   });
 
   it('fills a placeholder used more than once', () => {
-    expect(fillPrompt('{issue} then {issue}', VALUES)).toBe('17198 then 17198');
+    expect(fillTemplate('{issue} then {issue}', VALUES)).toBe('17198 then 17198');
   });
 
   it('keeps a prompt with no placeholders whole', () => {
-    expect(fillPrompt('/or-merge', VALUES)).toBe('/or-merge');
+    expect(fillTemplate('/or-merge', VALUES)).toBe('/or-merge');
   });
 
   it('hands the run a path of its own to report at', () => {

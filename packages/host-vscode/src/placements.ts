@@ -14,14 +14,17 @@ export type SessionInTab =
   | { from: 'resource'; scheme: string; prefix: string };
 
 /**
- * What a reveal runs in the window holding the session: a command, and the one argument it takes. `kind` is what
- * the argument *is*, because `vscode.open` validates its first argument as a `Uri` instance or an http/https
- * string and rejects any other string outright — and a `Uri` can only be built where `vscode` is importable.
+ * One argument of a command the board fires. `kind` is what the argument *is*, because `vscode.open` validates its
+ * first argument as a `Uri` instance or an http/https string and rejects any other string outright — and a `Uri`
+ * can only be built where `vscode` is importable. `absent` is a positional gap: Claude's start passes no session id
+ * in the slot before the prompt, and dropping the slot would put the prompt in it.
  */
-export interface RevealCall {
+export type CommandArg = { kind: 'text'; value: string } | { kind: 'uri'; value: string } | { kind: 'absent' };
+
+/** A VS Code command and its arguments, built where `vscode` cannot be imported and fired where it can. */
+export interface CommandCall {
   command: string;
-  kind: 'id' | 'uri';
-  value: string;
+  args: readonly CommandArg[];
 }
 
 export interface AgentPlacement {
@@ -46,7 +49,14 @@ export interface AgentPlacement {
    */
   processName: string;
   /** Reveals a tab for one session without writing the developer's preferred location (`docs/mechanics.md` §6). */
-  reveal(sessionId: string): RevealCall;
+  reveal(sessionId: string): CommandCall;
+  /**
+   * Starts a new session in the window it is fired in, prefilled with the prompt and unsent (`docs/mechanics.md`
+   * §48). Absent for an agent whose extension registers no way in, which is the whole of what `no-agent` means.
+   */
+  start?(prompt: string | null): CommandCall;
+  /** Whether `start` puts the prompt in the new session. False where the agent's only way in takes no arguments. */
+  startTakesPrompt: boolean;
   /**
    * Whether a reveal re-activates the surface already holding the session rather than opening a second agent on it
    * (§6, §44). Only an idempotent one may be fired at a window whose surface VS Code has not recorded.
@@ -92,7 +102,15 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     extensionId: 'Anthropic.claude-code',
     processName: 'claude.exe',
     idempotentReveal: false,
-    reveal: (sessionId) => ({ command: 'claude-vscode.primaryEditor.open', kind: 'id', value: sessionId }),
+    reveal: (sessionId) => ({ command: 'claude-vscode.primaryEditor.open', args: [{ kind: 'text', value: sessionId }] }),
+    // The same command with the session slot empty: the webview looks for the id it was given, finds none, and mints
+    // one of its own — which is why a start cannot be named in advance (§48). `editor.open` would rewrite the
+    // developer's preferred location as a side effect, so the reveal's command is the start's too (§6).
+    start: (prompt) => ({
+      command: 'claude-vscode.primaryEditor.open',
+      args: [{ kind: 'absent' }, prompt === null ? { kind: 'absent' } : { kind: 'text', value: prompt }],
+    }),
+    startTakesPrompt: true,
     sidebarFocusCommands: ['claudeVSCodeSidebarSecondary.focus', 'claudeVSCodeSidebar.focus'],
     openUri: (sessionId) => `vscode://anthropic.claude-code/open?session=${encodeURIComponent(sessionId)}`,
   },
@@ -114,7 +132,11 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     // is that process and its parent is the window's extension host (§47).
     processName: 'codex.exe',
     idempotentReveal: true,
-    reveal: (sessionId) => ({ command: 'vscode.open', kind: 'uri', value: `${CODEX_SCHEME}://route${CODEX_LOCAL}${sessionId}` }),
+    reveal: (sessionId) => ({ command: 'vscode.open', args: [{ kind: 'uri', value: `${CODEX_SCHEME}://route${CODEX_LOCAL}${sessionId}` }] }),
+    // Codex's own command for a fresh panel, which takes no arguments at all (§48) — so a Codex session starts bare
+    // and the prompt is dropped rather than half-applied. `startTakesPrompt` is what the menu item says so from.
+    start: () => ({ command: 'chatgpt.newCodexPanel', args: [] }),
+    startTakesPrompt: false,
     // Codex's sidebar records nothing the board can read (§44), so no route ever reaches a focus command for it.
     sidebarFocusCommands: [],
   },

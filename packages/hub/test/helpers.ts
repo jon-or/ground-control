@@ -8,6 +8,8 @@ import type {
   HostAdapter,
   OpenPlan,
   CheckoutRequest,
+  StartRequest,
+  StartableAgent,
   OpenRequest,
   OpenRoute,
   ReadFailure,
@@ -188,6 +190,11 @@ export interface FakeHostControl {
   /** The same, for a route to a card's checkout rather than to a session. */
   checkoutPlan: OpenPlan;
   checkoutsPlanned: CheckoutRequest[];
+  /** The same again, for a new session on a card. */
+  startPlan: OpenPlan;
+  startsPlanned: StartRequest[];
+  /** The agents this host offers a start for, which is what a client's snapshot carries. */
+  startableAgents: StartableAgent[];
   /** Routes this host would rather the client performed. Empty makes every route the hub's own to carry out. */
   resident: OpenRoute['route'][];
   performed: OpenRoute[];
@@ -200,6 +207,9 @@ export function fakeHost(id = 'fake-host'): FakeHostControl {
     planned: [],
     checkoutPlan: { route: 'open-checkout', key: 'issue:1', root: 'd:/checkouts/project-1', newWindow: false },
     checkoutsPlanned: [],
+    startPlan: { route: 'start-session', key: 'issue:1', agent: 'claude', root: 'd:/checkouts/project-1', prompt: null },
+    startsPlanned: [],
+    startableAgents: [{ agent: 'claude', takesPrompt: true }],
     resident: ['reveal-here'],
     performed: [],
     primed: 0,
@@ -225,6 +235,12 @@ export function fakeHost(id = 'fake-host'): FakeHostControl {
 
         return control.checkoutPlan;
       },
+      planStart: (request) => {
+        control.startsPlanned.push(request);
+
+        return control.startPlan;
+      },
+      startable: () => control.startableAgents,
       openable: (sessions) => sessions.map((session) => session.sessionId),
       get residentRoutes() {
         return control.resident;

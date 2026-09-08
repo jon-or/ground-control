@@ -10,9 +10,11 @@ import type {
   OpenRoute,
   ReadFailure,
   SessionSurface,
+  StartRequest,
+  StartableAgent,
   Session,
 } from '@ground-control/core';
-import { VSCODE_ROUTES, openableSessions, planCheckout, planOpen } from './open.js';
+import { VSCODE_ROUTES, openableSessions, planCheckout, planOpen, planStart, startableAgents } from './open.js';
 import { PLACEMENTS } from './placements.js';
 import type { AgentPlacement } from './placements.js';
 import { defaultUserDir, readWindowStores } from './stores.js';
@@ -97,6 +99,15 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
 
     planCheckout(request: CheckoutRequest): OpenPlan {
       return planCheckout(request, settings.mayOpenWindow);
+    },
+
+    // No `mayOpenWindow`: a start never raises a window, so R14 has nothing to say about it.
+    planStart(request: StartRequest): OpenPlan {
+      return planStart(request, placements);
+    },
+
+    startable(): readonly StartableAgent[] {
+      return startableAgents(placements);
     },
 
     openable(sessions: readonly Session[], history: readonly HistoricalSession[] = []): string[] {

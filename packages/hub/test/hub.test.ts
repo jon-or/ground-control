@@ -2496,6 +2496,186 @@ describe('opening a card in an editor', () => {
   });
 });
 
+/**
+ * A new session on a card. Nothing the board's own runs are gated on gates this: R33 bounds what the board starts,
+ * and a developer starting a second attempt on a card is R3, not R18's "already open somewhere".
+ */
+describe('starting a session on a card', () => {
+  async function boardWith(residentRoutes = ['reveal-here', 'start-session']) {
+    const root = join(home, 'project-1');
+    mkdirSync(root, { recursive: true });
+
+    const h = harness();
+    const { client, inbox } = connect(h, hello({ residentRoutes, workspaceRoot: root }));
+
+    h.host.resident = ['reveal-here', 'start-session'];
+    h.agent.sessions = [fakeSession({ cwd: root, checkoutRoot: root })];
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+    h.host.startPlan = { route: 'start-session', key, agent: 'claude', root, prompt: null };
+
+    return { h, client, inbox, key, root };
+  }
+
+  it('sends the client a route built from the checkout the hub resolved, and the agent it named', async () => {
+    const { h, client, inbox, key, root } = await boardWith();
+
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(h.host.startsPlanned.at(-1)).toMatchObject({ key, agent: 'claude', root, extensionReady: true });
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+  });
+
+  it('refuses a card with no checkout by name, rather than starting somewhere it invented', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h, hello({ residentRoutes: ['start-session'] }));
+
+    h.agent.sessions = [fakeSession({ cwd: join(home, 'gone'), checkoutRoot: join(home, 'gone') })];
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(h.host.startsPlanned).toEqual([]);
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ refusal: 'no-checkout' });
+  });
+
+  it('passes on the host’s own refusal rather than starting anything', async () => {
+    const { h, client, inbox, key } = await boardWith();
+
+    h.host.startPlan = { refusal: 'checkout-elsewhere', message: 'Open that checkout first.' };
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ refusal: 'checkout-elsewhere' });
+  });
+
+  it('tells a client that cannot perform the route to reload, rather than sending it', async () => {
+    const { h, client, inbox, key } = await boardWith(['reveal-here']);
+
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('Reload') });
+  });
+
+  // Two boards, or two clicks: no session exists between the click and the agent minting one (§48), so the card is
+  // the only thing there is to tell a second from the first by.
+  it('holds one card’s start against a second while the first is in flight', async () => {
+    const { h, client, inbox, key } = await boardWith();
+
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('already being started') });
+  });
+
+  // Both items sit in the same menu. Holding by the card alone would make starting Claude swallow the click that
+  // starts Codex, which is nothing R42 asks for.
+  it('does not let one agent’s start hold off the other’s on the same card', async () => {
+    const { h, client, inbox, key, root } = await boardWith();
+
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    h.host.startPlan = { route: 'start-session', key, agent: 'codex', root, prompt: null };
+    h.hub.receive(client, { type: 'startSession', key, agent: 'codex', extensionReady: true });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(2);
+  });
+
+  // Nothing reports a start's outcome back, so the lease expires rather than being released — which is why it is
+  // sized to the double-click it exists for rather than to how long a session takes to appear.
+  it('lets the same card and agent be started again once the lease has run out', async () => {
+    const { h, client, inbox, key } = await boardWith();
+
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+    h.clock.advance(10_001);
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(2);
+  });
+
+  // Every route follows this rule, and a start has no headless fallback to be handed to instead (§26).
+  it('refuses a route the host itself does not call resident, rather than sending it', async () => {
+    const { h, client, inbox, key } = await boardWith();
+
+    h.host.resident = ['reveal-here'];
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(h.host.performed).toEqual([]);
+  });
+
+  // The prompt is the hub's to build: the card's facts are its own, and a client naming one would be a client
+  // naming what an agent is told to do.
+  it('fills the configured prompt from the card and hands the result to the host', async () => {
+    const { h, client, key, root } = await boardWith();
+
+    h.hub.configure({ ...h.config(), newSession: { prompt: 'Work on #{issue} in {checkout}. Not {nonsense}.' } });
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(h.host.startsPlanned.at(-1)?.prompt).toBe(`Work on #18941 in ${root}. Not {nonsense}.`);
+  });
+
+  // R39's rule is the card action's, not this one's: nothing here runs unattended, so an unset prompt is a bare
+  // session rather than a refusal.
+  it('starts a bare session where no prompt is configured', async () => {
+    const { h, client, key } = await boardWith();
+
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(h.host.startsPlanned.at(-1)?.prompt).toBeNull();
+  });
+
+  it('carries the host’s startable agents to a client, so a card can offer one item per agent', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h, hello({ residentRoutes: ['start-session'] }));
+
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'snapshot' || m.type === 'changed').at(-1)).toMatchObject({
+      snapshot: { startable: [{ agent: 'claude', takesPrompt: true }] },
+    });
+  });
+
+  /**
+   * The bridge gives a browser client `hostId: null`, and `#hostFor` answers the single configured host for one —
+   * so reading the host alone would offer the overlay items that could only ever refuse (R42).
+   */
+  it('offers no start to a client that cannot perform the route, which is every browser board', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h, hello({ id: 'overlay', hostId: null, residentRoutes: [] }));
+
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    // Named, so this cannot pass by the client having been sent no snapshot at all.
+    const snapshots = inbox.filter((m) => m.type === 'snapshot' || m.type === 'changed');
+
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(snapshots.at(-1)).toMatchObject({ snapshot: { startable: [] } });
+  });
+});
+
 /** The folder the developer chose. Checked against the card's own repository before it is stored, never taken. */
 describe('choosing a card’s folder', () => {
   /** A real repository URL, because the pick is checked by comparing it against the folder's own origin remote. */

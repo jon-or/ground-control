@@ -1,10 +1,7 @@
 import type { ActionPlan } from './plan.js';
 
-/**
- * What a dispatched session is told, and where it may report back. Only these names are substituted: a developer's
- * own prompt may contain braces of its own, and rewriting those would corrupt the thing they configured.
- */
-export interface PromptValues {
+/** What a dispatched session is told, and where it may report back. Its keys are the whole roster `fillTemplate` fills. */
+export type PromptValues = {
   issue: string;
   repo: string;
   pr: string;
@@ -24,27 +21,6 @@ export function promptValues(plan: ActionPlan, resultPath: string): PromptValues
     checkout: plan.checkout,
     resultPath,
   };
-}
-
-/** Every placeholder the board fills, so a settings description and the substitution can never drift apart. */
-export const PROMPT_PLACEHOLDERS: readonly (keyof PromptValues)[] = [
-  'issue',
-  'repo',
-  'pr',
-  'branch',
-  'base',
-  'checkout',
-  'resultPath',
-];
-
-/**
- * The template with the board's own facts in it. A placeholder the board does not fill is left exactly as typed
- * rather than emptied: a prompt that came out half-substituted would run, and a run is not a thing to guess at.
- */
-export function fillPrompt(template: string, values: PromptValues): string {
-  return template.replace(/\{([A-Za-z]+)\}/g, (whole, name: string) =>
-    PROMPT_PLACEHOLDERS.includes(name as keyof PromptValues) ? values[name as keyof PromptValues] : whole,
-  );
 }
 
 /**

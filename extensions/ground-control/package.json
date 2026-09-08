@@ -258,6 +258,13 @@
           "maximum": 240,
           "markdownDescription": "How long a dispatch whose session never appeared on the machine is left open before the board calls it lost. Not a limit on the work — a run is followed until its session ends, however long that takes."
         },
+        "groundControl.newSession.prompt": {
+          "scope": "application",
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "markdownDescription": "What a session started from a card is prefilled with. It lands in the composer unsent — you send it, or clear it. `{issue}`, `{repo}`, `{title}`, `{url}` and `{checkout}` are replaced with the card's own; anything else in braces is left as typed. Empty starts a bare session. Codex offers no way in that takes a prompt, so a Codex session starts bare whatever this says."
+        },
         "groundControl.logLevel": {
           "scope": "application",
           "type": "string",

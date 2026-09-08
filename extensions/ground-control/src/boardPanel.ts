@@ -46,6 +46,7 @@ type Inbound =
   | { type: 'openChanges'; key: string }
   | { type: 'openCheckout'; key: string }
   | { type: 'chooseCheckout'; key: string }
+  | { type: 'startSession'; key: string; agent: string }
   | { type: 'toggleLogs' }
   | { type: 'showBoardLog' }
   | { type: 'openSettings' }
@@ -265,6 +266,15 @@ export class BoardPanel {
 
       case 'chooseCheckout':
         void this.#chooseCheckout(msg.key);
+
+        return;
+
+      // The agent's own extension, not Claude's: a start fires that agent's command, so it is that extension the
+      // window has to have. Read on the click for the reason `openSession`'s is.
+      case 'startSession':
+        void agentExtensionReady(msg.agent).then((extensionReady) =>
+          this.#tell({ type: 'startSession', key: msg.key, agent: msg.agent, extensionReady }),
+        );
 
         return;
 

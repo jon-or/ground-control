@@ -234,6 +234,7 @@ function hubConfig(
     statusLanes,
     refreshIntervalMs: 300_000,
     sessionIntervalMs: 30_000,
+    newSession: { prompt: '' },
     installActivity: false,
     triage,
     actions: { permissionMode: 'manual', concurrency: 1, dailyLimit: 0, resultTimeoutMs: 1_800_000, actions: {} },

@@ -68,6 +68,7 @@ export function readHubConfig(userDir: string): HubConfig {
     installActivity: installSessionHooks(),
     triage: readTriage(),
     actions: readActions(),
+    newSession: { prompt: cfg.get<string>('newSession.prompt', '') },
   };
 }
 

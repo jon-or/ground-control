@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { ACTION_REVISION, DEFAULT_ACTIONS, isAutomatable } from '@ground-control/core';
+import { ACTION_REVISION, DEFAULT_ACTIONS, fillTemplate, isAutomatable } from '@ground-control/core';
 import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource } from '@ground-control/core';
 import {
   actionEnabled,
@@ -7,7 +7,6 @@ import {
   cardActionOf,
   dispatchName,
   dispatchesInWindow,
-  fillPrompt,
   gateOpen,
   nextActionState,
   planAction,
@@ -569,7 +568,7 @@ export class ActionRunner {
 
     const outcome = await agent.dispatch!({
       path: configured.path,
-      prompt: fillPrompt(template, promptValues(plan, reportPath)),
+      prompt: fillTemplate(template, promptValues(plan, reportPath)),
       name: dispatchName(plan),
       cwd: plan.checkout,
       permissionMode: this.#settings.permissionMode,

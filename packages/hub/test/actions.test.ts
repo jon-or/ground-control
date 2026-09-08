@@ -314,6 +314,7 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
     statusLanes: {},
     refreshIntervalMs: 300_000,
     sessionIntervalMs: 30_000,
+    newSession: { prompt: '' },
     installActivity: false,
     triage: { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} },
     actions: {

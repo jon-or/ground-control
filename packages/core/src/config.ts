@@ -28,6 +28,16 @@ export interface HubConfig {
   logLevel: LogFloor;
   triage: TriageSettings;
   actions: ActionSettings;
+  newSession: NewSessionSettings;
+}
+
+/**
+ * What a session the developer starts from a card is prefilled with. Ships empty, and empty means a bare session
+ * rather than no session — unlike a card action, where an empty prompt means the action is off (R39). Nothing here
+ * runs unattended: the prompt lands in the composer unsent, and the developer sends it or does not (R16).
+ */
+export interface NewSessionSettings {
+  prompt: string;
 }
 
 /** What card triage is allowed to cost. Every field bounds a spend, so a hand-edited one is floored rather than taken. */
@@ -149,6 +159,11 @@ const actions = z.object({
     .default({}),
 });
 
+export const DEFAULT_NEW_SESSION: NewSessionSettings = { prompt: '' };
+
+// No floor and no ceiling: this one spends nothing and starts nothing, so a hand-edited value is taken as typed.
+const newSession = z.object({ prompt: z.string().catch('').default('') });
+
 export const hubConfig = z.object({
   agents: z.array(z.object({ id: z.string().min(1), path: spawnable, model: z.string().min(1).optional() })),
   branchIssuePattern: z.string(),
@@ -166,6 +181,7 @@ export const hubConfig = z.object({
   triage: triage.default(DEFAULT_TRIAGE),
   // Absent from one that predates the board acting at all, which reads as the board doing nothing on its own (R32).
   actions: actions.default(DEFAULT_ACTIONS),
+  newSession: newSession.default(DEFAULT_NEW_SESSION),
 });
 
 /** The configuration a client pushed, or a named failure the board shows above the lanes rather than a throw (R25). */

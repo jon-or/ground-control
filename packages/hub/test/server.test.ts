@@ -15,6 +15,7 @@ const SNAPSHOT: Snapshot = {
   issues: null,
   sessions: null,
   openable: [],
+  startable: [],
   hooks: null,
   failures: [],
   needs: null,

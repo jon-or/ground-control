@@ -1,6 +1,6 @@
 import type { Lane, LaneId } from './board.js';
 import type { HubConfig } from './config.js';
-import type { OpenRefusal, OpenRoute } from './host.js';
+import type { OpenRefusal, OpenRoute, StartableAgent } from './host.js';
 import type { LogEntry } from './log.js';
 import type { ReadFailure } from './types.js';
 
@@ -24,6 +24,12 @@ export interface Snapshot {
   sessions: { count: number; patternError: string | null; fetchedAt: string } | null;
   /** Ids of the sessions this client can be asked to open. Another client's host has its own answer. */
   openable: string[];
+  /**
+   * The agents this client's host offers a new session for. Host-wide rather than per-card, because which agents
+   * have a way in is a fact of the host: every card with a checkout gets the same answer, and a card without one
+   * gets no start item at all. Empty for a client resident in nothing — a browser cannot start a session (R42).
+   */
+  startable: StartableAgent[];
   /** What the hub did about the activity signal, when there is something the developer has to be told (R25). */
   hooks: { notice: string } | null;
   failures: ReadFailure[];
@@ -80,6 +86,9 @@ export type ClientMessage =
   // The directory the developer chose for a card nothing has run on. The path is theirs — it comes from the
   // editor's own folder picker — and the hub refuses one that is not a checkout of that card's repository.
   | { type: 'setCheckout'; key: string; root: string }
+  // A new session for the card, in this client's own window. `extensionReady` rides on it for the reason `open`'s
+  // does, and the agent is named because a host may offer several and the developer picked one from the menu.
+  | { type: 'startSession'; key: string; agent: string; extensionReady: boolean }
   // A viewer opening or closing. Nothing about the hub's log crosses to a client that has not sent this: until
   // one does, the hub holds no subscriber, reads no file, and sends nothing.
   | { type: 'watchLog'; watching: boolean };

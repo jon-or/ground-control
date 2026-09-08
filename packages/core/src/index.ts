@@ -5,8 +5,8 @@ export type { Attention, BoardCard, Lane, LaneId, LanedCard } from './board.js';
 export { checkoutFor } from './checkout.js';
 export type { CardCheckout, CheckoutReaders, CheckoutSource } from './checkout.js';
 export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
-export { DEFAULT_ACTIONS, DEFAULT_TRIAGE, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, spawnable } from './config.js';
-export type { HubConfig, TriageSettings } from './config.js';
+export { DEFAULT_ACTIONS, DEFAULT_NEW_SESSION, DEFAULT_TRIAGE, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, spawnable } from './config.js';
+export type { HubConfig, NewSessionSettings, TriageSettings } from './config.js';
 export { ACTION_REVISION, AUTOMATABLE_ACTIONS, EMPTY_ACTIONS, isAutomatable } from './actions.js';
 export type {
   ActionOutcome,
@@ -74,8 +74,11 @@ export type {
   OpenRequest,
   OpenRoute,
   SessionSurface,
+  StartRequest,
+  StartableAgent,
   Surface,
 } from './host.js';
+export { fillTemplate, newSessionValues } from './template.js';
 export type {
   ActivityPhase,
   AgentConfig,

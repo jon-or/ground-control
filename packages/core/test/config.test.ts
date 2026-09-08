@@ -359,3 +359,27 @@ describe('how much the hub says about itself', () => {
     expect(levelOf(level)).toBe('info');
   });
 });
+
+describe('what a session started from a card is prefilled with', () => {
+  function promptOf(raw: unknown) {
+    const parsed = parseHubConfig(config({ newSession: raw } as never));
+
+    return 'config' in parsed ? parsed.config.newSession.prompt : parsed.failure;
+  }
+
+  it('defaults a configuration written before a card could start anything, rather than refusing it', () => {
+    const parsed = parseHubConfig(config());
+
+    expect('config' in parsed && parsed.config.newSession).toEqual({ prompt: '' });
+  });
+
+  it('takes the prompt as typed, since nothing here spends anything or starts anything unattended', () => {
+    expect(promptOf({ prompt: '  Work on #{issue}.  ' })).toBe('  Work on #{issue}.  ');
+  });
+
+  // Caught rather than refused: a hand-edited settings file is what this exists for, and one bad field must not
+  // cost the developer the repository and the logins in the same file.
+  it.each([[42], [null], [['a prompt']], [{}]])('falls back to a bare session rather than refusing %s', (bad) => {
+    expect(promptOf({ prompt: bad })).toBe('');
+  });
+});

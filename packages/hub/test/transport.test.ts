@@ -13,6 +13,7 @@ const SNAPSHOT = {
   issues: null,
   sessions: null,
   openable: [],
+  startable: [],
   hooks: null,
   failures: [],
   stale: false,

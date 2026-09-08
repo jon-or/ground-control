@@ -42,6 +42,7 @@ function payloadWith(session: Session): SnapshotMessage {
     type: 'board',
     lanes: LANE_ORDER.map((id) => ({ id, title: LANE_TITLES[id], cards: id === 'unstarted' ? [card] : [] })),
     openable: [session.sessionId],
+    startable: [],
     stale: false,
     issues: null,
     sessions: null,

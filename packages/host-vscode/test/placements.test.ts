@@ -11,24 +11,46 @@ describe('the placement table', () => {
       expect(placement.webviewId.length).toBeGreaterThan(0);
       expect(placement.extensionId.length).toBeGreaterThan(0);
       expect(placement.reveal('a-session').command.length).toBeGreaterThan(0);
-      expect(placement.reveal('a-session').value).toContain('a-session');
+      expect(placement.reveal('a-session').args.map((arg) => ('value' in arg ? arg.value : '')).join(' ')).toContain('a-session');
     }
   });
 
   it('reveals a Claude session by id, and a Codex thread by the resource its editor is registered for', () => {
     expect(PLACEMENTS['claude']!.reveal('abc')).toEqual({
       command: 'claude-vscode.primaryEditor.open',
-      kind: 'id',
-      value: 'abc',
+      args: [{ kind: 'text', value: 'abc' }],
     });
 
     // `vscode.open` takes a `Uri` instance or an http/https string and refuses any other string outright, so a
     // resource has to be named as one — the client is the only place a `Uri` can be built.
     expect(PLACEMENTS['codex']!.reveal('abc')).toEqual({
       command: 'vscode.open',
-      kind: 'uri',
-      value: 'openai-codex://route/local/abc',
+      args: [{ kind: 'uri', value: 'openai-codex://route/local/abc' }],
     });
+  });
+
+  /**
+   * §48: Claude's start is the reveal's own command with the session slot left empty, so the webview mints an id
+   * rather than being handed one; Codex's is its own no-argument command, which no prompt can reach.
+   */
+  it('pins the whole of each agent’s start command, including the slot the prompt goes in', () => {
+    expect(PLACEMENTS['claude']!.start!('do the thing')).toEqual({
+      command: 'claude-vscode.primaryEditor.open',
+      args: [{ kind: 'absent' }, { kind: 'text', value: 'do the thing' }],
+    });
+
+    // A bare session is the same call with the prompt slot empty too — never `open('')`, which would prefill blank.
+    expect(PLACEMENTS['claude']!.start!(null)).toEqual({
+      command: 'claude-vscode.primaryEditor.open',
+      args: [{ kind: 'absent' }, { kind: 'absent' }],
+    });
+
+    expect(PLACEMENTS['codex']!.start!('do the thing')).toEqual({ command: 'chatgpt.newCodexPanel', args: [] });
+  });
+
+  it('says which agent’s start carries the prompt, so the menu item can say so too', () => {
+    expect(PLACEMENTS['claude']!.startTakesPrompt).toBe(true);
+    expect(PLACEMENTS['codex']!.startTakesPrompt).toBe(false);
   });
 
   it('offers a URI only for the agent whose extension answers one', () => {

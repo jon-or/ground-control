@@ -1,5 +1,5 @@
 import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
-import { compilePattern, diskReaders, fetchSessions, fetchSessionHistory, isAbsolute, normalize, parseHubConfig, repositoryKey, repositoryOf, rosterIsStale, unreportedSessions } from '@ground-control/core';
+import { compilePattern, diskReaders, fillTemplate, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, rosterIsStale, unreportedSessions } from '@ground-control/core';
 import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { IssueLookup } from './issueLookup.js';
@@ -105,6 +105,13 @@ function backoffMs(outageMs: number): number {
 const TICK_MS = 5_000;
 
 /**
+ * How long one card's start of one agent holds off a second. Nothing reports a start's outcome back — the client
+ * shows its own failure and the hub is never told — so this expires rather than being released, and it is sized to
+ * the double-click and the second board it exists for rather than to how long a session takes to appear.
+ */
+const START_LEASE_MS = 10_000;
+
+/**
  * A tick this much later than it was due is a machine that was suspended, not a loop that ran slow: the poll timers
  * counted none of the sleep, so without this a laptop opened after an hour reads nothing for another five minutes.
  */
@@ -200,6 +207,8 @@ export class Hub {
   #history: HistoricalSession[] = [];
   #historyFailures: ReadFailure[] = [];
   readonly #resuming = new Map<string, number>();
+  /** Cards whose start is in flight, held by card because the session it creates has no id yet (§48). */
+  readonly #starting = new Map<string, number>();
   #sourcesInFlight: Promise<void> | undefined;
   #sessionsInFlight: Promise<void> | undefined;
   #lastReadAt = 0;
@@ -403,7 +412,88 @@ export class Hub {
         this.#setCheckout(connected, message.key, message.root);
 
         return;
+
+      case 'startSession':
+        this.#startSession(connected, message.key, message.agent, message.extensionReady);
+
+        return;
     }
+  }
+
+  /**
+   * A new session on a card, in the window that asked. Nothing here is gated on what the board's own runs are gated
+   * on: R33 bounds work *the board* starts and says it enforces nothing on work the developer starts themselves, and
+   * R18's "already open somewhere" is a session id — a card holds several attempts (R3), so a second one is not that.
+   */
+  #startSession(client: Connected, key: string, agent: string, extensionReady: boolean): void {
+    const host = this.#hostFor(client.hello);
+
+    if (host?.planStart === undefined) {
+      client.send({ type: 'notice', level: 'warning', message: 'This board has no editor it can start a session in.' });
+
+      return;
+    }
+
+    const card = this.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+    const root = card?.checkout?.root;
+
+    if (card === undefined || root === undefined) {
+      client.send({
+        type: 'notice',
+        level: 'warning',
+        refusal: 'no-checkout',
+        message: 'This card has no checkout to start a session in. Choose the folder its work happens in.',
+      });
+
+      return;
+    }
+
+    // Held by the card and the agent, because the session it will create has no id until the agent mints one (§48)
+    // — so between the click and that session appearing there is nothing else to tell a second click apart by. Two
+    // agents on one card are two different starts, and neither blocks the other.
+    const now = this.#deps.clock.now();
+    const startKey = `${key}:${agent}`;
+
+    for (const [held, until] of this.#starting) {
+      if (until <= now) this.#starting.delete(held);
+    }
+
+    if (this.#starting.has(startKey)) {
+      client.send({ type: 'notice', level: 'warning', message: `A ${agent} session is already being started for this card. Give its tab a moment to appear.` });
+
+      return;
+    }
+
+    const template = this.#config.newSession.prompt;
+    const plan = host.planStart({
+      key,
+      agent,
+      root,
+      // Empty is a bare session rather than no session, which is the difference from a card action (R39).
+      prompt: template.trim().length === 0 ? null : fillTemplate(template, newSessionValues(card, root)),
+      workspaceRoot: client.hello.workspaceRoot,
+      extensionReady,
+    });
+
+    if ('refusal' in plan) {
+      this.#deps.log.info(`${client.hello.id} could not start ${agent} for ${key}: ${plan.refusal}`, 'open');
+      client.send({ type: 'notice', level: 'warning', message: plan.message, refusal: plan.refusal });
+
+      return;
+    }
+
+    // Every route follows this rule: a host that calls it resident is asking a client inside it to do it. Unlike
+    // `open`, there is no headless fallback to hand it to — a start is a command in a window, and §26 says a
+    // process outside one cannot fire it — so a host that did not call it resident can go no further.
+    if (!host.residentRoutes.includes(plan.route) || !client.hello.residentRoutes.includes(plan.route)) {
+      client.send({ type: 'notice', level: 'warning', message: 'Reload this editor to start a session from a card.' });
+
+      return;
+    }
+
+    this.#starting.set(startKey, now + START_LEASE_MS);
+    this.#deps.log.info(`${client.hello.id} starting a ${agent} session in ${root} for ${key}`, 'open');
+    client.send({ type: 'perform', route: plan });
   }
 
   /**
@@ -1333,8 +1423,9 @@ export class Hub {
             fetchedAt: this.#sessions.fetchedAt,
           }
         : null,
-      // Filled in per client: what a board may open is the answer of the host it is running inside (R14).
+      // Filled in per client: what a board may open or start is the answer of the host it is running inside (R14).
       openable: [],
+      startable: [],
       hooks: null,
       // Deduplicated by what failed and how: fifteen cards failing one logged-out CLI is one condition, and R25 says
       // a condition belonging to the whole board is stated once above the lanes rather than fifteen times.
@@ -1462,6 +1553,12 @@ export class Hub {
           base.lanes.flatMap((l) => l.cards).flatMap((c) => c.lastSession ?? []).filter((s) =>
             this.#deps.registries.agents.some((a) => a.id === s.agent && a.canResume !== undefined)),
         ) ?? [],
+        // Gated on this client being able to perform the route, not on its host offering one: `#hostFor` answers
+        // the single configured host for a client resident in nothing, so a browser board would otherwise be
+        // offered items that could only ever refuse (R42).
+        startable: client.hello.residentRoutes.includes('start-session')
+          ? [...(this.#hostFor(client.hello)?.startable?.() ?? [])]
+          : [],
         hooks: this.#noticeFor(id),
       },
     } as HubMessage);

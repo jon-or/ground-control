@@ -78,6 +78,8 @@ function message(overrides: Partial<SnapshotMessage> = {}): SnapshotMessage {
     type: 'board',
     lanes: shown,
     openable: shown.flatMap((lane) => lane.cards).flatMap((card) => card.sessions).map((s) => s.sessionId),
+    // Startable by nothing by default: a start item is drawn only where a test says which agents this host offers.
+    startable: [],
     issues: {
       count: 0,
       matched: 0,
@@ -2090,6 +2092,62 @@ describe("the card's own menu", () => {
     control()!.click();
 
     expect(items().map((item) => item.textContent)).toEqual(['Choose folder…']);
+  });
+
+  /** One item per agent the host has a way into. Which of them this window can start is settled on the click. */
+  it('offers a start for each agent the host named, on a card with a checkout', () => {
+    send(message({
+      lanes: lanes({ build: [liveCard] }),
+      startable: [{ agent: 'claude', takesPrompt: true }, { agent: 'codex', takesPrompt: false }],
+    }));
+    control()!.click();
+
+    expect(items().map((item) => item.textContent)).toEqual([
+      'View changes',
+      'Open in VS Code',
+      'Start Claude session',
+      'Start Codex session',
+    ]);
+  });
+
+  // §48: `chatgpt.newCodexPanel` takes no arguments, so the prompt is dropped — and the item says so rather than
+  // letting a developer with a configured prompt believe it reached the session.
+  it('says on the item itself which agent’s start cannot carry the prompt', () => {
+    send(message({
+      lanes: lanes({ build: [liveCard] }),
+      startable: [{ agent: 'claude', takesPrompt: true }, { agent: 'codex', takesPrompt: false }],
+    }));
+    control()!.click();
+
+    expect(tipOf(items()[2])).toContain('prefilled and unsent');
+    expect(tipOf(items()[3])).toContain('no way in that takes a prompt');
+  });
+
+  it('sends the card and the agent the item was drawn for, and nothing about where it runs', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }), startable: [{ agent: 'claude', takesPrompt: true }] }));
+    control()!.click();
+    items()[2]!.click();
+
+    expect(sent()).toEqual([{ type: 'startSession', key: liveCard.key, agent: 'claude' }]);
+  });
+
+  // A card with no checkout has nowhere to start, so the item is left out rather than drawn to refuse.
+  it('offers no start on a card with no checkout, whatever the host can start', () => {
+    send(message({
+      lanes: lanes({ unstarted: [{ ...noCheckout, sessions: [] }] }),
+      startable: [{ agent: 'claude', takesPrompt: true }],
+    }));
+    control()!.click();
+
+    expect(items().map((item) => item.textContent)).toEqual(['Choose folder…']);
+  });
+
+  // A browser board is resident in nothing, and a hub sends it an empty list — so the same card draws no start.
+  it('offers no start where the host named no agent, rather than guessing one', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }), startable: [] }));
+    control()!.click();
+
+    expect(items().map((item) => item.textContent)).toEqual(['View changes', 'Open in VS Code']);
   });
 
   it('follows the card it belongs to when a refresh rebuilds it, and goes when the card does', () => {

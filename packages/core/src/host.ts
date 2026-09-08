@@ -33,7 +33,9 @@ export type OpenRefusal =
   | 'card-active'
   | 'elsewhere-not-allowed'
   | 'no-checkout'
-  | 'already-here';
+  | 'already-here'
+  | 'no-agent'
+  | 'checkout-elsewhere';
 
 /**
  * Where a session can be reached. A tab is revealed by id in the window holding it; a sidebar has no such command, so
@@ -48,17 +50,28 @@ export type OpenRoute =
   | { route: 'sidebar-elsewhere'; session: Session; root: string }
   | { route: 'unknown-surface-here'; session: Session; root: string }
   | { route: 'unknown-surface-elsewhere'; session: Session; root: string }
-  // The one route with no session in it: a window on a card's checkout, opened so the developer can work there.
-  // Keyed by the card, because there is no session id to hold it by and one is what stops a second click (R18).
-  | { route: 'open-checkout'; key: string; root: string; newWindow: boolean };
+  // A window on a card's checkout, opened so the developer can work there. Keyed by the card, because there is no
+  // session id to hold it by and one is what stops a second click (R18).
+  | { route: 'open-checkout'; key: string; root: string; newWindow: boolean }
+  // A new session for the card, in the window performing this and no other: nothing can name a session that does
+  // not exist yet, so there is no way to hand one to another window (`docs/mechanics.md` §48). Keyed by the card.
+  | { route: 'start-session'; key: string; agent: string; root: string; prompt: string | null };
 
 /**
  * What a route is held by while it is in flight. A second fire at a tab already on its way is a second agent on one
  * transcript (`mechanics.md` §11), and a second `code` on one checkout is a second window — so both are dropped, by
  * the session where a route has one and by the card where it does not.
+ *
+ * A card is not enough on its own: two verbs are keyed by card, and a start names an agent besides. Holding by the
+ * card alone would make opening a card's window swallow the click that starts a session in it, and one agent's
+ * start swallow the other's — a click that does nothing and says nothing.
  */
 export function routeKey(route: OpenRoute): string {
-  return 'key' in route ? route.key : route.session.sessionId;
+  if (!('key' in route)) {
+    return route.session.sessionId;
+  }
+
+  return route.route === 'start-session' ? `${route.route}:${route.key}:${route.agent}` : `${route.route}:${route.key}`;
 }
 
 /**
@@ -73,6 +86,28 @@ export interface CheckoutRequest {
   workspaceRoot: string | null;
   /** Full folder sets, because only a window with exactly one folder can be raised by naming that folder. */
   liveWindows: readonly HostWindow[];
+}
+
+/**
+ * What is asked when a card is to be given a new session. Its own type rather than `CheckoutRequest` widened: a
+ * start reads no window but the one asking, since it is refused anywhere a checkout would merely be opened.
+ */
+export interface StartRequest {
+  key: string;
+  agent: string;
+  root: string;
+  /** What the new session is prefilled with, or null for a bare one. Never sent — the developer sends it (R16). */
+  prompt: string | null;
+  /** The board window's own root. A start runs here or nowhere, so this is what decides the whole route. */
+  workspaceRoot: string | null;
+  /** Whether the agent's own extension is available in this window to start a session. */
+  extensionReady: boolean;
+}
+
+/** One agent a host offers a new session for. `takesPrompt` is false where its only way in accepts no arguments. */
+export interface StartableAgent {
+  agent: string;
+  takesPrompt: boolean;
 }
 
 export interface OpenRequest {
@@ -135,6 +170,13 @@ export interface HostAdapter {
   plan(request: OpenRequest): OpenPlan;
   /** A route to a card's checkout, the same way. Absent where the host has no way to be pointed at a directory. */
   planCheckout?(request: CheckoutRequest): OpenPlan;
+  /** A route to a new session on a card, the same way. Absent where no agent in this host can be asked to start. */
+  planStart?(request: StartRequest): OpenPlan;
+  /**
+   * The agents this host can start a new session for, and whether the prompt reaches one. Host-wide rather than
+   * per-card: which agents have a way in is a fact of this host, and every card with a checkout has the same answer.
+   */
+  startable?(): readonly StartableAgent[];
   /** Which of these sessions this host offers to open. Another host's answer is its own (R14). */
   openable(sessions: readonly Session[], history?: readonly HistoricalSession[]): string[];
   /**

@@ -325,6 +325,14 @@ function hasCheckout(boardCard) {
 /** The sessions this window can open, named by the extension - the webview never compares directories itself. */
 let openable = new Set();
 
+/** The agents this window can start a session for, host-wide: `[{ agent, takesPrompt }]`, empty until a snapshot. */
+let startable = [];
+
+/** An agent id as a menu item says it. The board has no display names for agents, and the id is what everything else prints. */
+function agentTitle(agent) {
+  return agent.charAt(0).toUpperCase() + agent.slice(1);
+}
+
 const SVG = 'http://www.w3.org/2000/svg';
 // Claude's own mark, verbatim from the official extension's resources/claude-logo.svg, at its brand colour.
 const CLAUDE_MARK =
@@ -856,6 +864,18 @@ function cardActions(boardCard) {
       hint: `Bring up a window on ${boardCard.checkout.root}`,
       run: () => vscode.postMessage({ type: 'openCheckout', key: boardCard.key }),
     });
+
+    // One item per agent this host has a way into. Which of them the window can actually start is settled on the
+    // click — the extension may not be installed, and a start runs only in a window already on the checkout.
+    for (const { agent, takesPrompt } of startable) {
+      actions.push({
+        label: `Start ${agentTitle(agent)} session`,
+        hint: takesPrompt
+          ? `Open a new ${agentTitle(agent)} session in ${boardCard.checkout.root}, prefilled and unsent`
+          : `Open a new ${agentTitle(agent)} session in ${boardCard.checkout.root}. ${agentTitle(agent)} offers no way in that takes a prompt, so it starts empty`,
+        run: () => vscode.postMessage({ type: 'startSession', key: boardCard.key, agent }),
+      });
+    }
   }
 
   // Only an issue names a repository a chosen folder can be checked against, so ad-hoc work is never asked. And a
@@ -1722,6 +1742,7 @@ function render(payload) {
 function draw(payload) {
   board = payload;
   openable = new Set(payload.openable ?? []);
+  startable = payload.startable ?? [];
 
   noticesEl.replaceChildren();
 

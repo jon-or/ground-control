@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { CheckoutRequest, OpenPlan, OpenRequest, Session, SessionSurface } from '@ground-control/core';
+import type { CheckoutRequest, OpenPlan, OpenRequest, Session, SessionSurface, StartRequest } from '@ground-control/core';
 import { basename } from '@ground-control/core';
-import { SETTLING_MS, openableSessions, planCheckout, planOpen, resumeRefusal, strayFrom, verifyOpen } from '../src/open.js';
+import { SETTLING_MS, openableSessions, planCheckout, planOpen, planStart, resumeRefusal, startableAgents, strayFrom, verifyOpen } from '../src/open.js';
 import { PLACEMENTS } from '../src/placements.js';
 import { session } from './helpers.js';
 
@@ -509,5 +509,69 @@ describe('opening a card’s checkout', () => {
 
   it('lets a board with no root of its own open one, which is what a window with no folder is', () => {
     expect(routeOf(ask({ workspaceRoot: null }))).toBe('open-checkout');
+  });
+});
+
+/**
+ * A new session on a card. The whole of the routing is whether this window is the checkout's: an agent takes its
+ * directory from the window it starts in, and nothing can name a session that does not exist yet (§48).
+ */
+describe('starting a session on a card', () => {
+  const ROOT = 'd:/work/repo.worktrees/19002-refund-window';
+
+  function ask(over: Partial<StartRequest> = {}): OpenPlan {
+    return planStart(
+      { key: 'issue:19002', agent: 'claude', root: ROOT, prompt: 'fix #19002', workspaceRoot: ROOT, extensionReady: true, ...over },
+      PLACEMENTS,
+    );
+  }
+
+  it('starts in this window when it is already the checkout’s, carrying the card and the prompt', () => {
+    expect(ask()).toEqual({ route: 'start-session', key: 'issue:19002', agent: 'claude', root: ROOT, prompt: 'fix #19002' });
+  });
+
+  it('compares this window’s root against the developer’s own path spelling', () => {
+    expect(routeOf(ask({ workspaceRoot: 'D:\\work\\repo.worktrees\\19002-refund-window' }))).toBe('start-session');
+  });
+
+  // The refusal that names the other verb: R14's setting does not fix this one, and opening the checkout does.
+  it('refuses a start in a window that is not on the checkout, and says to open it first', () => {
+    const plan = ask({ workspaceRoot: 'd:/work/repo' });
+
+    expect(refusalOf(plan)).toBe('checkout-elsewhere');
+    expect('message' in plan && plan.message).toContain('Open that checkout first');
+  });
+
+  it('refuses a start from a window with no folder at all, which is no checkout either', () => {
+    expect(refusalOf(ask({ workspaceRoot: null }))).toBe('checkout-elsewhere');
+  });
+
+  it('refuses an agent with no way in, which is the whole of what no-agent means', () => {
+    expect(refusalOf(ask({ agent: 'gemini' }))).toBe('no-agent');
+  });
+
+  it('refuses where the agent’s own extension is not in this window to be asked', () => {
+    expect(refusalOf(ask({ extensionReady: false }))).toBe('no-extension');
+  });
+
+  // §48: `chatgpt.newCodexPanel` takes no arguments, so a prompt handed to it would be dropped silently. Dropping
+  // it here is what lets the menu item say the session starts bare.
+  it('drops the prompt for an agent whose only way in takes none', () => {
+    expect(ask({ agent: 'codex' })).toMatchObject({ route: 'start-session', agent: 'codex', prompt: null });
+  });
+});
+
+describe('startableAgents', () => {
+  it('names every agent with a start row, and whether its start carries the prompt', () => {
+    expect(startableAgents(PLACEMENTS)).toEqual([
+      { agent: 'claude', takesPrompt: true },
+      { agent: 'codex', takesPrompt: false },
+    ]);
+  });
+
+  it('names none out of a table whose agents have no way in', () => {
+    const { start: _dropped, ...noStart } = PLACEMENTS['claude']!;
+
+    expect(startableAgents({ claude: noStart })).toEqual([]);
   });
 });

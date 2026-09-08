@@ -427,6 +427,17 @@ A card the developer wants to work on brings up an editor window on its own chec
 
 **The browser overlay may ask for the window; it may not name the folder.** Opening a checkout starts no agent and the board resolves the directory itself, so a card on the project board can offer it. Choosing the folder is the editor's alone — a page on the internet naming a directory on this machine is the thing that must not be possible (R36).
 
+**R42. A card can be given a new session, prefilled and unsent.**
+A card the developer has decided to work on opens a fresh agent session in its own checkout (R41), with a prompt already in the composer. Nothing is sent: the prompt is a starting point they edit, send, or clear, and the board never puts words into a running agent (R15). One item per agent the editor has a way into, so a machine with two agents offers both and the developer picks.
+
+**It starts in the window the board is in, and nowhere else.** Every other cross-window route hands the receiving window a session id, and there is no id to hand — the agent mints one when the session appears, and a caller cannot name it in advance. So a card whose checkout is another window's refuses by name and points at the other verb: open the checkout, and the board in that window offers the start.
+
+**What the prompt says is one setting, and it ships empty.** `{issue}`, `{repo}`, `{title}`, `{url}` and `{checkout}` are filled from the card; anything else in braces is left as typed, because a prompt that came out half-substituted would still run. Empty starts a bare session rather than refusing one — the difference from a card action (R39) is that nothing here runs unattended. An agent whose only way in takes no arguments starts bare whatever the setting says, and the item that offers it says so rather than letting a configured prompt look like it arrived.
+
+**A second session on a card is allowed.** R18 keeps one editor per *session*, and a card holds several attempts at one issue (R3) — a developer starting another is not the accident R18 describes. What is held is the click: one start per card is in flight at a time, because between the click and the agent registering there is no session to tell a second click apart by. Nothing else gates it — the concurrency and daily ceilings bound work *the board* starts (R33), and the board enforces nothing on work the developer starts themselves.
+
+**Starting work is the editor's.** The overlay does not offer it: a browser board is resident in no editor, and a start is a command fired inside the window it lands in.
+
 ## 4. What success looks like
 
 - The user can answer "what is every agent on this machine doing?" in one glance, from one window.

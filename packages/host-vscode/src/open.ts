@@ -1,5 +1,5 @@
 import { basename, dirKey, sessionLabel } from '@ground-control/core';
-import type { CheckoutRequest, HostWindow, OpenOutcome, OpenPlan, OpenRequest, OpenRoute, Session } from '@ground-control/core';
+import type { CheckoutRequest, HostWindow, OpenOutcome, OpenPlan, OpenRequest, OpenRoute, Session, StartRequest, StartableAgent } from '@ground-control/core';
 import type { AgentPlacement } from './placements.js';
 
 /**
@@ -19,6 +19,7 @@ export const VSCODE_ROUTES: readonly OpenRoute['route'][] = [
   'unknown-surface-here',
   'unknown-surface-elsewhere',
   'open-checkout',
+  'start-session',
 ];
 
 /**
@@ -244,6 +245,39 @@ export function planCheckout(request: CheckoutRequest, mayOpenWindow: boolean): 
 }
 
 /**
+ * Whether to start a new session on a card here, or why the board will not.
+ *
+ * A start runs in the window performing it and nowhere else. Every other elsewhere route hands a session id to the
+ * window it raises, and there is no id to hand: the agent mints one when the session appears (`docs/mechanics.md`
+ * §48), so nothing can name in advance the session another window would be asked to open. The remedy is the other
+ * verb — open the checkout, and the board in that window offers the start.
+ */
+export function planStart(request: StartRequest, placements: Readonly<Record<string, AgentPlacement>>): OpenPlan {
+  const { key, agent, root, prompt } = request;
+  const placement = placements[agent];
+
+  if (placement?.start === undefined) {
+    return { refusal: 'no-agent', message: `This editor has no way to start a ${agent} session.` };
+  }
+
+  if (!request.extensionReady) {
+    return {
+      refusal: 'no-extension',
+      message: `The ${agent} extension is not available. Install it, or reload the window if it already is.`,
+    };
+  }
+
+  if (request.workspaceRoot === null || dirKey(request.workspaceRoot) !== dirKey(root)) {
+    return {
+      refusal: 'checkout-elsewhere',
+      message: `A new session starts in the window it is asked from, and this one is not on ${root}. Open that checkout first, and start the session from the board there.`,
+    };
+  }
+
+  return { route: 'start-session', key, agent, root, prompt: placement.startTakesPrompt ? prompt : null };
+}
+
+/**
  * The sessions the board offers to open. Every session of an agent placed in this host qualifies wherever it runs,
  * because which window holds it is read at the click rather than at the render.
  */
@@ -252,4 +286,11 @@ export function openableSessions(
   placements: Readonly<Record<string, AgentPlacement>>,
 ): string[] {
   return sessions.filter((session) => session.agent in placements).map((session) => session.sessionId);
+}
+
+/** The agents with a way in, out of the table. A card offers a start for each; none of it depends on the card. */
+export function startableAgents(placements: Readonly<Record<string, AgentPlacement>>): StartableAgent[] {
+  return Object.entries(placements)
+    .filter(([, placement]) => placement.start !== undefined)
+    .map(([agent, placement]) => ({ agent, takesPrompt: placement.startTakesPrompt }));
 }

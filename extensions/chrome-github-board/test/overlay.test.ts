@@ -75,6 +75,8 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
       .flatMap((entry) => entry.sessions)
       .filter((entry) => entry.agent === 'claude')
       .map((entry) => entry.sessionId),
+    // A browser is resident in nothing, so it is offered no start at all (R42).
+    startable: [],
     hooks: null,
     failures: [],
     stale: false,

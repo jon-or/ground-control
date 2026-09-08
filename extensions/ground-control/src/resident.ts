@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { dirKey, routeKey, sessionLabel } from '@ground-control/core';
 import type { HistoricalSession, OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
 import { PLACEMENTS, handOverUri, resumeRefusal, stagedUpdate, stagedUpdateRefusal, strayFrom, verifyOpen } from '@ground-control/host-vscode';
-import type { AgentPlacement } from '@ground-control/host-vscode';
+import type { AgentPlacement, CommandArg } from '@ground-control/host-vscode';
 import { spawnEnvironment } from '@ground-control/hub';
 
 /** How a session's own agent is reached here. An agent with no row is one this host was never taught (§43). */
@@ -152,6 +152,21 @@ async function focusSidebar(placement: AgentPlacement): Promise<boolean> {
 }
 
 /**
+ * One argument of a placement's command, as VS Code has to receive it. `vscode.open` rejects a string whose scheme
+ * is not http or https, so a resource arrives as a `Uri`; `absent` is a positional gap and stays `undefined`.
+ */
+function commandArg(arg: CommandArg): unknown {
+  switch (arg.kind) {
+    case 'uri':
+      return vscode.Uri.parse(arg.value);
+    case 'text':
+      return arg.value;
+    case 'absent':
+      return undefined;
+  }
+}
+
+/**
  * Reveals a session in this window. The call is the agent's own: Claude takes a session id, and Codex takes the
  * resource URI its extension registered a custom editor for — the same call that extension makes on itself (§44).
  */
@@ -163,11 +178,10 @@ async function revealHere(session: { agent: string; sessionId: string }): Promis
   }
 
   const before = agentTabCount(placement);
-  const { command, kind, value } = placement.reveal(session.sessionId);
+  const { command, args } = placement.reveal(session.sessionId);
 
   try {
-    // `vscode.open` rejects a string whose scheme is not http or https, so a resource has to arrive as a `Uri`.
-    await vscode.commands.executeCommand(command, kind === 'uri' ? vscode.Uri.parse(value) : value);
+    await vscode.commands.executeCommand(command, ...args.map(commandArg));
   } catch (error) {
     return `${command} failed: ${error instanceof Error ? error.message : String(error)}`;
   }
@@ -336,7 +350,41 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       // Whatever `raise` says and nothing more: no URI follows this, so there is no focus to wait for, and nothing
       // inside a window records which folder a board asked for. What the developer sees is the window itself.
       return raise(plan.root, plan.newWindow);
+
+    case 'start-session':
+      return startHere(plan.agent, plan.root, plan.prompt);
   }
+}
+
+/**
+ * Starts a new session in this window. The workspace is re-read because the hub planned this against a hello that
+ * may be a folder change old, and the agent takes its directory from this window rather than from anything the
+ * board hands it (`docs/mechanics.md` §48) — so a stale plan would start the session in the wrong checkout.
+ */
+async function startHere(agent: string, root: string, prompt: string | null): Promise<string | null> {
+  const placement = placementOf(agent);
+
+  if (placement?.start === undefined) {
+    return `The board does not know how to start a ${agent} session in VS Code.`;
+  }
+
+  if (dirKey(boardRoot() ?? '') !== dirKey(root)) {
+    return `This window is no longer on ${root}. Refresh the board and try again.`;
+  }
+
+  const { command, args } = placement.start(prompt);
+
+  try {
+    await vscode.commands.executeCommand(command, ...args.map(commandArg));
+  } catch (error) {
+    return `${command} failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  // No landing check, for the reason `open-checkout` has none: neither signal `verifyOpen` reads distinguishes a
+  // session that was minted from a surface that was already there. Claude's start reuses the primary editor's
+  // existing tab, so a new tab is not required; and an agent whose panel is already the active tab satisfies
+  // `agentPanelActive` without anything having happened. What the developer sees is the composer.
+  return null;
 }
 
 /** R34: the one refusal the developer fixes by changing a setting is offered the setting rather than told its name. */
