@@ -17,8 +17,8 @@ import { watchDir } from './watch.js';
 import type { Logger } from '@ground-control/core';
 
 /**
- * What a hub must not inherit. VS Code spawns it as its own executable running as node, and `VSCODE_IPC_HOOK` then
- * names the window that started it to every CLI the hub spawns (`mechanics.md` §26).
+ * What a process VS Code starts must not inherit. `VSCODE_IPC_HOOK` names the window that started a hub to every CLI
+ * that hub spawns (`mechanics.md` §26), and `VSCODE_NLS_CONFIG` and `VSCODE_CODE_CACHE_PATH` name its build (§49).
  */
 export function sanitizeEnvironment(env: NodeJS.ProcessEnv = process.env): string[] {
   const removed = Object.keys(env).filter(
@@ -33,9 +33,9 @@ export function sanitizeEnvironment(env: NodeJS.ProcessEnv = process.env): strin
 }
 
 /**
- * The environment a hub or a bridge is started in. Sanitized, and then `ELECTRON_RUN_AS_NODE` put back: the
- * interpreter may be VS Code's own executable, which runs as node only when told to and otherwise opens an editor.
- * Plain node ignores the variable, so one environment serves both and no caller has to know which it holds.
+ * The environment a hub, a bridge, or the editor's own CLI is started in. Sanitized, and then `ELECTRON_RUN_AS_NODE`
+ * put back: the interpreter may be VS Code's own executable, which runs as node only when told to and otherwise opens
+ * an editor. Plain node ignores the variable, so one environment serves all three and no caller knows which it holds.
  */
 export function spawnEnvironment(env: NodeJS.ProcessEnv = { ...process.env }): NodeJS.ProcessEnv {
   sanitizeEnvironment(env);

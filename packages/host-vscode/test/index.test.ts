@@ -30,6 +30,8 @@ describe('the package public surface', () => {
       'rootFrom',
       'sessionFromUri',
       'sidebarSession',
+      'stagedUpdate',
+      'stagedUpdateRefusal',
       'strayFrom',
       'surfacesFrom',
       'tabSessions',

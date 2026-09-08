@@ -3,8 +3,9 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { dirKey, sessionLabel } from '@ground-control/core';
 import type { HistoricalSession, OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
-import { PLACEMENTS, handOverUri, resumeRefusal, strayFrom, verifyOpen } from '@ground-control/host-vscode';
+import { PLACEMENTS, handOverUri, resumeRefusal, stagedUpdate, stagedUpdateRefusal, strayFrom, verifyOpen } from '@ground-control/host-vscode';
 import type { AgentPlacement } from '@ground-control/host-vscode';
+import { spawnEnvironment } from '@ground-control/hub';
 
 /** How a session's own agent is reached here. An agent with no row is one this host was never taught (§43). */
 function placementOf(agent: string): AgentPlacement | null {
@@ -31,12 +32,15 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Use this editor's CLI directly: a saved directory is an argument, never shell source. */
-function runCode(args: string[]): Promise<void> {
+/**
+ * Use this editor's CLI directly: a saved directory is an argument, never shell source. The environment is the hub's
+ * sanitized one — `VSCODE_NLS_CONFIG` and `VSCODE_CODE_CACHE_PATH` name the build this window runs, and `cli.js` hands whatever it was given to the editor it launches (§49).
+ */
+function runCode(args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(process.execPath, [join(vscode.env.appRoot, 'out', 'cli.js'), ...args], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true, timeout: 20_000,
-    }, () => resolve());
+      env: spawnEnvironment(), windowsHide: true, timeout: 20_000,
+    }, (error, _stdout, stderr) => resolve(error === null ? null : stderr.trim() || error.message));
   });
 }
 
@@ -117,11 +121,19 @@ export function boardRoot(): string | null {
   return (file?.scheme === 'file' ? file.fsPath : undefined) ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
 }
 
-/** Brings a root forward, opening its window when a historical resume needs one. */
-async function raise(root: string, newWindow = false): Promise<boolean> {
-  await runCode(newWindow ? ['--new-window', root] : [root]);
+/** Launches a root's window, or says why it was not launched. Coming forward is `focusLeft`, and takes seconds. */
+async function raise(root: string, newWindow = false): Promise<string | null> {
+  // A staged update swaps the executable under windows still running the old build, and the two then look for
+  // different pipes: the launch would start a second editor and restore every window into it (§49).
+  const staged = stagedUpdate(process.execPath, vscode.env.appRoot);
 
-  return focusLeft(FOCUS_TIMEOUT_MS);
+  if (staged !== null) {
+    return stagedUpdateRefusal(staged, vscode.version);
+  }
+
+  const failure = await runCode(newWindow ? ['--new-window', root] : [root]);
+
+  return failure === null ? null : `The window on ${root} could not be opened: ${failure}`;
 }
 
 /** Focuses whichever of the agent's views this VS Code registered; the other rejects rather than doing nothing. */
@@ -204,9 +216,12 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
  */
 async function revealElsewhere(roster: Roster, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean }): Promise<string | null> {
   if (resume && Date.now() >= resume.expiresAt) return 'This resume request expired. Refresh the board and try again.';
-  if (!(await raise(root, resume?.newWindow))) {
-    return `Could not bring the window on ${root} forward, so nothing was opened. Is the \`code\` command on your PATH?`;
-  }
+
+  const raised = await raise(root, resume?.newWindow);
+  if (raised !== null) return raised;
+
+  // The URI reaches whichever window has focus, so this one losing it is the only proof the fire will land there.
+  if (!(await focusLeft(FOCUS_TIMEOUT_MS))) return `Could not bring the window on ${root} forward, so nothing was opened.`;
 
   // Read here rather than taken from the render: anything already running when the fire went out is the developer's
   // own work, and reporting it as a stray would tell them to close a session they had just started themselves.
@@ -225,7 +240,11 @@ async function revealElsewhere(roster: Roster, session: Session | HistoricalSess
 
   // The agent's own URI where it answers one, and the board's own where it does not: a raised window runs Ground
   // Control too, so it can be handed the session and reveal it itself (`docs/mechanics.md` §45).
-  await runCode(['--open-url', placement.openUri?.(session.sessionId) ?? handOverUri(session.sessionId, session.agent)]);
+  const fired = await runCode(['--open-url', placement.openUri?.(session.sessionId) ?? handOverUri(session.sessionId, session.agent)]);
+
+  if (fired !== null) {
+    return `The ${session.agent} session could not be opened in the window on ${root}: ${fired}`;
+  }
 
   // Only with something to compare against. Without it the watch below would call every session already running a
   // stray, which is worse than saying nothing: the fire itself is unaffected either way.
@@ -282,8 +301,9 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       return null;
     }
 
-    case 'sidebar-elsewhere':
-      await raise(plan.root);
+    case 'sidebar-elsewhere': {
+      const raised = await raise(plan.root);
+      if (raised !== null) return raised;
 
       // Nothing else is safe: the sidebar has no reveal-by-id, and opening a panel for a session it already holds is
       // a second process on one transcript (`docs/mechanics.md` §11).
@@ -292,6 +312,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       );
 
       return null;
+    }
 
     case 'unknown-surface-here':
       void vscode.window.showInformationMessage(
@@ -300,14 +321,16 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
 
       return null;
 
-    case 'unknown-surface-elsewhere':
-      await raise(plan.root);
+    case 'unknown-surface-elsewhere': {
+      const raised = await raise(plan.root);
+      if (raised !== null) return raised;
 
       void vscode.window.showInformationMessage(
         `${sessionLabel(plan.session)} is in the window on ${plan.root}. VS Code has not recorded which tab or sidebar holds it, so this is as close as the board can take you.`,
       );
 
       return null;
+    }
   }
 }
 

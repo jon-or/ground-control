@@ -1788,3 +1788,35 @@ Measured 2026-09-08 against `ownerrez/orez` — 13 assigned open issues, 31 open
 **The ordering of `closedByPullRequestsReferences` is not documented**, and `selectPullRequest` sorts the page it gets by `updatedAt`. An issue with more than five closing pull requests could therefore be handed a page that does not hold the one that would have won. Not observed, and 10 closing pull requests on one issue is not a shape this board has seen.
 
 **What an issue's own `updatedAt` does not report.** Measured on the cards above: a comment on the linked pull request, a push to it, and a check rollup going red all leave `issue.updatedAt` untouched. Those are the changes a card's evidence (`prd.md` R24) reads `pullRequest.updatedAt`, `headOid` and `statusCheckRollup` for. `reviewDecision` is not among them — it is populated on 31 of 32 open pull requests here, but it lags: it stays `REVIEW_REQUIRED` on work the team approved by moving the issue's status instead.
+
+## 49. The single-instance pipe is named after the product version
+
+**Measured 2026-09-08** against 1.136.1, on a stable user install at `%LOCALAPPDATA%\Programs\Microsoft VS Code` mid background update. **Version-fragile.**
+
+`main.js` names the pipe every launch looks for:
+
+```js
+get mainIPCHandle() { return X1(this.userDataPath, "main", this.productService.version) }
+// X1 → \.\pipe\<sha256(userDataPath).slice(0,8)>-<version>-main-sock
+```
+
+A launch that does not find that pipe becomes its own main process rather than handing its arguments to the editor already running. The user data directory is unchanged, so the second editor reads the same `state.vscdb` and `window.restoreWindows` — default `"all"` — reopens every window the first one has. That is the reported shape of the failure: six windows open, and twelve after one click.
+
+`win32VersionedUpdate` is what makes the two versions coexist. The updater unpacks the new build into `<installDir>\<commit>.slice(0,10)\`, writes the full commit to `<installDir>\updating_version`, and stages `new_Code.exe` and `bin\new_code.cmd` beside the running ones. On the next start `postInitialize` applies that package and, absent the marker, `collectGarbage` deletes the old version directory — so `updating_version` exists exactly while a launch may be a different build than the running windows.
+
+Observed in that state: `a44adf7f53` = 1.136.1 running, `88e44fa0e0` = 1.136.2 staged, `updating_version` naming `88e44fa0e0…`, and the installer holding the `vscode-updating` mutex since 14:01. `new_Code.exe --version` waited 31 s on the mutex and gave up with `Error: Code is currently being updated. Please wait for the update to complete before launching.`
+
+**`cli.js` launches whichever binary is running it**, not the one beside its own `appRoot`:
+
+```js
+let n = {...process.env, ELECTRON_NO_ATTACH_CONSOLE:"1"}; delete n.ELECTRON_RUN_AS_NODE;
+l = Rn(process.execPath, c, {detached: true, env: n})
+```
+
+So `process.execPath` decides the version and `vscode.env.appRoot` does not. The shipped `bin\code.cmd` pins both halves to one version directory and additionally clears `VSCODE_DEV`; a caller pairing the extension host's `process.execPath` with its own `appRoot`'s `cli.js` does not.
+
+**Everything else in the environment is inherited by the editor that starts.** Only `ELECTRON_RUN_AS_NODE` is deleted. In the extension host these are pinned to the running commit and would reach a newer build: `VSCODE_NLS_CONFIG.defaultMessagesFile` → `…\a44adf7f53\resources\app\out\nls.messages.json`, `VSCODE_CODE_CACHE_PATH` → `…\Roaming\Code\CachedData\a44adf7f53…`, and `VSCODE_ESM_ENTRYPOINT` → `vs/workbench/api/node/extensionHostProcess`. The main process also writes `VSCODE_IPC_HOOK` into its own environment (`patchEnvironment`), which is how it reaches the extension host at all — but nothing reads it back to find a running instance.
+
+**The marker is not the whole of the risk.** `postInitialize` deletes it as it applies the package, and `collectGarbage` is deferred to the start after that — so a window that stays open across a start of the newer build sees no marker while `Code.exe` resolves to a version its `appRoot` is not in. The next start's garbage collection closes that window by deleting the old version directory, at which point the `cli.js` under `appRoot` is gone and the launch fails loudly instead. Not observed; recorded because the marker test reads as complete and is not.
+
+**The failure is invisible from the CLI's exit code.** `cli.js` spawns the editor detached with `stdio: "ignore"` and exits `0`, so a second instance and a clean reuse are the same result. Only the marker distinguishes them before the fact.
