@@ -71,7 +71,7 @@ export function planOpen(
   const historical = request.historicalSession;
   if ((!session || session.finished) && historical?.sessionId === request.sessionId) {
     if (!(historical.agent in placements)) return { refusal: 'other-agent', message: `This editor cannot resume ${historical.agent} sessions.` };
-    if (!request.extensionReady) return { refusal: 'no-extension', message: 'Install or enable the Claude Code extension to resume this session.' };
+    if (!request.extensionReady) return { refusal: 'no-extension', message: `Install or enable the ${historical.agent} extension to resume this session.` };
     const here = request.workspaceRoot !== null && dirKey(request.workspaceRoot) === dirKey(historical.cwd);
     if (!here && !mayOpenWindow) return { refusal: 'elsewhere-not-allowed', message: `Resuming this session needs a window on ${historical.cwd}. Allow other windows to continue.` };
     const base = { session: historical, root: historical.cwd, expiresAt: request.now + 30_000 };
@@ -90,14 +90,14 @@ export function planOpen(
   if (!(session.agent in placements)) {
     return {
       refusal: 'other-agent',
-      message: `Only Claude sessions open in a tab. This one was reported by ${session.agent}.`,
+      message: `This editor has no way to show a ${session.agent} session.`,
     };
   }
 
   if (!request.extensionReady) {
     return {
       refusal: 'no-extension',
-      message: 'The Claude Code extension is not available. Install it, or reload the window if it already is.',
+      message: `The ${session.agent} extension is not available. Install it, or reload the window if it already is.`,
     };
   }
 
@@ -147,6 +147,16 @@ export function planOpen(
     return {
       refusal: 'elsewhere-not-allowed',
       message: `${sessionLabel(session)} is open in the window on ${root}, and the board is not allowed to bring it forward.`,
+    };
+  }
+
+  // A hand-over is revealed by the window that received it, or refused there. The window that raised this one read
+  // the same records, so a plan that still says elsewhere is one that has been followed once already — and firing
+  // again is how two windows pass a session back and forth (§45).
+  if (!here && request.handedOver === true) {
+    return {
+      refusal: 'elsewhere-not-allowed',
+      message: `${sessionLabel(session)} is showing in the window on ${root}, which did not come forward. Open it from that window.`,
     };
   }
 

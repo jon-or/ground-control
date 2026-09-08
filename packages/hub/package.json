@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ground-control/agent-claude": "*",
+    "@ground-control/agent-codex": "*",
     "@ground-control/automation": "*",
     "@ground-control/board": "*",
     "@ground-control/core": "*",

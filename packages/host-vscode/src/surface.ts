@@ -1,6 +1,6 @@
 import { dirKey } from '@ground-control/core';
 import type { SessionSurface } from '@ground-control/core';
-import type { AgentPlacement } from './placements.js';
+import type { AgentPlacement, SessionInTab } from './placements.js';
 
 /**
  * One VS Code window's persisted state, from its `workspaceStorage` directory. Taken verbatim rather than parsed by
@@ -31,12 +31,36 @@ function parse(text: string | null | undefined): unknown {
   }
 }
 
-/** A webview's own state, which is where the agent's extension records the session the surface is showing. */
+/** A webview's own state, which is where one agent's extension records the session the surface is showing. */
 function sessionIn(state: unknown, stateKey: string): string | null {
   const parsed = parse(typeof state === 'string' ? state : null) as Record<string, unknown> | null;
   const id = parsed?.[stateKey];
 
   return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+/**
+ * The session a tab's own resource names, for an agent whose tab is the session rather than a webview holding an
+ * id. VS Code marshals the URI, so `path` is the one field to read: `fsPath` arrives with Windows separators and
+ * `external` is percent-encoded (`docs/mechanics.md` §44).
+ */
+function sessionAt(resource: unknown, want: { scheme: string; prefix: string }): string | null {
+  const uri = resource as { scheme?: unknown; path?: unknown } | null;
+
+  if (uri?.scheme !== want.scheme || typeof uri.path !== 'string' || !uri.path.startsWith(want.prefix)) {
+    return null;
+  }
+
+  const id = uri.path.slice(want.prefix.length);
+
+  return id.length > 0 && !id.includes('/') ? id : null;
+}
+
+/** The session one tab holds, however its agent records it. */
+function sessionOf(input: Record<string, unknown>, session: SessionInTab): string | null {
+  return session.from === 'state'
+    ? sessionIn(input['state'], session.key)
+    : sessionAt(input['editorResource'], session);
 }
 
 /**
@@ -71,15 +95,18 @@ export function rootFrom(workspaceJson: string | null): string | null {
 }
 
 /** The session the window's agent sidebar is showing, or null where it has never shown one. */
-export function sidebarSession(sidebar: string | null, stateKey: string): string | null {
-  return sessionIn((parse(sidebar) as { webviewState?: unknown } | null)?.webviewState, stateKey);
+export function sidebarSession(sidebar: string | null, session: SessionInTab): string | null {
+  // Only a state-carrying sidebar can answer: Codex's records nothing at all, so there is nothing to read (§44).
+  return session.from === 'state'
+    ? sessionIn((parse(sidebar) as { webviewState?: unknown } | null)?.webviewState, session.key)
+    : null;
 }
 
 /**
  * Every one of the agent's tabs' sessions in one window. The editor grid nests to whatever depth the developer has
  * split their editors to, so it is walked rather than indexed, and a tab opened but never bound contributes nothing.
  */
-export function tabSessions(editor: string | null, placement: Pick<AgentPlacement, 'webviewId' | 'stateKey'>): string[] {
+export function tabSessions(editor: string | null, placement: Pick<AgentPlacement, 'webviewId' | 'session'>): string[] {
   const found: string[] = [];
 
   walk(parse(editor), placement, found);
@@ -87,7 +114,7 @@ export function tabSessions(editor: string | null, placement: Pick<AgentPlacemen
   return found;
 }
 
-function walk(node: unknown, placement: Pick<AgentPlacement, 'webviewId' | 'stateKey'>, found: string[]): void {
+function walk(node: unknown, placement: Pick<AgentPlacement, 'webviewId' | 'session'>, found: string[]): void {
   if (Array.isArray(node)) {
     for (const child of node) {
       walk(child, placement, found);
@@ -102,10 +129,10 @@ function walk(node: unknown, placement: Pick<AgentPlacement, 'webviewId' | 'stat
 
   const record = node as Record<string, unknown>;
   const value = record['value'];
-  const input = parse(typeof value === 'string' ? value : null) as { providedId?: unknown; state?: unknown } | null;
+  const input = parse(typeof value === 'string' ? value : null) as Record<string, unknown> | null;
 
-  if (input?.providedId === placement.webviewId) {
-    const sessionId = sessionIn(input.state, placement.stateKey);
+  if (input?.['providedId'] === placement.webviewId) {
+    const sessionId = sessionOf(input, placement.session);
 
     if (sessionId !== null) {
       found.push(sessionId);
@@ -139,7 +166,7 @@ export function surfacesFrom(
 
   for (const { store, root } of rooted) {
     for (const [agent, placement] of Object.entries(placements)) {
-      const sidebar = sidebarSession(store.sidebar, placement.stateKey);
+      const sidebar = sidebarSession(store.sidebar, placement.session);
 
       if (sidebar !== null) {
         surfaces.set(sidebar, { agent, sessionId: sidebar, root, surface: 'sidebar' });

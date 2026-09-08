@@ -24,7 +24,7 @@ export function readConfig(): GithubConfig {
 
   return {
     ghPath: cfg.get<string>('github.ghPath', 'gh'),
-    repo: cfg.get<string>('github.repo', 'ownerrez/orez'),
+    repo: cfg.get<string>('github.repo', ''),
     logins: splitLogins(cfg.get<string>(LOGINS, '')),
     projectNumber: cfg.get<number>('github.projectNumber', 3),
     cardSource: cfg.get<CardSource>('cardSource', 'project'),

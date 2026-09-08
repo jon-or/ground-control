@@ -53,7 +53,7 @@ const AGE_ATTR = 'data-gc-since';
  * The board's address in VS Code, written by hand: this file is what Chrome loads, so it imports nothing. The same
  * string is built by `openSessionUri` in `@ground-control/host-vscode`, and both are asserted against the literal.
  */
-const OPEN_SESSION_URI = 'vscode://ownerrez.ground-control/open?session=';
+const OPEN_SESSION_URI = 'vscode://groundcontrol.ground-control/open?session=';
 
 /** Where the collapse is remembered. Page-origin storage, so it is per developer and per browser rather than per tab. */
 const COLLAPSE_KEY = 'ground-control:header-collapsed';

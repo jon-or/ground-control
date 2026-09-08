@@ -20,6 +20,7 @@ describe('the package public surface', () => {
       'PERMISSION_MODES',
       'PROTOCOL',
       'TRIAGE_ACTIONS',
+      'agentOfSession',
       'basename',
       'checkoutOf',
       'compilePattern',

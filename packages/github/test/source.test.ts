@@ -208,3 +208,20 @@ describe('the GitHub work source as it ships', () => {
     expect(await detectLogins(ABSENT_CLI)).toEqual([]);
   });
 });
+
+describe('a board nobody has named a repository for', () => {
+  it('says which setting is missing, rather than failing its schema', () => {
+    // The shipped default: an editor sends every setting it has, and this is the one that decides whether the
+    // source can read anything. A schema failure here would name zod and offer a remedy that cannot work — the
+    // setting is already absent, so removing it changes nothing.
+    const outcome = readGithubConfig({ ghPath: 'gh', repo: '', logins: [], projectNumber: 3, cardSource: 'project', maxPages: 5 });
+
+    expect('failure' in outcome && outcome.failure).toMatchObject({ kind: 'bad-config' });
+    expect('failure' in outcome && outcome.failure.message).toContain('has not been told which repository');
+    expect('failure' in outcome && outcome.failure.remedy).toContain('groundControl.github.repo');
+  });
+
+  it('reads whitespace as no repository at all', () => {
+    expect('failure' in readGithubConfig({ repo: '   ' })).toBe(true);
+  });
+});

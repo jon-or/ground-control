@@ -111,6 +111,7 @@ The full rules are in [docs/testing.md](docs/testing.md). The short version:
 | --- | --- |
 | `packages/core` | The seams every adapter implements (`AgentAdapter`, `HostAdapter`, `WorkSource`), the neutral `Session`, the lane and card types, the client protocol, and the helpers they share. Names no adapter. **Must not import `vscode`.** |
 | `packages/agent-claude` | The Claude Code agent adapter: `claude agents --json`, transcript titles, the activity hook. **Must not import `vscode`.** |
+| `packages/agent-codex` | The Codex agent adapter: the hook writer, the marker roster, the rollout history reader. **Must not import `vscode`.** |
 | `packages/host-vscode` | The VS Code host adapter's headless half: lock files, window stores, the placement table, the open plan, the changes fold. **Must not import `vscode`.** |
 | `packages/github` | The `github` work source: assigned issues read through the `gh` CLI. **Must not import `vscode`.** |
 | `packages/board` | Merges assigned issues and live sessions into board cards. **Must not import `vscode`.** |
@@ -121,7 +122,7 @@ The full rules are in [docs/testing.md](docs/testing.md). The short version:
 | `extensions/chrome-github-board` | The browser overlay: an MV3 extension that paints the board onto GitHub's own project board. Plain JavaScript, no build step — Chrome loads the directory as it stands. Imports `chrome`. |
 | `extensions/seize-probe` | Probe extension that proves window-scoped command targeting for `docs/mechanics.md`. Not a workspace, not shipped. |
 
-That boundary is what makes the logic testable in vitest: a module importing `vscode` can only be verified by hand, so decisions belong in a `packages/*` module and the extension stays thin. One package per adapter is what makes the seams enforceable: `agent-claude` cannot reach `host-vscode`, and each carries its own coverage floor. Root `package.json` lists the workspaces in build order, and every script fans out in that order; run `npm install` after changing the list.
+That boundary is what makes the logic testable in vitest: a module importing `vscode` can only be verified by hand, so decisions belong in a `packages/*` module and the extension stays thin. One package per adapter is what makes the seams enforceable: `agent-claude` cannot reach `agent-codex` or `host-vscode`, and each carries its own coverage floor. Root `package.json` lists the workspaces in build order, and every script fans out in that order; run `npm install` after changing the list.
 
 ## Essential Commands
 
@@ -150,7 +151,7 @@ cd extensions/ground-control && npm run package && code --install-extension grou
 `npm run package` has no `vscode:prepublish` hook, so `vsce` ships whatever is already in `dist/` — build first. Confirm by reading a phrase you changed back out of the **installed** bundle, since `dist/` being right is not the thing in doubt:
 
 ```bash
-node -e "console.log(require('fs').readFileSync(process.env.USERPROFILE+'/.vscode/extensions/ownerrez.ground-control-0.0.0/dist/hub.js','utf8').includes('<phrase>'))"
+node -e "console.log(require('fs').readFileSync(process.env.USERPROFILE+'/.vscode/extensions/groundcontrol.ground-control-0.0.0/dist/hub.js','utf8').includes('<phrase>'))"
 ```
 
 Use an ASCII needle on one line: esbuild escapes non-ASCII, and a phrase spanning a line break is not a substring — either reports a false negative on a current bundle.

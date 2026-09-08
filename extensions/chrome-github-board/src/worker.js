@@ -6,7 +6,7 @@
  */
 import { makeLogSpool } from './state.js';
 
-const NATIVE_HOST = 'com.ownerrez.ground_control';
+const NATIVE_HOST = 'com.groundcontrol.ground_control';
 const KEEPALIVE = 'gc-keepalive';
 
 /** @type {Set<chrome.runtime.Port>} */

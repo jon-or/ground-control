@@ -3,10 +3,13 @@ import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { dirKey, sessionLabel } from '@ground-control/core';
 import type { HistoricalSession, OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
-import { PLACEMENTS, resumeRefusal, strayFrom, verifyOpen } from '@ground-control/host-vscode';
+import { PLACEMENTS, handOverUri, resumeRefusal, strayFrom, verifyOpen } from '@ground-control/host-vscode';
+import type { AgentPlacement } from '@ground-control/host-vscode';
 
-/** The Claude placement in VS Code: its ids, and the commands that reach a session without side effects (§6, §7). */
-const CLAUDE = PLACEMENTS['claude']!;
+/** How a session's own agent is reached here. An agent with no row is one this host was never taught (§43). */
+function placementOf(agent: string): AgentPlacement | null {
+  return PLACEMENTS[agent] ?? null;
+}
 const VERIFY_TIMEOUT_MS = 2500;
 const POLL_MS = 250;
 const FOCUS_POLL_MS = 50;
@@ -38,37 +41,37 @@ function runCode(args: string[]): Promise<void> {
 }
 
 /** A Claude panel's viewType is prefixed by the host, so this is a containment test rather than an equality one. */
-function isClaudePanel(tab: vscode.Tab | undefined): boolean {
+function isAgentPanel(tab: vscode.Tab | undefined, placement: AgentPlacement): boolean {
   const viewType = (tab?.input as { viewType?: unknown } | undefined)?.viewType;
 
-  return typeof viewType === 'string' && viewType.includes(CLAUDE.webviewId);
+  return typeof viewType === 'string' && viewType.includes(placement.webviewId);
 }
 
-function claudeTabCount(): number {
+function agentTabCount(placement: AgentPlacement): number {
   return vscode.window.tabGroups.all.reduce(
-    (count, group) => count + group.tabs.filter((tab) => isClaudePanel(tab)).length,
+    (count, group) => count + group.tabs.filter((tab) => isAgentPanel(tab, placement)).length,
     0,
   );
 }
 
-function claudePanelActive(): boolean {
-  return isClaudePanel(vscode.window.tabGroups.activeTabGroup.activeTab);
+function agentPanelActive(placement: AgentPlacement): boolean {
+  return isAgentPanel(vscode.window.tabGroups.activeTabGroup.activeTab, placement);
 }
 
 /**
  * Polled rather than slept on. A new tab and a reveal both reach `tabGroups` over an async event, so an immediate read
  * sees neither; polling also returns as soon as the tab is there instead of always paying the whole timeout.
  */
-async function watchForTab(before: number): Promise<OpenOutcome> {
+async function watchForTab(before: number, placement: AgentPlacement): Promise<OpenOutcome> {
   for (let waited = 0; waited < VERIFY_TIMEOUT_MS; waited += POLL_MS) {
-    if (verifyOpen(before, claudeTabCount(), claudePanelActive()) === 'opened') {
+    if (verifyOpen(before, agentTabCount(placement), agentPanelActive(placement)) === 'opened') {
       return 'opened';
     }
 
     await delay(POLL_MS);
   }
 
-  return verifyOpen(before, claudeTabCount(), claudePanelActive());
+  return verifyOpen(before, agentTabCount(placement), agentPanelActive(placement));
 }
 
 /** This window losing focus is the proof another one came forward, and it arrives far sooner than a fixed wait. */
@@ -85,8 +88,9 @@ async function focusLeft(timeoutMs: number): Promise<boolean> {
 }
 
 /** Whether the agent's own extension is here and activated, which is what performs a reveal in this window. */
-export async function agentExtensionReady(): Promise<boolean> {
-  const extension = vscode.extensions.getExtension(CLAUDE.extensionId);
+export async function agentExtensionReady(agent = 'claude'): Promise<boolean> {
+  const placement = placementOf(agent);
+  const extension = placement === null ? undefined : vscode.extensions.getExtension(placement.extensionId);
 
   if (!extension) {
     return false;
@@ -120,9 +124,9 @@ async function raise(root: string, newWindow = false): Promise<boolean> {
   return focusLeft(FOCUS_TIMEOUT_MS);
 }
 
-/** Focuses whichever of the two Claude views this VS Code registered; the other rejects rather than doing nothing. */
-async function focusSidebar(): Promise<boolean> {
-  for (const command of CLAUDE.sidebarFocusCommands) {
+/** Focuses whichever of the agent's views this VS Code registered; the other rejects rather than doing nothing. */
+async function focusSidebar(placement: AgentPlacement): Promise<boolean> {
+  for (const command of placement.sidebarFocusCommands) {
     try {
       await vscode.commands.executeCommand(command);
 
@@ -135,18 +139,30 @@ async function focusSidebar(): Promise<boolean> {
   return false;
 }
 
-async function revealHere(sessionId: string): Promise<string | null> {
-  const before = claudeTabCount();
+/**
+ * Reveals a session in this window. The call is the agent's own: Claude takes a session id, and Codex takes the
+ * resource URI its extension registered a custom editor for — the same call that extension makes on itself (§44).
+ */
+async function revealHere(session: { agent: string; sessionId: string }): Promise<string | null> {
+  const placement = placementOf(session.agent);
 
-  try {
-    await vscode.commands.executeCommand(CLAUDE.revealCommand, sessionId);
-  } catch (error) {
-    return `${CLAUDE.revealCommand} failed: ${error instanceof Error ? error.message : String(error)}`;
+  if (placement === null) {
+    return `The board does not know how to open a ${session.agent} session in VS Code.`;
   }
 
-  return (await watchForTab(before)) === 'opened'
+  const before = agentTabCount(placement);
+  const { command, kind, value } = placement.reveal(session.sessionId);
+
+  try {
+    // `vscode.open` rejects a string whose scheme is not http or https, so a resource has to arrive as a `Uri`.
+    await vscode.commands.executeCommand(command, kind === 'uri' ? vscode.Uri.parse(value) : value);
+  } catch (error) {
+    return `${command} failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  return (await watchForTab(before, placement)) === 'opened'
     ? null
-    : 'The Claude Code extension reported the session open but no tab appeared.';
+    : `The ${session.agent} extension reported the session open but no tab appeared.`;
 }
 
 /**
@@ -201,7 +217,15 @@ async function revealElsewhere(roster: Roster, session: Session | HistoricalSess
     if (Date.now() >= resume.expiresAt) return 'This resume request expired before its window was ready. Refresh the board and try again.';
   }
 
-  await runCode(['--open-url', CLAUDE.openUri(session.sessionId)]);
+  const placement = placementOf(session.agent);
+
+  if (placement === null) {
+    return `The board does not know how to open a ${session.agent} session in VS Code.`;
+  }
+
+  // The agent's own URI where it answers one, and the board's own where it does not: a raised window runs Ground
+  // Control too, so it can be handed the session and reveal it itself (`docs/mechanics.md` §45).
+  await runCode(['--open-url', placement.openUri?.(session.sessionId) ?? handOverUri(session.sessionId, session.agent)]);
 
   // Only with something to compare against. Without it the watch below would call every session already running a
   // stray, which is worse than saying nothing: the fire itself is unaffected either way.
@@ -228,7 +252,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       const refusal = resumeRefusal(plan.session.sessionId, before);
       if (refusal) return refusal;
       if (Date.now() >= plan.expiresAt) return 'This resume request expired. Refresh the board and try again.';
-      const failure = await revealHere(plan.session.sessionId);
+      const failure = await revealHere(plan.session);
       if (!failure && before !== null) void confirmLanding(roster, plan.root, before, plan.session.sessionId);
       return failure;
     }
@@ -237,23 +261,26 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       return revealElsewhere(roster, plan.session, plan.root, plan);
 
     case 'reveal-here':
-      return revealHere(plan.session.sessionId);
+      return revealHere(plan.session);
 
     case 'reveal-elsewhere':
       return revealElsewhere(roster, plan.session, plan.root);
 
-    case 'sidebar-here':
-      if (!(await focusSidebar())) {
-        return 'The Claude sidebar would not come forward. Open it from the activity bar.';
+    case 'sidebar-here': {
+      const placement = placementOf(plan.session.agent);
+
+      if (placement === null || !(await focusSidebar(placement))) {
+        return `The ${plan.session.agent} sidebar would not come forward. Open it from the activity bar.`;
       }
 
       // Said out loud because the sidebar shows one session and the record of which is up to a minute old: the view
       // that comes forward may be showing different work than the row that was clicked (`docs/mechanics.md` §21).
       void vscode.window.showInformationMessage(
-        `The Claude sidebar should be showing ${sessionLabel(plan.session)}.`,
+        `The ${plan.session.agent} sidebar should be showing ${sessionLabel(plan.session)}.`,
       );
 
       return null;
+    }
 
     case 'sidebar-elsewhere':
       await raise(plan.root);
@@ -261,7 +288,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       // Nothing else is safe: the sidebar has no reveal-by-id, and opening a panel for a session it already holds is
       // a second process on one transcript (`docs/mechanics.md` §11).
       void vscode.window.showInformationMessage(
-        `${sessionLabel(plan.session)} is in the Claude sidebar of the window on ${plan.root}.`,
+        `${sessionLabel(plan.session)} is in the ${plan.session.agent} sidebar of the window on ${plan.root}.`,
       );
 
       return null;

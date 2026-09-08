@@ -82,6 +82,7 @@ describe('the package public surface', () => {
       'stopHub',
       'syncActivity',
       'takeLock',
+      'tempIsOrphaned',
       'uninstallActivity',
       'uninstallChromeHost',
       'versionOf',

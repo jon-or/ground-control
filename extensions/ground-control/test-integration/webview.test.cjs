@@ -12,7 +12,7 @@ describe('the board in a real webview', () => {
    * where the payload is given rather than read.
    */
   it('loads its script, and reports the screen it finished rather than the one it started', async () => {
-    const api = await vscode.extensions.getExtension('ownerrez.ground-control').activate();
+    const api = await vscode.extensions.getExtension('groundcontrol.ground-control').activate();
 
     await vscode.commands.executeCommand('groundControl.openBoard');
 

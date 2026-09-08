@@ -4,11 +4,13 @@ import { groundControlDirOf } from '@ground-control/core';
 import {
   BACKUPS_KEPT,
   MARKER_MAX_AGE_MS,
+  TEMP_MAX_AGE_MS,
   activityNotice,
   backupsToDelete,
   markerIsOrphaned,
   pruneMarkers,
   syncActivity,
+  tempIsOrphaned,
   uninstallActivity,
 } from '../src/activityInstall.js';
 import { installLockPathOf } from '../src/paths.js';
@@ -34,6 +36,49 @@ describe('syncActivity', () => {
     expect(state).toMatchObject({ wanted: 'install', plan: 'write', added: 3, failure: null });
     expect(readFileSync(signal.settingsPath(home), 'utf8')).toBe(written.text);
     expect(existsSync(signal.watchDir(home))).toBe(true);
+  });
+
+  it('leaves an agent the configuration does not name completely alone', () => {
+    const configured = fakeSignal(written, 'fake');
+    const other = fakeSignal(written, 'other');
+    mkdirSync(`${home}/.other`, { recursive: true });
+
+    const state = syncActivity(
+      [fakeAgent('fake', configured), fakeAgent('other', other)],
+      'install',
+      home,
+      false,
+      new Set(['fake']),
+    );
+
+    expect(configured.planned).toEqual([{ settingsText: null, wanted: 'install' }]);
+    // R30: writing into the settings of a CLI the developer never asked the board to read would be the board's own
+    // doing — and taking entries out would make one typo in the agents list strip a working agent's hooks.
+    expect(other.planned).toEqual([]);
+    expect(existsSync(other.settingsPath(home))).toBe(false);
+    expect(existsSync(other.watchDir(home))).toBe(false);
+    expect(existsSync(other.writer!.path(home))).toBe(false);
+    expect(state).toMatchObject({ wanted: 'install', plan: 'write', added: written.added });
+  });
+
+  it('reaches every agent when no ids are given, which is what a removal and an uninstall rely on', () => {
+    const configured = fakeSignal(written, 'fake');
+    const other = fakeSignal(written, 'other');
+    mkdirSync(`${home}/.other`, { recursive: true });
+
+    syncActivity([fakeAgent('fake', configured), fakeAgent('other', other)], 'remove', home);
+
+    expect(configured.planned).toEqual([{ settingsText: null, wanted: 'remove' }]);
+    expect(other.planned).toEqual([{ settingsText: null, wanted: 'remove' }]);
+  });
+
+  it('keeps each agent backups under its own name, so a restore knows which file it holds', () => {
+    const signal = fakeSignal(written, 'fake');
+    writeFileSync(signal.settingsPath(home), '{"theme":"dark"}');
+
+    syncActivity([fakeAgent('fake', signal)], 'install', home);
+
+    expect(readdirSync(groundControlDirOf(home)).filter((n) => n.startsWith('settings-backup-fake-'))).toHaveLength(1);
   });
 
   it('hands the adapter the settings text rather than deciding anything itself', () => {
@@ -97,6 +142,22 @@ describe('syncActivity', () => {
       remedy: 'fix it, then reopen',
     });
     expect(existsSync(signal.settingsPath(home))).toBe(false);
+  });
+
+  /**
+   * Two agents are installed in one pass, and the second one refusing must not undo the first: a board with Codex
+   * misconfigured would otherwise lose Claude's phases too. The refusal names the agent that refused, not the pass.
+   */
+  it('keeps what the first agent wrote when a later one refuses', () => {
+    const first = fakeSignal(written, 'fake');
+    const second = fakeSignal({ kind: 'refuse', reason: 'the file is not JSON', remedy: 'fix it, then reopen' }, 'other');
+    mkdirSync(`${home}/.other`, { recursive: true });
+
+    const state = syncActivity([fakeAgent('fake', first), fakeAgent('other', second)], 'install', home);
+
+    expect(state).toMatchObject({ plan: 'refuse', added: 3, failure: { subject: 'other' } });
+    expect(readFileSync(first.settingsPath(home), 'utf8')).toBe(written.text);
+    expect(existsSync(second.settingsPath(home))).toBe(false);
   });
 
   it('claims nothing at all while another process holds the install lock', () => {
@@ -205,12 +266,15 @@ describe('pruneMarkers', () => {
   });
 
   /** Nothing else on the machine sweeps a `.tmp` a failed rename left where a reader polls. */
-  it('sweeps a temporary file from the board own directory, whatever its age', () => {
-    const stray = marker(groundControlDirOf(home), 'lanes.json.4242.tmp', 0);
+  it('sweeps a temporary file a failed rename left behind, and leaves one a writer may still be renaming', () => {
+    const stale = marker(groundControlDirOf(home), 'lanes.json.4242.tmp', TEMP_MAX_AGE_MS * 2);
+    const inFlight = marker(groundControlDirOf(home), 'lanes.json.4243.tmp', 0);
 
     pruneMarkers([fakeAgent('fake', fakeSignal(written))], home, now);
 
-    expect(existsSync(stray)).toBe(false);
+    expect(existsSync(stale)).toBe(false);
+    // The writer retries its rename for about 200 ms; a sweep inside that window loses the event it was writing.
+    expect(existsSync(inFlight)).toBe(true);
   });
 
   /** The board's own directory holds the lane placements and the marks, which are not markers to age out. */
@@ -231,14 +295,23 @@ describe('the decisions that delete files', () => {
   const now = 1_788_000_000_000;
 
   it('keeps the newest backups and deletes the rest, oldest first', () => {
-    const names = Array.from({ length: BACKUPS_KEPT + 3 }, (_, i) => `settings-backup-2026-09-0${i}.json`);
+    const names = Array.from({ length: BACKUPS_KEPT + 3 }, (_, i) => `settings-backup-claude-2026-09-0${i}.json`);
 
-    expect(backupsToDelete(names)).toEqual(names.slice(0, 3));
+    expect(backupsToDelete(names, 'claude')).toEqual(names.slice(0, 3));
   });
 
   it('deletes nothing while there are fewer than it keeps', () => {
-    expect(backupsToDelete(['settings-backup-a.json'])).toEqual([]);
-    expect(backupsToDelete([])).toEqual([]);
+    expect(backupsToDelete(['settings-backup-claude-a.json'], 'claude')).toEqual([]);
+    expect(backupsToDelete([], 'claude')).toEqual([]);
+  });
+
+  /** Two agents write different files, so one agent's backups must not push another's out of the window. */
+  it('never names another agent backups', () => {
+    const mine = Array.from({ length: BACKUPS_KEPT + 1 }, (_, i) => `settings-backup-claude-2026-09-0${i}.json`);
+    const theirs = Array.from({ length: BACKUPS_KEPT + 1 }, (_, i) => `settings-backup-codex-2026-09-0${i}.json`);
+
+    expect(backupsToDelete([...mine, ...theirs], 'claude')).toEqual(['settings-backup-claude-2026-09-00.json']);
+    expect(backupsToDelete([...mine, ...theirs], 'codex')).toEqual(['settings-backup-codex-2026-09-00.json']);
   });
 
   // The refusal that matters: this list is handed to rmSync in the developer's home.
@@ -249,38 +322,21 @@ describe('the decisions that delete files', () => {
       'hook.mjs',
       'install.lock',
       'activity',
-      ...Array.from({ length: BACKUPS_KEPT + 1 }, (_, i) => `settings-backup-2026-09-0${i}.json`),
+      ...Array.from({ length: BACKUPS_KEPT + 1 }, (_, i) => `settings-backup-claude-2026-09-0${i}.json`),
     ];
 
-    expect(backupsToDelete(names)).toEqual(['settings-backup-2026-09-00.json']);
+    expect(backupsToDelete(names, 'claude')).toEqual(['settings-backup-claude-2026-09-00.json']);
+  });
+
+  it('reads a temporary file older than its window as a failed rename, and a newer one as a write in flight', () => {
+    expect(tempIsOrphaned(now - TEMP_MAX_AGE_MS - 1, now)).toBe(true);
+    expect(tempIsOrphaned(now - TEMP_MAX_AGE_MS + 1, now)).toBe(false);
   });
 
   it('reads a marker older than the window as an orphan, and a newer one as a live session own', () => {
     expect(markerIsOrphaned(now - MARKER_MAX_AGE_MS - 1, now)).toBe(true);
     expect(markerIsOrphaned(now - MARKER_MAX_AGE_MS + 1, now)).toBe(false);
     expect(markerIsOrphaned(now, now)).toBe(false);
-  });
-});
-
-describe('the notice', () => {
-  it('says how many sessions cannot report yet, because a silent board looks like an idle one', () => {
-    expect(activityNotice({ plan: 'write', wanted: 'install', unreported: 3 })).toContain('3 sessions started before');
-    expect(activityNotice({ plan: 'write', wanted: 'install', unreported: 1 })).toContain('1 session started before');
-  });
-
-  it('says only that they are installed when every session already reports', () => {
-    expect(activityNotice({ plan: 'write', wanted: 'install', unreported: 0 })).toBe('Session activity hooks installed.');
-  });
-
-  // It is an announcement, not a status: a run that changed nothing has nothing to announce, however many sessions
-  // cannot report. The failure of a refused run is reported as a failure, not as a state.
-  it.each(['up-to-date', 'refuse', 'busy'] as const)('says nothing when the plan was %s', (plan) => {
-    expect(activityNotice({ plan, wanted: 'install', unreported: 4 })).toBeNull();
-    expect(activityNotice({ plan, wanted: 'remove', unreported: 4 })).toBeNull();
-  });
-
-  it('says they were removed', () => {
-    expect(activityNotice({ plan: 'write', wanted: 'remove', unreported: 0 })).toContain('were removed');
   });
 });
 

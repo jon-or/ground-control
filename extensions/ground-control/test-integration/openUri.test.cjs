@@ -14,7 +14,7 @@ describe('the link the browser board opens a session with', () => {
   let original;
 
   before(async () => {
-    await vscode.extensions.getExtension('ownerrez.ground-control').activate();
+    await vscode.extensions.getExtension('groundcontrol.ground-control').activate();
 
     original = vscode.window.showWarningMessage;
     vscode.window.showWarningMessage = (message) => {
@@ -58,7 +58,7 @@ describe('the link the browser board opens a session with', () => {
    * assertion that merely nothing was said would pass on a handler that never ran.
    */
   it('carries a well-formed session id through to the hub, which answers for it', async () => {
-    await fire(`vscode://ownerrez.ground-control/open?session=${SESSION}`);
+    await fire(`vscode://groundcontrol.ground-control/open?session=${SESSION}`);
 
     await said(
       (message) => message.includes('no longer on the board'),
@@ -68,9 +68,9 @@ describe('the link the browser board opens a session with', () => {
 
   /** Any page in the browser can navigate here, so everything but one well-formed id is refused out loud. */
   for (const [why, uri] of [
-    ['a path the board never writes', `vscode://ownerrez.ground-control/seize?session=${SESSION}`],
-    ['no session at all', 'vscode://ownerrez.ground-control/open'],
-    ['something that is not an id', 'vscode://ownerrez.ground-control/open?session=../../etc/passwd'],
+    ['a path the board never writes', `vscode://groundcontrol.ground-control/seize?session=${SESSION}`],
+    ['no session at all', 'vscode://groundcontrol.ground-control/open'],
+    ['something that is not an id', 'vscode://groundcontrol.ground-control/open?session=../../etc/passwd'],
   ]) {
     it(`refuses ${why}, and says so`, async () => {
       await fire(uri);

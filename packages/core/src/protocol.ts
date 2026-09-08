@@ -63,7 +63,9 @@ export type ClientMessage =
   | { type: 'move'; key: string; lane: LaneId }
   // `extensionReady` rides on the open rather than on the hello: an editor extension activating is something that
   // happens while a board is up, and a board that connected before it finished would plan every open without it.
-  | { type: 'open'; sessionId: string; extensionReady: boolean }
+  // `handedOver` says the board raised this window and passed it the session, rather than a developer clicking a
+  // link. The hub plans it as it plans any other open, and refuses to send it on to a third window (§45).
+  | { type: 'open'; sessionId: string; extensionReady: boolean; handedOver?: boolean }
   // The one message that spends money, so the hub checks the key names a card on the board and holds a cooldown
   // rather than taking it on trust the way every other, idempotent, message is taken.
   | { type: 'retriage'; key: string }

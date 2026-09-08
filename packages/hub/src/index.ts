@@ -7,6 +7,7 @@ export {
   activityNotice,
   backupsToDelete,
   markerIsOrphaned,
+  tempIsOrphaned,
   pruneMarkers,
   syncActivity,
   uninstallActivity,

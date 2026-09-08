@@ -64,7 +64,7 @@ cd extensions/ground-control && npm run package
 code --install-extension ground-control-*.vsix
 ```
 
-Run **Ground Control: Open Board** from the command palette. Team-wide facts ship as defaults — the repository, the project number, which statuses keep a card on the board and which carry a lane. What is personal is not guessed: leave `groundControl.github.logins` empty and the board asks for your GitHub logins in place, since every query it makes is `assignee:` and picking one for you would put somebody else's issues on your board.
+Run **Ground Control: Open Board** from the command palette. Team-wide facts ship as defaults — the project number, which statuses keep a card on the board and which carry a lane. Two settings name you and your work, so neither is guessed: `groundControl.github.repo` is the repository work is tracked in, and the board reads nothing until it is set. Leave `groundControl.github.logins` empty and the board asks for your GitHub logins in place, since every query it makes is `assignee:` and picking one for you would put somebody else's issues on your board.
 
 Opening the board is also what starts the hub and installs the activity hooks into your Claude Code settings. A developer who never opens it has nothing running and nothing written to `~/.claude`.
 
@@ -147,6 +147,7 @@ Route by route, in [docs/architecture.md](docs/architecture.md).
 flowchart BT
     core["core"]
     claude["agent-claude"]
+    codex["agent-codex"]
     hostvs["host-vscode"]
     gh["github"]
     board["board"]
@@ -157,6 +158,7 @@ flowchart BT
     chrome["extensions/chrome-github-board"]
 
     claude --> core
+    codex --> core
     hostvs --> core
     gh --> core
     board --> core
@@ -185,6 +187,7 @@ Dashed edges are type-only, erased at build.
 | --- | --- |
 | `packages/core` | The seams, the neutral `Session`, the lane and card types, the client protocol, shared helpers. Names no adapter |
 | `packages/agent-claude` | The `claude` adapter: `claude agents --json`, transcript titles, the hook writer, the marker reader |
+| `packages/agent-codex` | The `codex` adapter: the hook writer, the markers that are its roster, the rollout history reader |
 | `packages/host-vscode` | The `vscode` adapter's headless half: lock files, window stores, the placement table, the open plan, the changes fold |
 | `packages/github` | The `github` work source: assigned issues through the `gh` CLI |
 | `packages/board` | Merge and lane rules, and what a card is asking for |
@@ -194,7 +197,7 @@ Dashed edges are type-only, erased at build.
 | `extensions/ground-control` | The VS Code client and the `vscode` resident half; bundles the hub as `dist/hub.js`. Reaches `board` and `github` for the two settings readers, which stay in the client because what they read is VS Code's own settings |
 | `extensions/chrome-github-board` | The Chrome client: MV3 worker, content script, overlay DOM layer. No build step — Chrome loads the directory as it stands |
 
-**Nothing outside `extensions/ground-control` may import `vscode`.** That boundary is what makes the logic testable in vitest — a module importing `vscode` can only be verified by hand, so decisions live in a `packages/*` module and the extension stays thin. One package per adapter is what makes the seams enforceable: `agent-claude` cannot reach `host-vscode`, and each carries its own coverage floor.
+**Nothing outside `extensions/ground-control` may import `vscode`.** That boundary is what makes the logic testable in vitest — a module importing `vscode` can only be verified by hand, so decisions live in a `packages/*` module and the extension stays thin. One package per adapter is what makes the seams enforceable: `agent-claude` cannot reach `agent-codex` or `host-vscode`, and each carries its own coverage floor.
 
 ## Tech stack
 

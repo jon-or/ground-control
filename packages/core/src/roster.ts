@@ -1,5 +1,6 @@
 import { basename } from './paths.js';
 import type { ActivityChange } from './agent.js';
+import type { Snapshot } from './protocol.js';
 import type { Session } from './types.js';
 
 /**
@@ -33,4 +34,30 @@ export function unreportedSessions(sessions: readonly Session[], installedAt: nu
  */
 export function sessionLabel(session: Session): string {
   return session.title ?? session.details['name'] ?? session.details['shortId'] ?? basename(session.cwd);
+}
+
+/**
+ * The agent that reported a session, read off the snapshot a client is holding. Claude where the board has never
+ * seen the id, which is the only answer available: the id says nothing about which CLI produced it.
+ *
+ * A client needs this because an open has to say whose extension is ready before the hub has decided anything, and
+ * two agents' sessions sit on one card. It lives here rather than in a client because it is a decision, and a
+ * decision in a module that imports `vscode` is one no test can reach.
+ */
+export function agentOfSession(snapshot: Snapshot | undefined, sessionId: string): string {
+  for (const lane of snapshot?.lanes ?? []) {
+    for (const card of lane.cards) {
+      const found = card.sessions.find((session) => session.sessionId === sessionId);
+
+      if (found) {
+        return found.agent;
+      }
+
+      if (card.lastSession?.sessionId === sessionId) {
+        return card.lastSession.agent;
+      }
+    }
+  }
+
+  return 'claude';
 }

@@ -53,7 +53,7 @@ describe('the vscode host adapter', () => {
   });
 
   it('refuses a session whose agent this host has no placement for', () => {
-    const codex = { ...held, agent: 'codex' };
+    const codex = { ...held, agent: 'gemini' };
     const plan = makeVscodeHost().plan(request({ sessions: [codex], surfaces: [] }));
 
     expect('refusal' in plan && plan.refusal).toBe('other-agent');

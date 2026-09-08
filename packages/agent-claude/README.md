@@ -13,9 +13,7 @@ An adapter owns **its own transport** — `MachineDeps` deliberately carries no 
 
 Set `defaultEnabled: false` for anything that is not the developer's primary agent. R30 says optional tools are detected and never required — a CLI nobody asked for must not produce a "not found" notice on every refresh.
 
-**The interface is not proven beyond one CLI.** `codex-cli` is installed here and is not shaped like `claude agents --json`: no subcommand lists sessions as JSON, the only machine-readable list is `Thread/list` over a `codex app-server` JSON-RPC daemon with cursor pagination, and its transcripts are date-partitioned under `~/.codex/sessions/YYYY/MM/DD/` with the cwd inside the file rather than in a directory name. `gemini` is not installed. So `AgentAdapter` is the right seam and `MachineDeps` is still Claude-shaped: a second adapter will likely need a way to read the head of a large file, and a way to tell a live session from an exited one without a CLI to ask. Expect `MachineDeps` to grow when that adapter is written, not before.
-
-Codex's threads also carry `gitInfo.branch` directly, which the current design gives an adapter no way to prefer over the branch derived from disk. Worth revisiting then.
+**Two CLIs implement this seam.** The other is `packages/agent-codex`, and it is shaped differently: Codex has no session-list command at all, so its `listSessions` reads the markers its own activity hook writes, and liveness is a pid the writer walks to (`docs/mechanics.md` §39, §40). `MachineDeps` carries no liveness reader for the same reason it carries no CLI — how an adapter proves a session alive is as specific to its CLI as how it lists one. `gemini` is not installed, so a third is unmeasured.
 
 ## The hook contract
 

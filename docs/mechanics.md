@@ -1,8 +1,8 @@
 # Verified mechanics
 
-Everything here was measured on this machine, not inferred. The baseline is **2026-09-01**, against the Claude Code CLI as installed that day and VS Code extension `anthropic.claude-code` **2.1.252**. A section that was measured against a different version says so at its top.
+Everything here was measured on this machine, not inferred. The baseline is **2026-09-01**, against the Claude Code CLI as installed that day and VS Code extension `anthropic.claude-code` **2.1.252**. The Codex sections (§39–§46) are **2026-09-07**, against VS Code extension `openai.chatgpt` **26.901.22334** and `codex-cli` **0.153.0** for §39–§42, **0.153.4** for §44 and §46 — §43 and §45 read the editor rather than the CLI. A section measured against a different version says so at its top.
 
-Re-verify anything marked **version-fragile** after a Claude Code or extension upgrade.
+Re-verify anything marked **version-fragile** after an upgrade to either CLI or either extension.
 
 ---
 
@@ -1340,7 +1340,7 @@ So nothing this project reads off an HTTP response may be decoded by the stream.
 
 ## 29. `vscode://` is one registration per user, and the test build holds it
 
-**Measured 2026-09-04, VS Code 1.136.1, Windows 11.** A browser opens a `vscode://` link with `ShellExecute`, so it goes wherever `HKCU\Software\Classes\vscode\shell\open\command` points. On this machine, after an integration run, that is:
+**Measured 2026-09-04, VS Code 1.136.1, Windows 11.** The literals below name `ownerrez.ground-control`, which is what the extension was called when they were measured; it is `groundcontrol.ground-control` now, and nothing else about the mechanism changed. A browser opens a `vscode://` link with `ShellExecute`, so it goes wherever `HKCU\Software\Classes\vscode\shell\open\command` points. On this machine, after an integration run, that is:
 
 ```
 "D:\git\ground-control\extensions\ground-control\.vscode-test\vscode-win32-x64-archive-1.136.1\Code.exe" --open-url -- "%1"
@@ -1604,3 +1604,150 @@ Measured 2026-09-07 with Playwright against `https://github.com/orgs/github/proj
 A session name is 55% of `--fgColor-default` over `--fgColor-muted`, which resolves to `#394047` light and `#c5ccd3` dark. That is the closest either board gets to the other on this element: VS Code's `--vscode-foreground` is `#3b3b3b` in Light Modern and `#cccccc` in Dark Modern, so the two boards land within a few units per channel and a row reads the same on both.
 
 **The attention pair is a foreground pair, not an emphasis pair.** `--bgColor-attention-emphasis` (`#bf8700` light, `#9e6a03` dark) is a surface colour, and a ring drawn in it sits a visible shade off the words it rings, which take `--fgColor-attention`. Using the foreground token for both puts them on one colour and lands within a few percent of the chart colours the editor board takes for the same two states — `--vscode-charts-yellow` is `#cca700` in Dark Modern against `#d29922`, and `--vscode-charts-blue` is `#3794ff` against `--fgColor-accent`'s `#4493f8`.
+
+## 39. Codex has no live session roster on this platform
+
+Measured 2026-09-07 with `codex-cli 0.153.0` on Windows 11. Version-fragile: the daemon is behind `[experimental]` and the platform gate is the CLI's own.
+
+There is no counterpart to `claude agents --json`.
+
+- `codex agents` answers "`codex agents` requires `--remote` on this platform". It is a TUI over the shared app-server daemon, and takes no `--json`.
+- `codex app-server daemon start|stop|version` answers "codex app-server daemon lifecycle is only supported on Unix platforms".
+- `codex app-server proxy` answers "failed to connect to socket at `C:\Users\<user>\.codex\app-server-control\app-server-control.sock`" — the control socket the daemon would have created.
+
+`codex app-server` itself runs fine over stdio, and its JSON-RPC protocol has everything a roster needs — but only for threads that server owns. The handshake is `initialize` with `{clientInfo:{name,version}, capabilities:{experimentalApi:true}}` and then an `initialized` notification, newline-delimited JSON both ways. Against the developer's real `~/.codex`, with five `codex.exe` processes running and a Codex panel open in VS Code:
+
+- `thread/loaded/list` answered `{"data":[],"nextCursor":null}`. It lists what *this* server holds in memory, so another process's live threads are invisible.
+- `thread/list` answered with every saved thread, each carrying `status:{"type":"notLoaded"}` — including the ones running in the editor.
+
+So liveness cannot be read out of Codex at all: the hook markers are the roster, and the pid in each marker is the evidence (§40). The VS Code extension `openai.chatgpt` spawns its own `codex app-server` (`-c features.code_mode_host=true app-server --analytics-default-enabled`) against the same home, which is why a second server sees its threads only as saved history.
+
+`thread/list` is a complete history source, and a richer one than the rollout files: `id`, `preview`, `name`, `cwd`, `createdAt`, `updatedAt`, `recencyAt`, `path`, `cliVersion`, `source`, and `gitInfo: {sha, branch, originUrl}`. It costs a process spawn and a handshake per read, which is why the file reader in §42 is what the adapter uses.
+
+The protocol also carries `turn/start`, `turn/steer`, `turn/interrupt`, `thread/resume`, `thread/fork`, `thread/archive`, `hooks/list` (§41), and the server-to-client approval request `item/commandExecution/requestApproval` with `{reason, command, itemId, threadId, turnId}`, answered `{"decision":"accept"}`.
+
+## 40. Codex hooks are its only session signal, and they carry no pid
+
+Measured 2026-09-07 with `codex-cli 0.153.0`, by installing a probe hook on every event in an isolated `CODEX_HOME` and driving real sessions through `codex exec` and `codex app-server`. Version-fragile, and the most fragile section here: the hook payload is not a documented contract.
+
+**The events.** `hooks/list` reports twelve: `preToolUse`, `permissionRequest`, `postToolUse`, `preCompact`, `postCompact`, `sessionStart`, `sessionEnd`, `userPromptSubmit`, `subagentStart`, `subagentStop`, `stop`, `interrupt`. The keys in `hooks.json` are PascalCase (`SessionStart`), `hooks/list` reports them camelCase, and the payload's own `hook_event_name` is PascalCase.
+
+**The payload is Claude-shaped**, on stdin as one JSON object. Every event carries `session_id`, `transcript_path`, `cwd` and `hook_event_name`; `SessionEnd` carries nothing else but `reason`, and every other event adds `model` and `permission_mode`, plus `turn_id` where it belongs to a turn. Then per event: `source` on `SessionStart` (`startup`), `prompt` on `UserPromptSubmit`, `tool_name`/`tool_input`/`tool_use_id` on `PreToolUse`, `tool_name`/`tool_input` on `PermissionRequest` — with the human question in `tool_input.description` — `tool_response` as well on `PostToolUse`, `stop_hook_active` and `last_assistant_message` on `Stop`, and `reason` on `SessionEnd` (`other`).
+
+**One approval, in order:** `PreToolUse`, `PermissionRequest`, the decision, `PostToolUse`. Over the app-server the same gate shows as `thread/status/changed` moving to `{"type":"active","activeFlags":["waitingOnApproval"]}` and back. `permission_mode` was `default` under `approval_policy=on-request` and `bypassPermissions` under `--dangerously-bypass-approvals-and-sandbox`.
+
+**Codex runs a command hook through a shell**, so a `node` writer's parent is `pwsh.exe`/`powershell.exe` and Codex's own process is its *grandparent*; the same grandparent pid appeared on every event of one session. No environment variable carries it — the only `CODEX_*` variable in a hook's environment is `CODEX_HOME`. `(Get-Process -Id $pid).Parent` costs 20 ms but is PowerShell 7's and absent from 5.1; `Get-CimInstance Win32_Process` costs 250 ms per hop and works on both, so the writer walks with CIM and copies the pid forward onto every later marker. A walk that finds nothing is retried on the next event that may create a marker — a session's start or a prompt — and never on a tool call, because the walk must not sit between reading a marker and replacing it.
+
+**Hooks fire concurrently.** `SessionStart` and `UserPromptSubmit` landed in the same millisecond, and one writer's `renameSync` over the other's marker failed on Windows — leaving a `<id>.json.<pid>.tmp` orphan and losing an event. The writer retries that rename for about 200 ms and deletes its temporary file if it never lands.
+
+**A killed process fires no `SessionEnd`.** `SIGKILL` on an app-server mid-turn left the marker behind with no further events. That is why marker presence is not liveness, and why the pid is what the roster tests.
+
+**What the pid does not settle.** A pid is not an identity: an operating system reuses one, so a marker whose Codex process was killed reads as live again once something else takes its number. Nothing cheap corroborates it — the walk's own `CreationDate` would, at a CIM query per session per poll — so the bound is the marker sweep, and a phantom card is possible until it runs.
+
+## 41. Codex will not run a hook it has not been told to trust
+
+Measured 2026-09-07 with `codex-cli 0.153.0` in an isolated `CODEX_HOME`. Version-fragile: neither the trust key nor its hash is a documented format.
+
+A newly written `hooks.json` entry is inert. `hooks/list` reports each entry with `trustStatus: "untrusted"` and a `currentHash` (`sha256:…`), and none of them ran: under `codex exec` the entries fired only with `--dangerously-bypass-hook-trust`, which also writes an error item into the session.
+
+Trust is a `config.toml` block per entry, keyed by the entry's own key:
+
+```toml
+[hooks.state.'C:\Users\<user>\.codex\hooks.json:session_start:0:0']
+trusted_hash = "sha256:3db5a9dec1d643707b7cf51346b2d258cf03dec8c39793b89bd77c0b8faf1bf3"
+```
+
+Writing back the `currentHash` that `hooks/list` reported flipped all twelve entries to `trusted`, and they then fired with no flag at all. The key is `<hooks file>:<snake_case event>:<group index>:<entry index>`, and `trustStatus` has four values — `managed`, `untrusted`, `trusted`, `modified` — so changing a command re-arms the prompt.
+
+**Two entry fields do not survive as written.** `timeout` is clamped to 3 s on `SessionEnd` and `Interrupt`, and a longer one is reported as an error item in the developer's own session on every start, which is why those two entries ask for 3. And `async: true` is honoured on eleven events but reported back as `false` on `sessionEnd`: Codex has to run that one before it exits, so the work there must stay a single unlink.
+
+An entry's shape is `{"hooks":{"<Event>":[{"hooks":[{"type":"command","command":"node \"<path>\"","async":true,"timeout":5}]}]}}`. Codex takes the whole command as one string — there is no `args` array — and `matcher`, `enabled` and `isManaged` are the other fields `hooks/list` reports.
+
+**Codex does not rewrite the file.** After a real session against a home the board had installed into, `hooks.json` was byte-identical and its modified time had not moved; the plan read it back as up to date, and every entry was still `trusted`. So the fields `hooks/list` reports beyond what the board writes are Codex's view of an entry rather than something it persists, and an install converges on its second run instead of rewriting the file — and re-arming the trust prompt — on every board open.
+
+## 42. Where Codex saves a thread
+
+Measured 2026-09-07 with `codex-cli 0.153.0` against `~/.codex` on this machine. Version-fragile: the rollout record is not a documented format.
+
+Rollouts live at `~/.codex/sessions/YYYY/MM/DD/rollout-<iso>-<session id>.jsonl`, and the first line is a `session_meta` record carrying `session_id`, `timestamp`, `cwd`, `originator` (`codex_vscode`), `cli_version`, `source` (`vscode`), and `git: {commit_hash, branch, repository_url}`. That line measured 8–78 kB across all fifteen rollouts on this machine, because the model's whole instruction text is inline and grows with the plugins and skills a session loaded. A head read has to be large enough to hold it whole, and a reader whose bound is too small must say so rather than read the file as holding no session: two of the fifteen are over 50 kB.
+
+`~/.codex/session_index.jsonl` is one `{id, thread_name, updated_at}` per line and holds only threads Codex has named: five lines against twenty rollouts on disk. So it is the title source and never the roster.
+
+The cwd is inside the file rather than in a directory name, so there is no slug rule to reproduce — and no equivalent of Claude's project directory to scan per checkout.
+
+## 43. The Codex VS Code extension's surfaces
+
+Measured 2026-09-07 by reading `openai.chatgpt-26.901.22334-win32-x64`. Version-fragile: these are one extension version's identifiers.
+
+- Editor-tab webview: `panelViewType = "chatgpt.panelView"`, a static in the bundle. It is **not** what a thread tab carries — that is `chatgpt.conversationEditor`, measured in §44, and it is what a placement row keys on.
+- Sidebar webviews: `chatgpt.sidebarView` and `chatgpt.sidebarSecondaryView`, one or the other registered per VS Code version.
+- Commands: `chatgpt.openSidebar`, `chatgpt.newCodexPanel`, `chatgpt.newChat`, `chatgpt.openCommandMenu`, `chatgpt.implementTodo`, `chatgpt.addToThread`, `chatgpt.addFileToThread`. None takes a thread id — a thread is opened as a resource instead, which §44 measures.
+- `contributes.customEditors`: `chatgpt.conversationEditor`, selector `openai-codex:/**/*`. This is the reveal (§44).
+- `chatSessions` contributes the session type `openai-codex`, which is what makes VS Code's own `workbench.action.chat.openSessionWithPrompt.openai-codex` and its siblings exist. Not measured here; §44 uses the resource instead.
+
+## 44. A Codex thread is an editor resource, and that is how one is opened
+
+Measured 2026-09-07 with `codex-cli 0.153.4` and VS Code extension `openai.chatgpt` **26.901.22334**, in a real window. Version-fragile: the scheme, the view type and the memento shape are one extension version's.
+
+**The reveal.** A thread is not a webview holding an id — it is a resource with a custom editor registered for it. `contributes.customEditors` declares `chatgpt.conversationEditor` with the selector `openai-codex:/**/*`, and `resolveCustomEditor` requires scheme `openai-codex`, authority `route`, and a path of `/local/<id>` or `/remote/<id>`. So the call is VS Code's own:
+
+```js
+vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(`openai-codex://route/local/${threadId}`))
+```
+
+The Codex extension makes the same call on itself — its `createNewPanel` is `vscode.openWith` on `openai-codex://route/extension/panel/new` — which is why this is the supported shape rather than a trick.
+
+What it does, measured: a tab appears carrying the thread's **own title**, which is the thread id itself until the extension has loaded one; a second call **re-activates the same tab** rather than forking a surface, which is the opposite of Claude's behaviour (§6); and a thread whose rollout records `d:\git\ground-control` opened correctly in a window rooted somewhere else — **the recorded directory does not constrain where a thread can be opened**. Corroborated by the thread's writer-lock mtime moving, and by the IPC router below answering `no-client-found` for that thread before the call and naming a client after it.
+
+**Two things the call will not tell you.** `vscode.open` resolves whether or not anything rendered — measured in a profile with the Codex extension absent, where it still resolved. And VS Code opens *a* tab for the resource anyway, with nothing to render it. So a reveal that counted tabs by URI would call that a success: what tells a real reveal from it is counting tabs whose `viewType` is the agent's own.
+
+**Which thread a tab holds.** In `memento/workbench.parts.editor`, at the same nesting as Claude's (§21) — the editor grid, each tab `{id, value}` with `value` a JSON string parsed a second time. The Codex entry's outer id is `workbench.editors.webviewEditor` where Claude's is `workbench.editors.webviewInput`, and inside:
+
+| | Codex | Claude |
+|---|---|---|
+| `providedId` | `chatgpt.conversationEditor` | `claudeVSCodePanel` |
+| `viewType` | `chatgpt.conversationEditor` | `mainThreadWebview-claudeVSCodePanel` |
+| the id is in | `editorResource.path` = `/local/<id>` | `state` (a JSON string) → `sessionID` |
+| `state` | absent | present |
+
+`editorResource` is a marshalled URI (`$mid: 1`): read `path`, not `fsPath` (Windows separators) and not `external` (percent-encoded). Discriminate on `providedId`; the outer id is not needed.
+
+**When it lands.** The tab appeared in the memento **47 s** after the reveal, with the window still open — VS Code's own storage flush cycle, the same one Claude's rides (§21), with no Codex-specific trigger. So absence is "not flushed yet", never "no session".
+
+**A sidebar thread is invisible.** `memento/webviewView.chatgpt.sidebarSecondaryView` is `{}` — 2 bytes — whatever the sidebar is showing, and the thread never appears in the editor memento either. The only other key the extension writes is `workbench.view.extension.codexSecondaryViewContainer.state`, which carries `{"chatgpt.sidebarSecondaryView":{"collapsed":…,"isHidden":…}}` and names no thread; it is recorded in `codex-tab.json` so that stays checkable. Claude's sidebar carries `sessionID`; Codex's carries nothing. The editor tab is the only readable surface.
+
+**Starting one.** `chatgpt.implementTodo` is declared as taking no arguments, and its runtime handler reads `{fileName, cwd, line, comment}`: it starts a thread on **the caller's `cwd`**, auto-submits, and navigates the sidebar to it — measured, with a real rollout carrying the supplied directory and the model's reply. The prompt is wrapped in a fixed "implement the comment on `<file>:<line>` … then remove it" template, and the result lands in the sidebar, which is the one surface nothing can read back. `chatgpt.newCodexPanel` opens an empty panel.
+
+**What is not there.** `vscode.extensions.getExtension('openai.chatgpt').activate()` resolves to `undefined`, so there is no extension API (the same dead end as Claude, §22). `vscode://openai.chatgpt/local/<id>` and `/c/<id>` fired at a window **never resolved** — two calls left pending for over ten minutes with no tab and no error — so there is no deep link a client resident in nothing can use. And nothing on disk says which window holds which thread: `~/.codex/thread-writer-locks/<threadId>.lock` names the thread being written, never the window writing it.
+
+**What replaces the lock file: `\\.\pipe\codex-ipc`.** An undocumented router the extension runs (`~/.codex/ipc/ipc.sock` on POSIX), framed as a uint32LE byte length then JSON, opened with `{type:'request', requestId, method:'initialize', params:{clientType}}` → `{result:{clientId}}`. Two requests matter: `thread-owner-discovery` (`{hostId:'local', conversationId}`, version 1) answers with the client id of the window that has the thread loaded, and `ide-context` (`{workspaceRoot}`) is answered only by a window whose folders contain that root — though the match is a **prefix**, so a parent-folder window answers too and the fastest wins, which makes it a hint rather than a key. It also broadcasts `thread-stream-following-changed`, `thread-stream-state-changed` and `client-status-changed` unsolicited. A client that connects must answer `client-discovery-request` with `{canHandle:false}` or it stalls other windows' untargeted requests for ten seconds.
+
+## 45. Handing a session to the window that was just raised
+
+Measured 2026-09-07, VS Code 1.136.1.
+
+An agent whose extension answers no URI cannot be reached in another window the way Claude's is (§7): the board raises the window and then has nothing to fire into it. Codex is that agent — its deep links never resolved (§44).
+
+**The board's own URI is the way in**, because Ground Control is installed in every window: `vscode://groundcontrol.ground-control/open?session=<id>&agent=<agent>&hop=1`. The window that receives it reveals the session itself instead of asking the hub to plan it again.
+
+Three things this rests on, and where each comes from.
+
+- **A URI fired after raising a window lands in that window.** §7's third row measured exactly this shape — a fire immediately after `code <folder>` landed in that folder's window. The rule is VS Code's own routing, not the agent's, so it carries over; it has not been re-measured for the board's own URI.
+- **A handed-over request is never routed onward.** Measured in a real extension host: a URI carrying `hop=1` reaches the handler and goes to the hub, which answered — an unknown id came back refused by name, as it does for a plain link. The hub plans it with every check it makes and refuses to send it to a third window, which is what a hand-over needs, because the surface record a plan reads can be up to a minute old (§44) and this link is reachable from any page in the browser.
+- **The agent rides in the URI.** The receiving window may never have had a board open, so it may hold no snapshot to look the agent up in, and a window that guessed would run the wrong extension's reveal.
+
+**What the router will not settle.** `ide-context` matches a workspace root by **prefix**, so a window on a parent folder answers for a child's root and the fastest reply wins: two scratch folders under one directory returned the same client id. It is a hint, not a window key. `thread-owner-discovery` answers `error: no-client-found` for a thread no window holds, which is what makes it a usable check of whether a reveal landed — but only once a window holds it.
+
+## 46. A dispatched Codex run has no network until it is given one
+
+Measured 2026-09-07 with `codex-cli 0.153.4` on Windows 11, against `codex exec --sandbox workspace-write -c approval_policy="never"` in a git checkout. Version-fragile: the config key is one CLI version's.
+
+A TCP connect from inside the sandbox fails **`EACCES`** — measured with `node -e` opening `api.github.com:443`, which connects in 11 ms outside it. Adding one override opens it, with the same run otherwise unchanged:
+
+```
+-c sandbox_workspace_write.network_access=true
+```
+
+So `--sandbox workspace-write` on its own cannot `git push`, `gh` anything, or reach a package registry, and a merge action that ends in a push would fail its last step having done the work. The board passes the override with `workspace-write` for that reason; `read-only` keeps no network, because a plan does not push. `--dangerously-bypass-approvals-and-sandbox` has the network because it has no sandbox at all.
+
+`codex sandbox`, the CLI's own subcommand for running a command under the same Windows restricted token, **does not read** `sandbox_workspace_write.network_access`: the connect fails `EACCES` with the override set. It builds its sandbox state from its own flags, so it cannot be used to check what a `codex exec` run will get.

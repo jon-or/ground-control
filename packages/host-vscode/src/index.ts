@@ -3,7 +3,7 @@ export type { VscodeConfig, VscodeHost, VscodeRoute } from './adapter.js';
 export { changesPlan, noRepository, repositoryRefusal } from './changes.js';
 export type { ChangeKind, ChangedPath, ChangesPlan, ChangesRequest, DiffRow, DiffSide } from './changes.js';
 export { PLACEMENTS, claudeDirOf } from './placements.js';
-export { sessionFromUri } from './openUri.js';
+export { handOverUri, handedOver, sessionFromUri } from './openUri.js';
 export type { AgentPlacement } from './placements.js';
 export { SETTLING_MS, VSCODE_ROUTES, openableSessions, planOpen, resumeRefusal, strayFrom, verifyOpen } from './open.js';
 export { ideWindowsFrom, listeningFrom, liveRootsOf, liveWindows, processesFrom, windowForProcess } from './ide.js';

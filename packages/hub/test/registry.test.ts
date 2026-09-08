@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
 import { CLAUDE_AGENT_ID } from '@ground-control/agent-claude';
+import { CODEX_AGENT_ID } from '@ground-control/agent-codex';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import { configureHosts, configureSources, defaultConfig, makeRegistries } from '../src/registry.js';
 import { fakeAgent } from './helpers.js';
 
 describe('the registries', () => {
-  it('carry the agent and the host that ship', () => {
+  it('carry both agents, the host, and the source that ship', () => {
     const registries = makeRegistries();
 
-    expect(registries.agents.map((a) => a.id)).toEqual([CLAUDE_AGENT_ID]);
+    expect(registries.agents.map((a) => a.id)).toEqual([CLAUDE_AGENT_ID, CODEX_AGENT_ID]);
     expect(registries.hosts.map((h) => h.id)).toEqual([VSCODE_HOST_ID]);
     expect(registries.sources.map((s) => s.id)).toEqual([GITHUB_SOURCE_ID]);
   });

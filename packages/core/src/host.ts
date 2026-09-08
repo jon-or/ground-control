@@ -66,6 +66,12 @@ export interface OpenRequest {
   workspaceRoot: string | null;
   /** Whether the agent's own extension is available in the host to perform a reveal. */
   extensionReady: boolean;
+  /**
+   * Whether the board raised this window and handed it the session, rather than a developer clicking a link. A
+   * hand-over is revealed by the window that received it or refused there: routing one onward is how two windows
+   * pass a session back and forth, because the surface record a plan reads can be a minute old (§44, §45).
+   */
+  handedOver?: boolean;
   /** Epoch milliseconds, which is what a session's age is measured against. */
   now: number;
 }

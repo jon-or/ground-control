@@ -55,7 +55,7 @@ async function until(what, why, within = 30_000) {
   }
 }
 
-const api = () => vscode.extensions.getExtension('ownerrez.ground-control').activate();
+const api = () => vscode.extensions.getExtension('groundcontrol.ground-control').activate();
 
 describe('the hub as its own process', () => {
   /**

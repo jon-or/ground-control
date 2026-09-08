@@ -4,7 +4,7 @@ const vscode = require('vscode');
 const settings = () => vscode.workspace.getConfiguration('groundControl');
 
 async function api() {
-  return vscode.extensions.getExtension('ownerrez.ground-control').activate();
+  return vscode.extensions.getExtension('groundcontrol.ground-control').activate();
 }
 
 /** Polls the snapshot rather than sleeping: a configure triggers a read, and a read is not instant. */

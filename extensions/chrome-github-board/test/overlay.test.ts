@@ -2041,7 +2041,7 @@ describe('going to a session from the browser', () => {
     const chip = badges()[0]!.querySelector<HTMLAnchorElement>('.gc-session')!;
 
     expect(chip.tagName).toBe('A');
-    expect(chip.getAttribute('href')).toBe(`vscode://ownerrez.ground-control/open?session=${SESSION_ID}`);
+    expect(chip.getAttribute('href')).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}`);
     // Without this, a few pixels of drift on the way to a click drag the card GitHub wraps around the footer.
     expect(chip.getAttribute('draggable')).toBe('false');
   });
@@ -2132,7 +2132,7 @@ it('links historical rows through the same VS Code handler without opening the G
   const entry = card(4501, { sessions: [], lastSession });
   paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [SESSION_ID] }) }), NOW, actions);
   const link = document.querySelector<HTMLAnchorElement>('a.gc-historical')!;
-  expect(link.href).toBe(`vscode://ownerrez.ground-control/open?session=${SESSION_ID}`);
+  expect(link.href).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}`);
   expect(link.draggable).toBe(false);
   expect(link.getAttribute('aria-label')).toContain('resume this session in VS Code');
   expect(tipOf(link.querySelector('.gc-state'))).toContain('Resume this session');

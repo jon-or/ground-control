@@ -60,8 +60,8 @@ describe('planOpen refuses, by name', () => {
     expect(refusalOf(plan)).toBe('unknown-session');
   });
 
-  it('refuses another agent, because the command belongs to the Claude extension', () => {
-    const other = { ...live, agent: 'codex' };
+  it('refuses another agent, because this host has no placement for it', () => {
+    const other = { ...live, agent: 'gemini' };
 
     expect(refusalOf(decide(request(other, { sessions: [other] })))).toBe('other-agent');
   });
@@ -322,7 +322,7 @@ describe('openableSessions', () => {
   });
 
   it('leaves out a session another CLI reported, since the command is the Claude extension\u2019s', () => {
-    const mixed = [live, twin, { ...away, agent: 'codex' }];
+    const mixed = [live, twin, { ...away, agent: 'gemini' }];
 
     expect(openableSessions(mixed, PLACEMENTS).sort()).toEqual([live.sessionId, twin.sessionId].sort());
   });
@@ -388,5 +388,36 @@ describe('resuming historical sessions', () => {
     expect(resumeRefusal(live.sessionId, [live])).toContain('now active');
     expect(resumeRefusal(live.sessionId, [])).toBeNull();
     expect(resumeRefusal(live.sessionId, [{ ...live, finished: true }])).toBeNull();
+  });
+});
+
+describe('planning a Codex session, which opens as a resource rather than a webview', () => {
+  const codex = session({ agent: 'codex', sessionId: '01a072f9-c43a-73e2-a4fd-3a63e73ad152' });
+
+  it('reveals it in this window like any other placed agent', () => {
+    expect(routeOf(decide(request(codex)))).toBe('reveal-here');
+  });
+
+  it('names the agent whose extension is missing, rather than always naming Claude', () => {
+    const plan = decide(request(codex, { extensionReady: false }));
+
+    expect(refusalOf(plan)).toBe('no-extension');
+    expect('refusal' in plan && plan.message).toContain('codex');
+  });
+
+  it('names an agent this editor has no placement for without claiming only Claude opens in a tab', () => {
+    const plan = decide(request(session({ agent: 'gemini' })));
+
+    expect(refusalOf(plan)).toBe('other-agent');
+    expect('refusal' in plan && plan.message).toContain('gemini');
+    // Two agents open in a tab now, so a refusal that says only one does is a refusal that misleads.
+    expect('refusal' in plan && plan.message).not.toContain('Claude');
+  });
+
+  it('sends the developer to the window already showing it, the same as Claude', () => {
+    const plan = decide(request(codex, { surfaces: [tabIn(codex, away.cwd)], liveRoots: [away.cwd] }));
+
+    expect(routeOf(plan)).toBe('reveal-elsewhere');
+    expect('root' in plan && plan.root).toBe(away.cwd);
   });
 });

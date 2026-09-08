@@ -255,7 +255,7 @@ Several developers work under both a personal account and a bot or AI account. W
 One clone with branch switching, many clones, or many worktrees — all supported. The developer says where their code lives; the board does not impose a layout.
 
 **R30. Optional tools are detected, never required.**
-If a second AI CLI is installed, features that use it appear. If not, the board works without them and does not nag. Nothing is broken by absence.
+If a second AI CLI is installed, features that use it appear. If not, the board works without them and does not nag. Nothing is broken by absence. Codex is that second CLI: it ships off, and until the developer names it in the agents setting the board reads nothing of it and writes nothing into its home. Named, it shows live sessions and saved threads with a phase, takes the developer to the tab a thread is open in, and starts work on a card. What it still refuses it says plainly rather than half performing: it classifies no card, it will not start work under a permission mode whose approvals nobody is there to answer, and it cannot reach a session held in Codex's sidebar — that surface records nothing the board can read.
 
 **R31. Permissions for agents the board starts default to the safe setting, and loosening them is explicit.**
 A developer who has not thought about it gets the conservative behavior. Anyone who wants agents to act without asking turns that on themselves, knowingly.

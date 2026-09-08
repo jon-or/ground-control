@@ -84,6 +84,8 @@ interface Harness {
   issueReads: number;
   /** What each install run was asked to do, in order. */
   installs: ('install' | 'remove')[];
+  /** Which agent ids each install was asked to reach, or null where it was asked to reach every one. */
+  installedFor: (readonly string[] | null)[];
   /** What the install reports next, or null for a run that changed nothing. */
   activity: ActivityState | null;
   detected: string[];
@@ -138,6 +140,7 @@ function harness(
       return counts.issues;
     },
     installs: [],
+    installedFor: [],
     logged: logging.messages,
     activity: null,
     detected,
@@ -181,8 +184,9 @@ function harness(
     },
     // Never the real one: it writes an agent's settings file, and none of these tests is about that. What it was
     // asked for is recorded, because "turn this off and the entries go" is a claim only the argument proves.
-    syncActivity: (_registries, wanted) => {
+    syncActivity: (_registries, wanted, _home, enabled) => {
       shape.installs.push(wanted);
+      shape.installedFor.push(enabled === undefined ? null : [...enabled].sort());
 
       return shape.activity ?? { wanted, plan: 'up-to-date', added: 0, failure: null };
     },
@@ -1549,6 +1553,70 @@ describe('the activity signal', () => {
     await settle();
 
     expect(h.installs).toEqual(['install']);
+  });
+
+  /**
+   * R30: the install reaches the agents the configuration names and no others, so the board never writes into the
+   * settings of a CLI it was not asked to read. Only the argument proves it — the fake writes no file.
+   */
+  it('installs for the agents the configuration names, and reaches every one only to remove', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(h.installedFor).toEqual([['fake']]);
+
+    h.clock.advance(2000);
+    h.hub.receive(client, { type: 'configure', config: h.config({ installActivity: false }) });
+    await settle();
+
+    // A removal is the developer turning the hooks off, so it carries no ids: leaving another agent's entries in
+    // place would leave a writer nobody maintains firing (R34).
+    expect(h.installedFor).toEqual([['fake'], null]);
+  });
+
+  /**
+   * The marker watcher is what turns a hook's write into a phase on a card, and it is armed per agent. An agent the
+   * configuration does not name is not read at all, so watching its directory would report sessions of a CLI the
+   * board was told to leave alone; and the watchers are re-armed on a change, or naming it again would arm nothing.
+   */
+  it('watches the marker directory only while the configuration names the agent', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ agents: [] }) });
+    await settle();
+
+    expect(h.watching).toBe(false);
+    expect(() => h.signal([{ kind: 'created', sessionId: 'thread-1' }])).toThrow();
+
+    h.clock.advance(2000);
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    expect(h.watching).toBe(true);
+    // And the watcher that came back is a live one: a re-arm that only disposed would leave this reaching nothing.
+    h.signal([{ kind: 'created', sessionId: 'thread-1' }]);
+  });
+
+  it('installs again when the configuration names an agent it did not name before', async () => {
+    const h = harness();
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    h.clock.advance(2000);
+    h.hub.receive(client, {
+      type: 'configure',
+      config: h.config({ agents: [{ id: 'fake', path: 'claude' }, { id: 'other', path: 'other' }] }),
+    });
+    await settle();
+
+    // A named agent that was not named before has no signal in place yet, so the settled run is the wrong one.
+    expect(h.installedFor).toEqual([['fake'], ['fake', 'other']]);
   });
 
   /** R34: turning it off takes the entries away, whether or not a board is open to see it happen. */

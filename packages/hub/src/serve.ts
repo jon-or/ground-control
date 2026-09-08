@@ -47,7 +47,7 @@ export function spawnEnvironment(env: NodeJS.ProcessEnv = { ...process.env }): N
 /** A hub reading the given home, wired to the real machine. The same object whether it is served or held in process. */
 export function makeHub(log: Logger, home: string = homedir()): Hub {
   return new Hub(
-    realHubDeps(makeRegistries(log), makeLaneStore(home), makeMarkStore(home), makeSettingsStore(home), home, watchDir, log),
+    realHubDeps(makeRegistries(log, home), makeLaneStore(home), makeMarkStore(home), makeSettingsStore(home), home, watchDir, log),
   );
 }
 

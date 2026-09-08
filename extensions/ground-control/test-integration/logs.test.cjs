@@ -6,7 +6,7 @@ const vscode = require('vscode');
 const home = process.env.GC_TEST_HOME;
 const hubLog = join(home, '.claude', 'ground-control', 'hub.log');
 
-const api = () => vscode.extensions.getExtension('ownerrez.ground-control').activate();
+const api = () => vscode.extensions.getExtension('groundcontrol.ground-control').activate();
 
 async function until(what, why, within = 30_000) {
   const deadline = Date.now() + within;

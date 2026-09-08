@@ -11,6 +11,8 @@ describe('the package public surface', () => {
       'changesPlan',
       'claudeDirOf',
       'defaultUserDir',
+      'handOverUri',
+      'handedOver',
       'ideWindowsFrom',
       'listeningFrom',
       'liveRootsOf',

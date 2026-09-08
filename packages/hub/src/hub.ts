@@ -43,7 +43,7 @@ export interface HubDeps {
   /** What the hub says about itself. Written to `hub.log` whatever happens; streamed only to a client that asked. */
   log: Logger;
   /** The activity install, which is also the thing a test replaces to keep its hands off any settings file. */
-  syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string): ActivityState;
+  syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string, enabled?: ReadonlySet<string>): ActivityState;
 }
 
 interface Connected {
@@ -149,7 +149,7 @@ export function realHubDeps(
     actions,
     settings,
     log,
-    syncActivity: (regs, wanted, where) => syncActivity(regs.agents, wanted, where),
+    syncActivity: (regs, wanted, where, enabled) => syncActivity(regs.agents, wanted, where, false, enabled),
   };
 }
 
@@ -331,7 +331,7 @@ export class Hub {
         return;
 
       case 'open':
-        void this.#open(connected, message.sessionId, message.extensionReady);
+        void this.#open(connected, message.sessionId, message.extensionReady, message.handedOver === true);
 
         return;
 
@@ -424,8 +424,17 @@ export class Hub {
     // them off, and then take them away again (R34).
     // Forced, not lazy: `#ensureActivity` keeps a settled run, and a setting that changed is exactly the case
     // where the settled run is the wrong one (R34).
-    const changed = first || before.installActivity !== parsed.config.installActivity;
+    // A named agent that was not named before has no signal in place yet, so the install runs for it too.
+    const agents = (config: HubConfig): string => config.agents.map((agent) => agent.id).sort().join(',');
+    const changed =
+      first ||
+      before.installActivity !== parsed.config.installActivity ||
+      agents(before) !== agents(parsed.config);
     const resynced = changed ? this.#installActivity() : this.#ensureActivity();
+
+    if (changed) {
+      this.#armWatchers();
+    }
 
     if (
       before.refreshIntervalMs !== parsed.config.refreshIntervalMs ||
@@ -487,11 +496,17 @@ export class Hub {
   }
 
   #installActivity(): ActivityState {
-    this.#activity = this.#deps.syncActivity(
-      this.#deps.registries,
-      this.#config.installActivity ? 'install' : 'remove',
-      this.#deps.home,
-    );
+    // An install reaches only the agents the configuration names, so the board never writes into the settings of a
+    // CLI it was not asked to read (R30). A removal reaches every one of them: it is the developer turning the hooks
+    // off, and leaving another agent's entries behind would leave a writer nobody maintains firing (R34).
+    this.#activity = this.#config.installActivity
+      ? this.#deps.syncActivity(
+          this.#deps.registries,
+          'install',
+          this.#deps.home,
+          new Set(this.#config.agents.map((agent) => agent.id)),
+        )
+      : this.#deps.syncActivity(this.#deps.registries, 'remove', this.#deps.home);
 
     return this.#activity;
   }
@@ -613,9 +628,20 @@ export class Hub {
     }
   }
 
+  /**
+   * One watcher per configured agent that offers a signal. Only the configured ones: an agent the board was not
+   * asked to read has no activity directory, and a watcher on a directory nothing creates retries once a second for
+   * the life of the hub. Re-armed when the configuration names a different set.
+   */
   #armWatchers(): void {
+    while (this.#watchers.length > 0) {
+      this.#watchers.pop()?.dispose();
+    }
+
+    const named = new Set(this.#config.agents.map((agent) => agent.id));
+
     for (const agent of this.#deps.registries.agents) {
-      if (agent.activity) {
+      if (agent.activity && named.has(agent.id)) {
         this.#watchers.push(
           this.#deps.watch(agent.activity.watchDir(this.#deps.home), (changes) => this.#onActivity(changes)),
         );
@@ -936,7 +962,7 @@ export class Hub {
    * Where a session can be reached, and by whom. Every route the VS Code host plans is one only a client inside that
    * application can perform, so the plan goes back to the client that asked for it rather than being carried out here.
    */
-  async #open(client: Connected, sessionId: string, extensionReady: boolean): Promise<void> {
+  async #open(client: Connected, sessionId: string, extensionReady: boolean, handedOver = false): Promise<void> {
     const named = client.hello.hostId !== null && Object.hasOwn(this.#config.hosts, client.hello.hostId);
     const host = named ? this.#deps.registries.hosts.find((h) => h.id === client.hello.hostId) : undefined;
 
@@ -1012,15 +1038,21 @@ export class Hub {
       liveWindows: windows.live,
       workspaceRoot: client.hello.workspaceRoot,
       extensionReady,
+      handedOver,
       now: this.#deps.clock.now(),
     });
 
     if ('refusal' in plan) {
       if (historical) this.#resuming.delete(sessionId);
+      this.#deps.log.info(`${client.hello.id} could not open ${sessionId}: ${plan.refusal}`, 'open');
       client.send({ type: 'notice', level: 'warning', message: plan.message, refusal: plan.refusal });
 
       return;
     }
+
+    // Written down because an open is the board reaching into the developer's editor, and the log is where they
+    // look when a click did not land — which is exactly the case where nothing else says what was decided.
+    this.#deps.log.info(`${client.hello.id} opening ${sessionId} by ${plan.route}`, 'open');
 
     if (host.residentRoutes.includes(plan.route)) {
       if (!client.hello.residentRoutes.includes(plan.route)) {

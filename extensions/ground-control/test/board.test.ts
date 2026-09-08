@@ -60,7 +60,7 @@ const checkout = {
   cwd: 'd:/git/ground-control',
   checkoutRoot: 'd:/git/ground-control',
   branch: 'master',
-  repository: 'github.com/ownerrez/ground-control',
+  repository: 'github.com/example-org/example-repo',
   issueNumber: null,
 } satisfies Partial<Session>;
 
@@ -483,7 +483,7 @@ describe('board webview', () => {
 
   it('names a card with no issue for its repository and branch, and lists every session in the checkout', () => {
     const grouped: LanedCard = {
-      key: 'session:github.com/ownerrez/ground-control#master',
+      key: 'session:github.com/example-org/example-repo#master',
       issue: null,
       issueNumber: null,
       lane: 'build',
@@ -505,10 +505,10 @@ describe('board webview', () => {
     expect(document.querySelectorAll('.card')).toHaveLength(1);
     expect(number.tagName).toBe('SPAN');
     expect(number.classList).not.toContain('link');
-    expect(number.textContent).toBe('ground-control');
+    expect(number.textContent).toBe('example-repo');
     // The owner, not the whole key: the host is in it so two hosts' copies of one name compare unequal, and it
     // tells the developer nothing about which checkout they are looking at.
-    expect(tipOf(number)).toBe('ownerrez/ground-control');
+    expect(tipOf(number)).toBe('example-org/example-repo');
     expect(card.querySelector('.title')?.textContent).toBe('master');
     expect(labels).toEqual(['reading logs', 'drafting notes']);
   });
@@ -1984,7 +1984,7 @@ describe("the card's own menu", () => {
 
   it('names the repository beside the branch on a card with no issue, which a branch alone would not', () => {
     const adHoc: LanedCard = {
-      key: 'session:github.com/ownerrez/ground-control#master',
+      key: 'session:github.com/example-org/example-repo#master',
       issue: null,
       issueNumber: null,
       lane: 'build',
@@ -1997,8 +1997,8 @@ describe("the card's own menu", () => {
     send(message({ lanes: lanes({ build: [adHoc] }) }));
     control()!.click();
 
-    expect(control()!.getAttribute('aria-label')).toBe('More actions for ground-control master');
-    expect(menu()!.getAttribute('aria-label')).toBe('Actions for ground-control master');
+    expect(control()!.getAttribute('aria-label')).toBe('More actions for example-repo master');
+    expect(menu()!.getAttribute('aria-label')).toBe('Actions for example-repo master');
   });
 
   it('opens on a click and offers the changes the card has, closing again on a second one', () => {

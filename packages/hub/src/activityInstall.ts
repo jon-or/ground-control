@@ -19,12 +19,16 @@ export interface ActivityState {
 export const BACKUPS_KEPT = 5;
 
 /**
- * The backups to delete, oldest first. Named for the time they were taken, so the names sort chronologically and the
- * newest are the tail. This list is handed to `rmSync` in the developer's home, which is why it is a tested function
- * rather than a slice expression in glue code.
+ * The backups to delete for one agent, oldest first. Named for the agent and then the time they were taken, so the
+ * names sort chronologically within an agent and two agents never compete for one retention. This list is handed to
+ * `rmSync` in the developer's home, which is why it is a tested function rather than a slice expression in glue code.
  */
-export function backupsToDelete(names: readonly string[]): string[] {
-  const ours = names.filter((name) => /^settings-backup-.+\.json$/.test(name)).sort();
+export function backupsToDelete(names: readonly string[], agent: string): string[] {
+  // A backup taken before the name carried an agent is Claude's, because Claude was the only agent that took one.
+  const legacy = agent === 'claude' ? /^settings-backup-\d/ : /^$/;
+  const ours = names
+    .filter((name) => name.endsWith('.json') && (name.startsWith(`settings-backup-${agent}-`) || legacy.test(name)))
+    .sort();
 
   return ours.slice(0, Math.max(0, ours.length - BACKUPS_KEPT));
 }
@@ -37,14 +41,39 @@ export function markerIsOrphaned(mtimeMs: number, now: number): boolean {
   return now - mtimeMs > MARKER_MAX_AGE_MS;
 }
 
+/**
+ * How long a temporary file is left alone. A writer retries its rename for about 200 ms while its `.tmp` sits on
+ * disk, and a sweep inside that window takes the file out from under it and loses the event.
+ */
+export const TEMP_MAX_AGE_MS = 60_000;
+
+/** Whether a temporary file is a failed rename rather than a write in flight. Deletes files, so it is tested. */
+export function tempIsOrphaned(mtimeMs: number, now: number): boolean {
+  return now - mtimeMs > TEMP_MAX_AGE_MS;
+}
+
+/**
+ * What a run the board started writes its own output to, named `<agent>-dispatch-<id>.log`. The hub's directory is
+ * the hub's to sweep, so the shape is named here rather than imported from whichever adapter wrote one.
+ */
+export const DISPATCH_LOG = /^[a-z][a-z0-9-]*-dispatch-.+\.log(\.err)?$/;
+
+/** How long a run's own output is kept. Long enough to read after one went wrong, short enough not to accumulate. */
+export const DISPATCH_LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Whether a run's output has been there long enough to sweep. Deletes files, so it is a tested decision. */
+export function dispatchLogIsStale(mtimeMs: number, now: number): boolean {
+  return now - mtimeMs > DISPATCH_LOG_MAX_AGE_MS;
+}
+
 /** Retried like every other read of a settings file: an install a 30 ms wait would have completed must not fail. */
-function backup(home: string, settings: string): void {
-  attempt(() => copyFileSync(settings, backupPathOf(home, new Date())));
+function backup(home: string, settings: string, agent: string): void {
+  attempt(() => copyFileSync(settings, backupPathOf(home, new Date(), agent)));
 
   try {
     const dir = groundControlDirOf(home);
 
-    for (const name of backupsToDelete(readdirSync(dir))) {
+    for (const name of backupsToDelete(readdirSync(dir), agent)) {
       rmSync(`${dir}/${name}`, { force: true });
     }
   } catch {
@@ -52,11 +81,11 @@ function backup(home: string, settings: string): void {
   }
 }
 
-function failed(wanted: Wanted, subject: string, home: string, error: unknown): ActivityState {
+function failed(wanted: Wanted, subject: string, home: string, error: unknown, added: number): ActivityState {
   return {
     wanted,
     plan: 'refuse',
-    added: 0,
+    added,
     failure: {
       subject,
       kind: 'activity-failed',
@@ -92,14 +121,28 @@ function clearMarkers(dir: string): void {
  * the adapter's; this is the file system and the lock, and nothing else. Reports what it observed, never what it
  * intended (R25).
  *
- * One state, not one per agent: only Claude offers a signal today, and a per-agent notice would be a board saying
- * two things at once about one act. The first agent that refuses is what the board reports.
+ * `enabled` is the ids the configuration names, and an agent outside it is left untouched: writing into the
+ * settings of a CLI the developer never asked the board to read would be the board's own doing (R30), and taking
+ * entries out as a side effect of a settings edit makes one typo strip a working agent's hooks. Turning the hooks
+ * off, or uninstalling, is what removes them — both pass no ids and so reach every agent.
+ *
+ * One state, not one per agent: a per-agent notice would be a board saying two things at once about one act. The
+ * first agent that refuses is what the board reports.
  */
-export function syncActivity(agents: readonly AgentAdapter[], wanted: Wanted, home: string, insist = false): ActivityState {
-  const signals = agents.flatMap((agent) => (agent.activity ? [{ id: agent.id, activity: agent.activity }] : []));
+export function syncActivity(
+  agents: readonly AgentAdapter[],
+  wanted: Wanted,
+  home: string,
+  insist = false,
+  enabled?: ReadonlySet<string>,
+): ActivityState {
+  const signals = agents.flatMap((agent) =>
+    agent.activity && (enabled?.has(agent.id) ?? true) ? [{ id: agent.id, activity: agent.activity }] : [],
+  );
   const lockPath = installLockPathOf(home);
   let held = false;
   let added = 0;
+  let reached = signals[0]?.id ?? '';
   let plan: ActivityState['plan'] = 'up-to-date';
 
   if (signals.length === 0) {
@@ -123,6 +166,7 @@ export function syncActivity(agents: readonly AgentAdapter[], wanted: Wanted, ho
     }
 
     for (const { id, activity } of signals) {
+      reached = id;
       // The writer stays on disk through a removal: a session that already loaded the old settings goes on spawning
       // it, and a missing script is a hook failure the developer sees in their own terminal.
       if (wanted === 'install') {
@@ -149,7 +193,7 @@ export function syncActivity(agents: readonly AgentAdapter[], wanted: Wanted, ho
 
       if (decided.kind === 'write') {
         if (existsSync(settings)) {
-          backup(home, settings);
+          backup(home, settings, id);
         }
 
         writeInPlace(settings, decided.text);
@@ -167,7 +211,7 @@ export function syncActivity(agents: readonly AgentAdapter[], wanted: Wanted, ho
 
     return { wanted, plan, added, failure: null };
   } catch (error) {
-    return failed(wanted, signals[0]!.id, home, error);
+    return failed(wanted, reached, home, error, added);
   } finally {
     if (held) {
       releaseLock(lockPath);
@@ -177,7 +221,11 @@ export function syncActivity(agents: readonly AgentAdapter[], wanted: Wanted, ho
 
 /**
  * Markers of sessions that never reported an end — a killed process and a crashed editor both report nothing, and no
- * agent will ever sweep a directory of ours. Best effort: a marker that outlives its session costs nothing but disk.
+ * agent will ever sweep a directory of ours. Best effort, and not cost-free: for an agent whose roster *is* its
+ * markers, an orphan is a card on the board until this ages it out.
+ *
+ * It also takes the output a dispatched run wrote, which nothing else would: one file per run, in the board's own
+ * directory, holding that run's whole transcript.
  */
 export function pruneMarkers(agents: readonly AgentAdapter[], home: string, now: number = Date.now()): void {
   const dirs = new Set(agents.flatMap((agent) => (agent.activity ? [agent.activity.watchDir(home)] : [])));
@@ -187,16 +235,30 @@ export function pruneMarkers(agents: readonly AgentAdapter[], home: string, now:
   for (const dir of [...dirs, groundControlDirOf(home)]) {
     const markers = dirs.has(dir);
 
-    try {
-      for (const name of readdirSync(dir)) {
-        const path = `${dir}/${name}`;
+    let names: string[];
 
-        if (name.endsWith('.tmp') || (markers && markerIsOrphaned(statSync(path).mtimeMs, now))) {
+    try {
+      names = readdirSync(dir);
+    } catch {
+      // Nothing to prune here, which is every machine before the first install.
+      continue;
+    }
+
+    for (const name of names) {
+      const path = `${dir}/${name}`;
+
+      try {
+        const mtime = statSync(path).mtimeMs;
+        const orphaned = name.endsWith('.tmp')
+          ? tempIsOrphaned(mtime, now)
+          : (markers && markerIsOrphaned(mtime, now)) || (!markers && DISPATCH_LOG.test(name) && dispatchLogIsStale(mtime, now));
+
+        if (orphaned) {
           rmSync(path, { force: true });
         }
+      } catch {
+        // One entry that went while this loop read it, or will not stat. The rest of the directory is still swept.
       }
-    } catch {
-      // Nothing to prune, or nothing prunable.
     }
   }
 }

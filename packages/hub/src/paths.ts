@@ -15,9 +15,12 @@ export function installLockPathOf(home: string): string {
   return `${groundControlDirOf(home)}/install.lock`;
 }
 
-/** Where a backup of an agent's settings is taken before the hub writes to it. */
-export function backupPathOf(home: string, at: Date): string {
-  return `${groundControlDirOf(home)}/settings-backup-${at.toISOString().replace(/[:.]/g, '-')}.json`;
+/**
+ * Where a backup of an agent's settings is taken before the hub writes to it. Named for the agent, because two of
+ * them write different files and a developer restoring one has to know which is which.
+ */
+export function backupPathOf(home: string, at: Date, agent: string): string {
+  return `${groundControlDirOf(home)}/settings-backup-${agent}-${at.toISOString().replace(/[:.]/g, '-')}.json`;
 }
 
 /** The last configuration a client pushed, so the next hub starts on the developer's settings rather than defaults. */

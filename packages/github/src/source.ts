@@ -28,7 +28,15 @@ const github = z
 
 /** Nothing has been said about this source yet — a hub the browser started alone. Not something a developer broke. */
 function unconfigured(raw: unknown): boolean {
-  return raw === undefined || raw === null || (typeof raw === 'object' && Object.keys(raw).length === 0);
+  if (raw === undefined || raw === null || (typeof raw === 'object' && Object.keys(raw).length === 0)) {
+    return true;
+  }
+
+  // A blank repository is the shipped default, so it is the commonest way to arrive here: an editor sends every
+  // setting it has, and the one that decides whether this source can read anything at all is empty.
+  const repo = (raw as { repo?: unknown }).repo;
+
+  return typeof repo === 'string' && repo.trim().length === 0;
 }
 
 export function readGithubConfig(raw: unknown): { config: GithubConfig } | { failure: ReadFailure } {

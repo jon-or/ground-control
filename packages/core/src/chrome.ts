@@ -5,4 +5,4 @@
 export const CHROME_EXTENSION_ID = 'jmokhilledjhchaflaabojnfojefmdnh';
 
 /** The name Chrome looks the native host up by, in the registry on Windows and in a profile directory elsewhere. */
-export const NATIVE_HOST_NAME = 'com.ownerrez.ground_control';
+export const NATIVE_HOST_NAME = 'com.groundcontrol.ground_control';

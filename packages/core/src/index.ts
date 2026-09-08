@@ -1,5 +1,5 @@
 export { fetchSessions, fetchSessionHistory } from './sessions.js';
-export { rosterIsStale, sessionLabel, unreportedSessions } from './roster.js';
+export { agentOfSession, rosterIsStale, sessionLabel, unreportedSessions } from './roster.js';
 export { LANE_ORDER, LANE_TITLES, checkoutOf } from './board.js';
 export type { Attention, BoardCard, Checkout, Lane, LaneId, LanedCard } from './board.js';
 export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';

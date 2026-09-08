@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { basename, checkoutOf } from '@ground-control/core';
+import { agentOfSession, basename, checkoutOf } from '@ground-control/core';
 import type { BoardMessage, Checkout, ClientMessage, LaneId, Snapshot } from '@ground-control/core';
 import { readHubConfig, userDirOf } from './config.js';
 import { promptForLogins } from './identity.js';
@@ -289,7 +289,7 @@ export class BoardPanel {
   }
 
   async #open(sessionId: string): Promise<void> {
-    const extensionReady = await agentExtensionReady();
+    const extensionReady = await agentExtensionReady(agentOfSession(this.#last, sessionId));
 
     this.#tell({ type: 'open', sessionId, extensionReady });
   }

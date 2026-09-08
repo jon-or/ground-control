@@ -31,7 +31,7 @@ describe('the changes editor, against a real worktree', () => {
 
   before(async function () {
     this.timeout(60_000);
-    await vscode.extensions.getExtension('ownerrez.ground-control').activate();
+    await vscode.extensions.getExtension('groundcontrol.ground-control').activate();
 
     scratch = mkdtempSync(join(tmpdir(), 'gc-changes-'));
     clone = join(scratch, 'repo');

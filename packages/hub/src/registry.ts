@@ -1,4 +1,6 @@
+import { homedir } from 'node:os';
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
+import { killOnMachine, makeCodexAdapter, makeMachineStarter, pidAliveOnMachine } from '@ground-control/agent-codex';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
 import { DEFAULT_ACTIONS, DEFAULT_TRIAGE } from '@ground-control/core';
 import type { AgentAdapter, HostAdapter, HubConfig, Logger, ReadFailure, WorkSource } from '@ground-control/core';
@@ -15,8 +17,17 @@ export interface Registries {
   sources: readonly WorkSource[];
 }
 
-export function makeRegistries(log?: Logger): Registries {
-  return { agents: [makeClaudeAdapter()], hosts: [makeVscodeHost()], sources: [makeGithubSource(log ? { log } : {})] };
+export function makeRegistries(log?: Logger, home: string = homedir()): Registries {
+  const codex = makeCodexAdapter({
+    alive: pidAliveOnMachine,
+    env: process.env,
+    // The hub's own home, not the machine's: a dispatch under `--home` must not write a run's transcript, prompt
+    // and all, into the home of the board the developer is actually using.
+    start: makeMachineStarter(home),
+    kill: killOnMachine,
+  });
+
+  return { agents: [makeClaudeAdapter(), codex], hosts: [makeVscodeHost()], sources: [makeGithubSource(log ? { log } : {})] };
 }
 
 /** The team's convention, so it ships as a default rather than as something a new developer has to set (R27). */

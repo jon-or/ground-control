@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { sessionFromUri } from '../src/openUri.js';
+import { handOverUri, handedOver, sessionFromUri } from '../src/openUri.js';
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
 
@@ -8,7 +10,7 @@ const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
  * The one link the browser board writes, spelled out. The overlay hard-codes this string — it is plain JavaScript
  * Chrome loads as it stands — so the literal here is what holds the two halves together (`docs/testing.md`).
  */
-const LINK = `vscode://ownerrez.ground-control/open?session=${SESSION}`;
+const LINK = `vscode://groundcontrol.ground-control/open?session=${SESSION}`;
 
 describe('the link the browser board writes', () => {
   it('is addressed to this extension, by the id VS Code routes on', () => {
@@ -59,5 +61,42 @@ describe('what the handler takes', () => {
 
   it('ignores anything else riding along in the query', () => {
     expect(sessionFromUri('/open', `column=2&session=${SESSION}&folder=d:/git/orez`)).toBe(SESSION);
+  });
+});
+
+describe('the URI the board hands a raised window', () => {
+  it('names the session and marks the hand-over', () => {
+    const uri = handOverUri('a1b2c3d4-0000-4000-8000-000000000000', 'codex');
+
+    expect(sessionFromUri('/open', uri.split('?')[1]!)).toBe('a1b2c3d4-0000-4000-8000-000000000000');
+    expect(handedOver(uri.split('?')[1]!)).toBe('codex');
+  });
+
+  it('reads a browser click as what it is, so it is planned rather than revealed blind', () => {
+    // Without this the two are indistinguishable, and a window would reveal a session it may not be holding.
+    expect(handedOver('session=a1b2c3d4-0000-4000-8000-000000000000')).toBeNull();
+    expect(handedOver('session=a1b2c3d4-0000-4000-8000-000000000000&hop=0&agent=codex')).toBeNull();
+    // A hand-over with no agent names nothing to reveal it with, so it is not one.
+    expect(handedOver('hop=1')).toBeNull();
+    expect(handedOver('hop=1&agent=NOT AN AGENT')).toBeNull();
+    expect(handedOver('')).toBeNull();
+  });
+
+  it('escapes what it puts in the query, because the id is only ever matched afterwards', () => {
+    expect(handOverUri('a b&hop=0', 'codex')).toContain('a+b%26hop%3D0');
+  });
+});
+
+describe('the address the board answers on', () => {
+  it('is the extension id the manifest publishes, which is what VS Code routes on', () => {
+    // Two packages write this out: here, and the browser overlay's own copy. A rename that missed one would leave
+    // a link nothing answers, and nothing else compares them.
+    const manifest = JSON.parse(
+      readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'extensions', 'ground-control', 'package.json'), 'utf8'),
+    ) as { publisher: string; name: string };
+
+    expect(handOverUri('a1b2c3d4-0000-4000-8000-000000000000', 'codex')).toContain(
+      `vscode://${manifest.publisher}.${manifest.name}/open?`,
+    );
   });
 });

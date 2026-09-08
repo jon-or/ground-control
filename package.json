@@ -9,6 +9,7 @@
   "workspaces": [
     "packages/core",
     "packages/agent-claude",
+    "packages/agent-codex",
     "packages/host-vscode",
     "packages/github",
     "packages/board",

@@ -98,7 +98,12 @@ function lockedWindows(home: string, placements: Readonly<Record<string, AgentPl
   const byPort = new Map<number, IdeWindow>();
 
   for (const placement of Object.values(placements)) {
-    const dir = placement.lockDir(home, process.env);
+    const dir = placement.lockDir?.(home, process.env);
+
+    if (dir === undefined) {
+      continue;
+    }
+
     let names: string[];
 
     try {

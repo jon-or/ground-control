@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rosterIsStale, sessionLabel, unreportedSessions } from '../src/roster.js';
+import { agentOfSession, rosterIsStale, sessionLabel, unreportedSessions } from '../src/roster.js';
 import type { Session } from '../src/types.js';
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
@@ -104,5 +104,29 @@ describe('unreportedSessions', () => {
 
   it('counts nothing once every session reports', () => {
     expect(unreportedSessions([session({ activity: { phase: 'idle', since: 1, event: 'Stop' } })], 20)).toBe(0);
+  });
+});
+
+describe('which agent reported a session', () => {
+  const session = (agent: string, sessionId: string) => ({ agent, sessionId }) as never;
+  const snapshot = (cards: unknown[]): never => ({ lanes: [{ id: 'build', cards }] }) as never;
+
+  it('reads it off a live session on a card', () => {
+    expect(agentOfSession(snapshot([{ sessions: [session('codex', 'a'), session('claude', 'b')] }]), 'a')).toBe('codex');
+    expect(agentOfSession(snapshot([{ sessions: [session('codex', 'a'), session('claude', 'b')] }]), 'b')).toBe('claude');
+  });
+
+  it('reads it off the saved session a card carries when no live one matches', () => {
+    expect(agentOfSession(snapshot([{ sessions: [], lastSession: session('codex', 'c') }]), 'c')).toBe('codex');
+  });
+
+  it('answers Claude for an id the snapshot does not carry, which is the only answer available', () => {
+    // A session id says nothing about which CLI produced it, and the hub refuses one it does not know anyway.
+    expect(agentOfSession(snapshot([{ sessions: [session('codex', 'a')] }]), 'unknown')).toBe('claude');
+    expect(agentOfSession(undefined, 'a')).toBe('claude');
+  });
+
+  it('looks past a card that carries neither', () => {
+    expect(agentOfSession(snapshot([{ sessions: [] }, { sessions: [session('codex', 'a')] }]), 'a')).toBe('codex');
   });
 });

@@ -3,7 +3,7 @@
   "displayName": "Ground Control",
   "version": "0.0.0",
   "private": true,
-  "publisher": "ownerrez",
+  "publisher": "groundcontrol",
   "description": "One board for the GitHub issues you own and the Claude Code sessions running on your machine.",
   "engines": {
     "vscode": "^1.104.0"
@@ -66,8 +66,8 @@
         "groundControl.github.repo": {
           "scope": "application",
           "type": "string",
-          "default": "ownerrez/orez",
-          "description": "The repository work is tracked in, as owner/name."
+          "default": "",
+          "markdownDescription": "The repository work is tracked in, as `owner/name`. The board reads no work until this is set, and says so."
         },
         "groundControl.github.projectNumber": {
           "scope": "application",
@@ -142,7 +142,7 @@
             "type": "string"
           },
           "default": {},
-          "markdownDescription": "The agent CLIs to read sessions from, as id to command or full path. Left empty, the board reads the ones that ship enabled."
+          "markdownDescription": "The agent CLIs to read sessions from, as id to command or full path — `claude` and `codex`. Left empty, the board reads the ones that ship enabled, which is `claude` alone. Naming any agent replaces that default, so name every one you want: an agent left out is not read, and its session hooks are not installed."
         },
         "groundControl.branchIssuePattern": {
           "scope": "application",
@@ -266,7 +266,7 @@
           "scope": "application",
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Let the board tell when a session is running. Claude Code's own `claude agents --json` does not report what an interactive session is doing, so the board writes a small activity hook to `~/.claude/ground-control/hook.mjs` and adds entries pointing at it to your `~/.claude/settings.json` the first time you open the board. It backs the file up first, adds only its own entries, and refuses to write at all if it cannot read the file. Turn this off to remove those entries — sessions still appear, they just cannot report what they are doing."
+          "markdownDescription": "Let the board tell when a session is running. Neither CLI reports what an interactive session is doing, so the board writes a small activity hook per agent — `~/.claude/ground-control/hook.mjs` with entries in `~/.claude/settings.json`, and `~/.claude/ground-control/codex-hook.mjs` with entries in `~/.codex/hooks.json` — for the agents you have named, the first time you open the board. It backs each file up first, adds only its own entries, and refuses to write at all if it cannot read one. Codex runs a hook only once you have trusted it in Codex itself, so its sessions report nothing until you do. Turn this off to remove every entry — sessions still appear, they just cannot report what they are doing."
         },
         "groundControl.openWindowsForSessions": {
           "scope": "application",

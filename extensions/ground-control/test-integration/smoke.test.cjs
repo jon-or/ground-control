@@ -35,7 +35,7 @@ async function until(what, why, within = 20_000) {
 describe('the extension in a real window', () => {
   before(async () => {
     // Activated on purpose: nothing is registered until a board is opened, which is what R35 is about.
-    await vscode.extensions.getExtension('ownerrez.ground-control').activate();
+    await vscode.extensions.getExtension('groundcontrol.ground-control').activate();
   });
 
   afterEach(async () => {
