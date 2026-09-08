@@ -1,7 +1,35 @@
 const assert = require('node:assert');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
 const vscode = require('vscode');
 
 const settings = () => vscode.workspace.getConfiguration('groundControl');
+
+const configJson = join(process.env.GC_TEST_HOME, '.claude', 'ground-control', 'config.json');
+
+/** Never throws: a hub mid-write and a hub that has stored nothing yet are both "not this configuration yet". */
+function stored() {
+  try {
+    return JSON.parse(readFileSync(configJson, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function untilStored(matches, why, within = 20_000) {
+  const deadline = Date.now() + within;
+
+  for (;;) {
+    const config = stored();
+
+    if (config && matches(config)) {
+      return config;
+    }
+
+    assert.ok(Date.now() < deadline, `${why}; last stored: ${JSON.stringify(stored()?.actions ?? null)}`);
+    await new Promise((done) => setTimeout(done, 100));
+  }
+}
 
 async function api() {
   return vscode.extensions.getExtension('groundcontrol.ground-control').activate();
@@ -33,6 +61,8 @@ describe('what this window pushes to the hub', () => {
     await settings().update('agents', OFFLINE_AGENTS, vscode.ConfigurationTarget.Global);
     await settings().update('hosts', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('sources', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.merge-upstream.enabled', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.merge-upstream.prompt', undefined, vscode.ConfigurationTarget.Global);
   });
 
   /**
@@ -105,4 +135,29 @@ describe('what this window pushes to the hub', () => {
     await untilSnapshot((s) => !named(s), 'the setting was put back and the board went on complaining about it');
   });
 
+  /**
+   * R34 for the one setting a developer has to write by hand. `update` refuses a key the schema does not declare,
+   * so this fails the moment the pair stops being two flat settings the settings editor can render — which is the
+   * whole of what makes them editable anywhere but settings.json (`docs/mechanics.md` §50).
+   */
+  it('carries the merge-upstream action from the two keys the settings editor writes', async () => {
+    const prompt = '/or-merge {base} {branch} {issue} --single';
+
+    await settings().update('actions.merge-upstream.enabled', true, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.merge-upstream.prompt', prompt, vscode.ConfigurationTarget.Global);
+
+    const config = await untilStored(
+      (c) => c.actions?.actions?.['merge-upstream'] !== undefined,
+      'the action never reached the hub',
+    );
+
+    assert.deepStrictEqual(config.actions.actions['merge-upstream'], { enabled: true, prompt });
+
+    await settings().update('actions.merge-upstream.prompt', undefined, vscode.ConfigurationTarget.Global);
+
+    await untilStored(
+      (c) => c.actions?.actions?.['merge-upstream'] === undefined,
+      'the prompt was cleared and the action went on being carried',
+    );
+  });
 });

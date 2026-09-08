@@ -282,7 +282,7 @@ Out of the box the board shows and intervenes; it does not start work. A develop
 
 The line is work on the developer's code. An agent that edits a checkout, opens a pull request or advances a stage is work, and none of that happens unasked. Reading is not: the board already spawns CLIs to see what is on the machine, and classifying a card (R38) is one more read — no tools, no writes, nothing changed anywhere. It is on by default for that reason, and it has a setting of its own because it costs the developer's own usage and sends text off the machine, which no other read does.
 
-Card actions (R39) are the first step over that line, and they are shaped by it: one setting per action, every one off, no prompt shipped, and a ceiling on what a mistake can cost. The developer turning one on is the whole of the consent, and the board says so out loud the first time one actually starts.
+Card actions (R39) are the first step over that line, and they are shaped by it: a setting of its own per action, every one off, no prompt shipped, and a ceiling on what a mistake can cost. The developer turning one on is the whole of the consent, and the board says so out loud the first time one actually starts.
 
 **R33. How much work is allowed in flight is the developer's number.**
 Limits vary with how a person works and with what their account can sustain. The board enforces its own numbers where it is the one starting the work: how many card actions may run at once, and how many it may start in a day (R39). It enforces nothing on work the developer starts themselves — R10 counts those and refuses none — because a board that refused to show a session would be hiding one (R2).

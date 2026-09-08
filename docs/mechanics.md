@@ -1820,3 +1820,23 @@ So `process.execPath` decides the version and `vscode.env.appRoot` does not. The
 **The marker is not the whole of the risk.** `postInitialize` deletes it as it applies the package, and `collectGarbage` is deferred to the start after that — so a window that stays open across a start of the newer build sees no marker while `Code.exe` resolves to a version its `appRoot` is not in. The next start's garbage collection closes that window by deleting the old version directory, at which point the `cli.js` under `appRoot` is gone and the launch fails loudly instead. Not observed; recorded because the marker test reads as complete and is not.
 
 **The failure is invisible from the CLI's exit code.** `cli.js` spawns the editor detached with `stdio: "ignore"` and exits `0`, so a second instance and a clean reuse are the same result. Only the marker distinguishes them before the fact.
+
+---
+
+## 50. What the settings editor will render, and what it sends to settings.json
+
+**Measured 2026-09-08** against VS Code 1.136.2. **Version-fragile.**
+
+The settings editor has a widget for `"type": "object"` only where the schema is a uniform map — `additionalProperties` (or `patternProperties`) resolving to `string`, `boolean`, `number`, or an `enum` of those. It renders that as a key/value grid. A schema that instead declares fixed `properties` of mixed types gets no widget at all, and the row falls back to an "Edit in settings.json" link.
+
+`groundControl.statusLanes`, `groundControl.agents` and `groundControl.triage.names` take the map form and render. Anything a developer sets that does not is declared as one flat key per field.
+
+Dots in a setting id are naming, not nesting — `groundControl.actions.concurrency` is a `number` and gets a text box. But `WorkspaceConfiguration.get` reads a value tree assembled by splitting every registered and user key on `.`, so `get('actions.merge-upstream')` returns `{ enabled, prompt }` built out of `groundControl.actions.merge-upstream.enabled` and `.prompt` even though no schema declares that path. A reader can address either level; only the leaf keys are what the editor writes.
+
+`WorkspaceConfiguration.update` refuses a key no schema declares:
+
+```
+Unable to write to Global Settings because groundControl.actions.merge-upstream.enabled is not a registered configuration.
+```
+
+That is what an integration test asserting a settings-editor path actually rests on — the write, not the read.

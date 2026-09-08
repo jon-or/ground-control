@@ -72,9 +72,9 @@ export function readHubConfig(userDir: string): HubConfig {
 }
 
 /**
- * R39's bounds. One key per action rather than one map, for the same reason the triage block is flat: VS Code's
- * settings UI renders a map of mixed types as "Edit in settings.json", and R34 asks that what a developer is
- * expected to set be settable without editing a file.
+ * R39's bounds. Two flat keys per action rather than one object, for the same reason the triage block is flat: the
+ * settings editor renders an object of typed properties as "Edit in settings.json" (`docs/mechanics.md` §50), and
+ * R34 asks that what a developer is expected to set be settable without editing a file.
  *
  * An action with no prompt is off however `enabled` reads. There is no shipped default prompt, because what runs a
  * merge is the developer's own repository's skill and no two teams share one.
@@ -87,11 +87,16 @@ export function readActions(): HubConfig['actions'] {
     return Number.isFinite(value) ? Number(value) : fallback;
   };
 
+  // Each key read on its own rather than as the object VS Code assembles at `actions.<action>` from the two: that
+  // object is a value-tree artefact of the dotted names, and the reader asking for what the schema declares is what
+  // keeps the two from drifting apart again.
   const setting = (action: AutomatableAction): ActionSetting => {
-    const raw = cfg.get<Record<string, unknown>>(`actions.${action}`, {}) ?? {};
-    const prompt = typeof raw['prompt'] === 'string' ? raw['prompt'].trim() : '';
+    const prompt = cfg.get<unknown>(`actions.${action}.prompt`, '');
 
-    return { enabled: raw['enabled'] === true, prompt };
+    return {
+      enabled: cfg.get<unknown>(`actions.${action}.enabled`, false) === true,
+      prompt: typeof prompt === 'string' ? prompt.trim() : '',
+    };
   };
 
   return {
