@@ -833,7 +833,7 @@ Read from the live `ownerrez/orez` project (Planning / Development, number 3) on
 | 🏃 Testing | Currently being tested |
 | 🚀 Releasable | Closed and ready for release |
 
-🎁 Assigned, ⚒️ Dev and 🔍 Dev Review are the statuses where the work is the developer's own, which is why those three are the board's default membership set. Only 🔍 Dev Review also names a stage, so it is the one entry in the default status-to-lane map; ⚒️ Dev covers planning, building and checking alike, and a status that spans stages can never be read as a lane.
+🎁 Assigned, ⚒️ Dev and 🔍 Dev Review are the statuses where the work is the developer's own, which is why those three are the board's default membership set and each carries a lane — Unstarted, Build and Review respectively (R8). Work is handed back to a developer by the issue being reassigned and moved from 🔍 Dev Review to ⚒️ Dev with a comment; the pull request's review decision is left as it was, so `CHANGES_REQUESTED` is not what a handback looks like on this team.
 
 Re-read with:
 

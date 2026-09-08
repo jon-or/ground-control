@@ -420,7 +420,8 @@ export function derivedAction(context: TriageContext): TriageAction | null {
 /**
  * What a status means, where the lane map says. That map already carries the only thing triage needs to know about a
  * status — whether it names review, or work not yet begun — so it is read here rather than duplicated into a setting
- * of its own. A status the map does not name leaves the action to the pull request and the conversation.
+ * of its own. A status naming Build settles nothing: the work is under way, and what it needs next is the pull
+ * request's to say. Nor does a status the map does not name.
  *
  * Unlike lane arrival, nothing outranks this: the issue is where the team says what a card needs, and the pull
  * request is an artefact of doing it. `hasOwn`, for the reason `inferredLane` gives.

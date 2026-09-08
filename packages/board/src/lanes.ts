@@ -10,19 +10,23 @@ export type { Attention, Lane, LaneId, LanedCard };
 export const PLACEABLE_LANES: readonly LaneId[] = LANE_ORDER.filter((id) => id !== 'archived');
 
 /**
- * The statuses whose cards stay on the board. Most decide membership only; the ones that also name a stage are in
- * `DEFAULT_STATUS_LANES`. `docs/mechanics.md` §17 lists all 17 and what they mean.
+ * The statuses whose cards stay on the board. Each also names a stage, in `DEFAULT_STATUS_LANES`.
+ * `docs/mechanics.md` §17 lists all 17 and what they mean.
  */
 export const DEFAULT_BOARD_STATUSES: readonly string[] = ['🎁 Assigned', '⚒️ Dev', '🔍 Dev Review'];
 
 /**
- * The statuses that carry a lane, for a card the developer has never placed. Most say nothing about stage — ⚒️ Dev spans planning,
- * building and checking alike — so only the ones that do appear here, and a status the map does not name leaves the card to its other signals.
+ * The statuses that carry a lane, for a card the developer has never placed. A status the map does not name says nothing about stage and
+ * leaves the card to its other signals.
  *
  * Triage reads the same map for what a status means (R38), which is why 🎁 Assigned is named although an unmapped status already
  * arrives in Unstarted: the lane it gives is the one the card had anyway, and the meaning it gives is what the label turns on.
  */
-export const DEFAULT_STATUS_LANES: Readonly<Record<string, LaneId>> = { '🎁 Assigned': 'unstarted', '🔍 Dev Review': 'review' };
+export const DEFAULT_STATUS_LANES: Readonly<Record<string, LaneId>> = {
+  '🎁 Assigned': 'unstarted',
+  '⚒️ Dev': 'build',
+  '🔍 Dev Review': 'review',
+};
 
 /** What the board judges a card against: which statuses keep it, which carry a lane, and whose pull requests are the developer's own. */
 export interface BoardRules {
@@ -134,18 +138,26 @@ export function inferredLane(card: BoardCard, rules: BoardRules): LaneId {
     return 'build';
   }
 
-  const pr = card.issue.pullRequest;
-
-  // The developer's own open pull request outranks the status: a review asking for changes is code to change (R7), whatever the tracker says.
-  if (pr !== null && pr.state === 'OPEN' && authoredByDeveloper(pr.author, rules.logins)) {
-    return pr.reviewDecision === 'CHANGES_REQUESTED' || pr.isDraft ? 'build' : 'review';
-  }
-
   const status = card.issue.status;
 
   // `hasOwn`, because a status named after something on Object's prototype would otherwise resolve to a function, and a lane no lane
   // list holds takes the card off every lane at once — R8 broken far worse than a wrong lane.
-  return status !== null && Object.hasOwn(rules.statusLanes, status) ? rules.statusLanes[status]! : 'unstarted';
+  const named = status !== null && Object.hasOwn(rules.statusLanes, status) ? rules.statusLanes[status]! : null;
+
+  // A status naming Build outranks the pull request: work comes back to a developer by being reassigned and moved to ⚒️ Dev, so a review
+  // decision that asked for nothing is no evidence the code is finished (R7).
+  if (named === 'build') {
+    return 'build';
+  }
+
+  const pr = card.issue.pullRequest;
+
+  // Otherwise the developer's own open pull request outranks the status: a review asking for changes is code to change (R7).
+  if (pr !== null && pr.state === 'OPEN' && authoredByDeveloper(pr.author, rules.logins)) {
+    return pr.reviewDecision === 'CHANGES_REQUESTED' || pr.isDraft ? 'build' : 'review';
+  }
+
+  return named ?? 'unstarted';
 }
 
 /** Where the developer last put this card, ignoring a stored lane that is not one they can choose. */

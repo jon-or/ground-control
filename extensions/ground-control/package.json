@@ -124,9 +124,10 @@
           },
           "default": {
             "🎁 Assigned": "unstarted",
+            "⚒️ Dev": "build",
             "🔍 Dev Review": "review"
           },
-          "markdownDescription": "Which lane a card arrives in — and stays in until you move it — for the statuses that carry one. Most statuses say nothing about stage, so leave them out. Your own **open** pull request outranks this; a merged or closed one is read as nothing. A card you have moved yourself is never moved again, until it goes past your hands and comes back. Card triage reads the same map for what a status *means*: `review` is a card to review, `unstarted` one to begin, and a status left out leaves the label to the pull request and the conversation."
+          "markdownDescription": "Which lane a card arrives in — and stays in until you move it — for the statuses that carry one. A status that says nothing about stage is left out. A status mapped to `build` outranks your pull request, because work comes back to you as a reassignment rather than as a review asking for changes; for every other lane your own **open** pull request outranks this, and a merged or closed one is read as nothing. A card you have moved yourself is never moved again, until it goes past your hands and comes back. Card triage reads the same map for what a status *means*: `review` is a card to review, `unstarted` one to begin, and `build` or a status left out leaves the label to the pull request and the conversation."
         },
         "groundControl.sessionRefreshSeconds": {
           "scope": "application",

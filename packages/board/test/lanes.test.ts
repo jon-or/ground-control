@@ -125,11 +125,18 @@ describe('assignLanes', () => {
   });
 
   it('starts a card with no issue in Build — its agent is running, so it is not unstarted', () => {
-    const started = lane(board, 'build').cards;
+    const adHoc = lane(board, 'build').cards.filter((c) => c.issue === null);
 
-    expect(started.length).toBeGreaterThan(0);
-    expect(started.every((c) => c.issue === null)).toBe(true);
-    expect(new Set(started.map((c) => c.reason))).toEqual(new Set(['Ad-hoc work with no issue.']));
+    expect(adHoc.length).toBeGreaterThan(0);
+    expect(new Set(adHoc.map((c) => c.reason))).toEqual(new Set(['Ad-hoc work with no issue.']));
+  });
+
+  it('starts every ⚒️ Dev card the developer has not moved in Build alongside them', () => {
+    const dev = issues.filter((issue) => issue.status === '⚒️ Dev').map((issue) => issue.number);
+    const started = lane(board, 'build').cards.filter((c) => c.issue !== null);
+
+    expect(dev.length).toBeGreaterThan(0);
+    expect(new Set(started.map((c) => c.issueNumber))).toEqual(new Set(dev));
   });
 
   // Review is not in that list: the recording carries a 🔍 Dev Review card, and that status arrives there on its own.
@@ -610,9 +617,29 @@ describe('inferredLane', () => {
     expect(issueIn(lanes(restatus(19072, '🔍 Dev Review'), []), 19072)).toBe('review');
   });
 
-  it('leaves a status that carries no lane in Unstarted — ⚒️ Dev spans planning, building and checking alike', () => {
-    expect(DEFAULT_STATUS_LANES['⚒️ Dev']).toBeUndefined();
-    expect(issueIn(lanes(restatus(19072, '⚒️ Dev'), []), 19072)).toBe('unstarted');
+  it('arrives a ⚒️ Dev card in Build — the tracker says the work is in development', () => {
+    expect(DEFAULT_STATUS_LANES['⚒️ Dev']).toBe('build');
+    expect(issueIn(lanes(restatus(19072, '⚒️ Dev'), []), 19072)).toBe('build');
+  });
+
+  it('leaves a status that carries no lane in Unstarted', () => {
+    expect(issueIn(lanes(restatus(19072, '⚒️ Dev'), [], remember(), { statusLanes: {} }), 19072)).toBe('unstarted');
+  });
+
+  // The team hands work back by reassigning the issue and moving the status, leaving the pull request open with nothing formally
+  // requested of it, so a review decision short of CHANGES_REQUESTED is no evidence the code is finished.
+  it('keeps a ⚒️ Dev card in Build however its own open pull request was reviewed', () => {
+    for (const reviewDecision of [null, 'REVIEW_REQUIRED', 'APPROVED']) {
+      const cards = withPr(19072, { reviewDecision }, restatus(19072, '⚒️ Dev'));
+
+      expect(issueIn(lanes(cards, [], remember(), { logins: ['dev-1'] }), 19072)).toBe('build');
+    }
+  });
+
+  it('still reads the pull request under a status that names no build — a draft under 🔍 Dev Review is Build', () => {
+    const cards = withPr(19072, { isDraft: true }, restatus(19072, '🔍 Dev Review'));
+
+    expect(issueIn(lanes(cards, [], remember(), { logins: ['dev-1'] }), 19072)).toBe('build');
   });
 
   it('places a 🎁 Assigned card exactly where an unmapped status would have, which is why triage may read the map', () => {

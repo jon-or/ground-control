@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LANE_ORDER, LANE_TITLES, boardStatuses } from '@ground-control/board';
+import { LANE_ORDER, LANE_TITLES, boardStatuses, statusLanes } from '@ground-control/board';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
 import type { Session } from '@ground-control/core';
 import type { BoardMessage, SnapshotMessage } from '@ground-control/core';
@@ -1221,6 +1221,10 @@ describe('the manifest and the code agree on every default', () => {
   // Two copies of a default is what VS Code's settings UI costs; a test is what keeps them from drifting apart.
   it('ships the board statuses the package computes', () => {
     expect(declared('boardStatuses')).toEqual(boardStatuses(undefined));
+  });
+
+  it('ships the status-to-lane map the package computes', () => {
+    expect(declared('statusLanes')).toEqual(statusLanes(undefined));
   });
 
   it('ships the intervals the extension falls back to', () => {
