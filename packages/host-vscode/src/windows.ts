@@ -2,7 +2,15 @@ import { execFile } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Session } from '@ground-control/core';
-import { ideWindowsFrom, listeningFrom, liveWindows, processesFrom, windowForProcess } from './ide.js';
+import {
+  ideWindowsFrom,
+  listeningFrom,
+  liveWindows,
+  processNames,
+  processQuery,
+  processesFrom,
+  windowForProcess,
+} from './ide.js';
 import type { IdeWindow, ListeningPort, ProcessEntry } from './ide.js';
 import type { AgentPlacement } from './placements.js';
 
@@ -13,17 +21,6 @@ const PROCESSES_TIMEOUT_MS = 8000;
  * whether a session started since — and the board primes this on every refresh, so a click rarely waits for one.
  */
 const PROCESSES_TTL_MS = 30_000;
-
-/**
- * `Get-CimInstance` costs 650 ms against `netstat`'s 24, so it is asked only for what nothing cheaper reports: the
- * parent of each session process. Node exposes no other process's parent, and `wmic` is gone from Windows 11.
- */
-const PROCESS_QUERY = [
-  '$ErrorActionPreference = "SilentlyContinue";',
-  `$r = @(Get-CimInstance -Query "SELECT ProcessId,ParentProcessId FROM Win32_Process WHERE Name='claude.exe'" |`,
-  'Select-Object ProcessId,ParentProcessId);',
-  'ConvertTo-Json -Compress -InputObject $r',
-].join(' ');
 
 function text(path: string): string | null {
   try {
@@ -53,30 +50,37 @@ async function readPorts(): Promise<ListeningPort[]> {
   return listeningFrom(await run('netstat', ['-ano'], PORTS_TIMEOUT_MS));
 }
 
-async function readProcesses(): Promise<ProcessEntry[]> {
-  if (process.platform !== 'win32') {
+/**
+ * `Get-CimInstance` costs 650 ms against `netstat`'s 24, so it is asked only for what nothing cheaper reports: the
+ * parent of each session process. Node exposes no other process's parent, and `wmic` is gone from Windows 11.
+ */
+async function readProcesses(names: readonly string[]): Promise<ProcessEntry[]> {
+  // No names is a host placed for no agent, whose query would carry an empty `WHERE` and be swallowed as an error.
+  if (process.platform !== 'win32' || names.length === 0) {
     return [];
   }
 
   return processesFrom(
-    await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', PROCESS_QUERY], PROCESSES_TIMEOUT_MS),
+    await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', processQuery(names)], PROCESSES_TIMEOUT_MS),
   );
 }
 
-let cached: { at: number; processes: ProcessEntry[] } | undefined;
+let cached: { at: number; asked: string; processes: ProcessEntry[] } | undefined;
 let inFlight: Promise<ProcessEntry[]> | undefined;
 
-function processes(): Promise<ProcessEntry[]> {
-  if (cached !== undefined && Date.now() - cached.at < PROCESSES_TTL_MS) {
+function processes(names: readonly string[]): Promise<ProcessEntry[]> {
+  const asked = names.join(',');
+
+  if (cached !== undefined && cached.asked === asked && Date.now() - cached.at < PROCESSES_TTL_MS) {
     return Promise.resolve(cached.processes);
   }
 
-  inFlight ??= readProcesses()
+  inFlight ??= readProcesses(names)
     .then((read) => {
       // A read that came back empty is a failure, not an answer, and caching it would refuse every session for the
       // whole window. Routing falls back to the recorded roots instead, and the next call tries again.
       if (read.length > 0) {
-        cached = { at: Date.now(), processes: read };
+        cached = { at: Date.now(), asked, processes: read };
       }
 
       return read;
@@ -89,8 +93,8 @@ function processes(): Promise<ProcessEntry[]> {
 }
 
 /** Reads the process table ahead of any click, so opening a session waits on the cheap half only. */
-export function primeWindows(): void {
-  void processes();
+export function primeWindows(placements: Readonly<Record<string, AgentPlacement>>): void {
+  void processes(processNames(placements));
 }
 
 /** Every window that has written a lock file, open or not, under every placed agent's lock directory. */
@@ -139,7 +143,7 @@ export async function readWindows(
   placements: Readonly<Record<string, AgentPlacement>>,
 ): Promise<Windows> {
   const locked = lockedWindows(home, placements);
-  const [ports, table] = await Promise.all([readPorts(), processes()]);
+  const [ports, table] = await Promise.all([readPorts(), processes(processNames(placements))]);
   const live = liveWindows(locked, ports);
 
   return {

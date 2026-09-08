@@ -1,5 +1,6 @@
 import { dirKey } from '@ground-control/core';
 import type { HostWindow } from '@ground-control/core';
+import type { AgentPlacement } from './placements.js';
 
 /**
  * One VS Code window, as it announces itself in the lock file an agent's extension writes per window. The only live
@@ -83,6 +84,26 @@ export function listeningFrom(output: string): ListeningPort[] {
   }
 
   return found;
+}
+
+/** Every executable a placed agent's session pid can belong to, which is all the process table is asked about. */
+export function processNames(placements: Readonly<Record<string, AgentPlacement>>): string[] {
+  return Object.values(placements).map((placement) => placement.processName);
+}
+
+/**
+ * The one question asked of the process table, over the executables a session's pid can belong to. `Get-CimInstance`
+ * costs 650 ms, so the filter is the query's rather than a walk of every process on the machine.
+ */
+export function processQuery(names: readonly string[]): string {
+  const where = names.map((name) => `Name='${name}'`).join(' or ');
+
+  return [
+    '$ErrorActionPreference = "SilentlyContinue";',
+    `$r = @(Get-CimInstance -Query "SELECT ProcessId,ParentProcessId FROM Win32_Process WHERE ${where}" |`,
+    'Select-Object ProcessId,ParentProcessId);',
+    'ConvertTo-Json -Compress -InputObject $r',
+  ].join(' ');
 }
 
 /**

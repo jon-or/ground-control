@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { ideWindowsFrom, listeningFrom, liveRootsOf, liveWindows, processesFrom, windowForProcess } from '../src/ide.js';
+import {
+  ideWindowsFrom,
+  listeningFrom,
+  liveRootsOf,
+  liveWindows,
+  processNames,
+  processQuery,
+  processesFrom,
+  windowForProcess,
+} from '../src/ide.js';
 import type { IdeLock } from '../src/ide.js';
+import { PLACEMENTS } from '../src/placements.js';
 
 /** A lock file exactly as a window writes one: the port is the file name, and nothing inside repeats it. */
 function lock(port: number, folders: string[]): IdeLock {
@@ -184,6 +194,23 @@ describe('listeningFrom', () => {
   it('reads nothing out of a header, a blank line, or an empty run', () => {
     expect(listeningFrom('')).toEqual([]);
     expect(listeningFrom('Active Connections\r\n\r\n  Proto  Local Address')).toEqual([]);
+  });
+});
+
+describe('processQuery', () => {
+  it('asks about every executable it is given, in one query', () => {
+    const query = processQuery(['claude.exe', 'codex.exe']);
+
+    expect(query).toContain(`WHERE Name='claude.exe' or Name='codex.exe'`);
+    expect(query.match(/Get-CimInstance/g)).toHaveLength(1);
+  });
+
+  /**
+   * The table is read to join a session's pid to a window, so an agent left out of the question is an agent whose
+   * sessions are never found in one — which is the whole of what a refusal for a running Codex thread was.
+   */
+  it('asks about every placed agent, not only the first one placed', () => {
+    expect(processNames(PLACEMENTS)).toEqual(['claude.exe', 'codex.exe']);
   });
 });
 

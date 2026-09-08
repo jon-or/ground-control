@@ -24,8 +24,8 @@ export const VSCODE_ROUTES: readonly OpenRoute['route'][] = [
  * Whether an open in this window landed. `executeCommand` resolves either way (`docs/mechanics.md` §8), so a new tab
  * is the evidence — except for a session already open here, which is revealed: that adds no tab but does focus one.
  */
-export function verifyOpen(before: number, after: number, claudePanelActive: boolean): OpenOutcome {
-  return after > before || claudePanelActive ? 'opened' : 'no-tab';
+export function verifyOpen(before: number, after: number, agentPanelActive: boolean): OpenOutcome {
+  return after > before || agentPanelActive ? 'opened' : 'no-tab';
 }
 
 /**
@@ -87,7 +87,9 @@ export function planOpen(
     };
   }
 
-  if (!(session.agent in placements)) {
+  const placement = placements[session.agent];
+
+  if (placement === undefined) {
     return {
       refusal: 'other-agent',
       message: `This editor has no way to show a ${session.agent} session.`,
@@ -160,12 +162,16 @@ export function planOpen(
     };
   }
 
-  // Which window holds it is known and which surface is not. Firing would be a guess, and the wrong guess runs a
-  // second agent on one transcript, so the developer is taken to the window instead (`docs/mechanics.md` §21).
+  // Which window holds it is known and which surface is not. An idempotent reveal is fired anyway — it names the
+  // session and re-activates whatever holds it (§44) — where a guess at Claude's runs a second agent on one (§21).
   if (!held) {
-    return here
-      ? { route: 'unknown-surface-here', session, root }
-      : { route: 'unknown-surface-elsewhere', session, root };
+    if (!placement.idempotentReveal) {
+      return here
+        ? { route: 'unknown-surface-here', session, root }
+        : { route: 'unknown-surface-elsewhere', session, root };
+    }
+
+    return here ? { route: 'reveal-here', session, root } : { route: 'reveal-elsewhere', session, root };
   }
 
   if (here) {

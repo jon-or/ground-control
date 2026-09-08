@@ -241,6 +241,29 @@ describe('planOpen routes by the surface holding the session', () => {
   });
 
   /**
+   * §44: a Codex reveal names the thread and re-activates whatever already holds it, so the window the join found is
+   * enough. It is also the only way to reach a thread left in Codex's sidebar, which records no id to read back.
+   */
+  it('reveals an unrecorded session anyway where the reveal is idempotent', () => {
+    const thread = session({ agent: 'codex' });
+
+    expect(routeOf(decide(request(thread, { surfaces: [], window: { folders: [thread.cwd] }, liveRoots: [] })))).toBe(
+      'reveal-here',
+    );
+
+    const elsewhere = decide(request(thread, { surfaces: [], window: { folders: [away.cwd] }, liveRoots: [] }));
+
+    expect(routeOf(elsewhere)).toBe('reveal-elsewhere');
+    expect('root' in elsewhere && elsewhere.root).toBe(away.cwd);
+  });
+
+  it('refuses a session of that agent that no window is running, which is one started outside every window', () => {
+    const plan = decide(request(session({ agent: 'codex' }), { surfaces: [], window: null, liveRoots: [] }));
+
+    expect(refusalOf(plan)).toBe('no-surface');
+  });
+
+  /**
    * The record is stale where it names a window the join does not: the session moved, or that window has closed. Its
    * root would send `code` to open a window the session is not in, and the fire there would start a second agent.
    */

@@ -51,6 +51,21 @@ describe('the placement table', () => {
     expect(PLACEMENTS['codex']!.lockDir).toBeUndefined();
   });
 
+  /**
+   * §47: the pid a session reports belongs to a process the window's extension host started, which is what ties a
+   * session to a window. Claude's session is `claude.exe`; a Codex thread runs inside the extension's app-server.
+   */
+  it('names the executable whose parent is the window running the session', () => {
+    expect(PLACEMENTS['claude']!.processName).toBe('claude.exe');
+    expect(PLACEMENTS['codex']!.processName).toBe('codex.exe');
+  });
+
+  /** §6, §44: Claude's reveal forks a surface, so only Codex's may be fired at an unrecorded one. */
+  it('claims an idempotent reveal only for the agent whose reveal re-activates the surface', () => {
+    expect(PLACEMENTS['claude']!.idempotentReveal).toBe(false);
+    expect(PLACEMENTS['codex']!.idempotentReveal).toBe(true);
+  });
+
   it('refuses an agent outside the table, because the host has no record of where its sessions show', () => {
     const codex = session({ agent: 'gemini' });
     const plan = planOpen(

@@ -76,7 +76,7 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
     },
 
     prime(): void {
-      primeWindows();
+      primeWindows(placements);
       void readWindowStores(settings.userDir ?? defaultUserDir(), placements);
     },
 

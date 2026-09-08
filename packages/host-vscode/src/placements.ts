@@ -40,8 +40,18 @@ export interface AgentPlacement {
    */
   lockDir?(home: string, env: NodeJS.ProcessEnv): string;
   extensionId: string;
+  /**
+   * The Windows image name of the process a session's pid belongs to, whose parent is the extension host of the
+   * window showing it (§22, §47). Claude's session is that process; Codex's is the app-server its extension runs.
+   */
+  processName: string;
   /** Reveals a tab for one session without writing the developer's preferred location (`docs/mechanics.md` §6). */
   reveal(sessionId: string): RevealCall;
+  /**
+   * Whether a reveal re-activates the surface already holding the session rather than opening a second agent on it
+   * (§6, §44). Only an idempotent one may be fired at a window whose surface VS Code has not recorded.
+   */
+  idempotentReveal: boolean;
   /** The views' own focus commands, tried in order; the one not registered on this VS Code rejects. */
   sidebarFocusCommands: readonly string[];
   /**
@@ -80,6 +90,8 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     session: { from: 'state', key: 'sessionID' },
     lockDir: (home, env) => join(claudeDirOf(home, env['CLAUDE_CONFIG_DIR']), 'ide'),
     extensionId: 'Anthropic.claude-code',
+    processName: 'claude.exe',
+    idempotentReveal: false,
     reveal: (sessionId) => ({ command: 'claude-vscode.primaryEditor.open', kind: 'id', value: sessionId }),
     sidebarFocusCommands: ['claudeVSCodeSidebarSecondary.focus', 'claudeVSCodeSidebar.focus'],
     openUri: (sessionId) => `vscode://anthropic.claude-code/open?session=${encodeURIComponent(sessionId)}`,
@@ -98,6 +110,10 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     // No `lockDir`: Codex announces no window anywhere. What it writes per thread says which thread is being
     // written, never which window is writing it (§44), so there is no directory to name and none is invented.
     extensionId: 'openai.chatgpt',
+    // The thread runs inside `codex app-server`, which the extension spawns per window, so the pid the hook records
+    // is that process and its parent is the window's extension host (§47).
+    processName: 'codex.exe',
+    idempotentReveal: true,
     reveal: (sessionId) => ({ command: 'vscode.open', kind: 'uri', value: `${CODEX_SCHEME}://route${CODEX_LOCAL}${sessionId}` }),
     // Codex's sidebar records nothing the board can read (§44), so no route ever reaches a focus command for it.
     sidebarFocusCommands: [],
