@@ -141,10 +141,10 @@ That silence belongs to the in-process command, not to the mismatch. The same mi
 
 ## 6. `claude-vscode.editor.open` — signature and behavior
 
-**version-fragile.** Re-measured **2026-09-02** against **2.1.258**, read out of the shipped `extension.js`. Registered by the official extension; undocumented.
+**version-fragile.** Re-read **2026-09-08** against **2.1.263**, out of the shipped `extension.js`. Registered by the official extension; undocumented.
 
 ```
-claude-vscode.editor.open(sessionId?, initialPrompt?, viewColumn?, newSessionGroupId?)
+claude-vscode.editor.open(sessionId?, initialPrompt?, viewColumn?, newSessionGroupId?, fullEditor?)
 ```
 
 Every parameter is optional: `claude-vscode.editor.openLast` invokes the command with none, and falls through to `claude-vscode.sidebar.open` instead when the preferred location is the sidebar.
@@ -152,18 +152,22 @@ Every parameter is optional: `claude-vscode.editor.openLast` invokes the command
 From the registered handler, transliterated from the minified source:
 
 ```js
-registerCommand("claude-vscode.editor.open", async (sessionId, prompt, column, groupId) => {
-  if (column !== ViewColumn.Active) preferredLocation.set("panel");
-  let { startedInNewColumn } = createPanel(sessionId, prompt, column, groupId);
+registerCommand("claude-vscode.editor.open", async (sessionId, prompt, column, groupId, fullEditor) => {
+  if (!fullEditor) preferredLocation.set("panel");
+  let { startedInNewColumn } = createPanel(sessionId, prompt, column, groupId, fullEditor);
   if (startedInNewColumn) await executeCommand("workbench.action.lockEditorGroup");
 })
 ```
 
-So **any column but the active one has a side effect**: `claudeCode.preferredLocation` is written to `panel` at global scope, before the reveal check below, so it happens even when nothing is opened. `claude-vscode.primaryEditor.open(sessionId, prompt)` is the same call pinned to `ViewColumn.Active`, and avoids it.
+So **every call has a side effect unless the fifth argument is passed**: `claudeCode.preferredLocation` is written to `panel` at global scope, before the reveal check below, so it happens even when nothing is opened. The guard is the `fullEditor` flag, not the column.
+
+`claude-vscode.primaryEditor.open(sessionId?, prompt?)` is the call that avoids it — it is `createPanel(sessionId, prompt, <active column>, undefined, true)`, so it passes the flag and never writes the setting. That is the command the board uses (R14), and `PLACEMENTS` already names it for the reveal.
+
+Two more commands exist that take no arguments: `claude-vscode.window.open` is `createPanel(undefined, undefined)` followed by `workbench.action.moveEditorToNewWindow`, and `claude-vscode.newConversation` posts a message to an existing panel rather than making one.
 
 From `createPanel`:
 
-- **The session id is not validated on this path.** `createPanel` maps a `remote:`-prefixed id through a `remoteTeleports` table and otherwise takes the id as given; the zod check lives in the webview comms handlers, the `vscode://` `/open` handler, and the panel serializer — none of which the command is. The serializer's is the stricter variant, which also rejects a `remote:` id. An id nothing resolves to opens a panel bound to it rather than being refused, so a caller owns that check itself.
+- **The session id is not validated on this path.** `createPanel` maps a `remote:`-prefixed id through a `remoteTeleports` table and otherwise takes the id as given; the zod check lives in the webview comms handlers, the `vscode://` `/open` handler, and the panel serializer — none of which the command is. The serializer's is the stricter variant, which also rejects a `remote:` id. An id nothing resolves to opens a panel bound to it rather than being refused, so a caller owns that check itself — and the session that then starts carries an id of the agent's own, not the one that was fired (§51).
 - A `sessionPanels` map is checked next. If the session already has a tab it is **revealed**, the call returns `startedInNewColumn: false`, and a supplied prompt is dropped with *"Session is already open. Your prompt was not applied — enter it manually."* The map is per extension host, so it only ever sees this window's tabs.
 - With `viewColumn` undefined it prefers an existing non-empty tab group whose every tab is a Claude panel, else `findUnusedColumn()`.
 - `initialPrompt` **prefills** the input box. It is not submitted; a human presses Enter.
@@ -1732,7 +1736,7 @@ Measured 2026-09-07 by reading `openai.chatgpt-26.901.22334-win32-x64`. Version-
 - Sidebar webviews: `chatgpt.sidebarView` and `chatgpt.sidebarSecondaryView`, one or the other registered per VS Code version.
 - Commands: `chatgpt.openSidebar`, `chatgpt.newCodexPanel`, `chatgpt.newChat`, `chatgpt.openCommandMenu`, `chatgpt.implementTodo`, `chatgpt.addToThread`, `chatgpt.addFileToThread`. None takes a thread id — a thread is opened as a resource instead, which §44 measures.
 - `contributes.customEditors`: `chatgpt.conversationEditor`, selector `openai-codex:/**/*`. This is the reveal (§44).
-- `chatSessions` contributes the session type `openai-codex`, which is what makes VS Code's own `workbench.action.chat.openSessionWithPrompt.openai-codex` and its siblings exist. Not measured here; §44 uses the resource instead.
+- `chatSessions` contributes the session type `openai-codex`, and the extension backs it with a `ChatSessionItemProvider` alone — so VS Code's own `workbench.action.chat.openSessionWithPrompt.openai-codex` has no content provider behind it and is not a way to open or seed a thread (§51). §44 uses the resource instead.
 
 ## 44. A Codex thread is an editor resource, and that is how one is opened
 
@@ -1881,3 +1885,36 @@ Unable to write to Global Settings because groundControl.actions.merge-upstream.
 ```
 
 That is what an integration test asserting a settings-editor path actually rests on — the write, not the read.
+## 51. Starting a new session in a window, and what a caller may name it
+
+Read **2026-09-08** out of the shipped bundles: `anthropic.claude-code` **2.1.263** (`extension.js` and `webview/index.js`) and `openai.chatgpt` **26.901.22334** (`out/extension.js`). Version-fragile: every identifier here is one extension version's.
+
+**Claude: `claude-vscode.primaryEditor.open(undefined, prompt)` starts one.** With no session id, `createPanel` skips the `sessionPanels` reveal check, builds a `claudeVSCodePanel` webview, and `setupPanel` writes the id and the prompt onto the webview root as `data-initial-session` and `data-initial-prompt`. The webview reads both, and with an id absent and a prompt present takes its `fresh_with_prompt` branch: `createSession({ isExplicit: false })`, then `session.initialPrompt = prompt`.
+
+**The prompt is placed in the input box and never sent.** The panel component consumes it once — `if (prompt) inputRef.setInputText(prompt), session.initialPrompt = undefined` — and there is no submit on that path. A human presses Enter.
+
+**A caller-supplied session id does not become the session's id.** This is the thing worth knowing, and it is the opposite of what a caller would assume from the panel binding. `createPanel` does register the panel under whatever id it was given — `sessionPanels.set(id, panel)` — but the webview then asks the agent for that session, and an id the agent does not know is not created under that name:
+
+```js
+activateSessionFromServer(id, prompt).then((found) => {
+  if (!found) createSession({ isExplicit: false }).then((s) => { if (s && prompt) s.initialPrompt = prompt })
+})
+```
+
+So a fired id that resolves to nothing yields a session with a **freshly minted id**, and the panel is left bound to a name nothing answers to. That is what §7 measured from the outside — `3d93ad53` fired, `4c06a6f7` appeared — and this is the code path that produced it. A caller cannot name a session it is starting, by this route or by the `vscode://` one that reaches the same command. A start is confirmed by a new session appearing in the expected directory, never by an id agreed in advance.
+
+**The directory is the window's first workspace folder.** `setupPanel` computes it once as `realpathSync(workspaceFolders[0] ?? homedir())` and hands it to the session's comms object. So which window a start runs in decides the checkout, and a multi-root window resolves to its first folder — which is why a start never reuses one.
+
+**Codex starts bare.** `chatgpt.newCodexPanel` is `createNewPanel()`, which takes no arguments at all:
+
+```js
+async createNewPanel() {
+  await commands.executeCommand('vscode.openWith', uri('/extension/panel/new'), 'chatgpt.conversationEditor',
+                                { viewColumn: activeTextEditor?.viewColumn ?? ViewColumn.Active })
+}
+```
+
+The URI is built the way §44's reveal is — scheme `openai-codex`, authority `route`, path `/extension/panel/new` — so a start is `vscode.open`-shaped and takes a `Uri`, not a string.
+
+`workbench.action.chat.openSessionWithPrompt.openai-codex`, named in §43 as the untested possibility, is not a way in either: the extension registers **only** `chat.registerChatSessionItemProvider`, which lists sessions. Nothing in the bundle registers a content provider, and no `openSessionWithPrompt` string appears in it. `chatgpt.newChat` is the sidebar's, not a thread's.
+
