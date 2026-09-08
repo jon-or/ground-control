@@ -1,10 +1,10 @@
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultConfig } from '../src/registry.js';
+import { defaultConfig, makeRegistries } from '../src/registry.js';
 import { configPathOf } from '../src/paths.js';
 import { makeSettingsStore } from '../src/settings.js';
-import { tempHome } from './helpers.js';
+import { fakeReaders, tempHome } from './helpers.js';
 
 const homes: (() => void)[] = [];
 
@@ -25,7 +25,7 @@ function home(): string {
 /** The developer's own settings, as an editor window pushes them. */
 function configured() {
   return {
-    ...defaultConfig(),
+    ...defaultConfig(makeRegistries(), fakeReaders()),
     sources: { github: { repo: 'example-org/example-repo', logins: ['dev-1'] } },
     refreshIntervalMs: 60_000,
   };

@@ -17,7 +17,7 @@ import { lanesPathOf, logPathOf } from '../src/paths.js';
 import { groundControlDirOf } from '@ground-control/core';
 import type { LogEntry } from '@ground-control/core';
 import { defaultConfig } from '../src/registry.js';
-import { captureLog, fakeClock, fakeHost, fakeSession, reportingAgent, tempHome } from './helpers.js';
+import { captureLog, fakeClock, fakeHost, fakeReaders, fakeSession, reportingAgent, tempHome } from './helpers.js';
 import type { FakeAgentControl, FakeHostControl } from './helpers.js';
 
 let home: string;
@@ -146,7 +146,7 @@ function harness(
     detected,
     wrote: [],
     config: (part = {}) => ({
-      ...defaultConfig(registries),
+      ...defaultConfig(registries, fakeReaders()),
       agents: [{ id: agent.adapter.id, path: agent.adapter.defaultPath }],
       hosts: { [host.adapter.id]: {} },
       sources: { github: { repo: 'example-org/example-repo', logins: ['dev-1'] } },

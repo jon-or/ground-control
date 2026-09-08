@@ -44,7 +44,7 @@ function adapter(id: string, reading: AgentReading = { sessions: [{ ...SESSION, 
     id,
     displayName: id,
     defaultPath: `${id}-cli`,
-    defaultEnabled: true,
+    enabledByDefault: () => true,
     calls,
     async listSessions(path, deps) {
       calls.push({ path, deps });

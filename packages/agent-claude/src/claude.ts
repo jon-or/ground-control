@@ -236,7 +236,9 @@ export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText 
     id: CLAUDE_AGENT_ID,
     displayName: CLAUDE_DISPLAY_NAME,
     defaultPath: 'claude',
-    defaultEnabled: true,
+    // Not detected, unlike Codex: the board keeps its own home under `~/.claude`, so that directory existing is no
+    // evidence at all, and a board that polled no agent would have nothing to show.
+    enabledByDefault: () => true,
     activity: claudeActivity,
     classify: makeClaudeClassifier(run),
     dispatch: makeClaudeDispatcher(runText),

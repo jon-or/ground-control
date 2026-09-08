@@ -41,8 +41,75 @@ const marker = JSON.stringify({
 });
 
 describe('the Codex adapter', () => {
-  it('ships off, so a machine without Codex is never told it is missing', () => {
-    expect(makeCodexAdapter({ alive: () => true, env: {} })).toMatchObject({ id: 'codex', displayName: 'Codex', defaultPath: 'codex', defaultEnabled: false });
+  it('names itself and the command a dispatch spawns', () => {
+    expect(makeCodexAdapter({ alive: () => true, env: {} })).toMatchObject({ id: 'codex', displayName: 'Codex', defaultPath: 'codex' });
+  });
+
+  /** R30: detected, so an installed Codex needs no setting and a machine without one is never polled. */
+  it('is on where Codex keeps a home, and off where it does not', () => {
+    const adapter = makeCodexAdapter({ alive: () => true, env: {} });
+
+    expect(adapter.enabledByDefault(machine({ dirs: { [`${HOME}/.codex`]: ['config.toml'] } }))).toBe(true);
+    expect(adapter.enabledByDefault(machine({}))).toBe(false);
+  });
+
+  it('looks where CODEX_HOME points, which is where Codex itself would keep it', () => {
+    const adapter = makeCodexAdapter({ alive: () => true, env: { CODEX_HOME: 'D:/elsewhere/codex' } });
+
+    expect(adapter.enabledByDefault(machine({ dirs: { 'D:/elsewhere/codex': [] } }))).toBe(true);
+    expect(adapter.enabledByDefault(machine({ dirs: { [`${HOME}/.codex`]: ['config.toml'] } }))).toBe(false);
+  });
+
+  /** The markers are the whole roster, so untrusted hooks are an empty Codex with no reason given (R25, §41). */
+  function withOurHook(): Record<string, string> {
+    return {
+      [codexHooksPathOf(HOME)]: JSON.stringify({
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: `node "${hookPathOf(HOME)}"`, async: true, timeout: 5 }] }] },
+      }),
+    };
+  }
+
+  it('asks Codex to trust its hooks once, and says nothing on the read that asked', async () => {
+    const calls: string[] = [];
+    const adapter = makeCodexAdapter({ alive: () => true, env: {}, trust: (path) => (calls.push(path), Promise.resolve(null)) });
+    const deps = machine({ dirs: { [activityDirOf(HOME)]: [] }, files: withOurHook() });
+
+    const first = await adapter.listSessions('D:/codex/codex.exe', deps);
+    const second = await adapter.listSessions('D:/codex/codex.exe', deps);
+
+    expect(calls).toEqual(['D:/codex/codex.exe']);
+    expect(first.failure).toBeNull();
+    expect(second.failure).toBeNull();
+  });
+
+  it('reports what stopped the attempt on the read after it failed', async () => {
+    const adapter = makeCodexAdapter({ alive: () => true, env: {}, trust: () => Promise.resolve('Codex refused') });
+    const deps = machine({ dirs: { [activityDirOf(HOME)]: [] }, files: withOurHook() });
+
+    await adapter.listSessions('codex', deps);
+    // The attempt settles a microtask after the read that started it, which is what the next poll would find.
+    await Promise.resolve();
+    const after = await adapter.listSessions('codex', deps);
+
+    expect(after.failure?.subject).toBe('codex');
+    expect(after.failure?.message).toContain('Codex refused');
+  });
+
+  it('asks nothing where the machine gives it no way to, and reports nothing it cannot act on', async () => {
+    const adapter = makeCodexAdapter({ alive: () => true, env: {} });
+    const deps = machine({ dirs: { [activityDirOf(HOME)]: [] }, files: withOurHook() });
+
+    expect((await adapter.listSessions('codex', deps)).failure).toBeNull();
+  });
+
+  it('keeps a fault in what the hook wrote ahead of anything about trust', async () => {
+    const adapter = makeCodexAdapter({ alive: () => true, env: {}, trust: () => Promise.resolve('Codex refused') });
+    const deps = machine({ dirs: { [activityDirOf(HOME)]: ['thread-1.json'] }, files: withOurHook() });
+
+    await adapter.listSessions('codex', deps);
+    await Promise.resolve();
+
+    expect((await adapter.listSessions('codex', deps)).failure?.message).toContain('could not read');
   });
 
   it('offers no classification, which is the one thing it cannot yet do', () => {

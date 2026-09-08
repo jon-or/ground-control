@@ -11,3 +11,5 @@ export type { PidAlive } from './roster.js';
 export { makeHistoryReader, rolloutExists, rolloutMetadata, sessionsRootOf } from './history.js';
 export { planHookInstall } from './hookPlan.js';
 export { HOOK_SOURCE, activityDirOf, codexHomeOf, codexHooksPathOf, hookPathOf } from './hookScript.js';
+export { makeTrustOnMachine } from './appServer.js';
+export type { TrustHooks } from './appServer.js';

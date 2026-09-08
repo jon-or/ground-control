@@ -207,7 +207,7 @@ export class Hub {
     // set it — and the settings live in an editor that need not be open (R35, R36).
     const stored = deps.settings.read();
 
-    this.#config = stored && 'config' in stored ? stored.config : defaultConfig(deps.registries);
+    this.#config = stored && 'config' in stored ? stored.config : defaultConfig(deps.registries, diskReaders(deps.home));
     this.#stored = stored && 'failure' in stored ? stored.failure : null;
     // Applied here rather than as each client turns up: a second window connecting would otherwise overwrite what
     // the board is saying about the first one's settings, while the hub is still running on the older ones.
@@ -496,9 +496,9 @@ export class Hub {
   }
 
   #installActivity(): ActivityState {
-    // An install reaches only the agents the configuration names, so the board never writes into the settings of a
-    // CLI it was not asked to read (R30). A removal reaches every one of them: it is the developer turning the hooks
-    // off, and leaving another agent's entries behind would leave a writer nobody maintains firing (R34).
+    // An install reaches only the agents the configuration names — detected or set — so the board never writes into
+    // the settings of a CLI this machine does not have (R30). A removal reaches every one of them: it is the
+    // developer turning the hooks off, and leaving another agent's entries behind would leave a writer firing (R34).
     this.#activity = this.#config.installActivity
       ? this.#deps.syncActivity(
           this.#deps.registries,

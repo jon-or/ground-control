@@ -5,9 +5,9 @@ import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubConfig } from '@ground-control/github';
 import { CLAUDE_AGENT_ID } from '@ground-control/agent-claude';
-import { AUTOMATABLE_ACTIONS, idsFrom } from '@ground-control/core';
+import { AUTOMATABLE_ACTIONS, diskReaders, idsFrom } from '@ground-control/core';
 import type { ActionSetting, AgentConfig, AutomatableAction, HubConfig } from '@ground-control/core';
-import { defaultConfig } from '@ground-control/hub';
+import { defaultConfig, makeRegistries } from '@ground-control/hub';
 
 export const SECTION = 'groundControl';
 const LOGINS = 'github.logins';
@@ -40,7 +40,7 @@ export function readConfig(): GithubConfig {
 export function readHubConfig(userDir: string): HubConfig {
   const cfg = vscode.workspace.getConfiguration(SECTION);
   const configured = cfg.get<Record<string, string>>('agents', {});
-  const defaults = defaultConfig();
+  const defaults = defaultConfig(makeRegistries(), diskReaders());
 
   // R30: only the CLIs named here are read. An empty map means the defaults, so an adapter that ships enabled works
   // without the developer editing settings, and one that ships off stays off until they name it.

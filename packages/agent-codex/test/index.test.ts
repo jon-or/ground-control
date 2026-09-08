@@ -20,6 +20,7 @@ describe('what the package exports', () => {
       'makeCodexDispatcher',
       'makeHistoryReader',
       'makeMachineStarter',
+      'makeTrustOnMachine',
       'phaseOf',
       'pidAliveOnMachine',
       'planHookInstall',

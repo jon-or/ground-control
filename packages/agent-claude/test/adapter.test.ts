@@ -14,8 +14,8 @@ describe('the Claude adapter', () => {
     expect(adapter.defaultPath).toBe('claude');
   });
 
-  it('is on by default, so the primary agent needs no setup (R26)', () => {
-    expect(adapter.defaultEnabled).toBe(true);
+  it('is on whatever the machine holds, because the board keeps its own home under ~/.claude (R26)', () => {
+    expect(adapter.enabledByDefault(recordedReaders())).toBe(true);
   });
 
   it('offers its hook-written markers as the phase signal', () => {

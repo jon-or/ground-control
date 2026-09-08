@@ -10,6 +10,7 @@ import type {
   OpenRequest,
   OpenRoute,
   ReadFailure,
+  MachineReaders,
   Session,
   SessionActivity,
 } from '@ground-control/core';
@@ -77,12 +78,27 @@ export function fakeSignal(
   };
 }
 
+/**
+ * Readers that find nothing, for the defaults an agent detector is asked about. A test that wants an agent detected
+ * names the directory it looks for.
+ */
+export function fakeReaders(dirs: Record<string, string[]> = {}, home = '/home/dev'): MachineReaders {
+  return {
+    readText: () => null,
+    mtime: () => null,
+    listDir: (path) => dirs[path] ?? null,
+    readTail: () => null,
+    readHead: () => null,
+    home,
+  };
+}
+
 export function fakeAgent(id: string, activity?: ActivitySignal): AgentAdapter {
   return {
     id,
     displayName: id,
     defaultPath: `${id}-cli`,
-    defaultEnabled: true,
+    enabledByDefault: () => true,
     ...(activity ? { activity } : {}),
     async listSessions() {
       return { sessions: [], failure: null };
@@ -117,7 +133,7 @@ export function reportingAgent(id = 'fake'): FakeAgentControl {
       id,
       displayName: id,
       defaultPath: `${id}-cli`,
-      defaultEnabled: true,
+      enabledByDefault: () => true,
       activity: {
         plan: () => ({ kind: 'up-to-date' }),
         settingsPath: (home) => `${home}/.fake/settings.json`,

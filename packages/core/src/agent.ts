@@ -1,4 +1,4 @@
-import type { MachineDeps, ReadText } from './machine.js';
+import type { MachineDeps, MachineReaders, ReadText } from './machine.js';
 import type { HistoricalSession, ReadFailure, Session, SessionActivity } from './types.js';
 
 export interface HistoryReading {
@@ -111,8 +111,12 @@ export interface AgentAdapter {
   readonly id: string;
   readonly displayName: string;
   readonly defaultPath: string;
-  /** R30: a CLI that is not the developer's primary agent stays off until they enable it, so absence never nags. */
-  readonly defaultEnabled: boolean;
+  /**
+   * R30: whether this machine has the tool at all, which is what decides whether the board polls it before any
+   * setting is given. Readers rather than a spawn: a probe that ran the CLI would cost a process per hub start on
+   * every machine, and answer nothing on the one where it is absent.
+   */
+  enabledByDefault(readers: MachineReaders): boolean;
   /** Lists every live session this CLI reports. Never throws — a failure comes back classified. */
   listSessions(path: string, deps: MachineDeps): Promise<AgentReading>;
   /** Saved metadata only. The caller establishes absence from the live roster independently. */

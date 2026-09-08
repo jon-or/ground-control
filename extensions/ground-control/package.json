@@ -142,7 +142,7 @@
             "type": "string"
           },
           "default": {},
-          "markdownDescription": "The agent CLIs to read sessions from, as id to command or full path — `claude` and `codex`. Left empty, the board reads the ones that ship enabled, which is `claude` alone. Naming any agent replaces that default, so name every one you want: an agent left out is not read, and its session hooks are not installed."
+          "markdownDescription": "The agent CLIs to read sessions from, as id to command or full path — `claude` and `codex`. Leave this empty unless a CLI is somewhere the board would not find it: the board detects what is installed, so Claude is always read and Codex is read whenever it has a home of its own. Naming any agent replaces what was detected, so name every one you want: an agent left out is not read, and its session hooks are not installed."
         },
         "groundControl.branchIssuePattern": {
           "scope": "application",
@@ -266,7 +266,7 @@
           "scope": "application",
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Let the board tell when a session is running. Neither CLI reports what an interactive session is doing, so the board writes a small activity hook per agent — `~/.claude/ground-control/hook.mjs` with entries in `~/.claude/settings.json`, and `~/.claude/ground-control/codex-hook.mjs` with entries in `~/.codex/hooks.json` — for the agents you have named, the first time you open the board. It backs each file up first, adds only its own entries, and refuses to write at all if it cannot read one. Codex runs a hook only once you have trusted it in Codex itself, so its sessions report nothing until you do. Turn this off to remove every entry — sessions still appear, they just cannot report what they are doing."
+          "markdownDescription": "Let the board tell when a session is running. Neither CLI reports what an interactive session is doing, so the board writes a small activity hook per agent — `~/.claude/ground-control/hook.mjs` with entries in `~/.claude/settings.json`, and `~/.claude/ground-control/codex-hook.mjs` with entries in `~/.codex/hooks.json` — for the agents on this machine, the first time you open the board. It backs each file up first, adds only its own entries, and refuses to write at all if it cannot read one. Codex runs a hook only once it has been told to trust it, so the board asks Codex to trust its own entries and nothing else — through Codex, which writes its own `config.toml`. Turn this off to remove every entry — sessions still appear, they just cannot report what they are doing."
         },
         "groundControl.openWindowsForSessions": {
           "scope": "application",

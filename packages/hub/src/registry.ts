@@ -1,9 +1,9 @@
 import { homedir } from 'node:os';
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
-import { killOnMachine, makeCodexAdapter, makeMachineStarter, pidAliveOnMachine } from '@ground-control/agent-codex';
+import { killOnMachine, makeCodexAdapter, makeMachineStarter, makeTrustOnMachine, pidAliveOnMachine } from '@ground-control/agent-codex';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
 import { DEFAULT_ACTIONS, DEFAULT_TRIAGE } from '@ground-control/core';
-import type { AgentAdapter, HostAdapter, HubConfig, Logger, ReadFailure, WorkSource } from '@ground-control/core';
+import type { AgentAdapter, HostAdapter, HubConfig, Logger, MachineReaders, ReadFailure, WorkSource } from '@ground-control/core';
 import { makeGithubSource } from '@ground-control/github';
 import { makeVscodeHost } from '@ground-control/host-vscode';
 
@@ -25,6 +25,9 @@ export function makeRegistries(log?: Logger, home: string = homedir()): Registri
     // and all, into the home of the board the developer is actually using.
     start: makeMachineStarter(home),
     kill: killOnMachine,
+    // The hub's home again, for the same reason: a trust written under `--home` must not reach the developer's own
+    // Codex, and `CODEX_HOME` is what decides which `config.toml` the exchange writes.
+    trust: makeTrustOnMachine(),
   });
 
   return { agents: [makeClaudeAdapter(), codex], hosts: [makeVscodeHost()], sources: [makeGithubSource(log ? { log } : {})] };
@@ -39,13 +42,15 @@ const SESSION_INTERVAL_MS = 30_000;
 
 /**
  * What the hub polls with before any client has said anything, built from the adapters themselves plus the shipped
- * statuses and lanes. R30 is what makes this the adapters' business rather than a list here: an agent that is not
- * the developer's primary one ships off, so its absence never nags. A hub the browser started alone runs on this.
+ * statuses and lanes. R30 is what makes this the adapters' business rather than a list here: each one reads the
+ * machine for its own tool, so an installed agent needs no setting and an absent one is never polled. The readers
+ * are a parameter rather than a default so no caller reads a home it did not name. A hub the browser started alone
+ * runs on this.
  */
-export function defaultConfig(registries: Registries = makeRegistries()): HubConfig {
+export function defaultConfig(registries: Registries, readers: MachineReaders): HubConfig {
   return {
     agents: registries.agents
-      .filter((agent) => agent.defaultEnabled)
+      .filter((agent) => agent.enabledByDefault(readers))
       .map((agent) => ({ id: agent.id, path: agent.defaultPath })),
     branchIssuePattern: BRANCH_ISSUE_PATTERN,
     hosts: Object.fromEntries(registries.hosts.map((host) => [host.id, {}])),
