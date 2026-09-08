@@ -11,6 +11,12 @@ import { boardLog } from './logging.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 
+/**
+ * Where the Archived toggle is kept. The webview's own state dies with the tab, and the choice is the developer's
+ * standing one - a board opened tomorrow draws the lane it was left drawing.
+ */
+export const SHOW_ARCHIVED_KEY = 'groundControl.showArchived';
+
 /** Long enough for a first render on a cold extension host, short enough that nobody sits looking at nothing. */
 const BLANK_AFTER_MS = 10_000;
 
@@ -37,7 +43,8 @@ type Inbound =
   | { type: 'openSession'; sessionId: string }
   | { type: 'openChanges'; key: string }
   | { type: 'toggleLogs' }
-  | { type: 'showBoardLog' };
+  | { type: 'showBoardLog' }
+  | { type: 'setShowArchived'; shown: boolean };
 
 
 /**
@@ -72,6 +79,7 @@ export class BoardPanel {
   readonly #disposables: vscode.Disposable[] = [];
   readonly #client: HubClient;
   readonly #userDir: string;
+  readonly #memento: vscode.Memento;
   #disposed = false;
   /** The webview is torn down when the tab goes background, so the last snapshot is replayed on return. */
   #last: Snapshot | undefined;
@@ -97,7 +105,7 @@ export class BoardPanel {
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
     });
 
-    return new BoardPanel(panel, context.extensionUri, userDirOf(context));
+    return new BoardPanel(panel, context.extensionUri, userDirOf(context), context.globalState);
   }
 
   /**
@@ -112,13 +120,14 @@ export class BoardPanel {
       localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
     };
 
-    new BoardPanel(panel, context.extensionUri, userDirOf(context));
+    new BoardPanel(panel, context.extensionUri, userDirOf(context), context.globalState);
   }
 
-  constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, userDir: string) {
+  constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, userDir: string, memento: vscode.Memento) {
     this.#panel = panel;
     this.#extensionUri = extensionUri;
     this.#userDir = userDir;
+    this.#memento = memento;
     this.#client = client()!;
     this.#panel.webview.html = this.#html();
 
@@ -182,6 +191,7 @@ export class BoardPanel {
     switch (msg.type) {
       case 'ready':
         this.#postLogs();
+        this.#post({ type: 'showArchived', shown: this.#memento.get<boolean>(SHOW_ARCHIVED_KEY, false) });
 
         return;
 
@@ -246,6 +256,11 @@ export class BoardPanel {
       // Nothing to toggle: this channel is written whether or not anybody is looking, so the control only reveals.
       case 'showBoardLog':
         boardLog().show(true);
+
+        return;
+
+      case 'setShowArchived':
+        void this.#memento.update(SHOW_ARCHIVED_KEY, msg.shown);
 
         return;
     }

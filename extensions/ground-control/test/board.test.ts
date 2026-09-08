@@ -1273,6 +1273,24 @@ describe('lanes', () => {
     expect(document.getElementById('meta')?.textContent).toContain('2 cards');
   });
 
+  it('posts the archive choice for the extension to keep, and draws the lane when it is handed back — R9', () => {
+    send(message({ lanes: lanes({ plan: [planCard], archived: [archivedCard] }) }));
+
+    toggleArchived();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'setShowArchived', shown: true });
+
+    toggleArchived();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'setShowArchived', shown: false });
+    expect(laneEl('archived')).toBeNull();
+
+    send({ type: 'showArchived', shown: true });
+
+    expect(laneEl('archived')?.querySelectorAll('.card')).toHaveLength(1);
+    expect(archiveItem()?.checked).toBe(true);
+  });
+
   it('says so when the configured statuses archive the whole board — R25', () => {
     send(message({ lanes: lanes({ archived: [archivedCard] }) }));
 
@@ -1506,6 +1524,8 @@ describe('lanes', () => {
   it('offers no way to move an archived card — only a status takes a card off the board', () => {
     send(message({ lanes: lanes({ archived: [archivedCard] }) }));
     toggleArchived();
+    // The toggle posts the choice itself, and this is about what the card sends.
+    api.postMessage.mockClear();
 
     const card = laneEl('archived')!.querySelector<HTMLElement>('.card')!;
 

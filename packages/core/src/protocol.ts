@@ -100,4 +100,6 @@ export type BoardMessage =
   // Whether the hub's log is arriving. The panel's to say, because the control's state cannot be read off the
   // editor's output panel (`mechanics.md` §34) and a board reopened has to be told rather than remember.
   | { type: 'logs'; streaming: boolean }
+  // The standing Archived choice, which the extension holds: a webview's own state dies with the tab it was in.
+  | { type: 'showArchived'; shown: boolean }
   | SnapshotMessage;

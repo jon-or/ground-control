@@ -213,6 +213,8 @@ function boardActions() {
       checked: showArchived,
       run: () => {
         showArchived = !showArchived;
+        // The extension keeps it: this webview's state goes with the tab, and the choice outlives the tab.
+        vscode.postMessage({ type: 'setShowArchived', shown: showArchived });
 
         if (board) {
           render(board);
@@ -1705,6 +1707,16 @@ window.addEventListener('message', (event) => {
     return;
   }
 
+  if (message.type === 'showArchived') {
+    showArchived = message.shown === true;
+
+    if (board) {
+      render(board);
+    }
+
+    return;
+  }
+
   if (message.type === 'board') {
     if (dragging === null) {
       render(message);
@@ -1748,8 +1760,10 @@ nameFor(boardMenuEl, 'Board actions');
 wireMenuControl(boardMenuEl, BOARD_MENU_KEY, 'Board actions', boardActions);
 paintLogs(false);
 
+// Read before the payload guard: a stored board too old to draw does not make the developer's Archived choice stale.
+showArchived = restored?.showArchived === true;
+
 if (isCurrentPayload(restored?.payload)) {
-  showArchived = restored.showArchived === true;
   render(restored.payload);
 }
 

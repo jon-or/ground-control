@@ -283,10 +283,6 @@ main.stale {
   opacity: 0.5;
 }
 
-.lane-archived {
-  opacity: 0.7;
-}
-
 /* An empty Done or Icebox is noise, but it has to come back as a drop target the moment a card is picked up. */
 .lane-idle {
   display: none;
