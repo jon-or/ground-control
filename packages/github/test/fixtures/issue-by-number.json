@@ -1,0 +1,53 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "number": 15619,
+        "title": "Inbox badge fails silently on an empty result",
+        "url": "https://github.com/example-org/example-repo/issues/15619",
+        "state": "CLOSED",
+        "updatedAt": "2026-08-04T19:40:41Z",
+        "issueType": {
+          "name": "Feature",
+          "color": "BLUE"
+        },
+        "repository": {
+          "nameWithOwner": "example-org/example-repo"
+        },
+        "assignees": {
+          "nodes": []
+        },
+        "pullRequests": {
+          "nodes": [
+            {
+              "number": 16253,
+              "url": "https://github.com/example-org/example-repo/pull/16253",
+              "state": "MERGED",
+              "updatedAt": "2026-08-04T21:19:52Z",
+              "isDraft": false,
+              "reviewDecision": "REVIEW_REQUIRED",
+              "author": {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-1?s=40"
+              }
+            }
+          ]
+        },
+        "projectItems": {
+          "nodes": [
+            {
+              "project": {
+                "number": 3
+              },
+              "fieldValueByName": {
+                "name": "🚀 Releasable",
+                "color": "GRAY",
+                "updatedAt": "2026-07-30T18:37:03Z"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

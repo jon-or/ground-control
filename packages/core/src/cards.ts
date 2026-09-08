@@ -11,6 +11,8 @@ export interface IssueCard {
   /** GitHub's own colour name for the type and the status — `RED`, `BLUE`, `GRAY` … — or null when there is none. */
   typeColor: string | null;
   url: string;
+  /** `OPEN` or `CLOSED`, as GitHub reports it. Omitted by a snapshot an older hub cached. */
+  state?: string;
   status: string | null;
   statusColor: string | null;
   /** When the status last moved, or null off the board. The one change worth re-reading a card over (R38). */

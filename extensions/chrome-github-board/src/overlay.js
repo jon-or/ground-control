@@ -651,7 +651,7 @@ function renderActor(doc, element, card) {
 }
 
 /**
- * The same, off a card the hub reported. Null where the hub knows a number but not the issue behind it.
+ * The same, off a card the hub reported. Null where the issue's own URL is not one this pattern reads.
  *
  * @param {LanedCard} card
  */
@@ -662,10 +662,9 @@ function refOfCard(card) {
 }
 
 /**
- * Every laned card the snapshot holds, indexed twice: by repository and number where the hub knows which repository
- * the issue is in, and by number alone where it does not — a session naming an issue that is not on the developer's
- * own board carries the number and nothing else. A card in the first index is never in the second, so the fallback
- * can never hand one repository's card to another repository's issue.
+ * Every laned card the snapshot holds, indexed twice: by repository and number where the issue's URL says which
+ * repository it is in, and by number alone where it does not. A card in the first index is never in the second, so
+ * the fallback can never hand one repository's card to another repository's issue.
  *
  * @param {Snapshot} snapshot
  * @returns {{ byRef: Map<string, LanedCard>, byNumber: Map<number, LanedCard> }}

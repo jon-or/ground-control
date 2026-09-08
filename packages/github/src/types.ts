@@ -61,6 +61,8 @@ const searchNode = z.object({
   number: z.number(),
   title: z.string(),
   url: z.string(),
+  // Defaulted, not required: the assigned search is `is:open`, so a recording made before it was selected has none.
+  state: z.string().default('OPEN'),
   updatedAt: z.string(),
   issueType: z.object({ name: z.string(), color: z.string().nullable() }).nullable(),
   repository: z.object({ nameWithOwner: z.string() }),
@@ -95,6 +97,13 @@ export const searchResponse = z.object({
       nodes: z.array(searchNode),
     }),
     assignedTotal: z.object({ issueCount: z.number() }),
+  }),
+});
+
+/** One issue asked for by number. Null where the repository is unreadable or holds no such issue — not an error (R4). */
+export const issueResponse = z.object({
+  data: z.object({
+    repository: z.object({ issue: searchNode.nullable() }).nullable(),
   }),
 });
 

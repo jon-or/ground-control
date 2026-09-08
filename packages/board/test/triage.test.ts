@@ -133,9 +133,15 @@ describe('which cards are due', () => {
 
   it('never reads work with no issue of its own', () => {
     const adhoc = card({ key: 'session:d--work-repo', issue: null, issueNumber: null });
-    const foreign = card({ key: 'issue:99', issue: null, issueNumber: 99 });
 
-    expect(dueForTriage(lanesOf(adhoc, foreign), state(), NONE, 0)).toEqual([]);
+    expect(dueForTriage(lanesOf(adhoc), state(), NONE, 0)).toEqual([]);
+  });
+
+  /** What an issue somebody else now owns is waiting on is not the developer's to be told, and not theirs to pay for. */
+  it('never reads an issue the developer is not assigned', () => {
+    const foreign = card({ key: 'issue:99', issueNumber: 99, unassigned: true });
+
+    expect(dueForTriage(lanesOf(foreign), state(), NONE, 0)).toEqual([]);
   });
 
   it('does not read one it is already reading', () => {
@@ -512,6 +518,17 @@ describe('what a card carries', () => {
     const [lane] = withTriage(lanesOf(card()), state({ entries: { 'issue:17198': entry() } }), new Set(['issue:17198']), 1_000);
 
     expect(lane?.cards[0]?.triage).toEqual({ state: 'running' });
+  });
+
+  /**
+   * The card keeps the key it was read under, so the reading is still on file. Rendering it would put a stale chip —
+   * and the action control that reads it — on an issue somebody else now owns.
+   */
+  it('shows nothing on a card the developer is no longer assigned, however recently it was read', () => {
+    const held = state({ entries: { 'issue:17198': entry({ action: 'merge-upstream' }) } });
+    const [lane] = withTriage(lanesOf(card({ unassigned: true })), held, NONE, 1_000);
+
+    expect(lane?.cards[0]?.triage).toBeUndefined();
   });
 
   it('shows what was read, with the qualifier and the sentence', () => {

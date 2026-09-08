@@ -12,7 +12,7 @@ import type { CardPullRequest } from '@ground-control/github';
 import type { ActivityPhase } from '@ground-control/core';
 import type { BoardRules, CardMemory, Lane, LaneId } from '../src/index.js';
 import type { IssueCard, Session } from '../src/types.js';
-import { checkoutKeyOf, issues, sessions } from './helpers.js';
+import { checkoutKeyOf, issues, offBoardIssues, sessions } from './helpers.js';
 
 /** The shipped rules. No login, so the recording's own pull requests are nobody's and a lane turns only on what a test derives. */
 const RULES: BoardRules = { boardStatuses: DEFAULT_BOARD_STATUSES, statusLanes: DEFAULT_STATUS_LANES, logins: [] };
@@ -28,7 +28,7 @@ function lanes(
   memory: CardMemory = remember(),
   rules: Partial<BoardRules> = {},
 ): Lane[] {
-  return assignLanes(mergeBoard(cards, live), { ...RULES, ...rules }, memory);
+  return assignLanes(mergeBoard(cards, live, [], offBoardIssues), { ...RULES, ...rules }, memory);
 }
 
 function cardFor(all: Lane[], number: number) {
@@ -95,7 +95,7 @@ describe('assignLanes', () => {
   });
 
   it('puts every card in exactly one lane — R8', () => {
-    const cards = mergeBoard(issues, sessions);
+    const cards = mergeBoard(issues, sessions, [], offBoardIssues);
     const placed = board.flatMap((l) => l.cards.map((c) => c.key));
 
     expect(placed).toHaveLength(cards.length);
@@ -126,9 +126,7 @@ describe('assignLanes', () => {
 
     expect(started.length).toBeGreaterThan(0);
     expect(started.every((c) => c.issue === null)).toBe(true);
-    expect(new Set(started.map((c) => c.reason))).toEqual(
-      new Set(['Ad-hoc work with no issue.', 'Not among your assigned issues.']),
-    );
+    expect(new Set(started.map((c) => c.reason))).toEqual(new Set(['Ad-hoc work with no issue.']));
   });
 
   // Review is not in that list: the recording carries a 🔍 Dev Review card, and that status arrives there on its own.
@@ -250,14 +248,69 @@ describe('assignLanes', () => {
     expect(issueIn(lanes(issues, [finished], memory), 18954)).toBe('plan');
   });
 
-  it('says so on a card for an issue the developer does not own', () => {
-    const off = sessions.find((s) => s.issueNumber !== null && !issues.some((i) => i.number === s.issueNumber))!;
+  /**
+   * No exception for a session still on it, unlike the status rule above: a status is a claim about the work, which
+   * an agent can outrun, and this is a claim about whose the work is, which it cannot.
+   */
+  it('names the issue and archives the card even while an agent is still running on it', () => {
+    const off = sessions.find(
+      (s) => s.issueNumber !== null && !s.finished && !issues.some((i) => i.number === s.issueNumber),
+    )!;
     const card = lanes(issues, [off])
       .flatMap((l) => l.cards)
       .find((c) => c.issueNumber === off.issueNumber);
 
-    expect(card?.lane).toBe('build');
-    expect(card?.reason).toBe('Not among your assigned issues.');
+    expect(card?.issue?.title).toBe(offBoardIssues.get(off.issueNumber!)?.title);
+    expect(card?.sessions.map((s) => s.sessionId)).toEqual([off.sessionId]);
+    expect(card?.lane).toBe('archived');
+    expect(card?.reason).toBe('🚦 QA — not assigned to you.');
+  });
+
+  it('archives an issue the developer is not assigned once nothing is running on it — R9 reads assignment', () => {
+    const off = sessions.find((s) => s.issueNumber !== null && !issues.some((i) => i.number === s.issueNumber))!;
+    const card = lanes(issues, [{ ...off, finished: true }])
+      .flatMap((l) => l.cards)
+      .find((c) => c.issueNumber === off.issueNumber);
+
+    expect(card?.lane).toBe('archived');
+    expect(card?.reason).toBe('🚦 QA — not assigned to you.');
+  });
+
+  it('says a closed issue is closed rather than naming a status it no longer carries', () => {
+    const off = sessions.find((s) => s.issueNumber !== null && !issues.some((i) => i.number === s.issueNumber))!;
+    const closed = new Map(offBoardIssues);
+    closed.set(off.issueNumber!, { ...offBoardIssues.get(off.issueNumber!)!, state: 'CLOSED', status: null });
+    const card = assignLanes(mergeBoard(issues, [{ ...off, finished: true }], [], closed), RULES, remember())
+      .flatMap((l) => l.cards)
+      .find((c) => c.issueNumber === off.issueNumber);
+
+    expect(card?.lane).toBe('archived');
+    expect(card?.reason).toBe('Closed.');
+  });
+
+  /** Closing an issue takes it out of the assigned search too, and saying it is somebody else's would be false. */
+  it('does not call an issue still in the developer own name somebody else', () => {
+    const off = sessions.find((s) => s.issueNumber !== null && !issues.some((i) => i.number === s.issueNumber))!;
+    const mine = new Map(offBoardIssues);
+    mine.set(off.issueNumber!, { ...offBoardIssues.get(off.issueNumber!)!, assignees: ['dev-1'] });
+    const rules = { ...RULES, logins: ['dev-1'] };
+    const card = assignLanes(mergeBoard(issues, [{ ...off, finished: true }], [], mine), rules, remember())
+      .flatMap((l) => l.cards)
+      .find((c) => c.issueNumber === off.issueNumber);
+
+    expect(card?.lane).toBe('archived');
+    expect(card?.reason).toBe('🚦 QA — no longer among the issues your board reads.');
+  });
+
+  it('says only that it is not yours where the issue carries no status at all', () => {
+    const off = sessions.find((s) => s.issueNumber !== null && !issues.some((i) => i.number === s.issueNumber))!;
+    const bare = new Map(offBoardIssues);
+    bare.set(off.issueNumber!, { ...offBoardIssues.get(off.issueNumber!)!, status: null });
+    const card = assignLanes(mergeBoard(issues, [{ ...off, finished: true }], [], bare), RULES, remember())
+      .flatMap((l) => l.cards)
+      .find((c) => c.issueNumber === off.issueNumber);
+
+    expect(card?.reason).toBe('Not assigned to you.');
   });
 });
 
@@ -460,15 +513,24 @@ describe('nextMemory', () => {
     expect(nextMemory(board, EMPTY_MEMORY, true).seenPastMyHands).toEqual(away);
   });
 
+  /** Sessions on an issue nobody assigned the developer are left out: those cards archive, which is the other case. */
+  const mine = sessions.filter((session) => session.issueNumber === null || onBoard.some((i) => i.number === session.issueNumber));
+
   it('remembers nothing about a card still on the board', () => {
     expect(onBoard.length).toBeGreaterThan(0);
-    expect(nextMemory(lanes(onBoard, sessions), EMPTY_MEMORY, true).seenPastMyHands).toEqual([]);
+    expect(nextMemory(lanes(onBoard, mine), EMPTY_MEMORY, true).seenPastMyHands).toEqual([]);
+  });
+
+  it('remembers an issue the developer is not assigned, which has gone past their hands like any other', () => {
+    const off = sessions.find((s) => s.issueNumber !== null && !onBoard.some((i) => i.number === s.issueNumber))!;
+
+    expect(nextMemory(lanes(onBoard, [off]), EMPTY_MEMORY, true).seenPastMyHands).toEqual([`issue:${off.issueNumber}`]);
   });
 
   it('keeps a key after the card comes back, so a second departure is not a first', () => {
     const memory = remember({}, ['issue:18954']);
 
-    expect(nextMemory(lanes(onBoard, sessions, memory), memory, true).seenPastMyHands).toEqual(['issue:18954']);
+    expect(nextMemory(lanes(onBoard, mine, memory), memory, true).seenPastMyHands).toEqual(['issue:18954']);
   });
 
   it('does not remember a session-only card', () => {
@@ -726,11 +788,12 @@ describe('the attention on a card', () => {
 
     expect(marked).toEqual([
       ['issue:19072', 'your-turn'],
-      ['issue:19357', 'your-turn'],
       ['session:github.com/example-org/project-1#main', null],
       ['session:github.com/example-org/project-2#main', 'your-turn'],
       ['session:github.com/example-org/project-3#main', 'your-turn'],
       ['session:github.com/example-org/project-4#main', null],
+      // Last because Archived is: 19357 is nobody's assignment, and a finished turn asks nothing there (R6).
+      ['issue:19357', null],
     ]);
   });
 

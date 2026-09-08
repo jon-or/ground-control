@@ -267,19 +267,18 @@ describe('board webview', () => {
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
   });
 
-  it('renders disabled cards for off-board and unlinked sessions without guessing issue data', () => {
+  it('names the issue on a card the developer is not assigned, and disables only the unlinked one', () => {
     send(
       message({
         lanes: lanes({
           unstarted: [
             {
+              ...liveCard,
               key: 'issue:42',
-              issue: null,
               issueNumber: 42,
-              lane: 'unstarted',
-              returned: false,
-              attention: null,
-              reason: 'Not among your assigned issues.',
+              unassigned: true,
+              reason: '🚦 QA — not assigned to you, but an agent is still running.',
+              issue: { ...liveCard.issue!, number: 42, title: 'Guest portal drops rows past the first page' },
               sessions: [{ ...session, details: { ...NO_WORDS, shortId: 'short-1' } }],
             },
             {
@@ -304,8 +303,8 @@ describe('board webview', () => {
     const opens = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-open'));
 
     expect(cards).toHaveLength(2);
-    expect(opens[0]?.disabled).toBe(true);
-    expect(cards[0]?.textContent).toContain('Not among your assigned issues');
+    expect(opens[0]?.disabled).toBe(false);
+    expect(cards[0]?.textContent).toContain('Guest portal drops rows past the first page');
     expect(opens[1]?.disabled).toBe(true);
     expect(cards[1]?.textContent).toContain('18953-cache-remediation');
     expect(cards[1]?.querySelector('.state')?.textContent).toBe('working');

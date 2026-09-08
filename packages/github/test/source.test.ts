@@ -225,3 +225,66 @@ describe('a board nobody has named a repository for', () => {
     expect('failure' in readGithubConfig({ repo: '   ' })).toBe(true);
   });
 });
+
+describe('one issue read by number', () => {
+  const NEVER = new AbortController().signal;
+
+  function sourceWith(read: GithubSourceDeps['readCard'], raw: unknown = { repo: 'example-org/example-repo' }) {
+    const source = makeGithubSource({ readCard: read });
+    source.configure(raw);
+
+    return source;
+  }
+
+  it('reads its own repository, whatever case the checkout spelled it in', async () => {
+    const asked: string[] = [];
+    const source = sourceWith(async (_config, owner, name, number) => {
+      asked.push(`${owner}/${name}#${number}`);
+
+      return { ok: true, value: { number, title: 'A card' } as never };
+    });
+
+    expect(await source.readCard!('github.com/Example-Org/Example-Repo'.toLowerCase(), 42, NEVER)).toMatchObject({
+      card: { number: 42 },
+      failure: null,
+    });
+    expect(asked).toEqual(['example-org/example-repo#42']);
+  });
+
+  /** A number read off a branch in some other checkout. Answering it would put a plausible, wrong card on the board. */
+  it('refuses a repository that is not the one it is configured for, without spending a read', async () => {
+    const asked: string[] = [];
+    const source = sourceWith(async (_config, owner, name, number) => {
+      asked.push(`${owner}/${name}#${number}`);
+
+      return { ok: true, value: null };
+    });
+
+    // Null, not an empty reading: "not mine to answer" written down as "there is no such issue" leaves the board
+    // saying a card does not exist for as long as it remembers the answer.
+    expect(await source.readCard!('github.com/other-org/other-repo', 42, NEVER)).toBeNull();
+    expect(await source.readCard!('example.ghe.com/example-org/example-repo', 42, NEVER)).toBeNull();
+    expect(asked).toEqual([]);
+  });
+
+  it('reads nothing at all with settings it refused', async () => {
+    const source = sourceWith(async () => ({ ok: true, value: { number: 1 } as never }), { repo: '' });
+
+    expect(await source.readCard!('github.com/example-org/example-repo', 42, NEVER)).toBeNull();
+  });
+
+  it('serves a number it read and found nothing for, which is an answer rather than a refusal', async () => {
+    const source = sourceWith(async () => ({ ok: true, value: null }));
+
+    expect(await source.readCard!('github.com/example-org/example-repo', 99999, NEVER)).toEqual({ card: null, failure: null });
+  });
+
+  it('names the source on a failure, so the board says which read could not be made', async () => {
+    const source = sourceWith(async () => ({ ok: false, error: { kind: 'offline', message: 'no network', remedy: 'try later' } }));
+
+    expect(await source.readCard!('github.com/example-org/example-repo', 42, NEVER)).toEqual({
+      card: null,
+      failure: { subject: GITHUB_SOURCE_ID, kind: 'offline', message: 'no network', remedy: 'try later' },
+    });
+  });
+});

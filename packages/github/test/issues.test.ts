@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fetchAssignedIssues } from '../src/index.js';
+import { ISSUE_BY_NUMBER_QUERY, fetchAssignedIssues, fetchIssue } from '../src/index.js';
 import { config, fixture, runnerOf } from './helpers.js';
 
 async function unwrap(...args: Parameters<typeof fetchAssignedIssues>) {
@@ -39,6 +39,8 @@ describe('fetchAssignedIssues', () => {
       type: 'Bug',
       typeColor: 'RED',
       url: 'https://github.com/example-org/example-repo/issues/18953',
+      // Defaulted, not recorded: the assigned search is `is:open`, so an older recording carries no state.
+      state: 'OPEN',
       status: '⚒️ Dev',
       statusColor: 'GRAY',
       // Null because this recording predates the selection, which is exactly what an older recording must read as.
@@ -399,5 +401,82 @@ describe('fetchAssignedIssues', () => {
 
     expect(runner.calls[0]).toContain(`cards=${value.sourceQuery}`);
     expect(value.sourceQuery).toContain('project:example-org/3');
+  });
+});
+
+describe('fetchIssue', () => {
+  it('maps a recorded issue read by number, whatever its state and whoever holds it', async () => {
+    const result = await fetchIssue(config(), 'example-org', 'example-repo', 15619, runnerOf(fixture('issue-by-number')));
+
+    expect(result.ok && result.value).toEqual({
+      number: 15619,
+      title: 'Inbox badge fails silently on an empty result',
+      repository: 'example-org/example-repo',
+      state: 'CLOSED',
+      type: 'Feature',
+      typeColor: 'BLUE',
+      url: 'https://github.com/example-org/example-repo/issues/15619',
+      status: '🚀 Releasable',
+      statusColor: 'GRAY',
+      statusChangedAt: '2026-07-30T18:37:03Z',
+      assignees: [],
+      avatar: null,
+      pullRequest: {
+        number: 16253,
+        url: 'https://github.com/example-org/example-repo/pull/16253',
+        state: 'MERGED',
+        author: 'dev-1',
+        isDraft: false,
+        reviewDecision: 'REVIEW_REQUIRED',
+      },
+      updatedAt: '2026-08-04T19:40:41Z',
+    });
+  });
+
+  it('asks the repository and the number it was given, and bounds the read', async () => {
+    const runner = runnerOf(fixture('issue-by-number'));
+    await fetchIssue(config(), 'example-org', 'example-repo', 15619, runner);
+
+    expect(runner.calls[0]).toEqual([
+      'api',
+      'graphql',
+      '-f',
+      `query=${ISSUE_BY_NUMBER_QUERY}`,
+      '-f',
+      'owner=example-org',
+      '-f',
+      'name=example-repo',
+      '-F',
+      'number=15619',
+    ]);
+    expect(runner.bounds[0]?.timeoutMs).toBeGreaterThan(0);
+  });
+
+  // A branch-derived number that matches nothing. Not an error — the board unlinks the session rather than saying so.
+  it('answers with no card where GitHub reports no such issue', async () => {
+    const result = await fetchIssue(config(), 'example-org', 'example-repo', 99999, runnerOf({ data: { repository: { issue: null } } }));
+
+    expect(result).toEqual({ ok: true, value: null });
+  });
+
+  it('answers with no card where GitHub reports no such repository', async () => {
+    const result = await fetchIssue(config(), 'example-org', 'gone', 1, runnerOf({ data: { repository: null } }));
+
+    expect(result).toEqual({ ok: true, value: null });
+  });
+
+  it('refuses a response whose shape it does not recognise', async () => {
+    const result = await fetchIssue(config(), 'example-org', 'example-repo', 1, runnerOf({ data: {} }));
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.kind).toBe('bad-response');
+  });
+
+  it('passes a runner failure straight through rather than reading it as a missing issue', async () => {
+    const failing = (async () => ({ ok: false, error: { kind: 'offline', message: 'no network', remedy: 'try later' } })) as never;
+    const result = await fetchIssue(config(), 'example-org', 'example-repo', 1, failing);
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.kind).toBe('offline');
   });
 });

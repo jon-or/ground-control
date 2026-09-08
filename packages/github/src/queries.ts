@@ -2,27 +2,45 @@
  * `cards` is the filtered set the board renders; `assignedTotal` is the same search without the project
  * qualifier, so the board can say how many assigned issues the filter excluded rather than hiding them.
  */
+/**
+ * What both issue reads select. Shared verbatim, because `toCard` maps one shape: a field the by-number read stopped
+ * asking for would be a card that quietly lost its status the moment nobody was assigned to it.
+ */
+const ISSUE_FIELDS = `
+  number title url state updatedAt
+  issueType{ name color }
+  repository{ nameWithOwner }
+  assignees(first:10){ nodes{ login avatarUrl(size:40) } }
+  pullRequests: closedByPullRequestsReferences(first:100){ nodes{
+    number url state updatedAt isDraft reviewDecision
+    author{ login avatarUrl(size:40) }
+  }}
+  projectItems(first:20){ nodes{
+    project{ number }
+    fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name color updatedAt } }
+  }}`;
+
 export const ASSIGNED_ISSUES_QUERY = `
 query($cards:String!, $all:String!, $after:String){
   cards: search(query:$cards, type:ISSUE, first:100, after:$after){
     issueCount
     pageInfo{ hasNextPage endCursor }
-    nodes{ ... on Issue{
-      number title url updatedAt
-      issueType{ name color }
-      repository{ nameWithOwner }
-      assignees(first:10){ nodes{ login avatarUrl(size:40) } }
-      pullRequests: closedByPullRequestsReferences(first:100){ nodes{
-        number url state updatedAt isDraft reviewDecision
-        author{ login avatarUrl(size:40) }
-      }}
-      projectItems(first:20){ nodes{
-        project{ number }
-        fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name color updatedAt } }
-      }}
+    nodes{ ... on Issue{${ISSUE_FIELDS}
     }}
   }
   assignedTotal: search(query:$all, type:ISSUE, first:1){ issueCount }
+}`;
+
+/**
+ * One issue by number, for a session naming work the assigned search did not return — an issue finished and handed
+ * on, or one that was never the developer's. The card it builds is the same shape the search builds, minus nothing.
+ */
+export const ISSUE_BY_NUMBER_QUERY = `
+query($owner:String!, $name:String!, $number:Int!){
+  repository(owner:$owner, name:$name){
+    issue(number:$number){${ISSUE_FIELDS}
+    }
+  }
 }`;
 
 /**

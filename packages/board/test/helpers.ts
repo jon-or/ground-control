@@ -76,6 +76,32 @@ export const linkedOnBoard = sessions.filter((s) => s.issueNumber !== null && on
 export const linkedOffBoard = sessions.filter((s) => s.issueNumber !== null && !onBoard.has(s.issueNumber));
 export const unlinked = sessions.filter((s) => s.issueNumber === null);
 
+/**
+ * The issues behind the recorded off-board sessions, as the hub's lookup would hand them to `mergeBoard`. Built here
+ * rather than recorded: the issue fixture is the assigned search, which by definition never returns one of these.
+ */
+export const offBoardIssues = new Map<number, IssueCard>(
+  linkedOffBoard.map((session) => [
+    session.issueNumber!,
+    {
+      number: session.issueNumber!,
+      title: `Issue ${session.issueNumber} somebody else now owns`,
+      repository: 'example-org/example-repo',
+      state: 'OPEN',
+      type: null,
+      typeColor: null,
+      url: `https://github.com/example-org/example-repo/issues/${session.issueNumber}`,
+      status: '🚦 QA',
+      statusColor: null,
+      statusChangedAt: null,
+      assignees: ['dev-2'],
+      avatar: null,
+      pullRequest: null,
+      updatedAt: '2026-09-01T00:00:00Z',
+    },
+  ]),
+);
+
 /** The key `mergeBoard` gives a card with no issue: the repository and branch its sessions share, else the checkout. */
 export function checkoutKeyOf(session: Session): string {
   return session.repository !== null && session.branch !== null

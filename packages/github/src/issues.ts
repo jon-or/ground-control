@@ -1,4 +1,4 @@
-import { ASSIGNED_ISSUES_QUERY } from './queries.js';
+import { ASSIGNED_ISSUES_QUERY, ISSUE_BY_NUMBER_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
 import { makeGhRunner } from './gh.js';
 import type {
@@ -10,7 +10,7 @@ import type {
   Result,
   SearchNode,
 } from './types.js';
-import { searchResponse } from './types.js';
+import { issueResponse, searchResponse } from './types.js';
 
 /**
  * One page of the poll. Without it a blackholed network — a captive portal, a link that dropped mid-request — hangs
@@ -80,6 +80,7 @@ function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
   return {
     number: node.number,
     title: node.title,
+    state: node.state,
     repository: node.repository.nameWithOwner,
     type: node.issueType?.name ?? null,
     typeColor: node.issueType?.color ?? null,
@@ -177,4 +178,44 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
       sourceQuery: cardsQuery,
     },
   };
+}
+
+/**
+ * One issue by number, whatever its state and whoever it is assigned to. A repository or an issue GitHub does not
+ * report is `null` with no error: a branch-derived number that matches nothing is a wrong guess, not a fault (R4).
+ */
+export async function fetchIssue(
+  cfg: GithubConfig,
+  owner: string,
+  name: string,
+  number: number,
+  runner?: GhRunner,
+  signal?: AbortSignal,
+): Promise<Result<IssueCard | null>> {
+  const run = runner ?? makeGhRunner(cfg.ghPath);
+  const raw = await run(
+    ['api', 'graphql', '-f', `query=${ISSUE_BY_NUMBER_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`],
+    signal ? { timeoutMs: PAGE_TIMEOUT_MS, signal } : { timeoutMs: PAGE_TIMEOUT_MS },
+  );
+
+  if (!raw.ok) {
+    return raw;
+  }
+
+  const parsed = issueResponse.safeParse(raw.value);
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: {
+        kind: 'bad-response',
+        message: `GitHub's answer for issue #${number} was not the shape the board reads.`,
+        remedy: 'The GitHub API may have changed. Refresh, and report it if it persists.',
+      },
+    };
+  }
+
+  const node = parsed.data.data.repository?.issue ?? null;
+
+  return { ok: true, value: node === null ? null : toCard(node, cfg) };
 }

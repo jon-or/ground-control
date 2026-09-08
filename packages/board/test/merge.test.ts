@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { mergeBoard } from '../src/index.js';
 import type { Session } from '../src/types.js';
-import { checkoutKeyOf, issues, linkedOffBoard, linkedOnBoard, onBoard, sessions, unlinked, unlinkedCheckouts } from './helpers.js';
+import { checkoutKeyOf, issues, linkedOffBoard, linkedOnBoard, offBoardIssues, onBoard, sessions, unlinked, unlinkedCheckouts } from './helpers.js';
 
-const board = mergeBoard(issues, sessions);
+const board = mergeBoard(issues, sessions, [], offBoardIssues);
 
 describe('the recording these tests rest on', () => {
   it('covers all three ways a session reaches the board', () => {
@@ -80,10 +80,24 @@ describe('mergeBoard', () => {
     const off = linkedOffBoard[0]!;
     const card = board.find((c) => c.issueNumber === off.issueNumber);
 
-    expect(card?.issue).toBeNull();
-    expect(card?.issueNumber).toBe(off.issueNumber);
+    expect(card?.issue).toEqual(offBoardIssues.get(off.issueNumber!));
+    expect(card?.unassigned).toBe(true);
     expect(card?.sessions.map((s) => s.sessionId)).toContain(off.sessionId);
     expect(onBoard.has(off.issueNumber!)).toBe(false);
+  });
+
+  it('leaves an assigned card unmarked, so the lanes tell one apart from an issue nobody gave the developer', () => {
+    expect(board.find((c) => onBoard.has(c.issueNumber ?? -1))?.unassigned).toBeUndefined();
+  });
+
+  it('drops a number nothing could be looked up for, so the session joins its checkout rather than a bare card', () => {
+    const off = linkedOffBoard[0]!;
+    const cards = mergeBoard([], [off]);
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.issueNumber).toBeNull();
+    expect(cards[0]?.key).toBe(`session:${checkoutKeyOf(off)}`);
+    expect(cards[0]?.sessions.map((s) => s.sessionId)).toEqual([off.sessionId]);
   });
 
   it('gives each checkout of issue-less work one card, holding every session running there', () => {
@@ -130,7 +144,7 @@ describe('mergeBoard', () => {
   it('groups two sessions that name the same absent issue onto one card', () => {
     const off = linkedOffBoard[0]!;
     const twin: Session = { ...off, sessionId: `${off.sessionId}-twin`, startedAt: off.startedAt + 1000 };
-    const cards = mergeBoard([], [off, twin]);
+    const cards = mergeBoard([], [off, twin], [], offBoardIssues);
 
     expect(cards).toHaveLength(1);
     expect(cards[0]?.sessions.map((s) => s.sessionId)).toEqual([twin.sessionId, off.sessionId]);

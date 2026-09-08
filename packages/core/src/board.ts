@@ -20,8 +20,8 @@ export const LANE_TITLES: Readonly<Record<LaneId, string>> = {
 };
 
 /**
- * One card. An issue with the sessions attempting it (R3), or a session with no issue of its own (R4).
- * `issue` is null with `issueNumber` set when a session names an issue that is not on the developer's board.
+ * One card. An issue with the sessions attempting it (R3), or a session with no issue of its own (R4). `issue` and
+ * `issueNumber` are null together: a session naming an issue nothing could read is work with no issue.
  */
 export interface BoardCard {
   key: string;
@@ -30,6 +30,8 @@ export interface BoardCard {
   sessions: Session[];
   /** Present only on an issue card with no live sessions. Older snapshots omit it. */
   lastSession?: HistoricalSession;
+  /** Set on a card the developer is not assigned, which a session named and the board looked up. Absent means assigned. */
+  unassigned?: true;
 }
 
 export type Attention = 'blocked' | 'your-turn';

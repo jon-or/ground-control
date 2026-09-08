@@ -17,7 +17,7 @@ export type {
   AutomatableAction,
   CardAction,
 } from './actions.js';
-export type { ContextReading, SourceReading, WorkItems, WorkSource } from './source.js';
+export type { CardReading, ContextReading, SourceReading, WorkItems, WorkSource } from './source.js';
 export { EMPTY_TRIAGE, TRIAGE_ACTIONS } from './triage.js';
 export type {
   CardTriage,

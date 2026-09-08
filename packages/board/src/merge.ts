@@ -36,21 +36,31 @@ function checkoutKey(session: Session): string {
 
 /**
  * Every issue and every session on one board. Issue order is the order they were read; cards for issues the
- * developer does not own, then sessions with no issue, follow. Every session lands on exactly one card.
+ * developer is not assigned, then sessions with no issue, follow. Every session lands on exactly one card.
+ *
+ * `unassigned` is the issues a caller looked up for numbers the assigned read did not return. A number missing from
+ * both is a guess off a branch name that named nothing, so the session keeps its checkout card instead (R4).
  */
-export function mergeBoard(issues: IssueCard[], sessions: Session[], history: readonly HistoricalSession[] = []): BoardCard[] {
+export function mergeBoard(
+  issues: IssueCard[],
+  sessions: Session[],
+  history: readonly HistoricalSession[] = [],
+  unassigned: ReadonlyMap<number, IssueCard> = new Map(),
+): BoardCard[] {
+  const onBoard = new Set(issues.map((issue) => issue.number));
+  const known = (session: Session): boolean =>
+    session.issueNumber !== null && (onBoard.has(session.issueNumber) || unassigned.has(session.issueNumber));
+
   const linked = groupSessions(
-    sessions.filter((session) => session.issueNumber !== null),
+    sessions.filter(known),
     (session) => session.issueNumber as number,
   );
 
   // A session naming no issue belongs to its checkout rather than to itself: that is what such work shares.
   const byCheckout = groupSessions(
-    sessions.filter((session) => session.issueNumber === null),
+    sessions.filter((session) => !known(session)),
     checkoutKey,
   );
-
-  const onBoard = new Set(issues.map((issue) => issue.number));
 
   const cards: BoardCard[] = issues.map((issue) => ({
     key: `issue:${issue.number}`,
@@ -80,8 +90,10 @@ export function mergeBoard(issues: IssueCard[], sessions: Session[], history: re
   }
 
   for (const [issueNumber, group] of linked) {
-    if (!onBoard.has(issueNumber)) {
-      cards.push({ key: `issue:${issueNumber}`, issue: null, issueNumber, sessions: group });
+    const issue = unassigned.get(issueNumber);
+
+    if (!onBoard.has(issueNumber) && issue) {
+      cards.push({ key: `issue:${issueNumber}`, issue, issueNumber, sessions: group, unassigned: true });
     }
   }
 

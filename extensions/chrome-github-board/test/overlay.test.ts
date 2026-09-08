@@ -185,9 +185,10 @@ describe('reading GitHub board markup', () => {
     expect([...index.byNumber.keys()]).toEqual([]);
   });
 
-  /** A session naming an issue the developer is not assigned carries a number and no issue behind it. */
+  /** An issue URL this pattern does not read leaves the number, which still matches the page it is painted on. */
   it('indexes a card the hub knows the number of but not the repository', () => {
-    const unknown = card(4501, { issue: null });
+    const base = card(4501);
+    const unknown = { ...base, issue: { ...base.issue!, url: 'https://example.invalid/whatever' } };
     const index = cardsByIssue(snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [unknown] }] }));
 
     expect([...index.byRef.keys()]).toEqual([]);

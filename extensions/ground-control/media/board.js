@@ -981,7 +981,7 @@ function checkoutName(boardCard) {
  * carries an issue; on a checkout it is a branch, which names no repository, and two `master` cards would read alike.
  */
 function cardName(boardCard) {
-  if (boardCard.issue || boardCard.issueNumber !== null) {
+  if (boardCard.issue) {
     return cardTitle(boardCard);
   }
 
@@ -1024,14 +1024,9 @@ function cardTitle(boardCard) {
   }
 
   // A card with no issue is a checkout, not one session, so it is named for the branch its sessions are working on.
-  if (boardCard.issueNumber === null) {
-    const checkout = checkoutName(boardCard);
+  const checkout = checkoutName(boardCard);
 
-    return checkout.branch ?? checkout.directory;
-  }
-
-  // A session names an issue the developer does not own. R2 forbids hiding the session, so the card says why it is bare.
-  return 'Not among your assigned issues';
+  return checkout.branch ?? checkout.directory;
 }
 
 /**
@@ -1141,7 +1136,7 @@ function card(boardCard, avatarPool, placeable) {
   } else {
     // The repository beside the number, as GitHub writes it on its own card: two boards' cards for one issue read alike,
     // and a board spanning repositories says which one a card is from.
-    const repo = issue === null ? null : repoName(issue);
+    const repo = repoName(issue);
 
     number.textContent = repo === null ? `#${boardCard.issueNumber}` : `${repo} #${boardCard.issueNumber}`;
   }
@@ -1728,14 +1723,17 @@ const restored = vscode.getState();
 /**
  * Whether a revived payload is the shape this script reads. A panel revived after an upgrade holds the payload the
  * previous version stored, and rendering one whose sessions predate a field a card reads throws before the first
- * live message. `details` and `repository` are the two read without a guard of their own.
+ * live message. `details` and `repository` are the two read without a guard of their own, and a card carrying a
+ * number with no issue behind it is the shape a hub stored before it looked the issue up.
  */
 function isCurrentPayload(payload) {
   return (
     Array.isArray(payload?.lanes) &&
     payload.lanes.every((lane) =>
-      (lane.cards ?? []).every((card) =>
-        (card.sessions ?? []).every((session) => session.details !== undefined && session.repository !== undefined),
+      (lane.cards ?? []).every(
+        (card) =>
+          (card.issueNumber === null || card.issue) &&
+          (card.sessions ?? []).every((session) => session.details !== undefined && session.repository !== undefined),
       ),
     )
   );

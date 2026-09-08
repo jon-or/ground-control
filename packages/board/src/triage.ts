@@ -198,9 +198,12 @@ export function readTriageState(stored: unknown): TriageState {
   return { entries, failures };
 }
 
-/** Only a card with an issue of its own has a conversation to read. Ad-hoc work and a foreign issue number have none. */
-function triageable(card: LanedCard): boolean {
-  return card.issue !== null && card.issueNumber !== null && !card.key.startsWith(SESSION_KEY_PREFIX);
+/**
+ * Only a card with an issue of the developer's own has a conversation worth paying to read. Ad-hoc work has none,
+ * and an issue nobody assigned them is somebody else's to be told what it needs.
+ */
+function triageable(card: LanedCard): card is LanedCard & { issue: IssueCard } {
+  return card.issue !== null && card.issueNumber !== null && card.unassigned !== true && !card.key.startsWith(SESSION_KEY_PREFIX);
 }
 
 /**
@@ -454,7 +457,7 @@ export function resolveTriage(
   return { action, qualifier: qualifierOf(action, context), detail: result.detail };
 }
 
-/** Every lane again, each triageable card carrying what the board knows about it. */
+/** Every lane again, each triageable card carrying what the board knows about it. A card that is not carries nothing. */
 export function withTriage(
   lanes: readonly Lane[],
   state: TriageState,
@@ -468,7 +471,9 @@ export function withTriage(
         return { ...card, triage: { state: 'running' } };
       }
 
-      if (card.issue === null) {
+      // The same test `dueForTriage` reads. A card read while it was assigned keeps its key once it is not, and
+      // rendering that entry would put a stale chip — and the action control behind it — on somebody else's issue.
+      if (!triageable(card)) {
         return card;
       }
 

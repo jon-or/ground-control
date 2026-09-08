@@ -4,7 +4,7 @@ Every file here is a `gh api graphql` response, trimmed only by deleting whole `
 `anonymise.js`. Scalars — `issueCount`, `pageInfo` — are left as recorded, so a fixture can legitimately report more
 matches than it carries nodes for. That is the truncation case the tests need.
 
-`$Q` is the document in `src/queries.ts`. `$REPO`, `$LOGIN` and `$PROJECT` are your own repository, `gh` login and
+`$Q` and `$ISSUE_Q` are `ASSIGNED_ISSUES_QUERY` and `ISSUE_BY_NUMBER_QUERY` in `src/queries.ts`. `$REPO`, `$LOGIN` and `$PROJECT` are your own repository, `gh` login and
 project number; the recorded values are scrubbed before the fixture is saved, because this repo is public.
 
 | File | Command |
@@ -15,6 +15,7 @@ project number; the recorded values are scrubbed before the fixture is saved, be
 | `paged-page1.json` | `-f cards='repo:$REPO is:issue is:open' -f all='…'`, nodes trimmed to 3 |
 | `paged-page2.json` | same plus `-f after='Y3Vyc29yOjEwMA=='`, nodes trimmed to 2 |
 | `project-truncated.json` | `-f cards='repo:$REPO is:issue is:open project:$REPO_OWNER/$PROJECT' -f all='repo:$REPO is:issue is:open'`, nodes trimmed to 3 — the only fixture where the board's own match count and the wider assigned count differ *and* more pages remain |
+| `issue-by-number.json` | `gh api graphql -f query="$ISSUE_Q" -f owner=$REPO_OWNER -f name=$REPO_NAME -F number=<a closed issue nobody is assigned>` — the case the by-number read exists for |
 | `untyped.json` | `-f cards='repo:$REPO is:issue -type:Bug -type:Feature -type:Task -type:Epic' -f all=<same>`, nodes trimmed to 2 |
 
 ## Scrubbing

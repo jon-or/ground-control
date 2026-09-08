@@ -62,3 +62,8 @@ export function actionsPathOf(home: string): string {
 export function actionReportPathOf(home: string, key: string): string {
   return `${groundControlDirOf(home)}/runs/${key.replace(/[^A-Za-z0-9._-]/g, '-')}.json`;
 }
+
+/** Issues the board looked up by number for a session naming work nobody assigned the developer (R4, R9). */
+export function issuesPathOf(home: string): string {
+  return `${groundControlDirOf(home)}/issues.json`;
+}

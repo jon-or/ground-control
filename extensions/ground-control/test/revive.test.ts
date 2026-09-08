@@ -19,7 +19,22 @@ function payloadWith(session: Session): SnapshotMessage {
     returned: false,
     attention: null,
     reason: '⚒️ Dev',
-    issue: null,
+    issue: {
+      number: 18953,
+      title: 'Cached counts do not update',
+      repository: 'example-org/example-repo',
+      state: 'OPEN',
+      type: null,
+      typeColor: null,
+      url: 'https://github.com/example-org/example-repo/issues/18953',
+      status: '⚒️ Dev',
+      statusColor: null,
+      statusChangedAt: null,
+      assignees: ['dev-1'],
+      avatar: null,
+      pullRequest: null,
+      updatedAt: '2026-09-01T00:00:00Z',
+    },
     sessions: [session],
   };
 
@@ -70,13 +85,14 @@ const CURRENT: Session = {
  */
 function checkoutPayload(session: Session | Record<string, unknown>): Record<string, unknown> {
   const current = payloadWith(CURRENT) as unknown as {
-    lanes: { cards: { key: string; issueNumber: number | null; sessions: unknown[] }[] }[];
+    lanes: { cards: { key: string; issueNumber: number | null; issue: unknown; sessions: unknown[] }[] }[];
   };
   const board = structuredClone(current);
 
   board.lanes.flatMap((lane) => lane.cards).forEach((card) => {
     card.key = 'session:c:/work/18953-cache-remediation';
     card.issueNumber = null;
+    card.issue = null;
     card.sessions = [session];
   });
 
@@ -120,6 +136,19 @@ describe('reviving a stored board', () => {
 
     expect(document.querySelectorAll('.card')).toHaveLength(1);
     expect(document.querySelector('.session')?.textContent).toContain('cache-remediation');
+  });
+
+  /** The shape a hub stored before it looked an unassigned issue up: a number with nothing behind it. */
+  it('draws nothing from a board stored before a card carried the issue its number names', async () => {
+    const stored = payloadWith(CURRENT) as unknown as { lanes: { cards: { issue: unknown }[] }[] };
+    const board = structuredClone(stored);
+
+    board.lanes.flatMap((lane) => lane.cards).forEach((card) => (card.issue = null));
+
+    await revive({ payload: board, showArchived: false });
+
+    expect(document.querySelectorAll('.card')).toHaveLength(0);
+    expect(document.getElementById('lanes')?.children).toHaveLength(0);
   });
 
   it('draws nothing from a board stored by a version whose sessions predate the details bag', async () => {

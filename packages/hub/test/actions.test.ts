@@ -22,6 +22,7 @@ import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
 import { makeActionStore } from '../src/actionStore.js';
+import { makeIssueStore } from '../src/issueStore.js';
 import { actionReportPathOf } from '../src/paths.js';
 import { captureLog, fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
 
@@ -282,6 +283,7 @@ function harness(
     triage: makeTriageStore(home),
     // Reads still work; only the write fails, which is the shape a locked or full disk actually takes.
     actions: { read: () => store.read(), write: (state) => (control.storeBroken ? false : store.write(state)) },
+    issues: makeIssueStore(home),
     settings: { read: () => null, write: () => undefined },
     log: logging.log,
     syncActivity: (_r, wanted) => ({ wanted, plan: 'up-to-date', added: 0, failure: null }),

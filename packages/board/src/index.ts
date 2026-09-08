@@ -42,3 +42,15 @@ export { TRIAGE_SYSTEM_PROMPT, buildTriagePrompt, nameOf } from './triagePrompt.
 export type { NameOverrides } from './triagePrompt.js';
 export { collapseStateChanges, foldInstruction, liveComments } from './stateChanges.js';
 export type { TriageInstruction, TriageStateChange } from './stateChanges.js';
+export {
+  EMPTY_KNOWN_ISSUES,
+  KNOWN_ISSUE_TTL_MS,
+  READING_STANDS_MS,
+  knownIssueHolds,
+  knownIssueKey,
+  pruneKnownIssues,
+  readKnownIssues,
+  sameKnownCard,
+  withKnownIssue,
+} from './knownIssues.js';
+export type { KnownIssue, KnownIssues } from './knownIssues.js';

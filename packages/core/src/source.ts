@@ -45,6 +45,18 @@ export interface WorkSource {
    * read leaves its cards untriaged rather than triaged on nothing (R30).
    */
   readContext?(card: IssueCard, signal: AbortSignal): Promise<ContextReading>;
+  /**
+   * One item by number, for a session naming work this source did not report as the developer's. `repository` is a
+   * `repositoryKey`, and `null` means this source does not serve it — which is not the same answer as no such item.
+   * Optional: a source that cannot look one up leaves the session unlinked rather than bare (R4).
+   */
+  readCard?(repository: string, number: number, signal: AbortSignal): Promise<CardReading | null>;
+}
+
+/** One item read by number. `card` null beside no failure is a number the source served and found nothing for. */
+export interface CardReading {
+  card: IssueCard | null;
+  failure: ReadFailure | null;
 }
 
 /** One card's context, or why it could not be read. Never both — a partial context is a classification on half the story. */

@@ -2,11 +2,11 @@ import { execFile } from 'node:child_process';
 import { z } from 'zod';
 import { spawnable } from '@ground-control/core';
 import type { Logger, ReadFailure } from '@ground-control/core';
-import type { ContextReading, IssueCard, SourceReading, WorkSource } from '@ground-control/core';
+import type { CardReading, ContextReading, IssueCard, SourceReading, WorkSource } from '@ground-control/core';
 import { fetchCardContext } from './context.js';
 import { makeGhRunner } from './gh.js';
 import { parseAuthStatusLogins } from './identity.js';
-import { fetchAssignedIssues } from './issues.js';
+import { fetchAssignedIssues, fetchIssue } from './issues.js';
 import type { AssignedIssues, GithubConfig, Result } from './types.js';
 
 export const GITHUB_SOURCE_ID = 'github';
@@ -84,6 +84,15 @@ export interface GithubSourceDeps {
   fetch(config: GithubConfig): Promise<Result<AssignedIssues>>;
   detectLogins(ghPath: string): Promise<string[]>;
   readContext(config: GithubConfig, card: IssueCard, signal: AbortSignal): Promise<ContextReading>;
+  readCard(config: GithubConfig, owner: string, name: string, number: number, signal: AbortSignal): Promise<Result<IssueCard | null>>;
+}
+
+/**
+ * The canonical key of the repository this source reads. `gh` talks to github.com and the setting is a bare
+ * `owner/name`, so an Enterprise checkout matches nothing here and its sessions stay unlinked (R4).
+ */
+function repositoryKeyOf(config: GithubConfig): string {
+  return `github.com/${config.repo}`.toLowerCase();
 }
 
 /**
@@ -94,6 +103,10 @@ export interface GithubSourceDeps {
 export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSource {
   const fetch = deps.fetch ?? ((config: GithubConfig) => fetchAssignedIssues(config, makeGhRunner(config.ghPath, deps.log)));
   const detect = deps.detectLogins ?? detectLogins;
+  const readOne =
+    deps.readCard ??
+    ((config: GithubConfig, owner: string, name: string, number: number, signal: AbortSignal) =>
+      fetchIssue(config, owner, name, number, makeGhRunner(config.ghPath, deps.log), signal));
   const context =
     deps.readContext ??
     ((config: GithubConfig, card: IssueCard, signal: AbortSignal) =>
@@ -171,6 +184,22 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
             },
           })
         : context(held, card, signal);
+    },
+
+    async readCard(repository, number, signal): Promise<CardReading | null> {
+      // Only this source's own repository. A number read off a branch in some other checkout would otherwise fetch
+      // whatever issue happens to carry it here, and the card would be plausible and wrong. Null rather than an
+      // empty reading: "not mine to answer" must not be written down as "there is no such issue".
+      if (held === null || repository !== repositoryKeyOf(held)) {
+        return null;
+      }
+
+      const [owner = '', name = ''] = held.repo.split('/');
+      const result = await readOne(held, owner, name, number, signal);
+
+      return result.ok
+        ? { card: result.value, failure: null }
+        : { card: null, failure: { ...result.error, subject: GITHUB_SOURCE_ID } };
     },
   };
 }

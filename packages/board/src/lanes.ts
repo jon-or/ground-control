@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { LANE_ORDER, LANE_TITLES } from '@ground-control/core';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/core';
-import type { BoardCard, Session } from './types.js';
+import type { BoardCard, IssueCard, Session } from './types.js';
 
 export { LANE_ORDER, LANE_TITLES };
 export type { Attention, Lane, LaneId, LanedCard };
@@ -155,15 +155,44 @@ function placed(card: BoardCard, rules: BoardRules, placements: Record<string, L
   return lane !== undefined && PLACEABLE_LANES.includes(lane) ? lane : inferredLane(card, rules);
 }
 
+/**
+ * Why a card a session named is not among the developer's assigned issues. Closing an issue takes it out of the
+ * search as surely as being unassigned does, so a card still in their name reads as closed rather than as somebody
+ * else's — saying "not assigned to you" about an issue they are assigned to is the board stating a falsehood.
+ */
+function offBoardReason(issue: IssueCard, rules: BoardRules): string {
+  if (issue.state === 'CLOSED') {
+    return 'Closed';
+  }
+
+  const yours = issue.assignees.some((login) => authoredByDeveloper(login, rules.logins));
+  const head = yours ? 'no longer among the issues your board reads' : 'not assigned to you';
+
+  return issue.status === null ? head[0]!.toUpperCase() + head.slice(1) : `${issue.status} — ${head}`;
+}
+
 function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>, placements: Record<string, LaneId>): LanedCard {
   const lane = placed(card, rules, placements);
   const base = { ...card, lane, returned: false, attention: attentionOf(card.sessions, lane) };
 
   if (card.issue === null) {
-    return { ...base, reason: card.issueNumber === null ? 'Ad-hoc work with no issue.' : 'Not among your assigned issues.' };
+    return { ...base, reason: 'Ad-hoc work with no issue.' };
   }
 
   const status = card.issue.status;
+  const running = card.sessions.some((session) => !session.finished);
+  const archive = (reason: string): LanedCard => ({
+    ...base,
+    lane: 'archived',
+    attention: attentionOf(card.sessions, 'archived'),
+    reason,
+  });
+
+  // R9 read on assignment rather than on status, and with no exception for a session still on it: a status is a claim
+  // about the work, which an agent can outrun, and this is a claim about whose it is, which it cannot.
+  if (card.unassigned) {
+    return archive(`${offBoardReason(card.issue, rules)}.`);
+  }
 
   // An assigned issue that is not on the project board has no status to judge, and R1 still puts it on the board.
   if (status === null || onBoard.has(status)) {
@@ -171,14 +200,9 @@ function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>,
   }
 
   // R2 outranks R9: a status that would archive the card cannot hide a session still running on it.
-  return card.sessions.some((session) => !session.finished)
+  return running
     ? { ...base, reason: `${status} — past your hands, but an agent is still running.` }
-    : {
-        ...base,
-        lane: 'archived',
-        attention: attentionOf(card.sessions, 'archived'),
-        reason: `${status} — not yours to act on right now.`,
-      };
+    : archive(`${status} — not yours to act on right now.`);
 }
 
 /**

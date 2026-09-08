@@ -1,7 +1,10 @@
 import { assignLanes, mergeBoard, nextMemory, withPlacement, withTriage } from '@ground-control/board';
 import { compilePattern, diskReaders, fetchSessions, fetchSessionHistory, parseHubConfig, rosterIsStale, unreportedSessions } from '@ground-control/core';
-import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HubConfig, HubMessage, Lane, LaneId, Logger, MachineReaders, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
+import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
+import { IssueLookup } from './issueLookup.js';
+import { makeIssueStore } from './issueStore.js';
+import type { IssueStore } from './issueStore.js';
 import type { ActivityState } from './activityInstall.js';
 import { read } from './fs.js';
 import type { LaneStore } from './lanes.js';
@@ -38,6 +41,8 @@ export interface HubDeps {
   triage: TriageStore;
   /** What the board has run on each card, kept the same way again (R39). */
   actions: ActionStore;
+  /** The issues the board has looked up by number, so a session outliving its assignment still names one (R9). */
+  issues: IssueStore;
   /** The configuration a client last pushed. A hub starts on it, because the browser has none of its own to give. */
   settings: SettingsStore;
   /** What the hub says about itself. Written to `hub.log` whatever happens; streamed only to a client that asked. */
@@ -137,6 +142,7 @@ export function realHubDeps(
   log: Logger,
   triage: TriageStore = makeTriageStore(home),
   actions: ActionStore = makeActionStore(home),
+  issues: IssueStore = makeIssueStore(home),
 ): HubDeps {
   return {
     clock: REAL_CLOCK,
@@ -147,6 +153,7 @@ export function realHubDeps(
     marks,
     triage,
     actions,
+    issues,
     settings,
     log,
     syncActivity: (regs, wanted, where, enabled) => syncActivity(regs.agents, wanted, where, false, enabled),
@@ -198,6 +205,7 @@ export class Hub {
   #disposed = false;
   readonly #triage: TriageRunner;
   readonly #actions: ActionRunner;
+  readonly #issues: IssueLookup;
 
   constructor(deps: HubDeps) {
     this.#deps = deps;
@@ -241,6 +249,13 @@ export class Hub {
       },
     });
     this.#actions.configure(this.#config.actions, this.#config.agents);
+    this.#issues = new IssueLookup({
+      store: deps.issues,
+      sources: () => deps.registries.sources.filter((source) => Object.hasOwn(this.#config.sources, source.id)),
+      log: deps.log,
+      now: () => deps.clock.now(),
+      changed: () => this.#broadcast(),
+    });
     pruneMarkers(deps.registries.agents, deps.home);
     this.#armWatchers();
   }
@@ -730,7 +745,26 @@ export class Hub {
       return;
     }
 
+    this.#considerIssues();
     this.#broadcast();
+  }
+
+  /**
+   * Writes down the issues this read established, and starts a lookup for every session-named number it did not
+   * return. Called from both reads, because either one can be what leaves a number with no issue behind it.
+   *
+   * Nothing at all until a source has actually read. Sessions come off local disk and beat the first `gh` round trip
+   * every time, and an empty card list read as "none of these are assigned" would archive the developer's whole
+   * board — which costs every one of those cards the lane they were placed in (R8, R24).
+   */
+  #considerIssues(): void {
+    const items = this.#items();
+
+    if (items === null) {
+      return;
+    }
+
+    this.#issues.consider(items.cards, this.#sessions?.sessions ?? [], new Set(items.cards.map((card) => card.number)));
   }
 
   async #readSource(source: WorkSource): Promise<void> {
@@ -847,6 +881,8 @@ export class Hub {
     // otherwise the older attempt would briefly appear in its place.
     this.#history = snapshot.failures.length > 0 ? [] : this.#history.filter((s) => !endedIssues.has(s.issueNumber));
     this.#historyFailures = [];
+
+    this.#considerIssues();
 
     // Publish live rows even if history is slow or fails. An incomplete roster cannot establish inactivity.
     this.#broadcast();
@@ -1112,8 +1148,13 @@ export class Hub {
 
     const memory = this.#memory();
     const items = this.#items();
+    const cards = items?.cards ?? [];
+    const sessions = this.#sessions?.sessions ?? [];
+    // Empty until a source has read: with no assigned set to compare against, every session-named number would read
+    // as an issue nobody assigned, and the board would archive itself on the way up (R24).
+    const unassigned = items === null ? new Map<number, IssueCard>() : this.#issues.known(sessions, new Set(cards.map((card) => card.number)));
     const laned = assignLanes(
-      mergeBoard(items?.cards ?? [], this.#sessions?.sessions ?? [], this.#history),
+      mergeBoard(cards, sessions, this.#history, unassigned),
       {
         boardStatuses: this.#config.boardStatuses,
         statusLanes: this.#config.statusLanes,
@@ -1357,6 +1398,7 @@ export class Hub {
 
     this.#triage.dispose();
     this.#actions.dispose();
+    this.#issues.dispose();
 
     while (this.#timers.length > 0) {
       this.#deps.clock.clearInterval(this.#timers.pop()!);

@@ -49,9 +49,19 @@ function loginMap(selfLogins) {
   };
 }
 
+/**
+ * Every recorded issue in a response, whether it came from the assigned search or from a read by number. `anonymise-context.js`
+ * owns the context recordings, whose issue sits at the same path — `projectItems` is what tells the two shapes apart.
+ */
+function issueNodesOf(response) {
+  const issue = response?.data?.repository?.issue;
+
+  return [...(response?.data?.cards?.nodes ?? []), ...(issue?.projectItems ? [issue] : [])];
+}
+
 /** Walks the recorded GraphQL shape, rewriting only the fields that spell out real work. */
 function anonymiseResponse(response, logins) {
-  const nodes = response?.data?.cards?.nodes ?? [];
+  const nodes = issueNodesOf(response);
 
   for (const node of nodes) {
     node.title = title(node.number);
@@ -90,7 +100,7 @@ function assertScrubbed(recorded, written, logins) {
     actor && !/^dev-\d+(-[a-z0-9-]+)?$/.test(actor.login) ? [actor.login, actor.avatarUrl] : [];
 
   const fromNodes = recorded.flatMap((r) =>
-    (r?.data?.cards?.nodes ?? []).flatMap((n) => [
+    issueNodesOf(r).flatMap((n) => [
       n.title === title(n.number) ? null : n.title,
       n.repository?.nameWithOwner === REPO ? null : n.repository?.nameWithOwner,
       ...(n.assignees?.nodes ?? []).flatMap(identifyingActorValues),
@@ -125,7 +135,7 @@ function main() {
 
   files.forEach((f, i) => {
     fs.writeFileSync(path.join(here, f), JSON.stringify(written[i], null, 2) + '\n');
-    console.log(f, `${written[i]?.data?.cards?.nodes?.length ?? 0} nodes`);
+    console.log(f, `${issueNodesOf(written[i]).length} nodes`);
   });
 }
 
@@ -133,4 +143,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { REPO, anonymiseResponse, loginMap, title };
+module.exports = { REPO, anonymiseResponse, issueNodesOf, loginMap, title };

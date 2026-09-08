@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { GITHUB_SOURCE_ID, makeGithubSource } from '@ground-control/github';
-import type { AssignedIssues, GithubConfig, Result } from '@ground-control/github';
+import type { AssignedIssues, GithubConfig, GithubSourceDeps, Result } from '@ground-control/github';
 import type { ClientHello, HubConfig, HubMessage, IssueCard, Snapshot, WorkSource } from '@ground-control/core';
 import type { ActivityState } from '../src/activityInstall.js';
 import { Hub } from '../src/hub.js';
@@ -9,6 +9,7 @@ import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeTriageStore } from '../src/triageStore.js';
 import { makeActionStore } from '../src/actionStore.js';
+import { makeIssueStore } from '../src/issueStore.js';
 import { makeSettingsStore } from '../src/settings.js';
 import type { StoredConfig } from '../src/settings.js';
 import { makeMarkStore } from '../src/marks.js';
@@ -98,7 +99,13 @@ interface Harness {
 
 function harness(
   over: Partial<HubDeps> = {},
-  extra: { fetch?: Fetch; sources?: WorkSource[]; remembered?: Partial<HubConfig>; stored?: StoredConfig } = {},
+  extra: {
+    fetch?: Fetch;
+    sources?: WorkSource[];
+    remembered?: Partial<HubConfig>;
+    stored?: StoredConfig;
+    readCard?: GithubSourceDeps['readCard'];
+  } = {},
 ): Harness {
   const agent = reportingAgent();
   const host = fakeHost();
@@ -117,6 +124,8 @@ function harness(
       return extra.fetch ? extra.fetch(config) : Promise.resolve({ ok: true, value: ISSUES });
     },
     detectLogins: async () => detected,
+    // Injected always: without it a session naming a number nothing assigned spawns `gh` from inside a unit test.
+    readCard: extra.readCard ?? (async () => ({ ok: true, value: null })),
   });
 
   const registries = { agents: [agent.adapter], hosts: [host.adapter], sources: [github, ...(extra.sources ?? [])] };
@@ -174,6 +183,7 @@ function harness(
     marks: makeMarkStore(home),
     triage: makeTriageStore(home),
     actions: makeActionStore(home),
+    issues: makeIssueStore(home),
     // A hub built over a store that already holds a configuration is the browser-started case: nobody is here to
     // push one, and the developer set theirs in an editor that is not open.
     settings: {
@@ -715,6 +725,82 @@ describe('what the snapshot says', () => {
     // ISSUES was read four hours later, and the board is as old as the source that has not been read since.
     expect(issues?.fetchedAt).toBe('2026-09-03T08:00:00Z');
     expect(lanes.find((lane) => lane.cards.some((c) => c.issueNumber === 4521))?.id).toBe('review');
+  });
+
+  /**
+   * The whole of what a developer sees after finishing an issue: the assigned read stops returning it, the session
+   * they left open is still there, and the card has to keep its title rather than becoming a bare number (R9).
+   */
+  it('names an issue nobody assigned any more, and archives the card once nothing is running on it', async () => {
+    // The card's own URL is what keys the remembered issue, and it has to key the same repository the session names.
+    const worked = { ...card(18941), url: 'https://github.com/example-org/example-repo/issues/18941' };
+    let assigned = [worked];
+    const h = harness(
+      {},
+      {
+        fetch: async () => ({ ok: true, value: { ...ISSUES, cards: assigned } }),
+        readCard: async () => {
+          throw new Error('the board already had this card, so it must not read GitHub again');
+        },
+      },
+    );
+
+    h.agent.sessions = [fakeSession({ finished: true })];
+
+    const { client } = connect(h);
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    assigned = [];
+    h.clock.fire(h.config().refreshIntervalMs);
+    await settle();
+
+    const card18941 = h.hub
+      .snapshot()
+      .lanes.flatMap((lane) => lane.cards)
+      .find((c) => c.issueNumber === 18941);
+
+    expect(card18941?.issue?.title).toBe('Issue 18941');
+    expect(card18941?.unassigned).toBe(true);
+    expect(card18941?.lane).toBe('archived');
+  });
+
+  it('reads an issue no session has ever seen assigned, and puts the title on the card', async () => {
+    const h = harness(
+      {},
+      { readCard: async (_config, _owner, _name, number) => ({ ok: true, value: card(number) }) },
+    );
+
+    h.agent.sessions = [fakeSession({ finished: true })];
+
+    const { client } = connect(h);
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+    await settle();
+
+    const found = h.hub
+      .snapshot()
+      .lanes.flatMap((lane) => lane.cards)
+      .find((c) => c.issueNumber === 18941);
+
+    expect(found?.issue?.title).toBe('Issue 18941');
+    expect(found?.lane).toBe('archived');
+  });
+
+  it('leaves a session on a checkout card while nothing can name the number its branch carries', async () => {
+    const h = harness({}, { readCard: async () => ({ ok: true, value: null }) });
+
+    h.agent.sessions = [fakeSession()];
+
+    const { client } = connect(h);
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+    await settle();
+
+    const cards = h.hub.snapshot().lanes.flatMap((lane) => lane.cards);
+
+    expect(cards.filter((c) => c.sessions.length > 0)).toHaveLength(1);
+    expect(cards.find((c) => c.sessions.length > 0)?.issueNumber).toBeNull();
   });
 
   /** Cards read for a repository whose settings the developer has since broken are not cards they can act on. */
