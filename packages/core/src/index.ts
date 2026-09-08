@@ -1,7 +1,9 @@
 export { fetchSessions, fetchSessionHistory } from './sessions.js';
 export { agentOfSession, rosterIsStale, sessionLabel, sessionOf, unreportedSessions } from './roster.js';
-export { LANE_ORDER, LANE_TITLES, checkoutOf } from './board.js';
-export type { Attention, BoardCard, Checkout, Lane, LaneId, LanedCard } from './board.js';
+export { LANE_ORDER, LANE_TITLES } from './board.js';
+export type { Attention, BoardCard, Lane, LaneId, LanedCard } from './board.js';
+export { checkoutFor } from './checkout.js';
+export type { CardCheckout, CheckoutReaders, CheckoutSource } from './checkout.js';
 export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
 export { DEFAULT_ACTIONS, DEFAULT_TRIAGE, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, spawnable } from './config.js';
 export type { HubConfig, TriageSettings } from './config.js';
@@ -60,7 +62,9 @@ export type {
   DispatchResult,
   HistoryReading,
 } from './agent.js';
+export { routeKey } from './host.js';
 export type {
+  CheckoutRequest,
   HostAdapter,
   HostWindow,
   HostWindows,

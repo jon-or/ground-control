@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type {
+  CheckoutRequest,
   HostAdapter,
   HistoricalSession,
   HostWindows,
@@ -11,7 +12,7 @@ import type {
   SessionSurface,
   Session,
 } from '@ground-control/core';
-import { VSCODE_ROUTES, openableSessions, planOpen } from './open.js';
+import { VSCODE_ROUTES, openableSessions, planCheckout, planOpen } from './open.js';
 import { PLACEMENTS } from './placements.js';
 import type { AgentPlacement } from './placements.js';
 import { defaultUserDir, readWindowStores } from './stores.js';
@@ -22,8 +23,8 @@ export const VSCODE_HOST_ID = 'vscode';
 
 /**
  * What the developer may set about this host. `userDir` is the running install's own `User` directory, which a
- * portable or Insiders install moves; the two permissions are R27's, and default to what a board spanning worktrees
- * needs (`mayOpenWindow`).
+ * portable or Insiders install moves. `mayOpenWindow` is R14's permission to bring another window forward, granted
+ * by default because a board spanning worktrees is useless without it; that it is theirs to set is R27's.
  */
 const config = z
   .object({
@@ -89,9 +90,13 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
     },
 
     plan(request: OpenRequest): OpenPlan {
-      // R27 is this host's own rule, applied where its settings were parsed: the hub has no business holding a
+      // R14 is this host's own rule, applied where its settings were parsed: the hub has no business holding a
       // permission whose meaning is "may this application bring one of its windows forward".
       return planOpen(request, placements, settings.mayOpenWindow);
+    },
+
+    planCheckout(request: CheckoutRequest): OpenPlan {
+      return planCheckout(request, settings.mayOpenWindow);
     },
 
     openable(sessions: readonly Session[], history: readonly HistoricalSession[] = []): string[] {

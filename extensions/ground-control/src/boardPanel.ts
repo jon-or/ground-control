@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { agentOfSession, basename, checkoutOf, sessionOf } from '@ground-control/core';
-import type { BoardMessage, Checkout, ClientMessage, LaneId, Snapshot } from '@ground-control/core';
+import { agentOfSession, basename, sessionOf } from '@ground-control/core';
+import type { BoardMessage, CardCheckout, ClientMessage, LaneId, Snapshot } from '@ground-control/core';
 import { readHubConfig, userDirOf } from './config.js';
 import { promptForLogins } from './identity.js';
 import { client } from './hubClient.js';
@@ -44,6 +44,8 @@ type Inbound =
   | { type: 'openSession'; sessionId: string }
   | { type: 'attachSession'; sessionId: string }
   | { type: 'openChanges'; key: string }
+  | { type: 'openCheckout'; key: string }
+  | { type: 'chooseCheckout'; key: string }
   | { type: 'toggleLogs' }
   | { type: 'showBoardLog' }
   | { type: 'openSettings' }
@@ -55,15 +57,15 @@ type Inbound =
  * own directory where there is not. A card whose sessions are spread over more than one checkout names the one
  * that was picked, because which of them the diff came from is otherwise invisible.
  */
-function cardLabel(card: { issueNumber: number | null; issue: { title: string } | null }, checkout: Checkout): string {
+function cardLabel(card: { issueNumber: number | null; issue: { title: string } | null }, checkout: CardCheckout): string {
   const named =
     card.issueNumber === null
-      ? basename(checkout.cwd)
+      ? basename(checkout.root)
       : card.issue
         ? `#${card.issueNumber} ${card.issue.title}`
         : `#${card.issueNumber}`;
 
-  return checkout.only ? named : `${named} (${basename(checkout.cwd)})`;
+  return checkout.only ? named : `${named} (${basename(checkout.root)})`;
 }
 
 function nonce(): string {
@@ -256,6 +258,16 @@ export class BoardPanel {
 
         return;
 
+      case 'openCheckout':
+        this.#tell({ type: 'openCheckout', key: msg.key });
+
+        return;
+
+      case 'chooseCheckout':
+        void this.#chooseCheckout(msg.key);
+
+        return;
+
       case 'toggleLogs':
         this.#client.toggleHubLog();
 
@@ -342,15 +354,43 @@ export class BoardPanel {
       return;
     }
 
-    const checkout = checkoutOf(card);
+    const checkout = card.checkout;
 
-    if (checkout === null) {
-      void vscode.window.showWarningMessage('That card has no session, so there is no checkout to read changes from.');
+    if (!checkout) {
+      void vscode.window.showWarningMessage('That card has no checkout to read changes from.');
 
       return;
     }
 
-    await vscode.commands.executeCommand(OPEN_CHANGES, checkout.cwd, cardLabel(card, checkout), key);
+    await vscode.commands.executeCommand(OPEN_CHANGES, checkout.root, cardLabel(card, checkout), key);
+  }
+
+  /**
+   * The folder the developer says this card's work happens in. Picked here rather than typed anywhere: a path is
+   * the one thing no board may name on its own, and the hub refuses one that is not a checkout of the card's
+   * repository — so the picker supplies the gesture and the hub supplies the check.
+   */
+  async #chooseCheckout(key: string): Promise<void> {
+    const card = this.#last?.lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+
+    if (!card) {
+      void vscode.window.showWarningMessage('That card is no longer on the board. Refresh and try again.');
+
+      return;
+    }
+
+    const [picked] = (await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: 'Use this checkout',
+      title: `Checkout for ${card.issue?.repository ?? ''}#${card.issueNumber ?? ''}`,
+      ...(card.checkout ? { defaultUri: vscode.Uri.file(card.checkout.root) } : {}),
+    })) ?? [];
+
+    if (picked !== undefined) {
+      this.#tell({ type: 'setCheckout', key, root: picked.fsPath });
+    }
   }
 
   #issueOf(number: number) {

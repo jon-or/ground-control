@@ -7,6 +7,7 @@ import type {
   AgentAdapter,
   HostAdapter,
   OpenPlan,
+  CheckoutRequest,
   OpenRequest,
   OpenRoute,
   ReadFailure,
@@ -184,6 +185,9 @@ export interface FakeHostControl {
   plan: OpenPlan;
   /** Every request the hub built, so what it puts in one is asserted rather than assumed. */
   planned: OpenRequest[];
+  /** The same, for a route to a card's checkout rather than to a session. */
+  checkoutPlan: OpenPlan;
+  checkoutsPlanned: CheckoutRequest[];
   /** Routes this host would rather the client performed. Empty makes every route the hub's own to carry out. */
   resident: OpenRoute['route'][];
   performed: OpenRoute[];
@@ -194,6 +198,8 @@ export function fakeHost(id = 'fake-host'): FakeHostControl {
   const control: FakeHostControl = {
     plan: { refusal: 'unknown-session', message: 'nothing to open' },
     planned: [],
+    checkoutPlan: { route: 'open-checkout', key: 'issue:1', root: 'd:/checkouts/project-1', newWindow: false },
+    checkoutsPlanned: [],
     resident: ['reveal-here'],
     performed: [],
     primed: 0,
@@ -213,6 +219,11 @@ export function fakeHost(id = 'fake-host'): FakeHostControl {
         control.planned.push(request);
 
         return control.plan;
+      },
+      planCheckout: (request) => {
+        control.checkoutsPlanned.push(request);
+
+        return control.checkoutPlan;
       },
       openable: (sessions) => sessions.map((session) => session.sessionId),
       get residentRoutes() {

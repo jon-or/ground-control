@@ -74,6 +74,12 @@ export type ClientMessage =
   | { type: 'runAction'; key: string }
   // Taking back a run in flight. Never a lane change and never a refusal of the card, only the session it started.
   | { type: 'stopAction'; key: string }
+  // A window on the card's own checkout, and no agent in it. The card and nothing else: the root is whatever the
+  // hub resolved for it, and the board window's own root is read off this client's hello.
+  | { type: 'openCheckout'; key: string }
+  // The directory the developer chose for a card nothing has run on. The path is theirs — it comes from the
+  // editor's own folder picker — and the hub refuses one that is not a checkout of that card's repository.
+  | { type: 'setCheckout'; key: string; root: string }
   // A viewer opening or closing. Nothing about the hub's log crosses to a client that has not sent this: until
   // one does, the hub holds no subscriber, reads no file, and sends nothing.
   | { type: 'watchLog'; watching: boolean };

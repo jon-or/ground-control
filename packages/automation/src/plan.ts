@@ -1,7 +1,7 @@
 import type {
   ActionSettings,
   AutomatableAction,
-  Checkout,
+  CardCheckout,
   LaneId,
   TriageContext,
 } from '@ground-control/core';
@@ -54,7 +54,7 @@ export interface PlanInput {
   lane: LaneId;
   /** How many live sessions the card already carries. One is enough to refuse: R18 forbids a second agent on it. */
   liveSessions: number;
-  checkout: Checkout | null;
+  checkout: CardCheckout | null;
   settings: ActionSettings;
 }
 
@@ -123,7 +123,7 @@ export function planAction(input: PlanInput): ActionDecision {
       pullRequest: pr.number,
       branch: pr.headRefName,
       base: pr.baseRefName,
-      checkout: checkout.cwd,
+      checkout: checkout.root,
     },
   };
 }

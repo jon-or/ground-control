@@ -1,5 +1,5 @@
 import { basename, dirKey, sessionLabel } from '@ground-control/core';
-import type { HostWindow, OpenOutcome, OpenPlan, OpenRequest, OpenRoute, Session } from '@ground-control/core';
+import type { CheckoutRequest, HostWindow, OpenOutcome, OpenPlan, OpenRequest, OpenRoute, Session } from '@ground-control/core';
 import type { AgentPlacement } from './placements.js';
 
 /**
@@ -18,6 +18,7 @@ export const VSCODE_ROUTES: readonly OpenRoute['route'][] = [
   'sidebar-elsewhere',
   'unknown-surface-here',
   'unknown-surface-elsewhere',
+  'open-checkout',
 ];
 
 /**
@@ -213,6 +214,33 @@ export function resumeRefusal(sessionId: string, roster: readonly Session[] | nu
   // what makes a resume exit 1 rather than continue it (§33). Finished is not gone.
   if (roster.some((s) => s.sessionId === sessionId && s.attachId !== null)) return 'This is a run the board started in the background. Attach to it from its row rather than resuming it.';
   return null;
+}
+
+/**
+ * Where to open a card's checkout, or why the board will not. Nothing here reads a surface or a session: a
+ * directory is reached by `code`, and no record inside a window says which folder it was opened on beyond the
+ * folders it has.
+ *
+ * The reuse rule is `resume-elsewhere`'s, and it matters more here than it looks: `code` given a folder of a
+ * multi-root window opens a second window on that folder alone rather than raising the one already showing it.
+ */
+export function planCheckout(request: CheckoutRequest, mayOpenWindow: boolean): OpenPlan {
+  const { key, root } = request;
+
+  if (request.workspaceRoot !== null && dirKey(request.workspaceRoot) === dirKey(root)) {
+    return { refusal: 'already-here', message: `This window is already open on ${root}.` };
+  }
+
+  if (!mayOpenWindow) {
+    return {
+      refusal: 'elsewhere-not-allowed',
+      message: `Opening ${root} needs a window of its own, and the board is not allowed to bring one forward.`,
+    };
+  }
+
+  const matching = request.liveWindows.filter((window) => window.folders.some((folder) => dirKey(folder) === dirKey(root)));
+
+  return { route: 'open-checkout', key, root, newWindow: matching.length === 0 || matching.some((window) => window.folders.length !== 1) };
 }
 
 /**

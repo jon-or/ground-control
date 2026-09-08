@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { OpenPlan, OpenRequest, Session, SessionSurface } from '@ground-control/core';
+import type { CheckoutRequest, OpenPlan, OpenRequest, Session, SessionSurface } from '@ground-control/core';
 import { basename } from '@ground-control/core';
-import { SETTLING_MS, openableSessions, planOpen, resumeRefusal, strayFrom, verifyOpen } from '../src/open.js';
+import { SETTLING_MS, openableSessions, planCheckout, planOpen, resumeRefusal, strayFrom, verifyOpen } from '../src/open.js';
 import { PLACEMENTS } from '../src/placements.js';
 import { session } from './helpers.js';
 
@@ -397,7 +397,6 @@ describe('verifyOpen', () => {
   });
 });
 
-
 describe('resuming historical sessions', () => {
   const historicalSession = { agent: 'claude', sessionId: live.sessionId, cwd: live.cwd, title: 'Previous work', branch: live.branch, issueNumber: live.issueNumber, repository: 'github.com/org/repo', updatedAt: 100 };
   const pastRequest = (over: Partial<OpenRequest> = {}) => request(live, { sessions: [], surfaces: [], liveRoots: [], historicalSession, ...over });
@@ -457,5 +456,58 @@ describe('planning a Codex session, which opens as a resource rather than a webv
 
     expect(routeOf(plan)).toBe('reveal-elsewhere');
     expect('root' in plan && plan.root).toBe(away.cwd);
+  });
+});
+
+/**
+ * A window on a card's checkout, and no agent in it. Nothing here reads a session or a surface: what decides the
+ * route is which windows are open and whether one of them is nameable by that folder.
+ */
+describe('opening a card’s checkout', () => {
+  const ROOT = 'd:/work/repo.worktrees/19002-refund-window';
+
+  function ask(over: Partial<CheckoutRequest> = {}, mayOpenWindow = true): OpenPlan {
+    return planCheckout({ key: 'issue:19002', root: ROOT, workspaceRoot: 'd:/work/repo', liveWindows: [], ...over }, mayOpenWindow);
+  }
+
+  it('opens a new window where no open one has that folder', () => {
+    const plan = ask();
+
+    expect(routeOf(plan)).toBe('open-checkout');
+    expect('newWindow' in plan && plan.newWindow).toBe(true);
+    expect('root' in plan && plan.root).toBe(ROOT);
+  });
+
+  it('is keyed by the card, since there is no session id to hold it by', () => {
+    const plan = ask();
+
+    expect('key' in plan && plan.key).toBe('issue:19002');
+  });
+
+  it('raises the window that already has the folder rather than opening a second', () => {
+    expect(ask({ liveWindows: [{ folders: [ROOT] }] })).toMatchObject({ newWindow: false });
+  });
+
+  // `code` given one folder of a multi-root window opens a second window on that folder alone, so the window
+  // showing the checkout is not the one that would come forward.
+  it('opens a new window rather than naming a folder of a multi-root one', () => {
+    expect(ask({ liveWindows: [{ folders: [ROOT, 'd:/work/other'] }] })).toMatchObject({ newWindow: true });
+  });
+
+  it('refuses a window this one is already on, which would open nothing and look broken', () => {
+    expect(refusalOf(ask({ workspaceRoot: ROOT }))).toBe('already-here');
+  });
+
+  it('compares that against the developer’s own path spelling rather than byte for byte', () => {
+    expect(refusalOf(ask({ workspaceRoot: 'D:\\work\\repo.worktrees\\19002-refund-window' }))).toBe('already-here');
+  });
+
+  // R14: bringing another window forward is the developer's permission, and this raises one like any other route.
+  it('refuses to bring a window forward where the developer withheld it', () => {
+    expect(refusalOf(ask({}, false))).toBe('elsewhere-not-allowed');
+  });
+
+  it('lets a board with no root of its own open one, which is what a window with no folder is', () => {
+    expect(routeOf(ask({ workspaceRoot: null }))).toBe('open-checkout');
   });
 });

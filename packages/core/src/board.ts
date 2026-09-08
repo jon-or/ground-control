@@ -1,5 +1,5 @@
-import { dirKey } from './paths.js';
 import type { CardAction } from './actions.js';
+import type { CardCheckout } from './checkout.js';
 import type { IssueCard } from './cards.js';
 import type { CardTriage } from './triage.js';
 import type { HistoricalSession, Session } from './types.js';
@@ -51,51 +51,12 @@ export interface LanedCard extends BoardCard {
   triage?: CardTriage;
   /** What the board can do about that reading, or has done. Absent where the card's action is not one it performs. */
   action?: CardAction;
+  /** Where this card's work happens, where the board has somewhere to point an editor at. Absent where it has not. */
+  checkout?: CardCheckout;
 }
 
 export interface Lane {
   id: LaneId;
   title: string;
   cards: LanedCard[];
-}
-
-/**
- * When a session last showed itself, by whichever signal spoke most recently. Not liveness: it orders sessions
- * against each other and nothing else.
- */
-function activeAt(session: Session): number {
-  return Math.max(session.activity?.since ?? 0, session.transcriptWrittenAt ?? 0, session.startedAt);
-}
-
-/** Where a session's work sits: the checkout it runs in, or its own directory where it runs outside one. */
-function checkoutDir(session: Session): string {
-  return session.checkoutRoot ?? session.cwd;
-}
-
-/** `only` is false where the card's sessions are spread over more than one checkout, and one of them was picked. */
-export interface Checkout {
-  cwd: string;
-  only: boolean;
-}
-
-/**
- * The directory a card's work is being done in, or null where the card has no session to read one from. Never
- * guessed from a branch or an issue number: a session records where it runs, and a second answer for the same
- * question is a second thing to be wrong.
- *
- * Several sessions in one checkout is the ordinary case, so the pick only decides anything where two differ. The
- * most recently active wins rather than the most recently started, because a session just opened in the main clone
- * would otherwise beat the older worktree session doing the work — but that disagrees with the order the card
- * lists its sessions in, so `only` is false there and what used it must say which directory it took.
- * Ties break on agent then session id, as `mergeBoard` breaks its own.
- */
-export function checkoutOf(card: Pick<BoardCard, 'sessions' | 'lastSession'>): Checkout | null {
-  const [first] = [...card.sessions].sort(
-    (a, b) => activeAt(b) - activeAt(a) || a.agent.localeCompare(b.agent) || a.sessionId.localeCompare(b.sessionId),
-  );
-
-  // `lastSession` is carried only by a card with no live sessions, so it is the other case rather than a fallback.
-  const cwd = first ? checkoutDir(first) : card.lastSession?.cwd ?? null;
-
-  return cwd === null ? null : { cwd, only: new Set(card.sessions.map((s) => dirKey(checkoutDir(s)))).size < 2 };
 }

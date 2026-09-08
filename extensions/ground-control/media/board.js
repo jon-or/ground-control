@@ -314,12 +314,12 @@ function sessionLabel(session) {
 }
 
 /**
- * Whether the card has a directory to read changes from. `core`'s `checkoutOf` decides which of several sessions
- * answers; the board only needs whether one does, which is the same condition and is pinned to it by the parity
- * table in `test/board.test.ts` — this file is a classic script and can import nothing.
+ * Whether the card has a directory the board can be pointed at. The hub decides which one and whether it is still
+ * there (`checkoutFor`), so the webview reads its answer rather than deriving a second one from the sessions —
+ * this file is a classic script and can import nothing, and a second condition is a second thing to be wrong.
  */
 function hasCheckout(boardCard) {
-  return boardCard.sessions.length > 0 || boardCard.lastSession != null;
+  return boardCard.checkout != null;
 }
 
 /** The sessions this window can open, named by the extension - the webview never compares directories itself. */
@@ -849,6 +849,24 @@ function cardActions(boardCard) {
       label: 'View changes',
       hint: "Open this card's commits and uncommitted changes in one editor",
       run: () => vscode.postMessage({ type: 'openChanges', key: boardCard.key }),
+    });
+
+    actions.push({
+      label: 'Open in VS Code',
+      hint: `Bring up a window on ${boardCard.checkout.root}`,
+      run: () => vscode.postMessage({ type: 'openCheckout', key: boardCard.key }),
+    });
+  }
+
+  // Only an issue names a repository a chosen folder can be checked against, so ad-hoc work is never asked. And a
+  // checkout an agent has actually run in outranks any pick, so offering one there is an item that changes nothing.
+  const picked = boardCard.checkout == null || boardCard.checkout.source === 'remembered';
+
+  if (boardCard.issue != null && picked) {
+    actions.push({
+      label: hasCheckout(boardCard) ? 'Change folder…' : 'Choose folder…',
+      hint: 'Say which checkout this issue’s work happens in',
+      run: () => vscode.postMessage({ type: 'chooseCheckout', key: boardCard.key }),
     });
   }
 

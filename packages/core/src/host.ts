@@ -31,7 +31,9 @@ export type OpenRefusal =
   | 'sessions-unreadable'
   | 'resume-pending'
   | 'card-active'
-  | 'elsewhere-not-allowed';
+  | 'elsewhere-not-allowed'
+  | 'no-checkout'
+  | 'already-here';
 
 /**
  * Where a session can be reached. A tab is revealed by id in the window holding it; a sidebar has no such command, so
@@ -45,7 +47,33 @@ export type OpenRoute =
   | { route: 'sidebar-here'; session: Session; root: string }
   | { route: 'sidebar-elsewhere'; session: Session; root: string }
   | { route: 'unknown-surface-here'; session: Session; root: string }
-  | { route: 'unknown-surface-elsewhere'; session: Session; root: string };
+  | { route: 'unknown-surface-elsewhere'; session: Session; root: string }
+  // The one route with no session in it: a window on a card's checkout, opened so the developer can work there.
+  // Keyed by the card, because there is no session id to hold it by and one is what stops a second click (R18).
+  | { route: 'open-checkout'; key: string; root: string; newWindow: boolean };
+
+/**
+ * What a route is held by while it is in flight. A second fire at a tab already on its way is a second agent on one
+ * transcript (`mechanics.md` §11), and a second `code` on one checkout is a second window — so both are dropped, by
+ * the session where a route has one and by the card where it does not.
+ */
+export function routeKey(route: OpenRoute): string {
+  return 'key' in route ? route.key : route.session.sessionId;
+}
+
+/**
+ * What is asked when a card is to be opened rather than a session. It carries no session and no surfaces: a
+ * directory is reached by `code` and nothing inside a window records it.
+ */
+export interface CheckoutRequest {
+  /** The card this is for, which is what the route is keyed by. */
+  key: string;
+  root: string;
+  /** The board window's own root, chosen as a recorded one is: its workspace file where it has one, else its folder. */
+  workspaceRoot: string | null;
+  /** Full folder sets, because only a window with exactly one folder can be raised by naming that folder. */
+  liveWindows: readonly HostWindow[];
+}
 
 export interface OpenRequest {
   sessionId: string;
@@ -105,6 +133,8 @@ export interface HostAdapter {
   surfaces(deps: MachineReaders): Promise<SessionSurface[]>;
   /** A route to the session, or a named refusal with its remedy. Pure, and judged against this host's own settings. */
   plan(request: OpenRequest): OpenPlan;
+  /** A route to a card's checkout, the same way. Absent where the host has no way to be pointed at a directory. */
+  planCheckout?(request: CheckoutRequest): OpenPlan;
   /** Which of these sessions this host offers to open. Another host's answer is its own (R14). */
   openable(sessions: readonly Session[], history?: readonly HistoricalSession[]): string[];
   /**

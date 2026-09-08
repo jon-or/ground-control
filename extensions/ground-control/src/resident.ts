@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
-import { dirKey, sessionLabel } from '@ground-control/core';
+import { dirKey, routeKey, sessionLabel } from '@ground-control/core';
 import type { HistoricalSession, OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
 import { PLACEMENTS, handOverUri, resumeRefusal, stagedUpdate, stagedUpdateRefusal, strayFrom, verifyOpen } from '@ground-control/host-vscode';
 import type { AgentPlacement } from '@ground-control/host-vscode';
@@ -331,6 +331,11 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
 
       return null;
     }
+
+    case 'open-checkout':
+      // Whatever `raise` says and nothing more: no URI follows this, so there is no focus to wait for, and nothing
+      // inside a window records which folder a board asked for. What the developer sees is the window itself.
+      return raise(plan.root, plan.newWindow);
   }
 }
 
@@ -351,19 +356,22 @@ export async function refuse(refusal: OpenRefusal, message: string): Promise<voi
   }
 }
 
-/** Ids being opened, so a second click on a row whose tab is already on its way is dropped rather than repeated. */
+/** What is being opened, so a second click on something already on its way is dropped rather than repeated. */
 const opening = new Set<string>();
 
 /**
- * Carries out a route the hub planned, and says what went wrong when it did not land. One at a time per session:
- * a second fire at a tab already on its way is a second agent on one transcript (`docs/mechanics.md` §11).
+ * Carries out a route the hub planned, and says what went wrong when it did not land. One at a time per session,
+ * or per card where a route has no session: a second fire at a tab already on its way is a second agent on one
+ * transcript (`docs/mechanics.md` §11), and a second `code` on one checkout is a second window.
  */
 export async function perform(route: OpenRoute, roster: Roster): Promise<void> {
-  if (opening.has(route.session.sessionId)) {
+  const held = routeKey(route);
+
+  if (opening.has(held)) {
     return;
   }
 
-  opening.add(route.session.sessionId);
+  opening.add(held);
 
   try {
     const failure = await performRoute(route, roster);
@@ -372,6 +380,6 @@ export async function perform(route: OpenRoute, roster: Roster): Promise<void> {
       void vscode.window.showErrorMessage(failure);
     }
   } finally {
-    opening.delete(route.session.sessionId);
+    opening.delete(held);
   }
 }

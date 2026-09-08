@@ -1,5 +1,5 @@
-import { assignLanes, mergeBoard, nextMemory, withPlacement, withTriage } from '@ground-control/board';
-import { compilePattern, diskReaders, fetchSessions, fetchSessionHistory, parseHubConfig, rosterIsStale, unreportedSessions } from '@ground-control/core';
+import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
+import { compilePattern, diskReaders, fetchSessions, fetchSessionHistory, isAbsolute, normalize, parseHubConfig, repositoryKey, repositoryOf, rosterIsStale, unreportedSessions } from '@ground-control/core';
 import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { IssueLookup } from './issueLookup.js';
@@ -10,6 +10,8 @@ import { read } from './fs.js';
 import type { LaneStore } from './lanes.js';
 import { ActionRunner } from './actions.js';
 import { makeActionStore } from './actionStore.js';
+import { makeCheckoutStore } from './checkoutStore.js';
+import type { CheckoutStore } from './checkoutStore.js';
 import type { ActionStore } from './actionStore.js';
 import { TriageRunner } from './triage.js';
 import { makeTriageStore } from './triageStore.js';
@@ -47,6 +49,8 @@ export interface HubDeps {
   issues: IssueStore;
   /** The last phase each session was seen in, so closing its window does not take the card's mark with it (R6). */
   status: StatusStore;
+  /** The directory the developer picked for a card nothing has run on, kept the same way again. */
+  checkouts: CheckoutStore;
   /** The configuration a client last pushed. A hub starts on it, because the browser has none of its own to give. */
   settings: SettingsStore;
   /** What the hub says about itself. Written to `hub.log` whatever happens; streamed only to a client that asked. */
@@ -148,6 +152,7 @@ export function realHubDeps(
   actions: ActionStore = makeActionStore(home),
   issues: IssueStore = makeIssueStore(home),
   status: StatusStore = makeStatusStore(home),
+  checkouts: CheckoutStore = makeCheckoutStore(home),
 ): HubDeps {
   return {
     clock: REAL_CLOCK,
@@ -160,6 +165,7 @@ export function realHubDeps(
     actions,
     issues,
     status,
+    checkouts,
     settings,
     log,
     syncActivity: (regs, wanted, where, enabled) => syncActivity(regs.agents, wanted, where, false, enabled),
@@ -387,7 +393,117 @@ export class Hub {
         });
 
         return;
+
+      case 'openCheckout':
+        void this.#openCheckout(connected, message.key);
+
+        return;
+
+      case 'setCheckout':
+        this.#setCheckout(connected, message.key, message.root);
+
+        return;
     }
+  }
+
+  /**
+   * The directory the developer chose for a card. Checked here rather than taken: the path is one the editor's own
+   * picker produced, but the card it is being stored against is the client's word, and a pick that does not belong
+   * to that card's repository would go on refusing at every later open with nothing to say about why.
+   */
+  #setCheckout(client: Connected, key: string, root: string): void {
+    const card = this.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+
+    if (card === undefined) {
+      client.send({ type: 'notice', level: 'warning', message: 'That card is no longer on the board. Refresh and try again.' });
+
+      return;
+    }
+
+    const readers = this.#readers();
+    const wanted = card.issue === null ? null : repositoryKey(card.issue.url);
+    const chosen = normalize(root);
+
+    // Relative here is not relative there: this resolves it against the hub's own working directory, and the
+    // editor that is later handed it has another. Absolute or nothing.
+    if (!isAbsolute(chosen) || wanted === null || repositoryOf(chosen, readers.readText) !== wanted) {
+      client.send({
+        type: 'notice',
+        level: 'warning',
+        message: `${root} is not a checkout of ${card.issue?.repository ?? 'this card’s repository'}. Choose the folder this issue’s work happens in.`,
+      });
+
+      return;
+    }
+
+    if (!this.#deps.checkouts.write(key, chosen)) {
+      client.send({ type: 'notice', level: 'warning', message: 'That folder could not be stored. Check that the hub can write to its own directory.' });
+
+      return;
+    }
+
+    this.#deps.log.info(`${client.hello.id} set the checkout for ${key} to ${chosen}`, 'open');
+    this.#broadcast();
+  }
+
+  /** A window on a card's checkout, with no agent in it. Planned by the host, and performed by a client inside it. */
+  async #openCheckout(client: Connected, key: string): Promise<void> {
+    const host = this.#hostFor(client.hello);
+
+    if (host?.planCheckout === undefined) {
+      client.send({ type: 'notice', level: 'warning', message: 'This board has no editor it can open a checkout in.' });
+
+      return;
+    }
+
+    const card = this.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+    const root = card?.checkout?.root;
+
+    if (root === undefined) {
+      client.send({
+        type: 'notice',
+        level: 'warning',
+        refusal: 'no-checkout',
+        message: 'This card has no checkout to open. Choose the folder its work happens in.',
+      });
+
+      return;
+    }
+
+    const readers = this.#readers();
+    host.prime(readers);
+    const windows = await host.windows(undefined, readers);
+
+    if (this.#disposed) {
+      return;
+    }
+
+    const plan = host.planCheckout({ key, root, workspaceRoot: client.hello.workspaceRoot, liveWindows: windows.live });
+
+    if ('refusal' in plan) {
+      this.#deps.log.info(`${client.hello.id} could not open ${root}: ${plan.refusal}`, 'open');
+      client.send({ type: 'notice', level: 'warning', message: plan.message, refusal: plan.refusal });
+
+      return;
+    }
+
+    this.#deps.log.info(`${client.hello.id} opening ${root} for ${key}`, 'open');
+
+    // The same rule every other route follows: a host that calls it resident is asking a client inside it to do it,
+    // and a client that has not reloaded since the route existed would be sent something it cannot carry out.
+    if (host.residentRoutes.includes(plan.route)) {
+      if (!client.hello.residentRoutes.includes(plan.route)) {
+        client.send({ type: 'notice', level: 'warning', message: 'Reload this editor to open a card’s checkout.' });
+
+        return;
+      }
+
+      client.send({ type: 'perform', route: plan });
+
+      return;
+    }
+
+    await host.open?.(plan, readers);
   }
 
   // — configuration —
@@ -1185,10 +1301,17 @@ export class Hub {
       memory,
     );
 
-    // Attached after the lanes are settled, and neither changes them: triage labels a card and an action works on
-    // what a card holds. Placement stays the developer's alone (R8).
+    // Attached after the lanes are settled, and none of them changes a lane: triage labels a card, a checkout says
+    // where it can be opened, and an action works on what a card holds. Placement stays the developer's alone (R8).
+    //
+    // The checkout goes on before the action decorates, because what the board may run on a card turns on having
+    // one — a card decorated first would be refused for a directory it is about to be given.
     const lanes = this.#actions.decorate(
-      withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now()),
+      withCheckouts(
+        withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now()),
+        this.#deps.checkouts.read(),
+        this.#readers(),
+      ),
     );
 
     return {

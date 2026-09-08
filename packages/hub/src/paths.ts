@@ -58,6 +58,11 @@ export function triagePathOf(home: string): string {
   return `${groundControlDirOf(home)}/triage.json`;
 }
 
+/** The directory the developer picked for a card nothing has run on yet. One record per machine, as lanes are. */
+export function checkoutsPathOf(home: string): string {
+  return `${groundControlDirOf(home)}/checkouts.json`;
+}
+
 /** What the board has run on each card, and when. One record per machine, so two boards cannot both dispatch (R39). */
 export function actionsPathOf(home: string): string {
   return `${groundControlDirOf(home)}/actions.json`;

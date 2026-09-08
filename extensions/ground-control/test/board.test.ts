@@ -151,6 +151,7 @@ const liveCard: LanedCard = {
     updatedAt: '2026-09-01T19:00:00Z',
   },
   sessions: [session],
+  checkout: { root: 'c:/work/18953-test', source: 'session', only: true },
 };
 
 /** What the script posted while it was loading. Read by the readiness test, which cannot re-run the module. */
@@ -1887,6 +1888,7 @@ describe("the card's own menu", () => {
       attention: null,
       reason: 'Ad-hoc work with no issue.',
       sessions: [{ ...session, ...checkout }],
+      checkout: { root: 'c:/work/example-repo', source: 'session', only: true },
     };
 
     send(message({ lanes: lanes({ build: [adHoc] }) }));
@@ -1903,7 +1905,7 @@ describe("the card's own menu", () => {
     expect(control()!.getAttribute('aria-expanded')).toBe('true');
     expect(menu()!.getAttribute('role')).toBe('menu');
     expect(menu()!.getAttribute('aria-label')).toBe('Actions for Cached counts do not update');
-    expect(items().map((item) => item.textContent)).toEqual(['View changes']);
+    expect(items().map((item) => item.textContent)).toEqual(['View changes', 'Open in VS Code']);
     expect(tipOf(items()[0])).toBe("Open this card's commits and uncommitted changes in one editor");
     // The first item takes the focus, so the menu can be driven from where the control left the keyboard.
     expect(document.activeElement).toBe(items()[0]);
@@ -1939,11 +1941,12 @@ describe("the card's own menu", () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
     control()!.click();
 
-    // One item today, so both arrows land back on it — the wrap is what a second item would otherwise break.
+    menu()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(items()[1]);
     menu()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
     expect(document.activeElement).toBe(items()[0]);
     menu()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
-    expect(document.activeElement).toBe(items()[0]);
+    expect(document.activeElement).toBe(items()[items().length - 1]);
 
     // Anything else is the item's own to handle, so the menu neither swallows it nor moves the focus for it.
     const typed = new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true });
@@ -2071,12 +2074,22 @@ describe("the card's own menu", () => {
     expect(control()).not.toBeNull();
   });
 
+  /** A card the hub found no checkout for carries no such field at all, which is not the same as carrying undefined. */
+  const { checkout: _resolved, ...noCheckout } = liveCard;
+
   // A card nobody has worked on has no directory to read, and a menu whose every item could only refuse is worse
   // than no menu — the rule the session rows already follow.
-  it('is absent on a card with nothing to offer', () => {
-    send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
+  it('is absent on a card with nothing to offer — no checkout, and no issue to choose one for', () => {
+    send(message({ lanes: lanes({ unstarted: [{ ...noCheckout, sessions: [], issue: null }] }) }));
 
     expect(control()).toBeNull();
+  });
+
+  it('offers a folder to an issue card with no checkout, which is the one thing that would give it one', () => {
+    send(message({ lanes: lanes({ unstarted: [{ ...noCheckout, sessions: [] }] }) }));
+    control()!.click();
+
+    expect(items().map((item) => item.textContent)).toEqual(['Choose folder…']);
   });
 
   it('follows the card it belongs to when a refresh rebuilds it, and goes when the card does', () => {
@@ -2098,30 +2111,6 @@ describe("the card's own menu", () => {
 
     send(message({ lanes: lanes({}) }));
     expect(menu()).toBeNull();
-  });
-});
-
-/**
- * The board offers the item on exactly the cards `core` would hand a checkout for. `media/board.js` is a classic
- * script and can import nothing, so the condition exists twice; this is the table asserted against `core`'s own
- * copy in `packages/core/test/checkout.test.ts`, with literal answers rather than a computed expectation. A copy
- * that drifts offers an item that can only refuse, or hides one that would have worked.
- */
-describe('which cards have a checkout, against core', () => {
-  const past = { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: 1 };
-
-  const rows: [string, Partial<LanedCard>, boolean][] = [
-    ['one live session', { sessions: [session] }, true],
-    ['two live sessions', { sessions: [session, { ...session, sessionId: 'session-2', cwd: 'c:/work/other' }] }, true],
-    ['no session, one saved', { sessions: [], lastSession: past }, true],
-    ['a live session and a saved one', { sessions: [session], lastSession: past }, true],
-    ['no session at all', { sessions: [] }, false],
-  ];
-
-  it.each(rows)('a card with %s', (_row, over, expected) => {
-    send(message({ lanes: lanes({ build: [{ ...liveCard, ...over }] }) }));
-
-    expect(document.querySelector('.card-menu') !== null).toBe(expected);
   });
 });
 

@@ -8,6 +8,7 @@ import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeTriageStore } from '../src/triageStore.js';
+import { makeCheckoutStore } from '../src/checkoutStore.js';
 import { makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeStatusStore } from '../src/statusStore.js';
@@ -15,6 +16,7 @@ import { makeSettingsStore } from '../src/settings.js';
 import type { StoredConfig } from '../src/settings.js';
 import { makeMarkStore } from '../src/marks.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { lanesPathOf, logPathOf } from '../src/paths.js';
 import { groundControlDirOf } from '@ground-control/core';
 import type { LogEntry } from '@ground-control/core';
@@ -186,6 +188,7 @@ function harness(
     lanes: makeLaneStore(home),
     marks: makeMarkStore(home),
     triage: makeTriageStore(home),
+    checkouts: makeCheckoutStore(home),
     actions: makeActionStore(home),
     issues: makeIssueStore(home),
     status: makeStatusStore(home),
@@ -1978,7 +1981,6 @@ describe('a client changing its mind', () => {
   });
 });
 
-
 describe('historical fallback publication', () => {
   const past = { agent: 'fake', sessionId: 'past', title: 'Past attempt', cwd: '/work/42-test', branch: '42-test', issueNumber: 42, repository: 'github.com/org/repo', updatedAt: 100 };
   const setup = () => harness({}, { remembered: {}, fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [{ ...card(42), url: 'https://github.com/org/repo/issues/42' }] } }) });
@@ -2065,7 +2067,6 @@ describe('historical fallback publication', () => {
     expect(h.hub.snapshot().sessions?.count).toBe(0); h.hub.dispose();
   });
 });
-
 
 describe('opening a historical session', () => {
   const past = { agent: 'fake', sessionId: 'past', title: 'Past attempt', cwd: '/work/42-test', branch: '42-test', issueNumber: 42, repository: 'github.com/org/repo', updatedAt: 100 };
@@ -2403,5 +2404,175 @@ describe('a client that opened a log viewer', () => {
     h.hub.receive(client, { type: 'watchLog', watching: true });
 
     expect(h.clock.cadences()).toEqual([]);
+  });
+});
+
+/**
+ * A window on a card's checkout, and no agent in it. The root is never the client's to name: it is whatever the
+ * hub resolved for that card, which is what makes the same message safe from a browser overlay.
+ */
+describe('opening a card in an editor', () => {
+  /** A real directory, because a root is offered only where it reads back — a deleted one refuses everything (§23). */
+  function checkoutDir(name = 'project-1'): string {
+    const root = join(home, name);
+    mkdirSync(root, { recursive: true });
+
+    return root;
+  }
+
+  async function boardWith(root: string, residentRoutes = ['reveal-here', 'open-checkout']) {
+    const h = harness();
+    const { client, inbox } = connect(h, hello({ residentRoutes }));
+
+    h.agent.sessions = [fakeSession({ cwd: root, checkoutRoot: root })];
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    return { h, client, inbox };
+  }
+
+  it('sends the client a route to the checkout the hub resolved, never one the client named', async () => {
+    const root = checkoutDir();
+    const { h, client, inbox } = await boardWith(root);
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.host.resident = ['reveal-here', 'open-checkout'];
+    h.host.checkoutPlan = { route: 'open-checkout', key, root, newWindow: true };
+    h.hub.receive(client, { type: 'openCheckout', key });
+    await settle();
+
+    expect(h.host.checkoutsPlanned.at(-1)).toMatchObject({ key, root });
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+  });
+
+  it('refuses a card with no checkout by name, rather than opening a directory it invented', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.agent.sessions = [fakeSession({ cwd: join(home, 'gone'), checkoutRoot: join(home, 'gone') })];
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]?.key;
+
+    // Named, so this cannot pass by falling down the same branch a card that was never built would take.
+    expect(key).toBeDefined();
+
+    h.hub.receive(client, { type: 'openCheckout', key: key! });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ refusal: 'no-checkout' });
+  });
+
+  it('passes on the host’s own refusal rather than reaching for a window anyway', async () => {
+    const root = checkoutDir();
+    const { h, client, inbox } = await boardWith(root);
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.host.checkoutPlan = { refusal: 'already-here', message: 'This window is already open on it.' };
+    h.hub.receive(client, { type: 'openCheckout', key });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ refusal: 'already-here' });
+  });
+
+  // A client that has not reloaded since the route was added would be sent something it cannot carry out, and the
+  // click would land nowhere with nothing said.
+  it('tells a client that cannot perform the route to reload, rather than sending it', async () => {
+    const root = checkoutDir();
+    const { h, client, inbox } = await boardWith(root, ['reveal-here']);
+
+    h.host.resident = ['reveal-here', 'open-checkout'];
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.host.checkoutPlan = { route: 'open-checkout', key, root, newWindow: false };
+    h.hub.receive(client, { type: 'openCheckout', key });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('Reload') });
+  });
+});
+
+/** The folder the developer chose. Checked against the card's own repository before it is stored, never taken. */
+describe('choosing a card’s folder', () => {
+  /** A real repository URL, because the pick is checked by comparing it against the folder's own origin remote. */
+  const PICKABLE: IssueCard = { ...card(19002), url: 'https://github.com/example-org/example-repo/issues/19002' };
+
+  it('refuses a folder that is not a checkout of that card’s repository', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.agent.sessions = [fakeSession()];
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+    const elsewhere = join(home, 'not-a-checkout');
+    mkdirSync(elsewhere, { recursive: true });
+
+    h.hub.receive(client, { type: 'setCheckout', key, root: elsewhere });
+    await settle();
+
+    expect(makeCheckoutStore(home).read()).toEqual({});
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('not a checkout') });
+  });
+
+  it('stores a folder that is a checkout of the card, and puts it on the card', async () => {
+    const h = harness({}, { fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [PICKABLE], matched: 1, totalAssigned: 1 } }) });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const picked = join(home, 'refund-window');
+    mkdirSync(join(picked, '.git'), { recursive: true });
+    writeFileSync(join(picked, '.git', 'config'), '[remote "origin"]\n url = https://github.com/example-org/example-repo.git');
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.issue !== null)!.key;
+
+    h.hub.receive(client, { type: 'setCheckout', key, root: picked });
+    await settle();
+
+    // Stored as the board spells every other path, so a pick and a session's own cwd compare as one directory.
+    const stored = picked.replace(/\\/g, '/');
+
+    expect(makeCheckoutStore(home).read()[key]).toBe(stored);
+    expect(h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.key === key)?.checkout).toEqual({
+      root: stored,
+      source: 'remembered',
+      only: true,
+    });
+    expect(inbox.filter((m) => m.type === 'changed').length).toBeGreaterThan(0);
+  });
+
+  // A relative path resolves against the hub's own working directory here and against the editor's there, so the
+  // two would disagree about which folder was meant.
+  it('refuses a folder that is not named absolutely', async () => {
+    const h = harness({}, { fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [PICKABLE], matched: 1, totalAssigned: 1 } }) });
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.issue !== null)!.key;
+
+    h.hub.receive(client, { type: 'setCheckout', key, root: 'refund-window' });
+    await settle();
+
+    expect(makeCheckoutStore(home).read()).toEqual({});
+  });
+
+  it('refuses a card that is no longer on the board', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'setCheckout', key: 'issue:404', root: home });
+    await settle();
+
+    expect(makeCheckoutStore(home).read()).toEqual({});
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('no longer on the board') });
   });
 });

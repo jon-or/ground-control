@@ -18,6 +18,7 @@ import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
+import { makeCheckoutStore } from '../src/checkoutStore.js';
 import { makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeStatusStore } from '../src/statusStore.js';
@@ -203,6 +204,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     lanes: makeLaneStore(home),
     marks: makeMarkStore(home),
     triage: makeTriageStore(home),
+    checkouts: makeCheckoutStore(home),
     actions: makeActionStore(home),
     issues: makeIssueStore(home),
     status: makeStatusStore(home),

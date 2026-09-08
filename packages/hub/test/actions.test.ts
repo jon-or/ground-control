@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { join } from 'node:path';
 import type {
   AgentAdapter,
   ContextReading,
@@ -21,6 +22,7 @@ import { Hub } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
+import { makeCheckoutStore } from '../src/checkoutStore.js';
 import { makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeStatusStore } from '../src/statusStore.js';
@@ -29,14 +31,16 @@ import { captureLog, fakeClock, fakeSession, reportingAgent, tempHome } from './
 
 let home: string;
 let dispose: () => void;
+/** A real directory: a card carries no checkout unless its own reads back, and a run is dispatched into this. */
+let CHECKOUT: string;
 
 beforeEach(() => {
   ({ home, dispose } = tempHome());
+  CHECKOUT = join(home, '17198-channel-mapping');
+  mkdirSync(CHECKOUT, { recursive: true });
 });
 
 afterEach(() => dispose());
-
-const CHECKOUT = 'd:/work/repo.worktrees/17198-channel-mapping';
 
 /** A step past the 30-minute read gate, for the tests that are about a card becoming due again. */
 const PAST_GATE = 2_000_000;
@@ -284,6 +288,7 @@ function harness(
     lanes: makeLaneStore(home),
     marks: makeMarkStore(home),
     triage: makeTriageStore(home),
+    checkouts: makeCheckoutStore(home),
     // Reads still work; only the write fails, which is the shape a locked or full disk actually takes.
     actions: { read: () => store.read(), write: (state) => (control.storeBroken ? false : store.write(state)) },
     issues: makeIssueStore(home),
@@ -603,7 +608,7 @@ describe('what the board refuses to act on', () => {
     expect(control.cardAction()).toEqual({
       state: 'refused',
       action: 'merge-upstream',
-      reason: 'The board has no checkout for this card, because nothing has worked on it here.',
+      reason: 'The board has no checkout for this card. Choose the folder its work happens in.',
     });
   });
 

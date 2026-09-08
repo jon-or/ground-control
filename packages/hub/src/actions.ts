@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { ACTION_REVISION, DEFAULT_ACTIONS, checkoutOf, isAutomatable } from '@ground-control/core';
+import { ACTION_REVISION, DEFAULT_ACTIONS, isAutomatable } from '@ground-control/core';
 import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource } from '@ground-control/core';
 import {
   actionEnabled,
@@ -319,8 +319,8 @@ export class ActionRunner {
       return 'Something is already working on this card.';
     }
 
-    if (checkoutOf(card) === null) {
-      return 'The board has no checkout for this card, because nothing has worked on it here.';
+    if (card.checkout === undefined) {
+      return 'The board has no checkout for this card. Choose the folder its work happens in.';
     }
 
     return promptFor(action, this.#settings) === null
@@ -360,7 +360,7 @@ export class ActionRunner {
           // Checked before the read rather than in the plan. A card with no checkout can never be acted on, so
           // asking GitHub about it is waste — and the board's history lands after its roster, so a refusal recorded
           // on the pass in between would gate a perfectly eligible card for the whole gate window.
-          checkoutOf(card) !== null &&
+          card.checkout !== undefined &&
           card.sessions.length === 0 &&
           gateOpen(state, card.key, now)
         ) {
@@ -500,7 +500,7 @@ export class ActionRunner {
         context: reading.context,
         lane: card.lane,
         liveSessions: card.sessions.length,
-        checkout: checkoutOf(card),
+        checkout: card.checkout ?? null,
         settings: this.#settings,
       });
 

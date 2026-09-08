@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
   ActionSettings,
-  Checkout,
+  CardCheckout,
   LaneId,
   TriageContext,
   TriagePullRequest,
@@ -9,7 +9,7 @@ import type {
 import { actionEnabled, planAction, promptFor } from '../src/plan.js';
 import { actionEvidence } from '../src/evidence.js';
 
-const CHECKOUT: Checkout = { cwd: 'd:/work/repo.worktrees/17198-channel-mapping', only: true };
+const CHECKOUT: CardCheckout = { root: 'd:/work/repo.worktrees/17198-channel-mapping', source: 'session', only: true };
 
 function settings(over: Partial<ActionSettings> = {}): ActionSettings {
   return {
@@ -64,7 +64,7 @@ function plan(
   over: {
     lane?: LaneId;
     liveSessions?: number;
-    checkout?: Checkout | null;
+    checkout?: CardCheckout | null;
     settings?: ActionSettings;
     context?: Partial<TriageContext>;
   } = {},
