@@ -290,7 +290,7 @@ Card actions (R39) are the first step over that line, and they are shaped by it:
 Limits vary with how a person works and with what their account can sustain. The board enforces its own numbers where it is the one starting the work: how many card actions may run at once, and how many it may start in a day (R39). It enforces nothing on work the developer starts themselves — R10 counts those and refuses none — because a board that refused to show a session would be hiding one (R2).
 
 **R34. Settings are changeable without editing files.**
-Anything a developer is expected to set, they can set from the board or from normal editor settings.
+Anything a developer is expected to set, they can set from the board or from normal editor settings. A **Settings** item in the board's own menu opens the editor's settings filtered to this extension, so the keys are reachable from the board that they govern rather than only by knowing what to search for.
 
 Anything the board writes outside its own storage is reversible the same way, and reversible when the developer says so rather than at the next restart. Turning off the activity hooks removes the entries it added, on the change itself, rather than merely declining to add them again; the command is the same switch in one step. Uninstalling the extension removes them too — hook entries naming a writer nobody maintains would otherwise go on firing forever. The writer file itself is the one thing left behind, because sessions that already read the old settings go on spawning it and a deleted script makes each of them report a failure on every event.
 

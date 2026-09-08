@@ -242,6 +242,11 @@ function boardActions() {
       hint: 'Read the sessions and the project board again now.',
       run: () => vscode.postMessage({ type: 'refresh' }),
     },
+    {
+      label: 'Settings',
+      hint: "Open the editor's settings, filtered to Ground Control.",
+      run: () => vscode.postMessage({ type: 'openSettings' }),
+    },
   );
 
   return actions;

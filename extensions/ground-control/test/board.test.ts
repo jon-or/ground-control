@@ -2446,7 +2446,12 @@ describe("the board's own menu", () => {
   it('holds what the board itself can be asked to do, the archive among them where there is one', () => {
     control().click();
 
-    expect(items().map((el) => el.textContent)).toEqual(['Stream hub log', 'Show board log', 'Refresh']);
+    expect(items().map((el) => el.textContent)).toEqual([
+      'Stream hub log',
+      'Show board log',
+      'Refresh',
+      'Settings',
+    ]);
     expect(control().getAttribute('aria-expanded')).toBe('true');
     expect(document.querySelector('.card-popover')?.getAttribute('aria-label')).toBe('Board actions');
 
@@ -2460,10 +2465,11 @@ describe("the board's own menu", () => {
       'Stream hub log',
       'Show board log',
       'Refresh',
+      'Settings',
     ]);
   });
 
-  it('shows the board log and refreshes on the items that say so', () => {
+  it('shows the board log, refreshes, and opens settings on the items that say so', () => {
     control().click();
     item('Show board log').click();
     expect(sent()).toEqual([{ type: 'showBoardLog' }]);
@@ -2471,6 +2477,10 @@ describe("the board's own menu", () => {
     control().click();
     item('Refresh').click();
     expect(sent()).toEqual([{ type: 'showBoardLog' }, { type: 'refresh' }]);
+
+    control().click();
+    item('Settings').click();
+    expect(sent()).toEqual([{ type: 'showBoardLog' }, { type: 'refresh' }, { type: 'openSettings' }]);
   });
 
   it('asks the extension to toggle the hub log rather than deciding for itself', () => {

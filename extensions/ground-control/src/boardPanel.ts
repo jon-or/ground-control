@@ -44,6 +44,7 @@ type Inbound =
   | { type: 'openChanges'; key: string }
   | { type: 'toggleLogs' }
   | { type: 'showBoardLog' }
+  | { type: 'openSettings' }
   | { type: 'setShowArchived'; shown: boolean };
 
 
@@ -256,6 +257,13 @@ export class BoardPanel {
       // Nothing to toggle: this channel is written whether or not anybody is looking, so the control only reveals.
       case 'showBoardLog':
         boardLog().show(true);
+
+        return;
+
+      // Scoped to this extension's own settings: the board's are spread over a dozen keys under one prefix, and a
+      // developer landing in the whole settings tree has to find them.
+      case 'openSettings':
+        void vscode.commands.executeCommand('workbench.action.openSettings', '@ext:groundcontrol.ground-control');
 
         return;
 
