@@ -86,7 +86,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   };
 }
 
-const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn() };
+const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn() };
 
 interface State {
   snapshot: Snapshot | null;
@@ -104,6 +104,7 @@ beforeEach(() => {
   actions.move.mockReset();
   actions.repaint.mockReset();
   actions.watchLog.mockReset();
+  actions.openCheckout.mockReset();
   // The open lane list is module state, so a test that left one open would leak into the next.
   clear(document);
   // And the collapse outlives a tab on purpose, which means it outlives a test unless the storage goes with it.
@@ -1410,6 +1411,67 @@ describe('moving a card from the browser', () => {
     document.querySelector<HTMLElement>('.gc-lane')!.click();
 
     expect(actions.repaint).toHaveBeenCalledTimes(1);
+  });
+
+  /** The one verb the browser carries (R41): the message names a card and no path, and starts no agent (R42). */
+  describe('the editor a card can be opened in', () => {
+    const CHECKOUT = { root: 'd:/work/repo.worktrees/4501-refund-window', source: 'session' as const, only: true };
+
+    function withCheckout(): Snapshot {
+      return snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { checkout: CHECKOUT })] }] });
+    }
+
+    /** The outer `click` repaints from the default board, which has no checkout on it — so this one holds ours. */
+    function clickOn(selector: string, shown: Snapshot): void {
+      document.querySelector<HTMLElement>(selector)!.click();
+      paint(document, state({ snapshot: shown }), NOW, actions);
+    }
+
+    it('offers the checkout to open, under the lanes, on a card that has one', () => {
+      const shown = withCheckout();
+
+      paint(document, state({ snapshot: shown }), NOW, actions);
+      clickOn('.gc-lane', shown);
+
+      const open = document.querySelector<HTMLElement>('.gc-lanes button[data-action="open-checkout"]');
+
+      expect(open?.textContent).toContain('Open in VS Code');
+      expect(open?.title).toContain(CHECKOUT.root);
+    });
+
+    it('sends the card and nothing else, which is what makes it safe from a page', () => {
+      const shown = withCheckout();
+
+      paint(document, state({ snapshot: shown }), NOW, actions);
+      clickOn('.gc-lane', shown);
+      clickOn('.gc-lanes button[data-action="open-checkout"]', shown);
+
+      expect(actions.openCheckout).toHaveBeenCalledWith('issue-4501');
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+    });
+
+    // Left out rather than drawn to refuse, which is the rule every other control here follows.
+    it('offers nothing to open on a card with no checkout', () => {
+      paint(document, state(), NOW, actions);
+      click('.gc-lane');
+
+      expect(document.querySelectorAll('.gc-lanes button')).toHaveLength(6);
+      expect(document.querySelector('.gc-lanes button[data-action="open-checkout"]')).toBeNull();
+    });
+
+    // Starting work is the editor's, and the overlay is resident in no editor. The hub sends it an empty
+    // `startable` for the same reason; nothing here reads that field at all.
+    it('offers no way to start a session, or to choose a folder, whatever the card carries', () => {
+      const shown = withCheckout();
+
+      paint(document, state({ snapshot: shown }), NOW, actions);
+      clickOn('.gc-lane', shown);
+
+      const labels = [...document.querySelectorAll('.gc-lanes button')].map((b) => b.textContent ?? '');
+
+      expect(labels.some((label) => label.includes('Start'))).toBe(false);
+      expect(labels.some((label) => label.includes('folder'))).toBe(false);
+    });
   });
 
   it('closes the lanes when the badge is asked a second time', () => {

@@ -31,6 +31,7 @@
   const actions = {
     refresh: () => post({ type: 'refresh' }),
     move: (key, lane) => post({ type: 'move', key, lane }),
+    openCheckout: (key) => post({ type: 'openCheckout', key }),
     repaint: () => schedule(),
     watchLog: (open) => {
       watchingLog = open;

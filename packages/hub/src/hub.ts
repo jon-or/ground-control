@@ -1,6 +1,6 @@
 import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
-import { compilePattern, diskReaders, fillTemplate, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, rosterIsStale, unreportedSessions } from '@ground-control/core';
-import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
+import { compilePattern, dirKey, diskReaders, fillTemplate, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, rosterIsStale, unreportedSessions } from '@ground-control/core';
+import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { IssueLookup } from './issueLookup.js';
 import { makeIssueStore } from './issueStore.js';
@@ -111,6 +111,9 @@ const TICK_MS = 5_000;
  */
 const START_LEASE_MS = 10_000;
 
+/** The same, for one card's window. Sized to `raise`'s own 12s wait for focus, which is what a repeat would stack on. */
+const OPEN_LEASE_MS = 12_000;
+
 /**
  * A tick this much later than it was due is a machine that was suspended, not a loop that ran slow: the poll timers
  * counted none of the sleep, so without this a laptop opened after an hour reads nothing for another five minutes.
@@ -209,6 +212,8 @@ export class Hub {
   readonly #resuming = new Map<string, number>();
   /** Cards whose start is in flight, held by card because the session it creates has no id yet (§48). */
   readonly #starting = new Map<string, number>();
+  /** Cards whose window is in flight, held the same way. The client's own guard covers one board, not two. */
+  readonly #opening = new Map<string, number>();
   #sourcesInFlight: Promise<void> | undefined;
   #sessionsInFlight: Promise<void> | undefined;
   #lastReadAt = 0;
@@ -536,6 +541,23 @@ export class Hub {
     this.#broadcast();
   }
 
+  /**
+   * A client that can carry out this route: the one that asked, so a window opens where the developer clicked, and
+   * otherwise — the browser overlay, which can perform none — the board already on that root, else any of the
+   * host's. Host-scoped, because a route name is a string two hosts could both use and a plan belongs to one.
+   */
+  #residentFor(route: OpenRoute['route'], hostId: string, asked: Connected, root: string): Connected | undefined {
+    if (asked.hello.residentRoutes.includes(route)) {
+      return asked;
+    }
+
+    const able = [...this.#clients.values()].filter(
+      (candidate) => candidate.hello.hostId === hostId && candidate.hello.residentRoutes.includes(route),
+    );
+
+    return able.find((candidate) => candidate.hello.workspaceRoot !== null && dirKey(candidate.hello.workspaceRoot) === dirKey(root)) ?? able[0];
+  }
+
   /** A window on a card's checkout, with no agent in it. Planned by the host, and performed by a client inside it. */
   async #openCheckout(client: Connected, key: string): Promise<void> {
     const host = this.#hostFor(client.hello);
@@ -560,6 +582,18 @@ export class Hub {
       return;
     }
 
+    const now = this.#deps.clock.now();
+
+    for (const [held, until] of this.#opening) {
+      if (until <= now) this.#opening.delete(held);
+    }
+
+    // A card whose window is on its way is not asked for again. `raise` waits up to 12s for focus, and the browser
+    // is a surface where a script can fire every card's item at once — thirty cards would be thirty `code` spawns.
+    if (this.#opening.has(key)) {
+      return;
+    }
+
     const readers = this.#readers();
     host.prime(readers);
     const windows = await host.windows(undefined, readers);
@@ -568,7 +602,12 @@ export class Hub {
       return;
     }
 
-    const plan = host.planCheckout({ key, root, workspaceRoot: client.hello.workspaceRoot, liveWindows: windows.live });
+    const plan = host.planCheckout({
+      key,
+      root,
+      workspaceRoot: client.hello.workspaceRoot,
+      liveWindows: [...windows.live, ...this.#boardWindows()],
+    });
 
     if ('refusal' in plan) {
       this.#deps.log.info(`${client.hello.id} could not open ${root}: ${plan.refusal}`, 'open');
@@ -577,23 +616,48 @@ export class Hub {
       return;
     }
 
-    this.#deps.log.info(`${client.hello.id} opening ${root} for ${key}`, 'open');
-
-    // The same rule every other route follows: a host that calls it resident is asking a client inside it to do it,
-    // and a client that has not reloaded since the route existed would be sent something it cannot carry out.
+    // A host that calls a route resident is asking a client inside it to do it. This is the one such route a client
+    // that cannot perform it may ask for, so the performer is the asking board where it is an editor, else any (R41).
     if (host.residentRoutes.includes(plan.route)) {
-      if (!client.hello.residentRoutes.includes(plan.route)) {
-        client.send({ type: 'notice', level: 'warning', message: 'Reload this editor to open a card’s checkout.' });
+      const performer = this.#residentFor(plan.route, host.id, client, root);
+
+      if (performer === undefined) {
+        // Which message is right turns on why there is no performer, not on who asked: an editor running a build
+        // that predates the route is told to reload whoever asked on its behalf.
+        const anyEditor = [...this.#clients.values()].some((candidate) => candidate.hello.hostId !== null);
+
+        client.send({
+          type: 'notice',
+          level: 'warning',
+          message: anyEditor
+            ? 'Reload this editor to open a card’s checkout.'
+            : 'Ground Control is not running in an editor. Open the board in VS Code to open a checkout from here.',
+        });
 
         return;
       }
 
-      client.send({ type: 'perform', route: plan });
+      this.#opening.set(key, now + OPEN_LEASE_MS);
+      this.#deps.log.info(`${performer.hello.id} opening ${root} for ${key}, asked by ${client.hello.id}`, 'open');
+      performer.send({ type: 'perform', route: plan });
 
       return;
     }
 
+    this.#opening.set(key, now + OPEN_LEASE_MS);
+    this.#deps.log.info(`${client.hello.id} opening ${root} for ${key}`, 'open');
     await host.open?.(plan, readers);
+  }
+
+  /**
+   * The windows the hub knows are open because a board in each is talking to it. Read alongside whatever the host
+   * enumerates, which for VS Code is the windows an agent has announced itself in — so a window with no agent
+   * running is invisible there, and `code --new-window` on a folder it already has would open a second one.
+   */
+  #boardWindows(): HostWindow[] {
+    return [...this.#clients.values()].flatMap((candidate) =>
+      candidate.hello.workspaceRoot === null ? [] : [{ folders: [candidate.hello.workspaceRoot] }],
+    );
   }
 
   // — configuration —

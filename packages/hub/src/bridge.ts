@@ -71,10 +71,10 @@ export class FrameReader {
 export type BridgeMessage = HubMessage | { type: 'trouble'; message: string | null };
 
 /**
- * What the browser may ask for, and what it may not. The overlay watches and moves cards, and goes to a session by
- * navigating rather than through here (R36). A configuration carries paths the hub would spawn, stopping a session
- * and taking it over is the editor's (R15), and starting work on a card runs an agent against the developer's own
- * checkout (R39) — none of those is the browser's to send.
+ * What the browser may ask for, and what it may not. The overlay watches, moves cards, and asks for a window on a
+ * card's checkout; it goes to a session by navigating rather than through here (R36). A configuration carries paths
+ * the hub would spawn, stopping a session and taking it over is the editor's (R15), and starting work on a card runs
+ * an agent against the developer's own checkout (R39, R42) — none of those is the browser's to send.
  */
 export type BridgeAction = { send: ClientMessage } | { refused: string };
 
@@ -117,6 +117,24 @@ export function bridgeAction(raw: unknown): BridgeAction {
   // start an agent in the developer's checkout. The overlay shows what a run came to and offers no control (R39).
   if (message.type === 'runAction' || message.type === 'stopAction') {
     return { refused: 'Starting and stopping work on a card is the editor board’s, not the browser’s.' };
+  }
+
+  // The card and nothing else: the hub resolves the directory, so there is nothing here a page could point at a
+  // folder of its own choosing — which is what makes this one safe to forward where `setCheckout` is not (R41).
+  if (message.type === 'openCheckout') {
+    return typeof message.key === 'string'
+      ? { send: { type: 'openCheckout', key: message.key } }
+      : { refused: 'That card cannot be opened.' };
+  }
+
+  // Both by name. `setCheckout` is the one message carrying a filesystem path, which R41 keeps to the editor's own
+  // picker; `startSession` runs an agent, which R42 keeps to the editor entirely.
+  if (message.type === 'setCheckout') {
+    return { refused: 'Choosing the folder a card’s work happens in is the editor board’s, not the browser’s.' };
+  }
+
+  if (message.type === 'startSession') {
+    return { refused: 'Starting a session on a card is the editor board’s, not the browser’s.' };
   }
 
   return { refused: `The overlay may not send ${String(message.type)}.` };

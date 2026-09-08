@@ -11,7 +11,7 @@
  * @typedef {import('@ground-control/core').Session} Session
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void }} Actions
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -1636,6 +1636,22 @@ function laneMenu(doc, card, actions) {
     button.setAttribute('role', 'menuitemradio');
     button.setAttribute('aria-checked', String(chosen));
     menu.appendChild(button);
+  }
+
+  // The one verb the browser carries (R41): choosing the folder and starting a session in it are the editor's.
+  // Left out entirely on a card with no checkout, rather than drawn to refuse.
+  if (card.checkout != null) {
+    menu.appendChild(doc.createElement('hr'));
+
+    const open = item(doc, 'Open in VS Code', () => {
+      openMenu = null;
+      actions.openCheckout(card.key);
+      actions.repaint();
+    });
+
+    open.dataset.action = 'open-checkout';
+    open.title = `Bring up a window on ${card.checkout.root}`;
+    menu.appendChild(open);
   }
 
   return menu;

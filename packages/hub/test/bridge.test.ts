@@ -107,6 +107,35 @@ describe('what the browser may ask the hub for', () => {
     expect(bridgeAction({ type: 'stopAction', key: 'issue:17198' })).toEqual(refused);
   });
 
+  /**
+   * The one verb the browser carries. It names a card and nothing else — the hub resolves the directory, so there
+   * is nothing in this message a page could point at a folder of its own choosing (R41).
+   */
+  it('forwards a request to open a card’s checkout, which names a card and no path', () => {
+    expect(bridgeAction({ type: 'openCheckout', key: 'issue:17198' })).toEqual({
+      send: { type: 'openCheckout', key: 'issue:17198' },
+    });
+  });
+
+  it('refuses an openCheckout that does not name a card, rather than forwarding it', () => {
+    expect(bridgeAction({ type: 'openCheckout', key: 42 })).toEqual({ refused: 'That card cannot be opened.' });
+    expect(bridgeAction({ type: 'openCheckout' })).toEqual({ refused: 'That card cannot be opened.' });
+  });
+
+  // A page on the internet naming a directory on this machine is the thing that must not be possible (R36), and
+  // starting an agent is R42's editor-only. Both by name, so a refusal says which verb rather than which type.
+  it('refuses to choose a card’s folder, which is the one message that would carry a path', () => {
+    expect(bridgeAction({ type: 'setCheckout', key: 'issue:17198', root: 'd:/anything' })).toEqual({
+      refused: 'Choosing the folder a card’s work happens in is the editor board’s, not the browser’s.',
+    });
+  });
+
+  it('refuses to start a session on a card', () => {
+    expect(bridgeAction({ type: 'startSession', key: 'issue:17198', agent: 'claude', extensionReady: true })).toEqual({
+      refused: 'Starting a session on a card is the editor board’s, not the browser’s.',
+    });
+  });
+
   it('refuses everything else by name', () => {
     expect(bridgeAction({ type: 'configure', config: {} })).toEqual({ refused: 'The overlay may not send configure.' });
     expect(bridgeAction({ type: 'hello' })).toEqual({ refused: 'The overlay may not send hello.' });

@@ -2494,6 +2494,134 @@ describe('opening a card in an editor', () => {
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('Reload') });
   });
+
+  /**
+   * The one route a client that cannot perform it may ask for. It names a directory rather than a session, so any
+   * editor client carries it out identically — which is what lets the overlay ask (R41).
+   */
+  it('has an editor client open the window when the browser overlay is the one that asked', async () => {
+    const root = checkoutDir();
+    const { h, inbox } = await boardWith(root);
+    const overlay = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.host.resident = ['reveal-here', 'open-checkout'];
+    h.host.checkoutPlan = { route: 'open-checkout', key, root, newWindow: true };
+    h.hub.receive(overlay.client, { type: 'openCheckout', key });
+    await settle();
+
+    // The editor performs it; the browser that asked is sent nothing to perform, having no way to.
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+    expect(inbox.filter((m) => m.type === 'perform').at(-1)).toMatchObject({ route: { key, root } });
+    expect(overlay.inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+
+    // The plan is the hub's, built from the card. A browser names no workspace root, so nothing about where the
+    // overlay is looking reaches the planner.
+    expect(h.host.checkoutsPlanned.at(-1)).toMatchObject({ key, root, workspaceRoot: null });
+  });
+
+  /**
+   * The window a board is open in is a window the hub knows about directly. The host enumerates only the windows an
+   * agent has announced itself in, so one running no agent is invisible there — and `code --new-window` on a folder
+   * it already holds opens a second window on it, re-running that folder's tasks.
+   */
+  it('counts a connected board’s own window, so a checkout with one open is raised rather than opened twice', async () => {
+    const root = checkoutDir();
+    const { h } = await boardWith(root);
+    const onRoot = connect(h, hello({ id: 'board-on-root', workspaceRoot: root, residentRoutes: ['reveal-here', 'open-checkout'] }));
+    const overlay = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.host.resident = ['reveal-here', 'open-checkout'];
+    h.hub.receive(overlay.client, { type: 'openCheckout', key });
+    await settle();
+
+    expect(h.host.checkoutsPlanned.at(-1)?.liveWindows).toContainEqual({ folders: [root] });
+    // And it is that window's own board that performs it, rather than whichever one connected first.
+    expect(onRoot.inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+  });
+
+  // One card's window at a time. A script on the page the overlay paints into could otherwise fire every card's
+  // item at once, and each is a `code` spawn on a folder VS Code trusts.
+  it('drops a second ask for one card while its window is on its way', async () => {
+    const root = checkoutDir();
+    const { h, client, inbox } = await boardWith(root);
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.host.resident = ['reveal-here', 'open-checkout'];
+    h.host.checkoutPlan = { route: 'open-checkout', key, root, newWindow: true };
+    h.hub.receive(client, { type: 'openCheckout', key });
+    await settle();
+    h.hub.receive(client, { type: 'openCheckout', key });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+
+    h.clock.advance(12_001);
+    h.hub.receive(client, { type: 'openCheckout', key });
+    await settle();
+
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(2);
+  });
+
+  // A window opens where the developer clicked. Taking the first connected client instead would open it from
+  // whichever window happened to connect first, which on three open windows is arbitrary.
+  it('has the editor board that asked perform its own open, rather than another window’s', async () => {
+    const root = checkoutDir();
+    const { h, inbox } = await boardWith(root);
+    const second = connect(h, hello({ id: 'board-2', residentRoutes: ['reveal-here', 'open-checkout'] }));
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.host.resident = ['reveal-here', 'open-checkout'];
+    h.host.checkoutPlan = { route: 'open-checkout', key, root, newWindow: true };
+    h.hub.receive(second.client, { type: 'openCheckout', key });
+    await settle();
+
+    expect(second.inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+  });
+
+  // Which message is right turns on why there is no performer, not on who asked: an editor board running a build
+  // that predates the route is told to reload, whoever asked on its behalf.
+  it('tells the overlay to reload an editor that is running but cannot perform the route', async () => {
+    const root = checkoutDir();
+    const { h } = await boardWith(root, ['reveal-here']);
+    const overlay = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.host.resident = ['reveal-here', 'open-checkout'];
+    h.host.checkoutPlan = { route: 'open-checkout', key, root, newWindow: true };
+    h.hub.receive(overlay.client, { type: 'openCheckout', key });
+    await settle();
+
+    expect(overlay.inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({
+      message: expect.stringContaining('Reload'),
+    });
+  });
+
+  // A headless hub can open a window but cannot bring one forward (§26), so this is honest rather than a silent
+  // nothing — and it names the remedy, which is opening the board in an editor at all.
+  it('tells the overlay no editor is running rather than opening a window it cannot raise', async () => {
+    const h = harness();
+    const overlay = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
+    const root = checkoutDir();
+
+    h.host.resident = ['open-checkout'];
+    h.agent.sessions = [fakeSession({ cwd: root, checkoutRoot: root })];
+    h.hub.receive(overlay.client, { type: 'refresh' });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+    h.host.checkoutPlan = { route: 'open-checkout', key, root, newWindow: true };
+    h.hub.receive(overlay.client, { type: 'openCheckout', key });
+    await settle();
+
+    expect(overlay.inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
+    expect(overlay.inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({
+      message: expect.stringContaining('not running in an editor'),
+    });
+  });
 });
 
 /**
@@ -2663,7 +2791,7 @@ describe('starting a session on a card', () => {
    */
   it('offers no start to a client that cannot perform the route, which is every browser board', async () => {
     const h = harness();
-    const { client, inbox } = connect(h, hello({ id: 'overlay', hostId: null, residentRoutes: [] }));
+    const { client, inbox } = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
 
     h.hub.receive(client, { type: 'refresh' });
     await settle();
