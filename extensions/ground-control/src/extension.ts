@@ -11,7 +11,9 @@ import { registerOverlayCommands } from './overlay.js';
 import { registerChangesCommand } from './changes.js';
 import { registerUriHandler } from './openUri.js';
 import { boardLog, disposeChannels } from './logging.js';
+import { resolveStateDir } from '@ground-control/core';
 import type { Snapshot } from '@ground-control/core';
+import { STATE_DIRECTORY_KEY, reconcileStateDirectory, recoverStateDirectory } from './stateDirectory.js';
 
 /** Expose read-only snapshot, render, and log status to other extensions and integration tests. */
 export interface GroundControl {
@@ -27,7 +29,8 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   const version = String((context.extension.packageJSON as { version?: unknown }).version ?? '0.0.0');
 
   boardLog().info(`Ground Control ${version} activating with home ${home}`);
-  migrateLaneMemory(context.globalState, home);
+  recoverStateDirectory(home);
+  migrateLaneMemory(context.globalState, resolveStateDir(home).stateDir);
 
   const bundle = bundlePathOf(home);
 
@@ -45,10 +48,15 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   const client = startClient(home, bundle);
 
   client.configure(readHubConfig(userDirOf(context)));
+  void reconcileStateDirectory(home, client, true);
 
   context.subscriptions.push(
     // Apply settings with or without a board and report the resulting hook installation status.
     vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration(`${SECTION}.${STATE_DIRECTORY_KEY}`)) {
+        void reconcileStateDirectory(home, client);
+      }
+
       if (event.affectsConfiguration(SECTION)) {
         client.configure(readHubConfig(userDirOf(context)), true);
       }

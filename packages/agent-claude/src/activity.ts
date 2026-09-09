@@ -8,7 +8,7 @@ export const claudeActivity: ActivitySignal = {
   plan: planHookInstall,
   settingsPath: claudeSettingsPathOf,
   watchDir: activityDirOf,
-  read: readActivity,
+  read: (readers, sessionId, now) => readActivity(readers.stateDir, sessionId, readers.readText, now),
   writer: { path: hookPathOf, source: HOOK_SOURCE },
 };
 

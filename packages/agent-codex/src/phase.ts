@@ -71,8 +71,8 @@ function sinceOf(phase: ActivityPhase, marker: ActivityMarker): number {
 }
 
 /** The marker for one session, or null when it is absent, unreadable, or not this session's. */
-export function readMarker(home: string, sessionId: string, readText: ReadText, now: number = Date.now()): ActivityMarker | null {
-  const raw = readText(markerPathOf(home, sessionId));
+export function readMarker(stateDir: string, sessionId: string, readText: ReadText, now: number = Date.now()): ActivityMarker | null {
+  const raw = readText(markerPathOf(stateDir, sessionId));
 
   if (!raw) {
     return null;
@@ -120,13 +120,14 @@ export function markerInProfile(marker: ActivityMarker, home: string, env: NodeJ
  * liveness; Codex cannot list live sessions (M40).
  */
 export function readActivity(
+  stateDir: string,
   home: string,
   sessionId: string,
   readText: ReadText,
   now: number = Date.now(),
   env: NodeJS.ProcessEnv = {},
 ): SessionActivity | null {
-  const marker = readMarker(home, sessionId, readText, now);
+  const marker = readMarker(stateDir, sessionId, readText, now);
 
   return marker === null || !markerInProfile(marker, home, env) ? null : activityOf(marker);
 }

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs';
-import { groundControlDirOf, parseHubConfig } from '@ground-control/core';
+import { parseHubConfig } from '@ground-control/core';
 import type { HubConfig, ReadFailure } from '@ground-control/core';
 import { read, writeDurable } from './fs.js';
 import { configPathOf } from './paths.js';
@@ -23,8 +23,8 @@ function settingsFailure(path: string, message: string): ReadFailure {
   };
 }
 
-export function makeSettingsStore(home: string): SettingsStore {
-  const path = configPathOf(home);
+export function makeSettingsStore(stateDir: string): SettingsStore {
+  const path = configPathOf(stateDir);
 
   return {
     read(): StoredConfig | null {
@@ -45,7 +45,7 @@ export function makeSettingsStore(home: string): SettingsStore {
     },
 
     write(config: HubConfig): void {
-      mkdirSync(groundControlDirOf(home), { recursive: true, mode: 0o700 });
+      mkdirSync(stateDir, { recursive: true, mode: 0o700 });
       writeDurable(path, `${JSON.stringify(config, null, 2)}\n`);
     },
   };

@@ -18,7 +18,7 @@ describe('the Claude adapter', () => {
   });
 
   it('offers its hook-written markers as the phase signal', () => {
-    expect(adapter.activity!.watchDir('/nowhere/home')).toBe('/nowhere/home/.claude/ground-control/activity');
+    expect(adapter.activity!.watchDir('/nowhere/home/.claude/ground-control')).toBe('/nowhere/home/.claude/ground-control/activity');
     expect(adapter.activity!.settingsPath('/nowhere/home')).toBe('/nowhere/home/.claude/settings.json');
   });
 

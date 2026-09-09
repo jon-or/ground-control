@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { groundControlDirOf } from '@ground-control/core';
 import { z } from 'zod';
 import { writeAtomic } from './fs.js';
 
@@ -12,8 +11,8 @@ export class TriageUsage {
   readonly #directory: string;
   readonly #path: string;
 
-  constructor(home: string) {
-    this.#directory = groundControlDirOf(home);
+  constructor(stateDir: string) {
+    this.#directory = stateDir;
     this.#path = join(this.#directory, 'triage-usage.json');
   }
 

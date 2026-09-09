@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { EMPTY_ACTIONS, groundControlDirOf } from '@ground-control/core';
+import { EMPTY_ACTIONS } from '@ground-control/core';
 import type { ActionState } from '@ground-control/core';
 import { readActionState } from '@ground-control/automation';
 import { read, writeIfChanged } from './fs.js';
@@ -12,8 +12,8 @@ export interface ActionStore {
   write(state: ActionState): boolean;
 }
 
-export function makeActionStore(home: string): ActionStore {
-  const path = actionsPathOf(home);
+export function makeActionStore(stateDir: string): ActionStore {
+  const path = actionsPathOf(stateDir);
 
   return {
     read(): ActionState {
@@ -33,7 +33,7 @@ export function makeActionStore(home: string): ActionStore {
 
     write(state: ActionState): boolean {
       try {
-        mkdirSync(groundControlDirOf(home), { recursive: true });
+        mkdirSync(stateDir, { recursive: true });
         writeIfChanged(path, `${JSON.stringify(state, null, 2)}\n`);
 
         return true;

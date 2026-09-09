@@ -203,7 +203,7 @@ describe('hub process', () => {
     const there = await until(() => record(home));
 
     expect(there.protocol).toBe(PROTOCOL);
-    expect(there.fingerprint).toBe(fingerprintOf(home));
+    expect(there.fingerprint).toBe(fingerprintOf(join(home, '.claude', 'ground-control')));
     expect(await call(there.port, 'GET', '/hub', null)).toContain('"hub":"ground-control"');
 
     // Subscribe before polling; clients receive snapshots only while watching (R35).
@@ -262,6 +262,43 @@ describe('hub process', () => {
     expect(existsSync(join(home, '.claude', 'ground-control', 'hub-exit.json'))).toBe(true);
   });
 
+  it('serves the directory the pointer names, and refuses to start while a move is recorded there', async () => {
+    const home = tempHome();
+    const elsewhere = join(home, 'elsewhere').replace(/\\/g, '/');
+
+    writeFileSync(join(home, '.claude', 'ground-control', 'state-dir.json'), JSON.stringify({ stateDir: elsewhere }));
+
+    const hub = run(home);
+    const there = await until(() => {
+      try {
+        return JSON.parse(readFileSync(join(elsewhere, 'hub.json'), 'utf8')) as HubRecordFile;
+      } catch {
+        return null;
+      }
+    });
+
+    expect(there.fingerprint).toBe(fingerprintOf(elsewhere));
+    expect(existsSync(hubJsonPath(home))).toBe(false);
+
+    const stop = run(home, '--stop');
+
+    expect(await stop.ended).toBe(0);
+    expect(stop.output()).toContain('Stopped the hub.');
+    expect(await hub.ended).toBe(0);
+
+    writeFileSync(
+      join(home, '.claude', 'ground-control', 'state-dir.json'),
+      JSON.stringify({ stateDir: elsewhere, migration: { to: `${elsewhere}-next`, startedAt: new Date().toISOString() } }),
+    );
+
+    const refused = run(home);
+
+    expect(await refused.ended).toBe(0);
+    expect(refused.output()).toContain(`Not starting: state relocation to ${elsewhere}-next in progress.`);
+    expect(existsSync(join(elsewhere, 'hub.json'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(elsewhere, 'hub-exit.json'), 'utf8')).reason).toBe(`state relocation to ${elsewhere}-next in progress`);
+  });
+
   it('preserves and reports an existing hub', async () => {
     const home = tempHome();
 
@@ -303,7 +340,7 @@ describe('hub process', () => {
         token: 'the-token-nobody-else-gets',
         pid: 1,
         startedAt: '2026-09-03T10:00:00.000Z',
-        fingerprint: fingerprintOf(home),
+        fingerprint: fingerprintOf(join(home, '.claude', 'ground-control')),
       }),
     );
 

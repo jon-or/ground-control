@@ -10,6 +10,7 @@ import {
   uninstallAgentActivity,
   uninstallChromeHost,
 } from '@ground-control/hub';
+import { resolveStateDir } from '@ground-control/core';
 import type { Logger } from '@ground-control/core';
 import { startBridge } from './bridgeMain.js';
 import { VERSION } from './version.js';
@@ -32,8 +33,11 @@ async function main(argv: readonly string[]): Promise<number> {
   const home = flag(argv, 'home') || homedir();
   const inheritAgentEnv = flag(argv, 'home') === null || flag(argv, 'inherit-agent-env') !== null;
 
+  // The hub resolves the state directory itself when serving; commands resolve it here.
+  const stateDir = (): string => resolveStateDir(home).stateDir;
+
   if (flag(argv, 'stop') !== null) {
-    const stopped = await stopHub(home);
+    const stopped = await stopHub(stateDir());
 
     process.stdout.write(stopped ? 'Stopped the hub.\n' : 'No hub responded for this home directory.\n');
 
@@ -64,8 +68,8 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   if (flag(argv, 'uninstall') !== null) {
-    await stopHub(home);
-    const activity = uninstallAgentActivity(home, inheritAgentEnv ? process.env : undefined);
+    await stopHub(stateDir());
+    const activity = uninstallAgentActivity(home, stateDir(), inheritAgentEnv ? process.env : undefined);
     if (activity.failure || activity.plan === 'busy') {
       process.stderr.write(`${activity.failure?.message ?? 'Activity settings are locked.'}\n`);
       return 1;
@@ -88,6 +92,12 @@ async function main(argv: readonly string[]): Promise<number> {
 
   if ('existing' in result) {
     process.stdout.write(`Hub already running for this home directory on port ${result.existing.record.port}.\n`);
+
+    return 0;
+  }
+
+  if ('refused' in result) {
+    process.stdout.write(`Not starting: ${result.refused}.\n`);
 
     return 0;
   }

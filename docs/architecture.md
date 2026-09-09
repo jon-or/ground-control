@@ -169,13 +169,16 @@ Known metadata remains usable while being refreshed. Refresh entries older than 
 
 ## Persistent state
 
-The hub's directory is `~/.claude/ground-control`, or the corresponding path under its injected home. Clients consume state through snapshots rather than editing these stores.
+Two directories exist. The bootstrap directory is fixed at `~/.claude/ground-control` under the user or injected home and holds only what external programs are registered to launch or read first: `state-dir.json`, `hub.js`, the native-messaging wrapper and its Windows manifest, `hook.mjs`, `codex-hook.mjs`, and `relocate.lock`. The state directory holds everything else below and defaults to the bootstrap directory. `resolveStateDir(home)` in core reads the pointer `{ stateDir, migration? }`; a missing or invalid pointer resolves to the bootstrap directory with a reported problem. Hub configuration cannot name the state directory because `config.json` lives inside it. Clients consume state through snapshots rather than editing these stores.
+
+Threading: `home` locates agent defaults, agent settings, and hook writers; `stateDir` reaches stores, discovery, ensure, the logger, runners, activity watch/read, marker pruning, backups, the install lock, and dispatch logs. `MachineReaders` carries both. The hub fingerprint hashes the state directory, so the default fingerprint is unchanged for existing installations. Hook writers embed a shared snippet that follows the pointer at run time; a pointer mid-migration still names the old directory.
 
 | Path | Contents and lifetime |
 |---|---|
 | `hub.json` | PID, port, token and running-hub record; may survive a forced termination |
 | `hub-exit.json` | Recorded orderly exit or startup refusal |
-| `hub.js` | Installed runnable bundle |
+| `hub.js` | Installed runnable bundle, bootstrap directory |
+| `state-dir.json` | Pointer to the state directory and any migration in progress, bootstrap directory |
 | `config.json` | Last accepted configuration |
 | `lanes.json` | Manual placements, archived set, acknowledged returns, departure timestamps |
 | `status.json` | Last observed activity by agent and session ID |
@@ -186,6 +189,7 @@ The hub's directory is `~/.claude/ground-control`, or the corresponding path und
 | `issues.json` | Cached issue metadata and confirmed missing issues |
 | `runs/` | Session-written action outcomes |
 | `hub-marks.json` | Installation and announcement state |
+| `activity/`, `codex-activity/` | Hook writer markers |
 | `hub.log` | Hub diagnostics and process stdout/stderr |
 | `<agent>-dispatch-<id>.log[.err]` | Detached dispatch stdout/stderr; Codex uses separate files |
 
@@ -195,7 +199,7 @@ Lane departure is timestamped only on a new archive transition. Manual moves cle
 
 Hook settings are a separate write boundary: preserve unrelated groups and entries, back up first, and use in-place writes where Windows readers prevent rename. Under one filesystem lock, reconcile every registered adapter: install when the agent is configured, global `installActivity` is true, and its `sessionHooks` entry is not false; otherwise remove only owned entries. The optional map defaults to `{}` for saved configurations from older clients. VS Code supplies application-scoped `sessionHooks.claude` and `sessionHooks.codex`, both true by default; `installSessionHooks` supplies the authoritative global switch. Uninstall removes all owned entries regardless of configuration.
 
-Removing hooks empties marker files without deleting the directory. Leave writer scripts for sessions that cached their paths; they may continue writing until restarted. Codex live discovery depends on these markers and is reduced without hooks, while saved history remains readable. Codex's adapter continues to manage trust through its API; reconciliation never edits trust TOML. Installation results report both added and removed entries so mixed or removal-only changes receive accurate acknowledgments. Removal-only changes preserve the previous installation timestamp.
+Removing hooks empties marker files without deleting the directory. Leave writer scripts for sessions that cached their paths, refreshing a retained writer whose content changed so those sessions follow the state pointer; they may continue writing until restarted. Codex live discovery depends on these markers and is reduced without hooks, while saved history remains readable. Codex's adapter continues to manage trust through its API; reconciliation never edits trust TOML. Installation results report both added and removed entries so mixed or removal-only changes receive accurate acknowledgments. Removal-only changes preserve the previous installation timestamp.
 
 Retain five settings backups per agent. Best-effort cleanup removes markers older than 30 days, temporary files older than 60 seconds, and dispatch output older than seven days. File age is a cleanup heuristic, not proof that a process ended.
 
@@ -310,9 +314,13 @@ Frames contain a four-byte length and JSON body. Reassemble partial stdin chunks
 
 The shipped registration targets Google Chrome. Other Chromium browsers require their own registration. Enable/disable commands and uninstall manage the wrapper, manifest, and Windows `HKCU` registration. The wrapper names the stable home bundle, not a versioned extension directory.
 
+### Relocation
+
+The VS Code `groundControl.stateDirectory` setting (machine scope) drives `relocateState` in the hub package; the hub does not read the setting. Order: refuse an unusable pointer, an unreadable source, or running card actions in `actions.json`; validate the target (absolute with dot segments collapsed, not nested either way after resolving links through the nearest existing ancestor, not a file, empty apart from launch artifacts and transient `hub.json`, `hub-exit.json`, `install.lock`, `*.tmp`); take `relocate.lock`, reporting busy to a second window, and renew it per copied entry; write the pointer with `migration { to, startedAt }` while still naming the old directory; stop the recorded hub and wait until nothing answers; copy every other entry with exclusive creation, failing on any entry that appeared meanwhile, and verify hashes; commit the pointer, or delete it for the bootstrap directory; remove the moved sources and report leftovers. Failure before or at commit removes only the copies this move created and restores the previous pointer. `serveHub` refuses while a migration younger than `MIGRATION_STALE_MS` is recorded or the pointer is invalid, writes the reason to `hub-exit.json`, and rechecks the pointer after binding so a move recorded during startup is not crossed. Markers written by hook events between copy and source removal are lost until the session's next event; detached dispatch processes keep their original log handles and report paths, which is why running actions block a move. The extension suspends its client during the move so its restart budget is not spent on refused starts, then resumes; ensure resolves the pointer on every attempt, so other clients follow it. On activation with the setting unset, the extension writes the pointer's directory into the setting instead of moving; only a changed setting moves state. On activation, `recoverRelocation` clears a migration marker when the lock is free and reports the destination that may hold copies.
+
 ## Hub lifecycle
 
-On activation, copy the bundled hub to the stable home path when newer; equal versions compare bytes. Do not overwrite a newer bundle with an older one. Compare bundle mtime to the running hub record to replace an older running copy. Stop using the record that was probed, not a later reread that may belong to a replacement. A client with no restart budget must not stop a hub it cannot replace.
+On activation, copy the bundled hub to the stable bootstrap path when newer; equal versions compare bytes. Do not overwrite a newer bundle with an older one. Compare bundle mtime to the running hub record to replace an older running copy. Stop using the record that was probed, not a later reread that may belong to a replacement. A client with no restart budget must not stop a hub it cannot replace.
 
 Single-instance ownership uses exclusive record creation after probing an existing record. Port allocation alone cannot establish exclusivity because each process binds an ephemeral port. A losing process closes and exits. Only the process whose PID still owns the record removes it.
 

@@ -1,5 +1,4 @@
 import { mkdirSync } from 'node:fs';
-import { groundControlDirOf } from '@ground-control/core';
 import { z } from 'zod';
 import { read, writeIfChanged } from './fs.js';
 import { checkoutsPathOf } from './paths.js';
@@ -18,8 +17,8 @@ export interface CheckoutStore {
 
 const memory = z.record(z.string(), z.string());
 
-export function makeCheckoutStore(home: string): CheckoutStore {
-  const path = checkoutsPathOf(home);
+export function makeCheckoutStore(stateDir: string): CheckoutStore {
+  const path = checkoutsPathOf(stateDir);
 
   const load = (): CheckoutMemory => {
     const text = read(path);
@@ -43,7 +42,7 @@ export function makeCheckoutStore(home: string): CheckoutStore {
 
     write(key: string, root: string): boolean {
       try {
-        mkdirSync(groundControlDirOf(home), { recursive: true });
+        mkdirSync(stateDir, { recursive: true });
         writeIfChanged(path, `${JSON.stringify({ ...load(), [key]: root }, null, 2)}\n`);
 
         return true;

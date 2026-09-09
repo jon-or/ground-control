@@ -1,5 +1,4 @@
 import { mkdirSync } from 'node:fs';
-import { groundControlDirOf } from '@ground-control/core';
 import { EMPTY_MEMORY, readMemory } from '@ground-control/board';
 import type { CardMemory } from '@ground-control/board';
 import { read, writeIfChanged } from './fs.js';
@@ -12,8 +11,8 @@ export interface LaneStore {
   write(memory: CardMemory): boolean;
 }
 
-export function makeLaneStore(home: string): LaneStore {
-  const path = lanesPathOf(home);
+export function makeLaneStore(stateDir: string): LaneStore {
+  const path = lanesPathOf(stateDir);
 
   return {
     read(statuses: readonly string[]): CardMemory {
@@ -33,7 +32,7 @@ export function makeLaneStore(home: string): LaneStore {
 
     write(memory: CardMemory): boolean {
       try {
-        mkdirSync(groundControlDirOf(home), { recursive: true });
+        mkdirSync(stateDir, { recursive: true });
         writeIfChanged(path, `${JSON.stringify(memory, null, 2)}\n`);
 
         return true;

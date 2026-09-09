@@ -120,9 +120,15 @@ A positive `actions.dailyLimit` applies to both automatic and manual starts over
 
 One hub serves both clients. It can continue serving Chrome after VS Code closes, stops polling when no board is visible, and exits after 30 minutes without connected clients.
 
-State and logs are stored under `~/.claude/ground-control/`. **Logs** on the editor board and **Ground Control: Toggle Hub Log** toggle hub-log streaming. **Ground Control: Show Board Log** opens extension diagnostics. Chrome's **Show log** opens a sidebar with browser and hub lines.
+State and logs are stored under `~/.claude/ground-control/` unless moved with `stateDirectory`. **Logs** on the editor board and **Ground Control: Toggle Hub Log** toggle hub-log streaming. **Ground Control: Show Board Log** opens extension diagnostics. Chrome's **Show log** opens a sidebar with browser and hub lines.
 
 After building, `npm run hub` runs a foreground hub against your real home. Use `node apps/hub/dist/main.js --home=<path>` for an isolated home, and add `--stop` to request shutdown for that home. An installed extension can replace an older foreground hub on activation.
+
+### State directory
+
+`groundControl.stateDirectory` (Advanced, machine scope, not synced) moves the hub's state and logs to an absolute directory; empty keeps `~/.claude/ground-control`. The bootstrap directory stays at `~/.claude/ground-control`: it keeps `state-dir.json` pointing at the state directory, the hub bundle, the browser launcher and its Windows manifest, and the hook writer scripts, which Chrome, Claude, and Codex are registered to run. Hook writers read the pointer on each event, so moving needs no hook reinstall, and existing installations change nothing until the setting is set.
+
+Changing the setting moves the state immediately: the pointer records the move, the running hub is stopped, every state entry is copied and verified, the pointer is committed, and only then are the sources removed. The destination must be absolute, must not be inside the current directory or contain it (links are resolved), and must be empty apart from launch artifacts. A move is refused while a card action is running, because that agent was told to report into the current directory. A refused or failed move leaves the state where it was, removes only the copies the move created, and restores the setting. Hubs refuse to start while a move younger than 10 minutes is recorded or while the pointer is unreadable; the next activation clears a move that did not finish and reports it, leaving any copied files for you to remove. Activity markers written by agent sessions during the few seconds of a move can be lost until that session's next event, and detached Codex dispatch logs keep writing to their original files. Other clients, including Chrome, follow the pointer on their next connection attempt and may wait for their retry budget after the move. Clearing the setting moves the state back and deletes the pointer. A VS Code profile whose settings omit the key adopts the pointer's directory into its settings on activation instead of moving anything, so profiles cannot move the state back and forth.
 
 ## Data handling
 

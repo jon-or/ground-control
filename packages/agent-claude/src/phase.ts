@@ -82,12 +82,12 @@ function sinceOf(phase: ActivityPhase, marker: ActivityMarker): number {
  * establishes liveness (M2).
  */
 export function readActivity(
-  home: string,
+  stateDir: string,
   sessionId: string,
   readText: ReadText,
   now: number = Date.now(),
 ): SessionActivity | null {
-  const raw = readText(markerPathOf(home, sessionId));
+  const raw = readText(markerPathOf(stateDir, sessionId));
 
   if (!raw) {
     return null;

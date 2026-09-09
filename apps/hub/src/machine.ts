@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { openSync, closeSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync } from 'node:fs';
+import { resolveStateDir } from '@ground-control/core';
 import { bundlePathOf, logPathOf, spawnEnvironment } from '@ground-control/hub';
 
 /**
@@ -7,7 +8,11 @@ import { bundlePathOf, logPathOf, spawnEnvironment } from '@ground-control/hub';
  * unreferenced, so the hub outlives the browser that asked for it and ends on its own idle rule (R35).
  */
 export function startHub(home: string, inheritAgentEnv = false): void {
-  const log = openSync(logPathOf(home), 'a');
+  const stateDir = resolveStateDir(home).stateDir;
+
+  mkdirSync(stateDir, { recursive: true });
+
+  const log = openSync(logPathOf(stateDir), 'a');
   const env = spawnEnvironment();
 
   try {

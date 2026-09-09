@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs';
-import { groundControlDirOf, resolveAgentHomes } from '@ground-control/core';
+import { resolveAgentHomes } from '@ground-control/core';
 import type { ReadFailure } from '@ground-control/core';
 import { syncActivity, uninstallActivity } from './activityInstall.js';
 import type { ActivityState } from './activityInstall.js';
@@ -15,18 +15,19 @@ export function acceptAgentHomes(
   before: Readonly<Record<string, string>>,
   after: Readonly<Record<string, string>>,
   home: string,
+  stateDir: string,
   save: () => void,
   enabled?: ReadonlySet<string>,
 ): ReadFailure | null {
   const changed = registries.agents.filter((agent) => before[agent.id] !== after[agent.id] && agent.storage);
-  const lock = installLockPathOf(home);
+  const lock = installLockPathOf(stateDir);
   let held = false;
   try {
     for (const root of Object.values(after)) {
       if (existsSync(root) && !statSync(root).isDirectory()) throw new Error('Agent home is not a directory.');
     }
     if (changed.length > 0) {
-      mkdirSync(groundControlDirOf(home), { recursive: true });
+      mkdirSync(stateDir, { recursive: true });
       held = takeLock(lock);
       if (!held) return { subject: 'config', kind: 'agent-home-busy', message: 'Agent profiles could not change while activity settings are locked.', remedy: 'Wait, then reopen the board.' };
       // Check both profiles before the first removal. A destination refusal must retain the old profile.
@@ -48,7 +49,7 @@ export function acceptAgentHomes(
         }
       }
       configureAgentHomes(registries, before);
-      const removed = syncActivity(changed, 'remove', home, false, undefined, { lockHeld: true, preserveMarkers: true });
+      const removed = syncActivity(changed, 'remove', home, stateDir, false, undefined, { lockHeld: true, preserveMarkers: true });
       if (removed.failure) return removed.failure;
     }
     save();
@@ -63,18 +64,18 @@ export function acceptAgentHomes(
 }
 
 /** Uninstall from recorded profiles, even when the uninstaller has a different environment. */
-export function uninstallAgentActivity(home: string, env?: NodeJS.ProcessEnv): ActivityState {
-  const registries = makeRegistries(undefined, home, env);
-  const stored = makeSettingsStore(home).read();
+export function uninstallAgentActivity(home: string, stateDir: string, env?: NodeJS.ProcessEnv): ActivityState {
+  const registries = makeRegistries(undefined, home, env, stateDir);
+  const stored = makeSettingsStore(stateDir).read();
   const refused = (failure: ReadFailure): ActivityState => ({ wanted: 'remove', plan: 'refuse', added: 0, failure });
   if (stored && 'failure' in stored) return refused(stored.failure);
   const configured = stored?.config.agentHomes;
   const resolved = resolveAgentHomes(registries.agents, configured, home, registries.agentEnvironment ?? {});
   if ('failure' in resolved) return refused(resolved.failure);
-  const legacy = configured === undefined ? acceptAgentHomes(registries, defaultAgentHomes(registries, home), resolved.homes, home, () => {}, new Set()) : null;
+  const legacy = configured === undefined ? acceptAgentHomes(registries, defaultAgentHomes(registries, home), resolved.homes, home, stateDir, () => {}, new Set()) : null;
   if (legacy) return refused(legacy);
   configureAgentHomes(registries, resolved.homes);
-  return uninstallActivity(registries.agents, home);
+  return uninstallActivity(registries.agents, home, stateDir);
 }
 
 /** Legacy releases only recorded user home. Resolve their default roots for owned-hook cleanup. */

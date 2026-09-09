@@ -1,5 +1,6 @@
 import { closeSync, fstatSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { bootstrapDirOf } from './paths.js';
 
 /** Reads a text file, or returns null for anything that is not a readable file — a directory included. */
 export type ReadText = (path: string) => string | null;
@@ -20,7 +21,10 @@ export interface MachineReaders {
   listDir: ListDir;
   readTail: ReadTail;
   readHead: ReadTail;
+  /** User home: agent defaults and hook writer paths. */
   home: string;
+  /** Ground Control state directory: activity markers and hub files. */
+  stateDir: string;
 }
 
 export interface MachineDeps extends MachineReaders {
@@ -89,6 +93,6 @@ export const readTailFromDisk: ReadTail = (path, bytes) => readSlice(path, bytes
 export const readHeadFromDisk: ReadTail = (path, bytes) => readSlice(path, bytes, false);
 
 /** Production filesystem and clock readers. */
-export function diskReaders(home: string = homedir()): MachineReaders {
-  return { readText: readTextFromDisk, mtime: mtimeFromDisk, listDir: listDirFromDisk, readTail: readTailFromDisk, readHead: readHeadFromDisk, home };
+export function diskReaders(home: string = homedir(), stateDir: string = bootstrapDirOf(home)): MachineReaders {
+  return { readText: readTextFromDisk, mtime: mtimeFromDisk, listDir: listDirFromDisk, readTail: readTailFromDisk, readHead: readHeadFromDisk, home, stateDir };
 }

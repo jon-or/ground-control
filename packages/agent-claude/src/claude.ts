@@ -230,7 +230,7 @@ function toSession(entry: AgentEntry, deps: MachineDeps, env: NodeJS.ProcessEnv)
     repository: link.repository,
     issueNumber: link.issueNumber,
     transcriptWrittenAt: transcript?.writtenAt ?? null,
-    activity: readActivity(deps.home, entry.sessionId, deps.readText),
+    activity: readActivity(deps.stateDir, entry.sessionId, deps.readText),
     // Idle is not terminal for interactive sessions. Only explicit CLI terminal states mark completion (R24).
     finished: entry.state !== undefined && FINISHED_STATES.has(entry.state),
     // Only live background sessions support attach; ended sessions return No job matching (M33).

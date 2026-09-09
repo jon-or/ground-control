@@ -46,7 +46,7 @@ function harness(over: Partial<EnsureDeps> = {}) {
   };
 
   const deps: EnsureDeps = {
-    home,
+    stateDir: () => home,
     start: () => {
       shape.starts += 1;
 
@@ -93,6 +93,25 @@ describe('getting a hub to talk to', () => {
     shape.answers = LIVE;
 
     expect(await ensure()).toEqual({ hub: LIVE });
+    expect(shape.starts).toBe(0);
+  });
+
+  it('resolves the state directory again on every attempt, so a moved pointer is followed', async () => {
+    const dirs = [`${home}/first`, `${home}/second`];
+    const looked: string[] = [];
+    const { shape, ensure } = harness({
+      stateDir: () => dirs.shift() ?? `${home}/second`,
+      look: (where) => {
+        looked.push(where);
+
+        return Promise.resolve({ hub: LIVE });
+      },
+    });
+
+    await ensure();
+    await ensure();
+
+    expect(looked).toEqual([`${home}/first`, `${home}/second`]);
     expect(shape.starts).toBe(0);
   });
 
@@ -323,7 +342,7 @@ describe('something serving this home that will not take this client', () => {
       { miss: { why: 'not-a-hub', record: held, saw: { status: 502, said: 'Proxy Error' } } },
       'not as Ground Control',
     ],
-    ['a hub tracking another home', { miss: { why: 'another-home', record: held } }, 'different home'],
+    ['a hub tracking another home', { miss: { why: 'another-home', record: held } }, 'different state directory'],
   ];
 
   /** Report the recorded port for all failures, but report a PID only after authenticating the listener. */
@@ -359,7 +378,7 @@ describe('something serving this home that will not take this client', () => {
     mkdirSync(dirname(exitPathOf(home)), { recursive: true });
     writeFileSync(
       exitPathOf(home),
-      JSON.stringify({ code: 0, at: '', reason: 'a hub was already serving this home on port 4321' }),
+      JSON.stringify({ code: 0, at: '', reason: 'a hub was already serving this state directory on port 4321' }),
     );
 
     shape.miss = { miss: { why: 'not-a-hub', record: held, saw: { status: 404, said: '' } } };
@@ -443,28 +462,28 @@ describe('whether the hub on disk is newer than the hub that is running', () => 
     write(hubJsonPathOf(home), NOON);
     write(bundlePathOf(home), NOON + 60_000);
 
-    expect(bundleIsNewer(home)).toBe(true);
+    expect(bundleIsNewer(home, home)).toBe(true);
   });
 
   it('is false when the hub bound after the bundle was written', () => {
     write(bundlePathOf(home), NOON);
     write(hubJsonPathOf(home), NOON + 60_000);
 
-    expect(bundleIsNewer(home)).toBe(false);
+    expect(bundleIsNewer(home, home)).toBe(false);
   });
 
   /** Keep the running hub when the client has no replacement bundle. */
   it('is false when there is no bundle on disk', () => {
     write(hubJsonPathOf(home), NOON);
 
-    expect(bundleIsNewer(home)).toBe(false);
+    expect(bundleIsNewer(home, home)).toBe(false);
   });
 
   /** No record is no hub to displace, and the start that follows is the ordinary one. */
   it('is false when no hub has left a record', () => {
     write(bundlePathOf(home), NOON);
 
-    expect(bundleIsNewer(home)).toBe(false);
+    expect(bundleIsNewer(home, home)).toBe(false);
   });
 
   /** The stable state after a restart: the hub wrote its record from the bundle it is running. Nothing to replace. */
@@ -472,6 +491,6 @@ describe('whether the hub on disk is newer than the hub that is running', () => 
     write(bundlePathOf(home), NOON);
     write(hubJsonPathOf(home), NOON);
 
-    expect(bundleIsNewer(home)).toBe(false);
+    expect(bundleIsNewer(home, home)).toBe(false);
   });
 });

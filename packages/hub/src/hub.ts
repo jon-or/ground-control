@@ -7,7 +7,6 @@ import { IssueLookup } from './issueLookup.js';
 import { makeIssueStore } from './issueStore.js';
 import type { IssueStore } from './issueStore.js';
 import type { ActivityState } from './activityInstall.js';
-import { read } from './fs.js';
 import type { LaneStore } from './lanes.js';
 import { ActionRunner } from './actions.js';
 import { makeActionStore } from './actionStore.js';
@@ -38,8 +37,10 @@ export interface HubClock {
 export interface HubDeps {
   clock: HubClock;
   watch(dir: string, onChange: (changes: readonly ActivityChange[]) => void): { dispose(): void };
-  /** Inject the home directory to isolate tests from developer files. */
+  /** User home: agent defaults and hook writer paths. Inject to isolate tests from developer files. */
   home: string;
+  /** Ground Control state directory: stores, markers, logs, and run reports. */
+  stateDir: string;
   registries: Registries;
   lanes: LaneStore;
   marks: MarkStore;
@@ -58,7 +59,7 @@ export interface HubDeps {
   /** Write hub.log and stream entries to subscribed clients. */
   log: Logger;
   /** Inject activity installation to isolate tests from agent settings. */
-  syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string, enabled?: ReadonlySet<string>): ActivityState;
+  syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string, stateDir: string, enabled?: ReadonlySet<string>): ActivityState;
 }
 
 interface Connected {
@@ -138,18 +139,20 @@ export function realHubDeps(
   marks: MarkStore,
   settings: SettingsStore,
   home: string,
+  stateDir: string,
   watch: HubDeps['watch'],
   log: Logger,
-  triage: TriageStore = makeTriageStore(home),
-  actions: ActionStore = makeActionStore(home),
-  issues: IssueStore = makeIssueStore(home),
-  status: StatusStore = makeStatusStore(home),
-  checkouts: CheckoutStore = makeCheckoutStore(home),
+  triage: TriageStore = makeTriageStore(stateDir),
+  actions: ActionStore = makeActionStore(stateDir),
+  issues: IssueStore = makeIssueStore(stateDir),
+  status: StatusStore = makeStatusStore(stateDir),
+  checkouts: CheckoutStore = makeCheckoutStore(stateDir),
 ): HubDeps {
   return {
     clock: REAL_CLOCK,
     watch,
     home,
+    stateDir,
     registries,
     lanes,
     marks,
@@ -160,7 +163,7 @@ export function realHubDeps(
     checkouts,
     settings,
     log,
-    syncActivity: (regs, wanted, where, enabled) => syncActivity(regs.agents, wanted, where, false, enabled),
+    syncActivity: (regs, wanted, where, state, enabled) => syncActivity(regs.agents, wanted, where, state, false, enabled),
   };
 }
 
@@ -226,11 +229,11 @@ export class Hub {
     const resolved = resolveAgentHomes(deps.registries.agents, saved?.agentHomes, deps.home, deps.registries.agentEnvironment ?? {});
     if ('failure' in resolved) this.#stored ??= resolved.failure;
     if (!this.#stored && 'homes' in resolved) configureAgentHomes(deps.registries, resolved.homes);
-    this.#config = saved ?? defaultConfig(this.#stored ? { ...deps.registries, agents: [] } : deps.registries, diskReaders(deps.home));
+    this.#config = saved ?? defaultConfig(this.#stored ? { ...deps.registries, agents: [] } : deps.registries, diskReaders(deps.home, deps.stateDir));
     if (!this.#stored && 'homes' in resolved) {
       const accepted = { ...this.#config, ...(Object.keys(resolved.homes).length > 0 ? { agentHomes: resolved.homes } : {}) };
       const failure = Object.keys(resolved.homes).length === 0 ? null : acceptAgentHomes(deps.registries,
-        saved ? saved.agentHomes ?? defaultAgentHomes(deps.registries, deps.home) : resolved.homes, resolved.homes, deps.home,
+        saved ? saved.agentHomes ?? defaultAgentHomes(deps.registries, deps.home) : resolved.homes, resolved.homes, deps.home, deps.stateDir,
         () => deps.settings.write(accepted), new Set(accepted.installActivity ? accepted.agents.filter((agent) => accepted.sessionHooks?.[agent.id] !== false).map((agent) => agent.id) : []));
       if (failure) this.#stored = failure;
       else { this.#config = accepted; this.#storageReady = true; }
@@ -239,7 +242,7 @@ export class Hub {
     // Apply stored settings once; new connections must not replace their validation results.
     this.#configFailures = this.#applyConfig();
     this.#triage = new TriageRunner({
-      home: deps.home,
+      stateDir: deps.stateDir,
       store: deps.triage,
       log: deps.log,
       agents: deps.registries.agents,
@@ -250,7 +253,7 @@ export class Hub {
     });
     this.#triage.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources());
     this.#actions = new ActionRunner({
-      home: deps.home,
+      stateDir: deps.stateDir,
       store: deps.actions,
       log: this.#scopedLog(),
       currentCard: (key) => this.#lanes(false).flatMap((lane) => lane.cards).find((card) => card.key === key),
@@ -278,7 +281,7 @@ export class Hub {
       allowed: (key) => (this.#sessions?.sessions ?? []).some((session) =>
         `${session.repository}#${session.issueNumber}` === key && this.#sessionAllowed(session)),
     });
-    pruneMarkers(deps.registries.agents, deps.home);
+    pruneMarkers(deps.registries.agents, deps.stateDir);
     this.#armWatchers();
   }
 
@@ -704,7 +707,7 @@ export class Hub {
       configureSources(this.#deps.registries, before.sources);
       const failure = refused[0] ?? acceptAgentHomes(this.#deps.registries,
         before.agentHomes ?? defaultAgentHomes(this.#deps.registries, this.#deps.home), resolved.homes,
-        this.#deps.home, () => this.#deps.settings.write(parsed.config), new Set(parsed.config.installActivity ? parsed.config.agents.filter((agent) => parsed.config.sessionHooks?.[agent.id] !== false).map((agent) => agent.id) : []));
+        this.#deps.home, this.#deps.stateDir, () => this.#deps.settings.write(parsed.config), new Set(parsed.config.installActivity ? parsed.config.agents.filter((agent) => parsed.config.sessionHooks?.[agent.id] !== false).map((agent) => agent.id) : []));
       if (failure) {
         configureAgentHomes(this.#deps.registries, before.agentHomes ?? defaultAgentHomes(this.#deps.registries, this.#deps.home));
         this.#configFailures = [failure];
@@ -825,9 +828,10 @@ export class Hub {
           this.#deps.registries,
           'install',
           this.#deps.home,
+          this.#deps.stateDir,
           new Set(this.#config.agents.filter((agent) => this.#config.sessionHooks?.[agent.id] !== false).map((agent) => agent.id)),
         )
-      : this.#deps.syncActivity(this.#deps.registries, 'remove', this.#deps.home);
+      : this.#deps.syncActivity(this.#deps.registries, 'remove', this.#deps.home, this.#deps.stateDir);
 
     return this.#activity;
   }
@@ -848,7 +852,7 @@ export class Hub {
       return;
     }
 
-    const backfill = readLogTail(this.#readers().readTail, logPathOf(this.#deps.home));
+    const backfill = readLogTail(this.#readers().readTail, logPathOf(this.#deps.stateDir));
 
     if (backfill.length > 0) {
       client.send({ type: 'log', entries: backfill });
@@ -945,7 +949,7 @@ export class Hub {
     for (const agent of this.#deps.registries.agents) {
       if (agent.activity && named.has(agent.id)) {
         this.#watchers.push(
-          this.#deps.watch(agent.activity.watchDir(this.#deps.home), (changes) => this.#onActivity(changes)),
+          this.#deps.watch(agent.activity.watchDir(this.#deps.stateDir), (changes) => this.#onActivity(changes)),
         );
       }
     }
@@ -1218,7 +1222,7 @@ export class Hub {
   }
 
   #readers(): MachineReaders {
-    return diskReaders(this.#deps.home);
+    return diskReaders(this.#deps.home, this.#deps.stateDir);
   }
 
   // — the activity signal —
@@ -1260,7 +1264,7 @@ export class Hub {
 
   #phaseOf(sessionId: string) {
     for (const agent of this.#deps.registries.agents) {
-      const reported = agent.activity?.read(this.#deps.home, sessionId, read) ?? null;
+      const reported = agent.activity?.read(this.#readers(), sessionId) ?? null;
 
       if (reported !== null) {
         return reported;
@@ -1278,7 +1282,7 @@ export class Hub {
   #withActivity(session: Session): Session {
     const agent = this.#deps.registries.agents.find((a) => a.id === session.agent);
 
-    return { ...session, activity: agent?.activity?.read(this.#deps.home, session.sessionId, read) ?? null };
+    return { ...session, activity: agent?.activity?.read(this.#readers(), session.sessionId) ?? null };
   }
 
   // — the developer's own acts —

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { groundControlDirOf } from '@ground-control/core';
+import { bootstrapDirOf } from '@ground-control/core';
 import type {
   AgentAdapter,
   ClassifyInput,
@@ -29,10 +29,12 @@ import { makeStatusStore } from '../src/statusStore.js';
 import { captureLog, fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
 
 let home: string;
+let stateDir: string;
 let dispose: () => void;
 
 beforeEach(() => {
   ({ home, dispose } = tempHome());
+  stateDir = bootstrapDirOf(home);
 });
 
 afterEach(() => dispose());
@@ -205,14 +207,15 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     clock: clock.clock,
     watch: () => ({ dispose: () => undefined }),
     home,
+    stateDir,
     registries,
-    lanes: makeLaneStore(home),
-    marks: makeMarkStore(home),
-    triage: makeTriageStore(home),
-    checkouts: makeCheckoutStore(home),
-    actions: makeActionStore(home),
-    issues: makeIssueStore(home),
-    status: makeStatusStore(home),
+    lanes: makeLaneStore(stateDir),
+    marks: makeMarkStore(stateDir),
+    triage: makeTriageStore(stateDir),
+    checkouts: makeCheckoutStore(stateDir),
+    actions: makeActionStore(stateDir),
+    issues: makeIssueStore(stateDir),
+    status: makeStatusStore(stateDir),
     settings: { read: () => null, write: () => undefined },
     log: logging.log,
     syncActivity: (_r, wanted) => ({ wanted, plan: 'up-to-date', added: 0, failure: null }),
@@ -516,7 +519,7 @@ describe('classification cancellation', () => {
 
 describe('triage modes and automatic allowance', () => {
   const limits = { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} };
-  const usagePath = () => join(groundControlDirOf(home), 'triage-usage.json');
+  const usagePath = () => join(stateDir, 'triage-usage.json');
   const keyOf = (control: Control) => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
 
   it('manual mode makes no automatic reads and permits an initial deliberate request', async () => {
@@ -616,7 +619,7 @@ describe('triage modes and automatic allowance', () => {
   });
 
   it('refuses automatic work when usage cannot be trusted or saved', async () => {
-    mkdirSync(groundControlDirOf(home), { recursive: true });
+    mkdirSync(stateDir, { recursive: true });
     writeFileSync(usagePath(), 'corrupt');
     const control = harness();
     watch(control.hub);
@@ -662,7 +665,7 @@ describe('classification capability', () => {
     expect(notices).toEqual([]);
     control.hub.receive({ id: 'board' }, { type: 'retriage', key: keyOf(control) });
     expect(notices.at(-1)).toContain('No enabled agent supports card classification');
-    expect(() => readFileSync(join(groundControlDirOf(home), 'triage-usage.json'))).toThrow();
+    expect(() => readFileSync(join(stateDir, 'triage-usage.json'))).toThrow();
 
     control.hub.configure(hubConfig(limits));
     await control.pass();

@@ -1,5 +1,4 @@
 import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { groundControlDirOf } from '@ground-control/core';
 import type { ActivityPlan, AgentAdapter, ReadFailure } from '@ground-control/core';
 import { attempt, read, releaseLock, takeLock, writeAtomic, writeInPlace } from './fs.js';
 import { backupPathOf, installLockPathOf } from './paths.js';
@@ -59,8 +58,8 @@ export function dispatchLogIsStale(mtimeMs: number, now: number): boolean {
 }
 
 /** Retry transient settings-file access failures during backup. */
-function backup(home: string, settings: string, agent: string): void {
-  const base = backupPathOf(home, new Date(), agent).replace(/\.json$/, '');
+function backup(stateDir: string, settings: string, agent: string): void {
+  const base = backupPathOf(stateDir, new Date(), agent).replace(/\.json$/, '');
   for (let sequence = 0; ; sequence++) {
     try {
       attempt(() => copyFileSync(settings, `${base}-${String(sequence).padStart(6, '0')}.json`, constants.COPYFILE_EXCL));
@@ -71,17 +70,15 @@ function backup(home: string, settings: string, agent: string): void {
   }
 
   try {
-    const dir = groundControlDirOf(home);
-
-    for (const name of backupsToDelete(readdirSync(dir), agent)) {
-      rmSync(`${dir}/${name}`, { force: true });
+    for (const name of backupsToDelete(readdirSync(stateDir), agent)) {
+      rmSync(`${stateDir}/${name}`, { force: true });
     }
   } catch {
     // Backup retention failure must not prevent installation.
   }
 }
 
-function failed(wanted: Wanted, subject: string, home: string, error: unknown, added: number, removed: number, operation: Wanted): ActivityState {
+function failed(wanted: Wanted, subject: string, stateDir: string, error: unknown, added: number, removed: number, operation: Wanted): ActivityState {
   return {
     wanted,
     plan: 'refuse',
@@ -93,7 +90,7 @@ function failed(wanted: Wanted, subject: string, home: string, error: unknown, a
       message: `The board could not ${operation} its session activity hooks: ${(error as Error).message}`,
       remedy:
         'Activity reporting may be unavailable. ' +
-        `A copy of your settings from before this run is in ${groundControlDirOf(home)}.`,
+        `A copy of your settings from before this run is in ${stateDir}.`,
     },
   };
 }
@@ -125,6 +122,7 @@ export function syncActivity(
   agents: readonly AgentAdapter[],
   wanted: Wanted,
   home: string,
+  stateDir: string,
   insist = false,
   enabled?: ReadonlySet<string>,
   options: { lockHeld?: boolean; preserveMarkers?: boolean } = {},
@@ -132,7 +130,7 @@ export function syncActivity(
   const signals = agents.flatMap((agent) =>
     agent.activity ? [{ id: agent.id, activity: agent.activity }] : [],
   );
-  const lockPath = installLockPathOf(home);
+  const lockPath = installLockPathOf(stateDir);
   let held = false;
   let added = 0;
   let removed = 0;
@@ -145,7 +143,7 @@ export function syncActivity(
   }
 
   try {
-    mkdirSync(groundControlDirOf(home), { recursive: true });
+    mkdirSync(stateDir, { recursive: true });
     held = options.lockHeld ? true : takeLock(lockPath);
 
     // Uninstall breaks the lock because it runs once (R34). Other operations defer to the current installer.
@@ -161,14 +159,15 @@ export function syncActivity(
     for (const { id, activity } of signals) {
       reached = id;
       operation = wanted === 'install' && (enabled?.has(id) ?? true) ? 'install' : 'remove';
-      // Retain the writer script after removal because existing sessions may still invoke their loaded hooks.
       if (operation === 'install') {
         // Retry while Windows releases open handles after directory removal (M23).
-        attempt(() => mkdirSync(activity.watchDir(home), { recursive: true }));
+        attempt(() => mkdirSync(activity.watchDir(stateDir), { recursive: true }));
+      }
 
-        if (activity.writer && read(activity.writer.path(home)) !== activity.writer.source) {
-          writeAtomic(activity.writer.path(home), activity.writer.source);
-        }
+      // Retain the writer after removal because existing sessions may still invoke their loaded hooks, and keep a
+      // retained writer current so those sessions follow the state pointer.
+      if (activity.writer && (operation === 'install' || existsSync(activity.writer.path(home))) && read(activity.writer.path(home)) !== activity.writer.source) {
+        writeAtomic(activity.writer.path(home), activity.writer.source);
       }
 
       const settings = activity.settingsPath(home);
@@ -188,7 +187,7 @@ export function syncActivity(
 
       if (decided.kind === 'write') {
         if (existsSync(settings)) {
-          backup(home, settings, id);
+          backup(stateDir, settings, id);
         }
 
         writeInPlace(settings, decided.text);
@@ -199,13 +198,13 @@ export function syncActivity(
 
       // Keep the directory to preserve watchers and avoid Windows recreation failures with open handles (M23, R25).
       if (operation === 'remove' && !options.preserveMarkers) {
-        clearMarkers(activity.watchDir(home));
+        clearMarkers(activity.watchDir(stateDir));
       }
     }
 
     return { wanted, plan, added, removed, failure: null };
   } catch (error) {
-    return failed(wanted, reached, home, error, added, removed, operation);
+    return failed(wanted, reached, stateDir, error, added, removed, operation);
   } finally {
     if (held && !options.lockHeld) {
       releaseLock(lockPath);
@@ -217,11 +216,11 @@ export function syncActivity(
  * Best-effort cleanup of old activity markers and dispatched-process output files. Killed sessions may leave
  * markers without SessionEnd; live-roster PID checks remain separate from age-based pruning.
  */
-export function pruneMarkers(agents: readonly AgentAdapter[], home: string, now: number = Date.now()): void {
-  const dirs = new Set(agents.flatMap((agent) => (agent.activity ? [agent.activity.watchDir(home)] : [])));
+export function pruneMarkers(agents: readonly AgentAdapter[], stateDir: string, now: number = Date.now()): void {
+  const dirs = new Set(agents.flatMap((agent) => (agent.activity ? [agent.activity.watchDir(stateDir)] : [])));
 
-  // Also remove stale .tmp files from the hub directory; other hub state files are excluded.
-  for (const dir of [...dirs, groundControlDirOf(home)]) {
+  // Also remove stale .tmp files from the state directory; other hub state files are excluded.
+  for (const dir of [...dirs, stateDir]) {
     const markers = dirs.has(dir);
 
     let names: string[];
@@ -253,8 +252,8 @@ export function pruneMarkers(agents: readonly AgentAdapter[], home: string, now:
 }
 
 /** Remove all agent hooks and markers regardless of settings. Uninstall cannot defer because vscode:uninstall runs once. */
-export function uninstallActivity(agents: readonly AgentAdapter[], home: string): ActivityState {
-  return syncActivity(agents, 'remove', home, true);
+export function uninstallActivity(agents: readonly AgentAdapter[], home: string, stateDir: string): ActivityState {
+  return syncActivity(agents, 'remove', home, stateDir, true);
 }
 
 export interface ActivityNoticeInput {

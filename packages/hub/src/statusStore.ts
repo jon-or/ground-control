@@ -1,6 +1,5 @@
 import { mkdirSync } from 'node:fs';
 import { z } from 'zod';
-import { groundControlDirOf } from '@ground-control/core';
 import type { HistoricalSession, RetainedActivity, Session } from '@ground-control/core';
 import { read, writeIfChanged } from './fs.js';
 import { statusPathOf } from './paths.js';
@@ -24,8 +23,8 @@ export interface StatusStore {
   write(entries: ReadonlyMap<string, RetainedActivity>): void;
 }
 
-export function makeStatusStore(home: string): StatusStore {
-  const path = statusPathOf(home);
+export function makeStatusStore(stateDir: string): StatusStore {
+  const path = statusPathOf(stateDir);
 
   return {
     read(): Map<string, RetainedActivity> {
@@ -46,7 +45,7 @@ export function makeStatusStore(home: string): StatusStore {
 
     write(entries: ReadonlyMap<string, RetainedActivity>): void {
       try {
-        mkdirSync(groundControlDirOf(home), { recursive: true });
+        mkdirSync(stateDir, { recursive: true });
         writeIfChanged(path, `${JSON.stringify({ entries: Object.fromEntries(entries) }, null, 2)}\n`);
       } catch {
         // A failed write may lose retained attention after session exit without failing rendering.

@@ -8,21 +8,21 @@ import { readBoardStatuses } from './config.js';
 const MEMORY_KEY = 'groundControl.cardMemory';
 
 /** Migrate window placements to the shared file once, then clear the old storage (R8). */
-export function migrateLaneMemory(memento: vscode.Memento, home: string): void {
+export function migrateLaneMemory(memento: vscode.Memento, stateDir: string): void {
   const stored = memento.get<unknown>(MEMORY_KEY);
 
   if (stored === undefined) {
     return;
   }
 
-  if (existsSync(lanesPathOf(home))) {
+  if (existsSync(lanesPathOf(stateDir))) {
     void memento.update(MEMORY_KEY, undefined);
 
     return;
   }
 
   // Clear old placements only after a successful write to prevent data loss on disk or permission failures.
-  if (makeLaneStore(home).write(readMemory(stored, readBoardStatuses()))) {
+  if (makeLaneStore(stateDir).write(readMemory(stored, readBoardStatuses()))) {
     void memento.update(MEMORY_KEY, undefined);
   }
 }

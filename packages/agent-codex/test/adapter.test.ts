@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeCodexAdapter, pidAliveOnMachine } from '../src/codex.js';
 import { HOOK_MARKER_VERSION, activityDirOf, codexHooksPathOf, hookPathOf, markerPathOf } from '../src/hookScript.js';
-import { HOME, machine } from './helpers.js';
+import { HOME, STATE_DIR, machine } from './helpers.js';
 
 const NOW = Date.now();
 const THREAD = '01a07d5a-b5bd-7762-8ef8-4202ce964f31';
@@ -56,22 +56,22 @@ describe('the Codex adapter', () => {
     const first = '/profiles/first';
     const second = '/profiles/second';
     const deps = machine({
-      dirs: { [activityDirOf(HOME)]: ['thread-1.json'], [first]: [], [second]: [] },
+      dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json'], [first]: [], [second]: [] },
       files: {
-        [markerPathOf(HOME, 'thread-1')]: JSON.stringify({ ...JSON.parse(marker), profileRoot: first }),
+        [markerPathOf(STATE_DIR, 'thread-1')]: JSON.stringify({ ...JSON.parse(marker), profileRoot: first }),
         [`${first}/session_index.jsonl`]: JSON.stringify({ id: 'thread-1', thread_name: 'First profile' }),
       },
     });
     adapter.storage!.configure(first);
     expect(adapter.activity!.settingsPath(HOME)).toBe(`${first}/hooks.json`);
-    expect(adapter.activity!.watchDir(HOME)).toBe(activityDirOf(HOME));
+    expect(adapter.activity!.watchDir(STATE_DIR)).toBe(activityDirOf(STATE_DIR));
     expect(adapter.enabledByDefault(deps)).toBe(true);
     expect((await adapter.listSessions('codex', deps)).sessions).toHaveLength(1);
-    expect(adapter.activity!.read(HOME, 'thread-1', deps.readText)).not.toBeNull();
+    expect(adapter.activity!.read(deps, 'thread-1')).not.toBeNull();
     adapter.storage!.configure(second);
     expect(adapter.activity!.settingsPath(HOME)).toBe(`${second}/hooks.json`);
     expect((await adapter.listSessions('codex', deps)).sessions).toEqual([]);
-    expect(adapter.activity!.read(HOME, 'thread-1', deps.readText)).toBeNull();
+    expect(adapter.activity!.read(deps, 'thread-1')).toBeNull();
   });
 
   it('snapshots dispatch environments and preserves stop authorization after a profile change', async () => {
@@ -146,7 +146,7 @@ describe('the Codex adapter', () => {
   it('starts one trust attempt and suppresses pending failures', async () => {
     const calls: string[] = [];
     const adapter = makeCodexAdapter({ alive: () => true, env: {}, trust: (path) => (calls.push(path), Promise.resolve(null)) });
-    const deps = machine({ dirs: { [activityDirOf(HOME)]: [] }, files: withOurHook() });
+    const deps = machine({ dirs: { [activityDirOf(STATE_DIR)]: [] }, files: withOurHook() });
 
     const first = await adapter.listSessions('D:/codex/codex.exe', deps);
     const second = await adapter.listSessions('D:/codex/codex.exe', deps);
@@ -158,7 +158,7 @@ describe('the Codex adapter', () => {
 
   it('reports what stopped the attempt on the read after it failed', async () => {
     const adapter = makeCodexAdapter({ alive: () => true, env: {}, trust: () => Promise.resolve('Codex refused') });
-    const deps = machine({ dirs: { [activityDirOf(HOME)]: [] }, files: withOurHook() });
+    const deps = machine({ dirs: { [activityDirOf(STATE_DIR)]: [] }, files: withOurHook() });
 
     await adapter.listSessions('codex', deps);
     // Allow the asynchronous trust attempt to finish before the next poll.
@@ -171,14 +171,14 @@ describe('the Codex adapter', () => {
 
   it('asks nothing where the machine gives it no way to, and reports nothing it cannot act on', async () => {
     const adapter = makeCodexAdapter({ alive: () => true, env: {} });
-    const deps = machine({ dirs: { [activityDirOf(HOME)]: [] }, files: withOurHook() });
+    const deps = machine({ dirs: { [activityDirOf(STATE_DIR)]: [] }, files: withOurHook() });
 
     expect((await adapter.listSessions('codex', deps)).failure).toBeNull();
   });
 
   it('keeps a fault in what the hook wrote ahead of anything about trust', async () => {
     const adapter = makeCodexAdapter({ alive: () => true, env: {}, trust: () => Promise.resolve('Codex refused') });
-    const deps = machine({ dirs: { [activityDirOf(HOME)]: ['thread-1.json'] }, files: withOurHook() });
+    const deps = machine({ dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json'] }, files: withOurHook() });
 
     await adapter.listSessions('codex', deps);
     await Promise.resolve();
@@ -253,7 +253,7 @@ describe('the Codex adapter', () => {
     // The roster sees every Codex process on the machine, the developer's own included.
     await adapter.listSessions(
       'codex',
-      machine({ dirs: { [activityDirOf(HOME)]: ['thread-1.json'] }, files: { [markerPathOf(HOME, 'thread-1')]: marker } }),
+      machine({ dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json'] }, files: { [markerPathOf(STATE_DIR, 'thread-1')]: marker } }),
     );
 
     expect(await adapter.stopDispatch!('codex', 'thread-1')).toMatchObject({ kind: 'stop-unknown' });
@@ -272,7 +272,7 @@ describe('the Codex adapter', () => {
     await adapter.dispatch!(dispatchInput());
     await adapter.listSessions(
       'codex',
-      machine({ dirs: { [activityDirOf(HOME)]: ['thread-1.json'] }, files: { [markerPathOf(HOME, 'thread-1')]: marker } }),
+      machine({ dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json'] }, files: { [markerPathOf(STATE_DIR, 'thread-1')]: marker } }),
     );
 
     expect(await adapter.stopDispatch!('codex', 'thread-1')).toBeNull();

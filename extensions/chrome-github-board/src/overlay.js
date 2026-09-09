@@ -349,7 +349,7 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
  * Overlay the log panel without reflowing GitHub's columns. Size it in characters with a viewport cap, and
  * wrap long lines without truncation.
  */
-#${LOG_ID} { position: fixed; top: 0; right: 0; bottom: 0; width: min(140ch, 80vw); z-index: 100;
+#${LOG_ID} { position: fixed; top: 0; right: 0; bottom: 0; width: min(120ch, 70vw); z-index: 100;
   display: flex; flex-direction: column; font-size: 12px;
   background: var(--bgColor-default, #ffffff); border-left: 1px solid var(--borderColor-default, #d1d9e0);
   box-shadow: -2px 0 12px rgba(31, 35, 40, 0.12); }

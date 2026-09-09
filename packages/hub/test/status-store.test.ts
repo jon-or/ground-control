@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { groundControlDirOf } from '@ground-control/core';
 import type { HistoricalSession, RetainedActivity, Session } from '@ground-control/core';
 import { makeStatusStore, pruned, retaining, statusKeyOf } from '../src/statusStore.js';
 import { statusPathOf } from '../src/paths.js';
@@ -64,7 +63,7 @@ describe('the status store', () => {
   });
 
   it('returns empty state for invalid JSON', () => {
-    mkdirSync(groundControlDirOf(home), { recursive: true });
+    mkdirSync(home, { recursive: true });
     writeFileSync(statusPathOf(home), '{ not json');
 
     expect(makeStatusStore(home).read()).toEqual(new Map());
@@ -72,7 +71,7 @@ describe('the status store', () => {
 
   /** Reject invalid stored phase data without guessing a replacement (R24). */
   it('rejects unknown phases', () => {
-    mkdirSync(groundControlDirOf(home), { recursive: true });
+    mkdirSync(home, { recursive: true });
     writeFileSync(statusPathOf(home), JSON.stringify({ entries: { 'claude:a-session': { phase: 'thinking', event: 'Stop', at: 1 } } }));
 
     expect(makeStatusStore(home).read()).toEqual(new Map());

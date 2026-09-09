@@ -1,5 +1,4 @@
 import { mkdirSync } from 'node:fs';
-import { groundControlDirOf } from '@ground-control/core';
 import { EMPTY_KNOWN_ISSUES, readKnownIssues } from '@ground-control/board';
 import type { KnownIssues } from '@ground-control/board';
 import { read, writeIfChanged } from './fs.js';
@@ -29,8 +28,8 @@ function ordered(value: unknown): unknown {
   );
 }
 
-export function makeIssueStore(home: string): IssueStore {
-  const path = issuesPathOf(home);
+export function makeIssueStore(stateDir: string): IssueStore {
+  const path = issuesPathOf(stateDir);
 
   return {
     read(): KnownIssues {
@@ -50,7 +49,7 @@ export function makeIssueStore(home: string): IssueStore {
 
     write(state: KnownIssues): boolean {
       try {
-        mkdirSync(groundControlDirOf(home), { recursive: true });
+        mkdirSync(stateDir, { recursive: true });
         writeIfChanged(path, `${JSON.stringify(ordered(state), null, 2)}\n`);
 
         return true;

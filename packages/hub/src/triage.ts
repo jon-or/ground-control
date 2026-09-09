@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { groundControlDirOf, triageMode } from '@ground-control/core';
+import { triageMode } from '@ground-control/core';
 import type { AgentAdapter, IssueCard, Lane, LaneId, Logger, ReadFailure, Snapshot, TriageSettings, WorkSource } from '@ground-control/core';
 import {
   buildTriagePrompt,
@@ -22,7 +22,8 @@ import type { TriageStore } from './triageStore.js';
 import { TriageUsage } from './triageUsage.js';
 
 export interface TriageDeps {
-  home: string;
+  /** Ground Control state directory: usage record and classifier working directory. */
+  stateDir: string;
   store: TriageStore;
   /** Log classification duration and outcome. */
   log: Logger;
@@ -71,7 +72,7 @@ export class TriageRunner {
 
   constructor(deps: TriageDeps) {
     this.#deps = deps;
-    this.#usage = new TriageUsage(deps.home);
+    this.#usage = new TriageUsage(deps.stateDir);
   }
 
   status(): NonNullable<Snapshot['triage']> {
@@ -329,7 +330,7 @@ export class TriageRunner {
       prompt: buildTriagePrompt(reading.context, this.#deps.now(), this.#settings.names, settled),
       schema: triageJsonSchema(settled),
       // Run outside project directories to avoid loading repository settings.
-      cwd: triageCwd(this.#deps.home),
+      cwd: triageCwd(this.#deps.stateDir),
       timeoutMs: this.#settings.timeoutMs,
       signal,
     });
@@ -370,15 +371,13 @@ function refusal(kind: string, message: string): ReadFailure {
   return { subject: 'triage', kind, message, remedy: 'Previous triage results are retained.' };
 }
 
-/** Run classification in the hub directory; a checkout cwd would load repository settings and instructions. */
-export function triageCwd(home: string): string {
-  const dir = groundControlDirOf(home);
-
+/** Run classification in the state directory; a checkout cwd would load repository settings and instructions. */
+export function triageCwd(stateDir: string): string {
   try {
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(stateDir, { recursive: true });
   } catch {
     // Let classification report directory-creation failures.
   }
 
-  return dir;
+  return stateDir;
 }

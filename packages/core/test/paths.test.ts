@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basename, groundControlDirOf, isAbsolute, join, normalize, parent } from '../src/paths.js';
+import { basename, bootstrapDirOf, isAbsolute, join, normalize, parent } from '../src/paths.js';
 
 describe('normalize', () => {
   it('turns a Windows path into the forward-slash form the fixtures are keyed by', () => {
@@ -75,9 +75,9 @@ describe('parent', () => {
   });
 });
 
-describe('groundControlDirOf', () => {
+describe('bootstrapDirOf', () => {
   it('names the board directory under the home it is handed, whichever separator that home uses', () => {
-    expect(groundControlDirOf('C:\\Users\\dev')).toBe('C:/Users/dev/.claude/ground-control');
-    expect(groundControlDirOf('/home/dev/')).toBe('/home/dev/.claude/ground-control');
+    expect(bootstrapDirOf('C:\\Users\\dev')).toBe('C:/Users/dev/.claude/ground-control');
+    expect(bootstrapDirOf('/home/dev/')).toBe('/home/dev/.claude/ground-control');
   });
 });

@@ -167,6 +167,20 @@ describe('the Codex activity writer', () => {
     expect(markerFor(SESSION).event).toBe('UserPromptSubmit');
   });
 
+  it('writes markers under the state directory a pointer names', () => {
+    const pointed = mkdtempSync(join(tmpdir(), 'gc-codex-pointed-'));
+    const elsewhere = join(pointed, 'elsewhere');
+
+    mkdirSync(join(pointed, '.claude', 'ground-control'), { recursive: true });
+    writeFileSync(join(pointed, '.claude', 'ground-control', 'state-dir.json'), JSON.stringify({ stateDir: elsewhere }));
+    run(payload('SessionStart'), pointed);
+
+    expect(existsSync(join(elsewhere, 'codex-activity', `${SESSION}.json`))).toBe(true);
+    expect(existsSync(join(pointed, '.claude', 'ground-control', 'codex-activity'))).toBe(false);
+
+    rmSync(pointed, { recursive: true, force: true });
+  });
+
   it('writes nothing for a session id that would escape the activity directory', () => {
     run(payload('SessionStart'));
     run({ ...payload('SessionStart'), session_id: '../escaped' });

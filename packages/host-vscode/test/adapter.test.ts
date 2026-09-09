@@ -81,6 +81,7 @@ describe('what it reads the machine for', () => {
     readTail: () => null,
   readHead: () => null,
     home: '/nowhere/home',
+    stateDir: '/nowhere/home/.claude/ground-control',
   };
 
   it('finds no surface under a user directory that holds no windows', async () => {

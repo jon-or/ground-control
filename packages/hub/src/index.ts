@@ -1,6 +1,8 @@
 export { configureHosts, configureSources, defaultConfig, makeRegistries } from './registry.js';
 export type { Registries } from './registry.js';
 export { uninstallAgentActivity } from './agentHomes.js';
+export { launchArtifacts, realRelocationDeps, realRelocationFs, recoverRelocation, relocateState, relocationRefusal, relocationTarget } from './relocate.js';
+export type { Relocation, RelocationDeps, RelocationFs } from './relocate.js';
 export {
   BACKUPS_KEPT,
   MARKER_MAX_AGE_MS,
@@ -46,6 +48,7 @@ export {
   lanesPathOf,
   logPathOf,
   marksPathOf,
+  relocateLockPathOf,
 } from './paths.js';
 export { START_POLL_MS, START_TIMEOUT_MS, STARTS_PER_FIVE_MINUTES, STARTS_PER_MINUTE, makeEnsure, realEnsureDeps } from './ensure.js';
 export type { EnsureDeps, Ensured } from './ensure.js';

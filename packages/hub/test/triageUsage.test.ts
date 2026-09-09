@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { groundControlDirOf } from '@ground-control/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TriageUsage } from '../src/triageUsage.js';
 import { tempHome } from './helpers.js';
@@ -14,7 +13,7 @@ afterEach(() => {
 function usage() {
   const made = tempHome();
   homes.push(made.dispose);
-  const directory = groundControlDirOf(made.home);
+  const directory = made.home;
   mkdirSync(directory, { recursive: true });
 
   return {

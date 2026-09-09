@@ -36,13 +36,13 @@ export interface ActivitySignal {
   plan(input: ActivityPlanInput): ActivityPlan;
   /** Agent settings updated by plan; the caller backs up the file first. */
   settingsPath(home: string): string;
-  /** Activity marker directory, created on install and retained on removal. */
-  watchDir(home: string): string;
-  /** Last observed phase, or null when unavailable. */
-  read(home: string, sessionId: string, readText: ReadText, now?: number): SessionActivity | null;
+  /** Activity marker directory under the Ground Control state directory, created on install and retained on removal. */
+  watchDir(stateDir: string): string;
+  /** Last observed phase from the readers' state directory, or null when unavailable. */
+  read(readers: MachineReaders, sessionId: string, now?: number): SessionActivity | null;
   /**
-   * Optional activity writer. Update changed bytes and retain the file after hook removal for sessions using
-   * cached settings.
+   * Optional activity writer in the bootstrap directory. Update changed bytes and retain the file after hook
+   * removal for sessions using cached settings.
    */
   readonly writer?: { path(home: string): string; source: string };
 }

@@ -3,7 +3,7 @@ import { phaseOf, readActivity } from '../src/phase.js';
 import type { ActivityMarker } from '../src/phase.js';
 import type { Session } from '@ground-control/core';
 import { HOOK_MARKER_VERSION, markerPathOf } from '../src/hookScript.js';
-import { HOME } from './helpers.js';
+import { STATE_DIR } from './helpers.js';
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
 
@@ -94,10 +94,10 @@ describe('phaseOf', () => {
 
 describe('readActivity', () => {
   const at = 1_788_000_000_000;
-  const path = markerPathOf(HOME, SESSION);
+  const path = markerPathOf(STATE_DIR, SESSION);
 
   const reads = (value: unknown, now = at + 1): ReturnType<typeof readActivity> =>
-    readActivity(HOME, SESSION, (p) => (p === path ? JSON.stringify(value) : null), now);
+    readActivity(STATE_DIR, SESSION, (p) => (p === path ? JSON.stringify(value) : null), now);
 
   it('reads the phase and the time the hook observed it', () => {
     expect(reads(marker({ event: 'PostToolBatch', at }))).toEqual({
@@ -142,11 +142,11 @@ describe('readActivity', () => {
   });
 
   it('reports nothing when the session has no marker', () => {
-    expect(readActivity(HOME, SESSION, () => null)).toBeNull();
+    expect(readActivity(STATE_DIR, SESSION, () => null)).toBeNull();
   });
 
   it('reports nothing for a marker that is not JSON', () => {
-    expect(readActivity(HOME, SESSION, () => '{ not json', at)).toBeNull();
+    expect(readActivity(STATE_DIR, SESSION, () => '{ not json', at)).toBeNull();
   });
 
   it('reports nothing for a marker missing the fields the board reads', () => {

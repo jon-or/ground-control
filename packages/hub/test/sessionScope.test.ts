@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ACTION_REVISION, DEFAULT_SESSION_SCOPE, parseHubConfig } from '@ground-control/core';
+import { ACTION_REVISION, DEFAULT_SESSION_SCOPE, bootstrapDirOf, parseHubConfig } from '@ground-control/core';
 import type { HistoricalSession, HubConfig, HubMessage, IssueCard, ReadFailure, Session, SessionScope, Snapshot, WorkSource } from '@ground-control/core';
 import { Hub } from '../src/hub.js';
 import { makeActionStore } from '../src/actionStore.js';
@@ -14,9 +14,14 @@ import { makeTriageStore } from '../src/triageStore.js';
 import { captureLog, fakeClock, fakeHost, fakeReaders, fakeSession, reportingAgent, tempHome } from './helpers.js';
 
 let home: string;
+let stateDir: string;
 let cleanup: () => void;
 const hubs: Hub[] = [];
-beforeEach(() => ({ home, dispose: cleanup } = tempHome()));
+beforeEach(() => {
+  ({ home, dispose: cleanup } = tempHome());
+  stateDir = bootstrapDirOf(home);
+  stateDir = stateDir;
+});
 afterEach(() => { for (const hub of hubs.splice(0)) hub.dispose(); cleanup(); });
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -101,7 +106,7 @@ function harness(options: {
   const parsed = parseHubConfig(raw);
   if ('failure' in parsed) throw new Error(parsed.failure.message);
   let config = parsed.config;
-  const actions = makeActionStore(home);
+  const actions = makeActionStore(stateDir);
   if (options.running) {
     actions.write({
       runs: { 'issue:1': {
@@ -112,9 +117,9 @@ function harness(options: {
     });
   }
   const hub = new Hub({
-    home, registries, clock: clock.clock, log: logs.log, watch: () => ({ dispose() {} }),
-    lanes: makeLaneStore(home), marks: makeMarkStore(home), triage: makeTriageStore(home), actions,
-    checkouts: makeCheckoutStore(home), issues: makeIssueStore(home), status: makeStatusStore(home),
+    home, stateDir, registries, clock: clock.clock, log: logs.log, watch: () => ({ dispose() {} }),
+    lanes: makeLaneStore(stateDir), marks: makeMarkStore(stateDir), triage: makeTriageStore(stateDir), actions,
+    checkouts: makeCheckoutStore(stateDir), issues: makeIssueStore(stateDir), status: makeStatusStore(stateDir),
     settings: { read: () => ({ config }), write: (next) => { config = next; } },
     syncActivity: (_registries, wanted) => ({ wanted, plan: 'up-to-date', added: 0, failure: null }),
   });

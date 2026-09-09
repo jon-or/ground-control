@@ -31,6 +31,7 @@ const readers: MachineReaders = {
   readTail: () => null,
   readHead: () => null,
   home: HOME,
+  stateDir: `${HOME}/.claude/ground-control`,
 };
 
 function config(over: Partial<SessionsConfig> = {}): SessionsConfig {

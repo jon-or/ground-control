@@ -370,11 +370,13 @@ Organize editor settings into GitHub, Board, Sessions, Triage, Actions, and Adva
 
 Leave writer files available for sessions that cached the old settings, so they do not fail on every event; those sessions may keep reporting until restarted. Removal-only acknowledgments must not claim installation or request restarts to enable hooks. Preserve installation age when only entries were removed. Overlay registration is explicitly enabled and can be disabled or removed on uninstall.
 
+`stateDirectory` (machine scope) relocates Ground Control's own state and logs without moving agent homes or the fixed bootstrap directory that Chrome, Claude, and Codex are registered to run from. Changing it moves existing state: record the move first so no hub starts against either directory, stop the hub, copy and verify, commit the pointer, then remove sources. Refuse nested, aliased, file, or non-empty destinations, an unreadable source, and moves while card actions run; a refused or failed move restores the setting, removes only copies the move created, and leaves state in place. Both clients discover the same hub afterwards through the pointer. An interrupted move is cleared on the next activation and reported; copies at the destination are left for the developer. An unset setting on activation adopts the pointer's directory rather than moving state, because settings files are per VS Code profile.
+
 ### R35. Shared background process
 
 One hub per machine performs reads and maintains shared board state. Clients report whether a board is visible. Stop polling, activity reads, automatic triage, and automatic action starts when none is visible. Already dispatched processes continue independently. An activated editor remains connected for configuration changes even with its board closed.
 
-Exit after 30 minutes with no connected clients. Start on demand and remember accepted settings so the browser can use them without an editor running.
+Exit after 30 minutes with no connected clients. Start on demand and remember accepted settings so the browser can use them without an editor running. Resolve the state directory from the bootstrap pointer at every start and connection attempt, and refuse to start while a state move is recorded.
 
 A newly visible board receives cached issues if the previous source read is less than one minute old; otherwise request a read. This is a refresh floor, not a maximum age guarantee. Normal GitHub polling defaults to 300 seconds and session polling to 30 seconds. Manual refresh and relevant settings changes bypass the visibility floor. Display freshness accurately and retry transient failures.
 

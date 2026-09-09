@@ -59,7 +59,7 @@ function harness(over: Partial<ActionSettings> = {}, enabled = configured) {
   }] }];
   const store = makeActionStore(home);
   const runner = new ActionRunner({
-    home, agents, sources: [source], store, log: captureLog().log, now: () => 1000,
+    stateDir: home, agents, sources: [source], store, log: captureLog().log, now: () => 1000,
     changed: () => {}, announce: () => {}, notify: (message) => notices.push(message),
   });
   runner.configure(settings, enabled);

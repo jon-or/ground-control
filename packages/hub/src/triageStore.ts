@@ -1,5 +1,4 @@
 import { mkdirSync } from 'node:fs';
-import { groundControlDirOf } from '@ground-control/core';
 import type { TriageState } from '@ground-control/core';
 import { readTriageState } from '@ground-control/board';
 import { read, writeIfChanged } from './fs.js';
@@ -11,8 +10,8 @@ export interface TriageStore {
   write(state: TriageState): boolean;
 }
 
-export function makeTriageStore(home: string): TriageStore {
-  const path = triagePathOf(home);
+export function makeTriageStore(stateDir: string): TriageStore {
+  const path = triagePathOf(stateDir);
 
   return {
     read(): TriageState {
@@ -32,7 +31,7 @@ export function makeTriageStore(home: string): TriageStore {
 
     write(state: TriageState): boolean {
       try {
-        mkdirSync(groundControlDirOf(home), { recursive: true });
+        mkdirSync(stateDir, { recursive: true });
         // Encode exhausted retries as MAX_SAFE_INTEGER; JSON would convert Infinity to null.
         writeIfChanged(path, `${JSON.stringify(state, finite, 2)}\n`);
 

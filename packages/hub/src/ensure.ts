@@ -1,5 +1,5 @@
 import { statSync } from 'node:fs';
-import { PROTOCOL } from '@ground-control/core';
+import { PROTOCOL, resolveStateDir } from '@ground-control/core';
 import { findHub, stopThisHub } from './discover.js';
 import type { Found, HubMiss, LiveHub } from './discover.js';
 import { read } from './fs.js';
@@ -7,17 +7,18 @@ import { bundlePathOf, exitPathOf, hubJsonPathOf, logPathOf } from './paths.js';
 
 /** Shared hub discovery and startup dependencies for both clients (R35). */
 export interface EnsureDeps {
-  home: string;
-  /** Starts a hub for this home and returns; the caller waits for `hub.json` rather than for the process. */
+  /** Resolve the state directory on every attempt so a relocated pointer is followed without restarting the client. */
+  stateDir(): string;
+  /** Starts a hub and returns; the caller waits for `hub.json` rather than for the process. */
   start(): void;
   now(): number;
   sleep(ms: number): Promise<void>;
   /** Probe once for identity and connection failure details. */
-  look(home: string): Promise<Found>;
+  look(stateDir: string): Promise<Found>;
   /** Request authenticated shutdown of a specific hub, including an older bundle or protocol. */
   stop(hub: LiveHub): Promise<boolean>;
   /** Whether the bundle file is newer than the running hub record. */
-  bundleIsNewer(): boolean;
+  bundleIsNewer(stateDir: string): boolean;
 }
 
 export type Ensured = { hub: LiveHub } | { failed: string };
@@ -33,8 +34,8 @@ const MINUTE_MS = 60_000;
 const FIVE_MINUTES_MS = 5 * MINUTE_MS;
 
 /** Read the last recorded orderly exit. Forced termination leaves no exit record (M25), but absence alone does not establish the cause. */
-function lastExit(home: string): string {
-  const text = read(exitPathOf(home));
+function lastExit(stateDir: string): string {
+  const text = read(exitPathOf(stateDir));
 
   if (text === null) {
     return 'No exit reason recorded.';
@@ -49,21 +50,21 @@ function lastExit(home: string): string {
   }
 }
 
-function withExitDetails(home: string, what: string): string {
-  return `${what} ${lastExit(home)} Log: ${logPathOf(home)}.`;
+function withExitDetails(stateDir: string, what: string): string {
+  return `${what} ${lastExit(stateDir)} Log: ${logPathOf(stateDir)}.`;
 }
 
 /** Read the port recorded by a duplicate-instance startup refusal. */
-function duplicateHubPort(home: string): string | null {
-  const text = read(exitPathOf(home));
-  const found = text === null ? null : /already serving this home on port (\d+)/.exec(text);
+function duplicateHubPort(stateDir: string): string | null {
+  const text = read(exitPathOf(stateDir));
+  const found = text === null ? null : /already serving this state directory on port (\d+)/.exec(text);
 
   return found?.[1] ?? null;
 }
 
 /** Include a recorded duplicate-instance refusal in the connection error. */
-function duplicateHubDetails(home: string): string {
-  const port = duplicateHubPort(home);
+function duplicateHubDetails(stateDir: string): string {
+  const port = duplicateHubPort(stateDir);
 
   return port === null
     ? ''
@@ -71,9 +72,9 @@ function duplicateHubDetails(home: string): string {
 }
 
 /** Describe the final discovery failure and available recovery steps. Report a PID only when identity was verified. */
-function discoveryFailure(home: string, miss: HubMiss): string {
+function discoveryFailure(stateDir: string, miss: HubMiss): string {
   if (miss.why === 'no-record') {
-    return withExitDetails(home, 'The hub started but did not respond.');
+    return withExitDetails(stateDir, 'The hub started but did not respond.');
   }
 
   // Report a PID only for an authenticated listener; an old record may reference a reused PID.
@@ -82,19 +83,19 @@ function discoveryFailure(home: string, miss: HubMiss): string {
 
   switch (miss.why) {
     case 'unreachable':
-      return withExitDetails(home, 'Could not connect to the recorded hub.');
+      return withExitDetails(stateDir, 'Could not connect to the recorded hub.');
 
     case 'silent':
-      return `The process on recorded hub port ${held.port} did not respond. ${stop}${duplicateHubDetails(home)}`;
+      return `The process on recorded hub port ${held.port} did not respond. ${stop}${duplicateHubDetails(stateDir)}`;
 
     case 'not-a-hub':
-      return `Port ${held.port} answered, but not as Ground Control (HTTP ${miss.saw.status}${miss.saw.said === '' ? '' : `: ${miss.saw.said}`}), and ${hubJsonPathOf(home)} still names it. Stop that process, or delete that file, and open the board again.${duplicateHubDetails(home)}`;
+      return `Port ${held.port} answered, but not as Ground Control (HTTP ${miss.saw.status}${miss.saw.said === '' ? '' : `: ${miss.saw.said}`}), and ${hubJsonPathOf(stateDir)} still names it. Stop that process, or delete that file, and open the board again.${duplicateHubDetails(stateDir)}`;
 
     case 'another-home':
-      return `The hub on port ${held.port} is tracking a different home, and this board cannot use it. ${stop}${duplicateHubDetails(home)}`;
+      return `The hub on port ${held.port} is tracking a different state directory, and this board cannot use it. ${stop}${duplicateHubDetails(stateDir)}`;
 
     case 'unproven':
-      return `Could not verify the authentication token for the hub on port ${held.port}. ${stop}${duplicateHubDetails(home)}`;
+      return `Could not verify the authentication token for the hub on port ${held.port}. ${stop}${duplicateHubDetails(stateDir)}`;
 
     case 'another-protocol':
       return `Another hub version is running (pid ${held.pid}, port ${held.port}) and did not stop. ${stop}`;
@@ -119,9 +120,10 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
   }
 
   async function attempt(): Promise<Ensured> {
-    const found = await deps.look(deps.home);
+    const stateDir = deps.stateDir();
+    const found = await deps.look(stateDir);
 
-    if ('hub' in found && !deps.bundleIsNewer()) {
+    if ('hub' in found && !deps.bundleIsNewer(stateDir)) {
       return { hub: found.hub };
     }
 
@@ -135,7 +137,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
 
       // Another client may have replaced the hub. Recheck discovery before falling back to the current connection.
       if (!(await deps.stop(found.hub))) {
-        const again = await deps.look(deps.home);
+        const again = await deps.look(stateDir);
 
         return { hub: 'hub' in again ? again.hub : found.hub };
       }
@@ -147,7 +149,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
       }
 
       if (!mayStart(now)) {
-        return { failed: withExitDetails(deps.home, 'The hub repeatedly exited after starting.') };
+        return { failed: withExitDetails(stateDir, 'The hub repeatedly exited after starting.') };
       }
     }
 
@@ -163,7 +165,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
     for (const until = deps.now() + START_TIMEOUT_MS; deps.now() < until; ) {
       await deps.sleep(START_POLL_MS);
 
-      const live = await deps.look(deps.home);
+      const live = await deps.look(stateDir);
 
       if ('hub' in live) {
         started.length = 0;
@@ -174,7 +176,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
     }
 
     // Probe again to distinguish a startup failure from an existing hub that refused this client.
-    const last = await deps.look(deps.home);
+    const last = await deps.look(stateDir);
 
     // Accept a hub that became available after the polling deadline.
     if ('hub' in last) {
@@ -183,7 +185,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
       return { hub: last.hub };
     }
 
-    return { failed: discoveryFailure(deps.home, last.miss) };
+    return { failed: discoveryFailure(stateDir, last.miss) };
   }
 
   return () => {
@@ -212,10 +214,10 @@ async function resolveProtocolMismatch(deps: EnsureDeps, miss: HubMiss): Promise
   return null;
 }
 
-/** Compare bundle and hub-record mtimes from the same filesystem to avoid mixing clock sources. */
-export function bundleIsNewer(home: string): boolean {
+/** Compare bundle and hub-record mtimes; both come from this machine's clock even when the state directory is on another volume. */
+export function bundleIsNewer(home: string, stateDir: string): boolean {
   const written = mtimeOf(bundlePathOf(home));
-  const bound = mtimeOf(hubJsonPathOf(home));
+  const bound = mtimeOf(hubJsonPathOf(stateDir));
 
   return written !== null && bound !== null && bound < written;
 }
@@ -229,15 +231,15 @@ function mtimeOf(path: string): number | null {
   }
 }
 
-/** Probe the recorded port and use the client-supplied startup function. */
+/** Probe the recorded port and use the client-supplied startup function. The state directory follows the home's pointer. */
 export function realEnsureDeps(home: string, start: () => void): EnsureDeps {
   return {
-    home,
+    stateDir: () => resolveStateDir(home).stateDir,
     start,
     now: () => Date.now(),
     sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
     look: (where) => findHub(where),
     stop: (hub) => stopThisHub(hub),
-    bundleIsNewer: () => bundleIsNewer(home),
+    bundleIsNewer: (stateDir) => bundleIsNewer(home, stateDir),
   };
 }

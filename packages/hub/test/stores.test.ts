@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { groundControlDirOf } from '@ground-control/core';
 import { EMPTY_MEMORY } from '@ground-control/board';
 import { makeLaneStore } from '../src/lanes.js';
 import { afterInstall, announce, makeMarkStore } from '../src/marks.js';
@@ -40,14 +39,14 @@ describe('the lane store', () => {
   });
 
   it('returns empty lane state for invalid JSON', () => {
-    mkdirSync(groundControlDirOf(home), { recursive: true });
+    mkdirSync(home, { recursive: true });
     writeFileSync(lanesPathOf(home), '{ not json');
 
     expect(makeLaneStore(home).read(STATUSES)).toEqual({ ...EMPTY_MEMORY, statuses: STATUSES });
   });
 
   it('drops a stored lane that is not one the developer could have chosen', () => {
-    mkdirSync(groundControlDirOf(home), { recursive: true });
+    mkdirSync(home, { recursive: true });
     writeFileSync(
       lanesPathOf(home),
       JSON.stringify({ placements: { 'issue:1': 'nowhere', 'issue:2': 'plan' }, statuses: STATUSES }),
@@ -89,14 +88,14 @@ describe('the marks', () => {
   });
 
   it('returns empty marks for invalid JSON', () => {
-    mkdirSync(groundControlDirOf(home), { recursive: true });
+    mkdirSync(home, { recursive: true });
     writeFileSync(marksPathOf(home), 'not json');
 
     expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null });
   });
 
   it('returns empty marks for invalid shapes', () => {
-    mkdirSync(groundControlDirOf(home), { recursive: true });
+    mkdirSync(home, { recursive: true });
     writeFileSync(marksPathOf(home), '{"installedAt":"yesterday"}');
 
     expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null });

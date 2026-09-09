@@ -92,7 +92,7 @@ export function readRoster(
   env: NodeJS.ProcessEnv = {},
   now: number = Date.now(),
 ): AgentReading {
-  const dir = activityDirOf(deps.home);
+  const dir = activityDirOf(deps.stateDir);
   const names = deps.listDir(dir);
 
   // The installer creates this directory; absence means hooks are not installed yet.
@@ -113,7 +113,7 @@ export function readRoster(
       continue;
     }
 
-    const marker = readMarker(deps.home, sessionId, deps.readText, now);
+    const marker = readMarker(deps.stateDir, sessionId, deps.readText, now);
 
     if (marker === null) {
       unreadable++;

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { ClientHello, ClientMessage, HubConfig, HubMessage, Session, SessionCheck, Snapshot } from '@ground-control/core';
 import { HubTransport } from '@ground-control/hub';
+import type { Ensured } from '@ground-control/hub';
 import { makeHubProcess } from './hubProcess.js';
 import { boardLog, hubLog, showHubEntries } from './logging.js';
 import { host } from './registry.js';
@@ -13,7 +14,8 @@ import { boardRoot, perform, refuse } from './resident.js';
 export class HubClient {
   /** One per extension host, and the stream and the hello must name the same one or the hub refuses the hello. */
   readonly #id = `vscode-${process.pid}`;
-  readonly #transport: HubTransport;
+  readonly #ensure: () => Promise<Ensured>;
+  #transport: HubTransport;
   readonly #snapshots = new vscode.EventEmitter<Snapshot>();
   readonly #streaming = new vscode.EventEmitter<boolean>();
 
@@ -24,12 +26,14 @@ export class HubClient {
   #hubLines = 0;
 
   constructor(home: string, bundle: string) {
-    const ensure = makeHubProcess(home, bundle);
+    this.#ensure = makeHubProcess(home, bundle);
+    this.#transport = this.#connect();
+  }
 
-    // Keep the client ID stable across board reopenings to avoid repeating installation notices and retaining
-    // unused IDs (R25).
-    this.#transport = new HubTransport(this.#id, {
-      ensure,
+  /** Keep the client ID stable across board reopenings to avoid repeating installation notices and retaining unused IDs (R25). */
+  #connect(): HubTransport {
+    return new HubTransport(this.#id, {
+      ensure: this.#ensure,
       hello: () => this.#hello(),
       // Resend client settings and subscriptions after connecting; the hub may have restarted.
       afterHello: () => this.#restate(),
@@ -106,6 +110,16 @@ export class HubClient {
 
   sessionCheck(sessionId: string): Promise<SessionCheck | null> {
     return this.#transport.sessionCheck(sessionId);
+  }
+
+  /** Stop connecting while the state directory moves, so no restart budget is spent on a hub that refuses to start. */
+  suspend(): void {
+    this.#transport.dispose();
+  }
+
+  /** Reconnect through discovery after a move; hello restates settings and subscriptions. */
+  resume(): void {
+    this.#transport = this.#connect();
   }
 
   dispose(): void {

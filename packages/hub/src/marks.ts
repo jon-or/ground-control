@@ -1,6 +1,5 @@
 import { mkdirSync } from 'node:fs';
 import { z } from 'zod';
-import { groundControlDirOf } from '@ground-control/core';
 import { read, writeIfChanged } from './fs.js';
 import { marksPathOf } from './paths.js';
 
@@ -25,8 +24,8 @@ export interface MarkStore {
   write(next: Marks): void;
 }
 
-export function makeMarkStore(home: string): MarkStore {
-  const path = marksPathOf(home);
+export function makeMarkStore(stateDir: string): MarkStore {
+  const path = marksPathOf(stateDir);
 
   return {
     read(): Marks {
@@ -47,7 +46,7 @@ export function makeMarkStore(home: string): MarkStore {
 
     write(next: Marks): void {
       try {
-        mkdirSync(groundControlDirOf(home), { recursive: true });
+        mkdirSync(stateDir, { recursive: true });
         writeIfChanged(path, `${JSON.stringify(next, null, 2)}\n`);
       } catch {
         // A failed write may repeat a notice without failing rendering.

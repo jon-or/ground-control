@@ -221,6 +221,25 @@ describe('the activity writer', () => {
     expect(existsSync(join(root, 'escaped.json'))).toBe(false);
   });
 
+  it('writes markers under the state directory a pointer names, and ignores a relative pointer', () => {
+    const pointed = mkdtempSync(join(tmpdir(), 'gc-pointed-'));
+    const elsewhere = join(pointed, 'elsewhere');
+
+    mkdirSync(join(pointed, '.claude', 'ground-control'), { recursive: true });
+    writeFileSync(join(pointed, '.claude', 'ground-control', 'state-dir.json'), JSON.stringify({ stateDir: elsewhere }));
+    run('{"session_id":"moved","hook_event_name":"Stop"}', pointed);
+
+    expect(existsSync(join(elsewhere, 'activity', 'moved.json'))).toBe(true);
+    expect(existsSync(join(pointed, '.claude', 'ground-control', 'activity', 'moved.json'))).toBe(false);
+
+    writeFileSync(join(pointed, '.claude', 'ground-control', 'state-dir.json'), JSON.stringify({ stateDir: 'relative/state' }));
+    run('{"session_id":"stayed","hook_event_name":"Stop"}', pointed);
+
+    expect(existsSync(join(pointed, '.claude', 'ground-control', 'activity', 'stayed.json'))).toBe(true);
+
+    rmSync(pointed, { recursive: true, force: true });
+  });
+
   it('exits 0 when the marker cannot be written', () => {
     const blocked = mkdtempSync(join(tmpdir(), 'gc-blocked-'));
 

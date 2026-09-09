@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync } from 'node:fs';
-import { groundControlDirOf } from '@ground-control/core';
+import { bootstrapDirOf, formatStatePointer, statePointerPathOf } from '@ground-control/core';
 import { LOGS_KEPT, rotateLog } from '../src/log.js';
 import { exitPathOf, hubJsonPathOf, logPathOf } from '../src/paths.js';
 import { fingerprintOf, probe } from '../src/discover.js';
@@ -22,6 +22,10 @@ afterEach(async () => {
 function served(result: ServeResult) {
   if ('existing' in result) {
     throw new Error(`expected this process to be the hub, not to find one on port ${result.existing.record.port}`);
+  }
+
+  if ('refused' in result) {
+    throw new Error(`expected this process to be the hub, not to refuse: ${result.refused}`);
   }
 
   return result.served;
@@ -123,14 +127,50 @@ describe('starting a hub for a home', () => {
     const home = homeForThisTest();
     const hub = served((await serving(home)).result);
 
-    const record = JSON.parse(readFileSync(hubJsonPathOf(home), 'utf8')) as Record<string, unknown>;
+    const record = JSON.parse(readFileSync(hubJsonPathOf(bootstrapDirOf(home)), 'utf8')) as Record<string, unknown>;
 
     expect(record.port).toBe(hub.port);
     expect(record.token).toBe(hub.token);
     expect(record.version).toBe('1.2.3');
     expect(record.pid).toBe(process.pid);
-    expect(record.fingerprint).toBe(fingerprintOf(home));
-    expect(await probe(hub.port)).toMatchObject({ hub: 'ground-control', fingerprint: fingerprintOf(home) });
+    expect(record.fingerprint).toBe(fingerprintOf(bootstrapDirOf(home)));
+    expect(await probe(hub.port)).toMatchObject({ hub: 'ground-control', fingerprint: fingerprintOf(bootstrapDirOf(home)) });
+  });
+
+  it('serves the directory a pointer names, and refuses while a move is recorded', async () => {
+    const home = homeForThisTest();
+    const elsewhere = `${home.replace(/\\/g, '/')}/elsewhere`;
+
+    mkdirSync(bootstrapDirOf(home), { recursive: true });
+    writeFileSync(statePointerPathOf(home), formatStatePointer({ stateDir: elsewhere }));
+
+    const hub = served((await serving(home)).result);
+
+    expect(JSON.parse(readFileSync(hubJsonPathOf(elsewhere), 'utf8')).port).toBe(hub.port);
+    expect(existsSync(hubJsonPathOf(bootstrapDirOf(home)))).toBe(false);
+    expect(await probe(hub.port)).toMatchObject({ fingerprint: fingerprintOf(elsewhere) });
+    await hub.stop('moving on');
+
+    writeFileSync(statePointerPathOf(home), formatStatePointer({ stateDir: elsewhere, migration: { to: `${home}/next`, startedAt: new Date().toISOString() } }));
+
+    const refused = await serving(home);
+
+    expect(refused.result).toEqual({ refused: `state relocation to ${home.replace(/\\/g, '/')}/next in progress` });
+    expect(JSON.parse(readFileSync(exitPathOf(elsewhere), 'utf8')).reason).toBe(`state relocation to ${home.replace(/\\/g, '/')}/next in progress`);
+    expect(existsSync(hubJsonPathOf(elsewhere))).toBe(false);
+  });
+
+  it('refuses to serve the bootstrap directory while the pointer is unusable', async () => {
+    const home = homeForThisTest();
+
+    mkdirSync(bootstrapDirOf(home), { recursive: true });
+    writeFileSync(statePointerPathOf(home), '{"stateDir":"relative"}');
+
+    const refused = await serving(home);
+
+    expect(refused.result).toEqual({ refused: 'state-dir.json is not a usable state pointer. Fix or delete the pointer in the bootstrap directory.' });
+    expect(existsSync(hubJsonPathOf(bootstrapDirOf(home)))).toBe(false);
+    expect(JSON.parse(readFileSync(exitPathOf(bootstrapDirOf(home)), 'utf8')).reason).toContain('not a usable state pointer');
   });
 
   /** Exclusive record creation prevents a second hub for the same home. */
@@ -150,19 +190,19 @@ describe('starting a hub for a home', () => {
 
     await serving(home);
 
-    const exit = JSON.parse(readFileSync(exitPathOf(home), 'utf8')) as { code: number; reason: string };
+    const exit = JSON.parse(readFileSync(exitPathOf(bootstrapDirOf(home)), 'utf8')) as { code: number; reason: string };
 
     expect(exit).toMatchObject({ code: 0 });
-    expect(exit.reason).toBe(`a hub was already serving this home on port ${first.port}`);
+    expect(exit.reason).toBe(`a hub was already serving this state directory on port ${first.port}`);
   });
 
   /** A hub that was killed leaves its record behind, and the next one takes the home over rather than refusing. */
   it('takes over a home whose recorded hub is not answering', async () => {
     const home = homeForThisTest();
 
-    mkdirSync(groundControlDirOf(home), { recursive: true });
+    mkdirSync(bootstrapDirOf(home), { recursive: true });
     writeFileSync(
-      hubJsonPathOf(home),
+      hubJsonPathOf(bootstrapDirOf(home)),
       JSON.stringify({
         protocol: 1,
         version: '0.0.0',
@@ -170,26 +210,26 @@ describe('starting a hub for a home', () => {
         token: 'a-token-from-a-hub-that-died',
         pid: 999_999,
         startedAt: '2026-09-03T10:00:00.000Z',
-        fingerprint: fingerprintOf(home),
+        fingerprint: fingerprintOf(bootstrapDirOf(home)),
       }),
     );
 
     const hub = served((await serving(home)).result);
 
     expect(hub.port).not.toBe(1);
-    expect(JSON.parse(readFileSync(hubJsonPathOf(home), 'utf8')).pid).toBe(process.pid);
+    expect(JSON.parse(readFileSync(hubJsonPathOf(bootstrapDirOf(home)), 'utf8')).pid).toBe(process.pid);
   });
 
   it('removes its connection record and records the exit reason', async () => {
     const home = homeForThisTest();
     const hub = served((await serving(home)).result);
 
-    expect(existsSync(hubJsonPathOf(home))).toBe(true);
+    expect(existsSync(hubJsonPathOf(bootstrapDirOf(home)))).toBe(true);
 
     await hub.stop('the developer asked');
 
-    expect(existsSync(hubJsonPathOf(home))).toBe(false);
-    expect(JSON.parse(readFileSync(exitPathOf(home), 'utf8'))).toMatchObject({
+    expect(existsSync(hubJsonPathOf(bootstrapDirOf(home)))).toBe(false);
+    expect(JSON.parse(readFileSync(exitPathOf(bootstrapDirOf(home)), 'utf8'))).toMatchObject({
       code: 0,
       reason: 'the developer asked',
     });
@@ -235,7 +275,7 @@ describe('starting a hub for a home', () => {
 
     later.push(() => hub.stop('the test is over'));
 
-    expect(readFileSync(logPathOf(home), 'utf8')).toContain(`listening on 127.0.0.1:${hub.port}`);
+    expect(readFileSync(logPathOf(bootstrapDirOf(home)), 'utf8')).toContain(`listening on 127.0.0.1:${hub.port}`);
   });
 });
 

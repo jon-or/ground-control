@@ -59,9 +59,9 @@ export function dirKey(dir: string): string {
   return normalize(dir).replace(/\/+$/, '').toLowerCase();
 }
 
-/** Hub state and agent activity files, relative to the developer home. */
+/** Fixed bootstrap directory, relative to the user home: state pointer, hub bundle, native launcher, and hook writers. */
 export const GROUND_CONTROL_DIR = '.claude/ground-control';
 
-export function groundControlDirOf(home: string): string {
+export function bootstrapDirOf(home: string): string {
   return `${normalize(home).replace(/\/+$/, '')}/${GROUND_CONTROL_DIR}`;
 }

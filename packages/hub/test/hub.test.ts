@@ -18,17 +18,19 @@ import { makeMarkStore } from '../src/marks.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { lanesPathOf, logPathOf } from '../src/paths.js';
-import { DEFAULT_SESSION_SCOPE, groundControlDirOf } from '@ground-control/core';
+import { DEFAULT_SESSION_SCOPE, bootstrapDirOf } from '@ground-control/core';
 import type { LogEntry } from '@ground-control/core';
 import { defaultConfig } from '../src/registry.js';
 import { captureLog, fakeClock, fakeHost, fakeReaders, fakeSession, reportingAgent, tempHome } from './helpers.js';
 import type { FakeAgentControl, FakeHostControl } from './helpers.js';
 
 let home: string;
+let stateDir: string;
 let dispose: () => void;
 
 beforeEach(() => {
   ({ home, dispose } = tempHome());
+  stateDir = bootstrapDirOf(home);
 });
 
 afterEach(() => dispose());
@@ -182,15 +184,16 @@ function harness(
       };
     },
     home,
+    stateDir,
     registries,
     log: logging.log,
-    lanes: makeLaneStore(home),
-    marks: makeMarkStore(home),
-    triage: makeTriageStore(home),
-    checkouts: makeCheckoutStore(home),
-    actions: makeActionStore(home),
-    issues: makeIssueStore(home),
-    status: makeStatusStore(home),
+    lanes: makeLaneStore(stateDir),
+    marks: makeMarkStore(stateDir),
+    triage: makeTriageStore(stateDir),
+    checkouts: makeCheckoutStore(stateDir),
+    actions: makeActionStore(stateDir),
+    issues: makeIssueStore(stateDir),
+    status: makeStatusStore(stateDir),
     // Preload stored configuration to model browser startup without an editor connection.
     settings: {
       read: () => (extra.remembered ? { config: shape.config(extra.remembered) } : (extra.stored ?? null)),
@@ -199,7 +202,7 @@ function harness(
       },
     },
     // Fake installation to avoid settings writes; record arguments to verify removal requests.
-    syncActivity: (_registries, wanted, _home, enabled) => {
+    syncActivity: (_registries, wanted, _home, _stateDir, enabled) => {
       shape.installs.push(wanted);
       shape.installedFor.push(enabled === undefined ? null : [...enabled].sort());
 
@@ -1401,8 +1404,8 @@ describe('what the developer does', () => {
     h.hub.receive(first.client, { type: 'move', key: 'issue:18941', lane: 'review' });
     await settle();
 
-    expect(existsSync(lanesPathOf(home))).toBe(true);
-    expect(JSON.parse(readFileSync(lanesPathOf(home), 'utf8')).placements).toEqual({ 'issue:18941': 'review' });
+    expect(existsSync(lanesPathOf(stateDir))).toBe(true);
+    expect(JSON.parse(readFileSync(lanesPathOf(stateDir), 'utf8')).placements).toEqual({ 'issue:18941': 'review' });
     expect(second.inbox.filter((m) => m.type === 'changed')).toHaveLength(1);
   });
 
@@ -1476,7 +1479,7 @@ describe('what the developer does', () => {
     await settle();
 
     expect(inbox).toHaveLength(after);
-    expect(existsSync(lanesPathOf(home))).toBe(false);
+    expect(existsSync(lanesPathOf(stateDir))).toBe(false);
   });
 });
 
@@ -1629,7 +1632,7 @@ describe('the activity signal', () => {
     const { client, inbox } = connect(h);
     h.hub.receive(client, { type: 'configure', config: h.config() });
     await settle();
-    const marks = makeMarkStore(home);
+    const marks = makeMarkStore(stateDir);
     const installedAt = marks.read().installedAt;
     expect(installedAt).not.toBeNull();
     h.clock.advance(2000);
@@ -1988,7 +1991,7 @@ describe('historical fallback publication', () => {
     expect(shown().attention).toBe('blocked');
 
     // Use a stored archive timestamp later than the retained activity to invalidate it.
-    const store = makeLaneStore(home);
+    const store = makeLaneStore(stateDir);
 
     store.write({ ...store.read(h.config().boardStatuses), pastMyHandsAt: { 'issue:42': 900 } });
 
@@ -2311,8 +2314,8 @@ describe('a client that opened a log viewer', () => {
 
   /** Create prior-process log output before starting the hub. */
   function seedLog(text: string): void {
-    mkdirSync(groundControlDirOf(home), { recursive: true });
-    writeFileSync(logPathOf(home), text);
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(logPathOf(stateDir), text);
   }
 
   function logged(inbox: HubMessage[]): LogEntry[] {
@@ -2651,7 +2654,7 @@ describe('starting a session on a card', () => {
     mkdirSync(root, { recursive: true });
 
     // Resolve an unassigned issue from cached metadata when the assigned search omits it.
-    makeIssueStore(home).write({
+    makeIssueStore(stateDir).write({
       entries: { 'github.com/example-org/example-repo#18941': { card: card(18941), at: Date.now() } },
     });
 
@@ -2838,7 +2841,7 @@ describe('choosing a card’s folder', () => {
     h.hub.receive(client, { type: 'setCheckout', key, root: elsewhere });
     await settle();
 
-    expect(makeCheckoutStore(home).read()).toEqual({});
+    expect(makeCheckoutStore(stateDir).read()).toEqual({});
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('not a checkout') });
   });
 
@@ -2861,7 +2864,7 @@ describe('choosing a card’s folder', () => {
     // Normalize selected paths consistently with session cwd paths.
     const stored = picked.replace(/\\/g, '/');
 
-    expect(makeCheckoutStore(home).read()[key]).toBe(stored);
+    expect(makeCheckoutStore(stateDir).read()[key]).toBe(stored);
     expect(h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.key === key)?.checkout).toEqual({
       root: stored,
       source: 'remembered',
@@ -2883,7 +2886,7 @@ describe('choosing a card’s folder', () => {
     h.hub.receive(client, { type: 'setCheckout', key, root: 'refund-window' });
     await settle();
 
-    expect(makeCheckoutStore(home).read()).toEqual({});
+    expect(makeCheckoutStore(stateDir).read()).toEqual({});
   });
 
   it('refuses a card that is no longer on the board', async () => {
@@ -2893,7 +2896,7 @@ describe('choosing a card’s folder', () => {
     h.hub.receive(client, { type: 'setCheckout', key: 'issue:404', root: home });
     await settle();
 
-    expect(makeCheckoutStore(home).read()).toEqual({});
+    expect(makeCheckoutStore(stateDir).read()).toEqual({});
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('no longer on the board') });
   });
 });

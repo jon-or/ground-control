@@ -74,6 +74,8 @@ const recorded = ((): TranscriptFixture => {
 
 /** Use a nonexistent home so tests cannot pass by bypassing injected readers. */
 export const HOME = '/nowhere/home';
+/** Default state directory for that home. */
+export const STATE_DIR = `${HOME}/.claude/ground-control`;
 
 const PROJECTS = `${HOME}/.claude/projects`;
 
@@ -177,5 +179,5 @@ export function claudeWith(run: ExecJson): readonly AgentAdapter[] {
 
 /** The recorded machine: git reads, transcript listing, write times and tails, under the synthetic home. */
 export function recordedReaders(): MachineReaders {
-  return { readText: gitReads(), mtime: recordedMtimes, listDir: listRecordedDirs, readTail: readRecordedTails, readHead: () => null, home: HOME };
+  return { readText: gitReads(), mtime: recordedMtimes, listDir: listRecordedDirs, readTail: readRecordedTails, readHead: () => null, home: HOME, stateDir: STATE_DIR };
 }

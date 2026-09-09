@@ -2,7 +2,6 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { groundControlDirOf } from '@ground-control/core';
 import { dispatchLogPathOf, killOnMachine, makeMachineStarter } from '../src/start.js';
 
 const STARTED = '{"type":"thread.started","thread_id":"01a07d5a-b5bd-7762-8ef8-4202ce964f31"}';
@@ -89,7 +88,7 @@ describe('starting a run and letting go of it', () => {
   });
 
   it('stores dispatch logs by run ID in the board directory', () => {
-    const logs = readdirSync(groundControlDirOf(home)).filter((name) => name.startsWith('codex-dispatch-'));
+    const logs = readdirSync(home).filter((name) => name.startsWith('codex-dispatch-'));
 
     expect(logs).toContain('codex-dispatch-run-1.log');
     expect(logs).toContain('codex-dispatch-run-2.log');

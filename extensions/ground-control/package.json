@@ -455,6 +455,13 @@
             "order": 3,
             "markdownDescription": "Work source IDs to read; currently supports `github`."
           },
+          "groundControl.stateDirectory": {
+            "scope": "machine",
+            "type": "string",
+            "default": "",
+            "order": 4,
+            "markdownDescription": "Absolute directory for Ground Control state and logs; empty keeps `~/.claude/ground-control`. Changing it moves the existing state, following the [relocation rules](https://github.com/jon-or/ground-control/blob/master/README.md#state-directory)."
+          },
           "groundControl.logLevel": {
             "scope": "application",
             "type": "string",

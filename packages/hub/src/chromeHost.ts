@@ -1,4 +1,4 @@
-import { CHROME_EXTENSION_ID, NATIVE_HOST_NAME, groundControlDirOf } from '@ground-control/core';
+import { CHROME_EXTENSION_ID, NATIVE_HOST_NAME, bootstrapDirOf } from '@ground-control/core';
 
 /** Files and registration required for Chrome native messaging. Explicit commands install and remove these external files (R34). */
 export interface ChromeHostPlan {
@@ -24,13 +24,13 @@ export interface ChromeHostInput {
 
 const REGISTRY_KEY = `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`;
 
-/** Per-user manifest location. Windows reads its path from the registry. */
+/** Per-user manifest location in the fixed bootstrap directory on Windows, which reads its path from the registry. */
 function manifestDirOf(platform: NodeJS.Platform, home: string): string {
   if (platform === 'darwin') {
     return `${home}/Library/Application Support/Google/Chrome/NativeMessagingHosts`;
   }
 
-  return platform === 'win32' ? groundControlDirOf(home) : `${home}/.config/google-chrome/NativeMessagingHosts`;
+  return platform === 'win32' ? bootstrapDirOf(home) : `${home}/.config/google-chrome/NativeMessagingHosts`;
 }
 
 /** Keep stdout limited to native-message frames. Forward Chrome arguments with %*. ELECTRON_RUN_AS_NODE lets a VS Code executable run as Node; plain Node ignores it. */
@@ -50,7 +50,7 @@ function wrapperOf(platform: NodeJS.Platform, node: string, bundle: string): { p
 
 export function chromeHostPlan(input: ChromeHostInput): ChromeHostPlan {
   const wrapper = wrapperOf(input.platform, input.node, input.bundle);
-  const wrapperPath = `${groundControlDirOf(input.home)}/${wrapper.path}`;
+  const wrapperPath = `${bootstrapDirOf(input.home)}/${wrapper.path}`;
 
   const manifest = {
     name: NATIVE_HOST_NAME,

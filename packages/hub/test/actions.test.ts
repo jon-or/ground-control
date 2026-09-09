@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { DEFAULT_SESSION_SCOPE } from '@ground-control/core';
+import { bootstrapDirOf } from '@ground-control/core';
 import type {
   AgentAdapter,
   ContextReading,
@@ -31,12 +32,14 @@ import { actionReportPathOf } from '../src/paths.js';
 import { captureLog, fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
 
 let home: string;
+let stateDir: string;
 let dispose: () => void;
 /** Use a readable directory for checkout validation and dispatch. */
 let CHECKOUT: string;
 
 beforeEach(() => {
   ({ home, dispose } = tempHome());
+  stateDir = bootstrapDirOf(home);
   CHECKOUT = join(home, '17198-channel-mapping');
   mkdirSync(CHECKOUT, { recursive: true });
 });
@@ -202,7 +205,7 @@ function harness(
       await control.pass();
     },
     report: (body: unknown) => {
-      const path = actionReportPathOf(home, control.key());
+      const path = actionReportPathOf(stateDir, control.key());
       mkdirSync(path.slice(0, path.lastIndexOf('/')), { recursive: true });
       writeFileSync(path, JSON.stringify(body));
     },
@@ -276,21 +279,22 @@ function harness(
   };
 
   const logging = captureLog();
-  const store = makeActionStore(home);
+  const store = makeActionStore(stateDir);
 
   control.hub = new Hub({
     clock: clock.clock,
     watch: () => ({ dispose: () => undefined }),
     home,
+    stateDir,
     registries: { agents: [dispatching], hosts: [], sources: [source] },
-    lanes: makeLaneStore(home),
-    marks: makeMarkStore(home),
-    triage: makeTriageStore(home),
-    checkouts: makeCheckoutStore(home),
+    lanes: makeLaneStore(stateDir),
+    marks: makeMarkStore(stateDir),
+    triage: makeTriageStore(stateDir),
+    checkouts: makeCheckoutStore(stateDir),
     // Reads still work; only the write fails, which is the shape a locked or full disk actually takes.
     actions: { read: () => store.read(), write: (state) => (control.storeBroken ? false : store.write(state)) },
-    issues: makeIssueStore(home),
-    status: makeStatusStore(home),
+    issues: makeIssueStore(stateDir),
+    status: makeStatusStore(stateDir),
     settings: { read: () => null, write: () => undefined },
     log: logging.log,
     syncActivity: (_r, wanted) => ({ wanted, plan: 'up-to-date', added: 0, failure: null }),
@@ -602,7 +606,7 @@ describe('what the board refuses to act on', () => {
     const picked = join(home, 'picked-by-hand');
     mkdirSync(join(picked, '.git'), { recursive: true });
     writeFileSync(join(picked, '.git', 'config'), '[remote "origin"]\n url = https://github.com/example-org/example-repo.git');
-    makeCheckoutStore(home).write(control.key(), picked.replace(/\\/g, '/'));
+    makeCheckoutStore(stateDir).write(control.key(), picked.replace(/\\/g, '/'));
 
     control.dispatched.length = 0;
     await control.pass();
@@ -713,7 +717,7 @@ describe('following a run to its end', () => {
   /** A directory where the report belongs is the shape of a path the board cannot clear: an ACL, a locked file. */
   it('refuses dispatch when the previous report cannot be removed', async () => {
     const control = harness();
-    mkdirSync(actionReportPathOf(home, 'issue:17198'), { recursive: true });
+    mkdirSync(actionReportPathOf(stateDir, 'issue:17198'), { recursive: true });
     watch(control);
     await control.pass();
 

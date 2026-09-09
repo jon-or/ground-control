@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readRoster, sessionIndexPathOf, threadNamesFrom } from '../src/roster.js';
 import { HOOK_MARKER_VERSION, activityDirOf, markerPathOf } from '../src/hookScript.js';
-import { HOME, machine } from './helpers.js';
+import { HOME, STATE_DIR, machine } from './helpers.js';
 import type { FakeMachine } from './helpers.js';
 
 const NOW = 1_700_000_000_000;
@@ -52,8 +52,8 @@ function checkout(files: Record<string, string>): Record<string, string> {
 
 function board(over: Partial<FakeMachine> = {}) {
   return machine({
-    dirs: { [activityDirOf(HOME)]: ['thread-1.json'], ...over.dirs },
-    files: checkout({ [markerPathOf(HOME, 'thread-1')]: markerText(), ...over.files }),
+    dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json'], ...over.dirs },
+    files: checkout({ [markerPathOf(STATE_DIR, 'thread-1')]: markerText(), ...over.files }),
     ...(over.mtimes ? { mtimes: over.mtimes } : {}),
   });
 }
@@ -117,7 +117,7 @@ describe('the roster the markers make', () => {
 
   it('skips the temporary file a write in flight leaves beside a marker', () => {
     const reading = readRoster(
-      board({ dirs: { [activityDirOf(HOME)]: ['thread-1.json', 'thread-1.json.998.tmp'] } }),
+      board({ dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json', 'thread-1.json.998.tmp'] } }),
       ALIVE,
       {},
       NOW,
@@ -130,10 +130,10 @@ describe('the roster the markers make', () => {
   it('reports unreadable markers', () => {
     const reading = readRoster(
       board({
-        dirs: { [activityDirOf(HOME)]: ['thread-1.json', 'thread-2.json'] },
+        dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json', 'thread-2.json'] },
         files: checkout({
-          [markerPathOf(HOME, 'thread-1')]: markerText(),
-          [markerPathOf(HOME, 'thread-2')]: '{ not json',
+          [markerPathOf(STATE_DIR, 'thread-1')]: markerText(),
+          [markerPathOf(STATE_DIR, 'thread-2')]: '{ not json',
         }),
       }),
       ALIVE,
@@ -148,7 +148,7 @@ describe('the roster the markers make', () => {
 
   it('reports a marker with no directory as unreadable, because a card cannot be placed without one', () => {
     const reading = readRoster(
-      board({ files: checkout({ [markerPathOf(HOME, 'thread-1')]: markerText({ cwd: null }) }) }),
+      board({ files: checkout({ [markerPathOf(STATE_DIR, 'thread-1')]: markerText({ cwd: null }) }) }),
       ALIVE,
       {},
       NOW,
@@ -160,7 +160,7 @@ describe('the roster the markers make', () => {
 
   it('reports missing marker PIDs', () => {
     const reading = readRoster(
-      board({ files: checkout({ [markerPathOf(HOME, 'thread-1')]: markerText({ pid: null }) }) }),
+      board({ files: checkout({ [markerPathOf(STATE_DIR, 'thread-1')]: markerText({ pid: null }) }) }),
       ALIVE,
       {},
       NOW,
@@ -172,7 +172,7 @@ describe('the roster the markers make', () => {
 
   it('reports no transcript time where the marker has no transcript path', () => {
     const reading = readRoster(
-      board({ files: checkout({ [markerPathOf(HOME, 'thread-1')]: markerText({ transcriptPath: null }) }) }),
+      board({ files: checkout({ [markerPathOf(STATE_DIR, 'thread-1')]: markerText({ transcriptPath: null }) }) }),
       ALIVE,
       {},
       NOW,
@@ -186,11 +186,11 @@ describe('multiple invalid markers', () => {
     it('counts them, and names the unreadable ones before the unprovable', () => {
       const reading = readRoster(
         board({
-          dirs: { [activityDirOf(HOME)]: ['thread-1.json', 'thread-2.json', 'thread-3.json'] },
+          dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json', 'thread-2.json', 'thread-3.json'] },
           files: checkout({
-            [markerPathOf(HOME, 'thread-1')]: '{ not json',
-            [markerPathOf(HOME, 'thread-2')]: markerText({ sessionId: 'thread-2', cwd: null }),
-            [markerPathOf(HOME, 'thread-3')]: markerText({ sessionId: 'thread-3', pid: null }),
+            [markerPathOf(STATE_DIR, 'thread-1')]: '{ not json',
+            [markerPathOf(STATE_DIR, 'thread-2')]: markerText({ sessionId: 'thread-2', cwd: null }),
+            [markerPathOf(STATE_DIR, 'thread-3')]: markerText({ sessionId: 'thread-3', pid: null }),
           }),
         }),
         ALIVE,
@@ -206,10 +206,10 @@ describe('multiple invalid markers', () => {
     it('pluralizes counts of sessions with unknown liveness', () => {
       const reading = readRoster(
         board({
-          dirs: { [activityDirOf(HOME)]: ['thread-1.json', 'thread-2.json'] },
+          dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json', 'thread-2.json'] },
           files: checkout({
-            [markerPathOf(HOME, 'thread-1')]: markerText({ pid: null }),
-            [markerPathOf(HOME, 'thread-2')]: markerText({ sessionId: 'thread-2', pid: null }),
+            [markerPathOf(STATE_DIR, 'thread-1')]: markerText({ pid: null }),
+            [markerPathOf(STATE_DIR, 'thread-2')]: markerText({ sessionId: 'thread-2', pid: null }),
           }),
         }),
         ALIVE,

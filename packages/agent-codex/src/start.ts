@@ -1,8 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, readSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { groundControlDirOf, resolveOnDisk } from '@ground-control/core';
+import { resolveOnDisk } from '@ground-control/core';
 import type { StartProcess, StartedProcess } from './dispatch.js';
 
 /** Poll interval while waiting for thread.started output. */
@@ -11,9 +10,9 @@ const POLL_MS = 100;
 /** Node refuses to spawn a batch file without a shell, and a shell would parse the configured path. */
 const BATCH = /\.(cmd|bat)$/i;
 
-/** Persist dispatch output after hub exit. The hub expires files matching <agent>-dispatch-<id>.log. */
-export function dispatchLogPathOf(home: string, id: string): string {
-  return `${groundControlDirOf(home)}/codex-dispatch-${id}.log`;
+/** Persist dispatch output in the state directory after hub exit. The hub expires files matching <agent>-dispatch-<id>.log. */
+export function dispatchLogPathOf(stateDir: string, id: string): string {
+  return `${stateDir}/codex-dispatch-${id}.log`;
 }
 
 /**
@@ -21,7 +20,7 @@ export function dispatchLogPathOf(home: string, id: string): string {
  * from stdout to identify the run before it finishes. Convert synchronous spawn errors and child error events
  * into classified failures.
  */
-export function makeMachineStarter(home: string = homedir(), id: () => string = randomUUID): StartProcess {
+export function makeMachineStarter(stateDir: string, id: () => string = randomUUID): StartProcess {
   return function start(path, args, options): Promise<StartedProcess> {
     const failed = (reason: string, detail: string): StartedProcess => ({
       pid: null,
@@ -42,12 +41,12 @@ export function makeMachineStarter(home: string = homedir(), id: () => string = 
     }
 
     // Use unique run IDs; timestamp-only names can collide and associate cards with the wrong threads.
-    const log = dispatchLogPathOf(home, id());
+    const log = dispatchLogPathOf(stateDir, id());
     let out: number;
     let err: number;
 
     try {
-      mkdirSync(groundControlDirOf(home), { recursive: true });
+      mkdirSync(stateDir, { recursive: true });
       out = openSync(log, 'a');
       // Separate stdout and stderr to prevent interleaved writes corrupting thread.started records (M13).
       err = openSync(`${log}.err`, 'a');

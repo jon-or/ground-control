@@ -13,8 +13,8 @@ export interface LoggerDeps {
 }
 
 /** Append to hub.log and rotate by bytes written, avoiding a stat call per line. */
-export function fileSink(home: string): (line: string) => void {
-  const path = logPathOf(home);
+export function fileSink(stateDir: string): (line: string) => void {
+  const path = logPathOf(stateDir);
 
   let fd = openLog(path);
   let written = 0;

@@ -24,7 +24,8 @@ import { actionReportPathOf } from './paths.js';
 import type { ActionStore } from './actionStore.js';
 
 export interface ActionDeps {
-  home: string;
+  /** Ground Control state directory holding per-card run reports. */
+  stateDir: string;
   store: ActionStore;
   /** Log action starts, stops, and outcomes (R39). */
   log: Logger;
@@ -391,7 +392,7 @@ export class ActionRunner {
    * reported outcome (R39), not the independent stage-completion evidence required by future R23.
    */
   #settled(state: ActionState, key: string): ActionState {
-    const report = readActionReport(readJson(actionReportPathOf(this.#deps.home, key)));
+    const report = readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)));
 
     this.#deps.log.info(
       `${key}: ${report?.outcome === 'pushed' ? 'push reported' : 'no push reported'}`,
@@ -537,7 +538,7 @@ export class ActionRunner {
       return;
     }
 
-    const reportPath = actionReportPathOf(this.#deps.home, key);
+    const reportPath = actionReportPathOf(this.#deps.stateDir, key);
 
     if (!clearReport(reportPath)) {
       this.#refuse(key, asked, {

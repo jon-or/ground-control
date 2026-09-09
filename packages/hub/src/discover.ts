@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { request } from 'node:http';
 import { z } from 'zod';
-import { PROTOCOL, groundControlDirOf } from '@ground-control/core';
+import { PROTOCOL, normalize } from '@ground-control/core';
 import { read } from './fs.js';
 import { hubJsonPathOf } from './paths.js';
 import { proofOf } from './server.js';
@@ -43,14 +43,14 @@ const hubIdentity = z.object({
   proof: z.string().optional(),
 });
 
-/** Identify the configuration home so clients do not send tokens to another home's hub. */
-export function fingerprintOf(home: string): string {
-  return createHash('sha256').update(groundControlDirOf(home)).digest('hex').slice(0, 16);
+/** Identify the state directory so clients do not send tokens to another directory's hub. */
+export function fingerprintOf(stateDir: string): string {
+  return createHash('sha256').update(normalize(stateDir).replace(/\/+$/, '')).digest('hex').slice(0, 16);
 }
 
 /** Return null for missing, unreadable, or incomplete records. */
-export function readHubRecord(home: string): HubRecord | null {
-  const text = read(hubJsonPathOf(home));
+export function readHubRecord(stateDir: string): HubRecord | null {
+  const text = read(hubJsonPathOf(stateDir));
 
   if (text === null) {
     return null;
@@ -179,8 +179,8 @@ export interface LiveHub {
 }
 
 /** Authenticate the recorded hub regardless of protocol. Probe liveness because forced Windows exits leave stale records. Never send tokens to unverified listeners. */
-export async function recordedHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<LiveHub | null> {
-  const found = await findHub(home, timeoutMs);
+export async function recordedHub(stateDir: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<LiveHub | null> {
+  const found = await findHub(stateDir, timeoutMs);
 
   if ('hub' in found) {
     return found.hub;
@@ -203,8 +203,8 @@ export type HubMiss =
 export type Found = { hub: LiveHub } | { miss: HubMiss };
 
 /** Return an authenticated hub or the discovery failure. Probe for liveness rather than trusting a potentially stale record. */
-export async function findHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<Found> {
-  const record = readHubRecord(home);
+export async function findHub(stateDir: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<Found> {
+  const record = readHubRecord(stateDir);
 
   if (record === null) {
     return { miss: { why: 'no-record' } };
@@ -226,8 +226,8 @@ export async function findHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promi
     return { miss: { why: 'not-a-hub', record, saw: identity.notAHub } };
   }
 
-  // Verify token possession as well as the home fingerprint; a home path alone cannot authenticate a listener.
-  if (identity.fingerprint !== fingerprintOf(home)) {
+  // Verify token possession as well as the directory fingerprint; a path alone cannot authenticate a listener.
+  if (identity.fingerprint !== fingerprintOf(stateDir)) {
     return { miss: { why: 'another-home', record } };
   }
 
@@ -248,8 +248,8 @@ function proves(identity: HubIdentity, record: HubRecord, nonce: string): boolea
 }
 
 /** Stop the authenticated hub regardless of protocol; shutdown uses the same route across versions. */
-export async function stopHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
-  const held = await recordedHub(home, timeoutMs);
+export async function stopHub(stateDir: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
+  const held = await recordedHub(stateDir, timeoutMs);
 
   return held !== null && stopThisHub(held, timeoutMs);
 }

@@ -1,6 +1,7 @@
 import { closeSync, mkdirSync, openSync, rmSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { PROTOCOL, groundControlDirOf } from '@ground-control/core';
+import { PROTOCOL, dirKey, resolveStateDir } from '@ground-control/core';
+import type { ResolvedStateDir } from '@ground-control/core';
 import { writeAtomic } from './fs.js';
 import { Hub, realHubDeps } from './hub.js';
 import { makeLaneStore } from './lanes.js';
@@ -37,10 +38,10 @@ export function spawnEnvironment(env: NodeJS.ProcessEnv = { ...process.env }): N
   return env;
 }
 
-/** Construct a hub with real machine dependencies for the given home. */
-export function makeHub(log: Logger, home: string = homedir(), agentEnv?: NodeJS.ProcessEnv): Hub {
+/** Construct a hub with real machine dependencies for the given home and state directory. */
+export function makeHub(log: Logger, home: string = homedir(), stateDir: string = resolveStateDir(home).stateDir, agentEnv?: NodeJS.ProcessEnv): Hub {
   return new Hub(
-    realHubDeps(makeRegistries(log, home, agentEnv), makeLaneStore(home), makeMarkStore(home), makeSettingsStore(home), home, watchDir, log),
+    realHubDeps(makeRegistries(log, home, agentEnv, stateDir), makeLaneStore(stateDir), makeMarkStore(stateDir), makeSettingsStore(stateDir), home, stateDir, watchDir, log),
   );
 }
 
@@ -49,6 +50,8 @@ export const IDLE_EXIT_MS = 30 * 60 * 1000;
 
 export interface ServeOptions {
   home?: string;
+  /** Default: the home's pointer, or its bootstrap directory. */
+  stateDir?: string;
   /** Explicit environments allow profile fixtures; an injected home otherwise ignores agent home variables. */
   agentEnv?: NodeJS.ProcessEnv;
   version: string;
@@ -68,20 +71,29 @@ export interface Served {
   stop(reason: string): Promise<void>;
 }
 
-/** Report whether this process started the hub or found an existing one. */
-export type ServeResult = { served: Served } | { existing: LiveHub };
+/** Report whether this process started the hub, found an existing one, or refused to start during a state relocation. */
+export type ServeResult = { served: Served } | { existing: LiveHub } | { refused: string };
 
-/** Record duplicate-instance startup refusal for client diagnostics. */
-function recordDuplicateHub(home: string, port: number): void {
-  const reason = `a hub was already serving this home on port ${port}`;
+/** Why a hub must not serve the resolved directory, or null. */
+function pointerRefusal(resolved: ResolvedStateDir): string | null {
+  if (resolved.problem !== null) {
+    return `${resolved.problem} Fix or delete the pointer in the bootstrap directory.`;
+  }
 
-  writeAtomic(exitPathOf(home), JSON.stringify({ code: 0, at: new Date().toISOString(), reason }, null, 2));
+  return resolved.migratingTo === null ? null : `state relocation to ${resolved.migratingTo} in progress`;
 }
 
-/** Exclusively create hub.json after binding. Ephemeral ports do not prevent two hubs from starting for the same home. */
-function claimRecord(home: string, text: string): boolean {
+/** Record duplicate-instance startup refusal for client diagnostics. */
+function recordDuplicateHub(stateDir: string, port: number): void {
+  const reason = `a hub was already serving this state directory on port ${port}`;
+
+  writeAtomic(exitPathOf(stateDir), JSON.stringify({ code: 0, at: new Date().toISOString(), reason }, null, 2));
+}
+
+/** Exclusively create hub.json after binding. Ephemeral ports do not prevent two hubs from starting for the same directory. */
+function claimRecord(stateDir: string, text: string): boolean {
   try {
-    const fd = openSync(hubJsonPathOf(home), 'wx');
+    const fd = openSync(hubJsonPathOf(stateDir), 'wx');
 
     writeSync(fd, text);
     closeSync(fd);
@@ -95,25 +107,37 @@ function claimRecord(home: string, text: string): boolean {
 /** Probe for an existing hub, then bind and exclusively create hub.json. Replace records only when their hub no longer answers (M25). */
 export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   const home = options.home ?? homedir();
+  const resolved = resolveStateDir(home);
+  const stateDir = options.stateDir ?? resolved.stateDir;
   const exit = options.exit ?? ((code: number) => process.exit(code));
   const idleMs = Number.isFinite(options.idleMs) ? (options.idleMs as number) : IDLE_EXIT_MS;
 
   sanitizeEnvironment();
-  mkdirSync(groundControlDirOf(home), { recursive: true });
+  mkdirSync(stateDir, { recursive: true });
 
-  const log = options.log ?? makeLogger({ write: fileSink(home) });
+  // A client is moving this directory, or the pointer is unusable; serving would split state between locations.
+  const refusal = options.stateDir === undefined ? pointerRefusal(resolved) : null;
+
+  if (refusal !== null) {
+    writeAtomic(exitPathOf(stateDir), JSON.stringify({ code: 0, at: new Date().toISOString(), reason: refusal }, null, 2));
+
+    return { refused: refusal };
+  }
+
+  const log = options.log ?? makeLogger({ write: fileSink(stateDir) });
+
   // Respect authenticated hubs with any protocol to prevent duplicate writers. Clients decide whether to replace incompatible hubs.
-  const already = await recordedHub(home);
+  const already = await recordedHub(stateDir);
 
   if (already) {
-    log.info(`hub already running for this home on port ${already.record.port}`);
-    recordDuplicateHub(home, already.record.port);
+    log.info(`hub already running for this state directory on port ${already.record.port}`);
+    recordDuplicateHub(stateDir, already.record.port);
 
     return { existing: already };
   }
 
-  const fingerprint = fingerprintOf(home);
-  const hub = makeHub(log, home, options.agentEnv ?? (options.home === undefined ? process.env : undefined));
+  const fingerprint = fingerprintOf(stateDir);
+  const hub = makeHub(log, home, stateDir, options.agentEnv ?? (options.home === undefined ? process.env : undefined));
   const startedAt = new Date().toISOString();
 
   let server: HubServer;
@@ -122,8 +146,8 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
 
   /** Remove the record only if it still belongs to this process. */
   const unclaim = (): void => {
-    if (readHubRecord(home)?.pid === process.pid) {
-      rmSync(hubJsonPathOf(home), { force: true });
+    if (readHubRecord(stateDir)?.pid === process.pid) {
+      rmSync(hubJsonPathOf(stateDir), { force: true });
     }
   };
 
@@ -134,7 +158,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
       await server.close();
       hub.dispose();
       unclaim();
-      writeAtomic(exitPathOf(home), JSON.stringify({ code: 0, at: new Date().toISOString(), reason }, null, 2));
+      writeAtomic(exitPathOf(stateDir), JSON.stringify({ code: 0, at: new Date().toISOString(), reason }, null, 2));
     })();
 
     return stopping;
@@ -156,10 +180,23 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
 
     // Record startup failure so clients do not report an earlier hub's exit reason.
     log.error(reason);
-    writeAtomic(exitPathOf(home), JSON.stringify({ code: 1, at: new Date().toISOString(), reason }, null, 2));
+    writeAtomic(exitPathOf(stateDir), JSON.stringify({ code: 1, at: new Date().toISOString(), reason }, null, 2));
 
     // Port zero cannot conflict; binding failure indicates a loopback problem.
     throw new Error(`The hub ${reason}`);
+  }
+
+  // Discovery and binding took time; a move recorded meanwhile must not be crossed by claiming the old directory.
+  const again = options.stateDir === undefined ? resolveStateDir(home) : null;
+  const late = again === null ? null : (pointerRefusal(again) ?? (dirKey(again.stateDir) === dirKey(stateDir) ? null : `the state directory moved to ${again.stateDir} during startup`));
+
+  if (late !== null) {
+    await server.close();
+    hub.dispose();
+    log.info(`not serving: ${late}`);
+    writeAtomic(exitPathOf(stateDir), JSON.stringify({ code: 0, at: new Date().toISOString(), reason: late }, null, 2));
+
+    return { refused: late };
   }
 
   const text = JSON.stringify(
@@ -176,28 +213,28 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
     2,
   );
 
-  for (let attempts = 2; !claimRecord(home, text); attempts--) {
-    const other = await recordedHub(home);
+  for (let attempts = 2; !claimRecord(stateDir, text); attempts--) {
+    const other = await recordedHub(stateDir);
 
     if (other || attempts === 1) {
       await server.close();
       hub.dispose();
 
       if (!other) {
-        throw new Error(`The hub record at ${hubJsonPathOf(home)} repeatedly changed, but no recorded hub responded.`);
+        throw new Error(`The hub record at ${hubJsonPathOf(stateDir)} repeatedly changed, but no recorded hub responded.`);
       }
 
-      log.info(`another hub started for this home on port ${other.record.port}; exiting`);
-      recordDuplicateHub(home, other.record.port);
+      log.info(`another hub started for this state directory on port ${other.record.port}; exiting`);
+      recordDuplicateHub(stateDir, other.record.port);
 
       return { existing: other };
     }
 
     // Replace the record for an unresponsive hub.
-    rmSync(hubJsonPathOf(home), { force: true });
+    rmSync(hubJsonPathOf(stateDir), { force: true });
   }
 
-  rmSync(exitPathOf(home), { force: true });
+  rmSync(exitPathOf(stateDir), { force: true });
 
   // Forced Windows termination skips cleanup (M25); clients must probe for liveness instead of trusting this file.
   process.on('exit', unclaim);
@@ -211,7 +248,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   }, Math.max(200, Math.min(60_000, idleMs)));
   idle.unref();
 
-  log.info(`listening on 127.0.0.1:${server.port} as pid ${process.pid}`);
+  log.info(`listening on 127.0.0.1:${server.port} as pid ${process.pid}, state in ${stateDir}`);
 
   return { served: { port: server.port, token: server.token, hub, log, stop } };
 }

@@ -1,4 +1,4 @@
-import { GROUND_CONTROL_DIR, normalize } from '@ground-control/core';
+import { GROUND_CONTROL_DIR, HOOK_STATE_DIR_SOURCE, normalize } from '@ground-control/core';
 
 /**
  * Increment for changed field semantics, not compatible additions. Readers reject incompatible versions;
@@ -6,8 +6,9 @@ import { GROUND_CONTROL_DIR, normalize } from '@ground-control/core';
  */
 export const HOOK_MARKER_VERSION = 1;
 
+/** Writer in the fixed bootstrap directory; markers go to the resolved state directory. */
 export const HOOK_FILE = `${GROUND_CONTROL_DIR}/hook.mjs`;
-export const ACTIVITY_DIR = `${GROUND_CONTROL_DIR}/activity`;
+export const ACTIVITY_DIR = 'activity';
 
 function under(home: string, suffix: string): string {
   return `${rootPath(home).replace(/\/+$/, '')}/${suffix}`;
@@ -33,18 +34,13 @@ export function hookPathOf(home: string): string {
   return under(home, HOOK_FILE);
 }
 
-export function activityDirOf(home: string): string {
-  return under(home, ACTIVITY_DIR);
+export function activityDirOf(stateDir: string): string {
+  return under(stateDir, ACTIVITY_DIR);
 }
 
-export function markerPathOf(home: string, sessionId: string): string {
-  return `${activityDirOf(home)}/${sessionId}.json`;
+export function markerPathOf(stateDir: string, sessionId: string): string {
+  return `${activityDirOf(stateDir)}/${sessionId}.json`;
 }
-
-/** Generate path segments for platform-independent joining in the writer. */
-const ACTIVITY_SEGMENTS = ACTIVITY_DIR.split('/')
-  .map((segment) => `'${segment}'`)
-  .join(', ');
 
 /**
  * Shared clock tolerance for readers and writers. Reject far-future markers but allow replacing them after a
@@ -62,7 +58,9 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const DIR = join(homedir(), ${ACTIVITY_SEGMENTS});
+${HOOK_STATE_DIR_SOURCE}
+
+const DIR = join(stateDir(), '${ACTIVITY_DIR}');
 
 try {
   const payload = JSON.parse(readFileSync(0, 'utf8'));

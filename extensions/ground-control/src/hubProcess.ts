@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { closeSync, openSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync } from 'node:fs';
+import { resolveStateDir } from '@ground-control/core';
 import { logPathOf, makeEnsure, realEnsureDeps, spawnEnvironment } from '@ground-control/hub';
 import type { Ensured } from '@ground-control/hub';
 
@@ -9,7 +10,11 @@ import type { Ensured } from '@ground-control/hub';
  * before spawning, including failures before hub startup.
  */
 function startHub(bundle: string, home: string): void {
-  const log = openSync(logPathOf(home), 'a');
+  const stateDir = resolveStateDir(home).stateDir;
+
+  mkdirSync(stateDir, { recursive: true });
+
+  const log = openSync(logPathOf(stateDir), 'a');
   const env = spawnEnvironment();
 
   try {

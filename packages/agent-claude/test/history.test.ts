@@ -12,7 +12,7 @@ function machine() {
   const dirs: Record<string, string[]> = { [root]: ['-work-42-example'], [`${root}/-work-42-example`]: [`${ID}.jsonl`, ID, 'agent-abc.jsonl'] };
   const text: Record<string, string> = { [file]: row(), '/work/42-example/.git/config': '[remote "origin"]\n url = git@github.com:org/repo.git' };
   const times: Record<string, number> = { [file]: 100 };
-  const deps: MachineDeps = { home: '/isolated', pattern: /^(\d+)-/, listDir: (p) => dirs[p] ?? null,
+  const deps: MachineDeps = { home: '/isolated', stateDir: '/isolated/.claude/ground-control', pattern: /^(\d+)-/, listDir: (p) => dirs[p] ?? null,
     mtime: (p) => times[p] ?? null, readText: (p) => text[p] ?? null,
     readHead: vi.fn((p) => text[p] ?? null), readTail: vi.fn((p) => text[p] ?? null) };
   return { deps, root, file, dirs, text, times };

@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PROTOCOL, groundControlDirOf } from '@ground-control/core';
+import { PROTOCOL } from '@ground-control/core';
 import { findHub, fingerprintOf, probe, readHubRecord, recordedHub, stopHub, stopThisHub } from '../src/discover.js';
 import { proofOf } from '../src/server.js';
 import { hubJsonPathOf } from '../src/paths.js';
@@ -68,7 +68,7 @@ function hubListener(home: string, over: { token?: string; protocol?: number } =
 }
 
 function writeRecord(home: string, over: Record<string, unknown>): void {
-  mkdirSync(groundControlDirOf(home), { recursive: true });
+  mkdirSync(home, { recursive: true });
   writeFileSync(
     hubJsonPathOf(home),
     JSON.stringify({
@@ -85,10 +85,10 @@ function writeRecord(home: string, over: Record<string, unknown>): void {
 }
 
 describe('which hub this is', () => {
-  it('is the configuration directory, so two homes never share one', () => {
+  it('is the state directory, so two directories never share one', () => {
     // Use a literal expected fingerprint independent of the implementation.
     expect(fingerprintOf('d:/users/one')).toBe(
-      createHash('sha256').update('d:/users/one/.claude/ground-control').digest('hex').slice(0, 16),
+      createHash('sha256').update('d:/users/one').digest('hex').slice(0, 16),
     );
     expect(fingerprintOf('d:/users/one')).not.toBe(fingerprintOf('d:/users/two'));
   });
@@ -122,7 +122,7 @@ describe('reading the record a hub left', () => {
     try {
       expect(readHubRecord(home)).toBeNull();
 
-      mkdirSync(groundControlDirOf(home), { recursive: true });
+      mkdirSync(home, { recursive: true });
       writeFileSync(hubJsonPathOf(home), '{"port": 43');
       expect(readHubRecord(home)).toBeNull();
 

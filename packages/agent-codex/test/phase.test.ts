@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { activityOf, markerInProfile, phaseOf, readActivity, readMarker } from '../src/phase.js';
 import type { ActivityMarker } from '../src/phase.js';
 import { HOOK_MARKER_VERSION, markerPathOf } from '../src/hookScript.js';
-import { HOME, machine } from './helpers.js';
+import { HOME, STATE_DIR, machine } from './helpers.js';
 
 const NOW = 1_700_000_000_000;
 
@@ -29,7 +29,7 @@ function marker(over: Partial<ActivityMarker> = {}): ActivityMarker {
 }
 
 function withMarker(value: unknown, sessionId = 'thread-1') {
-  return machine({ files: { [markerPathOf(HOME, sessionId)]: JSON.stringify(value) } });
+  return machine({ files: { [markerPathOf(STATE_DIR, sessionId)]: JSON.stringify(value) } });
 }
 
 describe('the phase a Codex event reports', () => {
@@ -44,7 +44,7 @@ describe('the phase a Codex event reports', () => {
     expect(markerInProfile(marker({ transcriptPath: null }), HOME, custom)).toBe(false);
     expect(markerInProfile(marker({ transcriptPath: null }), HOME, {})).toBe(true);
     const invalid = withMarker(marker({ profileRoot: 'relative' }));
-    expect(readMarker(HOME, 'thread-1', invalid.readText, NOW)).toBeNull();
+    expect(readMarker(STATE_DIR, 'thread-1', invalid.readText, NOW)).toBeNull();
   });
   it('reads work from every event that only happens while a turn is running', () => {
     for (const event of [
@@ -99,26 +99,26 @@ describe('the phase a Codex event reports', () => {
 
 describe('reading a marker off the machine', () => {
   it('reads the marker written for this session', () => {
-    expect(readMarker(HOME, 'thread-1', withMarker(marker()).readText, NOW)?.event).toBe('PostToolUse');
-    expect(readActivity(HOME, 'thread-1', withMarker(marker()).readText, NOW)?.phase).toBe('running');
+    expect(readMarker(STATE_DIR, 'thread-1', withMarker(marker()).readText, NOW)?.event).toBe('PostToolUse');
+    expect(readActivity(STATE_DIR, HOME, 'thread-1', withMarker(marker()).readText, NOW)?.phase).toBe('running');
   });
 
   it('rejects markers whose IDs differ from their filenames', () => {
-    expect(readMarker(HOME, 'thread-1', withMarker(marker({ sessionId: 'thread-2' })).readText, NOW)).toBeNull();
+    expect(readMarker(STATE_DIR, 'thread-1', withMarker(marker({ sessionId: 'thread-2' })).readText, NOW)).toBeNull();
   });
 
   it('refuses a marker from a version whose fields were redefined', () => {
-    expect(readMarker(HOME, 'thread-1', withMarker({ ...marker(), v: 99 }).readText, NOW)).toBeNull();
+    expect(readMarker(STATE_DIR, 'thread-1', withMarker({ ...marker(), v: 99 }).readText, NOW)).toBeNull();
   });
 
   it('refuses a marker further ahead of the reader than a race could put it', () => {
-    expect(readMarker(HOME, 'thread-1', withMarker(marker({ at: NOW + 90_000 })).readText, NOW)).toBeNull();
-    expect(readMarker(HOME, 'thread-1', withMarker(marker({ at: NOW + 30_000 })).readText, NOW)).not.toBeNull();
+    expect(readMarker(STATE_DIR, 'thread-1', withMarker(marker({ at: NOW + 90_000 })).readText, NOW)).toBeNull();
+    expect(readMarker(STATE_DIR, 'thread-1', withMarker(marker({ at: NOW + 30_000 })).readText, NOW)).not.toBeNull();
   });
 
   it('refuses a marker that is not JSON, and reports nothing where there is no marker', () => {
-    expect(readMarker(HOME, 'thread-1', machine({ files: { [markerPathOf(HOME, 'thread-1')]: '{' } }).readText, NOW)).toBeNull();
-    expect(readMarker(HOME, 'thread-1', machine({}).readText, NOW)).toBeNull();
-    expect(readActivity(HOME, 'thread-1', machine({}).readText, NOW)).toBeNull();
+    expect(readMarker(STATE_DIR, 'thread-1', machine({ files: { [markerPathOf(STATE_DIR, 'thread-1')]: '{' } }).readText, NOW)).toBeNull();
+    expect(readMarker(STATE_DIR, 'thread-1', machine({}).readText, NOW)).toBeNull();
+    expect(readActivity(STATE_DIR, HOME, 'thread-1', machine({}).readText, NOW)).toBeNull();
   });
 });

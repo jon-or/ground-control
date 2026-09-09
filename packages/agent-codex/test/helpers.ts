@@ -63,6 +63,8 @@ export function payload(event: string): HookPayload {
 }
 
 export const HOME = '/home/dev';
+/** Default state directory for that home. */
+export const STATE_DIR = `${HOME}/.claude/ground-control`;
 
 export interface FakeMachine {
   files: Record<string, string>;
@@ -86,5 +88,5 @@ export function machine(machine: Partial<FakeMachine>, pattern: RegExp | null = 
   // Honor tail-read semantics in the fake reader.
   const readTail: ReadTail = (path, bytes) => (files[path] === undefined ? null : files[path]!.slice(-bytes));
 
-  return { readText, listDir, mtime, readTail, readHead, home: HOME, pattern };
+  return { readText, listDir, mtime, readTail, readHead, home: HOME, stateDir: STATE_DIR, pattern };
 }

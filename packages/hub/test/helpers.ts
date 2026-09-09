@@ -18,6 +18,7 @@ import type {
   SessionActivity,
 } from '@ground-control/core';
 import type { LogEntry, LogFloor, Logger } from '@ground-control/core';
+import { bootstrapDirOf } from '@ground-control/core';
 import { makeLogger } from '../src/logger.js';
 
 /** Collect entries through watch. Hub construction applies stored logLevel, so tests requiring debug entries must configure it on the hub. */
@@ -62,7 +63,7 @@ export function fakeSignal(
     },
     // Use separate settings files so multi-agent tests distinguish each installation.
     settingsPath: (home) => `${home}/.${id}/settings.json`,
-    watchDir: (home) => `${home}/.claude/ground-control/activity-${id}`,
+    watchDir: (stateDir) => `${stateDir}/activity-${id}`,
     read: () => null,
     writer: { path: (home) => `${home}/.claude/ground-control/${id}-writer.mjs`, source: 'the writer\n' },
   };
@@ -77,6 +78,7 @@ export function fakeReaders(dirs: Record<string, string[]> = {}, home = '/home/d
     readTail: () => null,
     readHead: () => null,
     home,
+    stateDir: bootstrapDirOf(home),
   };
 }
 
@@ -124,8 +126,8 @@ export function reportingAgent(id = 'fake'): FakeAgentControl {
       activity: {
         plan: () => ({ kind: 'up-to-date' }),
         settingsPath: (home) => `${home}/.fake/settings.json`,
-        watchDir: (home) => `${home}/.fake/activity`,
-        read: (_home, sessionId) => control.phases.get(sessionId) ?? null,
+        watchDir: (stateDir) => `${stateDir}/fake-activity`,
+        read: (_readers, sessionId) => control.phases.get(sessionId) ?? null,
       },
       async listSessions(path: string) {
         control.calls += 1;
