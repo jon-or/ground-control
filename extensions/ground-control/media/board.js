@@ -312,10 +312,14 @@ const OPENAI_MARK =
 /** Agent logos, with text fallback for unknown agents so every session identifies its agent (R2). */
 const AGENT_MARKS = { claude: CLAUDE_MARK, codex: OPENAI_MARK };
 
+// Visual Studio Code logo, the single-color mark at the same 24px box as the agent logos.
+const VSCODE_MARK =
+  'M23.15 2.587 18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261a1 1 0 0 0-.001 1.479L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z';
+
 /**
  * Where a row's click lands, in the two destinations the board has: a detached run is attached to in a terminal, and
- * every other session is opened in the editor (`docs/mechanics.md` M33). Stroke rather than fill, so neither reads as
- * a third brand mark beside the agent's.
+ * every other session is opened in the editor (`docs/mechanics.md` M33). The editor destination is VS Code itself, so
+ * it carries the product logo; the terminal stays a drawn glyph.
  */
 const DESTINATION_SHAPES = {
   terminal: [
@@ -323,10 +327,7 @@ const DESTINATION_SHAPES = {
     ['polyline', { class: 'ink', points: '6.5 9 9.75 12 6.5 15' }],
     ['line', { class: 'ink', x1: '12.5', y1: '15', x2: '17.5', y2: '15' }],
   ],
-  editor: [
-    ['rect', { class: 'frame', x: '1.75', y: '3.75', width: '20.5', height: '16.5', rx: '3' }],
-    ['line', { class: 'frame', x1: '8.5', y1: '3.75', x2: '8.5', y2: '20.25' }],
-  ],
+  editor: [['path', { class: 'vscode', transform: 'translate(1.6 1.6) scale(0.8667)', d: VSCODE_MARK }]],
 };
 
 /**

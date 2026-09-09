@@ -2021,6 +2021,8 @@ describe('going to a session from the browser', () => {
     const row = document.querySelector<HTMLElement>('.gc-session')!;
 
     expect(row.querySelector('.gc-destination')?.getAttribute('data-destination')).toBe('editor');
+    // The VS Code mark is a path; a shape built as the wrong element would carry `d` and draw nothing.
+    expect(row.querySelector('.gc-destination svg > *')?.tagName).toBe('path');
     expect(row.dataset.detached).toBeUndefined();
   });
 

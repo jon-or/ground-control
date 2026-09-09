@@ -662,7 +662,7 @@ button.session:focus-visible {
   vertical-align: -3px;
 }
 
-/* Distinguish terminal and editor icons at small sizes with a filled terminal and an outlined editor. */
+/* Distinguish the two icons at small sizes: a filled terminal plate against the VS Code logo. */
 .destination .plate {
   fill: var(--vscode-descriptionForeground);
   stroke: none;
@@ -681,11 +681,9 @@ button.session:focus-visible {
   font-style: italic;
 }
 
-.destination .frame {
-  fill: none;
-  stroke: var(--vscode-textLink-foreground);
-  stroke-width: 2;
-  stroke-linejoin: round;
+.destination .vscode {
+  fill: var(--vscode-textLink-foreground);
+  stroke: none;
 }
 
 button.session:hover > .state,

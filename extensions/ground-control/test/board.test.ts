@@ -410,6 +410,7 @@ describe('board webview', () => {
     send(message({ lanes: lanes({ build: [liveCard] }), openable: ['session-1'] }));
 
     expect(document.querySelector('.session .destination')?.getAttribute('data-destination')).toBe('editor');
+    expect(document.querySelector('.session .destination svg > *')?.tagName).toBe('path');
     expect(document.querySelector<HTMLElement>('.session')?.dataset.detached).toBeUndefined();
 
     send(message({ lanes: lanes({ build: [liveCard] }), openable: [] }));

@@ -178,7 +178,7 @@ Show the phase and its duration without converting running to idle merely becaus
 
 ### R14. Open or resume a session
 
-An editor session opens by ID, with the prior conversation available. Use the agent's supported operation and apply these rules:
+An editor session opens by ID, with the prior conversation available. On hover and keyboard focus, a row replaces its duration with the destination: the Visual Studio Code mark for an editor open or resume, and a terminal glyph for an attach. Use the agent's supported operation and apply these rules:
 
 - Reveal an existing tab in its owning window.
 - For Claude in a sidebar, focus the sidebar/window and identify the requested session; opening another surface can duplicate its process.

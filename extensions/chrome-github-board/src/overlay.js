@@ -201,7 +201,7 @@ ${COLUMN} { margin-right: -1px !important;
   stroke-linejoin: round; }
 /* Identify board-dispatched runs with italic names; retain existing state colors. */
 .gc-session[data-detached] .gc-name { font-style: italic; }
-.gc-frame { fill: none; stroke: var(--fgColor-accent, #0969da); stroke-width: 2; stroke-linejoin: round; }
+.gc-vscode { fill: var(--fgColor-accent, #0969da); stroke: none; }
 a.gc-session:hover .gc-state, a.gc-session:focus-visible .gc-state { display: none; }
 a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination { display: inline-block; }
 .gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
@@ -1569,10 +1569,14 @@ function laneMenu(doc, card, actions) {
   return menu;
 }
 
+/** Visual Studio Code logo, the single-color mark at the same 24px box as the agent logos. */
+const VSCODE_MARK =
+  'M23.15 2.587 18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261a1 1 0 0 0-.001 1.479L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z';
+
 /**
  * Where a row's click lands, in the two destinations a board has: a detached run is attached to in a terminal, which
- * is a control on the editor board, and every other session opens in the editor itself. Solid against outline rather
- * than two line drawings of a rectangle, which read as one mark at this size.
+ * is a control on the editor board, and every other session opens in the editor itself. The editor destination is
+ * VS Code itself, so it carries the product logo; the terminal stays a drawn glyph.
  *
  * @type {Record<'terminal' | 'editor', [string, Record<string, string>][]>}
  */
@@ -1582,10 +1586,7 @@ const DESTINATION_SHAPES = {
     ['polyline', { class: 'gc-ink', points: '6.5 9 9.75 12 6.5 15' }],
     ['line', { class: 'gc-ink', x1: '12.5', y1: '15', x2: '17.5', y2: '15' }],
   ],
-  editor: [
-    ['rect', { class: 'gc-frame', x: '1.75', y: '3.75', width: '20.5', height: '16.5', rx: '3' }],
-    ['line', { class: 'gc-frame', x1: '8.5', y1: '3.75', x2: '8.5', y2: '20.25' }],
-  ],
+  editor: [['path', { class: 'gc-vscode', transform: 'translate(1.6 1.6) scale(0.8667)', d: VSCODE_MARK }]],
 };
 
 /**
@@ -1611,7 +1612,9 @@ function destinationMark(doc, kind) {
         ? doc.createElementNS(SVG_NS, 'rect')
         : name === 'polyline'
           ? doc.createElementNS(SVG_NS, 'polyline')
-          : doc.createElementNS(SVG_NS, 'line');
+          : name === 'path'
+            ? doc.createElementNS(SVG_NS, 'path')
+            : doc.createElementNS(SVG_NS, 'line');
 
     for (const [attribute, value] of Object.entries(attributes)) {
       shape.setAttribute(attribute, value);
