@@ -42,7 +42,7 @@ const SPENT_ATTEMPTS_MS = 60 * 60 * 1000;
  * which is what makes its card due again. Without it the board goes on showing sentences a fixed classifier would
  * no longer write, since a card is read once and nothing else re-reads it.
  */
-export const TRIAGE_REVISION = 6;
+export const TRIAGE_REVISION = 7;
 
 const detailProperty = { type: 'string', maxLength: DETAIL_LIMIT } as const;
 
@@ -343,9 +343,8 @@ function mine(login: string | null, logins: readonly string[]): boolean {
 }
 
 /**
- * Detect later review rounds from PR history. address-review requires a developer reply; review-others also
- * recognizes prior reviews by non-authors and review comments. Exclude author reviews, which can be their own
- * inline replies.
+ * Detect later review rounds from the developer's own PR history. address-review requires a developer reply;
+ * review-others requires a developer review or comment. Other people's rounds, bots included, are not the developer's.
  */
 export function qualifierOf(action: TriageAction, context: TriageContext): TriageQualifier | null {
   const pr = context.pullRequest;
@@ -365,14 +364,7 @@ export function qualifierOf(action: TriageAction, context: TriageContext): Triag
 
   if (action === 'review-others') {
     // A pending review is a draft nobody but its writer has seen, and `gh` runs as the developer, so it is fetched.
-    // Submitted reviews require a known PR author to exclude self-reviews; comments are checked separately.
-    const reviewed = pr.reviews.some(
-      (review) =>
-        review.author !== null &&
-        review.state !== 'PENDING' &&
-        pr.author !== null &&
-        review.author.toLowerCase() !== pr.author.toLowerCase(),
-    );
+    const reviewed = pr.reviews.some((review) => review.state !== 'PENDING' && mine(review.author, context.logins));
     // On somebody else's pull request every word of the developer's is a review, whatever GitHub filed it as. Only
     // the most recent comments are fetched, so a first pass further back than that reads as a first pass here too.
     const spoken = pr.comments.some((comment) => mine(comment.author, context.logins));

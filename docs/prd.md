@@ -246,7 +246,7 @@ Determine the action from status and PR facts where possible; ask the model for 
 
 Read status and assignment events alongside comments. Consecutive changes by the same identified person, no more than one minute apart, form one instruction dated at its first event. Different people or anonymous actors do not combine. Comments before the latest instruction are background. Adding the issue to a project is not an instruction.
 
-Use submitted reviews and relevant comments to distinguish initial review from follow-up. Ignore draft reviews. Without a known PR author, submitted reviews alone cannot establish a prior round; developer comments and replies remain evidence. Do not use `reviewDecision` as triage evidence; lane arrival uses it separately (R8).
+Use the developer's own submitted reviews, comments, and replies to distinguish initial review from follow-up. Reviews by other people or bots do not establish a prior round for the developer. Ignore draft reviews. Do not use `reviewDecision` as triage evidence; lane arrival uses it separately (R8).
 
 The explanation describes status and responsibility, not technical implementation. Address the developer as “you”; use colleagues' first names, profile-name overrides, or logins as fallback. Do not invent counts from a partial conversation. Other covers waiting with no identified action. The label is visible; the explanation and classification time are on hover. The label's adjacent age is time in the current status.
 

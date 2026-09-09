@@ -468,20 +468,21 @@ describe('what the evidence settles before the model is asked', () => {
     ).toBe('initial');
   });
 
-  it('calls a review of somebody else work initial until somebody other than its author has reviewed it', () => {
+  it('calls a review of somebody else work initial until the developer has reviewed it', () => {
     const review = (author: string | null) => ({ author, authorName: null, state: 'COMMENTED', submittedAt: null });
     const said = (author: string) => ({ author, authorName: null, authorAssociation: 'MEMBER', body: 'x', createdAt: '2026-01-01T00:00:00Z' });
     const theirs = { author: 'dev-9' };
 
     expect(qualifierOf('review-others', context({ ...theirs, reviews: [] }))).toBe('initial');
-    // GitHub records the author's own inline replies as reviews, so counting those makes every answered pull
-    // request read as a second round.
+    // GitHub records the author's own inline replies as reviews, and a colleague's or a bot's round is not the
+    // developer's: an app reviews every pull request here before anybody has read it.
     expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('dev-9'), review('DEV-9')] }))).toBe('initial');
-    // A re-review is a re-review whoever gave the first one: on this board the first is routinely an agent account
-    // that is none of the developer's own logins, which is what made a round two read as a round one.
-    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('some-bot')] }))).toBe('followup');
-    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('dev-1')] }))).toBe('followup');
+    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('some-bot')] }))).toBe('initial');
+    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('dev-2')] }))).toBe('initial');
     expect(qualifierOf('review-others', context({ ...theirs, reviews: [review(null)] }))).toBe('initial');
+    // The developer's own round under any of their logins, however GitHub cased the login.
+    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('some-bot'), review('DEV-1')] }))).toBe('followup');
+    expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('dev-1-ai')] }, ['dev-1', 'dev-1-ai']))).toBe('followup');
     // A review given as a plain comment rather than a GitHub review, which is how most of them arrive here.
     expect(qualifierOf('review-others', context({ ...theirs, comments: [said('DEV-1')] }))).toBe('followup');
     expect(qualifierOf('review-others', context({ ...theirs, comments: [said('dev-9')] }))).toBe('initial');
@@ -489,8 +490,6 @@ describe('what the evidence settles before the model is asked', () => {
     expect(
       qualifierOf('review-others', context({ ...theirs, reviews: [{ author: 'dev-1', authorName: null, state: 'PENDING', submittedAt: null }] })),
     ).toBe('initial');
-    // An author GitHub could not resolve must not turn the exclusion off and count their own inline replies.
-    expect(qualifierOf('review-others', context({ author: null, reviews: [review('dev-9')] }))).toBe('initial');
   });
 
   it('qualifies nothing else', () => {
