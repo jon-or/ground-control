@@ -6,6 +6,7 @@ import type { ActionSettings } from './actions.js';
 import type { LaneId } from './board.js';
 import { LOG_FLOORS } from './log.js';
 import { DEFAULT_SESSION_SCOPE, sessionScopeSchema } from './sessionScope.js';
+import { agentHomeSchema } from './agentHomes.js';
 import type { SessionScope } from './sessionScope.js';
 import type { AgentConfig, ReadFailure } from './types.js';
 import type { LogFloor } from './log.js';
@@ -13,6 +14,8 @@ import type { LogFloor } from './log.js';
 /** Shared hub configuration, merged over defaults. Host and source adapters validate their own entries. */
 export interface HubConfig {
   agents: AgentConfig[];
+  /** Accepted absolute agent roots, persisted independently of the next hub launcher's environment. */
+  agentHomes?: Record<string, string> | undefined;
   /** Matches an issue number in a branch or directory name. The team's convention, so it ships as a default. */
   branchIssuePattern: string;
   hosts: Record<string, unknown>;
@@ -174,6 +177,7 @@ export const hubConfig = z.object({
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
   sessionScope: sessionScopeSchema.default(DEFAULT_SESSION_SCOPE),
+  agentHomes: z.record(z.string(), agentHomeSchema).optional(),
   installActivity: z.boolean(),
   sessionHooks: z.record(z.string(), z.boolean()).default({}),
   // Default missing or unsupported log levels to info for cross-version compatibility.

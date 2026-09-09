@@ -12,7 +12,7 @@ const TRUST_TABLE = /^\s*\[hooks\.state\.(?:'([^']*)'|"((?:[^"\\]|\\.)*)")\]\s*$
 const TRUSTED_HASH = /^\s*trusted_hash\s*=/;
 
 export function codexConfigPathOf(home: string, env: NodeJS.ProcessEnv = {}): string {
-  return `${codexHomeOf(home, env)}/config.toml`;
+  return `${codexHomeOf(home, env).replace(/\/$/, '')}/config.toml`;
 }
 
 /** Normalize separators and case to compare Windows paths from Codex and the board. */

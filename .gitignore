@@ -4,6 +4,7 @@ dist/
 *.vsix
 *.tsbuildinfo
 .DS_Store
+.wip/
 .claude/personal/
 .claude/worktrees/
 .tmp/

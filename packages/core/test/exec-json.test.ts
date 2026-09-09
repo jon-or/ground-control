@@ -26,6 +26,14 @@ async function onPath<T>(directory: string, run: () => Promise<T>): Promise<T> {
 }
 
 describe('runJsonCli', () => {
+  it('passes an isolated agent profile environment to the actual child', async () => {
+    const profile = join(scratch, 'profile with spaces');
+    const before = process.env['CLAUDE_CONFIG_DIR'];
+    const result = await runJsonCli(process.execPath, ['-e', 'console.log(JSON.stringify({root:process.env.CLAUDE_CONFIG_DIR,marker:process.env.GC_PROFILE_TEST}))'],
+      { env: { ...process.env, CLAUDE_CONFIG_DIR: profile, GC_PROFILE_TEST: 'isolated' } });
+    expect(result).toEqual({ ok: true, value: { root: profile, marker: 'isolated' } });
+    expect(process.env['CLAUDE_CONFIG_DIR']).toBe(before);
+  });
   it('parses a JSON document', async () => {
     expect(await runJsonCli(process.execPath, ['-e', 'process.stdout.write("[]")'])).toEqual({ ok: true, value: [] });
   });

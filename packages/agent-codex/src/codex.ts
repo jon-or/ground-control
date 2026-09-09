@@ -44,7 +44,11 @@ export interface CodexMachine {
  */
 export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMachine, env: process.env }): AgentAdapter {
   const { alive, env, start, kill, trust } = machine;
-  const history = makeHistoryReader(env);
+  const base = { ...env };
+  let root: string | undefined;
+  let storageGeneration = 0;
+  const environment = () => ({ ...base, ...(root === undefined ? {} : { CODEX_HOME: root }) });
+  const history = makeHistoryReader(environment);
 
   // Cache trust attempts by untrusted key set. Retry when changed commands require trust, but do not repeat a
   // failed attempt for unchanged keys.
@@ -61,19 +65,20 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
    * Start hook trust asynchronously and return any prior result for the same keys. Roster reads must not wait
    * for the subprocess; later polls receive the result.
    */
-  function askAbout(state: TrustState, path: string, home: string): TrustAttempt {
+  function askAbout(state: TrustState, path: string, home: string, env: NodeJS.ProcessEnv): TrustAttempt {
     if (state.untrusted.length === 0 || !trust) {
       return null;
     }
 
-    const signature = state.untrusted.join('\n');
+    const signature = `${codexHomeOf(home, env)}\n${state.untrusted.join('\n')}`;
 
     if (!asked.has(signature)) {
       // Record the pending attempt before another roster read can start a duplicate.
       asked.set(signature, null);
-      void trust(path, home).then(
-        (attempt) => asked.set(signature, attempt),
-        (error: Error) => asked.set(signature, error.message),
+      const generation = storageGeneration;
+      void trust(path, home, env).then(
+        (attempt) => { if (storageGeneration === generation) asked.set(signature, attempt); },
+        (error: Error) => { if (storageGeneration === generation) asked.set(signature, error.message); },
       );
     }
 
@@ -84,13 +89,21 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
     id: CODEX_AGENT_ID,
     displayName: CODEX_DISPLAY_NAME,
     defaultPath: 'codex',
+    storage: { environment: 'CODEX_HOME', defaultDirectory: '.codex', configure(value) {
+      if (root !== value) {
+        root = value;
+        storageGeneration++;
+        asked.clear();
+      }
+    } },
     // Detect Codex by its home directory. Roster reads do not require a configured executable path (R30).
-    enabledByDefault: (readers) => readers.listDir(codexHomeOf(readers.home, env)) !== null,
-    activity: makeCodexActivity(env),
+    enabledByDefault: (readers) => readers.listDir(codexHomeOf(readers.home, environment())) !== null,
+    activity: makeCodexActivity(environment),
     listHistory: history,
     ...(start && kill
       ? {
-          dispatch: makeCodexDispatcher(start, (threadId, pid) => dispatched.set(threadId, pid)),
+          dispatch: makeCodexDispatcher((path, args, options) => start(path, args, { ...options, env: environment() }),
+            (threadId, pid) => dispatched.set(threadId, pid)),
           dispatchPermissions: DISPATCH_PERMISSIONS,
           stopDispatch: stopper(dispatched, observed, kill),
         }
@@ -98,15 +111,16 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
 
     // Resume requires an existing rollout; thread IDs are independent of their original checkout directory
     // (M44).
-    canResume: (session, deps) => rolloutExists(session.sessionId, deps, env),
+    canResume: (session, deps) => rolloutExists(session.sessionId, deps, environment()),
 
     listSessions(path: string, deps: MachineDeps): Promise<AgentReading> {
+      const env = environment();
       const roster = readRoster(deps, alive, env);
       const state = trustState(deps, env);
 
       // Report invalid markers before trust failures; untrusted hooks produce no markers.
       const reading: AgentReading =
-        roster.failure === null ? { ...roster, failure: trustFailure(state, askAbout(state, path, deps.home)) } : roster;
+        roster.failure === null ? { ...roster, failure: trustFailure(state, askAbout(state, path, deps.home, env)) } : roster;
 
       // Merge roster PIDs without removing dispatches when markers are absent, preserving stop access.
       for (const session of reading.sessions) {

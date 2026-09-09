@@ -42,6 +42,7 @@ export type OpenRefusal =
 
 /** Session surface: reveal tabs by ID; for sidebars, focus the window and identify the session. */
 export type OpenRoute =
+  ({ agentHome?: string; resumeToken?: string } & (
   | { route: 'resume-here'; session: HistoricalSession; root: string; expiresAt: number }
   | { route: 'resume-elsewhere'; session: HistoricalSession; root: string; expiresAt: number; newWindow: boolean }
   | { route: 'reveal-here'; session: Session; root: string }
@@ -53,7 +54,7 @@ export type OpenRoute =
   // Open a checkout without a session. Deduplicate by card key (R18).
   | { route: 'open-checkout'; key: string; root: string; newWindow: boolean }
   // Start in the performing window; no session ID exists for cross-window routing yet (mechanics M51).
-  | { route: 'start-session'; key: string; agent: string; root: string; prompt: string | null };
+  | { route: 'start-session'; key: string; agent: string; root: string; prompt: string | null }));
 
 /**
  * Deduplicate in-flight session routes by session ID. Checkout routes use operation and card; starts also

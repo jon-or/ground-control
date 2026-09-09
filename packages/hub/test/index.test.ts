@@ -84,6 +84,7 @@ describe('the package public surface', () => {
       'takeLock',
       'tempIsOrphaned',
       'uninstallActivity',
+      'uninstallAgentActivity',
       'uninstallChromeHost',
       'versionOf',
       'watchDir',

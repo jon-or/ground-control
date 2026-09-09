@@ -100,11 +100,11 @@ export function primeWindows(placements: Readonly<Record<string, AgentPlacement>
 }
 
 /** Read candidate windows from all configured agent lock directories, including stale files. */
-function lockedWindows(home: string, placements: Readonly<Record<string, AgentPlacement>>): IdeWindow[] {
+function lockedWindows(home: string, placements: Readonly<Record<string, AgentPlacement>>, env: NodeJS.ProcessEnv): IdeWindow[] {
   const byPort = new Map<number, IdeWindow>();
 
   for (const placement of Object.values(placements)) {
-    const dir = placement.lockDir?.(home, process.env);
+    const dir = placement.lockDir?.(home, env);
 
     if (dir === undefined) {
       continue;
@@ -143,8 +143,9 @@ export async function readWindows(
   home: string,
   session: Session | undefined,
   placements: Readonly<Record<string, AgentPlacement>>,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<Windows> {
-  const locked = lockedWindows(home, placements);
+  const locked = lockedWindows(home, placements, env);
   const [ports, table] = await Promise.all([readPorts(), processes(processNames(placements))]);
   const live = liveWindows(locked, ports);
 

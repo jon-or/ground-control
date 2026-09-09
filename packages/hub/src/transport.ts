@@ -1,6 +1,7 @@
 import { request } from 'node:http';
 import { StringDecoder } from 'node:string_decoder';
 import type { ClientRequest } from 'node:http';
+import { agentHomeSchema } from '@ground-control/core';
 import type { ClientHello, ClientMessage, HubMessage, Session, SessionCheck } from '@ground-control/core';
 import type { HubRecord } from './discover.js';
 import type { Ensured } from './ensure.js';
@@ -95,7 +96,10 @@ export class HubTransport {
     if (answer === null || typeof answer !== 'object') return null;
     const value = answer as Record<string, unknown>;
     if (typeof value.allowed !== 'boolean' || typeof value.targetActive !== 'boolean' || typeof value.cardActive !== 'boolean') return null;
-    return { allowed: value.allowed, targetActive: value.targetActive, cardActive: value.cardActive };
+    const home = value.agentHome === undefined ? undefined : agentHomeSchema.safeParse(value.agentHome);
+    if (home !== undefined && (!home.success || !value.allowed)) return null;
+    return { allowed: value.allowed, targetActive: value.targetActive, cardActive: value.cardActive,
+      ...(home?.success ? { agentHome: home.data } : {}) };
   }
 
   dispose(): void {

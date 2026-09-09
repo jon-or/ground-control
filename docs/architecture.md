@@ -106,6 +106,16 @@ Invalid or removed source configuration clears its cached contribution immediate
 
 An individual-card lookup can return no card without error when the source does not serve that repository. Do not cache that as proof that an issue does not exist. The GitHub source is configured for a github.com `owner/name`; unrelated repository hosts do not match.
 
+### Agent profiles
+
+`HubConfig.agentHomes` records each adapter's resolved absolute configuration root. `AgentAdapter.storage` declares its environment variable and default directory and rebinds an existing instance. Resolution prefers explicit accepted roots, then the launcher's agent environment, then the user-home default. Adapter operations snapshot their environment; profile changes preserve dispatch ownership, invalidate roster/history generations, and separate Codex trust results by home. Ground Control state, activity writers, and dispatch logs retain their independent legacy location.
+
+The editor submits roots from its startup environment. Production editor/native launchers use the internal `--inherit-agent-env` switch so a cold hub selects those roots before its first read; plain CLI `--home` isolates agent defaults. Stored roots take precedence on browser-only restart. Reject invalid roots rather than falling back. A synchronous profile transition requires a complete successful roster no older than two seconds and no live or pending work. Preflight both hook files under the activity lock, remove only old owned entries while retaining markers/writers, then durably save and apply new roots. Uninstall loads the accepted roots. Keep refusal and write-failure diagnostics visible.
+
+Host lock discovery receives the registry's accepted environment rather than the ambient process environment. Resident checks compare accepted roots with the editor's own profile before invoking agent commands. Terminal attach can explicitly select the accepted root. Cross-window links use the target Ground Control handler; a random, single-use resume token transfers the existing lease only to its recorded target workspace before expiry. The target still rechecks scope, live conflicts, and profile.
+
+Codex activity markers remain in shared state and include a profile root. Readers reject markers from another selected profile. Legacy transcript paths can establish profile identity; ambiguous legacy markers are accepted only for the default home. No simultaneous-profile discovery is implied.
+
 ## Reads and snapshot construction
 
 ### Scheduling
@@ -236,7 +246,7 @@ Detached Claude sessions use `attachId` and a terminal running the configured ex
 
 Historical opening refreshes roster/history and calls `canResume`. A now-active session takes the live route; another active session on the card refuses a stale historical click. Reserve resumes across clients before asynchronous discovery. A request retains ownership of its reservation; stale lookups cannot consume or delete a newer one. Routes have a 30-second firing deadline inside a 60-second reservation. Before executing, the resident checks the deadline, local scope/history preferences, and authoritative shared authorization after asynchronous reads or focus changes. `sessionCheck` returns only allowed/target-active/card-active booleans derived from the full roster; an empty projected roster cannot authorize a resume. Landing checks allow the expected newly resumed process.
 
-Cross-window routes raise a known target, check focus where needed, and then invoke an agent URI or Ground Control's handover URI. Handover requests cannot route onward to a third window. Unexpected session creation is checked against the roster captured for the request, not against arbitrary later activity.
+Cross-window routes raise a known target, check focus where needed, and then invoke Ground Control's handover URI for target profile validation. Handover requests cannot route onward to a third window. Unexpected session creation is checked against the roster captured for the request, not against arbitrary later activity.
 
 The resident launches its own `out/cli.js` through `Code.exe` in Node mode, with argument arrays and a sanitized environment. It checks the staged-update marker before launching. This check reduces duplicate-instance risk but does not detect every possible update state; see [mechanics](mechanics.md#vs-code-updates-and-window-launches).
 

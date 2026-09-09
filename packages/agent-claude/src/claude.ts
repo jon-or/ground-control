@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PERMISSION_MODES, linkOf, normalize, runJsonCli, runTextCli } from '@ground-control/core';
+import { PERMISSION_MODES, linkOf, runJsonCli, runTextCli } from '@ground-control/core';
 import type {
   AgentAdapter,
   AgentReading,
@@ -12,12 +12,13 @@ import type {
   Session,
   StatMtime,
 } from '@ground-control/core';
-import { claudeActivity } from './activity.js';
+import { makeClaudeActivity } from './activity.js';
 import { makeClaudeClassifier } from './classify.js';
 import { makeClaudeDispatcher, makeClaudeStopper } from './dispatch.js';
 import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from './ids.js';
 import { readActivity } from './phase.js';
 import { makeHistoryReader } from './history.js';
+import { claudeHomeOf } from './hookScript.js';
 
 
 
@@ -50,8 +51,8 @@ export function projectSlug(cwd: string): string {
   return cwd.replace(/[^A-Za-z0-9]/g, '-');
 }
 
-export function projectsRoot(home: string): string {
-  return `${normalize(home).replace(/\/+$/, '')}/.claude/projects`;
+export function projectsRoot(home: string, env: NodeJS.ProcessEnv = {}): string {
+  return `${claudeHomeOf(home, env).replace(/\/$/, '')}/projects`;
 }
 
 interface TranscriptDeps {
@@ -69,8 +70,8 @@ export const TITLE_TAIL_BYTES = 64 * 1024;
  * Try exact-case project slugs first, then case variants. The CLI can report drive-letter casing different from
  * the directory created earlier (M3).
  */
-export function transcriptCandidates(home: string, cwd: string, sessionId: string, listDir: ListDir): string[] {
-  const root = projectsRoot(home);
+export function transcriptCandidates(home: string, cwd: string, sessionId: string, listDir: ListDir, env: NodeJS.ProcessEnv = {}): string[] {
+  const root = projectsRoot(home, env);
   const names = listDir(root);
 
   if (!names) {
@@ -97,8 +98,9 @@ export function findTranscript(
   cwd: string,
   sessionId: string,
   deps: TranscriptDeps,
+  env: NodeJS.ProcessEnv = {},
 ): Transcript | null {
-  for (const candidate of transcriptCandidates(home, cwd, sessionId, deps.listDir)) {
+  for (const candidate of transcriptCandidates(home, cwd, sessionId, deps.listDir, env)) {
     const writtenAt = deps.mtime(candidate);
 
     if (writtenAt !== null) {
@@ -212,9 +214,9 @@ export function reportedState(entry: AgentEntry): string | undefined {
 /** CLI terminal states for background sessions. */
 const FINISHED_STATES = new Set(['done', 'stopped']);
 
-function toSession(entry: AgentEntry, deps: MachineDeps): Session {
+function toSession(entry: AgentEntry, deps: MachineDeps, env: NodeJS.ProcessEnv): Session {
   const link = linkOf(entry.cwd, deps.readText, deps.pattern);
-  const transcript = findTranscript(deps.home, entry.cwd, entry.sessionId, deps);
+  const transcript = findTranscript(deps.home, entry.cwd, entry.sessionId, deps, env);
 
   return {
     agent: CLAUDE_AGENT_ID,
@@ -251,25 +253,37 @@ export function neverPrompted(session: Session, entry: AgentEntry): boolean {
 }
 
 /** Inject separate transports for JSON roster reads and text --bg output (M33). */
-export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText = runTextCli): AgentAdapter {
+export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText = runTextCli, env: NodeJS.ProcessEnv = process.env): AgentAdapter {
+  const base = { ...env };
+  let root: string | undefined;
+  const environment = () => ({ ...base, ...(root === undefined ? {} : { CLAUDE_CONFIG_DIR: root }) });
+  const dispatched = new Map<string, NodeJS.ProcessEnv>();
   return {
     id: CLAUDE_AGENT_ID,
     displayName: CLAUDE_DISPLAY_NAME,
     defaultPath: 'claude',
+    storage: { environment: 'CLAUDE_CONFIG_DIR', defaultDirectory: '.claude', configure: (value) => { root = value; } },
     // The board creates ~/.claude itself, so that directory cannot establish Claude installation. Keep Claude
     // enabled by default.
     enabledByDefault: () => true,
-    activity: claudeActivity,
-    classify: makeClaudeClassifier(run),
-    dispatch: makeClaudeDispatcher(runText),
+    activity: makeClaudeActivity(environment),
+    classify: makeClaudeClassifier((path, args, options) => run(path, args, { ...options, env: environment() })),
+    async dispatch(input) {
+      const env = environment();
+      const result = await makeClaudeDispatcher((path, args, options) => runText(path, args, { ...options, env }))(input);
+      if ('shortId' in result) dispatched.set(result.shortId, env);
+      return result;
+    },
     dispatchPermissions: PERMISSION_MODES,
-    stopDispatch: makeClaudeStopper(runText),
-    listHistory: makeHistoryReader(),
-    canResume: (session, deps) => deps.listDir(session.cwd) !== null && findTranscript(deps.home, session.cwd, session.sessionId, deps) !== null,
+    stopDispatch: (path, shortId) => makeClaudeStopper((path, args, options) =>
+      runText(path, args, { ...options, env: dispatched.get(shortId) ?? environment() }))(path, shortId),
+    listHistory: makeHistoryReader(environment),
+    canResume: (session, deps) => deps.listDir(session.cwd) !== null && findTranscript(deps.home, session.cwd, session.sessionId, deps, environment()) !== null,
 
     /** Omit --all to exclude exited background sessions (R2, R9). */
     async listSessions(path: string, deps: MachineDeps): Promise<AgentReading> {
-      const outcome = await run(path, ['agents', '--json']);
+      const env = environment();
+      const outcome = await run(path, ['agents', '--json'], { env });
 
       if (!outcome.ok) {
         if (outcome.reason === 'missing') {
@@ -336,7 +350,7 @@ export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText 
         const parsed = agentEntry.safeParse(raw);
 
         if (parsed.success) {
-          const session = toSession(parsed.data, deps);
+          const session = toSession(parsed.data, deps, env);
 
           if (!neverPrompted(session, parsed.data)) {
             sessions.push(session);

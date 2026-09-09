@@ -21,6 +21,7 @@ export type ExecOutcome = { ok: true; value: unknown } | ExecFailure;
  * characters (mechanics M31).
  */
 export interface ExecOptions {
+  env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   cwd?: string;
   stdin?: string;
@@ -91,7 +92,9 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
       const child = execFile(
         path,
         args,
-        { maxBuffer: 32 * 1024 * 1024, timeout, windowsHide: true, ...(options.cwd === undefined ? {} : { cwd: options.cwd }) },
+        { maxBuffer: 32 * 1024 * 1024, timeout, windowsHide: true,
+          ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+          ...(options.env === undefined ? {} : { env: options.env }) },
         (err, stdout, stderr) => {
         if (err) {
           // Cancellation and timeout both kill the child; report them separately.

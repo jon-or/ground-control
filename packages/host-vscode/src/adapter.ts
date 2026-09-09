@@ -46,7 +46,7 @@ export interface VscodeHost extends HostAdapter {
  * window; external URI routing depends on focus (mechanics M7, M8). This headless adapter implements neither
  * open nor release. Tab release remains experimental (M11).
  */
-export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacement>> = PLACEMENTS): VscodeHost {
+export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacement>> = PLACEMENTS, env: NodeJS.ProcessEnv = process.env): VscodeHost {
   let settings: VscodeConfig = config.parse({});
 
   return {
@@ -80,7 +80,7 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
     },
 
     windows(session: Session | undefined, deps: MachineReaders): Promise<HostWindows> {
-      return readWindows(deps.home, session, placements);
+      return readWindows(deps.home, session, placements, env);
     },
 
     async surfaces(): Promise<SessionSurface[]> {

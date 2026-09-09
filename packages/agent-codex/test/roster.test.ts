@@ -29,7 +29,7 @@ function markerText(over: Written = {}): string {
     pid: 4242,
     startedAt: NOW - 60_000,
     cwd: '/work/15619-a-branch',
-    transcriptPath: '/rollout.jsonl',
+    transcriptPath: '/home/dev/.codex/sessions/rollout.jsonl',
     model: 'gpt-6-astra',
     permissionMode: 'default',
     source: null,
@@ -60,7 +60,7 @@ function board(over: Partial<FakeMachine> = {}) {
 
 describe('the roster the markers make', () => {
   it('reports a session whose Codex process is still running', () => {
-    const reading = readRoster(board({ mtimes: { '/rollout.jsonl': 1_234 } }), ALIVE, {}, NOW);
+    const reading = readRoster(board({ mtimes: { '/home/dev/.codex/sessions/rollout.jsonl': 1_234 } }), ALIVE, {}, NOW);
 
     expect(reading.failure).toBeNull();
     expect(reading.sessions).toHaveLength(1);

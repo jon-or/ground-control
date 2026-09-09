@@ -13,7 +13,7 @@ function startHub(bundle: string, home: string): void {
   const env = spawnEnvironment();
 
   try {
-    const child = spawn(process.execPath, [bundle, `--home=${home}`], {
+    const child = spawn(process.execPath, [bundle, `--home=${home}`, '--inherit-agent-env'], {
       env,
       detached: true,
       stdio: ['ignore', log, log],

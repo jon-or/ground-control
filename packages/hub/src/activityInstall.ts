@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { constants, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { groundControlDirOf } from '@ground-control/core';
 import type { ActivityPlan, AgentAdapter, ReadFailure } from '@ground-control/core';
 import { attempt, read, releaseLock, takeLock, writeAtomic, writeInPlace } from './fs.js';
@@ -60,7 +60,15 @@ export function dispatchLogIsStale(mtimeMs: number, now: number): boolean {
 
 /** Retry transient settings-file access failures during backup. */
 function backup(home: string, settings: string, agent: string): void {
-  attempt(() => copyFileSync(settings, backupPathOf(home, new Date(), agent)));
+  const base = backupPathOf(home, new Date(), agent).replace(/\.json$/, '');
+  for (let sequence = 0; ; sequence++) {
+    try {
+      attempt(() => copyFileSync(settings, `${base}-${String(sequence).padStart(6, '0')}.json`, constants.COPYFILE_EXCL));
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+  }
 
   try {
     const dir = groundControlDirOf(home);
@@ -119,6 +127,7 @@ export function syncActivity(
   home: string,
   insist = false,
   enabled?: ReadonlySet<string>,
+  options: { lockHeld?: boolean; preserveMarkers?: boolean } = {},
 ): ActivityState {
   const signals = agents.flatMap((agent) =>
     agent.activity ? [{ id: agent.id, activity: agent.activity }] : [],
@@ -137,7 +146,7 @@ export function syncActivity(
 
   try {
     mkdirSync(groundControlDirOf(home), { recursive: true });
-    held = takeLock(lockPath);
+    held = options.lockHeld ? true : takeLock(lockPath);
 
     // Uninstall breaks the lock because it runs once (R34). Other operations defer to the current installer.
     if (!held && insist) {
@@ -163,7 +172,9 @@ export function syncActivity(
       }
 
       const settings = activity.settingsPath(home);
-      const decided = activity.plan({ settingsText: read(settings), home, wanted: operation });
+      const settingsText = read(settings);
+      if (settingsText === null && existsSync(settings)) throw new Error('The agent settings file cannot be read.');
+      const decided = activity.plan({ settingsText, home, wanted: operation });
 
       if (decided.kind === 'refuse') {
         return {
@@ -187,7 +198,7 @@ export function syncActivity(
       }
 
       // Keep the directory to preserve watchers and avoid Windows recreation failures with open handles (M23, R25).
-      if (operation === 'remove') {
+      if (operation === 'remove' && !options.preserveMarkers) {
         clearMarkers(activity.watchDir(home));
       }
     }
@@ -196,7 +207,7 @@ export function syncActivity(
   } catch (error) {
     return failed(wanted, reached, home, error, added, removed, operation);
   } finally {
-    if (held) {
+    if (held && !options.lockHeld) {
       releaseLock(lockPath);
     }
   }

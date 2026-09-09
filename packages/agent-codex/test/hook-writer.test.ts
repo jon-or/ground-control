@@ -20,6 +20,7 @@ interface Marker {
   startedAt: number;
   cwd: string | null;
   transcriptPath: string | null;
+  profileRoot: string;
   model: string | null;
   permissionMode: string | null;
   source: string | null;
@@ -37,7 +38,7 @@ function run(input: HookPayload | string, home = root): number {
     execFileSync(process.execPath, [writer], {
       input: typeof input === 'string' ? input : JSON.stringify(input),
       encoding: 'utf8',
-      env: { ...process.env, USERPROFILE: home, HOME: home },
+      env: { ...process.env, USERPROFILE: home, HOME: home, CODEX_HOME: join(home, 'selected-profile') },
       windowsHide: true,
     });
 
@@ -80,6 +81,7 @@ describe('the Codex activity writer', () => {
     expect(run(sent)).toBe(0);
 
     const marker = markerFor(SESSION);
+    expect(marker.profileRoot).toBe(join(root, 'selected-profile'));
 
     expect(marker.v).toBe(HOOK_MARKER_VERSION);
     expect(marker.sessionId).toBe(SESSION);
@@ -253,7 +255,7 @@ describe('Codex ancestor PID lookup', () => {
     }
 
     execFileSync(shim, [join(root, 'relay.mjs'), process.execPath, writer, JSON.stringify(sent)], {
-      env: { ...process.env, USERPROFILE: root, HOME: root },
+      env: { ...process.env, USERPROFILE: root, HOME: root, CODEX_HOME: join(root, 'selected-profile') },
       encoding: 'utf8',
       windowsHide: true,
     });
@@ -299,7 +301,7 @@ describe('two writers at once', () => {
     const spawn = promisify(execFile);
     const start = (sent: HookPayload) => {
       const running = spawn(process.execPath, [writer], {
-        env: { ...process.env, USERPROFILE: root, HOME: root },
+        env: { ...process.env, USERPROFILE: root, HOME: root, CODEX_HOME: join(root, 'selected-profile') },
         windowsHide: true,
       });
       running.child.stdin?.end(JSON.stringify(sent));

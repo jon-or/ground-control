@@ -5,7 +5,7 @@ import type { TrustAttempt } from './exchange.js';
 import { codexHomeOf } from './hookScript.js';
 
 /** Trust the installed board hooks. Return an error message on failure; never throw. */
-export type TrustHooks = (codexPath: string, home: string) => Promise<TrustAttempt>;
+export type TrustHooks = (codexPath: string, home: string, env?: NodeJS.ProcessEnv) => Promise<TrustAttempt>;
 
 /** Timeout for app-server startup and the three trust requests, normally completed in about one second. */
 const TIMEOUT_MS = 20_000;
@@ -16,7 +16,8 @@ const TIMEOUT_MS = 20_000;
  * and plugin hooks.
  */
 export function makeTrustOnMachine(env: NodeJS.ProcessEnv = process.env): TrustHooks {
-  return function trustHooks(codexPath, home) {
+  return function trustHooks(codexPath, home, environment = env) {
+    const selected = { ...environment, CODEX_HOME: codexHomeOf(home, environment) };
     const resolved = resolveOnDisk(codexPath);
 
     if (resolved === null) {
@@ -30,7 +31,7 @@ export function makeTrustOnMachine(env: NodeJS.ProcessEnv = process.env): TrustH
       try {
         // Use the resolved Codex home for both hook reads and app-server: ~/.codex or CODEX_HOME.
         child = spawn(resolved, ['app-server'], {
-          env: { ...env, CODEX_HOME: codexHomeOf(home, env) },
+          env: selected,
           stdio: ['pipe', 'pipe', 'ignore'],
           windowsHide: true,
         });

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { linkOf } from '@ground-control/core';
 import type { AgentReading, MachineDeps, ReadFailure, Session } from '@ground-control/core';
 import { activityDirOf, codexHomeOf } from './hookScript.js';
-import { activityOf, readMarker } from './phase.js';
+import { activityOf, markerInProfile, readMarker } from './phase.js';
 import type { ActivityMarker } from './phase.js';
 import { CODEX_AGENT_ID, CODEX_DISPLAY_NAME } from './ids.js';
 
@@ -13,7 +13,7 @@ const MARKER_FILE = /^(.+)\.json$/;
 
 /** Codex thread-name index, the source of session titles. */
 export function sessionIndexPathOf(home: string, env: NodeJS.ProcessEnv = {}): string {
-  return `${codexHomeOf(home, env)}/session_index.jsonl`;
+  return `${codexHomeOf(home, env).replace(/\/$/, '')}/session_index.jsonl`;
 }
 
 const indexEntry = z.object({ id: z.string(), thread_name: z.string().optional() });
@@ -119,6 +119,8 @@ export function readRoster(
       unreadable++;
       continue;
     }
+
+    if (!markerInProfile(marker, deps.home, env)) continue;
 
     // A missing directory prevents card linking and indicates an invalid marker (R25).
     if (marker.cwd === null) {

@@ -17,7 +17,7 @@ export interface StartedProcess {
 export type StartProcess = (
   path: string,
   args: readonly string[],
-  options: { cwd: string; timeoutMs: number; signal: AbortSignal },
+  options: { cwd: string; timeoutMs: number; signal: AbortSignal; env?: NodeJS.ProcessEnv },
 ) => Promise<StartedProcess>;
 
 /**

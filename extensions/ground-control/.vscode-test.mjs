@@ -21,6 +21,6 @@ export default defineConfig({
   launchArgs: [`--user-data-dir=${profile}`, `--extensions-dir=${join(profile, 'extensions')}`],
   // `USERPROFILE` and `HOME` because the extension reads `os.homedir()`: a run against the developer's own would
   // rewrite the lane placements and agent settings of the board they are actually using.
-  env: { USERPROFILE: home, HOME: home, CODEX_HOME: join(home, '.codex'), GC_TEST_HOME: home, VSCODE_PORTABLE: portable },
+  env: { USERPROFILE: home, HOME: home, CLAUDE_CONFIG_DIR: join(home, '.claude'), CODEX_HOME: join(home, '.codex'), GC_TEST_HOME: home, VSCODE_PORTABLE: portable },
   mocha: { timeout: 60_000, ui: 'bdd' },
 });

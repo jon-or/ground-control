@@ -15,6 +15,8 @@ export interface SessionCheck {
   allowed: boolean;
   targetActive: boolean;
   cardActive: boolean;
+  /** Accepted storage profile, included only for an authorized target. */
+  agentHome?: string;
 }
 
 /** Board display state computed by the hub; source item state remains externally owned. */
@@ -69,7 +71,7 @@ export type ClientMessage =
   | { type: 'refresh' }
   | { type: 'move'; key: string; lane: LaneId }
   // Read extensionReady per open request because activation can complete after hello. handedOver prevents routing a cross-window request onward (M45).
-  | { type: 'open'; sessionId: string; extensionReady: boolean; handedOver?: boolean }
+  | { type: 'open'; sessionId: string; extensionReady: boolean; handedOver?: boolean; resumeToken?: string }
   // Paid classification: validate the card key and rate-limit repeated requests.
   | { type: 'retriage'; key: string }
   // Manual action request. Bypasses automatic enablement/history, retaining safety and concurrency checks.

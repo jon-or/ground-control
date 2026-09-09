@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 
 /** Lock age after which installation may replace it as stale. */
 export const LOCK_STALE_MS = 60_000;
@@ -14,6 +14,24 @@ export function read(path: string): string | null {
     return readFileSync(path, 'utf8');
   } catch {
     return null;
+  }
+}
+
+/** Persist accepted configuration before using paths it records. Never truncate the previous configuration. */
+export function writeDurable(path: string, text: string): void {
+  if (read(path) === text) return;
+  const temp = `${path}.${process.pid}.tmp`;
+  let fd: number | undefined;
+  try {
+    fd = openSync(temp, 'w', 0o600);
+    writeFileSync(fd, text);
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    attempt(() => renameSync(temp, path));
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    try { rmSync(temp, { force: true }); } catch { /* Preserve the write failure. */ }
   }
 }
 

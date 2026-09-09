@@ -25,6 +25,16 @@ afterAll(() => {
 const options = () => ({ cwd: process.cwd(), timeoutMs: 15_000, signal: new AbortController().signal });
 
 describe('starting a run and letting go of it', () => {
+  it('passes the selected profile to the child while retaining logs in Ground Control storage', async () => {
+    const profile = join(home, 'profile with spaces');
+    const start = makeMachineStarter(home, () => 'profile-env');
+    const running = await start(process.execPath, ['-e', 'console.log(JSON.stringify({root:process.env.CODEX_HOME}))'],
+      { ...options(), env: { ...process.env, CODEX_HOME: profile } });
+    expect(running.failure).toBeNull();
+    expect(JSON.parse((await running.firstLine((line) => line.includes('root')))!)).toEqual({ root: profile });
+    expect(readFileSync(dispatchLogPathOf(home, 'profile-env'), 'utf8')).toContain(JSON.stringify(profile));
+    expect(existsSync(join(profile, 'ground-control'))).toBe(false);
+  });
   it('reads the thread id out of what the run printed, and answers with its process', async () => {
     // Use a real child to verify process spawning.
     const start = makeMachineStarter(home, () => 'run-1');

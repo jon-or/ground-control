@@ -172,7 +172,7 @@ export function expectedTitle(entry: TranscriptEntry): string | null {
 
 /** Real Claude adapter with recorded transport. */
 export function claudeWith(run: ExecJson): readonly AgentAdapter[] {
-  return [makeClaudeAdapter(run)];
+  return [makeClaudeAdapter(run, undefined, {})];
 }
 
 /** The recorded machine: git reads, transcript listing, write times and tails, under the synthetic home. */

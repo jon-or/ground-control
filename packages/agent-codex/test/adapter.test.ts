@@ -41,6 +41,80 @@ const marker = JSON.stringify({
 });
 
 describe('the Codex adapter', () => {
+  it.each([
+    ['/profiles/user\\one', '/profiles/user\\one/hooks.json'],
+    ['C:/', 'C:/hooks.json'],
+    ['/', '/hooks.json'],
+  ])('keeps detection and hook paths consistent for %s', (root, settings) => {
+    const adapter = makeCodexAdapter({ alive: () => true, env: {} });
+    adapter.storage!.configure(root);
+    expect(adapter.enabledByDefault(machine({ dirs: { [root]: [] } }))).toBe(true);
+    expect(adapter.activity!.settingsPath(HOME)).toBe(settings);
+  });
+  it('changes profile reads and hook paths while leaving Ground Control markers in place', async () => {
+    const adapter = makeCodexAdapter({ alive: () => true, env: { CODEX_HOME: '/initial' } });
+    const first = '/profiles/first';
+    const second = '/profiles/second';
+    const deps = machine({
+      dirs: { [activityDirOf(HOME)]: ['thread-1.json'], [first]: [], [second]: [] },
+      files: {
+        [markerPathOf(HOME, 'thread-1')]: JSON.stringify({ ...JSON.parse(marker), profileRoot: first }),
+        [`${first}/session_index.jsonl`]: JSON.stringify({ id: 'thread-1', thread_name: 'First profile' }),
+      },
+    });
+    adapter.storage!.configure(first);
+    expect(adapter.activity!.settingsPath(HOME)).toBe(`${first}/hooks.json`);
+    expect(adapter.activity!.watchDir(HOME)).toBe(activityDirOf(HOME));
+    expect(adapter.enabledByDefault(deps)).toBe(true);
+    expect((await adapter.listSessions('codex', deps)).sessions).toHaveLength(1);
+    expect(adapter.activity!.read(HOME, 'thread-1', deps.readText)).not.toBeNull();
+    adapter.storage!.configure(second);
+    expect(adapter.activity!.settingsPath(HOME)).toBe(`${second}/hooks.json`);
+    expect((await adapter.listSessions('codex', deps)).sessions).toEqual([]);
+    expect(adapter.activity!.read(HOME, 'thread-1', deps.readText)).toBeNull();
+  });
+
+  it('snapshots dispatch environments and preserves stop authorization after a profile change', async () => {
+    const environments: NodeJS.ProcessEnv[] = [];
+    const stopped: number[] = [];
+    const base = { CODEX_HOME: '/ambient', TOKEN: 'test-only' };
+    const adapter = makeCodexAdapter({ alive: () => true, env: base,
+      start: async (_path, _args, options) => {
+        environments.push(options.env!);
+        return { pid: 7654, failure: null, firstLine: async () => STARTED };
+      }, kill: (pid) => { stopped.push(pid); return true; },
+    });
+    adapter.storage!.configure('/profiles/first');
+    expect(await adapter.dispatch!(dispatchInput())).toEqual({ shortId: THREAD });
+    adapter.storage!.configure('/profiles/second');
+    expect(await adapter.stopDispatch!('codex', THREAD)).toBeNull();
+    expect(stopped).toEqual([7654]);
+    expect(environments).toEqual([{ CODEX_HOME: '/profiles/first', TOKEN: 'test-only' }]);
+    expect(base.CODEX_HOME).toBe('/ambient');
+  });
+
+  it('separates pending trust attempts by profile and ignores an old profile failure', async () => {
+    const calls: { env: NodeJS.ProcessEnv; finish: (value: string | null) => void }[] = [];
+    const adapter = makeCodexAdapter({ alive: () => true, env: {}, trust: (_path, _home, env) =>
+      new Promise((finish) => { calls.push({ env: env!, finish }); }),
+    });
+    const hooks = Object.values(withOurHook())[0]!;
+    const deps = machine({ files: { '/profiles/first/hooks.json': hooks, '/profiles/second/hooks.json': hooks } });
+    adapter.storage!.configure('/profiles/first');
+    await adapter.listSessions('codex', deps);
+    adapter.storage!.configure('/profiles/second');
+    await adapter.listSessions('codex', deps);
+    expect(calls.map((call) => call.env['CODEX_HOME'])).toEqual(['/profiles/first', '/profiles/second']);
+    adapter.storage!.configure('/profiles/first');
+    await adapter.listSessions('codex', deps);
+    expect(calls).toHaveLength(3);
+    calls[0]!.finish('old profile failure');
+    calls[1]!.finish(null);
+    calls[2]!.finish(null);
+    await Promise.resolve();
+    expect((await adapter.listSessions('codex', deps)).failure).toBeNull();
+    expect(calls).toHaveLength(3);
+  });
   it('names itself and the command a dispatch spawns', () => {
     expect(makeCodexAdapter({ alive: () => true, env: {} })).toMatchObject({ id: 'codex', displayName: 'Codex', defaultPath: 'codex' });
   });

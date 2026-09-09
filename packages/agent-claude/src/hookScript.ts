@@ -10,12 +10,23 @@ export const HOOK_FILE = `${GROUND_CONTROL_DIR}/hook.mjs`;
 export const ACTIVITY_DIR = `${GROUND_CONTROL_DIR}/activity`;
 
 function under(home: string, suffix: string): string {
-  return `${normalize(home).replace(/\/+$/, '')}/${suffix}`;
+  return `${rootPath(home).replace(/\/+$/, '')}/${suffix}`;
 }
 
-/** Shared Claude user settings containing hook entries. */
-export function claudeSettingsPathOf(home: string): string {
-  return under(home, '.claude/settings.json');
+function rootPath(value: string): string {
+  return /^[a-z]:[\\/]|^\\\\/i.test(value) ? normalize(value) : value;
+}
+
+/** Claude configuration and history root; Ground Control state keeps the separate user home. */
+export function claudeHomeOf(home: string, env: NodeJS.ProcessEnv = {}): string {
+  const configured = env['CLAUDE_CONFIG_DIR'];
+  if (configured === undefined) return under(home, '.claude');
+  const root = rootPath(configured);
+  return root === '/' || /^[a-z]:\/$/i.test(root) ? root : root.replace(/\/+$/, '');
+}
+
+export function claudeSettingsPathOf(home: string, env: NodeJS.ProcessEnv = {}): string {
+  return under(claudeHomeOf(home, env), 'settings.json');
 }
 
 export function hookPathOf(home: string): string {

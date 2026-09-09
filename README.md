@@ -62,6 +62,16 @@ Hook changes preserve unrelated agent settings, hooks, and Codex trust entries, 
 
 `newSession.prompt` prefills Claude's composer without submitting. It accepts `{issue}`, `{repo}`, `{title}`, `{url}`, and `{checkout}`; unknown placeholders remain unchanged. Empty prompts and new Codex sessions start without a prompt.
 
+### Agent storage
+
+Set `CLAUDE_CONFIG_DIR` or `CODEX_HOME` before starting VS Code to select a custom agent profile. Both require absolute paths without surrounding whitespace. POSIX paths containing literal backslashes are unsupported. Invalid values are reported rather than replaced with defaults. Unset values use `~/.claude` and `~/.codex`. These existing agent variables control discovery, history, hooks, trust, and Ground Control's CLI launches. They do not move Ground Control's own state.
+
+The hub saves accepted roots in `agentHomes` so Chrome startup and uninstall use the same locations even with a different environment. Opening the editor board submits that editor's profile selection. One shared hub supports one selected profile per agent. To change it, finish active agent work, refresh the board, and reopen it; changes require a successful roster read within two seconds and no pending work. Hook cleanup or settings-save failures leave the previous selection active and report a remedy.
+
+Agent editor extensions inherit their profiles at startup. Reveal, resume, and new-session commands refuse a mismatched editor profile; restart VS Code with matching environment variables. Cross-window session links pass through Ground Control in the target window for this check. Terminal attach and hub CLI dispatch pass the accepted profile explicitly.
+
+New Codex activity markers identify their profile. Older markers can prove it through a transcript path; ambiguous legacy markers are used only with the default Codex home. Sessions using cached old hooks may need restarting for custom-profile discovery. Owned hooks in prior recorded homes are removed during a profile change; unrelated settings and cached hook writers are preserved.
+
 ### Session scope
 
 `sessions.includeRepositories`, `sessions.excludeRepositories`, `sessions.includeDirectories`, and `sessions.excludeDirectories` default to empty lists. Empty includes allow all sessions; otherwise a repository or directory include must match. Exclusions always win. These shared settings apply to both boards without filtering assigned GitHub issues.

@@ -97,6 +97,12 @@ export interface AgentAdapter {
   readonly id: string;
   readonly displayName: string;
   readonly defaultPath: string;
+  /** One selected storage profile per adapter instance; changing it preserves dispatch ownership. */
+  readonly storage?: {
+    readonly environment: string;
+    readonly defaultDirectory: string;
+    configure(root: string): void;
+  };
   /**
    * Whether to include the agent before explicit configuration (R30). This can use filesystem detection or a
    * fixed default; it does not guarantee that the executable is installed.

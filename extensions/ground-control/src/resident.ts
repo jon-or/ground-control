@@ -8,6 +8,7 @@ import type { AgentPlacement, CommandArg } from '@ground-control/host-vscode';
 import { spawnEnvironment } from '@ground-control/hub';
 import { routeAllowed, sessionAllowed } from './sessionScope.js';
 import type { SessionChecker } from './sessionScope.js';
+import { editorProfileRefusal } from './agentStorage.js';
 
 const SCOPE_REFUSAL = 'This work is hidden by the current session settings. Refresh the board.';
 
@@ -15,6 +16,8 @@ async function checkSession(session: Session | HistoricalSession, root: string, 
   const checked = await check(session.sessionId);
   if (!sessionAllowed(session, history, root) || checked?.allowed === false) return SCOPE_REFUSAL;
   if (!checked) return 'Live sessions could not be checked. Refresh the board and try again.';
+  const profile = editorProfileRefusal(session.agent, checked.agentHome);
+  if (profile) return profile;
   return (history ? !checked.targetActive && !checked.cardActive : checked.targetActive)
     ? null : 'This session can no longer be opened safely. Refresh the board.';
 }
@@ -224,7 +227,7 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
 }
 
 /** Focus the target window before sending its URI, then verify the resulting session placement (mechanics M7). */
-async function revealElsewhere(roster: Roster, check: SessionChecker, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean }): Promise<string | null> {
+async function revealElsewhere(roster: Roster, check: SessionChecker, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean; resumeToken?: string }): Promise<string | null> {
   if (!sessionAllowed(session, resume !== undefined, root)) return SCOPE_REFUSAL;
   if (resume && Date.now() >= resume.expiresAt) return 'This resume request expired. Refresh the board and try again.';
 
@@ -254,9 +257,8 @@ async function revealElsewhere(roster: Roster, check: SessionChecker, session: S
     return `Opening ${session.agent} sessions in VS Code is not supported.`;
   }
 
-  // Use the agent URI when supported, otherwise route through Ground Control in the target window (mechanics
-  // M45).
-  const fired = await runCode(['--open-url', placement.openUri?.(session.sessionId) ?? handOverUri(session.sessionId, session.agent)]);
+  // The target resident must check its own agent profile before executing an editor command.
+  const fired = await runCode(['--open-url', handOverUri(session.sessionId, session.agent, resume?.resumeToken)]);
 
   if (fired !== null) {
     return `The ${session.agent} session could not be opened in the window on ${root}: ${fired}`;
@@ -281,6 +283,10 @@ export async function performRoute(plan: OpenRoute, roster: Roster, check: Sessi
 
 async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: SessionChecker): Promise<string | null> {
   if (!routeAllowed(plan)) return SCOPE_REFUSAL;
+  if (plan.route === 'start-session') {
+    const profile = editorProfileRefusal(plan.agent, plan.agentHome);
+    if (profile) return profile;
+  }
   if ('session' in plan) {
     const checked = await checkSession(plan.session, plan.root, plan.route.startsWith('resume-'), check);
     if (checked) return checked;

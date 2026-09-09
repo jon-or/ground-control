@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activityOf, phaseOf, readActivity, readMarker } from '../src/phase.js';
+import { activityOf, markerInProfile, phaseOf, readActivity, readMarker } from '../src/phase.js';
 import type { ActivityMarker } from '../src/phase.js';
 import { HOOK_MARKER_VERSION, markerPathOf } from '../src/hookScript.js';
 import { HOME, machine } from './helpers.js';
@@ -18,6 +18,7 @@ function marker(over: Partial<ActivityMarker> = {}): ActivityMarker {
     startedAt: NOW - 60_000,
     cwd: '/work/repo',
     transcriptPath: '/home/dev/.codex/sessions/2026/09/07/rollout-thread-1.jsonl',
+    profileRoot: null,
     model: 'gpt-6-astra',
     permissionMode: 'default',
     source: null,
@@ -32,6 +33,19 @@ function withMarker(value: unknown, sessionId = 'thread-1') {
 }
 
 describe('the phase a Codex event reports', () => {
+  it('uses explicit profiles or legacy transcript evidence and rejects ambiguous custom-profile markers', () => {
+    const custom = { CODEX_HOME: '/profiles/codex' };
+    expect(markerInProfile(marker({ profileRoot: '/profiles/codex' }), HOME, custom)).toBe(true);
+    expect(markerInProfile(marker({ profileRoot: '/profiles/elsewhere' }), HOME, custom)).toBe(false);
+    expect(markerInProfile(marker({ transcriptPath: '/profiles/codex/sessions/rollout.jsonl' }), HOME, custom)).toBe(true);
+    expect(markerInProfile(marker({ transcriptPath: '/profiles/codex/personal/sessions/rollout.jsonl' }), HOME, custom)).toBe(false);
+    expect(markerInProfile(marker({ transcriptPath: '/profiles/codex/sessions-other/rollout.jsonl' }), HOME, custom)).toBe(false);
+    expect(markerInProfile(marker({ transcriptPath: '/profiles/codex-other/sessions/rollout.jsonl' }), HOME, custom)).toBe(false);
+    expect(markerInProfile(marker({ transcriptPath: null }), HOME, custom)).toBe(false);
+    expect(markerInProfile(marker({ transcriptPath: null }), HOME, {})).toBe(true);
+    const invalid = withMarker(marker({ profileRoot: 'relative' }));
+    expect(readMarker(HOME, 'thread-1', invalid.readText, NOW)).toBeNull();
+  });
   it('reads work from every event that only happens while a turn is running', () => {
     for (const event of [
       'UserPromptSubmit',

@@ -38,9 +38,9 @@ export function spawnEnvironment(env: NodeJS.ProcessEnv = { ...process.env }): N
 }
 
 /** Construct a hub with real machine dependencies for the given home. */
-export function makeHub(log: Logger, home: string = homedir()): Hub {
+export function makeHub(log: Logger, home: string = homedir(), agentEnv?: NodeJS.ProcessEnv): Hub {
   return new Hub(
-    realHubDeps(makeRegistries(log, home), makeLaneStore(home), makeMarkStore(home), makeSettingsStore(home), home, watchDir, log),
+    realHubDeps(makeRegistries(log, home, agentEnv), makeLaneStore(home), makeMarkStore(home), makeSettingsStore(home), home, watchDir, log),
   );
 }
 
@@ -49,6 +49,8 @@ export const IDLE_EXIT_MS = 30 * 60 * 1000;
 
 export interface ServeOptions {
   home?: string;
+  /** Explicit environments allow profile fixtures; an injected home otherwise ignores agent home variables. */
+  agentEnv?: NodeJS.ProcessEnv;
   version: string;
   idleMs?: number;
   /** Default log: hub.log, appended and rotated at startup. */
@@ -111,7 +113,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   }
 
   const fingerprint = fingerprintOf(home);
-  const hub = makeHub(log, home);
+  const hub = makeHub(log, home, options.agentEnv ?? (options.home === undefined ? process.env : undefined));
   const startedAt = new Date().toISOString();
 
   let server: HubServer;

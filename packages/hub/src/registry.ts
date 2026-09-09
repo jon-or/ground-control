@@ -12,12 +12,25 @@ export interface Registries {
   agents: readonly AgentAdapter[];
   hosts: readonly HostAdapter[];
   sources: readonly WorkSource[];
+  /** Adapter and host bindings share accepted profiles without changing the process environment. */
+  agentEnvironment?: NodeJS.ProcessEnv;
 }
 
-export function makeRegistries(log?: Logger, home: string = homedir()): Registries {
+export function makeRegistries(log?: Logger, injectedHome?: string, injectedEnv?: NodeJS.ProcessEnv): Registries {
+  const home = injectedHome ?? homedir();
+  const environment = { ...process.env };
+  if (injectedHome !== undefined) {
+    delete environment['CLAUDE_CONFIG_DIR'];
+    delete environment['CODEX_HOME'];
+  }
+  Object.assign(environment, injectedEnv);
+  if (injectedHome !== undefined) {
+    environment['HOME'] = home;
+    environment['USERPROFILE'] = home;
+  }
   const codex = makeCodexAdapter({
     alive: pidAliveOnMachine,
-    env: process.env,
+    env: environment,
     // Use the injected home so --home dispatches do not write transcripts to the developer's active home.
     start: makeMachineStarter(home),
     kill: killOnMachine,
@@ -25,7 +38,18 @@ export function makeRegistries(log?: Logger, home: string = homedir()): Registri
     trust: makeTrustOnMachine(),
   });
 
-  return { agents: [makeClaudeAdapter(), codex], hosts: [makeVscodeHost()], sources: [makeGithubSource(log ? { log } : {})] };
+  return { agents: [makeClaudeAdapter(undefined, undefined, environment), codex], hosts: [makeVscodeHost(undefined, environment)], sources: [makeGithubSource(log ? { log } : {})], agentEnvironment: environment };
+}
+
+/** Rebind existing adapters so profile changes do not discard their process ownership maps. */
+export function configureAgentHomes(registries: Registries, homes: Readonly<Record<string, string>>): void {
+  for (const agent of registries.agents) {
+    const root = homes[agent.id];
+    if (agent.storage && root !== undefined) {
+      agent.storage.configure(root);
+      if (registries.agentEnvironment) registries.agentEnvironment[agent.storage.environment] = root;
+    }
+  }
 }
 
 /** Default issue-number convention (R27). */

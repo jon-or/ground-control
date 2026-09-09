@@ -5,7 +5,7 @@ export type { ChangeKind, ChangedPath, ChangesPlan, ChangesRequest, DiffRow, Dif
 export { stagedUpdate, stagedUpdateRefusal } from './install.js';
 export type { StagedUpdate } from './install.js';
 export { PLACEMENTS, claudeDirOf } from './placements.js';
-export { attachFromUri, handOverUri, handedOver, sessionFromUri } from './openUri.js';
+export { attachFromUri, handOverUri, handedOver, handoverToken, sessionFromUri } from './openUri.js';
 export type { AgentPlacement, CommandArg, CommandCall } from './placements.js';
 export { SETTLING_MS, VSCODE_ROUTES, openableSessions, planCheckout, planOpen, planStart, resumeRefusal, startableAgents, strayFrom, verifyOpen } from './open.js';
 export { ideWindowsFrom, listeningFrom, liveRootsOf, liveWindows, processesFrom, windowForProcess } from './ide.js';

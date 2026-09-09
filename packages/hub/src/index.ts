@@ -1,5 +1,6 @@
 export { configureHosts, configureSources, defaultConfig, makeRegistries } from './registry.js';
 export type { Registries } from './registry.js';
+export { uninstallAgentActivity } from './agentHomes.js';
 export {
   BACKUPS_KEPT,
   MARKER_MAX_AGE_MS,

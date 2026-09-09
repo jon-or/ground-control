@@ -190,6 +190,14 @@ describe('what a client does over the wire', () => {
     hub.checking.value = { allowed: true, targetActive: false, cardActive: true };
     expect(await client.transport.sessionCheck('session-1')).toEqual({ allowed: true, targetActive: false, cardActive: true });
     expect(hub.checking.ids).toEqual(['session-1']);
+    hub.checking.value = { allowed: true, targetActive: false, cardActive: false, agentHome: 'D:\\Profiles\\Selected' };
+    expect(await client.transport.sessionCheck('session-1')).toEqual({ allowed: true, targetActive: false, cardActive: false, agentHome: 'D:/Profiles/Selected' });
+    for (const agentHome of ['', 'relative', '/root\nother', false, null]) {
+      hub.checking.value = { allowed: true, targetActive: false, cardActive: false, agentHome };
+      expect(await client.transport.sessionCheck('session-1')).toBeNull();
+    }
+    hub.checking.value = { allowed: false, targetActive: false, cardActive: false, agentHome: '/private/profile' };
+    expect(await client.transport.sessionCheck('session-1')).toBeNull();
     hub.checking.value = { allowed: false, targetActive: false, cardActive: false };
     expect(await client.transport.sessionCheck('session-2')).toEqual({ allowed: false, targetActive: false, cardActive: false });
     for (const bad of [null, true, [], {}, { allowed: 'true', targetActive: false, cardActive: false },
@@ -244,13 +252,14 @@ describe('what a client does over the wire', () => {
     );
 
     await until(() => client.hellos === 1, 'never connected');
+    await until(() => client.restated === 1, 'the initial hello was never acknowledged');
 
     await first.server.close();
     current = await serving();
 
     await until(() => client.hellos === 2, 'the hub went away and the client never came back');
     await until(() => current.hub.sends.size === 1, 'it reconnected without saying hello to the new hub');
-    expect(client.restated).toBe(2);
+    await until(() => client.restated === 2, 'the reconnect hello was never acknowledged');
   });
 
   /** An outage is one message, not one per retry, and the developer is told when it clears. */

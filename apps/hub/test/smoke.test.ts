@@ -73,9 +73,13 @@ interface Run {
 }
 
 function run(home: string, ...args: string[]): Run {
+  return runEnv(home, {}, ...args);
+}
+
+function runEnv(home: string, env: NodeJS.ProcessEnv, ...args: string[]): Run {
   const child = spawn(process.execPath, [ENTRY, `--home=${home}`, ...args], {
     // Inject environment homes too, protecting user data if a mode ignores --home.
-    env: { ...process.env, PATH: BARE_PATH, Path: BARE_PATH, USERPROFILE: home, HOME: home },
+    env: { ...process.env, PATH: BARE_PATH, Path: BARE_PATH, USERPROFILE: home, HOME: home, ...env },
     windowsHide: true,
   });
 
@@ -162,6 +166,37 @@ function call(port: number, method: string, path: string, token: string | null, 
 }
 
 describe('hub process', () => {
+  it('selects custom launcher profiles before default reads and retains them across browser restart and uninstall', async () => {
+    const home = tempHome(); const profiles = tempHome();
+    const claude = join(profiles, 'claude'); const codex = join(profiles, 'codex');
+    mkdirSync(claude); mkdirSync(codex);
+    writeFileSync(join(home, '.claude', 'settings.json'), 'unrelated invalid default settings');
+    const first = runEnv(home, { CLAUDE_CONFIG_DIR: claude, CODEX_HOME: codex }, '--inherit-agent-env');
+    const initial = await until(() => record(home));
+    const path = join(home, '.claude', 'ground-control', 'config.json');
+    const accepted = JSON.parse(readFileSync(path, 'utf8')) as { agentHomes: Record<string, string> };
+    expect(accepted.agentHomes).toEqual({ claude: claude.replace(/\\/g, '/'), codex: codex.replace(/\\/g, '/') });
+    expect(await call(initial.port, 'POST', '/shutdown', initial.token)).toContain('200');
+    expect(await first.ended).toBe(0);
+    const second = runEnv(home, { CLAUDE_CONFIG_DIR: join(profiles, 'other-claude'), CODEX_HOME: join(profiles, 'other-codex') }, '--inherit-agent-env');
+    const restarted = await until(() => { const value = record(home); return value?.pid === second.child.pid ? value : null; });
+    expect(JSON.parse(readFileSync(path, 'utf8')).agentHomes).toEqual(accepted.agentHomes);
+    expect(await call(restarted.port, 'POST', '/shutdown', restarted.token)).toContain('200');
+    expect(await second.ended).toBe(0);
+    const uninstall = runEnv(home, { CLAUDE_CONFIG_DIR: join(profiles, 'wrong') }, '--uninstall');
+    expect(await uninstall.ended).toBe(0);
+    expect(readFileSync(join(home, '.claude', 'settings.json'), 'utf8')).toBe('unrelated invalid default settings');
+  });
+  it('ignores inherited profile variables for a plain injected home', async () => {
+    const home = tempHome(); const outside = tempHome();
+    const hub = runEnv(home, { CLAUDE_CONFIG_DIR: `${outside}/claude`, CODEX_HOME: `${outside}/codex` });
+    const there = await until(() => record(home));
+    const accepted = JSON.parse(readFileSync(join(home, '.claude', 'ground-control', 'config.json'), 'utf8')) as { agentHomes: Record<string, string> };
+    expect(accepted.agentHomes).toEqual({ claude: `${home.replace(/\\/g, '/')}/.claude`, codex: `${home.replace(/\\/g, '/')}/.codex` });
+    expect(existsSync(join(outside, 'claude'))).toBe(false); expect(existsSync(join(outside, 'codex'))).toBe(false);
+    expect(await call(there.port, 'POST', '/shutdown', there.token)).toContain('200');
+    expect(await hub.ended).toBe(0);
+  });
   it('comes up, reports both missing CLIs to a watching client, and stops when asked', async () => {
     const home = tempHome();
     const hub = run(home);

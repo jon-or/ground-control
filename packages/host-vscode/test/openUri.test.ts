@@ -2,12 +2,22 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { attachFromUri, handOverUri, handedOver, sessionFromUri } from '../src/openUri.js';
+import { attachFromUri, handOverUri, handedOver, handoverToken, sessionFromUri } from '../src/openUri.js';
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
 
 /** Use the browser overlay's literal URI to verify cross-client compatibility (docs/testing.md). */
 const LINK = `vscode://groundcontrol.ground-control/open?session=${SESSION}`;
+
+it('carries one reservation token and rejects malformed or duplicate tokens', () => {
+  const token = '01234567-89ab-4cde-8fab-0123456789ab';
+  const uri = new URL(handOverUri(SESSION, 'claude', token));
+  expect(uri.searchParams.get('resumeToken')).toBe(token);
+  expect(handoverToken(uri.search.slice(1))).toBe(token);
+  expect(handoverToken(`${uri.search.slice(1)}&resumeToken=${token}`)).toBeNull();
+  expect(handoverToken('resumeToken=../arbitrary')).toBeNull();
+  expect(handoverToken(new URL(handOverUri(SESSION, 'claude')).search.slice(1))).toBeNull();
+});
 
 describe('the link the browser board writes', () => {
   it('is addressed to this extension, by the id VS Code routes on', () => {

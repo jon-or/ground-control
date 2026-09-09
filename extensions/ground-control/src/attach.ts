@@ -3,6 +3,7 @@ import { agentCommand, sessionLabel } from '@ground-control/core';
 import type { Session } from '@ground-control/core';
 import { sessionAllowed } from './sessionScope.js';
 import type { SessionChecker } from './sessionScope.js';
+import { attachEnvironment } from './agentStorage.js';
 
 /**
  * Attach in a terminal from either board. Resuming an active run in an editor tab starts a second process that
@@ -16,6 +17,8 @@ export async function attachTo(session: Session, check: SessionChecker): Promise
 
   const checked = await check(session.sessionId);
   if (!checked?.allowed || !checked.targetActive || !sessionAllowed(session)) return false;
+  const env = attachEnvironment(session.agent, checked.agentHome);
+  if (env === null) return false;
 
   // The same map the hub is configured from, read here rather than carried, and resolved by the same rule (R30).
   const configured = vscode.workspace.getConfiguration('groundControl').get<Record<string, string>>('agents', {});
@@ -27,6 +30,7 @@ export async function attachTo(session: Session, check: SessionChecker): Promise
       cwd: session.cwd,
       shellPath: agentCommand(configured, session.agent),
       shellArgs: ['attach', session.attachId],
+      env,
     })
     .show();
 

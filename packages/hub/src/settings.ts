@@ -1,7 +1,7 @@
-import { chmodSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { groundControlDirOf, parseHubConfig } from '@ground-control/core';
 import type { HubConfig, ReadFailure } from '@ground-control/core';
-import { read, writeIfChanged } from './fs.js';
+import { read, writeDurable } from './fs.js';
 import { configPathOf } from './paths.js';
 
 /** Persist client settings so Chrome can restart a configured hub without an editor open (R9, R35). */
@@ -31,7 +31,7 @@ export function makeSettingsStore(home: string): SettingsStore {
       const text = read(path);
 
       if (text === null) {
-        return null;
+        return existsSync(path) ? { failure: settingsFailure(path, 'The settings file cannot be read.') } : null;
       }
 
       // Validate stored settings like client input, including executable paths. Report rejected settings rather than silently replacing them with defaults.
@@ -45,16 +45,8 @@ export function makeSettingsStore(home: string): SettingsStore {
     },
 
     write(config: HubConfig): void {
-      try {
-        mkdirSync(groundControlDirOf(home), { recursive: true, mode: 0o700 });
-
-        if (writeIfChanged(path, `${JSON.stringify(config, null, 2)}\n`)) {
-          // Restrict configuration access to its owner; Windows inherits directory permissions.
-          chmodSync(path, 0o600);
-        }
-      } catch {
-        // Keep accepted settings active after persistence failure; another client can save them later.
-      }
+      mkdirSync(groundControlDirOf(home), { recursive: true, mode: 0o700 });
+      writeDurable(path, `${JSON.stringify(config, null, 2)}\n`);
     },
   };
 }

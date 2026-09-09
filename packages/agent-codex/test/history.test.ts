@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeHistoryReader, rolloutExists, rolloutMetadata, sessionsRootOf } from '../src/history.js';
+import { makeCodexAdapter } from '../src/codex.js';
 import { sessionIndexPathOf } from '../src/roster.js';
 import { HOME, machine } from './helpers.js';
 import type { FakeMachine } from './helpers.js';
@@ -73,6 +74,28 @@ describe('reading one rollout head', () => {
 });
 
 describe('the saved Codex sessions', () => {
+  it('uses one selected profile for history and resume and switches without reusing old history', async () => {
+    const old = saved();
+    const profile = '/profiles/codex';
+    const map = (path: string) => path.startsWith(profile) ? path.replace(profile, `${HOME}/.codex`) : path;
+    const paths: string[] = [];
+    const deps = { ...old,
+      listDir: (path: string) => { paths.push(path); return old.listDir(map(path)); },
+      mtime: (path: string) => old.mtime(map(path)),
+      readHead: (path: string, bytes: number) => old.readHead(map(path), bytes),
+      readTail: (path: string, bytes: number) => old.readTail(map(path), bytes),
+    };
+    const adapter = makeCodexAdapter({ alive: () => true, env: {} });
+    adapter.storage!.configure(profile);
+    const historical = (await adapter.listHistory!(deps)).sessions[0]!;
+    expect(historical.sessionId).toBe(ID);
+    expect(paths).toContain(`${profile}/sessions`);
+    expect(adapter.canResume!(historical, deps)).toBe(true);
+    adapter.storage!.configure('/profiles/empty');
+    expect((await adapter.listHistory!(deps)).sessions).toEqual([]);
+    expect(adapter.canResume!(historical, deps)).toBe(false);
+    expect(deps.home).toBe(HOME);
+  });
   it('reports a rollout with its title, branch, repository, and issue number', async () => {
     const reading = await makeHistoryReader()(
       saved({

@@ -2,11 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { fetchSessions } from '@ground-control/core';
 import { makeClaudeAdapter } from '../src/claude.js';
 import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from '../src/ids.js';
-import { claudeActivity } from '../src/activity.js';
 import { config, recordedReaders } from './helpers.js';
 
 describe('the Claude adapter', () => {
-  const adapter = makeClaudeAdapter();
+  const adapter = makeClaudeAdapter(undefined, undefined, {});
 
   it('names itself and its command', () => {
     expect(adapter.id).toBe(CLAUDE_AGENT_ID);
@@ -19,8 +18,8 @@ describe('the Claude adapter', () => {
   });
 
   it('offers its hook-written markers as the phase signal', () => {
-    expect(adapter.activity).toBe(claudeActivity);
-    expect(claudeActivity.watchDir('/nowhere/home')).toBe('/nowhere/home/.claude/ground-control/activity');
+    expect(adapter.activity!.watchDir('/nowhere/home')).toBe('/nowhere/home/.claude/ground-control/activity');
+    expect(adapter.activity!.settingsPath('/nowhere/home')).toBe('/nowhere/home/.claude/settings.json');
   });
 
   it('uses the real transport by default', async () => {

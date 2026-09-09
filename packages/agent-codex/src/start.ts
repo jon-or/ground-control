@@ -69,6 +69,7 @@ export function makeMachineStarter(home: string = homedir(), id: () => string = 
       try {
         const child = spawn(resolved, [...args], {
           cwd: options.cwd,
+          ...(options.env === undefined ? {} : { env: options.env }),
           detached: true,
           stdio: ['ignore', out, err],
           windowsHide: true,

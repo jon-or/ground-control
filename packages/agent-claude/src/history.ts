@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { basename, issueNumberFrom, repositoryOf } from '@ground-control/core';
 import type { HistoricalSession, HistoryReading, MachineDeps } from '@ground-control/core';
+import { claudeHomeOf } from './hookScript.js';
 
 const WINDOW_BYTES = 64 * 1024;
 const SESSION_FILE = /^([a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})\.jsonl$/i;
@@ -40,10 +41,10 @@ export function historyMetadata(head: string, tail: string, sessionId: string): 
 }
 
 /** Metadata is cached by absolute transcript path and mtime. Every roster refresh still discovers additions/deletions. */
-export function makeHistoryReader(): (deps: MachineDeps) => Promise<HistoryReading> {
+export function makeHistoryReader(environment: () => NodeJS.ProcessEnv = () => ({})): (deps: MachineDeps) => Promise<HistoryReading> {
   const cache = new Map<string, { at: number; metadata: Metadata | null }>();
   return async (deps) => {
-    const root = `${deps.home.replace(/\\/g, '/').replace(/\/$/, '')}/.claude/projects`;
+    const root = `${claudeHomeOf(deps.home, environment()).replace(/\/$/, '')}/projects`;
     const dirs = deps.listDir(root);
     const seen = new Set<string>();
     const sessions: HistoricalSession[] = [];

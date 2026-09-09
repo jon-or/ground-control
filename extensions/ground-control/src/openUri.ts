@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { agentOfSession, sessionOf } from '@ground-control/core';
 import type { Session } from '@ground-control/core';
-import { attachFromUri, handedOver, sessionFromUri } from '@ground-control/host-vscode';
+import { attachFromUri, handedOver, handoverToken, sessionFromUri } from '@ground-control/host-vscode';
 import { attachTo } from './attach.js';
 import { client } from './hubClient.js';
 import { agentExtensionReady } from './resident.js';
@@ -37,6 +37,7 @@ export function registerUriHandler(): vscode.Disposable {
       // Resolve the agent from cross-window URI parameters or the snapshot; default to Claude when neither is
       // available.
       const handed = handedOver(uri.query);
+      const token = handed === null ? null : handoverToken(uri.query);
       const agent = handed ?? agentOfSession(held?.snapshot, sessionId);
 
       // Validate session identity, placement, and resume permission through the hub. Browser-accessible links
@@ -46,6 +47,7 @@ export function registerUriHandler(): vscode.Disposable {
         sessionId,
         extensionReady: await agentExtensionReady(agent),
         ...(handed === null ? {} : { handedOver: true }),
+        ...(token === null ? {} : { resumeToken: token }),
       });
     },
   });

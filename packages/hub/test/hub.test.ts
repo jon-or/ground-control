@@ -2075,6 +2075,37 @@ describe('opening a historical session', () => {
     expect(performed[0]).toMatchObject({ route: { route: 'resume-here', expiresAt: h.clock.clock.now() + 30_000 } });
     h.hub.dispose();
   });
+  it.each(['valid', 'copied', 'wrong-workspace', 'wrong-session', 'expired', 'held-past-deadline', 'missing'])('checks %s historical handover against its one-use lease', async (kind) => {
+    const h = setup(); h.host.resident.push('resume-elsewhere');
+    const first = connect(h, hello({ id: 'source', workspaceRoot: '/other', residentRoutes: ['resume-here', 'resume-elsewhere'] }));
+    const target = connect(h, hello({ id: 'target', workspaceRoot: kind === 'wrong-workspace' ? '/wrong' : past.cwd, residentRoutes: ['resume-here', 'resume-elsewhere'] }));
+    await h.hub.refresh('asked');
+    h.host.plan = { route: 'resume-elsewhere', session: past, root: past.cwd, expiresAt: h.clock.clock.now() + 30_000, newWindow: true };
+    ask(h, first.client); await settle();
+    const initial = first.inbox.find((message) => message.type === 'perform');
+    if (initial?.type !== 'perform') throw new Error('Expected initial handover');
+    const token = initial.route.resumeToken;
+    expect(token).toMatch(/^[0-9a-f-]{36}$/);
+    h.host.plan = { route: 'resume-here', session: past, root: past.cwd, expiresAt: h.clock.clock.now() + 30_000 };
+    let release: (() => void) | undefined;
+    if (kind === 'held-past-deadline') h.agent.holding = new Promise((done) => { release = done; });
+    if (kind === 'expired') h.clock.advance(30_001);
+    const message = { type: 'open' as const, sessionId: kind === 'wrong-session' ? 'another' : 'past', extensionReady: true, handedOver: true,
+      ...(kind === 'missing' ? {} : { resumeToken: token! }) };
+    h.hub.receive(target.client, message);
+    if (kind === 'copied') h.hub.receive(target.client, message);
+    if (release) { await settle(); h.clock.advance(30_001); release(); }
+    await settle();
+    const performed = target.inbox.filter((entry) => entry.type === 'perform');
+    expect(performed).toHaveLength(kind === 'valid' || kind === 'copied' ? 1 : 0);
+    if (kind === 'valid' || kind === 'copied') {
+      expect(performed[0]).toMatchObject({ route: { route: 'resume-here', expiresAt: initial.route.route === 'resume-elsewhere' ? initial.route.expiresAt : 0 } });
+      h.hub.receive(target.client, message); await settle();
+      expect(target.inbox.filter((entry) => entry.type === 'perform')).toHaveLength(1);
+    }
+    if (kind !== 'valid') expect(target.inbox.some((entry) => entry.type === 'notice' && entry.refusal === 'resume-pending')).toBe(true);
+    h.hub.dispose();
+  });
   it('uses the live reveal path if the clicked session resumed since rendering', async () => {
     const h = setup(); const { client, inbox } = connect(h);
     await h.hub.refresh('asked'); h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42, repository: 'github.com/org/repo' })];

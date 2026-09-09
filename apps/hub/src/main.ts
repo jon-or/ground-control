@@ -4,11 +4,10 @@ import {
   chromeHostPlan,
   installChromeHost,
   makeLogger,
-  makeRegistries,
   realChromeHostDeps,
   serveHub,
   stopHub,
-  uninstallActivity,
+  uninstallAgentActivity,
   uninstallChromeHost,
 } from '@ground-control/hub';
 import type { Logger } from '@ground-control/core';
@@ -31,6 +30,7 @@ function flag(argv: readonly string[], name: string): string | null {
 
 async function main(argv: readonly string[]): Promise<number> {
   const home = flag(argv, 'home') || homedir();
+  const inheritAgentEnv = flag(argv, 'home') === null || flag(argv, 'inherit-agent-env') !== null;
 
   if (flag(argv, 'stop') !== null) {
     const stopped = await stopHub(home);
@@ -43,7 +43,7 @@ async function main(argv: readonly string[]): Promise<number> {
   // Chrome starts the registered wrapper and closes stdin when the last board tab closes. The bridge keeps the
   // event loop open.
   if (flag(argv, 'native-messaging') !== null) {
-    startBridge(home);
+    startBridge(home, inheritAgentEnv);
 
     return -1;
   }
@@ -65,7 +65,11 @@ async function main(argv: readonly string[]): Promise<number> {
 
   if (flag(argv, 'uninstall') !== null) {
     await stopHub(home);
-    uninstallActivity(makeRegistries().agents, home);
+    const activity = uninstallAgentActivity(home, inheritAgentEnv ? process.env : undefined);
+    if (activity.failure || activity.plan === 'busy') {
+      process.stderr.write(`${activity.failure?.message ?? 'Activity settings are locked.'}\n`);
+      return 1;
+    }
     uninstallChromeHost(chrome(), realChromeHostDeps);
     process.stdout.write('Removed the activity hooks and the browser registration, and stopped the hub.\n');
 
@@ -76,6 +80,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const idle = Number(flag(argv, 'idle-ms'));
   const result = await serveHub({
     home,
+    ...(inheritAgentEnv ? { agentEnv: process.env } : {}),
     version: VERSION,
     // Reject nonpositive values and NaN, which would prevent idle shutdown and create a 1 ms timer.
     ...(idle > 0 ? { idleMs: idle } : {}),

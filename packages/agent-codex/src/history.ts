@@ -25,7 +25,7 @@ const meta = z.object({
 });
 
 export function sessionsRootOf(home: string, env: NodeJS.ProcessEnv = {}): string {
-  return `${codexHomeOf(home, env)}/sessions`;
+  return `${codexHomeOf(home, env).replace(/\/$/, '')}/sessions`;
 }
 
 export interface RolloutMetadata {
@@ -90,10 +90,11 @@ function dayDirectories(root: string, deps: MachineDeps): string[] | null {
  * Discover saved threads from rollout files. session_index.jsonl contains titles for named threads only (M42).
  * Cache metadata by path and mtime while checking for new files each read.
  */
-export function makeHistoryReader(env: NodeJS.ProcessEnv = {}): (deps: MachineDeps) => Promise<HistoryReading> {
+export function makeHistoryReader(environment: NodeJS.ProcessEnv | (() => NodeJS.ProcessEnv) = {}): (deps: MachineDeps) => Promise<HistoryReading> {
   const cache = new Map<string, { at: number; metadata: RolloutMetadata | null }>();
 
   return async (deps) => {
+    const env = typeof environment === 'function' ? { ...environment() } : { ...environment };
     const root = sessionsRootOf(deps.home, env);
     const days = dayDirectories(root, deps);
     const titles = threadNamesFrom(deps.readText(sessionIndexPathOf(deps.home, env)));

@@ -3,10 +3,9 @@ import { homedir } from 'node:os';
 import {
   bundlePathOf,
   chromeHostPlan,
-  makeRegistries,
   realChromeHostDeps,
   stopHub,
-  uninstallActivity,
+  uninstallAgentActivity,
   uninstallChromeHost,
 } from '@ground-control/hub';
 
@@ -23,7 +22,8 @@ void (async () => {
 
   try {
     // Retain the writer after removing settings entries; active sessions may still use cached hooks.
-    uninstallActivity(makeRegistries().agents, home);
+    const activity = uninstallAgentActivity(home, process.env);
+    if (activity.failure) process.stderr.write(`${activity.failure.message} ${activity.failure.remedy}\n`);
 
     // Remove the native-host registration before its bundle so Chrome cannot start a missing executable
     // (R34).
@@ -32,7 +32,7 @@ void (async () => {
       realChromeHostDeps,
     );
     rmSync(bundlePathOf(home), { force: true });
-  } catch {
-    // Uninstalling must not fail. What is left behind writes files nobody reads.
+  } catch (error) {
+    process.stderr.write(`Ground Control cleanup was incomplete: ${String(error)}\n`);
   }
 })();

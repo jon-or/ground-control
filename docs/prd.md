@@ -338,6 +338,12 @@ Session discovery remains enabled independently of hook choices. Codex live disc
 
 Install and trust only Ground Control's Codex hooks. Obtain hashes and write trust through Codex's own API; do not calculate hashes or rewrite TOML directly. Preserve other hooks and trust entries. If trust cannot be established, explain the failure and manual remedy.
 
+Honor `CLAUDE_CONFIG_DIR` and `CODEX_HOME` consistently for agent configuration, discovery, history, hooks, trust, and owned CLI launches. Require valid absolute roots and persist accepted `agentHomes` so other launch environments cannot silently select another profile. Explicit editor selections take precedence; older clients that omit the field retain accepted roots. Injected CLI/test homes use isolated defaults unless their caller explicitly supplies a test environment.
+
+Support one selected profile per agent. A live profile change requires complete successful live-session evidence no older than two seconds, no live sessions, and no pending classification, dispatch, start, or resume. Refuse uncertain changes with refresh/reopen instructions. Preflight old and new hook settings, remove only owned old entries under the install lock, and durably save the new selection before installing there. Persistence or cleanup failures must remain visible and must not authorize writes to an unrecorded profile. Keep Ground Control state and cached writer paths independent of these roots.
+
+Editor commands cannot override a running third-party extension's profile. Refuse reveal/resume/start when the performing editor's startup profile differs from the accepted one; terminal attach and owned CLI processes can pass an explicit environment. Cross-window execution must reach the target Ground Control resident for profile validation. Resume handovers transfer one expiring reservation using a token bound to the session and target workspace, preserving duplicate prevention.
+
 ### R31. Dispatch permissions
 
 Use the least authority under which the unattended job can complete. Pass the chosen mode explicitly. Modes requiring unanswered prompts are not suitable defaults for unattended work.

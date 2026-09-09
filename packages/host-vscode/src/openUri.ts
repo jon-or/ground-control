@@ -45,8 +45,16 @@ export function handedOver(query: string): string | null {
 }
 
 /** Build the URI for the target window to reveal a session. */
-export function handOverUri(sessionId: string, agent: string): string {
+export function handOverUri(sessionId: string, agent: string, resumeToken?: string): string {
   const query = new URLSearchParams({ session: sessionId, agent, hop: '1' });
+  if (resumeToken !== undefined) query.set('resumeToken', resumeToken);
 
   return `vscode://groundcontrol.ground-control${OPEN_SESSION_PATH}?${query.toString()}`;
+}
+
+/** A handover token only transfers a hub reservation; the hub verifies its target and expiry. */
+export function handoverToken(query: string): string | null {
+  const params = new URLSearchParams(query);
+  const token = params.get('resumeToken');
+  return params.getAll('resumeToken').length === 1 && token !== null && SESSION_ID.test(token) ? token : null;
 }

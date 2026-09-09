@@ -11,3 +11,7 @@ export const claudeActivity: ActivitySignal = {
   read: readActivity,
   writer: { path: hookPathOf, source: HOOK_SOURCE },
 };
+
+export function makeClaudeActivity(environment: () => NodeJS.ProcessEnv): ActivitySignal {
+  return { ...claudeActivity, settingsPath: (home) => claudeSettingsPathOf(home, environment()) };
+}

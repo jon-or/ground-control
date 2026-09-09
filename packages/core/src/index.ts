@@ -1,6 +1,7 @@
 export { fetchSessions, fetchSessionHistory } from './sessions.js';
 export { DEFAULT_SESSION_SCOPE, restrictedSessionScope, scopeDirectory, scopeRepository, sessionInScope, sessionScopeSchema } from './sessionScope.js';
 export type { SessionScope } from './sessionScope.js';
+export { agentHomeSchema, resolveAgentHomes } from './agentHomes.js';
 export { agentOfSession, rosterIsStale, sessionLabel, sessionOf, unreportedSessions } from './roster.js';
 export { LANE_ORDER, LANE_TITLES } from './board.js';
 export type { Attention, BoardCard, Lane, LaneId, LanedCard } from './board.js';

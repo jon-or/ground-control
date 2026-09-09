@@ -58,7 +58,7 @@ describe('the configuration the hub was last given', () => {
   });
 
   /** Keep accepted settings active after persistence failure so clients can retry saving later. */
-  it('does not throw when settings cannot be written', () => {
+  it('reports an unwritable settings file so unrecorded profiles cannot be accepted', () => {
     const where = home();
     const store = makeSettingsStore(where);
 
@@ -67,8 +67,8 @@ describe('the configuration the hub was last given', () => {
     rmSync(configPathOf(where));
     mkdirSync(configPathOf(where));
 
-    expect(() => store.write({ ...configured(), refreshIntervalMs: 90_000 })).not.toThrow();
-    expect(store.read()).toBeNull();
+    expect(() => store.write({ ...configured(), refreshIntervalMs: 90_000 })).toThrow();
+    expect(store.read()).toMatchObject({ failure: { kind: 'bad-config' } });
   });
 
   /** Validate stored settings before use, including executable paths; other processes can modify the file. */

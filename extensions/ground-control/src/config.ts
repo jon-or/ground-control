@@ -8,6 +8,7 @@ import { AUTOMATABLE_ACTIONS, diskReaders, idsFrom } from '@ground-control/core'
 import type { ActionSetting, AgentConfig, AutomatableAction, HubConfig } from '@ground-control/core';
 import { defaultConfig, makeRegistries } from '@ground-control/hub';
 import { readSessionScope } from './sessionScope.js';
+import { editorAgentHomes } from './agentStorage.js';
 
 export const SECTION = 'groundControl';
 const LOGINS = 'github.logins';
@@ -47,6 +48,7 @@ export function readHubConfig(userDir: string): HubConfig {
   return {
     ...defaults,
     agents,
+    agentHomes: editorAgentHomes(),
     branchIssuePattern: cfg.get<string>('branchIssuePattern', '^(\\d+)-'),
     hosts: Object.fromEntries(hostIds().map((id) => [id, id === VSCODE_HOST_ID ? vscodeSettings(userDir) : {}])),
     sources: Object.fromEntries(sourceIds().map((id) => [id, id === GITHUB_SOURCE_ID ? readConfig() : {}])),

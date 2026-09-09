@@ -38,6 +38,29 @@ describe('historical metadata', () => {
   });
 });
 describe('history discovery', () => {
+  it('uses the selected profile for saved history and resume without moving the Ground Control home', async () => {
+    const m = machine();
+    const profile = '/profiles/claude';
+    const map = (path: string) => path.startsWith(profile) ? path.replace(profile, '/isolated/.claude') : path;
+    const paths: string[] = [];
+    const deps: MachineDeps = { ...m.deps,
+      listDir: (path) => { paths.push(path); return m.deps.listDir(map(path)); },
+      mtime: (path) => m.deps.mtime(map(path)),
+      readHead: (path, bytes) => m.deps.readHead(map(path), bytes),
+      readTail: (path, bytes) => m.deps.readTail(map(path), bytes),
+    };
+    const adapter = makeClaudeAdapter(undefined, undefined, {});
+    adapter.storage!.configure(profile);
+    const historical = (await adapter.listHistory!(deps)).sessions[0]!;
+    expect(historical.sessionId).toBe(ID);
+    expect(paths).toContain(`${profile}/projects`);
+    m.dirs[historical.cwd] = ['.git'];
+    expect(adapter.canResume!(historical, deps)).toBe(true);
+    adapter.storage!.configure('/profiles/empty');
+    expect((await adapter.listHistory!(deps)).sessions).toEqual([]);
+    expect(adapter.canResume!(historical, deps)).toBe(false);
+    expect(deps.home).toBe('/isolated');
+  });
   it('reads only parent transcripts under the injected home and caches metadata until the file changes', async () => {
     const m = machine(); const read = makeHistoryReader();
     const first = await read(m.deps);
@@ -88,7 +111,7 @@ describe('history discovery', () => {
 
 it('offers resume only while both the saved directory and its transcript are readable', async () => {
   const m = machine(); const historical = (await makeHistoryReader()(m.deps)).sessions[0]!;
-  const adapter = makeClaudeAdapter();
+  const adapter = makeClaudeAdapter(undefined, undefined, {});
   expect(adapter.canResume!(historical, m.deps)).toBe(false);
   m.dirs[historical.cwd] = ['.git']; expect(adapter.canResume!(historical, m.deps)).toBe(true);
   delete m.times[m.file]; expect(adapter.canResume!(historical, m.deps)).toBe(false);

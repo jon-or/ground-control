@@ -10,21 +10,24 @@ export const HOOK_FILE = `${GROUND_CONTROL_DIR}/codex-hook.mjs`;
 export const ACTIVITY_DIR = `${GROUND_CONTROL_DIR}/codex-activity`;
 
 function under(home: string, suffix: string): string {
-  return `${normalize(home).replace(/\/+$/, '')}/${suffix}`;
+  return `${rootPath(home).replace(/\/+$/, '')}/${suffix}`;
+}
+
+function rootPath(value: string): string {
+  return /^[a-z]:[\\/]|^\\\\/i.test(value) ? normalize(value) : value;
 }
 
 /** Resolve hooks.json under CODEX_HOME or ~/.codex; Codex stores hooks separately from settings. */
 export function codexHooksPathOf(home: string, env: NodeJS.ProcessEnv = {}): string {
-  const configured = env['CODEX_HOME']?.trim();
-
-  return configured ? `${normalize(configured).replace(/\/+$/, '')}/hooks.json` : under(home, '.codex/hooks.json');
+  return under(codexHomeOf(home, env), 'hooks.json');
 }
 
 /** Resolve Codex storage, respecting CODEX_HOME. */
 export function codexHomeOf(home: string, env: NodeJS.ProcessEnv = {}): string {
-  const configured = env['CODEX_HOME']?.trim();
-
-  return configured ? normalize(configured).replace(/\/+$/, '') : under(home, '.codex');
+  const configured = env['CODEX_HOME'];
+  if (configured === undefined) return under(home, '.codex');
+  const root = rootPath(configured);
+  return root === '/' || /^[a-z]:\/$/i.test(root) ? root : root.replace(/\/+$/, '');
 }
 
 export function hookPathOf(home: string): string {
@@ -217,6 +220,7 @@ try {
             startedAt: prior && typeof prior.startedAt === 'number' ? prior.startedAt : now,
             cwd: typeof payload.cwd === 'string' ? payload.cwd : null,
             transcriptPath: typeof payload.transcript_path === 'string' ? payload.transcript_path : null,
+            profileRoot: process.env.CODEX_HOME || join(homedir(), '.codex'),
             model: typeof payload.model === 'string' ? payload.model : null,
             permissionMode: typeof payload.permission_mode === 'string' ? payload.permission_mode : null,
             source: typeof payload.source === 'string' ? payload.source : null,

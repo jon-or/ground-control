@@ -1,5 +1,6 @@
 import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
-import { DEFAULT_SESSION_SCOPE, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions } from '@ground-control/core';
+import { randomUUID } from 'node:crypto';
+import { DEFAULT_SESSION_SCOPE, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions } from '@ground-control/core';
 import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { IssueLookup } from './issueLookup.js';
@@ -21,7 +22,8 @@ import type { StatusStore } from './statusStore.js';
 import { afterInstall, announce } from './marks.js';
 import type { MarkStore } from './marks.js';
 import type { SettingsStore } from './settings.js';
-import { configureHosts, configureSources, defaultConfig } from './registry.js';
+import { configureAgentHomes, configureHosts, configureSources, defaultConfig } from './registry.js';
+import { acceptAgentHomes, defaultAgentHomes } from './agentHomes.js';
 import type { Registries } from './registry.js';
 import { readLogTail } from './logger.js';
 import { logPathOf } from './paths.js';
@@ -173,6 +175,9 @@ export class Hub {
   readonly #timers: NodeJS.Timeout[] = [];
 
   #config: HubConfig;
+  #storageReady = false;
+  #profileRevision = 0;
+  #rosterReadAt: number | undefined;
   #configFailures: ReadFailure[] = [];
   /** Rejected source settings; no readable source means the board is stale. */
   #sourcesRefused: ReadFailure[] = [];
@@ -186,6 +191,7 @@ export class Hub {
   #history: HistoricalSession[] = [];
   #historyFailures: ReadFailure[] = [];
   readonly #resuming = new Map<string, number>();
+  readonly #resumeTransfers = new Map<string, { token: string; root: string; lease: number; expiresAt: number }>();
   /** In-flight starts keyed by card and agent until a session ID exists (mechanics M51). */
   readonly #starting = new Map<string, number>();
   /** In-flight checkout opens keyed by card across clients. */
@@ -215,8 +221,21 @@ export class Hub {
     // Load saved settings so Chrome can start a configured hub without an editor open (R35, R36).
     const stored = deps.settings.read();
 
-    this.#config = stored && 'config' in stored ? stored.config : defaultConfig(deps.registries, diskReaders(deps.home));
     this.#stored = stored && 'failure' in stored ? stored.failure : null;
+    const saved = stored && 'config' in stored ? stored.config : undefined;
+    const resolved = resolveAgentHomes(deps.registries.agents, saved?.agentHomes, deps.home, deps.registries.agentEnvironment ?? {});
+    if ('failure' in resolved) this.#stored ??= resolved.failure;
+    if (!this.#stored && 'homes' in resolved) configureAgentHomes(deps.registries, resolved.homes);
+    this.#config = saved ?? defaultConfig(this.#stored ? { ...deps.registries, agents: [] } : deps.registries, diskReaders(deps.home));
+    if (!this.#stored && 'homes' in resolved) {
+      const accepted = { ...this.#config, ...(Object.keys(resolved.homes).length > 0 ? { agentHomes: resolved.homes } : {}) };
+      const failure = Object.keys(resolved.homes).length === 0 ? null : acceptAgentHomes(deps.registries,
+        saved ? saved.agentHomes ?? defaultAgentHomes(deps.registries, deps.home) : resolved.homes, resolved.homes, deps.home,
+        () => deps.settings.write(accepted), new Set(accepted.installActivity ? accepted.agents.filter((agent) => accepted.sessionHooks?.[agent.id] !== false).map((agent) => agent.id) : []));
+      if (failure) this.#stored = failure;
+      else { this.#config = accepted; this.#storageReady = true; }
+    }
+    if (!this.#storageReady) this.#config = { ...this.#config, agents: [], installActivity: false };
     // Apply stored settings once; new connections must not replace their validation results.
     this.#configFailures = this.#applyConfig();
     this.#triage = new TriageRunner({
@@ -347,7 +366,7 @@ export class Hub {
         return;
 
       case 'open':
-        void this.#open(connected, message.sessionId, message.extensionReady, message.handedOver === true);
+        void this.#open(connected, message.sessionId, message.extensionReady, message.handedOver === true, message.resumeToken);
 
         return;
 
@@ -481,7 +500,7 @@ export class Hub {
 
     this.#starting.set(startKey, now + START_LEASE_MS);
     this.#deps.log.info(`${client.hello.id} starting a ${agent} session in ${root} for ${key}`, 'open');
-    client.send({ type: 'perform', route: plan });
+    client.send({ type: 'perform', route: this.#profileRoute(plan) });
   }
 
   /** Validate the selected checkout against the card repository before saving it, so invalid selections report their cause. */
@@ -657,6 +676,45 @@ export class Hub {
     }
 
     const before = this.#config;
+    const resolved = resolveAgentHomes(this.#deps.registries.agents,
+      { ...before.agentHomes, ...parsed.config.agentHomes }, this.#deps.home, this.#deps.registries.agentEnvironment ?? {});
+    if ('failure' in resolved) {
+      this.#configFailures = [resolved.failure];
+      this.#broadcast();
+      return null;
+    }
+    if (Object.keys(resolved.homes).length > 0) parsed.config.agentHomes = resolved.homes;
+    const profilesChanged = !same(before.agentHomes ?? {}, parsed.config.agentHomes ?? {});
+    const acceptingProfiles = profilesChanged || !this.#storageReady;
+    if (profilesChanged && this.#storageReady) {
+      const now = this.#deps.clock.now();
+      const current = this.#rosterReadAt !== undefined && now >= this.#rosterReadAt && now - this.#rosterReadAt <= 2000;
+      const pending = this.#actions.busy() || this.#triage.running().size > 0 ||
+        [...this.#starting.values(), ...this.#resuming.values()].some((until) => until > now);
+      if (!current || this.#sessionsInFlight || !this.#sessions || this.#sessions.failures.length > 0 ||
+        this.#sessions.sessions.some((session) => !session.finished) || pending) {
+        this.#configFailures = [{ subject: 'config', kind: 'agent-home-active', message: 'Agent profiles cannot change while sessions or pending work are active, or their current state is unknown.', remedy: 'Finish agent work. Refresh the board, then reopen it to apply the profile.' }];
+        this.#broadcast();
+        return null;
+      }
+    }
+    if (acceptingProfiles) {
+      const refused = [...configureHosts(this.#deps.registries, parsed.config.hosts), ...configureSources(this.#deps.registries, parsed.config.sources)];
+      configureHosts(this.#deps.registries, before.hosts);
+      configureSources(this.#deps.registries, before.sources);
+      const failure = refused[0] ?? acceptAgentHomes(this.#deps.registries,
+        before.agentHomes ?? defaultAgentHomes(this.#deps.registries, this.#deps.home), resolved.homes,
+        this.#deps.home, () => this.#deps.settings.write(parsed.config), new Set(parsed.config.installActivity ? parsed.config.agents.filter((agent) => parsed.config.sessionHooks?.[agent.id] !== false).map((agent) => agent.id) : []));
+      if (failure) {
+        configureAgentHomes(this.#deps.registries, before.agentHomes ?? defaultAgentHomes(this.#deps.registries, this.#deps.home));
+        this.#configFailures = [failure];
+        if (this.#storageReady) this.#installActivity();
+        this.#broadcast();
+        return null;
+      }
+      this.#storageReady = true;
+      this.#profileRevision++;
+    }
 
     this.#config = parsed.config;
 
@@ -667,7 +725,7 @@ export class Hub {
       this.#deps.log.info(`client updated settings; log level: ${parsed.config.logLevel}`, 'config');
     }
 
-    const sessionsChanged = !same(before.agents, parsed.config.agents) || before.branchIssuePattern !== parsed.config.branchIssuePattern;
+    const sessionsChanged = profilesChanged || !same(before.agents, parsed.config.agents) || before.branchIssuePattern !== parsed.config.branchIssuePattern;
     if (sessionsChanged) {
       this.#sessions = undefined;
       this.#history = [];
@@ -678,8 +736,15 @@ export class Hub {
     if (!same(before.sessionScope, parsed.config.sessionScope)) this.#considerIssues();
 
     // Persist only settings accepted by the schema and adapters, so later browser starts do not inherit rejected values.
-    if (this.#configFailures.length === 0) {
-      this.#deps.settings.write(parsed.config);
+    if (this.#configFailures.length === 0 && !acceptingProfiles) {
+      try { this.#deps.settings.write(parsed.config); }
+      catch {
+        this.#config = before;
+        this.#applyConfig();
+        this.#configFailures = [{ subject: 'config', kind: 'config-save-failed', message: 'Settings were not applied because they could not be saved.', remedy: 'Check write access to the Ground Control settings directory, then reopen the board.' }];
+        this.#broadcast();
+        return null;
+      }
     }
 
     const first = !this.#configured;
@@ -689,6 +754,7 @@ export class Hub {
     const agents = (config: HubConfig): string => config.agents.map((agent) => agent.id).sort().join(',');
     const changed =
       first ||
+      profilesChanged ||
       before.installActivity !== parsed.config.installActivity ||
       !same(before.sessionHooks ?? {}, parsed.config.sessionHooks ?? {}) ||
       agents(before) !== agents(parsed.config);
@@ -747,7 +813,7 @@ export class Hub {
 
   /** Cache completed activity installation results. Retry busy results because another process held the lock (R25). */
   #ensureActivity(): ActivityState | null {
-    return this.#configured && (this.#activity === null || this.#activity.plan === 'busy')
+    return this.#storageReady && this.#configured && (this.#activity === null || this.#activity.plan === 'busy')
       ? this.#installActivity()
       : this.#activity;
   }
@@ -911,6 +977,7 @@ export class Hub {
     if (!allowed || target === undefined) return { allowed: false, targetActive: false, cardActive: false };
     return {
       allowed: true,
+      ...(this.#config.agentHomes?.[target.agent] ? { agentHome: this.#config.agentHomes[target.agent] } : {}),
       targetActive: sessions.some((session) => session.sessionId === sessionId && !session.finished),
       cardActive: target.issueNumber !== null && sessions.some((session) => !session.finished && session.issueNumber === target.issueNumber &&
         (session.repository === null || target.repository === null || session.repository === target.repository)),
@@ -1070,7 +1137,8 @@ export class Hub {
   async #readSessions(): Promise<void> {
     const readers = this.#readers();
     const config = { agents: this.#config.agents, branchIssuePattern: this.#config.branchIssuePattern };
-    const current = () => !this.#disposed && same(config, { agents: this.#config.agents, branchIssuePattern: this.#config.branchIssuePattern });
+    const revision = this.#profileRevision;
+    const current = () => !this.#disposed && revision === this.#profileRevision && same(config, { agents: this.#config.agents, branchIssuePattern: this.#config.branchIssuePattern });
 
     // Preload routing data to avoid its cold-read cost on clicks.
     for (const host of this.#deps.registries.hosts) {
@@ -1088,6 +1156,8 @@ export class Hub {
     if (!current()) {
       return;
     }
+
+    this.#rosterReadAt = this.#deps.clock.now();
 
     // Preserve successful agent reads when another fails and refresh activity after polling. Exclude classification sessions even if adapter filtering changes (R2, M31).
     const ours = this.#triage.sessionIds();
@@ -1222,7 +1292,20 @@ export class Hub {
   }
 
   /** Plan session routes in the host and send resident routes to the requesting client. */
-  async #open(client: Connected, sessionId: string, extensionReady: boolean, handedOver = false): Promise<void> {
+  async #open(client: Connected, sessionId: string, extensionReady: boolean, handedOver = false, resumeToken?: string): Promise<void> {
+    const revision = this.#profileRevision;
+    let transferred: { lease: number; expiresAt: number } | undefined;
+    if (resumeToken !== undefined) {
+      const transfer = this.#resumeTransfers.get(sessionId);
+      if (!handedOver || !transfer || transfer.token !== resumeToken || transfer.expiresAt <= this.#deps.clock.now() ||
+        this.#resuming.get(sessionId) !== transfer.lease || client.hello.workspaceRoot === null ||
+        dirKey(client.hello.workspaceRoot) !== dirKey(transfer.root)) {
+        client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'This session handover is no longer valid. Open it from the board again.' });
+        return;
+      }
+      this.#resumeTransfers.delete(sessionId);
+      transferred = transfer;
+    }
     const permitted = () => this.#lanes(true).some((lane) => lane.cards.some((card) =>
       card.sessions.some((session) => session.sessionId === sessionId) || card.lastSession?.sessionId === sessionId));
     const limited = () => restrictedSessionScope(this.#scope()) || !this.#scope().showHistory || !this.#scope().showAdHoc;
@@ -1244,7 +1327,11 @@ export class Hub {
     const wasHistorical = this.#history.some((s) => s.sessionId === sessionId);
     // A card can have been drawn before this session resumed elsewhere. Never resume from a cached roster.
     await this.#refreshSessions(true);
-    if (this.#disposed) return;
+    if (this.#disposed || revision !== this.#profileRevision) return;
+    if (transferred && (transferred.expiresAt <= this.#deps.clock.now() || this.#resuming.get(sessionId) !== transferred.lease)) {
+      client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'This session handover expired. Open it from the board again.' });
+      return;
+    }
     if (limited() && !permitted()) { this.#scopeRefusal(client); return; }
     const sessions = this.#sessions?.sessions ?? [];
     const live = sessions.find((s) => s.sessionId === sessionId && !s.finished);
@@ -1258,7 +1345,7 @@ export class Hub {
     if (historical) {
       const now = this.#deps.clock.now();
       for (const [id, until] of this.#resuming) if (until <= now) this.#resuming.delete(id);
-      if (this.#resuming.has(sessionId)) {
+      if (this.#resuming.has(sessionId) && transferred === undefined) {
         client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'This session is already being opened. Wait for its tab to open.' });
         return;
       }
@@ -1274,7 +1361,7 @@ export class Hub {
         return;
       }
       // Reserve before window discovery yields: two editor clients may click the same saved session together.
-      resumeLease = now + 60_000;
+      resumeLease = transferred?.lease ?? now + 60_000;
       this.#resuming.set(sessionId, resumeLease);
     }
     const [windows, surfaces] = await Promise.all([
@@ -1284,7 +1371,7 @@ export class Hub {
       ),
       host.surfaces(readers),
     ]);
-    if (this.#disposed || (limited() && !permitted())) {
+    if (this.#disposed || revision !== this.#profileRevision || (limited() && !permitted())) {
       if (resumeLease !== undefined && this.#resuming.get(sessionId) === resumeLease) this.#resuming.delete(sessionId);
       if (!this.#disposed) this.#scopeRefusal(client);
       return;
@@ -1320,6 +1407,12 @@ export class Hub {
       return;
     }
 
+    if (transferred && plan.route !== 'resume-here') {
+      if (this.#resuming.get(sessionId) === transferred.lease) this.#resuming.delete(sessionId);
+      client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'The session handover no longer targets this window. Open it from the board again.' });
+      return;
+    }
+
     // Log the selected route to diagnose requests that fail to open the session.
     this.#deps.log.info(`${client.hello.id} opening ${sessionId} by ${plan.route}`, 'open');
 
@@ -1332,8 +1425,14 @@ export class Hub {
       if (plan.route === 'resume-here' || plan.route === 'resume-elsewhere') {
         // The fire deadline precedes lease expiry, leaving time for the new process to register before another click.
         plan.expiresAt = Math.min(plan.expiresAt, resumeLease! - 30_000);
+        if (transferred) plan.expiresAt = Math.min(plan.expiresAt, transferred.expiresAt);
+        if (plan.route === 'resume-elsewhere') {
+          const token = randomUUID();
+          this.#resumeTransfers.set(sessionId, { token, root: plan.root, lease: resumeLease!, expiresAt: plan.expiresAt });
+          plan.resumeToken = token;
+        }
       }
-      client.send({ type: 'perform', route: plan });
+      client.send({ type: 'perform', route: this.#profileRoute(plan) });
 
       return;
     }
@@ -1344,6 +1443,12 @@ export class Hub {
   // — the snapshot —
 
   #scope() { return this.#config.sessionScope ?? DEFAULT_SESSION_SCOPE; }
+
+  #profileRoute(route: OpenRoute): OpenRoute {
+    const agent = route.route === 'start-session' ? route.agent : 'session' in route ? route.session.agent : undefined;
+    const agentHome = agent === undefined ? undefined : this.#config.agentHomes?.[agent];
+    return agentHome === undefined ? route : { ...route, agentHome };
+  }
 
   #scopeMessage(message: string): string {
     return restrictedSessionScope(this.#scope()) ? 'Session details are hidden by session scope. Check the session settings before retrying.' : message;

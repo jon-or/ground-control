@@ -2,11 +2,21 @@
 
 This document records experiments and source inspections relevant to Ground Control. Some support implemented features; others establish options or constraints for future work. A successful experiment is not a claim that the product implements it. Product scope is in the [requirements](prd.md), and current use is described in [architecture](architecture.md).
 
-Record IDs retain the experiment identifiers M1–M51, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
+Record IDs retain the experiment identifiers M1–M52, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
 
 Code references use these M IDs rather than the former numbered sections. A record grouped under a topic keeps its original ID. Source inspections of Ground Control distinguish current implementation from the external experiment; they do not re-verify the measured CLI or editor version.
 
 Evidence is identified as runtime observation, historical-file analysis, or source inspection. Inferences and remaining questions are stated separately. Undocumented formats, command signatures, hooks, UI markup, and timing are **version-fragile**; recheck the relevant record after upgrading its dependency. Performance figures describe this machine and sample, not guarantees.
+
+## Agent configuration roots
+
+**Record M52. Documentation and source inspection, 2026-09-09. Used by agent profile resolution.**
+
+[Claude's environment reference](https://code.claude.com/docs/en/env-vars) identifies `CLAUDE_CONFIG_DIR` as the settings, history, and plugin root, defaulting to `~/.claude`. [Codex configuration documentation](https://developers.openai.com/codex/config-advanced) identifies `CODEX_HOME` as its local state root, defaulting to `~/.codex`.
+
+Repository inspection found Claude transcript/history and hook paths using the default home while IDE placement honored the override. Codex readers honored its override, but the detached dispatch spawn did not pass the resolved environment. Current adapters bind all these operations to accepted roots and snapshot child environments per operation. Codex activity markers additionally identify their profile; older markers require a matching transcript path for custom homes.
+
+The measured editor commands in M44/M51 have no per-call environment argument. Ground Control therefore requires the performing editor's inherited profile to match before executing them, and checks again in the target resident for cross-window requests. This supports one profile per agent for the shared hub; it does not establish general multiple-profile editor support. POSIX agent roots containing literal backslashes are unsupported because existing adapter path readers interpret them as separators; reject those roots before any write.
 
 ## Claude Code
 

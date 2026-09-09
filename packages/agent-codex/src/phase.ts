@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ActivityPhase, ReadText, SessionActivity } from '@ground-control/core';
-import { FUTURE_TOLERANCE_MS, HOOK_MARKER_VERSION, markerPathOf } from './hookScript.js';
+import { scopeDirectory } from '@ground-control/core';
+import { FUTURE_TOLERANCE_MS, HOOK_MARKER_VERSION, codexHomeOf, markerPathOf } from './hookScript.js';
 
 /**
  * Validate hook marker structure while allowing unfamiliar event values. Unsupported events have no phase; they
@@ -21,6 +22,7 @@ const activityMarker = z.object({
   startedAt: z.number(),
   cwd: z.string().nullable(),
   transcriptPath: z.string().nullable(),
+  profileRoot: z.string().refine((value) => scopeDirectory(value) !== null).nullable().default(null),
   model: z.string().nullable(),
   permissionMode: z.string().nullable(),
   source: z.string().nullable(),
@@ -100,6 +102,19 @@ export function activityOf(marker: ActivityMarker): SessionActivity | null {
   return phase === null ? null : { phase, since: sinceOf(phase, marker), at: marker.at, event: marker.event as string };
 }
 
+/** Old markers can prove their profile through a transcript; ambiguous legacy markers belong only to the default. */
+export function markerInProfile(marker: ActivityMarker, home: string, env: NodeJS.ProcessEnv): boolean {
+  const root = scopeDirectory(codexHomeOf(home, env));
+  if (root === null) return false;
+  if (marker.profileRoot !== null) return scopeDirectory(marker.profileRoot) === root;
+  if (marker.transcriptPath !== null) {
+    const transcript = scopeDirectory(marker.transcriptPath);
+    const sessions = `${root.endsWith('/') ? root : `${root}/`}sessions/`;
+    return transcript !== null && transcript.startsWith(sessions);
+  }
+  return root === scopeDirectory(codexHomeOf(home));
+}
+
 /**
  * Read the last activity, or null for missing, invalid, or unsupported markers. The marker PID establishes
  * liveness; Codex cannot list live sessions (M40).
@@ -109,8 +124,9 @@ export function readActivity(
   sessionId: string,
   readText: ReadText,
   now: number = Date.now(),
+  env: NodeJS.ProcessEnv = {},
 ): SessionActivity | null {
   const marker = readMarker(home, sessionId, readText, now);
 
-  return marker === null ? null : activityOf(marker);
+  return marker === null || !markerInProfile(marker, home, env) ? null : activityOf(marker);
 }

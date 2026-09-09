@@ -14,6 +14,7 @@ describe('the package public surface', () => {
       'defaultUserDir',
       'handOverUri',
       'handedOver',
+      'handoverToken',
       'ideWindowsFrom',
       'listeningFrom',
       'liveRootsOf',

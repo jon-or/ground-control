@@ -84,6 +84,11 @@ export class ActionRunner {
     );
   }
 
+  /** Profile transitions must wait for both launched work and pending dispatch or stop requests. */
+  busy(): boolean {
+    return this.#inFlight.size > 0 || this.#stopping.size > 0 || this.running().size > 0;
+  }
+
   /**
    * Count persisted running jobs and in-flight dispatches without duplication. Detached dispatch returns
    * before work completes, so counting only starts would allow more concurrent jobs than configured.

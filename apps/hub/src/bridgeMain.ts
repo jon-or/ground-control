@@ -22,7 +22,7 @@ function chromeStreams(): BridgeStreams {
  * Relay messages between Chrome and the hub using native-messaging framing. The bridge supplies no
  * configuration or routes.
  */
-export function startBridge(home: string): void {
+export function startBridge(home: string, inheritAgentEnv = false): void {
   const id = `chrome-${process.pid}`;
   const streams = chromeStreams();
 
@@ -31,7 +31,7 @@ export function startBridge(home: string): void {
   let toChrome: (message: BridgeMessage) => void = () => {};
 
   const transport = new HubTransport(id, {
-    ensure: makeEnsure(realEnsureDeps(home, () => startHub(home))),
+    ensure: makeEnsure(realEnsureDeps(home, () => startHub(home, inheritAgentEnv))),
     hello: () => bridgeHello(id, watching),
     onMessage: (message) => toChrome(message),
     // Relay bridge logs at info level and above to Chrome. Exclude per-message debug logs to avoid extra frames
