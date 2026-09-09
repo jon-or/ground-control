@@ -54,6 +54,9 @@ const AGE_ATTR = 'data-gc-since';
  * string is built by `openSessionUri` in `@ground-control/host-vscode`, and both are asserted against the literal.
  */
 const OPEN_SESSION_URI = 'vscode://groundcontrol.ground-control/open?session=';
+// Where a detached run's row goes instead. The navigation is what hands VS Code the foreground; the extension then
+// attaches in a terminal, which is exactly what the same row does on the board.
+const ATTACH_SESSION_URI = 'vscode://groundcontrol.ground-control/attach?session=';
 
 /** Where the collapse is remembered. Page-origin storage, so it is per developer and per browser rather than per tab. */
 const COLLAPSE_KEY = 'ground-control:header-collapsed';
@@ -204,6 +207,19 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-state { flex: none; margin-left: auto; white-space: nowrap; min-width: 3ch; text-align: right;
   font-variant-numeric: tabular-nums; }
 .gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
+/* Where the click lands, in the slot the state holds and at its width, so the row does not move under the pointer -
+   a relayout re-derives the lit name's gradient. One of the two is drawn, never both. */
+.gc-destination { display: none; flex: none; margin-left: auto; min-width: 3ch; text-align: right; line-height: 0; }
+.gc-destination svg { width: 15px; height: 15px; vertical-align: -3px; }
+.gc-plate { fill: var(--fgColor-muted, #59636e); stroke: none; }
+.gc-ink { fill: none; stroke: var(--bgColor-default, #ffffff); stroke-width: 2.25; stroke-linecap: round;
+  stroke-linejoin: round; }
+/* A run the board started rather than a session the developer is sitting in. Italic and nothing else: every colour
+   on this row is spoken for, and the name is the one part of it that is the work's own. */
+.gc-session[data-detached] .gc-name { font-style: italic; }
+.gc-frame { fill: none; stroke: var(--fgColor-accent, #0969da); stroke-width: 2; stroke-linejoin: round; }
+a.gc-session:hover .gc-state, a.gc-session:focus-visible .gc-state { display: none; }
+a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination { display: inline-block; }
 .gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
   color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-severe-emphasis, #bc4c00); }
 /* R38. Not an attention channel: no fill and no outline, because every colour a card edge takes is spoken for -
@@ -1626,6 +1642,78 @@ function laneMenu(doc, card, actions) {
 }
 
 /**
+ * Where a row's click lands, in the two destinations a board has: a detached run is attached to in a terminal, which
+ * is a control on the editor board, and every other session opens in the editor itself. Solid against outline rather
+ * than two line drawings of a rectangle, which read as one mark at this size.
+ *
+ * @type {Record<'terminal' | 'editor', [string, Record<string, string>][]>}
+ */
+const DESTINATION_SHAPES = {
+  terminal: [
+    ['rect', { class: 'gc-plate', x: '1.5', y: '3.5', width: '21', height: '17', rx: '3' }],
+    ['polyline', { class: 'gc-ink', points: '6.5 9 9.75 12 6.5 15' }],
+    ['line', { class: 'gc-ink', x1: '12.5', y1: '15', x2: '17.5', y2: '15' }],
+  ],
+  editor: [
+    ['rect', { class: 'gc-frame', x: '1.75', y: '3.75', width: '20.5', height: '16.5', rx: '3' }],
+    ['line', { class: 'gc-frame', x1: '8.5', y1: '3.75', x2: '8.5', y2: '20.25' }],
+  ],
+};
+
+/**
+ * The mark for one destination, in the slot the state holds. `aria-hidden`: the row's own accessible name already
+ * says where the click goes, and a second announcement of one fact is one to learn to ignore.
+ *
+ * @param {Document} doc
+ * @param {'terminal' | 'editor'} kind
+ * @returns {HTMLElement}
+ */
+function destinationMark(doc, kind) {
+  const held = doc.createElement('span');
+  held.className = 'gc-destination';
+  held.dataset.destination = kind;
+
+  const svg = doc.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+
+  for (const [name, attributes] of DESTINATION_SHAPES[kind]) {
+    const shape =
+      name === 'rect'
+        ? doc.createElementNS(SVG_NS, 'rect')
+        : name === 'polyline'
+          ? doc.createElementNS(SVG_NS, 'polyline')
+          : doc.createElementNS(SVG_NS, 'line');
+
+    for (const [attribute, value] of Object.entries(attributes)) {
+      shape.setAttribute(attribute, value);
+    }
+
+    svg.appendChild(shape);
+  }
+
+  held.appendChild(svg);
+
+  return held;
+}
+
+/**
+ * What a row's click does, in the words a reader hears. A detached run is the one that does not go to the session:
+ * the browser cannot open a terminal, so the click raises the board that can.
+ *
+ * @param {boolean} reachable
+ * @param {string | null} attachId
+ * @returns {string}
+ */
+function destinationWords(reachable, attachId) {
+  if (!reachable) {
+    return 'no editor of yours can open this one';
+  }
+
+  return attachId === null ? 'go to this session in VS Code' : 'attach to this run in a terminal in VS Code';
+}
+
+/**
  * One session, as the developer reads it across a board: which agent reported it, what it calls itself, and the one
  * state the board will claim for it — its own observation where it has one, the reported state where it does not,
  * and nothing at all where there is neither (R24).
@@ -1637,7 +1725,10 @@ function laneMenu(doc, card, actions) {
  * @returns {HTMLElement}
  */
 function sessionRow(doc, session, now, openable) {
-  const reachable = openable.includes(session.sessionId);
+  // A detached run is reachable whatever the host offers: nothing an editor holds can open it, and the board it is
+  // attached from is always openable.
+  const attachId = typeof session.attachId === 'string' ? session.attachId : null;
+  const reachable = attachId !== null || openable.includes(session.sessionId);
   const row = doc.createElement(reachable ? 'a' : 'span');
 
   row.className = 'gc-session';
@@ -1646,7 +1737,7 @@ function sessionRow(doc, session, now, openable) {
   if (reachable) {
     // A real link, not a button: the navigation has to read as the developer's own gesture in the application they
     // are looking at, which is the only thing that gives VS Code the foreground (`mechanics.md` §26, §29).
-    row.setAttribute('href', `${OPEN_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
+    row.setAttribute('href', `${attachId === null ? OPEN_SESSION_URI : ATTACH_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
     // A few pixels of drift on the way to a click would otherwise drag the card GitHub wraps around this.
     row.setAttribute('draggable', 'false');
   }
@@ -1697,10 +1788,21 @@ function sessionRow(doc, session, now, openable) {
     tip(state, stateTitle(session.activity));
   }
 
-  row.setAttribute(
-    'aria-label',
-    `${name} — ${reachable ? 'go to this session in VS Code' : 'no editor of yours can open this one'}.`,
-  );
+  row.setAttribute('aria-label', `${name} — ${destinationWords(reachable, attachId)}.`);
+
+  // What the italic name is keyed by: a run the board started is not a session the developer is sitting in.
+  if (attachId !== null) {
+    row.dataset.detached = 'true';
+  }
+
+  if (reachable) {
+    const destination = destinationMark(doc, attachId === null ? 'editor' : 'terminal');
+    const goes = attachId === null ? 'Opens this session in VS Code.' : 'Attaches to this run in a terminal in VS Code.';
+
+    // The pointer takes the state's slot, so what the state had to say goes on the mark that stands there instead.
+    tip(destination, session.activity ? `${goes} ${stateTitle(session.activity)}` : goes);
+    row.appendChild(destination);
+  }
   // Only the propagation: the card underneath is GitHub's own button, and a click reaching it opens the issue
   // instead. The navigation itself is the browser's to make, which is what gives VS Code the foreground.
   row.addEventListener('click', (event) => event.stopPropagation());
@@ -1752,6 +1854,15 @@ function historyRow(doc, session, now, openable) {
   tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
   row.setAttribute('aria-label', `${name.textContent} — ${reachable ? 'resume this session in VS Code' : 'historical session'}.`);
   row.append(name, state);
+
+  // A saved session has no process, so there is nothing to attach to: resuming it in the editor is the only way back.
+  if (reachable) {
+    const destination = destinationMark(doc, 'editor');
+
+    tip(destination, `Resumes this session in VS Code. ${mark ? mark.title : ''}`.trim());
+    row.appendChild(destination);
+  }
+
   row.addEventListener('click', (event) => event.stopPropagation());
   return row;
 }

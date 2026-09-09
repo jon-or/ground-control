@@ -8,6 +8,7 @@ describe('the package public surface', () => {
       'SETTLING_MS',
       'VSCODE_HOST_ID',
       'VSCODE_ROUTES',
+      'attachFromUri',
       'changesPlan',
       'claudeDirOf',
       'defaultUserDir',

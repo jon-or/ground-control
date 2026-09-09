@@ -5,8 +5,18 @@
  * the focus, and the window that handles it runs the same open the editor board's own row runs.
  */
 
-/** The one path the handler answers. Anything else is a link the board did not write. */
+/** The two paths the handler answers. Anything else is a link the board did not write. */
 const OPEN_SESSION_PATH = '/open';
+const ATTACH_SESSION_PATH = '/attach';
+
+/**
+ * The detached run a handled URI names, or null for anything else. A run's row links here rather than to `/open`
+ * because a run is entered by attaching to it, and a row does the same thing on either board — what differs is only
+ * that a click in the browser has to raise the editor first, which the navigation itself does.
+ */
+export function attachFromUri(path: string, query: string): string | null {
+  return path === ATTACH_SESSION_PATH ? sessionIdIn(query) : null;
+}
 
 /**
  * Session ids are v4 UUIDs as every agent CLI reports them. Matched rather than trusted: this URI is reachable from
@@ -19,10 +29,10 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  * is the registration and nothing else.
  */
 export function sessionFromUri(path: string, query: string): string | null {
-  if (path !== OPEN_SESSION_PATH) {
-    return null;
-  }
+  return path === OPEN_SESSION_PATH ? sessionIdIn(query) : null;
+}
 
+function sessionIdIn(query: string): string | null {
   const session = new URLSearchParams(query).get('session');
 
   return session !== null && SESSION_ID.test(session) ? session : null;

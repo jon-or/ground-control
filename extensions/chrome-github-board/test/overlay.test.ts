@@ -1988,6 +1988,36 @@ describe('durations that advance on their own', () => {
 });
 
 describe('going to a session from the browser', () => {
+
+  /**
+   * A run is entered by attaching to it, and the row does that on either board: the navigation raises the editor,
+   * whose handler opens the terminal. Reachable whatever the host offered, because attaching needs no editor
+   * extension - only a terminal.
+   */
+  it('sends a detached run to the attach path rather than the session, and marks it as one', () => {
+    const run = session({ attachId: 'c5d0c58f', details: { kind: 'background', name: 'merge-upstream' } });
+    const only = snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [run] })] }], openable: [] });
+
+    paint(document, state({ snapshot: only }), NOW, actions);
+
+    const row = document.querySelector<HTMLAnchorElement>('.gc-session')!;
+
+    expect(row.tagName).toBe('A');
+    expect(row.getAttribute('href')).toBe(`vscode://groundcontrol.ground-control/attach?session=${SESSION_ID}`);
+    expect(row.getAttribute('aria-label')).toContain('attach to this run in a terminal in VS Code');
+    expect(row.dataset.detached).toBe('true');
+    expect(row.querySelector('.gc-destination')?.getAttribute('data-destination')).toBe('terminal');
+  });
+
+  it('marks an ordinary session as opening in the editor, and leaves its name upright', () => {
+    paint(document, state({ snapshot: snapshot() }), NOW, actions);
+
+    const row = document.querySelector<HTMLElement>('.gc-session')!;
+
+    expect(row.querySelector('.gc-destination')?.getAttribute('data-destination')).toBe('editor');
+    expect(row.dataset.detached).toBeUndefined();
+  });
+
   /**
    * A link rather than a button: the navigation has to be the developer's own gesture in the application in front of
    * them, because that is the only thing that gives VS Code the foreground (`mechanics.md` §26, §29).
@@ -2055,6 +2085,23 @@ describe('going to a session from the browser', () => {
 describe('historical session rows', () => {
   const lastSession = { agent: 'claude', sessionId: SESSION_ID, title: 'Past attempt', cwd: '/work/4501-test', branch: '4501-test', issueNumber: 4501, repository: 'github.com/example-org/example-repo', updatedAt: NOW - 60000 };
   const show = (entry: LanedCard) => paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
+  /**
+   * The same two destinations both boards draw, on the row that has only one of them: a saved session has no process,
+   * so it is resumed in the editor and never attached to.
+   */
+  it('marks a saved session as opening in the editor, once the host offers it', () => {
+    const offered = (entry: LanedCard) =>
+      paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [SESSION_ID] }) }), NOW, actions);
+
+    show(card(4501, { sessions: [], lastSession }));
+
+    expect(document.querySelector('.gc-historical .gc-destination')).toBeNull();
+
+    offered(card(4501, { sessions: [], lastSession }));
+
+    expect(document.querySelector('.gc-historical .gc-destination')?.getAttribute('data-destination')).toBe('editor');
+  });
+
   it('renders an inert history row when not offered by the host, and updates its age', () => {
     show(card(4501, { sessions: [], lastSession }));
     const row = document.querySelector<HTMLElement>('.gc-historical')!;

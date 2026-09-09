@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { handOverUri, handedOver, sessionFromUri } from '../src/openUri.js';
+import { attachFromUri, handOverUri, handedOver, sessionFromUri } from '../src/openUri.js';
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
 
@@ -33,6 +33,12 @@ describe('the link the browser board writes', () => {
 describe('what the handler takes', () => {
   it('takes a session id from the open path', () => {
     expect(sessionFromUri('/open', `session=${SESSION}`)).toBe(SESSION);
+    // The path a detached run's row links to. Its own path, so a link cannot ask for a terminal on a session the
+    // board would have revealed instead, and the two are never confused for one another.
+    expect(attachFromUri('/attach', `session=${SESSION}`)).toBe(SESSION);
+    expect(attachFromUri('/attach', 'session=not-an-id')).toBeNull();
+    expect(attachFromUri('/open', `session=${SESSION}`)).toBeNull();
+    expect(sessionFromUri('/attach', `session=${SESSION}`)).toBeNull();
   });
 
   /**

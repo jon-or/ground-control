@@ -192,20 +192,27 @@ function detailsOf(entry: AgentEntry): Record<string, string> {
 }
 
 /**
- * What a session is doing, in the board's words rather than the CLI's. The CLI reports `blocked` for a session whose
- * own state is `needs_reply` or `needs_approval` (`docs/mechanics.md` §33), which on a card reads as something having
- * gone wrong rather than as a run holding for the developer — the one state R6 exists to surface.
+ * What a session is doing, in the words the board already uses for a phase. The CLI's vocabulary is a fourth set for
+ * the same three states — `blocked` is a session whose own state is `needs_reply` or `needs_approval`
+ * (`docs/mechanics.md` §33), which is what the board calls waiting. A word this does not know is carried through
+ * rather than guessed at, and what a waiting session is waiting for outranks the tempo.
  */
 export function reportedState(entry: AgentEntry): string | undefined {
   if (entry.waitingFor !== undefined) {
     return `waiting on a ${entry.waitingFor}`;
   }
 
-  if (entry.state === 'blocked') {
-    return 'needs a reply';
+  switch (entry.state) {
+    case 'working':
+      return 'running';
+    case 'blocked':
+      return 'waiting';
+    case 'done':
+    case 'stopped':
+      return 'idle';
+    default:
+      return entry.state;
   }
-
-  return entry.state === 'done' ? 'finished' : entry.state;
 }
 
 /** The states the CLI reports for a background session that has stopped. Anything else is a session still in play. */
@@ -231,9 +238,9 @@ function toSession(entry: AgentEntry, deps: MachineDeps): Session {
     // `status: "idle"` is not this: an interactive session is idle whenever nobody is typing, and an exited one is
     // never listed at all, so only the CLI's own end word counts (R24).
     finished: entry.state !== undefined && FINISHED_STATES.has(entry.state),
-    // Only a `--bg` session has one, and only a `--bg` session needs one: nothing an editor window holds is reached
-    // this way, and `claude attach` is the only way into one the board started (§33).
-    attachId: entry.kind === 'background' ? (entry.id ?? null) : null,
+    // Only a live `--bg` session has one, and only a `--bg` session needs one: nothing an editor window holds is
+    // reached this way, and `claude attach` answers `No job matching` for one that has ended (§33).
+    attachId: entry.kind === 'background' && !FINISHED_STATES.has(entry.state ?? '') ? (entry.id ?? null) : null,
     details: detailsOf(entry),
   };
 }

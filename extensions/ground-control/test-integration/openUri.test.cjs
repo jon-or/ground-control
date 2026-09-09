@@ -66,11 +66,32 @@ describe('the link the browser board opens a session with', () => {
     );
   });
 
+  /**
+   * The other path, which does not go through the hub: a detached run is entered by attaching to it, in this window's
+   * own terminal. This home has no such run, so what proves the path is registered and ran is the answer it gives
+   * for one it cannot find - an assertion that no terminal appeared would pass on a handler that never fired.
+   */
+  it('answers an attach link for a run this machine does not have', async () => {
+    const before = vscode.window.terminals.length;
+
+    await fire(`vscode://groundcontrol.ground-control/attach?session=${SESSION}`);
+
+    await said(
+      (message) => message.includes('no longer on this machine'),
+      'the attach link did not reach the handler',
+      30_000,
+    );
+
+    assert.strictEqual(vscode.window.terminals.length, before, 'a terminal was opened for a run that is not there');
+  });
+
   /** Any page in the browser can navigate here, so everything but one well-formed id is refused out loud. */
   for (const [why, uri] of [
     ['a path the board never writes', `vscode://groundcontrol.ground-control/seize?session=${SESSION}`],
     ['no session at all', 'vscode://groundcontrol.ground-control/open'],
     ['something that is not an id', 'vscode://groundcontrol.ground-control/open?session=../../etc/passwd'],
+    ['an attach with no session at all', 'vscode://groundcontrol.ground-control/attach'],
+    ['an attach naming something that is not an id', 'vscode://groundcontrol.ground-control/attach?session=%2E%2E%2Fetc'],
   ]) {
     it(`refuses ${why}, and says so`, async () => {
       await fire(uri);

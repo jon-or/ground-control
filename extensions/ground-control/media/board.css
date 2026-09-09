@@ -680,6 +680,65 @@ button.session:focus-visible {
 }
 
 /*
+ * Where the click lands, in the slot the state was in and at the same width, so the row's geometry does not move
+ * under the pointer - a relayout re-derives the running label's gradient. One or the other is drawn, never both.
+ */
+.destination {
+  display: none;
+  flex: none;
+  margin-left: auto;
+  min-width: 3ch;
+  text-align: right;
+  line-height: 0;
+}
+
+.destination svg {
+  width: 15px;
+  height: 15px;
+  vertical-align: -3px;
+}
+
+/*
+ * Solid against outline, and one tinted: at this size two line drawings of a rectangle read as the same mark, so the
+ * terminal is a block with its prompt knocked out in the card's own colour and the editor is a frame in the link tone.
+ */
+.destination .plate {
+  fill: var(--vscode-descriptionForeground);
+  stroke: none;
+}
+
+.destination .ink {
+  fill: none;
+  stroke: var(--vscode-editor-background, var(--vscode-sideBar-background));
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A run the board started rather than a session the developer is sitting in. Italic and nothing else: the row's
+   colours are all spoken for, and the name is the one part of it that is the work's own. */
+.session[data-detached] > .session-label {
+  font-style: italic;
+}
+
+.destination .frame {
+  fill: none;
+  stroke: var(--vscode-textLink-foreground);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+button.session:hover > .state,
+button.session:focus-visible > .state {
+  display: none;
+}
+
+button.session:hover > .destination,
+button.session:focus-visible > .destination {
+  display: inline-block;
+}
+
+/*
  * One highlight, one pass, left to right. The image is three times the label and never repeats, so the band leads in from off the left and
  * leaves off the right with nothing behind it — a repeating background tiles, which is what puts a second band on screen behind the first.
  */

@@ -406,6 +406,28 @@ describe('board webview', () => {
     expect(api.postMessage).not.toHaveBeenCalledWith({ type: 'openSession', sessionId: 'session-1' });
   });
 
+  /**
+   * Two destinations and a row that has neither. Which one a click lands in is decided at the render, so it can be
+   * drawn: an attachable run goes to a terminal, and everything else to the editor.
+   */
+  it('marks where each row click lands, and marks nothing on a row that cannot be clicked', () => {
+    const detached = { ...session, attachId: 'c5d0c58f', details: { kind: 'background', name: 'merge-upstream' } };
+
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [detached] }] }), openable: [] }));
+
+    expect(document.querySelector('.session .destination')?.getAttribute('data-destination')).toBe('terminal');
+    expect(document.querySelector<HTMLElement>('.session')?.dataset.detached).toBe('true');
+
+    send(message({ lanes: lanes({ build: [liveCard] }), openable: ['session-1'] }));
+
+    expect(document.querySelector('.session .destination')?.getAttribute('data-destination')).toBe('editor');
+    expect(document.querySelector<HTMLElement>('.session')?.dataset.detached).toBeUndefined();
+
+    send(message({ lanes: lanes({ build: [liveCard] }), openable: [] }));
+
+    expect(document.querySelector('.session .destination')).toBeNull();
+  });
+
   it('offers no control for a session no command can open, such as another agent’s', () => {
     send(message({ lanes: lanes({ build: [liveCard] }), openable: [] }));
 
@@ -1703,6 +1725,8 @@ it('makes a historical title openable when the host offers it, including after a
   send(message({ lanes: lanes({ build: [pastCard] }), openable: ['past'] }));
   const button = document.querySelector<HTMLButtonElement>('button.historical')!;
   expect(button.querySelector('.session-label')?.textContent).toBe('Past attempt'); expect(button.draggable).toBe(false);
+  // A saved session has no process to attach to, so the editor is the only destination it has.
+  expect(button.querySelector('.destination')?.getAttribute('data-destination')).toBe('editor');
   button.click(); expect(sent()).toEqual([{ type: 'openSession', sessionId: 'past' }]);
   expect(tipOf(button)).toBe('');
   expect(button.getAttribute('aria-label')).toBe('Past attempt - resume this session');

@@ -339,6 +339,51 @@ const OPENAI_MARK =
  * reported a session, and an unmarked row would read as the one that has a mark. */
 const AGENT_MARKS = { claude: CLAUDE_MARK, codex: OPENAI_MARK };
 
+/**
+ * Where a row's click lands, in the two destinations the board has: a detached run is attached to in a terminal, and
+ * every other session is opened in the editor (`docs/mechanics.md` §33). Stroke rather than fill, so neither reads as
+ * a third brand mark beside the agent's.
+ */
+const DESTINATION_SHAPES = {
+  terminal: [
+    ['rect', { class: 'plate', x: '1.5', y: '3.5', width: '21', height: '17', rx: '3' }],
+    ['polyline', { class: 'ink', points: '6.5 9 9.75 12 6.5 15' }],
+    ['line', { class: 'ink', x1: '12.5', y1: '15', x2: '17.5', y2: '15' }],
+  ],
+  editor: [
+    ['rect', { class: 'frame', x: '1.75', y: '3.75', width: '20.5', height: '16.5', rx: '3' }],
+    ['line', { class: 'frame', x1: '8.5', y1: '3.75', x2: '8.5', y2: '20.25' }],
+  ],
+};
+
+/**
+ * The mark for one destination, in the slot the state holds. `aria-hidden`: the row's own accessible name already
+ * says where the click goes, and a second announcement of the same fact is one to learn to ignore.
+ */
+function destinationMark(kind) {
+  const held = document.createElement('span');
+  held.className = 'destination';
+  held.dataset.destination = kind;
+
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+
+  for (const [name, attributes] of DESTINATION_SHAPES[kind]) {
+    const shape = document.createElementNS(SVG, name);
+
+    for (const [attribute, value] of Object.entries(attributes)) {
+      shape.setAttribute(attribute, value);
+    }
+
+    svg.appendChild(shape);
+  }
+
+  held.appendChild(svg);
+
+  return held;
+}
+
 function agentMark(agent) {
   const drawn = AGENT_MARKS[agent];
 
@@ -429,6 +474,11 @@ function sessionLine(session) {
 
   el.append(sessionDot(session.activity?.phase, !session.finished), agent, label);
 
+  // What the italic name is keyed by: a run the board started is not a session the developer is sitting in.
+  if (attachId !== null) {
+    el.dataset.detached = 'true';
+  }
+
   const activity = session.activity;
 
   if (activity) {
@@ -436,23 +486,33 @@ function sessionLine(session) {
   }
 
   const state = document.createElement('span');
+  const said = activity ? stateTitle(activity) : null;
+
   state.className = 'state';
 
   // One state per row, never two. The board's own observation where it has one, the adapter's reading of what the
   // CLI said where it does not - a row reading "idle" beside a shimmering label is two claims disagreeing (R24).
   if (activity) {
     age(state, activity.since);
-    tip(state, stateTitle(activity));
+    tip(state, said);
     el.appendChild(state);
+  } else {
+    const reported = session.details.state ?? session.details.status;
 
-    return el;
+    if (reported) {
+      state.textContent = reported;
+      el.appendChild(state);
+    }
   }
 
-  const reported = session.details.state ?? session.details.status;
+  // The pointer takes the state's slot, so what the state had to say goes on the mark that stands there instead -
+  // otherwise the one row carrying a reading is the one row whose reading cannot be read.
+  if (reachable) {
+    const destination = destinationMark(attachId === null ? 'editor' : 'terminal');
+    const goes = attachId === null ? 'Opens this session in the editor.' : 'Attaches to this run in a terminal.';
 
-  if (reported) {
-    state.textContent = reported;
-    el.appendChild(state);
+    tip(destination, said === null ? goes : `${goes} ${said}`);
+    el.appendChild(destination);
   }
 
   return el;
@@ -524,6 +584,14 @@ function historyLine(session) {
     label,
     state,
   );
+
+  // A saved session has no process, so there is nothing to attach to: resuming it in the editor is the only way back.
+  if (reachable) {
+    const destination = destinationMark('editor');
+
+    tip(destination, `Resumes this session in the editor. ${mark ? mark.title : ''}`.trim());
+    el.appendChild(destination);
+  }
   return el;
 }
 

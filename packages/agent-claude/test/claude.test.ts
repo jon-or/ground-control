@@ -163,15 +163,16 @@ describe('the Claude adapter', () => {
   });
 
   /**
-   * The whole point of the translation: `blocked` is what the CLI calls a session whose own state is `needs_reply` or
-   * `needs_approval`, and a card that prints it says something has gone wrong rather than that a run is holding for
-   * the developer.
+   * The CLI's four words are the board's three states under other names, and `blocked` is the one that misleads: it
+   * is a session whose own state is `needs_reply` or `needs_approval`, which is what the board calls waiting.
    */
-  it('says what a run is doing in the board own words, not the CLI raw state', () => {
-    expect(reportedState({ ...entry, state: 'blocked' })).toBe('needs a reply');
-    expect(reportedState({ ...entry, state: 'done' })).toBe('finished');
-    expect(reportedState({ ...entry, state: 'working' })).toBe('working');
-    expect(reportedState({ ...entry, state: 'stopped' })).toBe('stopped');
+  it('says what a run is doing in the three words the board already uses', () => {
+    expect(reportedState({ ...entry, state: 'blocked' })).toBe('waiting');
+    expect(reportedState({ ...entry, state: 'working' })).toBe('running');
+    expect(reportedState({ ...entry, state: 'done' })).toBe('idle');
+    expect(reportedState({ ...entry, state: 'stopped' })).toBe('idle');
+    // A word a later build invents is carried rather than guessed at.
+    expect(reportedState({ ...entry, state: 'something-new' })).toBe('something-new');
     expect(reportedState(entry)).toBeUndefined();
   });
 
@@ -182,13 +183,21 @@ describe('the Claude adapter', () => {
     );
   });
 
-  it('carries an attach id for a background session, and none for one a window holds', async () => {
-    const { sessions } = await read(config(), deps(all));
-    const background = all.find((e) => e.kind === 'background' && e.id !== undefined)!;
+  /**
+   * The id is what a terminal is opened with, so a job the CLI has already ended must not carry one: `claude attach`
+   * answers `No job matching` for it, and the row would offer a terminal that fails in front of the developer.
+   */
+  it('carries an attach id for a live background session, and none once the CLI says it ended', async () => {
+    const ended = all.find((e) => e.kind === 'background' && e.state === 'stopped' && e.id !== undefined)!;
     const interactive = all.find((e) => e.kind === 'interactive')!;
+    const revived = all.map((e) => (e === ended ? { ...e, state: 'working', status: 'busy' } : e));
 
-    expect(sessions.find((s) => s.sessionId === background.sessionId)?.attachId).toBe(background.id);
-    expect(sessions.find((s) => s.sessionId === interactive.sessionId)?.attachId).toBeNull();
+    const still = await read(config(), deps(revived));
+    const gone = await read(config(), deps(all));
+
+    expect(still.sessions.find((s) => s.sessionId === ended.sessionId)?.attachId).toBe(ended.id);
+    expect(gone.sessions.find((s) => s.sessionId === ended.sessionId)?.attachId).toBeNull();
+    expect(gone.sessions.find((s) => s.sessionId === interactive.sessionId)?.attachId).toBeNull();
   });
 
   /**
