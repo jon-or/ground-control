@@ -57,6 +57,6 @@ export type { TransportDeps } from './transport.js';
 export { compareVersions, shouldWrite, stamp, versionOf } from './bundle.js';
 export { FRAME_LIMIT_BYTES, FrameReader, bridgeAction, bridgeHello, encodeFrame, redactForBrowser, runBridge } from './bridge.js';
 export type { BridgeAction, BridgeDeps, BridgeMessage, BridgeStreams } from './bridge.js';
-export { chromeHostPlan, installChromeHost, uninstallChromeHost } from './chromeHost.js';
+export { BROWSERS, chromeHostPlan, installChromeHost, parseBrowsers, uninstallChromeHost } from './chromeHost.js';
 export { realChromeHostDeps } from './chromeHostFs.js';
-export type { ChromeHostDeps, ChromeHostInput, ChromeHostPlan } from './chromeHost.js';
+export type { Browser, BrowserRegistration, ChromeHostDeps, ChromeHostInput, ChromeHostPlan } from './chromeHost.js';

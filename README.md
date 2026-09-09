@@ -35,7 +35,7 @@ code --install-extension extensions/ground-control/ground-control-0.0.0.vsix --f
 
 Activation through a command, restored board, or URI starts the client and installs selected activity hooks with backups; the global and per-agent hook switches currently default to true. Configure them before activation to prevent installation; a first-run installation prompt is not yet implemented. Installation alone does not activate it. Ground Control trusts its own Codex hooks through Codex's API and preserves unrelated entries.
 
-For Chrome, run **Ground Control: Enable GitHub Overlay** in VS Code, then load `extensions/chrome-github-board` unpacked at `chrome://extensions`. **Ground Control: Disable GitHub Overlay** removes the native-host registration. See the [overlay guide](extensions/chrome-github-board/README.md).
+For the browser overlay, run **Ground Control: Enable GitHub Overlay** in VS Code, then load `extensions/chrome-github-board` unpacked at `chrome://extensions` or `edge://extensions`. `groundControl.overlayBrowsers` selects Google Chrome, Microsoft Edge, or both; the default is Chrome. **Ground Control: Disable GitHub Overlay** removes every registration Ground Control made. See the [overlay guide](extensions/chrome-github-board/README.md).
 
 The overlay displays card/session state and supports local lane moves, session links, checkout opening, and logs. Starting or stopping work, requesting classification, selecting paths, and opening combined diffs require VS Code. Checkout opening requires a connected editor.
 
@@ -129,6 +129,8 @@ State and logs are stored under `~/.claude/ground-control/` unless moved with `s
 After building, `npm run hub` runs a foreground hub against your real home. Use `node apps/hub/dist/main.js --home=<path>` for an isolated home, and add `--stop` to request shutdown for that home. An installed extension can replace an older foreground hub on activation.
 
 ### State directory
+
+`groundControl.overlayBrowsers` (Advanced, machine scope) lists the browsers **Enable GitHub Overlay** registers: `chrome`, `edge`, or both. Enabling again with a different list registers the new selection and removes registrations Ground Control made for deselected browsers. **Disable GitHub Overlay** removes the selected browsers' registrations and keeps the launcher while a deselected browser still uses it; uninstall removes them all. Registrations are per user; the launcher and manifest are per home, so removal only touches registrations that name this home's files. On Windows, Edge also reads Chrome's registration when it has none of its own; on macOS and Linux each browser needs its own entry. Other browsers and platforms are reported as unsupported rather than guessed.
 
 `groundControl.stateDirectory` (Advanced, machine scope, not synced) moves the hub's state and logs to an absolute directory; empty keeps `~/.claude/ground-control`. The bootstrap directory stays at `~/.claude/ground-control`: it keeps `state-dir.json` pointing at the state directory, the hub bundle, the browser launcher and its Windows manifest, and the hook writer scripts, which Chrome, Claude, and Codex are registered to run. Hook writers read the pointer on each event, so moving needs no hook reinstall, and existing installations change nothing until the setting is set.
 

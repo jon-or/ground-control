@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ChromeHostDeps } from './chromeHost.js';
 
@@ -16,6 +16,14 @@ export const realChromeHostDeps: ChromeHostDeps = {
 
   remove(path) {
     rmSync(path, { force: true });
+  },
+
+  read(path) {
+    try {
+      return readFileSync(path, 'utf8');
+    } catch {
+      return null;
+    }
   },
 
   registry(args) {

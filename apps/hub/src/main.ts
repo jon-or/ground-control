@@ -1,15 +1,18 @@
 import { homedir } from 'node:os';
 import {
+  BROWSERS,
   bundlePathOf,
   chromeHostPlan,
   installChromeHost,
   makeLogger,
+  parseBrowsers,
   realChromeHostDeps,
   serveHub,
   stopHub,
   uninstallAgentActivity,
   uninstallChromeHost,
 } from '@ground-control/hub';
+import type { Browser } from '@ground-control/hub';
 import { resolveStateDir } from '@ground-control/core';
 import type { Logger } from '@ground-control/core';
 import { startBridge } from './bridgeMain.js';
@@ -52,17 +55,37 @@ async function main(argv: readonly string[]): Promise<number> {
     return -1;
   }
 
-  const chrome = (): ReturnType<typeof chromeHostPlan> =>
-    chromeHostPlan({ platform: process.platform, home, bundle: bundlePathOf(home), node: process.execPath });
+  // --browsers=chrome,edge selects registrations; absent means Chrome. Uninstall removes every owned registration.
+  const chrome = (browsers?: readonly Browser[]): ReturnType<typeof chromeHostPlan> =>
+    chromeHostPlan({ platform: process.platform, home, bundle: bundlePathOf(home), node: process.execPath, ...(browsers ? { browsers } : {}) });
+  const selection = parseBrowsers(flag(argv, 'browsers') ?? 'chrome');
+
+  if (selection.unknown.length > 0) {
+    process.stderr.write(`Unknown browser${selection.unknown.length === 1 ? '' : 's'} ${selection.unknown.join(', ')}; supported: ${BROWSERS.join(', ')}.\n`);
+
+    return 1;
+  }
 
   if (flag(argv, 'install-chrome-host') !== null) {
-    process.stdout.write(`${installChromeHost(chrome(), realChromeHostDeps)}\n`);
+    try {
+      process.stdout.write(`${installChromeHost(chrome(selection.browsers), realChromeHostDeps)}\n`);
+    } catch (error) {
+      process.stderr.write(`${(error as Error).message}\n`);
+
+      return 1;
+    }
 
     return 0;
   }
 
   if (flag(argv, 'uninstall-chrome-host') !== null) {
-    process.stdout.write(`${uninstallChromeHost(chrome(), realChromeHostDeps)}\n`);
+    try {
+      process.stdout.write(`${uninstallChromeHost(chrome(selection.browsers), realChromeHostDeps)}\n`);
+    } catch (error) {
+      process.stderr.write(`${(error as Error).message}\n`);
+
+      return 1;
+    }
 
     return 0;
   }
@@ -74,7 +97,7 @@ async function main(argv: readonly string[]): Promise<number> {
       process.stderr.write(`${activity.failure?.message ?? 'Activity settings are locked.'}\n`);
       return 1;
     }
-    const browser = uninstallChromeHost(chrome(), realChromeHostDeps);
+    const browser = uninstallChromeHost(chrome(BROWSERS), realChromeHostDeps);
     process.stdout.write(`Removed the activity hooks and stopped the hub. ${browser}\n`);
 
     return 0;

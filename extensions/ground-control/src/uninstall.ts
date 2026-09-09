@@ -2,6 +2,7 @@ import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolveStateDir } from '@ground-control/core';
 import {
+  BROWSERS,
   bundlePathOf,
   chromeHostPlan,
   realChromeHostDeps,
@@ -30,7 +31,7 @@ void (async () => {
     // Remove the native-host registration before its bundle so Chrome cannot start a missing executable
     // (R34).
     const browser = uninstallChromeHost(
-      chromeHostPlan({ platform: process.platform, home, bundle: bundlePathOf(home), node: process.execPath }),
+      chromeHostPlan({ platform: process.platform, home, bundle: bundlePathOf(home), node: process.execPath, browsers: BROWSERS }),
       realChromeHostDeps,
     );
     process.stdout.write(`${browser}\n`);

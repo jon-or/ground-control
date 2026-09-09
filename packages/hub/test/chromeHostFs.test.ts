@@ -27,6 +27,10 @@ describe('registering with the browser', () => {
     expect(seen[0]?.['windowsHide']).toBe(true);
   });
 
+  it('reads a manifest file and reports an absent one as null', () => {
+    expect(realChromeHostDeps.read('d:/nowhere/at/all/manifest.json')).toBeNull();
+  });
+
   it('reads the registered manifest path whatever the value label is called', () => {
     expect(realChromeHostDeps.registered('HKCU\\Software\\Registered')).toBe('C:\\Users\\dev\\manifest.json');
     expect(realChromeHostDeps.registered('HKCU\\Software\\Nothing')).toBeNull();

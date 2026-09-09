@@ -641,6 +641,19 @@ Ordering of `closedByPullRequestsReferences` was not established. Sorting the fe
 
 PR comments, pushes, and failing checks did not change issue.updatedAt. Use PR updatedAt, head OID, and check rollup for triage freshness. `reviewDecision` was populated on 31 of 32 PRs in a related read but could remain REVIEW_REQUIRED after the team's status-based approval. It remains useful for arrival rules, not as a complete record of team review progress.
 
+### Browser native-messaging registration
+
+**Record M53. Documentation inspection, 2026-09-09: Chrome native-messaging guide and Microsoft Edge native-messaging guide (ms.date 2024-01-09). Used by overlay registration.**
+
+Per-user manifest locations for host name `N`:
+
+| Browser | Windows | macOS | Linux |
+|---|---|---|---|
+| Google Chrome | `HKCU\Software\Google\Chrome\NativeMessagingHosts\N` | `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/N.json` | `~/.config/google-chrome/NativeMessagingHosts/N.json` |
+| Microsoft Edge | `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\N` | `~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/N.json` | `~/.config/microsoft-edge/NativeMessagingHosts/N.json` |
+
+The Windows key's default value is the manifest path; `HKLM` variants exist for machine-wide hosts and are not used. Edge searches its own `HKCU` key, then `HKCU\Software\Chromium\…`, then `HKCU\Software\Google\Chrome\…`, then the `HKLM` equivalents, so an Edge installation on Windows already reaches a Chrome-only registration; macOS and Linux have no such fallback. Edge channels other than stable use `Microsoft Edge Beta`, `Dev`, or `Canary` directories, which are not registered. Both browsers accept `chrome-extension://<id>/` origins, and an unpacked extension's ID derives from its manifest key, so one manifest serves both.
+
 ### GitHub board DOM and extension lifecycle
 
 **Record M27. Runtime/DOM, 2026-09-04–08, Chromium 151.0.7922.34, Playwright 1.62.1 on Windows 11. Used by overlay.**

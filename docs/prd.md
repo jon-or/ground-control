@@ -392,6 +392,8 @@ Only enabled, allowed, visible project tabs count as watched boards. Ordinary Gi
 
 Keep browser snapshots only in memory for the current hub connection. After either the bridge or hub disconnects, wait for a fresh hub snapshot before sending session details to tabs. New or reconnected content must not paint data from an unconfirmed scope. Already displayed data may remain marked stale during a disconnection.
 
+Native-host registration supports Google Chrome and Microsoft Edge, selected by `overlayBrowsers` with Chrome as the default. Enabling registers only the selected browsers and removes Ground Control's registrations for the others; disabling removes the selected browsers' registrations and keeps shared files another registration still needs; uninstall removes every registration Ground Control owns. Neither removes a registration made for another home. Unsupported browsers and platforms are reported as limitations.
+
 Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, request triage, or open combined diffs.
 
 Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.

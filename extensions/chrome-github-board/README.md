@@ -6,8 +6,8 @@ Session links open VS Code. Checkout opening requires a connected editor. The ov
 
 ## Loading
 
-1. Run **Ground Control: Enable GitHub Overlay** in VS Code to register the native host and launcher. **Ground Control: Disable GitHub Overlay** removes them; uninstall does too. Registration targets Google Chrome.
-2. Enable Developer mode at `chrome://extensions` and load this directory unpacked.
+1. Run **Ground Control: Enable GitHub Overlay** in VS Code to register the native host and launcher for the browsers in `groundControl.overlayBrowsers` (Google Chrome by default, Microsoft Edge optional). **Ground Control: Disable GitHub Overlay** removes every registration Ground Control made; uninstall does too.
+2. Enable Developer mode at `chrome://extensions` or `edge://extensions` and load this directory unpacked. The manifest key fixes the extension ID, so one host manifest content serves both browsers.
 
 There is no build step. The manifest's public key fixes the extension ID used by native-host registration. After reloading the extension, reload existing GitHub tabs to replace invalidated content scripts.
 
