@@ -219,6 +219,10 @@ chrome.runtime.onConnect.addListener((port) => {
     toNative(message);
   });
   port.onDisconnect.addListener(() => {
+    // Chrome closes the port of a page it moves into the back/forward cache and sets `lastError` on the way; reading
+    // it is what marks it read, and an unread one is logged to the worker's console as an unchecked error.
+    void chrome.runtime.lastError;
+
     boards.delete(port);
     watchLog(port, false);
     say('debug', `a board tab went; ${boards.size} open`, 'tabs');
