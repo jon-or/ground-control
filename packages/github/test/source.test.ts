@@ -78,8 +78,8 @@ describe('the GitHub entry in a pushed configuration', () => {
   /** How much of someone's GitHub one client may ask the hub for, which is why it is a bound and not a default. */
   it('refuses a page count outside the bound', () => {
     expect(refusal({ repo: 'o/r', maxPages: 0 })).toContain('maxPages');
-    expect(refusal({ repo: 'o/r', maxPages: 21 })).toContain('maxPages');
-    expect(accepted({ repo: 'o/r', maxPages: 20 }).maxPages).toBe(20);
+    expect(refusal({ repo: 'o/r', maxPages: 11 })).toContain('maxPages');
+    expect(accepted({ repo: 'o/r', maxPages: 10 }).maxPages).toBe(10);
   });
 
   it('refuses a CLI path that is neither a command name nor a file, as the agent paths are refused', () => {

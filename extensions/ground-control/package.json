@@ -112,6 +112,15 @@
             "default": "Status",
             "order": 6,
             "markdownDescription": "Single-select project field read as card status. Only the built-in `Status` field records changes on the issue timeline, which triage reads; other fields supply the current value only."
+          },
+          "groundControl.github.maxPages": {
+            "scope": "application",
+            "type": "integer",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 10,
+            "order": 7,
+            "markdownDescription": "Pages of up to 100 assigned issues read per refresh. Each page is one GitHub API request; the board reports when more issues match than were read."
           }
         }
       },

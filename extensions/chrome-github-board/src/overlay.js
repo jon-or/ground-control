@@ -1445,6 +1445,27 @@ export function renderToasts(doc, state) {
     });
   }
 
+  // The same incomplete-result notices the editor board shows (R1). Counts sit in the keys so a changed count redraws.
+  const issues = state.snapshot?.issues ?? null;
+
+  if (issues !== null && issues.notOnProject > 0) {
+    problems.push({
+      key: `issues:not-on-project:${issues.notOnProject}`,
+      message: `${issues.notOnProject} assigned issue${issues.notOnProject === 1 ? ' is' : 's are'} not on the configured project board, so they are not shown.`,
+      remedy: 'Switch groundControl.cardSource to issueSearch in VS Code to include them.',
+      tone: 'default',
+    });
+  }
+
+  if (issues !== null && issues.truncated) {
+    problems.push({
+      key: `issues:truncated:${issues.count}:${issues.matched}`,
+      message: `More issues match than were read. Showing ${issues.count} of ${issues.matched}.`,
+      remedy: 'Raise groundControl.github.maxPages in VS Code, up to 10 pages of 100, at the cost of more GitHub requests per refresh.',
+      tone: 'default',
+    });
+  }
+
   // Display the latest action result, including browser permission refusals.
   if (state.notice !== null) {
     problems.push({ key: `notice:${state.notice}`, message: state.notice, remedy: null, tone: 'default' });

@@ -1296,6 +1296,28 @@ describe('what went wrong, as a toast', () => {
     expect(toasts()[0]!.dataset.tone).toBe('danger');
   });
 
+  it('reports an incomplete read the way the editor board does, naming the setting that widens it', () => {
+    const cut = snapshot({
+      issues: { count: 100, matched: 240, totalAssigned: 260, notOnProject: 20, fieldProblem: null, truncated: true, fetchedAt: '' },
+    });
+
+    paint(document, state({ snapshot: cut }), NOW, actions);
+
+    const texts = toasts().map((toast) => toast.textContent ?? '');
+
+    expect(texts.some((text) => text.includes('Showing 100 of 240') && text.includes('groundControl.github.maxPages'))).toBe(true);
+    expect(texts.some((text) => text.includes('20 assigned issues are not on the configured project board'))).toBe(true);
+    expect(toasts().every((toast) => toast.dataset.tone === 'default')).toBe(true);
+
+    // A later refresh with other counts must redraw the toast, not leave the first numbers standing.
+    paint(document, state({ snapshot: snapshot({ issues: { ...cut.issues!, count: 200, matched: 240 } }) }), NOW, actions);
+
+    const later = toasts().map((toast) => toast.textContent ?? '');
+
+    expect(later.some((text) => text.includes('Showing 200 of 240'))).toBe(true);
+    expect(later.some((text) => text.includes('Showing 100 of 240'))).toBe(false);
+  });
+
   /** A bridge that lost its hub must not leave badges that look current. */
   it('says when it cannot reach the board at all', () => {
     paint(document, state({ trouble: 'Disconnected from Ground Control.' }), NOW, actions);

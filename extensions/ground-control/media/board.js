@@ -1759,7 +1759,7 @@ function draw(payload) {
     // `matched` is what this board's own query found. `totalAssigned` is the wider set and would overstate the gap.
     notice(
       `More issues match than were read. Showing ${payload.issues.count} of ${payload.issues.matched}.`,
-      'The board reads a bounded number of pages per refresh.',
+      'Raise groundControl.github.maxPages, up to 10 pages of 100, to read more at the cost of more GitHub requests per refresh.',
       false,
     );
   }

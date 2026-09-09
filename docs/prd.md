@@ -20,7 +20,7 @@ Future development may add coordinated workflow stages, verified stage completio
 
 Show one card per assigned issue, with repository, number, title, and type. Treat all configured GitHub accounts as the developer's identity.
 
-The configured card source selects assigned issues on the project or all assigned open issues. Report excluded and truncated results. Do not imply the displayed set is complete when it is not.
+The configured card source selects assigned issues on the project or all assigned open issues. `github.maxPages` (1–10, default 5) bounds the pages of 100 read per refresh; each page is one API request, and GitHub search returns at most 1,000 results. Report excluded and truncated results. Do not imply the displayed set is complete when it is not.
 
 Identify the project by owner and number; the owner setting defaults to the repository owner. Read status from the configured single-select project field, default `Status`. Report a missing or non-single-select field as a diagnostic in both clients; affected cards keep a null status and remain active. Only the built-in Status field records status changes on the issue timeline (M32), so triage receives status-change instructions with that field alone and assignment events with any other. One repository per configuration; multiple repositories and GitHub Enterprise are out of scope.
 

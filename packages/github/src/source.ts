@@ -21,7 +21,8 @@ const github = z
     projectOwner: z.string().trim().default(''),
     statusField: z.string().trim().min(1).default('Status'),
     cardSource: z.enum(['project', 'issueSearch']).default('project'),
-    maxPages: z.number().int().min(1).max(20).default(5),
+    // GitHub search returns at most 1,000 results, so pages past the tenth read nothing.
+    maxPages: z.number().int().min(1).max(10).default(5),
   })
   .strict();
 

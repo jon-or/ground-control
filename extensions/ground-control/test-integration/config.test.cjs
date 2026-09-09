@@ -76,6 +76,7 @@ describe('what this window pushes to the hub', () => {
     }
     await settings().update('github.projectOwner', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('github.statusField', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('github.maxPages', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('idleExitMinutes', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('logLevel', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('logs.rotateMegabytes', undefined, vscode.ConfigurationTarget.Global);
@@ -92,6 +93,15 @@ describe('what this window pushes to the hub', () => {
       (c) => c.logLevel === 'warn' && c.logs?.rotateBytes === 5_000_000 && c.logs?.kept === 0 && c.logs?.dispatchRetentionMs === 24 * 60 * 60 * 1000,
       'the log settings never reached the hub',
     );
+  });
+
+  it('sends the page limit to the hub unclamped, leaving values outside the bound to its refusal', async () => {
+    await untilStored((c) => c.sources?.github?.maxPages === 5, 'the default page limit never reached the hub');
+    await settings().update('github.maxPages', 7, vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.sources?.github?.maxPages === 7, 'a page limit of seven never reached the hub');
+    // A refused configuration is not stored, so the refusal itself is the evidence that nothing clamped the value first.
+    await settings().update('github.maxPages', 25, vscode.ConfigurationTarget.Global);
+    await untilSnapshot((s) => s.failures.some((f) => f.subject === 'github' && f.kind === 'bad-config' && f.message.includes('maxPages')), 'the hub did not refuse 25 pages');
   });
 
   it('sends the idle exit window in milliseconds and lets the hub clamp it', async () => {

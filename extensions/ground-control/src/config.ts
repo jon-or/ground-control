@@ -31,7 +31,8 @@ export function readConfig(): GithubConfig {
     projectOwner: cfg.get<string>('github.projectOwner', ''),
     statusField: cfg.get<string>('github.statusField', 'Status'),
     cardSource: cfg.get<CardSource>('cardSource', 'project'),
-    maxPages: 5,
+    // The source refuses values outside 1–20 with a visible failure rather than reading an unbounded search.
+    maxPages: numberOr(cfg.get<unknown>('github.maxPages'), 5),
   };
 }
 
