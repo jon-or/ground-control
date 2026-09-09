@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { attachFromUri, handOverUri, handedOver, handoverToken, sessionFromUri } from '../src/openUri.js';
+import { attachFromUri, handOverUri, handedOver, handoverToken, sessionFromUri, uriSchemeOf } from '../src/openUri.js';
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
 
@@ -17,6 +17,21 @@ it('carries one reservation token and rejects malformed or duplicate tokens', ()
   expect(handoverToken(`${uri.search.slice(1)}&resumeToken=${token}`)).toBeNull();
   expect(handoverToken('resumeToken=../arbitrary')).toBeNull();
   expect(handoverToken(new URL(handOverUri(SESSION, 'claude')).search.slice(1))).toBeNull();
+});
+
+describe('the scheme a link is written in', () => {
+  /** Insiders registers vscode-insiders://; a handover written as vscode:// would open a different editor. */
+  it('uses the scheme the running editor reports, and stable\'s for none', () => {
+    expect(handOverUri(SESSION, 'claude', undefined, 'vscode-insiders')).toMatch(/^vscode-insiders:\/\//);
+    expect(handOverUri(SESSION, 'claude')).toMatch(/^vscode:\/\//);
+  });
+
+  it('refuses anything that could not be a registered scheme', () => {
+    expect(uriSchemeOf('vscode-insiders')).toBe('vscode-insiders');
+    expect(uriSchemeOf('VSCode')).toBe('vscode');
+    expect(uriSchemeOf('java script:')).toBe('vscode');
+    expect(uriSchemeOf(undefined)).toBe('vscode');
+  });
 });
 
 describe('the link the browser board writes', () => {

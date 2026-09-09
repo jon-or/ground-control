@@ -212,8 +212,9 @@ export function sourceIds(): string[] {
   return idsFrom(vscode.workspace.getConfiguration(SECTION).get<unknown>('sources'), [GITHUB_SOURCE_ID]);
 }
 
+/** uriScheme is the running distribution's own (vscode, vscode-insiders, ...), so browser links reach this editor. */
 function vscodeSettings(userDir: string): Record<string, unknown> {
-  return { userDir, mayOpenWindow: mayOpenWindow() };
+  return { userDir, mayOpenWindow: mayOpenWindow(), uriScheme: vscode.env.uriScheme };
 }
 
 /** Write application-scoped settings globally; VS Code rejects workspace overrides for shared board state (R9). */

@@ -258,7 +258,7 @@ async function revealElsewhere(roster: Roster, check: SessionChecker, session: S
   }
 
   // The target resident must check its own agent profile before executing an editor command.
-  const fired = await runCode(['--open-url', handOverUri(session.sessionId, session.agent, resume?.resumeToken)]);
+  const fired = await runCode(['--open-url', handOverUri(session.sessionId, session.agent, resume?.resumeToken, vscode.env.uriScheme)]);
 
   if (fired !== null) {
     return `The ${session.agent} session could not be opened in the window on ${root}: ${fired}`;

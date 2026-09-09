@@ -22,6 +22,6 @@ describe('browser integration identifiers', () => {
       readFileSync(join(src, '..', '..', 'ground-control', 'package.json'), 'utf8'),
     ) as { publisher: string; name: string };
 
-    expect(read('overlay.js')).toContain(`vscode://${manifest.publisher}.${manifest.name}/open?session=`);
+    expect(read('overlay.js')).toContain(`://${manifest.publisher}.${manifest.name}/open?session=`);
   });
 });

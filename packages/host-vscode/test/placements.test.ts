@@ -52,12 +52,6 @@ describe('the placement table', () => {
     expect(PLACEMENTS['codex']!.startTakesPrompt).toBe(false);
   });
 
-  it('offers a URI only for the agent whose extension answers one', () => {
-    expect(PLACEMENTS['claude']!.openUri!('abc def')).toContain('abc%20def');
-    // No working Codex OS deep link was measured (M44).
-    expect(PLACEMENTS['codex']!.openUri).toBeUndefined();
-  });
-
   /** M44: Codex's sidebar mementos are always empty, so nothing reads them and no route focuses that view. */
   it('reads no sidebar, and focuses none, for the agent whose sidebar records nothing', () => {
     expect(PLACEMENTS['claude']!.sidebarKeys.length).toBeGreaterThan(0);

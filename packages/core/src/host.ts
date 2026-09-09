@@ -163,4 +163,6 @@ export interface HostAdapter {
   open?(route: OpenRoute, deps: MachineReaders): Promise<OpenOutcome>;
   /** Optional session-surface release for takeover. */
   release?(session: Session, deps: MachineReaders): Promise<void>;
+  /** The editor distribution's URI scheme for browser links, where the host has one (R14). */
+  uriScheme?(): string;
 }

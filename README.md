@@ -37,7 +37,7 @@ Activation through a command, restored board, or URI starts the client and insta
 
 For the browser overlay, run **Ground Control: Enable GitHub Overlay** in VS Code, then load `extensions/chrome-github-board` unpacked at `chrome://extensions` or `edge://extensions`. `groundControl.overlayBrowsers` selects Google Chrome, Microsoft Edge, or both; the default is Chrome. **Ground Control: Disable GitHub Overlay** removes every registration Ground Control made. See the [overlay guide](extensions/chrome-github-board/README.md).
 
-The overlay displays card/session state and supports local lane moves, session links, checkout opening, and logs. Starting or stopping work, requesting classification, selecting paths, and opening combined diffs require VS Code. Checkout opening requires a connected editor.
+The overlay displays card/session state and supports local lane moves, session links, checkout opening, and logs. Session links open the connected editor in its own URI scheme, so VS Code stable and Insiders each receive their own links; without a connected editor the last reported scheme applies, and `vscode` is the default. Starting or stopping work, requesting classification, selecting paths, and opening combined diffs require VS Code. Checkout opening requires a connected editor.
 
 Use **Overlay settings** in its menu, or **Extension options** in Chrome, to disable the overlay or restrict it to listed GitHub projects. It defaults to enabled; an empty project list allows all supported project pages. Preferences persist in this browser and apply to open tabs immediately. Disabled or disallowed pages receive no overlay UI, snapshots, or logs and do not keep hub work active through this client.
 

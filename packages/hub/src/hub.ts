@@ -2,6 +2,7 @@ import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, with
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SESSION_SCOPE, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions } from '@ground-control/core';
 import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
+import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { IssueLookup } from './issueLookup.js';
 import { makeIssueStore } from './issueStore.js';
@@ -1553,6 +1554,11 @@ export class Hub {
     return this.#deps.lanes.read(this.#config.boardStatuses);
   }
 
+  /** The last accepted VS Code host settings name the editor distribution browser links must open (R14). */
+  #editorScheme(): string {
+    return this.#deps.registries.hosts.find((candidate) => candidate.id === VSCODE_HOST_ID)?.uriScheme?.() ?? DEFAULT_URI_SCHEME;
+  }
+
   /** Current no-client exit window; serveHub reads it on every idle tick so a settings change applies without restart. */
   idleExitMs(): number {
     return this.#config.idleExitMs;
@@ -1742,6 +1748,7 @@ export class Hub {
           ? [...(this.#hostFor(client.hello)?.startable?.() ?? [])]
           : [],
         hooks: this.#noticeFor(id),
+        editor: { uriScheme: this.#editorScheme() },
       },
     } as HubMessage);
   }

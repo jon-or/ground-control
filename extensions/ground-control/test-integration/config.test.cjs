@@ -105,6 +105,13 @@ describe('what this window pushes to the hub', () => {
     await untilSnapshot((s) => s.failures.some((f) => f.subject === 'github' && f.kind === 'bad-config' && f.message.includes('maxPages')), 'the hub did not refuse 25 pages');
   });
 
+  /** The test host is a stable build, so its own scheme is `vscode`; an Insiders host would report vscode-insiders. */
+  it('reports the running editor\'s URI scheme to the hub for browser links', async () => {
+    await untilStored((c) => c.hosts?.vscode?.uriScheme === vscode.env.uriScheme, 'the editor scheme never reached the hub');
+    const { editor } = await untilSnapshot((s) => s.editor !== undefined, 'no snapshot carried the editor scheme');
+    assert.strictEqual(editor.uriScheme, vscode.env.uriScheme);
+  });
+
   it('sends the avatar policy to the hub', async () => {
     await untilStored((c) => c.avatar === 'review-author', 'the default avatar policy never reached the hub');
     await settings().update('avatar', 'assignee', vscode.ConfigurationTarget.Global);

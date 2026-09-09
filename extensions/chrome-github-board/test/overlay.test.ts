@@ -2283,6 +2283,17 @@ describe('historical session rows', () => {
 });
 
 
+/** The hub names the connected editor; an Insiders developer's links must open Insiders, not stable. */
+it('writes session links in the scheme the connected editor reports, and in stable\'s without one', () => {
+  const insiders = snapshot({ editor: { uriScheme: 'vscode-insiders' } });
+
+  paint(document, state({ snapshot: insiders }), NOW, actions);
+  expect(document.querySelector<HTMLAnchorElement>('.gc-session')!.getAttribute('href')).toBe(`vscode-insiders://groundcontrol.ground-control/open?session=${SESSION_ID}`);
+
+  paint(document, state({ snapshot: snapshot({ editor: { uriScheme: 'java script' } }) }), NOW, actions);
+  expect(document.querySelector<HTMLAnchorElement>('.gc-session')!.getAttribute('href')).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}`);
+});
+
 it('links historical rows through the same VS Code handler without opening the GitHub card', () => {
   const lastSession = { agent: 'claude', sessionId: SESSION_ID, title: 'Past attempt', cwd: '/work/4501-test', branch: '4501-test', issueNumber: 4501, repository: 'github.com/example-org/example-repo', updatedAt: NOW - 60000 };
   const entry = card(4501, { sessions: [], lastSession });

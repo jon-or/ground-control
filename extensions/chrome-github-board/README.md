@@ -2,7 +2,7 @@
 
 Adds local lane, triage, and session information to matching issue cards on GitHub Projects. Uses the same hub snapshot as the VS Code board. Displays phase, duration, attention, failures, and freshness.
 
-Session links open VS Code. Checkout opening requires a connected editor. The overlay can move local lanes and read logs; it cannot start or stop work, request classification, select filesystem paths, or open combined diffs. See [R36](../../docs/prd.md#r36-github-overlay).
+Session links open the connected editor in its own URI scheme, so an Insiders developer's links open Insiders; without a connected editor the last reported scheme applies, and `vscode` is the default. Checkout opening requires a connected editor. The overlay can move local lanes and read logs; it cannot start or stop work, request classification, select filesystem paths, or open combined diffs. See [R36](../../docs/prd.md#r36-github-overlay).
 
 ## Loading
 
@@ -19,7 +19,7 @@ Preferences use durable extension storage and apply across open tabs immediately
 
 **Animate working borders and session names** (default on) and **Replace assignee avatars with the pull request author in review** (default on) are browser-local presentation choices. Turning replacement off restores GitHub's assignee figure on open boards; turning animation off keeps the static dashed working border and accessible names. The system reduced-motion preference applies regardless.
 
-**Open shared settings in VS Code** links to the editor settings used by both clients. The browser options page changes only browser preferences; it cannot configure the hub or dispatch work.
+**Open shared settings in VS Code** links to the editor settings used by both clients. This static link uses the `vscode://` scheme, so on a machine with only Insiders it opens nothing; open the settings there directly. The browser options page changes only browser preferences; it cannot configure the hub or dispatch work.
 
 ## Implementation
 

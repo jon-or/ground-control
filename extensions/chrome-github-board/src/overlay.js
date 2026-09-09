@@ -54,12 +54,26 @@ const DEFAULT_PRESENTATION = { animations: true, replaceAvatars: true };
 const AGE_ATTR = 'data-gc-since';
 
 /**
- * Duplicate openSessionUri from @ground-control/host-vscode because Chrome loads this file without workspace
- * imports. Tests verify the literal URI.
+ * Duplicate the session paths from @ground-control/host-vscode because Chrome loads this file without workspace
+ * imports. Tests verify the literal URI. The scheme comes from the connected editor's snapshot (R14).
  */
-const OPEN_SESSION_URI = 'vscode://groundcontrol.ground-control/open?session=';
+const OPEN_SESSION_PATH = '://groundcontrol.ground-control/open?session=';
 // Navigate to VS Code to attach in a terminal, matching the editor board.
-const ATTACH_SESSION_URI = 'vscode://groundcontrol.ground-control/attach?session=';
+const ATTACH_SESSION_PATH = '://groundcontrol.ground-control/attach?session=';
+const DEFAULT_URI_SCHEME = 'vscode';
+
+/** @type {string} */
+let uriScheme = DEFAULT_URI_SCHEME;
+
+/** @param {string} sessionId */
+function openSessionUri(sessionId) {
+  return `${uriScheme}${OPEN_SESSION_PATH}${encodeURIComponent(sessionId)}`;
+}
+
+/** @param {string} sessionId */
+function attachSessionUri(sessionId) {
+  return `${uriScheme}${ATTACH_SESSION_PATH}${encodeURIComponent(sessionId)}`;
+}
 
 /** Where the collapse is remembered. Page-origin storage, so it is per developer and per browser rather than per tab. */
 const COLLAPSE_KEY = 'ground-control:header-collapsed';
@@ -1721,7 +1735,7 @@ function sessionRow(doc, session, now, openable) {
 
   if (reachable) {
     // Use link navigation as the browser user gesture for VS Code foreground activation (mechanics M26, M29).
-    row.setAttribute('href', `${attachId === null ? OPEN_SESSION_URI : ATTACH_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
+    row.setAttribute('href', attachId === null ? openSessionUri(session.sessionId) : attachSessionUri(session.sessionId));
     // A few pixels of drift on the way to a click would otherwise drag the card GitHub wraps around this.
     row.setAttribute('draggable', 'false');
   }
@@ -1806,7 +1820,7 @@ function historyRow(doc, session, now, openable) {
   const reachable = openable.includes(session.sessionId);
   const row = doc.createElement(reachable ? 'a' : 'span');
   if (reachable) {
-    row.setAttribute('href', `${OPEN_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
+    row.setAttribute('href', openSessionUri(session.sessionId));
     row.setAttribute('draggable', 'false');
   }
   row.className = 'gc-session gc-historical';
@@ -2306,6 +2320,8 @@ function badgeSignature(card, openable) {
     card.triage,
     card.issue?.statusChangedAt ?? null,
     card.issue?.avatar ?? null,
+    // Session links carry the editor's scheme, so a changed scheme rebuilds the footer.
+    uriScheme,
     // The lane menu offers the checkout, so a card that gains or loses one has to be rebuilt to stop offering it.
     card.checkout?.root ?? null,
     card.lastSession === undefined
@@ -2403,6 +2419,10 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
   ensureStyle(doc);
   ensureTips(doc);
   repaintNow = actions.repaint;
+  // Only a scheme an editor could have registered; anything else falls back to stable's.
+  const reported = state.snapshot?.editor?.uriScheme ?? '';
+
+  uriScheme = /^[a-z][a-z0-9+.-]*$/.test(reported) ? reported : DEFAULT_URI_SCHEME;
 
   if (presentation.animations) {
     doc.documentElement.removeAttribute(MOTION_ATTR);

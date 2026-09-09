@@ -43,8 +43,6 @@ export interface AgentPlacement {
   idempotentReveal: boolean;
   /** Sidebar focus commands in fallback order; unavailable commands reject. */
   sidebarFocusCommands: readonly string[];
-  /** Agent-provided OS URI for opening a session without Ground Control in the target window (M7). No working Codex deep link was measured (M44). */
-  openUri?(sessionId: string): string;
 }
 
 /** Resolve Claude storage, respecting CLAUDE_CONFIG_DIR for session and window discovery. */
@@ -83,7 +81,6 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     }),
     startTakesPrompt: true,
     sidebarFocusCommands: ['claudeVSCodeSidebarSecondary.focus', 'claudeVSCodeSidebar.focus'],
-    openUri: (sessionId) => `vscode://anthropic.claude-code/open?session=${encodeURIComponent(sessionId)}`,
   },
 
   /**

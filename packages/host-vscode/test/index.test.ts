@@ -4,6 +4,7 @@ import * as api from '../src/index.js';
 describe('the package public surface', () => {
   it('exposes what the extension and the hub consume, and nothing test-only', () => {
     expect(Object.keys(api).sort()).toEqual([
+      'DEFAULT_URI_SCHEME',
       'PLACEMENTS',
       'SETTLING_MS',
       'VSCODE_HOST_ID',
@@ -40,6 +41,7 @@ describe('the package public surface', () => {
       'strayFrom',
       'surfacesFrom',
       'tabSessions',
+      'uriSchemeOf',
       'verifyOpen',
       'windowForProcess',
     ]);

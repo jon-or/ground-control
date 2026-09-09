@@ -7,6 +7,17 @@
 const OPEN_SESSION_PATH = '/open';
 const ATTACH_SESSION_PATH = '/attach';
 
+/** The scheme VS Code stable registers; Insiders and forks report their own through vscode.env.uriScheme. */
+export const DEFAULT_URI_SCHEME = 'vscode';
+
+/** URI schemes are lowercase letters, digits, and `+ - .`; anything else could not have been registered by an editor. */
+const URI_SCHEME = /^[a-z][a-z0-9+.-]*$/;
+
+/** Accept an editor-reported scheme, or fall back to stable's when it is absent or malformed. */
+export function uriSchemeOf(raw: unknown): string {
+  return typeof raw === 'string' && URI_SCHEME.test(raw) ? raw : DEFAULT_URI_SCHEME;
+}
+
 /**
  * Read a background session ID from `/attach`. Both clients attach to background runs; browser links open VS
  * Code first.
@@ -44,12 +55,12 @@ export function handedOver(query: string): string | null {
   return params.get('hop') === '1' && agent !== null && /^[a-z][a-z0-9-]{0,31}$/.test(agent) ? agent : null;
 }
 
-/** Build the URI for the target window to reveal a session. */
-export function handOverUri(sessionId: string, agent: string, resumeToken?: string): string {
+/** Build the URI for the target window to reveal a session, in the running distribution's own scheme. */
+export function handOverUri(sessionId: string, agent: string, resumeToken?: string, scheme: string = DEFAULT_URI_SCHEME): string {
   const query = new URLSearchParams({ session: sessionId, agent, hop: '1' });
   if (resumeToken !== undefined) query.set('resumeToken', resumeToken);
 
-  return `vscode://groundcontrol.ground-control${OPEN_SESSION_PATH}?${query.toString()}`;
+  return `${uriSchemeOf(scheme)}://groundcontrol.ground-control${OPEN_SESSION_PATH}?${query.toString()}`;
 }
 
 /** A handover token only transfers a hub reservation; the hub verifies its target and expiry. */

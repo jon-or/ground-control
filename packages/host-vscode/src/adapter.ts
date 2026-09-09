@@ -15,6 +15,7 @@ import type {
   Session,
 } from '@ground-control/core';
 import { VSCODE_ROUTES, openableSessions, planCheckout, planOpen, planStart, startableAgents } from './open.js';
+import { DEFAULT_URI_SCHEME } from './openUri.js';
 import { PLACEMENTS } from './placements.js';
 import type { AgentPlacement } from './placements.js';
 import { defaultUserDir, readWindowStores } from './stores.js';
@@ -24,13 +25,15 @@ import { primeWindows, readWindows } from './windows.js';
 export const VSCODE_HOST_ID = 'vscode';
 
 /**
- * Host settings: the installation's User directory and permission to focus other windows (R14, R27). Window
- * opening defaults to enabled for worktree navigation.
+ * Host settings: the installation's User directory, permission to focus other windows (R14, R27), and the
+ * distribution's URI scheme for browser links. Window opening defaults to enabled for worktree navigation.
  */
 const config = z
   .object({
     userDir: z.string().min(1).optional(),
     mayOpenWindow: z.boolean().default(true),
+    // Stable's scheme when an older client sends none; a malformed value could not be a registered scheme.
+    uriScheme: z.string().regex(/^[a-z][a-z0-9+.-]*$/, 'Not a URI scheme.').default(DEFAULT_URI_SCHEME),
   })
   .strict();
 
@@ -54,6 +57,7 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
     residentRoutes: VSCODE_ROUTES,
 
     settings: () => settings,
+    uriScheme: () => settings.uriScheme,
 
     configure(raw: unknown): ReadFailure | null {
       const parsed = config.safeParse(raw ?? {});

@@ -106,6 +106,8 @@ Invalid or removed source configuration clears its cached contribution immediate
 
 An individual-card lookup can return no card without error when the source does not serve that repository. Do not cache that as proof that an issue does not exist. The GitHub source is configured for a github.com `owner/name`; unrelated repository hosts do not match.
 
+The VS Code host settings carry `uriScheme` from `vscode.env.uriScheme`; the hub puts it in every snapshot as `editor.uriScheme`, the overlay writes session links with it, and cross-window handovers use the running editor's scheme. Stored settings keep the last value for browser-started hubs.
+
 Sources receive a `BoardPolicy` when configured: the review statuses derived from `statusLanes` and the `avatar` policy. The GitHub source selects the card avatar from it, so both clients show the same person and avatars agree with lane arrival. Project identity is owner login plus number in the search qualifier, project-item selection, and timeline status events. The status field name is a GraphQL variable on the assigned and by-number reads; the project's own `field(name:)` lookup tells an absent or non-single-select field from an unset value, and the source reports the first such problem as `fieldProblem` in `WorkItems`, which the hub carries into the snapshot for both clients. Timeline status events are read only for the built-in Status field.
 
 ### Agent profiles

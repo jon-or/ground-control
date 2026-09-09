@@ -202,6 +202,8 @@ Historical resumes use the saved directory and a standalone window. Reuse a suit
 
 Opening or raising another window obeys `openWindowsForSessions`, enabled by default. A refusal caused by this setting offers to enable it. Do not modify the agent extension's preferred location as a side effect.
 
+Browser and cross-window links use the connected editor's own URI scheme, reported by the extension as `vscode.env.uriScheme` and carried in the snapshot; without a connected editor the stored last value applies, and `vscode` is the default. VS Code stable and Insiders are the supported distributions; a fork works only where it registers its scheme and runs the extension. There is no session-surface preference: an agent API that opened one session in a chosen surface would change the agent's preferred location or create a second session, so existing sessions are revealed where they are.
+
 Check cross-window focus and unexpected session creation. Refuse editor launches when the staged-update check detects a version mismatch; explain the required restart. This protection has a known detection limit recorded in [mechanics](mechanics.md#vs-code-updates-and-window-launches).
 
 Missing extensions, unsupported agents, unavailable sessions, ambiguous windows, and expired requests receive specific refusals.

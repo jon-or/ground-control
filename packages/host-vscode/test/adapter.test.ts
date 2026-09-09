@@ -105,14 +105,14 @@ describe('what it reads the machine for', () => {
 
 describe('its configuration', () => {
   it('starts at the defaults a board spanning worktrees needs, with nothing a browser can set in motion', () => {
-    expect(makeVscodeHost().settings()).toEqual({ mayOpenWindow: true });
+    expect(makeVscodeHost().settings()).toEqual({ mayOpenWindow: true, uriScheme: 'vscode' });
   });
 
   it('takes what the developer set', () => {
     const host = makeVscodeHost();
 
-    expect(host.configure({ userDir: 'd:/portable/User', mayOpenWindow: false })).toBeNull();
-    expect(host.settings()).toEqual({ userDir: 'd:/portable/User', mayOpenWindow: false });
+    expect(host.configure({ userDir: 'd:/portable/User', mayOpenWindow: false, uriScheme: 'vscode-insiders' })).toBeNull();
+    expect(host.settings()).toEqual({ userDir: 'd:/portable/User', mayOpenWindow: false, uriScheme: 'vscode-insiders' });
   });
 
   it('uses defaults when configuration is absent', () => {
@@ -125,6 +125,7 @@ describe('its configuration', () => {
   it.each([
     ['a value that is not an object', 'vscode'],
     ['a permission that is not a boolean', { mayOpenWindow: 'yes' }],
+    ['a scheme no editor could register', { uriScheme: 'not a scheme' }],
     ['an empty user directory, which would read the filesystem root', { userDir: '' }],
     ['a key it does not know, which is a typo the developer cannot otherwise see', { mayOpenWindows: true }],
   ])('refuses %s, naming the setting to fix', (_case, raw) => {

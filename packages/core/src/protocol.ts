@@ -40,6 +40,8 @@ export interface Snapshot {
   hooks: { notice: string } | null;
   /** Optional for older client snapshots. Shared triage policy; Chrome remains display-only. */
   triage?: { mode: 'off' | 'manual' | 'automatic'; message: string | null; canRequest: boolean };
+  /** The connected editor's URI scheme for browser session links; absent means `vscode` (R14). */
+  editor?: { uriScheme: string };
   failures: ReadFailure[];
   /** Source-read failure state; host configuration errors do not imply stale source data. */
   stale: boolean;
