@@ -1445,12 +1445,20 @@ describe('what went wrong, as a toast', () => {
 });
 
 describe('moving a card from the browser', () => {
+  const CHECKOUT = { root: 'd:/work/repo.worktrees/4501-refund-window', source: 'session' as const, only: true };
+
   /**
    * Repaint reconciles the selected lane menu after a click.
    */
   function click(selector: string): void {
     document.querySelector<HTMLElement>(selector)!.click();
     paint(document, state(), NOW, actions);
+  }
+
+  /** The outer `click` repaints from the default board, which has no checkout on it — so this one holds ours. */
+  function clickOn(selector: string, shown: Snapshot): void {
+    document.querySelector<HTMLElement>(selector)!.click();
+    paint(document, state({ snapshot: shown }), NOW, actions);
   }
 
   it('offers the lanes only once asked, and moves the card to the one chosen', () => {
@@ -1489,20 +1497,86 @@ describe('moving a card from the browser', () => {
   });
 
   /**
+   * A placement written while archived is discarded by `prune`, so a lane offered here would do nothing (R9).
+   * The board refuses the same move by leaving an archived card undraggable.
+   */
+  describe('a card the board has archived', () => {
+    function archived(over: Partial<LanedCard> = {}): Snapshot {
+      return snapshot({
+        lanes: [{ id: 'archived', title: 'Archived', cards: [card(4501, { lane: 'archived', ...over })] }],
+      });
+    }
+
+    it('offers no lane to move it to, and still opens its checkout', () => {
+      const shown = archived({ checkout: CHECKOUT });
+
+      paint(document, state({ snapshot: shown }), NOW, actions);
+      clickOn('.gc-lane', shown);
+
+      expect(document.querySelectorAll('.gc-lanes button[data-lane]')).toHaveLength(0);
+      expect(document.querySelector('.gc-lanes button[data-action="open-checkout"]')).not.toBeNull();
+      expect(document.querySelector('.gc-lanes .gc-title')?.textContent).toBe('Actions');
+    });
+
+    it('does not open a menu at all when it has no checkout either', () => {
+      const shown = archived();
+
+      paint(document, state({ snapshot: shown }), NOW, actions);
+      document.querySelector<HTMLElement>('.gc-lane')!.click();
+      paint(document, state({ snapshot: shown }), NOW, actions);
+
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+      expect(document.querySelector<HTMLButtonElement>('.gc-lane')!.disabled).toBe(true);
+      expect(document.querySelector('.gc-lane')!.hasAttribute('aria-haspopup')).toBe(false);
+    });
+
+    it('closes an open menu when the card is archived under it', () => {
+      const open = snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501)] }] });
+
+      paint(document, state({ snapshot: open }), NOW, actions);
+      clickOn('.gc-lane', open);
+
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(1);
+
+      paint(document, state({ snapshot: archived() }), NOW, actions);
+
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+    });
+
+    /** Holding the selection would reopen the menu with no click behind it once the card came back (R9). */
+    it('forgets the open menu, so a returning card does not reopen it by itself', () => {
+      const open = snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501)] }] });
+
+      paint(document, state({ snapshot: open }), NOW, actions);
+      clickOn('.gc-lane', open);
+      paint(document, state({ snapshot: archived() }), NOW, actions);
+      paint(document, state({ snapshot: open }), NOW, actions);
+
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+    });
+
+    it('closes the menu when the only item left is a checkout that disappears', () => {
+      const held = archived({ checkout: CHECKOUT });
+
+      paint(document, state({ snapshot: held }), NOW, actions);
+      clickOn('.gc-lane', held);
+
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(1);
+
+      paint(document, state({ snapshot: archived() }), NOW, actions);
+
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+      expect(document.querySelector<HTMLButtonElement>('.gc-lane')!.disabled).toBe(true);
+    });
+  });
+
+  /**
    * Offer open-checkout only when a checkout exists. Folder selection and session starts require the editor
    * (R41).
    */
   describe('the editor a card can be opened in', () => {
-    const CHECKOUT = { root: 'd:/work/repo.worktrees/4501-refund-window', source: 'session' as const, only: true };
-
     function withCheckout(): Snapshot {
       return snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { checkout: CHECKOUT })] }] });
-    }
-
-    /** The outer `click` repaints from the default board, which has no checkout on it — so this one holds ours. */
-    function clickOn(selector: string, shown: Snapshot): void {
-      document.querySelector<HTMLElement>(selector)!.click();
-      paint(document, state({ snapshot: shown }), NOW, actions);
     }
 
     it('offers the checkout to open, under the lanes, on a card that has one', () => {

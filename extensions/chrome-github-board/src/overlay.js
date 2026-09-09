@@ -199,7 +199,8 @@ ${COLUMN} { margin-right: -1px !important;
   display: inline-flex; align-items: center; gap: 3px;
   border: 1px solid var(--borderColor-default, #d0d7de); background: var(--bgColor-default, #ffffff);
   color: var(--fgColor-default, #1f2328); cursor: pointer; }
-.${BADGE_CLASS} button:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
+.${BADGE_CLASS} button:hover:not(:disabled) { background: var(--bgColor-neutral-muted, #eaeef2); }
+.${BADGE_CLASS} button:disabled { cursor: default; }
 /* Session rows share the card footer; omit individual borders. */
 .${BADGE_CLASS} .gc-session {
   display: flex; box-sizing: border-box; width: 100%; align-items: center; gap: 5px;
@@ -1627,17 +1628,38 @@ function toast(doc, problem) {
 const MOVABLE = ['unstarted', 'plan', 'build', 'review', 'done', 'icebox'];
 
 /**
+ * An archived card takes its lane from membership, and `prune` in packages/board/src/lanes.ts drops a placement
+ * written while archived, so offering one here would do nothing (R9).
+ *
+ * @param {LanedCard} card
+ * @returns {readonly LaneId[]}
+ */
+function movableLanes(card) {
+  return card.lane === 'archived' ? [] : MOVABLE;
+}
+
+/**
+ * Whether the lane chip has a menu to open. An archived card without a checkout has nothing to offer.
+ *
+ * @param {LanedCard} card
+ */
+function hasCardMenu(card) {
+  return movableLanes(card).length > 0 || card.checkout != null;
+}
+
+/**
  * @param {Document} doc
  * @param {LanedCard} card
  * @param {Actions} actions
  */
 function laneMenu(doc, card, actions) {
-  const menu = popover(doc, 'Move to');
+  const lanes = movableLanes(card);
+  const menu = popover(doc, lanes.length === 0 ? 'Actions' : 'Move to');
 
   menu.classList.add('gc-lanes');
   menu.setAttribute('role', 'menu');
 
-  for (const lane of MOVABLE) {
+  for (const lane of lanes) {
     const chosen = lane === card.lane;
     const button = item(
       doc,
@@ -1990,14 +2012,20 @@ function renderBadge(doc, element, card, now, actions, openable) {
   lane.type = 'button';
   lane.className = 'gc-lane';
   lane.textContent = LANE_TITLES[card.lane] ?? card.lane;
-  lane.setAttribute('aria-haspopup', 'menu');
-  lane.addEventListener('click', (event) => {
-    event.stopPropagation();
-    event.preventDefault();
-    openMenu = openMenu === card.key ? null : card.key;
-    panelOpen = false;
-    actions.repaint();
-  });
+
+  if (hasCardMenu(card)) {
+    lane.setAttribute('aria-haspopup', 'menu');
+    lane.addEventListener('click', (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      openMenu = openMenu === card.key ? null : card.key;
+      panelOpen = false;
+      actions.repaint();
+    });
+  } else {
+    lane.disabled = true;
+  }
+
   head.appendChild(lane);
 
   renderAttention(doc, element, head, card);
@@ -2013,6 +2041,12 @@ function renderBadge(doc, element, card, now, actions, openable) {
 
   // Inside the card's own bordered box, so the footer reads as a line of the card rather than a chip dropped under it.
   (element.firstElementChild ?? element).appendChild(badge);
+
+  // A card archived since the menu opened can lose every item. Clear the selection rather than hold one that
+  // would reopen on its own if the card returned.
+  if (openMenu === card.key && !hasCardMenu(card)) {
+    openMenu = null;
+  }
 
   if (openMenu !== card.key) {
     return [];
