@@ -420,7 +420,7 @@ Command resolution alone did not prove rendering. Count matching view types for 
 
 A detached, hidden child launched from the extension's Code.exe in Node mode remained alive three seconds after the editor exited. Five bundled hub starts produced a readable record in 60–64 ms. The same headless child launched a window in about 1.1 seconds, but could not bring an existing target window to the foreground within the following four seconds. It could only request attention. CLI exit success is not proof of focus.
 
-On Windows, `vscode://` is registered per user at `HKCU\Software\Classes\vscode\shell\open\command`. An integration run left the downloaded test build registered. A shell launch returned in 53 ms and that build was not running four seconds later; whether the URI was forwarded to the normal install was not observed. Browser-originated foreground activation remains an end-to-end verification item.
+On Windows, `vscode://` is registered per user at `HKCU\Software\Classes\vscode\shell\open\command`. A test build can replace this registration even with an isolated profile and home; see M49 below. A shell launch returned in 53 ms and that build was not running four seconds later; whether the URI was forwarded to the normal install was not observed. Browser-originated foreground activation remains an end-to-end verification item.
 
 The shell/CLI environment matters: direct `Code.exe --open-url` in the tested launch context was rejected, while the `code` shim accepted it. Current resident code uses Code's `out/cli.js` in Node mode rather than relying on that shell shim. Quote full URIs when a shell is involved; `&` otherwise separates arguments/commands.
 
@@ -438,7 +438,7 @@ The receiving handler passes through normal hub validation and refuses onward ro
 
 ### VS Code updates and window launches
 
-**Record M49. Source inspection and runtime, 2026-09-08, stable Windows installation during a 1.136.1 → 1.136.2 update. Used by launch refusal.**
+**Record M49. Source inspection and runtime, 2026-09-08–09, stable Windows 1.136.1 → 1.136.2 update and downloaded test build 1.137.0. Used by launch refusal and test isolation.**
 
 VS Code's main-instance pipe name includes both the user-data-path hash and product version:
 
@@ -447,6 +447,10 @@ VS Code's main-instance pipe name includes both the user-data-path hash and prod
 ```
 
 A different-version launch can miss the running instance and start another main process. With the same user data and window restoration enabled, that can reopen all existing windows. The reported symptom was six windows becoming twelve.
+
+On 2026-09-09 the per-user `vscode://` handler named the downloaded 1.137.0 test executable while the installed editor ran 1.136.2. Chrome session links use this handler before reaching Ground Control, so the resident staged-update guard cannot protect this launch. The handler was restored to the installed executable.
+
+In the downloaded 1.137.0 `out/main.js`, `ElectronURLListener` calls Electron's `setAsDefaultProtocolClient` on Windows unless `isPortable` is true, including extension test runs. Portable setup preserves `VSCODE_PORTABLE` when that directory exists and `product.json` has no `target` field (the archive build). Its `user-data` directory takes precedence over `--user-data-dir`. A full integration run with a temporary portable directory passed 34 tests, including active-profile and protocol-registration checks; the restored handler was unchanged during startup and after exit. This verifies test isolation, not browser-originated foreground focus.
 
 The Windows versioned updater stages files under a commit-prefix directory, writes `updating_version`, and prepares `new_Code.exe`/`new_code.cmd`. Observed running build: commit prefix `a44adf7f53`, version 1.136.1. Staged build: `88e44fa0e0`, version 1.136.2. A `new_Code.exe --version` probe waited 31 seconds for the updater mutex and refused launch while the update was active.
 

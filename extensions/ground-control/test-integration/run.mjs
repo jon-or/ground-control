@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { protocolRegistration } from './protocol.mjs';
 
 /**
  * Clean up after VS Code exits so a connected client cannot restart the hub.
@@ -41,7 +42,10 @@ function stopHubIn(home) {
 removeStaleTestDirectories();
 
 const home = mkdtempSync(join(tmpdir(), HOME_PREFIX));
-const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
+const portable = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
+// Portable mode prevents the Windows test build from registering itself for vscode:// links (M49).
+const profile = join(portable, 'user-data');
+const protocolBefore = protocolRegistration();
 
 /**
  * Use unavailable CLI commands to prevent network access and use of developer credentials, including GitHub
@@ -65,7 +69,13 @@ writeFileSync(
 
 const child = spawn('npx', ['vscode-test'], {
   cwd: process.cwd(),
-  env: { ...process.env, GC_TEST_HOME: home, GC_TEST_PROFILE: profile },
+  env: {
+    ...process.env,
+    GC_TEST_HOME: home,
+    GC_TEST_PROFILE: profile,
+    GC_TEST_PORTABLE: portable,
+    GC_TEST_PROTOCOL: JSON.stringify(protocolBefore),
+  },
   stdio: 'inherit',
   shell: true,
 });
@@ -74,7 +84,7 @@ child.on('exit', (code) => {
   // The window has gone, so nothing is left to start another hub. Now the last one can be taken for good.
   stopHubIn(home);
 
-  for (const path of [home, profile]) {
+  for (const path of [home, portable]) {
     try {
       rmSync(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
     } catch {
@@ -82,5 +92,7 @@ child.on('exit', (code) => {
     }
   }
 
-  process.exit(code ?? 1);
+  const unchanged = JSON.stringify(protocolRegistration()) === JSON.stringify(protocolBefore);
+  if (!unchanged) console.error('The VS Code integration run changed the vscode:// registration.');
+  process.exit(unchanged ? code ?? 1 : 1);
 });

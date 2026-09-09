@@ -8,8 +8,9 @@ import { defineConfig } from '@vscode/test-cli';
  */
 const home = process.env.GC_TEST_HOME;
 const profile = process.env.GC_TEST_PROFILE;
+const portable = process.env.GC_TEST_PORTABLE;
 
-if (!home || !profile) {
+if (!home || !profile || !portable) {
   throw new Error('Run the integration suite with `npm run test:integration`, which mints the run its own home.');
 }
 
@@ -20,6 +21,6 @@ export default defineConfig({
   launchArgs: [`--user-data-dir=${profile}`, `--extensions-dir=${join(profile, 'extensions')}`],
   // `USERPROFILE` and `HOME` because the extension reads `os.homedir()`: a run against the developer's own would
   // rewrite the lane placements and agent settings of the board they are actually using.
-  env: { USERPROFILE: home, HOME: home, GC_TEST_HOME: home },
+  env: { USERPROFILE: home, HOME: home, GC_TEST_HOME: home, VSCODE_PORTABLE: portable },
   mocha: { timeout: 60_000, ui: 'bdd' },
 });

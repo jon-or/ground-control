@@ -104,7 +104,9 @@ Browser tests cover behavior depending on message/repaint ordering. Examples inc
 
 ## VS Code integration
 
-`npm run test:integration` builds and starts [run.mjs](../extensions/ground-control/test-integration/run.mjs), which launches the downloaded VS Code with a temporary profile and application home.
+`npm run test:integration` builds and starts [run.mjs](../extensions/ground-control/test-integration/run.mjs), which launches the downloaded VS Code with a temporary portable directory and application home. Set `VSCODE_PORTABLE` to that directory and seed its `user-data/User/settings.json`: portable mode overrides `--user-data-dir` and prevents Windows protocol registration. A temporary profile alone does not prevent the test build from taking over `vscode://` links (M49).
+
+Assert that portable mode remains enabled and the seeded settings are active. On Windows, compare the per-user `vscode://` registry tree before launch, inside the running test host, and after exit. A changed registration fails the run. Re-verify this isolation after VS Code upgrades.
 
 The profile seeds application-scoped settings with unavailable `gh` and agent executable names. A temporary home alone does not isolate GitHub credentials stored in `%APPDATA%`. No integration test should accidentally run the developer's authenticated CLI.
 
