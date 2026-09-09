@@ -298,7 +298,7 @@ Target: show useful work on first run, detect available information, and ask onc
 
 Implementation gap: the repository defaults to empty, so first run still requires repository configuration. GitHub identity can be detected but must be selected by the developer. Whether the OwnerRez repository should ship as a default remains a product decision.
 
-On activation by a board, command, restored board, or URI, install enabled activity hooks with backups. Preserve unrelated entries and refuse malformed settings. Merely installing the extension without activating it must not change agent settings.
+On activation by a board, command, restored board, or URI, install selected activity hooks with backups. The global and per-agent switches currently default to true; explicit first-run installation consent remains a setup gap. Preserve unrelated entries and refuse malformed settings. Merely installing the extension without activating it must not change agent settings.
 
 ### R27. Shared defaults and personal settings
 
@@ -319,6 +319,8 @@ Support a single clone, multiple clones, and worktrees without imposing director
 Detect optional agents without repeatedly spawning missing tools. Codex detection uses its home directory. Claude is enabled by default without an installation check and can report a missing executable; disable it explicitly on a Codex-only machine. Explicit agent configuration replaces the default set and can supply executable paths.
 
 Codex supports live sessions, saved history, phases, opening threads, and dispatch. It does not classify cards. Refuse unsupported permission modes explicitly.
+
+Session discovery remains enabled independently of hook choices. Codex live discovery depends on hook markers and is reduced when its hooks are disabled; saved history is still read. Removing an agent from the explicit configuration also removes its Ground Control hook entries.
 
 Install and trust only Ground Control's Codex hooks. Obtain hashes and write trust through Codex's own API; do not calculate hashes or rewrite TOML directly. Preserve other hooks and trust entries. If trust cannot be established, explain the failure and manual remedy.
 
@@ -344,7 +346,9 @@ Expose supported personal settings through normal editor settings and a Settings
 
 Organize editor settings into GitHub, Board, Sessions, Triage, Actions, and Advanced, in that order. Use short category titles and at most one sentence per description, omitting descriptions where the control is self-explanatory. Keep configuration formats and detailed behavior in linked documentation. Preserve existing setting keys for compatibility; VS Code derives individual titles from those keys. These settings configure the shared hub for both clients; the Chrome overlay does not provide its own settings editor.
 
-Disabling hooks removes Ground Control entries immediately. Uninstall removes hooks too. Leave the inert writer file available for sessions that cached the old settings, so they do not fail on every event. Overlay registration is explicitly enabled and can be disabled or removed on uninstall.
+`installSessionHooks` globally permits hook installation; `sessionHooks.claude` and `sessionHooks.codex` select hooks for each enabled agent. All default to true. Global false removes Ground Control entries for every registered agent, overriding individual choices. A per-agent false removes only that agent's entries; omitted agents also have their entries removed. Reconcile changes under one filesystem lock, preserving unrelated settings and the existing backup and malformed-file safeguards. Uninstall removes all owned hooks too.
+
+Leave writer files available for sessions that cached the old settings, so they do not fail on every event; those sessions may keep reporting until restarted. Removal-only acknowledgments must not claim installation or request restarts to enable hooks. Preserve installation age when only entries were removed. Overlay registration is explicitly enabled and can be disabled or removed on uninstall.
 
 ### R35. Shared background process
 

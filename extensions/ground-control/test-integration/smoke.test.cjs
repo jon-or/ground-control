@@ -1,5 +1,5 @@
 const assert = require('node:assert');
-const { existsSync, readFileSync, readdirSync, writeFileSync } = require('node:fs');
+const { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const vscode = require('vscode');
 
@@ -8,9 +8,9 @@ const activityDir = join(home, '.claude', 'ground-control', 'activity');
 const agentSettings = join(home, '.claude', 'settings.json');
 
 /** How many of the agent's own hook entries name this board's writer. Zero is the signal removed. */
-function installedHooks() {
+function installedHooks(path = agentSettings) {
   try {
-    return (readFileSync(agentSettings, 'utf8').match(/ground-control/g) ?? []).length;
+    return (readFileSync(path, 'utf8').match(/ground-control/g) ?? []).length;
   } catch {
     return 0;
   }
@@ -39,6 +39,8 @@ describe('the extension in a real window', () => {
   });
 
   afterEach(async () => {
+    await settings().update('sessionHooks.claude', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('sessionHooks.codex', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('installSessionHooks', true, vscode.ConfigurationTarget.Global);
   });
 
@@ -67,6 +69,31 @@ describe('the extension in a real window', () => {
       () => vscode.window.tabGroups.all.flatMap((group) => group.tabs).some((tab) => tab.label === 'Ground Control'),
       'no tab called Ground Control ever appeared',
     );
+  });
+
+  it('propagates per-agent hook settings and removes omitted agents while preserving the other hooks', async () => {
+    const originalAgents = settings().get('agents');
+    const codexHooks = join(home, '.codex', 'hooks.json');
+    mkdirSync(join(home, '.codex'), { recursive: true });
+    assert.strictEqual(process.env.CODEX_HOME, join(home, '.codex'), 'Codex must use the isolated test home');
+
+    try {
+      await settings().update('agents', { claude: 'claude-not-on-this-path', codex: 'codex-not-on-this-path' }, vscode.ConfigurationTarget.Global);
+      await until(() => installedHooks() > 0 && installedHooks(codexHooks) > 0, 'both adapters were not installed');
+      await settings().update('sessionHooks.claude', false, vscode.ConfigurationTarget.Global);
+      await until(() => installedHooks() === 0 && installedHooks(codexHooks) > 0, 'Claude hook choice did not reach the hub');
+      await settings().update('sessionHooks.claude', true, vscode.ConfigurationTarget.Global);
+      await settings().update('sessionHooks.codex', false, vscode.ConfigurationTarget.Global);
+      await until(() => installedHooks() > 0 && installedHooks(codexHooks) === 0, 'Codex hook choice did not reach the hub');
+      await settings().update('sessionHooks.codex', true, vscode.ConfigurationTarget.Global);
+      await until(() => installedHooks(codexHooks) > 0, 'Codex hooks did not return');
+      await settings().update('agents', { claude: 'claude-not-on-this-path' }, vscode.ConfigurationTarget.Global);
+      await until(() => installedHooks() > 0 && installedHooks(codexHooks) === 0, 'omitted Codex hooks were not removed');
+      await settings().update('installSessionHooks', false, vscode.ConfigurationTarget.Global);
+      await until(() => installedHooks() === 0 && installedHooks(codexHooks) === 0, 'global removal did not override selected hooks');
+    } finally {
+      await settings().update('agents', originalAgents, vscode.ConfigurationTarget.Global);
+    }
   });
 
   /**

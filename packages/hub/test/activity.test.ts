@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { groundControlDirOf } from '@ground-control/core';
+import { claudeActivity } from '@ground-control/agent-claude';
+import { makeCodexActivity } from '@ground-control/agent-codex';
 import {
   BACKUPS_KEPT,
   MARKER_MAX_AGE_MS,
   TEMP_MAX_AGE_MS,
   activityNotice,
+  activityAcknowledgement,
   backupsToDelete,
   markerIsOrphaned,
   pruneMarkers,
@@ -38,9 +41,9 @@ describe('syncActivity', () => {
     expect(existsSync(signal.watchDir(home))).toBe(true);
   });
 
-  it('leaves an agent the configuration does not name completely alone', () => {
+  it('plans removal for an agent outside the selected set without creating its writer', () => {
     const configured = fakeSignal(written, 'fake');
-    const other = fakeSignal(written, 'other');
+    const other = fakeSignal({ kind: 'up-to-date' }, 'other');
     mkdirSync(`${home}/.other`, { recursive: true });
 
     const state = syncActivity(
@@ -52,12 +55,20 @@ describe('syncActivity', () => {
     );
 
     expect(configured.planned).toEqual([{ settingsText: null, wanted: 'install' }]);
-    // Install only configured agents so an invalid agents list does not modify another agent's hooks (R30).
-    expect(other.planned).toEqual([]);
+    expect(other.planned).toEqual([{ settingsText: null, wanted: 'remove' }]);
     expect(existsSync(other.settingsPath(home))).toBe(false);
     expect(existsSync(other.watchDir(home))).toBe(false);
     expect(existsSync(other.writer!.path(home))).toBe(false);
     expect(state).toMatchObject({ wanted: 'install', plan: 'write', added: written.added });
+  });
+
+  it('applies global removal even when an enabled set is supplied', () => {
+    const signal = fakeSignal({ kind: 'up-to-date' });
+
+    syncActivity([fakeAgent('fake', signal)], 'remove', home, false, new Set(['fake']));
+
+    expect(signal.planned).toEqual([{ settingsText: null, wanted: 'remove' }]);
+    expect(existsSync(signal.writer!.path(home))).toBe(false);
   });
 
   it('reaches every agent when no ids are given, which is what a removal and an uninstall rely on', () => {
@@ -329,6 +340,87 @@ describe('the decisions that delete files', () => {
   });
 });
 
+describe('selected Claude and Codex hooks', () => {
+  const codex = makeCodexActivity({});
+  const adapters = [fakeAgent('claude', claudeActivity), fakeAgent('codex', codex)];
+  const personal = { theme: 'dark', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo personal-hook' }] }] } };
+  const selected = (...ids: string[]) => syncActivity(adapters, 'install', home, false, new Set(ids));
+  const settingsOf = (signal: typeof claudeActivity) => readFileSync(signal.settingsPath(home), 'utf8');
+
+  beforeEach(() => {
+    mkdirSync(`${home}/.claude`, { recursive: true });
+    mkdirSync(`${home}/.codex`, { recursive: true });
+    writeFileSync(claudeActivity.settingsPath(home), JSON.stringify(personal));
+    writeFileSync(codex.settingsPath(home), JSON.stringify(personal));
+  });
+
+  it.each(['claude', 'codex'])('removes only %s hooks and reinstalls them without replacing cached writers', (disabled) => {
+    expect(selected('claude', 'codex')).toMatchObject({ plan: 'write', failure: null });
+    const kept = disabled === 'claude' ? codex : claudeActivity;
+    const removed = disabled === 'claude' ? claudeActivity : codex;
+    const before = settingsOf(kept);
+    const writer = readFileSync(removed.writer!.path(home), 'utf8');
+    writeFileSync(`${removed.watchDir(home)}/session.json`, '{}');
+    writeFileSync(`${kept.watchDir(home)}/session.json`, '{}');
+    // Hook trust is owned by Codex; reconciliation must never rewrite its TOML state.
+    writeFileSync(`${home}/.codex/config.toml`, '[hooks.state.personal]\ntrusted_hash = "keep-me"\n');
+
+    const state = selected(disabled === 'claude' ? 'codex' : 'claude');
+
+    expect(state).toMatchObject({ plan: 'write', added: 0, failure: null });
+    expect(state.removed).toBeGreaterThan(0);
+    expect(JSON.parse(settingsOf(removed))).toEqual(personal);
+    expect(settingsOf(kept)).toBe(before);
+    expect(readdirSync(removed.watchDir(home))).toEqual([]);
+    expect(readdirSync(kept.watchDir(home))).toEqual(['session.json']);
+    expect(readFileSync(removed.writer!.path(home), 'utf8')).toBe(writer);
+    expect(readFileSync(`${home}/.codex/config.toml`, 'utf8')).toBe('[hooks.state.personal]\ntrusted_hash = "keep-me"\n');
+    expect(readdirSync(groundControlDirOf(home)).some((name) => name.startsWith(`settings-backup-${disabled}-`))).toBe(true);
+    expect(selected(disabled === 'claude' ? 'codex' : 'claude')).toMatchObject({ plan: 'up-to-date', added: 0, removed: 0 });
+
+    const restored = selected('claude', 'codex');
+
+    expect(restored.added).toBeGreaterThan(0);
+    expect(settingsOf(removed)).toContain('ground-control');
+    expect(settingsOf(kept)).toBe(before);
+    expect(selected('claude', 'codex')).toMatchObject({ plan: 'up-to-date', added: 0, removed: 0 });
+  });
+
+  it('reports additions and removals in one reconciliation', () => {
+    selected('claude');
+    const state = selected('codex');
+
+    expect(state.added).toBeGreaterThan(0);
+    expect(state.removed).toBeGreaterThan(0);
+    expect(JSON.parse(settingsOf(claudeActivity))).toEqual(personal);
+    expect(settingsOf(codex)).toContain('ground-control');
+  });
+
+  it('removes both agents globally despite their per-agent selections', () => {
+    selected('claude', 'codex');
+
+    const state = syncActivity(adapters, 'remove', home, false, new Set(['claude', 'codex']));
+
+    expect(state).toMatchObject({ wanted: 'remove', added: 0, failure: null });
+    expect(state.removed).toBeGreaterThan(0);
+    expect(JSON.parse(settingsOf(claudeActivity))).toEqual(personal);
+    expect(JSON.parse(settingsOf(codex))).toEqual(personal);
+  });
+
+  it.each(['claude', 'codex'])('refuses malformed %s settings even when removing unselected hooks', (disabled) => {
+    selected('claude', 'codex');
+    const signal = disabled === 'claude' ? claudeActivity : codex;
+    writeFileSync(signal.settingsPath(home), '{broken');
+
+    const state = selected(disabled === 'claude' ? 'codex' : 'claude');
+
+    expect(state).toMatchObject({ plan: 'refuse', failure: { subject: disabled, kind: 'activity-refused' } });
+    expect(settingsOf(signal)).toBe('{broken');
+    expect(existsSync(signal.writer!.path(home))).toBe(true);
+    expect(existsSync(installLockPathOf(home))).toBe(false);
+  });
+});
+
 describe('the notice', () => {
   it('reports sessions predating activity installation', () => {
     expect(activityNotice({ plan: 'write', wanted: 'install', unreported: 3 })).toContain('Restart 3 sessions');
@@ -347,5 +439,22 @@ describe('the notice', () => {
 
   it('reports hook removal', () => {
     expect(activityNotice({ plan: 'write', wanted: 'remove', unreported: 0 })).toContain('hooks removed');
+  });
+
+  it('does not claim installation or request restarts after removal-only reconciliation', () => {
+    expect(activityNotice({ plan: 'write', wanted: 'install', added: 0, removed: 12, unreported: 3 }))
+      .toBe('Session activity hooks removed for disabled agents.');
+  });
+
+  it('describes mixed changes as an update and retains the selected session restart count', () => {
+    expect(activityNotice({ plan: 'write', wanted: 'install', added: 12, removed: 9, unreported: 1 }))
+      .toBe('Session activity hooks updated. Restart 1 session to enable activity reporting.');
+  });
+
+  it('acknowledges a removal-only reconciliation accurately', () => {
+    expect(activityAcknowledgement({ plan: 'write', wanted: 'install', added: 0, removed: 12, failure: null }))
+      .toEqual({ level: 'info', message: 'Session activity hooks removed for disabled agents.' });
+    expect(activityAcknowledgement({ plan: 'up-to-date', wanted: 'install', added: 0, removed: 0, failure: null }))
+      .toEqual({ level: 'info', message: 'Session activity hooks already match your settings.' });
   });
 });

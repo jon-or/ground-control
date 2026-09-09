@@ -1519,7 +1519,7 @@ describe('the activity signal', () => {
     await settle();
 
     expect(inbox.filter((message) => message.type === 'notice')).toEqual([
-      { type: 'notice', level: 'info', message: 'Session activity hooks removed. Activity reporting is disabled.' },
+      { type: 'notice', level: 'info', message: 'Session activity hooks removed. Existing sessions may keep reporting until restarted.' },
     ]);
   });
 
@@ -1533,7 +1533,7 @@ describe('the activity signal', () => {
     await settle();
 
     expect(inbox.filter((message) => message.type === 'notice')).toEqual([
-      { type: 'notice', level: 'info', message: 'Session activity hooks are already installed.' },
+      { type: 'notice', level: 'info', message: 'Session activity hooks already match your settings.' },
     ]);
 
     const off = harness();
@@ -1584,7 +1584,7 @@ describe('the activity signal', () => {
   });
 
   /** Assert configured agent IDs directly; the fake installer writes no files (R30). */
-  it('installs for the agents the configuration names, and reaches every one only to remove', async () => {
+  it('selects configured agents for installation and requests global removal when disabled', async () => {
     const h = harness();
     const { client } = connect(h);
 
@@ -1599,6 +1599,46 @@ describe('the activity signal', () => {
 
     // Remove hooks from every registered agent when disabled (R34).
     expect(h.installedFor).toEqual([['fake'], null]);
+  });
+
+  it('reconciles per-agent changes and agent removal while preserving the global override', async () => {
+    const h = harness();
+    const { client } = connect(h);
+    const both = [{ id: 'fake', path: 'fake' }, { id: 'other', path: 'other' }];
+    const apply = async (part: Partial<HubConfig>) => {
+      h.hub.receive(client, { type: 'configure', config: h.config({ agents: both, ...part }) });
+      await settle();
+    };
+
+    await apply({});
+    await apply({ sessionHooks: { fake: false, other: true } });
+    await apply({ sessionHooks: { fake: false, other: true } });
+    expect(h.installedFor).toEqual([['fake', 'other'], ['other']]);
+    await apply({ sessionHooks: { fake: true, other: false } });
+    await apply({ agents: [both[1]!] });
+    await apply({});
+    await apply({ installActivity: false, sessionHooks: { fake: true, other: true } });
+
+    expect(h.installedFor).toEqual([['fake', 'other'], ['other'], ['fake'], ['other'], ['fake', 'other'], null]);
+    expect(h.installs).toEqual(['install', 'install', 'install', 'install', 'install', 'remove']);
+  });
+
+  it('acknowledges per-agent removal without claiming installation or resetting installation age', async () => {
+    const h = harness();
+    h.activity = { wanted: 'install', plan: 'write', added: 2, removed: 0, failure: null };
+    const { client, inbox } = connect(h);
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+    const marks = makeMarkStore(home);
+    const installedAt = marks.read().installedAt;
+    expect(installedAt).not.toBeNull();
+    h.clock.advance(2000);
+    h.activity = { wanted: 'install', plan: 'write', added: 0, removed: 2, failure: null };
+    h.hub.receive(client, { type: 'configure', config: h.config({ sessionHooks: { fake: false } }), acknowledge: true });
+    await settle();
+
+    expect(inbox).toContainEqual({ type: 'notice', level: 'info', message: 'Session activity hooks removed for disabled agents.' });
+    expect(marks.read().installedAt).toBe(installedAt);
   });
 
   /** Watch only configured agents and recreate watchers when the agent set changes. */

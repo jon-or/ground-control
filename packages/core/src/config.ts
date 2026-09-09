@@ -20,6 +20,8 @@ export interface HubConfig {
   refreshIntervalMs: number;
   sessionIntervalMs: number;
   installActivity: boolean;
+  /** Per-agent hook choices; omission permits hooks while installActivity remains authoritative. */
+  sessionHooks?: Record<string, boolean>;
   /** Log detail level; info diagnostics remain enabled (LOG_FLOORS). */
   logLevel: LogFloor;
   triage: TriageSettings;
@@ -164,6 +166,7 @@ export const hubConfig = z.object({
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
   installActivity: z.boolean(),
+  sessionHooks: z.record(z.string(), z.boolean()).default({}),
   // Default missing or unsupported log levels to info for cross-version compatibility.
   logLevel: z.enum(LOG_FLOORS).catch('info').default('info'),
   // Absent from a configuration written by a client that predates triage.

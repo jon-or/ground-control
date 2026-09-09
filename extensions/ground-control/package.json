@@ -195,7 +195,21 @@
             "type": "boolean",
             "default": true,
             "order": 5,
-            "markdownDescription": "Install activity hooks for enabled agents; turning this off removes them."
+            "markdownDescription": "Allow selected session hooks; turning this off removes Ground Control hooks for every agent."
+          },
+          "groundControl.sessionHooks.claude": {
+            "scope": "application",
+            "type": "boolean",
+            "default": true,
+            "order": 6,
+            "markdownDescription": "Install Claude activity hooks when Claude and Install Session Hooks are enabled."
+          },
+          "groundControl.sessionHooks.codex": {
+            "scope": "application",
+            "type": "boolean",
+            "default": true,
+            "order": 7,
+            "markdownDescription": "Install Codex activity hooks when Codex and Install Session Hooks are enabled; disabling reduces live session discovery."
           },
           "groundControl.openWindowsForSessions": {
             "scope": "application",
@@ -233,7 +247,7 @@
             "default": 100,
             "minimum": 0,
             "maximum": 1000,
-            "order": 6,
+            "order": 8,
             "markdownDescription": "Maximum automatic attempts per rolling 24 hours, including failures and cancellations (zero pauses automatic starts; manual requests are independent)."
           },
           "groundControl.triage.model": {

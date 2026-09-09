@@ -12,6 +12,8 @@ export interface ActivityState {
   plan: ActivityPlan['kind'] | 'busy';
   /** Number of settings entries added by this run. */
   added: number;
+  /** Number of owned settings entries removed by this run. */
+  removed?: number;
   failure: ReadFailure | null;
 }
 
@@ -71,15 +73,16 @@ function backup(home: string, settings: string, agent: string): void {
   }
 }
 
-function failed(wanted: Wanted, subject: string, home: string, error: unknown, added: number): ActivityState {
+function failed(wanted: Wanted, subject: string, home: string, error: unknown, added: number, removed: number, operation: Wanted): ActivityState {
   return {
     wanted,
     plan: 'refuse',
     added,
+    removed,
     failure: {
       subject,
       kind: 'activity-failed',
-      message: `The board could not ${wanted === 'install' ? 'install' : 'remove'} its session activity hooks: ${(error as Error).message}`,
+      message: `The board could not ${operation} its session activity hooks: ${(error as Error).message}`,
       remedy:
         'Activity reporting may be unavailable. ' +
         `A copy of your settings from before this run is in ${groundControlDirOf(home)}.`,
@@ -107,9 +110,8 @@ function clearMarkers(dir: string): void {
 }
 
 /**
- * Apply adapter-provided hook plans under the filesystem lock and report observed results. Installation
- * reaches configured agent IDs only. Disabling hooks or uninstalling reaches every registered agent. Report
- * the first refusal as one installation result.
+ * Reconcile every adapter under one filesystem lock. Install selected IDs and remove other owned hooks.
+ * Global removal overrides the selection. Report the first refusal with any earlier completed changes.
  */
 export function syncActivity(
   agents: readonly AgentAdapter[],
@@ -119,11 +121,13 @@ export function syncActivity(
   enabled?: ReadonlySet<string>,
 ): ActivityState {
   const signals = agents.flatMap((agent) =>
-    agent.activity && (enabled?.has(agent.id) ?? true) ? [{ id: agent.id, activity: agent.activity }] : [],
+    agent.activity ? [{ id: agent.id, activity: agent.activity }] : [],
   );
   const lockPath = installLockPathOf(home);
   let held = false;
   let added = 0;
+  let removed = 0;
+  let operation = wanted;
   let reached = signals[0]?.id ?? '';
   let plan: ActivityState['plan'] = 'up-to-date';
 
@@ -147,8 +151,9 @@ export function syncActivity(
 
     for (const { id, activity } of signals) {
       reached = id;
+      operation = wanted === 'install' && (enabled?.has(id) ?? true) ? 'install' : 'remove';
       // Retain the writer script after removal because existing sessions may still invoke their loaded hooks.
-      if (wanted === 'install') {
+      if (operation === 'install') {
         // Retry while Windows releases open handles after directory removal (M23).
         attempt(() => mkdirSync(activity.watchDir(home), { recursive: true }));
 
@@ -158,13 +163,14 @@ export function syncActivity(
       }
 
       const settings = activity.settingsPath(home);
-      const decided = activity.plan({ settingsText: read(settings), home, wanted });
+      const decided = activity.plan({ settingsText: read(settings), home, wanted: operation });
 
       if (decided.kind === 'refuse') {
         return {
           wanted,
           plan: 'refuse',
           added,
+          removed,
           failure: { subject: id, kind: 'activity-refused', message: decided.reason, remedy: decided.remedy },
         };
       }
@@ -176,18 +182,19 @@ export function syncActivity(
 
         writeInPlace(settings, decided.text);
         added += decided.added;
+        removed += decided.removed;
         plan = 'write';
       }
 
       // Keep the directory to preserve watchers and avoid Windows recreation failures with open handles (M23, R25).
-      if (wanted === 'remove') {
+      if (operation === 'remove') {
         clearMarkers(activity.watchDir(home));
       }
     }
 
-    return { wanted, plan, added, failure: null };
+    return { wanted, plan, added, removed, failure: null };
   } catch (error) {
-    return failed(wanted, reached, home, error, added);
+    return failed(wanted, reached, home, error, added, removed, operation);
   } finally {
     if (held) {
       releaseLock(lockPath);
@@ -242,28 +249,36 @@ export function uninstallActivity(agents: readonly AgentAdapter[], home: string)
 export interface ActivityNoticeInput {
   plan: ActivityState['plan'];
   wanted: Wanted;
+  added?: number;
+  removed?: number;
   /** Sessions started before installation cannot report phases yet. */
   unreported: number;
 }
 
 /** Return an installation notice only when entries changed. The caller displays it once (R25). */
-export function activityNotice({ plan, wanted, unreported }: ActivityNoticeInput): string | null {
+export function activityNotice({ plan, wanted, unreported, added, removed = 0 }: ActivityNoticeInput): string | null {
   // Announce successful writes only; refusals are reported as failures (R24).
   if (plan !== 'write') {
     return null;
   }
 
   if (wanted === 'remove') {
-    return 'Session activity hooks removed. Activity reporting is disabled.';
+    return 'Session activity hooks removed. Existing sessions may keep reporting until restarted.';
   }
+
+  if (added === 0 && removed > 0) {
+    return 'Session activity hooks removed for disabled agents.';
+  }
+
+  const changed = removed > 0 ? 'Session activity hooks updated.' : 'Session activity hooks installed.';
 
   if (unreported > 0) {
     const sessions = unreported === 1 ? '1 session' : `${unreported} sessions`;
 
-    return `Session activity hooks installed. Restart ${sessions} to enable activity reporting.`;
+    return `${changed} Restart ${sessions} to enable activity reporting.`;
   }
 
-  return 'Session activity hooks installed.';
+  return changed;
 }
 
 /** Acknowledge explicit activity setting changes, including those requiring no writes. */
@@ -272,10 +287,10 @@ export function activityAcknowledgement(state: ActivityState): { level: 'info' |
     return { level: 'error', message: state.failure.message };
   }
 
-  const said = activityNotice({ plan: state.plan, wanted: state.wanted, unreported: 0 });
+  const said = activityNotice({ ...state, unreported: 0 });
 
   return {
     level: 'info',
-    message: said ?? `Session activity hooks are already ${state.wanted === 'install' ? 'installed' : 'absent'}.`,
+    message: said ?? (state.wanted === 'install' ? 'Session activity hooks already match your settings.' : 'Session activity hooks are already absent.'),
   };
 }

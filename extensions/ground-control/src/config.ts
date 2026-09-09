@@ -60,6 +60,10 @@ export function readHubConfig(userDir: string): HubConfig {
     sessionIntervalMs: sessionIntervalMs(),
     logLevel: cfg.get<string>('logLevel', 'info') === 'debug' ? 'debug' : 'info',
     installActivity: installSessionHooks(),
+    sessionHooks: {
+      claude: cfg.get<boolean>('sessionHooks.claude', true),
+      codex: cfg.get<boolean>('sessionHooks.codex', true),
+    },
     triage: readTriage(),
     actions: readActions(),
     newSession: { prompt: cfg.get<string>('newSession.prompt', '') },

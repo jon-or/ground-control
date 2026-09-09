@@ -54,6 +54,7 @@ export function defaultConfig(registries: Registries, readers: MachineReaders): 
     refreshIntervalMs: REFRESH_INTERVAL_MS,
     sessionIntervalMs: SESSION_INTERVAL_MS,
     installActivity: true,
+    sessionHooks: {},
     logLevel: 'info',
     triage: { ...DEFAULT_TRIAGE },
     // Disable automatic actions until configured (R32).

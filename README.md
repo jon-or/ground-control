@@ -33,7 +33,7 @@ code --install-extension extensions/ground-control/ground-control-0.0.0.vsix --f
 3. Select your GitHub identities when prompted, or set `groundControl.github.logins`.
 4. Review the project, status, branch-pattern, and agent settings. Team conventions have configurable defaults; explicit agent settings can disable Claude or select executable paths.
 
-Activation through a command, restored board, or URI starts the client and installs enabled activity hooks with backups. Installation alone does not activate it. Ground Control trusts its own Codex hooks through Codex's API and preserves unrelated entries.
+Activation through a command, restored board, or URI starts the client and installs selected activity hooks with backups; the global and per-agent hook switches currently default to true. Configure them before activation to prevent installation; a first-run installation prompt is not yet implemented. Installation alone does not activate it. Ground Control trusts its own Codex hooks through Codex's API and preserves unrelated entries.
 
 For Chrome, run **Ground Control: Enable GitHub Overlay** in VS Code, then load `extensions/chrome-github-board` unpacked at `chrome://extensions`. **Ground Control: Disable GitHub Overlay** removes the native-host registration. See the [overlay guide](extensions/chrome-github-board/README.md).
 
@@ -52,7 +52,11 @@ These application settings configure the shared hub for both clients; Chrome has
 
 ### Session settings
 
-An empty `agents` object enables Claude and detects Codex from its home directory. An explicit map replaces that selection, so include every agent you want, for example `{"claude": "claude", "codex": "codex"}`; values may also be executable paths. Omitted agents are not read and do not receive hooks.
+An empty `agents` object enables Claude and detects Codex from its home directory. An explicit map replaces that selection, so include every agent you want, for example `{"claude": "claude", "codex": "codex"}`; values may also be executable paths. Omitted agents are not read, and their Ground Control hook entries are removed.
+
+`installSessionHooks` is the global switch. `sessionHooks.claude` and `sessionHooks.codex` choose hooks independently for enabled agents; all three default to true. Global false removes every agent's Ground Control entries regardless of individual choices. Per-agent false removes only that agent's entries; enabling it again reinstalls them. These settings affect the shared hub and both boards.
+
+Hook changes preserve unrelated agent settings, hooks, and Codex trust entries, with backups before writes and refusal for malformed settings. Writer scripts remain for sessions that cached their paths, so existing sessions may keep reporting until restarted. Codex live discovery depends on hook markers and is reduced with its hooks off; saved history remains available. Disabling hooks does not disable session discovery.
 
 `newSession.prompt` prefills Claude's composer without submitting. It accepts `{issue}`, `{repo}`, `{title}`, `{url}`, and `{checkout}`; unknown placeholders remain unchanged. Empty prompts and new Codex sessions start without a prompt.
 

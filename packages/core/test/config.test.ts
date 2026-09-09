@@ -93,6 +93,18 @@ describe('the path a client asks the hub to spawn', () => {
   });
 });
 
+describe('session hook preferences', () => {
+  it('preserves older configurations and explicit per-agent false values', () => {
+    expect(accepted(config()).sessionHooks).toEqual({});
+    expect(accepted(config({ sessionHooks: { claude: false, codex: true } })).sessionHooks)
+      .toEqual({ claude: false, codex: true });
+  });
+
+  it.each([null, false, { claude: 'false' }])('refuses malformed preferences rather than installing by default', (sessionHooks) => {
+    expect(refusal({ ...config(), sessionHooks })).toContain('sessionHooks');
+  });
+});
+
 describe('the cadences', () => {
   /** A hand-edited settings file can ask for a zero-second poll, which is a spin on a CLI spawn. */
   it('lifts a poll under the floor up to it', () => {

@@ -665,6 +665,7 @@ export class Hub {
     const changed =
       first ||
       before.installActivity !== parsed.config.installActivity ||
+      !same(before.sessionHooks ?? {}, parsed.config.sessionHooks ?? {}) ||
       agents(before) !== agents(parsed.config);
     const resynced = changed ? this.#installActivity() : this.#ensureActivity();
 
@@ -727,13 +728,13 @@ export class Hub {
   }
 
   #installActivity(): ActivityState {
-    // Install only for configured agents (R30). Remove hooks from all agents when disabled (R34).
+    // Reconcile every adapter: install selected configured agents and remove all other owned hooks (R34).
     this.#activity = this.#config.installActivity
       ? this.#deps.syncActivity(
           this.#deps.registries,
           'install',
           this.#deps.home,
-          new Set(this.#config.agents.map((agent) => agent.id)),
+          new Set(this.#config.agents.filter((agent) => this.#config.sessionHooks?.[agent.id] !== false).map((agent) => agent.id)),
         )
       : this.#deps.syncActivity(this.#deps.registries, 'remove', this.#deps.home);
 
@@ -1424,7 +1425,12 @@ export class Hub {
     const notice = activityNotice({
       plan: this.#activity.plan,
       wanted: this.#activity.wanted,
-      unreported: unreportedSessions(this.#sessions?.sessions ?? [], this.#installedAt),
+      added: this.#activity.added,
+      removed: this.#activity.removed ?? 0,
+      unreported: unreportedSessions(
+        (this.#sessions?.sessions ?? []).filter((session) => this.#config.sessionHooks?.[session.agent] !== false),
+        this.#installedAt,
+      ),
     });
 
     if (notice === null) {
