@@ -1106,7 +1106,7 @@ describe('what a second costs', () => {
     return [...seen, ...records];
   }
 
-  /** A card carrying every kind of duration at once: a live row, a saved row, and the age of a card's status. */
+  /** Every kind of duration at once: a live row, a saved row, the age of a card's status, and the header read time. */
   function everyAge(): void {
     send(
       message({
@@ -1139,7 +1139,7 @@ describe('what a second costs', () => {
       everyAge();
 
       // Every value here is minutes or hours old, so a second later each one reads exactly the same.
-      expect(document.querySelectorAll(AGE)).toHaveLength(3);
+      expect(document.querySelectorAll(AGE)).toHaveLength(4);
 
       vi.setSystemTime(new Date('2026-09-07T12:00:01Z'));
 
@@ -1174,7 +1174,25 @@ describe('what a second costs', () => {
     everyAge();
 
     expect(document.querySelectorAll('[data-activity-since], [data-history-updated], [data-status-since]')).toHaveLength(0);
-    expect(document.querySelectorAll(AGE)).toHaveLength(3);
+    expect(document.querySelectorAll(AGE)).toHaveLength(4);
+  });
+
+  it('stamps the header read time as an age and advances it on the tick', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-01T20:00:31Z'));
+
+    try {
+      send(message());
+
+      expect(document.getElementById('meta')?.textContent).toBe('0 cards · updated 30s ago');
+
+      vi.setSystemTime(new Date('2026-09-01T20:01:31Z'));
+      tick?.();
+
+      expect(document.getElementById('meta')?.textContent).toBe('0 cards · updated 1m ago');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('leaves an age it cannot read alone rather than writing NaN into it', () => {

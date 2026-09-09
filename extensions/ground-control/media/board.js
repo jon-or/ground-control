@@ -1687,11 +1687,19 @@ function draw(payload) {
   }
   const total = countCards(shown);
   const when = readTime(payload);
-  const count = `${total} card${total === 1 ? '' : 's'}`;
-  metaEl.textContent = when === null ? count : `${count} · updated ${when.toLocaleTimeString()}`;
+
+  metaEl.textContent = `${total} card${total === 1 ? '' : 's'}`;
+
+  if (when !== null) {
+    // The age is a node of its own so the tick advances it where it stands, like every other duration on the board.
+    const held = document.createElement('span');
+
+    age(held, when.getTime());
+    metaEl.append(' · updated ', held, ' ago');
+  }
 
   if (stale) {
-    metaEl.textContent = `${metaEl.textContent} · could not refresh`;
+    metaEl.append(' · could not refresh');
   }
 
   for (const failure of payload.failures) {
