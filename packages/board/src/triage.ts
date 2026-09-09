@@ -31,8 +31,8 @@ const DETAIL_LIMIT = 160;
 const BACKOFF_MS = [60_000, 120_000, 300_000, 1_800_000];
 
 /**
- * Past which a card's next attempt is no attempt at all. The last `BACKOFF_MS` step sets `nextAt` to infinity, so
- * anything beyond the longest real wait is a card that has spent its attempts rather than one still waiting.
+ * Threshold for displaying exhausted retries. After all BACKOFF_MS delays have been used, nextAt is Infinity
+ * and no automatic retry is due.
  */
 const SPENT_ATTEMPTS_MS = 60 * 60 * 1000;
 
@@ -119,16 +119,9 @@ export function triageLabel(action: TriageAction, qualifier: TriageQualifier | n
 }
 
 /**
- * What the card looked like when it was triaged. A label is decided once, so this is what lets a card say the answer
- * was given about a card that has since changed (R24). The pull request's own timestamp is what a comment, a review
- * and a push all move; the check rollup is the one thing about a card that changes with nobody touching it.
- *
- * `reviewDecision` is deliberately absent. Every change to it is a review somebody submitted, which moves the
- * timestamp above at the moment it happens — and it is the laggier of the two, sitting at `REVIEW_REQUIRED` on work
- * the team has long since approved by moving the status. Reading both marks such a card moved twice for one event.
- *
- * Age is not evidence. A reading nobody has contradicted is as true today as it was yesterday, and marking it stale
- * on a clock said "something moved" about cards where nothing had, on every card, every morning.
+ * Record issue/PR changes and failing-check state for triage freshness. Exclude reviewDecision because it can
+ * lag the team's status-based workflow; submitted reviews already affect PR updatedAt. Elapsed time alone does
+ * not invalidate evidence.
  */
 export function evidenceOf(issue: IssueCard): string {
   const pr = issue.pullRequest;
@@ -222,13 +215,9 @@ function triageable(card: LanedCard): card is LanedCard & { issue: IssueCard } {
 }
 
 /**
- * The cards to triage now, in board order. A card is due when it has never been read, when the last reading belongs
- * to a pass through the developer's hands that has since ended, or when its status has moved under the reading —
- * which on this board is somebody saying what the card now needs, and the one change worth paying to re-read.
- *
- * An archived card is never due, and that is the whole of what keeps this from being a loop. Archived cards stay in
- * every snapshot — the source query does not filter on status — so a rule that made absence the trigger and dropped
- * the entry on archive would re-triage every one of them on every broadcast, for as long as the hub ran.
+ * Select eligible cards with no valid reading or a changed membership/status trigger, in board order. Exclude
+ * archived cards even though snapshots retain them; absence-based invalidation would repeatedly classify those
+ * cards.
  */
 export function dueForTriage(
   lanes: readonly Lane[],
@@ -354,14 +343,9 @@ function mine(login: string | null, logins: readonly string[]): boolean {
 }
 
 /**
- * Whether a review round is the first or a later one, read from the pull request's own history rather than from the
- * model: `address-review` is a followup once the developer has replied on it, and `review-others` once anybody but
- * the author has already reviewed it.
- *
- * `review-others` takes two signals because a review here is routinely neither a GitHub review nor the developer's
- * own hand: it is given as a plain comment, or submitted by an agent account that is none of their logins, and a
- * re-review is a re-review whoever gave the first one. The pull request's author is excluded from the first signal
- * because GitHub records their own inline replies as reviews, which would make every answered one read as round two.
+ * Detect later review rounds from PR history. address-review requires a developer reply; review-others also
+ * recognizes prior reviews by non-authors and review comments. Exclude author reviews, which can be their own
+ * inline replies.
  */
 export function qualifierOf(action: TriageAction, context: TriageContext): TriageQualifier | null {
   const pr = context.pullRequest;
@@ -381,7 +365,7 @@ export function qualifierOf(action: TriageAction, context: TriageContext): Triag
 
   if (action === 'review-others') {
     // A pending review is a draft nobody but its writer has seen, and `gh` runs as the developer, so it is fetched.
-    // An unresolvable author is read as nobody having reviewed: claiming a round they have not had is the worse miss.
+    // Submitted reviews require a known PR author to exclude self-reviews; comments are checked separately.
     const reviewed = pr.reviews.some(
       (review) =>
         review.author !== null &&
@@ -418,13 +402,8 @@ export function derivedAction(context: TriageContext): TriageAction | null {
 }
 
 /**
- * What a status means, where the lane map says. That map already carries the only thing triage needs to know about a
- * status — whether it names review, or work not yet begun — so it is read here rather than duplicated into a setting
- * of its own. A status naming Build settles nothing: the work is under way, and what it needs next is the pull
- * request's to say. Nor does a status the map does not name.
- *
- * Unlike lane arrival, nothing outranks this: the issue is where the team says what a card needs, and the pull
- * request is an artefact of doing it. `hasOwn`, for the reason `inferredLane` gives.
+ * Interpret Review and Unstarted through the shared status-to-lane map. Build and unmapped statuses leave the
+ * action undecided. Use own-property lookup so inherited object properties cannot act as mappings.
  */
 export function statusAction(status: string | null, statusLanes: Readonly<Record<string, LaneId>>): TriageAction | null {
   if (status === null || !Object.hasOwn(statusLanes, status)) {
@@ -442,13 +421,8 @@ export function statusAction(status: string | null, statusLanes: Readonly<Record
 }
 
 /**
- * The action the evidence settles before the model is asked, or null where it leaves the choice open. The status
- * comes first because it is the team's word on what the card needs; the pull request's own facts decide the flavour
- * of work only where the status named none.
- *
- * The one thing a status cannot say is whose review it is. A status naming review means a review is pending, and on
- * the developer's own open pull request that is somebody else's to give — so the card is left to the facts and the
- * conversation, which is what puts a pull request with changes requested back on the developer as work (R7).
+ * Prefer deterministic status rules, then PR facts. Review status on the developer's own open PR leaves the
+ * action undecided because the outstanding review may belong to someone else.
  */
 export function settledAction(context: TriageContext, statusLanes: Readonly<Record<string, LaneId>>): TriageAction | null {
   const named = statusAction(context.status, statusLanes);

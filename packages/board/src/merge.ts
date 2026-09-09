@@ -36,13 +36,8 @@ function checkoutKey(session: Session): string {
 }
 
 /**
- * One session with the board's own last reading of it, where the marker it left carries no phase. That happens to any
- * session, however it was started: a `SessionStart` maps to no phase, so a resume wipes the reading its own process
- * had written, and the row would fall back to the agent's word while the board's own observation sat in the store.
- *
- * `retainedPhase` for the same reason a saved session's row uses it: whatever was working when the reading was taken
- * is not working now, so a kept `running` would shimmer a row and ring a card for a turn that has stopped. Never for a
- * finished session either — `retaining` takes the reading away when the agent says one ended, and R6 claims no mark.
+ * Apply retained activity only when a live session has no current phase and is not explicitly finished.
+ * Convert retained running to your-turn: a past observation cannot prove that a turn is still running.
  */
 function observed(session: Session, retained: ReadonlyMap<string, RetainedActivity>): Session {
   if (session.activity !== null || session.finished) {
@@ -57,16 +52,9 @@ function observed(session: Session, retained: ReadonlyMap<string, RetainedActivi
 }
 
 /**
- * Every issue and every session on one board. Issue order is the order they were read; cards for issues the
- * developer is not assigned, then sessions with no issue, follow. Every session lands on exactly one card.
- *
- * `unassigned` is the issues a caller looked up for numbers the assigned read did not return. A number missing from
- * both is a guess off a branch name that named nothing, so the session keeps its checkout card instead (R4).
- *
- * `retained` is the last phase the board saw each session in, keyed `agent:sessionId`, which the saved session it
- * belongs to carries onto the card. Only that session's: a reading is about one session, not about the card (R6).
- * A live session with no current reading takes its own retained one, so what a row shows never turns on how the
- * session was launched — see `observed`.
+ * Merge assigned issues, looked-up unassigned issues, and checkout-only sessions in that order. Each live
+ * session belongs to one card. Attach retained activity by agent and session ID, including historical rows and
+ * live sessions without a current phase (R4, R6).
  */
 export function mergeBoard(
   issues: IssueCard[],

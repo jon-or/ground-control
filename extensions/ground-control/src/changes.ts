@@ -106,12 +106,8 @@ export function registerChangesCommand(): vscode.Disposable {
 }
 
 /**
- * Everything a card's checkout has done to its files — its commits and its uncommitted work in one editor, the
- * merge base on the left and the working tree on the right. Assembled because no built-in command produces that
- * set; the shape of it is `changesPlan`'s, and this only fetches and opens.
- *
- * Every failure says so. A control that quietly does nothing is the state R25 exists to prevent, and half of what
- * this calls is private to VS Code and can go with an update (`docs/mechanics.md` §30).
+ * Fetch the committed and uncommitted resources from changesPlan and open one multi-diff. Report failures from
+ * the private VS Code APIs; recheck their contracts after upgrades (mechanics M30).
  */
 export async function openChanges(cwd: string, label: string, key: string): Promise<void> {
   try {
@@ -162,7 +158,7 @@ async function open(cwd: string, label: string, key: string): Promise<void> {
   }
 
   // A repository VS Code has just opened has not read its own status yet, and its resource groups are empty until
-  // it has — measured, and it is the uncommitted half of the editor that would silently go missing (§30).
+  // it has — measured, and it is the uncommitted half of the editor that would silently go missing (M30).
   await repository.status();
 
   const base = await mergeBase(repository);

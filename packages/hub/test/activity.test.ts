@@ -187,7 +187,7 @@ describe('syncActivity', () => {
   /**
    * The writer stays: a session that already loaded the old settings goes on spawning it (R34). So does the
    * directory: live sessions write into it, and one anything still holds open after a delete keeps its name and
-   * refuses every operation on it, the next install's own create included (`mechanics.md` §23).
+   * refuses every operation on it, the next install's own create included (`mechanics.md` M23).
    */
   it('empties the markers and the entries, and leaves the directory and the writer behind', () => {
     const signal = fakeSignal(written);

@@ -20,16 +20,9 @@ export function dispatchLogPathOf(home: string, id: string): string {
 }
 
 /**
- * Starts `codex exec` and leaves it running. Detached, with its output going to a file rather than to a pipe: the
- * run outlives the hub that started it, and a pipe nobody drains fills and blocks the child at about 64 kB — which
- * would stall the work partway through with no sign of why.
- *
- * The file is also how the thread id is read. `--json` prints `thread.started` before the first turn, so the wait
- * here is the second or so Codex takes to open a thread, not the length of the work.
- *
- * Never throws. Every way a spawn can fail comes back as a named reason: a path that resolves to nothing, a batch
- * shim Node will not spawn without a shell, a directory that has gone, and the `error` event that arrives a tick
- * after a failed spawn — which, unhandled on a detached child, would take the hub down with it.
+ * Spawn detached codex exec with output files, avoiding undrained pipes after hub exit. Read thread.started
+ * from stdout to identify the run before it finishes. Convert synchronous spawn errors and child error events
+ * into classified failures.
  */
 export function makeMachineStarter(home: string = homedir(), id: () => string = randomUUID): StartProcess {
   return function start(path, args, options): Promise<StartedProcess> {
@@ -61,7 +54,7 @@ export function makeMachineStarter(home: string = homedir(), id: () => string = 
       mkdirSync(groundControlDirOf(home), { recursive: true });
       out = openSync(log, 'a');
       // Its own descriptor: two writers appending to one file tear a line, and a torn `thread.started` reads as a
-      // run that never named its thread. Codex's stderr is noisy by design (`docs/mechanics.md` §13).
+      // run that never named its thread. Codex's stderr is noisy by design (`docs/mechanics.md` M13).
       err = openSync(`${log}.err`, 'a');
     } catch (error) {
       return Promise.resolve(failed('failed', `could not open ${log}: ${(error as Error).message}`));

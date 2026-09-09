@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-/** The marker VS Code's background updater writes beside its executable, naming the commit it staged (§49). */
+/** The marker VS Code's background updater writes beside its executable, naming the commit it staged (M49). */
 const MARKER = 'updating_version';
 
 /** How much of a commit hash names the version directory a build unpacks into. */
@@ -37,11 +37,9 @@ function productVersion(path: string): string | null {
 }
 
 /**
- * A background update staged beside the build these windows run, or null where launching the editor is safe. VS Code
- * names its single-instance pipe after the product version, so a launch of a swapped executable starts a second one.
- *
- * Which build is running is read as the commit directory `appRoot` sits in rather than as a version string, because a
- * commit is formatted the same on every quality of the editor and `1.137.0-insider` is not (§49).
+ * Detect a staged commit different from appRoot's build. A missing marker returns null, which is not proof of
+ * launch safety. A swapped executable can use another version's single-instance pipe and start a second instance.
+ * Compare commit directories instead of version strings to handle stable and Insiders builds (mechanics M49).
  */
 export function stagedUpdate(execPath: string, appRoot: string): StagedUpdate | null {
   const dir = dirname(execPath);

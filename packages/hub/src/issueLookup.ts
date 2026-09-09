@@ -139,12 +139,9 @@ export class IssueLookup {
   }
 
   /**
-   * One issue, from whichever source serves its repository. A source answering null does not serve it, which is not
-   * an answer about the issue: recording that as "no such issue" is how a hub started before its settings arrive
-   * comes to say the developer's own cards do not exist. Only a source that served the read and found nothing does.
-   *
-   * A failure records nothing either — an unreachable GitHub is not an issue that does not exist — and holds the key
-   * off for a few minutes, because the session poll would otherwise spawn `gh` for it twice a minute all outage.
+   * Cache absence only when a source serves the repository and confirms no issue. Unserved repositories and
+   * failed reads establish nothing about existence. Delay failed lookups to avoid a gh request on every
+   * session poll.
    */
   async #read(key: string): Promise<void> {
     const [repository = '', rest = ''] = key.split('#');

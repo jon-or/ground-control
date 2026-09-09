@@ -150,7 +150,7 @@ async function until(what: () => boolean, why: string, within = 5000): Promise<v
 /**
  * Node reports every response chunk to a connected inspector as `dataLength: chunk.byteLength`. A `Buffer` has one;
  * a string does not — so a stream read with `setEncoding` makes the inspector throw once per chunk, and the event
- * stream never ends, which aborts the extension host holding it (`docs/mechanics.md` §28). Nothing this package
+ * stream never ends, which aborts the extension host holding it (`docs/mechanics.md` M28). Nothing this package
  * reads off a socket may be decoded by the stream itself.
  */
 describe('how a client reads a socket', () => {

@@ -36,16 +36,14 @@ export function makeRegistries(log?: Logger, home: string = homedir()): Registri
 /** The team's convention, so it ships as a default rather than as something a new developer has to set (R27). */
 const BRANCH_ISSUE_PATTERN = '^(\\d+)-';
 
-/** A network round trip, so it polls slowly; a session read spawns a CLI, so it polls quickly (mechanics §2). */
+/** A network round trip, so it polls slowly; a session read spawns a CLI, so it polls quickly (mechanics M2). */
 const REFRESH_INTERVAL_MS = 300_000;
 const SESSION_INTERVAL_MS = 30_000;
 
 /**
- * What the hub polls with before any client has said anything, built from the adapters themselves plus the shipped
- * statuses and lanes. R30 is what makes this the adapters' business rather than a list here: each one reads the
- * machine for its own tool, so an installed agent needs no setting and an absent one is never polled. The readers
- * are a parameter rather than a default so no caller reads a home it did not name. A hub the browser started alone
- * runs on this.
+ * Build pre-client defaults from adapter detection and shared board settings, using the injected home. Claude
+ * is enabled by default; Codex requires its home directory. Adapter defaults do not prove executable
+ * availability.
  */
 export function defaultConfig(registries: Registries, readers: MachineReaders): HubConfig {
   return {

@@ -258,7 +258,7 @@ describe('refusing a context it cannot read', () => {
 describe('the state changes on a card', () => {
   it('reads the status moves and assignments the board asked for, oldest first', async () => {
     // Recorded from a real hand-over: the status moved and the mover took themselves off it eight seconds later,
-    // and somebody else put the developer on it two and a half hours after that (`docs/mechanics.md` §32).
+    // and somebody else put the developer on it two and a half hours after that (`docs/mechanics.md` M32).
     const events = (await contextOf('context-handover', { number: 19192, pullRequest: null })).stateEvents;
 
     expect(events.map((e) => [e.at, e.actor, e.status?.to ?? null, e.assigned, e.unassigned])).toEqual([

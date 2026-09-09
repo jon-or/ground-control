@@ -34,7 +34,7 @@ const STREAM_IDLE_MS = 60_000;
 
 /**
  * Absolute, not a socket's inactivity timer: a listener that trickles bytes faster than that timer resets it forever.
- * Wide enough for `GET /roster`, which spawns an agent CLI before it can answer (`mechanics.md` §2).
+ * Wide enough for `GET /roster`, which spawns an agent CLI before it can answer (`mechanics.md` M2).
  */
 const REQUEST_DEADLINE_MS = 15_000;
 
@@ -179,7 +179,7 @@ export class HubTransport {
 
         // A decoder rather than `setEncoding`: this stream is handed bytes, because a decoded chunk is a string
         // and a string has no `byteLength` for Node's inspector to report — which throws once per chunk, and this
-        // stream never ends, so it throws until the extension host aborts (`mechanics.md` §28). The decoder still
+        // stream never ends, so it throws until the extension host aborts (`mechanics.md` M28). The decoder still
         // holds a split multi-byte character across chunks, which is what `setEncoding` was here for.
         const decoder = new StringDecoder('utf8');
 

@@ -49,9 +49,8 @@ const actionState = z.object({
 });
 
 /**
- * The stored state, or an empty one. Durable and hand-editable, and one unusable entry costs that card its record
- * rather than the file: refusing the file whole would forget every run at once, and forgetting a run is what makes a
- * card eligible for another. The one failure mode here that spends money is the one that must not be silent.
+ * Parse durable action state, filtering invalid run/refusal/gate entries individually. An invalid outer shape
+ * returns empty state; this fallback does not preserve prior dispatch authorization or limits.
  */
 export function readActionState(stored: unknown): ActionState {
   const outer = actionState.safeParse(stored);
@@ -104,19 +103,9 @@ export function readActionReport(stored: unknown): ActionReport | null {
 }
 
 /**
- * Whether the board may dispatch against this evidence. A run under the current revision blocks it, because that is
- * the board having already spent a session on exactly this state of the card. What unblocks it is the card moving,
- * or the developer asking.
- *
- * A run that `landed` blocks whatever the evidence now says, because the merge it was asked for happened — and the
- * push that merge made is itself what moves `headOid`. Comparing evidence alone would have every successful merge
- * authorise the next one, and a base branch that keeps moving would have the board merging on a timer nobody asked
- * for. The request was answered; only the developer's own press asks again.
- *
- * Two runs do not block. One recorded under an older revision: a gate that has since been corrected must be able to
- * reach the cards the broken one already spent. And one that `failed` — which means no session ever started, so
- * nothing was spent on this card and nothing was done to it. A CLI that was briefly missing would otherwise cost the
- * card every retry until somebody pushed to it (R21). The read gate is what paces that retry.
+ * Block automatic repeats under the current revision for unchanged evidence. A landed run also blocks changed
+ * evidence so its own push cannot trigger another merge. Failed starts and older revisions do not block; the
+ * read gate limits retries. Manual requests bypass this check.
  */
 export function alreadyRun(state: ActionState, key: string, evidence: string): boolean {
   const run = state.runs[key];
@@ -173,7 +162,7 @@ export function withOutcome(
   return { ...state, runs: { ...state.runs, [key]: { ...run, outcome, detail, endedAt: now } } };
 }
 
-/** The state once a run's session id is known, resolved from the roster by the short id the CLI printed (§33). */
+/** The state once a run's session id is known, resolved from the roster by the short id the CLI printed (M33). */
 export function withSession(state: ActionState, key: string, sessionId: string): ActionState {
   const run = state.runs[key];
 
@@ -234,12 +223,8 @@ export function nextActionState(
 }
 
 /**
- * What one card says about its action. A run outranks a refusal, and both outrank the offer: a card the board acted
- * on says what came of it, and one it declined says why.
- *
- * A card with neither, whose reading names an action the board performs, still says `available` — because a setting
- * is not the only way to run one. The developer's own click is the other, and a card with nothing to press is a
- * feature nobody can try once before configuring it.
+ * Select action display state: running/completed result, refusal, then availability. Availability allows a
+ * manual request even when automatic dispatch is disabled.
  */
 export function cardActionOf(
   state: ActionState,

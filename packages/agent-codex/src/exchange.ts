@@ -25,7 +25,7 @@ interface Reply {
  * and every way it ends are testable without a process: the spawn in `appServer.ts` only moves bytes.
  *
  * `initialize`, then `hooks/list` for the hash Codex would trust per entry, then one `config/batchWrite` handing
- * those hashes back. The board computes no hash and writes no TOML (`docs/mechanics.md` §41).
+ * those hashes back. The board computes no hash and writes no TOML (`docs/mechanics.md` M41).
  */
 export function trustExchange(home: string): { start(): unknown; take(reply: unknown): TrustStep } {
   return {

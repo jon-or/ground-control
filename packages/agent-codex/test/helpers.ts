@@ -9,7 +9,7 @@ export function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(here, 'fixtures', `${name}.json`), 'utf8'));
 }
 
-/** One recorded Codex hook payload, as the writer receives it on stdin. Every field is measured in §40. */
+/** One recorded Codex hook payload, as the writer receives it on stdin. Every field is measured in M40. */
 export interface HookPayload {
   session_id: string;
   transcript_path: string;

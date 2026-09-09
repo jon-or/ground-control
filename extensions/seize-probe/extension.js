@@ -14,8 +14,7 @@ const LOG = path.join(ROOT, 'seize-probe.log');
 const SEIZED = path.join(ROOT, 'seized.json');
 const EVENTS = path.join(ROOT, 'events');
 
-// A tab holds its session: resuming while it is open forks a copy. So the release path retries
-// until the resume reports the original id back, rather than assuming close == released.
+// Retry when stdout reports a copied session. This prototype does not validate successful resume or the returned ID.
 const HANDBACK_ATTEMPTS = 6;
 const HANDBACK_DELAY_MS = 1500;
 
@@ -31,7 +30,7 @@ function folder() {
   return f && f.length ? f[0].uri.fsPath : null;
 }
 
-// Same slug shape Claude Code uses for its project dirs: lowercased path, separators and colons to '-'.
+// Probe-only inbox key; lowercases the folder and collapses non-alphanumeric runs. Not Claude's project slug (M3).
 function slugify(p) {
   return p.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
@@ -192,7 +191,7 @@ function activate(context) {
   const timer = setInterval(() => { if (fs.existsSync(file)) { fire(); } }, 1000);
   context.subscriptions.push({ dispose: () => clearInterval(timer) });
 
-  // Closing a seized tab is the operator saying "done" — hand the session back to the factory.
+// Experimental automatic resume on tab close; closing a tab does not prove the task is complete (M11).
   context.subscriptions.push(
     vscode.window.tabGroups.onDidChangeTabs((e) => {
       if (e.closed && e.closed.length) { onTabsClosed(e.closed, dir); }

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { stagedUpdate, stagedUpdateRefusal } from '../src/install.js';
 
-/** The commit as VS Code's updater writes it, the ten characters of it that name the directory, and one running (§49). */
+/** The commit as VS Code's updater writes it, the ten characters of it that name the directory, and one running (M49). */
 const COMMIT = '88e44fa0e00b08f7758b4f6d05632e4fd5e4df6f';
 const STAGED = '88e44fa0e0';
 const RUNNING = 'a44adf7f53';
@@ -17,7 +17,7 @@ interface Install {
   stagedAppRoot: string;
 }
 
-/** An install directory shaped like the measured one: an executable, a marker, and a version tree per build (§49). */
+/** An install directory shaped like the measured one: an executable, a marker, and a version tree per build (M49). */
 function install(marker?: string, staged?: { version?: unknown } | string): Install {
   const dir = mkdtempSync(join(tmpdir(), 'gc-install-'));
   made.push(dir);

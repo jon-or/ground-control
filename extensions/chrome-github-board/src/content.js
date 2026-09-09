@@ -1,7 +1,7 @@
 // @ts-check
 /**
  * The half of the overlay that talks to Chrome. It holds the last thing the worker sent and repaints whenever the
- * board changes under it — a project board is React, and a view switch replaces every card node (`mechanics.md` §27).
+ * board changes under it — a project board is React, and a view switch replaces every card node (`mechanics.md` M27).
  * Every decision it makes is in `state.js`; what is here is the port, the observer, and when to try again.
  */
 (() => {

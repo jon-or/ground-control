@@ -22,15 +22,9 @@ const REAL: WatchDeps = { setTimeout, clearTimeout };
 const nameOf = (file: string): string => file.replace(/\.json$/, '');
 
 /**
- * Watches an agent's activity directory and reports which markers changed and how. The directory comes and goes with
- * the install, and `fs.watch` throws on a missing path and dies when the one it holds is removed, so this re-arms.
- *
- * `deleted` is the kind that costs a CLI read, so what matters is never missing one that stands: a marker gone when
- * the directory is next listed is deleted, whatever else happened in the same batch. A marker deleted and written
- * again before the listing reads as `changed`, and that is correct rather than merely cheap — the name is a session
- * id, so something wrote that session's marker, which means the session is alive and its card belongs on the board.
- * A session that ended and started afresh carries a new id, and `rosterIsStale` reads a marker naming a session the
- * board has not listed as a roster change of its own.
+ * Re-arm fs.watch after missing or removed directories. Classify changes by file existence and prior
+ * membership, not the platform event name. A deletion still absent at listing wins within the batch; a
+ * recreated marker is changed. The hub decides whether the update requires a roster read.
  */
 export function watchDir(
   dir: string,

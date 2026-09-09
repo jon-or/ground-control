@@ -44,7 +44,7 @@ export type AgentEntry = z.infer<typeof agentEntry>;
 
 /**
  * A cwd's project-slug directory under ~/.claude/projects: every character that is not a letter or digit becomes
- * `-`, runs not collapsed. Measured with a probe directory; `docs/mechanics.md` §3 carries the evidence.
+ * `-`, runs not collapsed. Measured with a probe directory; `docs/mechanics.md` M3 carries the evidence.
  */
 export function projectSlug(cwd: string): string {
   return cwd.replace(/[^A-Za-z0-9]/g, '-');
@@ -61,14 +61,14 @@ interface TranscriptDeps {
 
 /**
  * How much of a transcript's end is read to find its title — twice the measured worst in-reach case, which is the
- * margin a turn's writes can grow by before the title leaves the window. `docs/mechanics.md` §3b carries the
+ * margin a turn's writes can grow by before the title leaves the window. `docs/mechanics.md` M3b carries the
  * measurement and why no window catches every session. Exported so a fixture recording uses the same one.
  */
 export const TITLE_TAIL_BYTES = 64 * 1024;
 
 /**
  * Every directory that could hold this session, exact case first: a project directory's case is fixed by whichever
- * path first created it, and the CLI reports one checkout under either drive-letter case (`docs/mechanics.md` §3).
+ * path first created it, and the CLI reports one checkout under either drive-letter case (`docs/mechanics.md` M3).
  */
 export function transcriptCandidates(home: string, cwd: string, sessionId: string, listDir: ListDir): string[] {
   const root = projectsRoot(home);
@@ -119,7 +119,7 @@ const titleRecord = z.object({
 
 /**
  * The session's title from the end of its transcript. A title the developer set outranks whatever came last, because
- * the CLI goes on writing its own after one is set (`docs/mechanics.md` §3b); a tail short of that record reads as
+ * the CLI goes on writing its own after one is set (`docs/mechanics.md` M3b); a tail short of that record reads as
  * automatic.
  */
 export function titleFrom(tail: string, sessionId: string): string | null {
@@ -194,7 +194,7 @@ function detailsOf(entry: AgentEntry): Record<string, string> {
 /**
  * What a session is doing, in the words the board already uses for a phase. The CLI's vocabulary is a fourth set for
  * the same three states — `blocked` is a session whose own state is `needs_reply` or `needs_approval`
- * (`docs/mechanics.md` §33), which is what the board calls waiting. A word this does not know is carried through
+ * (`docs/mechanics.md` M33), which is what the board calls waiting. A word this does not know is carried through
  * rather than guessed at, and what a waiting session is waiting for outranks the tempo.
  */
 export function reportedState(entry: AgentEntry): string | undefined {
@@ -239,7 +239,7 @@ function toSession(entry: AgentEntry, deps: MachineDeps): Session {
     // never listed at all, so only the CLI's own end word counts (R24).
     finished: entry.state !== undefined && FINISHED_STATES.has(entry.state),
     // Only a live `--bg` session has one, and only a `--bg` session needs one: nothing an editor window holds is
-    // reached this way, and `claude attach` answers `No job matching` for one that has ended (§33).
+    // reached this way, and `claude attach` answers `No job matching` for one that has ended (M33).
     attachId: entry.kind === 'background' && !FINISHED_STATES.has(entry.state ?? '') ? (entry.id ?? null) : null,
     details: detailsOf(entry),
   };
@@ -247,7 +247,7 @@ function toSession(entry: AgentEntry, deps: MachineDeps): Session {
 
 /**
  * A session that has never been prompted — an editor tab opened and left alone. The CLI creates the transcript at the
- * first user turn, not at process start (`docs/mechanics.md` §3), the one hook that fires before a turn claims no phase,
+ * first user turn, not at process start (`docs/mechanics.md` M3), the one hook that fires before a turn claims no phase,
  * and a background session reports its own status: three independent signals, all silent only for work that never began.
  */
 export function neverPrompted(session: Session, entry: AgentEntry): boolean {
@@ -261,7 +261,7 @@ export function neverPrompted(session: Session, entry: AgentEntry): boolean {
 
 /**
  * The transport is the adapter's own, so a test supplies a recorded one without the interface knowing. Two of them,
- * because a roster read parses JSON and a dispatch reads what `--bg` prints, which is prose (`mechanics.md` §33).
+ * because a roster read parses JSON and a dispatch reads what `--bg` prints, which is prose (`mechanics.md` M33).
  */
 export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText = runTextCli): AgentAdapter {
   return {

@@ -8,7 +8,7 @@ export type NameOverrides = Readonly<Record<string, string>>;
 
 /**
  * What the classifier is told it is doing. Short on purpose: the whole system prompt and every tool definition cost
- * 55× the evidence itself (`docs/mechanics.md` §31), so this replaces the CLI's own rather than appending to it.
+ * 55× the evidence itself (`docs/mechanics.md` M31), so this replaces the CLI's own rather than appending to it.
  *
  * It covers both asks, because a card whose action the evidence already settled is sent to the same session with the
  * same system prompt and asked only for the sentence — one prompt, and the schema is what enforces which.

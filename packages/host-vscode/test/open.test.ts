@@ -253,7 +253,7 @@ describe('planOpen routes by the surface holding the session', () => {
   });
 
   /**
-   * §44: a Codex reveal names the thread and re-activates whatever already holds it, so the window the join found is
+   * M44: a Codex reveal names the thread and re-activates whatever already holds it, so the window the join found is
    * enough. It is also the only way to reach a thread left in Codex's sidebar, which records no id to read back.
    */
   it('reveals an unrecorded session anyway where the reveal is idempotent', () => {
@@ -423,7 +423,7 @@ describe('resuming historical sessions', () => {
     expect(resumeRefusal(live.sessionId, [])).toBeNull();
     expect(resumeRefusal(live.sessionId, [{ ...live, finished: true }])).toBeNull();
     // A `--bg` run stays listed after its turn and its process keeps holding the conversation, so finished is not
-    // gone - resuming one exits 1 (`mechanics.md` §33).
+    // gone - resuming one exits 1 (`mechanics.md` M33).
     expect(resumeRefusal(live.sessionId, [{ ...live, finished: true, attachId: 'c5d0c58f' }])).toContain('Attach to it');
   });
 });
@@ -514,7 +514,7 @@ describe('opening a card’s checkout', () => {
 
 /**
  * A new session on a card. The whole of the routing is whether this window is the checkout's: an agent takes its
- * directory from the window it starts in, and nothing can name a session that does not exist yet (§51).
+ * directory from the window it starts in, and nothing can name a session that does not exist yet (M51).
  */
 describe('starting a session on a card', () => {
   const ROOT = 'd:/work/repo.worktrees/19002-refund-window';
@@ -554,7 +554,7 @@ describe('starting a session on a card', () => {
     expect(refusalOf(ask({ extensionReady: false }))).toBe('no-extension');
   });
 
-  // §51: `chatgpt.newCodexPanel` takes no arguments, so a prompt handed to it would be dropped silently. Dropping
+  // M51: `chatgpt.newCodexPanel` takes no arguments, so a prompt handed to it would be dropped silently. Dropping
   // it here is what lets the menu item say the session starts bare.
   it('drops the prompt for an agent whose only way in takes none', () => {
     expect(ask({ agent: 'codex' })).toMatchObject({ route: 'start-session', agent: 'codex', prompt: null });

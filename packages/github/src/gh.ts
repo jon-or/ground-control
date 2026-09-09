@@ -127,12 +127,8 @@ function spawnGh(ghPath: string): GhRunner {
 }
 
 /**
- * Every `gh` invocation, timed. One source read is one or more of these — `fetchAssignedIssues` runs a query per
- * page — so the read's own line says how many cards came back while these say what it cost to get them.
- *
- * Both outcomes are `debug`, the failure included: the classified error is returned to the caller and the source
- * states it at `warn` on the board's behalf, so warning here would write one outage down twice a read. Only the
- * subcommand is named, never the arguments — a GraphQL query body is thousands of characters.
+ * Log gh subcommand duration at debug level without query arguments. Return classified failures to the caller,
+ * which emits the warning once; logging warnings here would duplicate source failures.
  */
 export function makeGhRunner(ghPath: string, log?: Logger): GhRunner {
   const run = spawnGh(ghPath);

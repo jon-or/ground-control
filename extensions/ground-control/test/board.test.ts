@@ -376,7 +376,7 @@ describe('board webview', () => {
     expect(row.getAttribute('aria-label')).toBe('cache-remediation - go to this session');
     expect(getComputedStyle(row).cursor).toBe('pointer');
     // A button brings its own colour, and on a dark card the UA default is the wrong one. The name is a step above
-    // the marks around it, which stay at the description colour - the tone the overlay mixes to (`mechanics.md` §38).
+    // the marks around it, which stay at the description colour - the tone the overlay mixes to (`mechanics.md` M38).
     expect(getComputedStyle(label).color).toBe('var(--vscode-foreground)');
     expect(getComputedStyle(row).color).toBe('var(--vscode-descriptionForeground)');
     // Without this, a few pixels of drift on the way to a click drags the card and the click never fires. The
@@ -390,7 +390,7 @@ describe('board webview', () => {
 
   /**
    * The only way into a run the board started: opening one as a tab resumes it, which the CLI refuses while the
-   * background process still holds the conversation (`mechanics.md` §33). So a detached run is reachable whether or
+   * background process still holds the conversation (`mechanics.md` M33). So a detached run is reachable whether or
    * not the agent's editor extension is, because a terminal is all `attach` needs.
    */
   it('attaches to a detached run instead of opening it, and offers it even where nothing is openable', () => {
@@ -665,7 +665,7 @@ describe('board webview', () => {
     expect(mark).not.toBeNull();
     expect(mark.getAttribute('aria-label')).toBe('claude');
     expect(mark.getAttribute('data-agent')).toBe('claude');
-    // No `<title>` child: the browser draws its own tooltip from one, beside the row's (`docs/mechanics.md` §35).
+    // No `<title>` child: the browser draws its own tooltip from one, beside the row's (`docs/mechanics.md` M35).
     expect(mark.querySelector('title')).toBeNull();
   });
 
@@ -2111,7 +2111,7 @@ describe("the card's own menu", () => {
     ]);
   });
 
-  // §51: `chatgpt.newCodexPanel` takes no arguments, so the prompt is dropped — and the item says so rather than
+  // M51: `chatgpt.newCodexPanel` takes no arguments, so the prompt is dropped — and the item says so rather than
   // letting a developer with a configured prompt believe it reached the session.
   it('says on the item itself which agent’s start cannot carry the prompt', () => {
     send(message({
@@ -2656,7 +2656,7 @@ describe("the board's own menu", () => {
 /**
  * The board draws its own tooltip rather than leaving `title` to the browser: the native one opens after about a
  * second, in the operating system's shape, and cannot be made to match the editor. GitHub's own geometry and
- * timing (`docs/mechanics.md` §35), so the two boards read the same — the parity table below is what pins that.
+ * timing (`docs/mechanics.md` M35), so the two boards read the same — the parity table below is what pins that.
  */
 describe('the tooltip', () => {
   const tip = () => document.getElementById('tip');
@@ -2948,9 +2948,7 @@ describe('the age attribute both boards share', () => {
 });
 
 /**
- * The parity table. Neither board imports the other's tooltip — both are classic scripts — so the shape they share
- * is pinned by asserting the same numbers in both suites (`docs/testing.md`). Measured off GitHub's own tooltip,
- * `docs/mechanics.md` §35.
+ * Assert identical tooltip geometry and timing in both client suites (mechanics M35).
  */
 describe('the tooltip shape both boards share', () => {
   const rows: [string, number][] = [

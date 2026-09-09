@@ -99,7 +99,7 @@ function readOne(
 const seen = new Map<string, { updatedAt: number; store: WindowStore }>();
 
 /**
- * Every VS Code window's persisted state (`docs/mechanics.md` §21), with the sidebar memento of every placed agent.
+ * Every VS Code window's persisted state (`docs/mechanics.md` M21), with the sidebar memento of every placed agent.
  * `userDir` is the running install's own `User` directory, which is where a portable or Insiders install differs.
  */
 export async function readWindowStores(

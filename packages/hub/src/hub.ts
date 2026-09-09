@@ -183,12 +183,8 @@ export function realHubDeps(
 }
 
 /**
- * The tracking every board is a client of. It polls the sources, watches the activity signal, remembers where the
- * developer put each card, and hands out one snapshot. It owns what a board needs to render and act on, and no work
- * item's own state — moving a card in GitHub Projects is not its business (R7).
- *
- * One instance per machine. Polling runs only while a client is watching, because a hidden board and a closed
- * browser tab both cost the same CLI spawns as a visible one (R35).
+ * Coordinate source/agent reads, activity observation, local lane placement, and client snapshots. Poll only
+ * while a board is watched. Local lane changes do not update GitHub item state (R7, R35).
  */
 export class Hub {
   readonly #deps: HubDeps;
@@ -210,9 +206,9 @@ export class Hub {
   #history: HistoricalSession[] = [];
   #historyFailures: ReadFailure[] = [];
   readonly #resuming = new Map<string, number>();
-  /** Cards whose start is in flight, held by card because the session it creates has no id yet (§51). */
+  /** In-flight starts keyed by card and agent until a session ID exists (mechanics M51). */
   readonly #starting = new Map<string, number>();
-  /** Cards whose window is in flight, held the same way. The client's own guard covers one board, not two. */
+  /** In-flight checkout opens keyed by card across clients. */
   readonly #opening = new Map<string, number>();
   #sourcesInFlight: Promise<void> | undefined;
   #sessionsInFlight: Promise<void> | undefined;
@@ -462,7 +458,7 @@ export class Hub {
       return;
     }
 
-    // Held by the card and the agent, because the session it will create has no id until the agent mints one (§51)
+    // Held by the card and the agent, because the session it will create has no id until the agent mints one (M51)
     // — so between the click and that session appearing there is nothing else to tell a second click apart by. Two
     // agents on one card are two different starts, and neither blocks the other.
     const now = this.#deps.clock.now();
@@ -497,7 +493,7 @@ export class Hub {
     }
 
     // Every route follows this rule: a host that calls it resident is asking a client inside it to do it. Unlike
-    // `open`, there is no headless fallback to hand it to — a start is a command in a window, and §26 says a
+    // `open`, there is no headless fallback to hand it to — a start is a command in a window, and M26 says a
     // process outside one cannot fire it — so a host that did not call it resident can go no further.
     if (!host.residentRoutes.includes(plan.route) || !client.hello.residentRoutes.includes(plan.route)) {
       client.send({ type: 'notice', level: 'warning', message: 'Reload this editor to start a session from a card.' });
@@ -820,13 +816,8 @@ export class Hub {
   // — polling —
 
   /**
-   * A viewer opening or closing. Opening reads the tail of `hub.log` and subscribes to what comes after it;
-   * closing undoes both. Nothing is held for a client that has not asked — no buffer against the chance somebody
-   * looks, and no reason to touch the file. The backfill comes off disk rather than out of memory, which is what
-   * lets a viewer opened after a restart carry the last hub's dying words as well as this one's.
-   *
-   * It never makes this client watched: a developer reading the log is not a board on screen, and turning the
-   * poll loop on for one would spend a CLI spawn every thirty seconds for a window nobody is looking at (R35).
+   * Read a disk tail and subscribe only while this client requests logs. Disk backfill includes prior hub
+   * output after restart. A log subscription does not enable board polling (R35).
    */
   #watchLog(client: Connected, watching: boolean): void {
     client.unwatchLog?.();
@@ -975,7 +966,7 @@ export class Hub {
     const reads = [this.#refreshSources(reason)];
 
     // The session read spawns a CLI, so it keeps a floor of its own: a button pressed twice in a second is one
-    // roster read rather than two processes (mechanics §2).
+    // roster read rather than two processes (mechanics M2).
     if (now - this.#lastReadAt >= REFRESH_FLOOR_MS) {
       this.#lastReadAt = now;
       reads.push(this.#refreshSessions());
@@ -1041,12 +1032,9 @@ export class Hub {
   }
 
   /**
-   * Writes down the issues this read established, and starts a lookup for every session-named number it did not
-   * return. Called from both reads, because either one can be what leaves a number with no issue behind it.
-   *
-   * Nothing at all until a source has actually read. Sessions come off local disk and beat the first `gh` round trip
-   * every time, and an empty card list read as "none of these are assigned" would archive the developer's whole
-   * board — which costs every one of those cards the lane they were placed in (R8, R24).
+   * Record source metadata and look up issue numbers referenced only by sessions. Wait for the first
+   * successful source read: initial empty items must not archive assigned cards or clear their lane placement
+   * (R8, R24).
    */
   #considerIssues(): void {
     const items = this.#items();
@@ -1156,7 +1144,7 @@ export class Hub {
     // rest. The activity is re-read as it lands, because a poll that began before an event carries the older phase.
     // The board's own classifications, taken off before anything downstream counts or merges them. The adapter
     // already drops them — a classification is listed in exactly the shape `neverPrompted` refuses — so this is what
-    // still holds if a flag ever stops doing what it says (R2's carve-out, `docs/mechanics.md` §31).
+    // still holds if a flag ever stops doing what it says (R2's carve-out, `docs/mechanics.md` M31).
     const ours = this.#triage.sessionIds();
 
     if (ours.size > 0) {

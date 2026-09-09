@@ -2,13 +2,9 @@ const assert = require('node:assert');
 const vscode = require('vscode');
 
 /**
- * The board's URI reaches this window's handler and goes to the hub — a hand-over included. §29 measured that
- * `vscode.open` on a `vscode://groundcontrol.ground-control/…` URI routes to `registerUriHandler` in a real host,
- * which is what makes this measurable without a browser.
- *
- * Each case proves the hub answered. This link is reachable from any page, so a hand-over revealed on the link's
- * own word would let a page open a panel bound to an id of its choosing — and on a session Claude holds in its
- * sidebar, that is the second-process-on-one-transcript defect §6 measured.
+ * Verify that session and handover URIs reach the hub through registerUriHandler (mechanics M29). URI
+ * parameters cannot authorize a reveal: the hub must validate identity and surface to avoid a second process
+ * on a sidebar session (M6).
  */
 describe('a session handed to this window', () => {
   const SESSION = '01a072f9-c43a-73e2-a4fd-3a63e73ad152';

@@ -284,7 +284,10 @@ describe('swapping the assignee for the pull request author', () => {
     expect(document.querySelector('.gc-actor')).toBeNull();
   });
 
-  /** Every scan rewrites from scratch (`mechanics.md` §27), so a second paint must not stack a second avatar. */
+  /**
+   * Repeated paints must not duplicate the replacement avatar, whether a card is retained or rebuilt
+   * (mechanics M27).
+   */
   it('draws one author however many times the board is painted', () => {
     paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
     paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
@@ -348,7 +351,7 @@ describe('swapping the assignee for the pull request author', () => {
 /**
  * The board draws its own tooltip rather than leaving `title` to the browser: the native one opens after about a
  * second, in the operating system's shape, and cannot be made to match the page it sits on. GitHub's own geometry
- * and timing, measured (`docs/mechanics.md` §35) and pinned by the parity table both suites carry.
+ * and timing, measured (`docs/mechanics.md` M35) and pinned by the parity table both suites carry.
  */
 describe('the tooltip', () => {
   const tip = () => document.getElementById('gc-tip');
@@ -554,7 +557,7 @@ describe('the tooltip', () => {
     expect(open()).toBe('true');
   });
 
-  /** Opening one is the board's own DOM change, and the scan's observer watches for exactly those (`mechanics.md` §27). */
+  /** Opening one is the board's own DOM change, and the scan's observer watches for exactly those (`mechanics.md` M27). */
   it('adds and removes no nodes when it opens', () => {
     const seen: MutationRecord[] = [];
     const observer = new MutationObserver((records) => seen.push(...records));
@@ -753,8 +756,8 @@ describe('painting the board', () => {
   });
 
   /**
-   * A view switch replaces every card node and takes the badge with it (`mechanics.md` §27), and a repaint over
-   * nodes that survived would leave two. Rewriting from scratch is what makes both cases one badge.
+   * A view switch replaces card nodes and removes their footers (mechanics M27). Rebuild replacements without
+   * duplicating footers on surviving nodes.
    */
   it('leaves one badge per card however many times it paints', () => {
     paint(document, state(), NOW, actions);
@@ -1180,7 +1183,7 @@ describe('folding the project header away', () => {
     expect(localStorage.getItem('ground-control:header-collapsed')).toBe('true');
   });
 
-  /** A view switch replaces those rows along with the cards (`mechanics.md` §27), and the replacement arrives shown. */
+  /** A view switch replaces those rows along with the cards (`mechanics.md` M27), and the replacement arrives shown. */
   it('folds the rows a re-render replaced', () => {
     paint(document, state(), NOW, actions);
     collapse();
@@ -1369,7 +1372,9 @@ describe('what went wrong, as a toast', () => {
 });
 
 describe('moving a card from the browser', () => {
-  /** The repaint is what a click asks for, because the board is drawn from scratch rather than patched in place. */
+  /**
+   * Repaint reconciles the selected lane menu after a click.
+   */
   function click(selector: string): void {
     document.querySelector<HTMLElement>(selector)!.click();
     paint(document, state(), NOW, actions);
@@ -1671,7 +1676,7 @@ describe('what a scan keeps', () => {
     expect(said.textContent).toBe('1m');
   });
 
-  /** A view switch replaces every card node (`mechanics.md` §27), which is a miss rather than a footer left behind. */
+  /** A view switch replaces every card node (`mechanics.md` M27), which is a miss rather than a footer left behind. */
   it('draws a footer again on a card node the page replaced', () => {
     const shown = state({ snapshot: three() });
 
@@ -1964,10 +1969,8 @@ describe('durations that advance on their own', () => {
   });
 
   /**
-   * The whole point of the tick writing through a text node. `content.js` answers a record from this observer with
-   * a repaint of the board, so a duration that added or removed a node would rebuild every footer once a second —
-   * and the options come out of `content.js` itself, or a product that started watching `characterData` would leave
-   * this test green while the board repainted every second again.
+   * Duration updates must avoid childList mutations, which trigger another board scan. Updating existing text
+   * nodes produces characterData instead.
    */
   it('adds and removes no node the scan observer would answer', () => {
     const content = readFileSync(join(__dirname, '..', 'src', 'content.js'), 'utf8');
@@ -2084,7 +2087,7 @@ describe('going to a session from the browser', () => {
 
   /**
    * A link rather than a button: the navigation has to be the developer's own gesture in the application in front of
-   * them, because that is the only thing that gives VS Code the foreground (`mechanics.md` §26, §29).
+   * them, because that is the only thing that gives VS Code the foreground (`mechanics.md` M26, M29).
    */
   it('addresses the session by id, and nothing else', () => {
     paint(document, state(), NOW, actions);
@@ -2692,9 +2695,7 @@ describe('the age attribute both boards share', () => {
 });
 
 /**
- * The parity table. Neither board imports the other's tooltip — both are classic scripts — so the shape they share
- * is pinned by asserting the same numbers in both suites (`docs/testing.md`). Measured off GitHub's own tooltip,
- * `docs/mechanics.md` §35.
+ * Assert identical tooltip geometry and timing in both client suites (mechanics M35).
  */
 describe('the tooltip shape both boards share', () => {
   const source = readFileSync(join(__dirname, '..', 'src', 'overlay.js'), 'utf8');

@@ -35,7 +35,7 @@ body {
 /*
  * The same recess costs a much larger step on a dark ground - 3% of `#ffffff` is eight levels and 3% of `#1f1f1f`
  * is one - so the depth is set per theme kind. The class is VS Code's own, put on the webview body by its preload
- * (`mechanics.md` §36). 1.10:1 against the page, where GitHub's own board is 1.09:1.
+ * (`mechanics.md` M36). 1.10:1 against the page, where GitHub's own board is 1.09:1.
  */
 body.vscode-dark {
   --gc-lane: color-mix(in srgb, black 30%, var(--vscode-editor-background));
@@ -189,7 +189,7 @@ main.stale {
 /* Every lane runs the full height of the panel, so the column below the last card is still a drop target. */
 .lane {
   flex: none;
-  /* GitHub's own column, at a 16px root: 350px (`mechanics.md` §27), which lands this board's card within 2px of one of theirs. */
+  /* GitHub's own column, at a 16px root: 350px (`mechanics.md` M27), which lands this board's card within 2px of one of theirs. */
   width: 21.875rem;
   min-height: 0;
   display: flex;
@@ -402,11 +402,8 @@ main.dragging .lane-idle {
   border-radius: 4px;
   cursor: pointer;
   /*
-   * Transparent rather than hidden, and still hit-testable. `visibility: hidden` would take the control out of the
-   * tab order and with it the focus that reveals it, and `pointer-events: none` makes it unreachable by the very
-   * hover that reveals it - the pointer has to land on the control to click it, and the hit test that decides
-   * whether it may resolves before the hover recalculates. So a transparent target sits at the card's top-right
-   * corner, which costs a stray click there an unwanted menu and nothing worse.
+   * Keep the transparent control focusable and hit-testable so keyboard focus and pointer hover can reveal it.
+   * Hiding it or disabling pointer events would prevent those interactions.
    */
   opacity: 0;
 }
@@ -586,9 +583,8 @@ main.dragging .lane-idle {
 }
 
 /*
- * The session's state, at the head of the row: the phase in the colour, whether the agent still has the session open
- * in the fill. Three colours, because the phase is the fact - the two of them that want the developer are said again
- * by the row's own colour and weight, which is what keeps R6's channels unmistakable without one.
+ * The state mark's color represents phase; its fill identifies a live session. Attention also changes the card
+ * border/tint. Session text keeps its normal color and weight (R6).
  */
 .dot {
   --gc-dot: var(--vscode-descriptionForeground);
@@ -629,7 +625,7 @@ main.dragging .lane-idle {
 /*
  * The name is the row's own subject and reads a step above the marks around it, which stay at the description
  * colour. `--vscode-foreground` is the editor's own body text: muted against white without being the grey the
- * duration beside it is. The browser overlay lands on the same tone out of Primer's pair (`mechanics.md` §38).
+ * duration beside it is. The browser overlay lands on the same tone out of Primer's pair (`mechanics.md` M38).
  */
 .session-label {
   min-width: 0;
@@ -755,7 +751,7 @@ button.session:focus-visible > .destination {
 /*
  * How far the pass of light travels from the name's own colour. It cannot be derived: the peak is the end of the
  * range the theme runs to, and that is white in one and black in the other, so it is set off VS Code's own theme-kind
- * body class (`mechanics.md` §36). Flat where no class was stamped, which is legible rather than invisible.
+ * body class (`mechanics.md` M36). Flat where no class was stamped, which is legible rather than invisible.
  */
 .session[data-phase='running'] .session-label {
   --gc-peak: var(--vscode-foreground);
@@ -948,7 +944,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 }
 
 /*
- * GitHub's own label, measured on a live card (`mechanics.md` §37): 20px tall, 8px of side padding, the colour at
+ * GitHub's own label, measured on a live card (`mechanics.md` M37): 20px tall, 8px of side padding, the colour at
  * full strength on 18% of it, edged with 30%. The height is set by the line box rather than left to the font's
  * metrics, so a chip that is a button does not stand taller than one that is a span.
  */
@@ -983,11 +979,8 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 }
 
 /*
- * A chip that is a reference or a reading rather than a claim on the developer: unfilled, muted words, a neutral
- * edge. GitHub's own pull-request chip is drawn this way and so is the browser overlay's own reading, and the reason
- * is R6 — colour here means the two things that want the developer, which is why the marks beside these keep theirs.
- * The pull request's glyph is the one part of any of them carrying a colour, and it says which state the branch is
- * in. Declared after the link rule above, whose hover would otherwise paint one of these on the way to a click.
+ * Use neutral outlines for reference and triage chips; attention colors belong to R6 indicators. Only the PR
+ * glyph uses its state color. Keep this after the link hover rule so hover does not fill the chip.
  */
 .badge.pull-request,
 .badge.triage,
@@ -1070,10 +1063,8 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 }
 
 /*
- * The chip holds its own control, so the words are a label again rather than a button: reading a card costs the
- * developer's usage, and that is not what should happen to anyone who clicked the chip to see the sentence behind it.
- * The control and the age stand in one another's place, stacked in one cell so the chip is the width it was either
- * way. A lane is a list to read, not a row of buttons, so the age is what a card at rest carries.
+ * Keep the triage label separate from its paid refresh control. Stack age and refresh in one grid cell to
+ * preserve width, showing age when the chip is inactive.
  */
 .badge.triage {
   padding-inline-end: 0.25rem;
@@ -1170,7 +1161,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 
 /*
  * The board's own tooltip, in place of the browser's: `title` opens after about a second, in the operating system's
- * shape rather than the editor's. Geometry is GitHub's own, measured off a live board (`docs/mechanics.md` §35) so
+ * shape rather than the editor's. Geometry is GitHub's own, measured off a live board (`docs/mechanics.md` M35) so
  * the two boards read the same; the colours are the editor's hover widget, because a tooltip that ignored the
  * user's theme would be the one thing on this board that did.
  */

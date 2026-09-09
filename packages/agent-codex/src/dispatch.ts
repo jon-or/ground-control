@@ -22,12 +22,9 @@ export type StartProcess = (
 ) => Promise<StartedProcess>;
 
 /**
- * How the board's permission modes reach Codex, which has two controls where Claude has one: a sandbox, and whether
- * an approval is asked for. The vocabulary is Claude's, because it is the board's — an adapter translates it.
- *
- * The three modes that need a human are refused rather than translated. `codex exec` has nobody to ask: an approval
- * it would raise is denied outright, so a run under `manual` starts, fails its first tool, and reports work it never
- * did (R15, R31). Refusing names the setting the developer would have to change.
+ * Translate shared permission modes into Codex sandbox and approval settings. Refuse manual, auto, and
+ * acceptEdits because unattended codex exec cannot obtain the approvals those modes require. Supported
+ * mappings are explicit below (R31).
  */
 export function sandboxArgs(permissionMode: string): string[] | null {
   switch (permissionMode) {
@@ -36,7 +33,7 @@ export function sandboxArgs(permissionMode: string): string[] | null {
       return ['--sandbox', 'read-only', '-c', 'approval_policy="never"'];
 
     // `workspace-write` blocks outbound sockets, so a merge action under it cannot push — measured on Windows at
-    // 0.153.4, where a connect inside the sandbox fails `EACCES` until `network_access` is set (§46).
+    // 0.153.4, where a connect inside the sandbox fails `EACCES` until `network_access` is set (M46).
     case 'dontAsk':
       return [
         '--sandbox',
@@ -56,12 +53,9 @@ export function sandboxArgs(permissionMode: string): string[] | null {
 }
 
 /**
- * What a dispatched run is spawned with. `--json` is what makes the thread's own id readable (`docs/mechanics.md`
- * §39); `--skip-git-repo-check` is not passed, because the checkout a card names is a checkout.
- *
- * `--` ends the flags. Without it a prompt opening with `review`, `resume`, `fork` or `help` is read as one of
- * `codex exec`'s own subcommands and the run refuses its own arguments — and "Review this diff…" is exactly how a
- * review action's prompt begins. A prompt of `-` alone would make it read the work from stdin.
+ * Request JSON output to identify the thread and retain Codex's repository check. Use -- to prevent prompts
+ * beginning with review, resume, fork, or help from selecting a subcommand. A lone '-' remains Codex's stdin
+ * sentinel and requires separate handling.
  */
 export function dispatchArgs(input: DispatchInput, sandbox: readonly string[]): string[] {
   return [
@@ -92,7 +86,7 @@ function failure(kind: string, message: string, remedy: string): ReadFailure {
  * Starts one piece of work in a checkout and answers with the thread id Codex minted, which it prints before the
  * work begins. Never throws: a dispatch that did not start is a named failure (R24).
  *
- * The run is headless, and it is on the board because its hooks write a marker like any other session (§40) — a
+ * The run is headless, and it is on the board because its hooks write a marker like any other session (M40) — a
  * process editing the developer's code with nothing on screen saying so is what R2 exists to prevent.
  */
 export function makeCodexDispatcher(start: StartProcess, remember: (threadId: string, pid: number | null) => void = () => {}) {
@@ -143,8 +137,8 @@ export function makeCodexDispatcher(start: StartProcess, remember: (threadId: st
       };
     }
 
-    // The pid of the process the board itself started, remembered before any marker exists: a run whose hooks are
-    // not installed or not trusted (§41) writes no marker at all, and one nobody can stop must not be offered (R15).
+    // Remember the spawn PID before hooks produce a marker so this adapter can stop the action even without
+    // installed or trusted hooks (R39, mechanics M41).
     remember(id, started.pid);
 
     return { shortId: id };

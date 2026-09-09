@@ -3,14 +3,9 @@
  * qualifier, so the board can say how many assigned issues the filter excluded rather than hiding them.
  */
 /**
- * What both issue reads select. Shared verbatim, because `toCard` maps one shape: a field the by-number read stopped
- * asking for would be a card that quietly lost its status the moment nobody was assigned to it.
- *
- * `closedByPullRequestsReferences` is how a card finds its pull request at all — an issue node carries no other link
- * to one. Five of them, because `selectPullRequest` returns exactly one and GraphQL bills the nodes asked for, not
- * the nodes returned: the `commits` selection inside costs 8 points at `first:5` and 103 at `first:100`
- * (`docs/mechanics.md` §48). `statusCheckRollup` is there so a build going red moves the card's evidence, which is
- * the one change a card can undergo that nothing else here reports (R24).
+ * Share issue fields between assigned and by-number reads so cards retain the same metadata. Fetch five
+ * closing PR references to bound GraphQL cost (mechanics M48). Include statusCheckRollup so failing checks
+ * change triage evidence.
  */
 const ISSUE_FIELDS = `
   number title url state updatedAt
@@ -51,20 +46,10 @@ query($owner:String!, $name:String!, $number:Int!){
 }`;
 
 /**
- * One card's conversation, for triage (`prd.md` R38). The issue and the one pull request the card is showing are asked
- * for together because they are one question — what is this card asking for — and two round trips would double the
- * cost of a cold start. `statusCheckRollup` and `reviewThreads` need no preview header
- * (`docs/mechanics.md` §31); `reviews` and `reviewRequests` are what tell a first review round from a later one, and
- * a colleague's pull request awaiting the developer from their own. The `profile` fragment resolves to nothing on
- * a bot — `claude` and `github-actions` are not `User` — so those keep the login the board already had.
- *
- * `timelineItems` is what says when the card became what it is: on this team's board a status names the work and the
- * assignee names who does it, so a move with no comment on it is still an instruction (`docs/mechanics.md` §32).
- *
- * `defaultBranchRef` and `baseRefName` are what decide whether keeping a branch current is one merge or a chain, and
- * `oid` is the head commit a run's evidence carries, which is what authorises one run per push (R39). GitHub's own
- * mergeability is not asked for: a merge is something somebody requests, and whether one happened is the run's own
- * report, so nothing on this board is decided by it.
+ * Fetch issue and selected-PR context together for triage. Timeline events identify status and assignment
+ * instructions (mechanics M32); reviews and requests determine ownership and review round. User profile fields
+ * do not resolve for bots. Default/base branches and head OID support fresh action authorization; mergeability
+ * does not establish a merge request (R39).
  */
 export const CARD_CONTEXT_QUERY = `
 query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){

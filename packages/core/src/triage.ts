@@ -1,7 +1,6 @@
 /**
- * What a card is asking the developer to do next, decided once when the card arrives (`prd.md` R38). All but
- * `fix-checks` are a judgement about what people wrote; that one is a fact about a pull request, and the hub decides
- * it itself rather than leaving it to a classifier (R23 — evidence over an agent's word).
+ * Supported next-action labels (R38). Status mappings and PR check state can determine an action before
+ * classification; conversation interpretation handles the remaining cases.
  */
 export const TRIAGE_ACTIONS = [
   'develop',
@@ -69,12 +68,8 @@ export interface TriageState {
 export const EMPTY_TRIAGE: TriageState = { entries: {}, failures: {} };
 
 /**
- * What a client draws. `running`, `done` and `failed` read differently on a card: work in flight, an answer that was
- * true when it was given, and a card the board could not read.
- *
- * `failed` carries no words of its own — what went wrong is one deduplicated line above the lanes, since fifteen
- * cards failing one cause is one condition (R25). What it carries is somewhere for the developer to click: without
- * it, the cards that most need reading again are the only ones with nothing to press.
+ * Expose running, completed, and failed triage states. Failed cards retain a retry control; the explanation is
+ * deduplicated above the board rather than repeated on every card (R25).
  */
 export type CardTriage =
   | { state: 'running' }
@@ -116,13 +111,9 @@ export interface TriageThread {
 }
 
 /**
- * The pull request the card is showing — the same one `selectPullRequest` chose, never a second answer to the same
- * question. GitHub's own mergeability is not read: whether a branch needs merging is what somebody asked for, and
- * whether a merge happened is what the run itself reported (`prd.md` R39).
- *
- * `reviewDecision` is not read either, and is not shown to the classifier. It lags what the team actually decided —
- * a pull request sits at `REVIEW_REQUIRED` on work approved days ago by moving the status — so it reads as an
- * outstanding review that is not outstanding. `reviews` and the status are what the round is judged from instead.
+ * Use the PR selected for the card. Exclude mergeability because merge requests come from instructions, and
+ * exclude reviewDecision because it can lag status-based handovers. Reviews and status determine review
+ * rounds; action completion is session-reported (R39).
  */
 export interface TriagePullRequest {
   number: number;

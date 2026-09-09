@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DispatchInput, ExecOptions, TextOutcome } from '@ground-control/core';
 import { dispatchArgs, makeClaudeDispatcher, makeClaudeStopper, shortIdFrom } from '../src/dispatch.js';
 
-/** What `--bg` actually prints, measured in `docs/mechanics.md` §33. The help lines are part of it. */
+/** What `--bg` actually prints, measured in `docs/mechanics.md` M33. The help lines are part of it. */
 const BACKGROUNDED = [
   'backgrounded · 46af2ac8 · ground-control · merge-upstream · #17198',
   '  claude agents             list sessions',
@@ -73,7 +73,7 @@ describe('the flags a dispatched session runs under', () => {
     expect(dispatchArgs(input())).not.toContain('--model');
   });
 
-  /** `--bg` warns and ignores one, minting its own (§33), so passing it would be a flag that reads as a promise. */
+  /** `--bg` warns and ignores one, minting its own (M33), so passing it would be a flag that reads as a promise. */
   it('never asks for a session id, because the CLI will not take one', () => {
     expect(dispatchArgs(input())).not.toContain('--session-id');
   });
@@ -82,7 +82,7 @@ describe('the flags a dispatched session runs under', () => {
     expect(dispatchArgs(input({ permissionMode: 'bypassPermissions' }))[2]).toBe('bypassPermissions');
   });
 
-  /** Without it every Edit and Write a run makes in a main checkout is refused, and a conflicted merge is edits (§33). */
+  /** Without it every Edit and Write a run makes in a main checkout is refused, and a conflicted merge is edits (M33). */
   it('turns off the background-isolation guard, whatever else it was given', () => {
     const args = dispatchArgs(input({ permissionMode: 'bypassPermissions', model: 'claude-sonnet-5' }));
 
@@ -150,7 +150,7 @@ describe('dispatching', () => {
 });
 
 describe('stopping a dispatched session', () => {
-  /** `claude rm` deletes the session "and its worktree when that is safe", and the checkout holds real work (§33). */
+  /** `claude rm` deletes the session "and its worktree when that is safe", and the checkout holds real work (M33). */
   it('stops it by short id, and never removes it', async () => {
     const { calls, run } = runner({ ok: true, text: 'stopped 46af2ac8\n' });
 

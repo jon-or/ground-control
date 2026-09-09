@@ -7,7 +7,7 @@ import { PLACEMENTS, handOverUri, resumeRefusal, stagedUpdate, stagedUpdateRefus
 import type { AgentPlacement, CommandArg } from '@ground-control/host-vscode';
 import { spawnEnvironment } from '@ground-control/hub';
 
-/** How a session's own agent is reached here. An agent with no row is one this host was never taught (§43). */
+/** How a session's own agent is reached here. An agent with no row is one this host was never taught (M43). */
 function placementOf(agent: string): AgentPlacement | null {
   return PLACEMENTS[agent] ?? null;
 }
@@ -15,7 +15,7 @@ const VERIFY_TIMEOUT_MS = 2500;
 const POLL_MS = 250;
 const FOCUS_POLL_MS = 50;
 const ACTIVATE_TIMEOUT_MS = 10_000;
-/** How long to wait for another window to come forward — a cold one took 3.2 s when measured (`docs/mechanics.md` §8). */
+/** How long to wait for another window to come forward — a cold one took 3.2 s when measured (`docs/mechanics.md` M8). */
 const FOCUS_TIMEOUT_MS = 12_000;
 const LANDING_TIMEOUT_MS = 20_000;
 /** Each pass is a full roster read, so this is paced to cost a handful of them rather than one every quarter second. */
@@ -34,7 +34,7 @@ function delay(ms: number): Promise<void> {
 
 /**
  * Use this editor's CLI directly: a saved directory is an argument, never shell source. The environment is the hub's
- * sanitized one — `VSCODE_NLS_CONFIG` and `VSCODE_CODE_CACHE_PATH` name the build this window runs, and `cli.js` hands whatever it was given to the editor it launches (§49).
+ * sanitized one — `VSCODE_NLS_CONFIG` and `VSCODE_CODE_CACHE_PATH` name the build this window runs, and `cli.js` hands whatever it was given to the editor it launches (M49).
  */
 function runCode(args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
@@ -112,7 +112,7 @@ export async function agentExtensionReady(agent = 'claude'): Promise<boolean> {
 }
 
 /**
- * This window's own root, chosen the way a recorded one is (§21): its workspace file where it has one, else its first
+ * This window's own root, chosen the way a recorded one is (M21): its workspace file where it has one, else its first
  * folder. A multi-root window's folder equals no recorded root, so that alone would place every session elsewhere.
  */
 export function boardRoot(): string | null {
@@ -124,7 +124,7 @@ export function boardRoot(): string | null {
 /** Launches a root's window, or says why it was not launched. Coming forward is `focusLeft`, and takes seconds. */
 async function raise(root: string, newWindow = false): Promise<string | null> {
   // A staged update swaps the executable under windows still running the old build, and the two then look for
-  // different pipes: the launch would start a second editor and restore every window into it (§49).
+  // different pipes: the launch would start a second editor and restore every window into it (M49).
   const staged = stagedUpdate(process.execPath, vscode.env.appRoot);
 
   if (staged !== null) {
@@ -168,7 +168,7 @@ function commandArg(arg: CommandArg): unknown {
 
 /**
  * Reveals a session in this window. The call is the agent's own: Claude takes a session id, and Codex takes the
- * resource URI its extension registered a custom editor for — the same call that extension makes on itself (§44).
+ * resource URI its extension registered a custom editor for — the same call that extension makes on itself (M44).
  */
 async function revealHere(session: { agent: string; sessionId: string }): Promise<string | null> {
   const placement = placementOf(session.agent);
@@ -193,7 +193,7 @@ async function revealHere(session: { agent: string; sessionId: string }): Promis
 
 /**
  * Watches, after the fact, for the session to appear where it was aimed. Not awaited: the developer has already been
- * taken to the window, and the only thing worth interrupting them for is a fire that missed (`docs/mechanics.md` §7).
+ * taken to the window, and the only thing worth interrupting them for is a fire that missed (`docs/mechanics.md` M7).
  */
 async function confirmLanding(roster: Roster, root: string, before: readonly Session[], expectedSessionId?: string): Promise<void> {
   for (let waited = 0; waited < LANDING_TIMEOUT_MS; waited += LANDING_POLL_MS) {
@@ -226,7 +226,7 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
 
 /**
  * Reveals a session whose tab is in another window. The URI reaches whichever window has focus and nothing else
- * (`docs/mechanics.md` §7), so focus is taken first, deliberately, and the fire is checked afterwards.
+ * (`docs/mechanics.md` M7), so focus is taken first, deliberately, and the fire is checked afterwards.
  */
 async function revealElsewhere(roster: Roster, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean }): Promise<string | null> {
   if (resume && Date.now() >= resume.expiresAt) return 'This resume request expired. Refresh the board and try again.';
@@ -253,7 +253,7 @@ async function revealElsewhere(roster: Roster, session: Session | HistoricalSess
   }
 
   // The agent's own URI where it answers one, and the board's own where it does not: a raised window runs Ground
-  // Control too, so it can be handed the session and reveal it itself (`docs/mechanics.md` §45).
+  // Control too, so it can be handed the session and reveal it itself (`docs/mechanics.md` M45).
   const fired = await runCode(['--open-url', placement.openUri?.(session.sessionId) ?? handOverUri(session.sessionId, session.agent)]);
 
   if (fired !== null) {
@@ -270,12 +270,8 @@ async function revealElsewhere(roster: Roster, session: Session | HistoricalSess
 }
 
 /**
- * Carries out one route in this window, returning what to tell the developer when it did not land. Every route the
- * host can plan is one only a client inside the host can perform: each fires a URI or a command, and both follow
- * focus (`docs/mechanics.md` §7, §8), which a headless process has no way to confirm.
- *
- * The switch is exhaustive on purpose: a route added to the plan and not handled here fails the typecheck rather
- * than falling through to another.
+ * Execute a planned route in this extension host and return any user-visible failure. In-process commands
+ * target this window; external URIs depend on focus (mechanics M7, M8). Keep the route switch exhaustive.
  */
 export async function performRoute(plan: OpenRoute, roster: Roster): Promise<string | null> {
   switch (plan.route) {
@@ -307,7 +303,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       }
 
       // Said out loud because the sidebar shows one session and the record of which is up to a minute old: the view
-      // that comes forward may be showing different work than the row that was clicked (`docs/mechanics.md` §21).
+      // that comes forward may be showing different work than the row that was clicked (`docs/mechanics.md` M21).
       void vscode.window.showInformationMessage(
         `The ${plan.session.agent} sidebar should be showing ${sessionLabel(plan.session)}.`,
       );
@@ -320,7 +316,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       if (raised !== null) return raised;
 
       // Nothing else is safe: the sidebar has no reveal-by-id, and opening a panel for a session it already holds is
-      // a second process on one transcript (`docs/mechanics.md` §11).
+      // a second process on one transcript (`docs/mechanics.md` M11).
       void vscode.window.showInformationMessage(
         `${sessionLabel(plan.session)} is in the ${plan.session.agent} sidebar of the window on ${plan.root}.`,
       );
@@ -359,7 +355,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
 /**
  * Starts a new session in this window. The workspace is re-read because the hub planned this against a hello that
  * may be a folder change old, and the agent takes its directory from this window rather than from anything the
- * board hands it (`docs/mechanics.md` §51) — so a stale plan would start the session in the wrong checkout.
+ * board hands it (`docs/mechanics.md` M51) — so a stale plan would start the session in the wrong checkout.
  */
 async function startHere(agent: string, root: string, prompt: string | null): Promise<string | null> {
   const placement = placementOf(agent);
@@ -410,7 +406,7 @@ const opening = new Set<string>();
 /**
  * Carries out a route the hub planned, and says what went wrong when it did not land. One at a time per session,
  * or per card where a route has no session: a second fire at a tab already on its way is a second agent on one
- * transcript (`docs/mechanics.md` §11), and a second `code` on one checkout is a second window.
+ * transcript (`docs/mechanics.md` M11), and a second `code` on one checkout is a second window.
  */
 export async function perform(route: OpenRoute, roster: Roster): Promise<void> {
   const held = routeKey(route);

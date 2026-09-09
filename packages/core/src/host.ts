@@ -54,17 +54,12 @@ export type OpenRoute =
   // session id to hold it by and one is what stops a second click (R18).
   | { route: 'open-checkout'; key: string; root: string; newWindow: boolean }
   // A new session for the card, in the window performing this and no other: nothing can name a session that does
-  // not exist yet, so there is no way to hand one to another window (`docs/mechanics.md` §51). Keyed by the card.
+  // not exist yet, so there is no way to hand one to another window (`docs/mechanics.md` M51). Keyed by the card.
   | { route: 'start-session'; key: string; agent: string; root: string; prompt: string | null };
 
 /**
- * What a route is held by while it is in flight. A second fire at a tab already on its way is a second agent on one
- * transcript (`mechanics.md` §11), and a second `code` on one checkout is a second window — so both are dropped, by
- * the session where a route has one and by the card where it does not.
- *
- * A card is not enough on its own: two verbs are keyed by card, and a start names an agent besides. Holding by the
- * card alone would make opening a card's window swallow the click that starts a session in it, and one agent's
- * start swallow the other's — a click that does nothing and says nothing.
+ * Deduplicate in-flight session routes by session ID. Checkout routes use operation and card; starts also
+ * include agent. Distinct operations and agents must not suppress one another's requests.
  */
 export function routeKey(route: OpenRoute): string {
   if (!('key' in route)) {
@@ -96,7 +91,7 @@ export interface StartRequest {
   key: string;
   agent: string;
   root: string;
-  /** What the new session is prefilled with, or null for a bare one. Never sent — the developer sends it (R16). */
+  /** Unsent prompt for a new session, or null for a bare session (R42). */
   prompt: string | null;
   /** The board window's own root. A start runs here or nowhere, so this is what decides the whole route. */
   workspaceRoot: string | null;
@@ -115,10 +110,10 @@ export interface OpenRequest {
   sessions: readonly Session[];
   /** Saved metadata re-read and validated by the agent on this click. A live session of the same id takes precedence. */
   historicalSession?: HistoricalSession;
-  /** Which surface holds each session, from every window's own persisted state (`docs/mechanics.md` §21). */
+  /** Which surface holds each session, from every window's own persisted state (`docs/mechanics.md` M21). */
   surfaces: readonly SessionSurface[];
   /**
-   * The window holding this session's own process, from the parent-process join (`docs/mechanics.md` §22). Exact
+   * The window holding this session's own process, from the parent-process join (`docs/mechanics.md` M22). Exact
    * where it answers, and null where the parent is not a window's extension host — then the record is all there is.
    */
   window: HostWindow | null;
@@ -133,7 +128,7 @@ export interface OpenRequest {
   /**
    * Whether the board raised this window and handed it the session, rather than a developer clicking a link. A
    * hand-over is revealed by the window that received it or refused there: routing one onward is how two windows
-   * pass a session back and forth, because the surface record a plan reads can be a minute old (§44, §45).
+   * pass a session back and forth, because the surface record a plan reads can be a minute old (M44, M45).
    */
   handedOver?: boolean;
   /** Epoch milliseconds, which is what a session's age is measured against. */

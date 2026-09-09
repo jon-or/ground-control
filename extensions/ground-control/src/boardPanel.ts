@@ -309,13 +309,8 @@ export class BoardPanel {
   }
 
   /**
-   * A board that never reports drawing is a board whose script never ran — a content policy that rejected it, or a
-   * bundle that is not there. Nothing else notices: the panel is open, the tab is titled, and the developer is
-   * looking at the loading line with no reason given (R25).
-   *
-   * Only while the tab is visible, and only once. A hidden board never loads its script at all
-   * (`retainContextWhenHidden` is false), so a timer armed on a board the developer tabbed away from would call a
-   * working board broken.
+   * Report a missing drew acknowledgement once while the panel is visible (R25). With retainContextWhenHidden
+   * disabled, a hidden webview may not run its script; do not time out hidden panels.
    */
   #watchForBlank(): void {
     if (this.#blankTimer !== undefined || this.#drew !== null || !this.#panel.visible) {

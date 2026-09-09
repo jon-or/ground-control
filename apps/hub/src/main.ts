@@ -89,7 +89,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
   process.stdout.write(`Ground Control hub listening on 127.0.0.1:${result.served.port}.\n`);
 
-  // Neither reaches a process without a console on Windows (mechanics §25); they are here for a foreground run.
+  // Neither reaches a process without a console on Windows (mechanics M25); they are here for a foreground run.
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => void result.served.stop(`received ${signal}`).then(() => process.exit(0)));
   }

@@ -5,8 +5,8 @@ import type { LogEntry } from './log.js';
 import type { ReadFailure } from './types.js';
 
 /**
- * The shape of everything below. An integer, bumped only when a client that speaks the old number would misread the
- * new one — a patch release never restarts a running hub.
+ * Client protocol version. Increment for incompatible message changes. Bundle replacement has a separate
+ * freshness check and can restart the hub without a protocol change.
  */
 export const PROTOCOL = 1;
 
@@ -70,13 +70,12 @@ export type ClientMessage =
   // `extensionReady` rides on the open rather than on the hello: an editor extension activating is something that
   // happens while a board is up, and a board that connected before it finished would plan every open without it.
   // `handedOver` says the board raised this window and passed it the session, rather than a developer clicking a
-  // link. The hub plans it as it plans any other open, and refuses to send it on to a third window (§45).
+  // link. The hub plans it as it plans any other open, and refuses to send it on to a third window (M45).
   | { type: 'open'; sessionId: string; extensionReady: boolean; handedOver?: boolean }
-  // The one message that spends money, so the hub checks the key names a card on the board and holds a cooldown
-  // rather than taking it on trust the way every other, idempotent, message is taken.
+  // Paid classification: validate the card key and rate-limit repeated requests.
   | { type: 'retriage'; key: string }
-  // The developer asking for a card's action by hand. It runs every gate a dispatch the board made itself runs, and
-  // the ceilings too — what it skips is the setting, because the click is the opt-in for this one card (R32).
+  // Manual action request. Bypasses automatic enablement/history, retaining safety and concurrency checks.
+  // Positive daily limits apply; zero disables automatic starts only (R32, R39).
   | { type: 'runAction'; key: string }
   // Taking back a run in flight. Never a lane change and never a refusal of the card, only the session it started.
   | { type: 'stopAction'; key: string }
@@ -113,7 +112,7 @@ export type SnapshotMessage = { type: 'board' } & Snapshot;
 export type BoardMessage =
   | { type: 'loading' }
   // Whether the hub's log is arriving. The panel's to say, because the control's state cannot be read off the
-  // editor's output panel (`mechanics.md` §34) and a board reopened has to be told rather than remember.
+  // editor's output panel (`mechanics.md` M34) and a board reopened has to be told rather than remember.
   | { type: 'logs'; streaming: boolean }
   // The standing Archived choice, which the extension holds: a webview's own state dies with the tab it was in.
   | { type: 'showArchived'; shown: boolean }

@@ -138,7 +138,7 @@ describe('what this window pushes to the hub', () => {
   /**
    * R34 for the one setting a developer has to write by hand. `update` refuses a key the schema does not declare,
    * so this fails the moment the pair stops being two flat settings the settings editor can render — which is the
-   * whole of what makes them editable anywhere but settings.json (`docs/mechanics.md` §50).
+   * whole of what makes them editable anywhere but settings.json (`docs/mechanics.md` M50).
    */
   it('carries the merge-upstream action from the two keys the settings editor writes', async () => {
     const prompt = '/or-merge {base} {branch} {issue} --single';

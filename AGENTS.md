@@ -1,172 +1,103 @@
 # Ground Control
 
-A VS Code extension and a browser overlay, over one background process: one board for the GitHub issues you own and the Claude Code sessions running on your machine.
+A VS Code board and Chrome overlay for assigned GitHub issues and local Claude Code and Codex sessions. Both use one background hub. Installation and usage are in [README.md](README.md).
 
-## Planning Artifacts
+## Workflow
 
-Source-of-truth planning docs live in [docs/](docs/). Read the relevant one before making decisions it covers:
+1. Read the relevant docs and implementation. Write a plan, including verification, before coding.
+2. Implement the change and update affected docs in the same task. Test new behavior according to [testing.md](docs/testing.md).
+3. Use subagents to review features before committing. Cover requirements, correctness, regressions, and UI behavior where applicable.
+4. Complete the required checks. For executable changes to the installed extension or its bundled packages, [rebuild and reinstall](#reinstalling-after-a-change).
+5. Commit each self-contained story or task after review, verification, and user acceptance.
 
-| Document | When to consult | What gets written back to it |
-| --- | --- | --- |
-| [prd.md](docs/prd.md) | User-facing requirements (R-numbers), scope, audience | Every decision made about a feature — what it does, what it refuses, what is out of scope |
-| [architecture.md](docs/architecture.md) | How the pieces fit — the hub, the agent/host/source seams, the client protocol, package boundaries, and the stance the design leans on | Any decision about where logic lives, a new seam, a change to the protocol, and the results of higher-level thinking we do together |
-| [mechanics.md](docs/mechanics.md) | Verified mechanisms — CLI flags, session files, extension APIs, with the date each was measured | Any mechanism that changed, and anything newly measured, with the date it was measured |
-| [testing.md](docs/testing.md) | The gate every commit passes, what earns a test, fixture rules | Testing guidance that emerged from implementation — a layer that turned out testable, a class of bug tests missed |
+Continue until the task is complete or blocked. Ask for clarification when required intent is unresolved, credentials are missing, the work would deviate from the PRD, or verification is inadequate.
 
-If a request touches requirements, scope, or a mechanism, open the matching doc first — don't guess from code alone. `mechanics.md` records only what was measured on this machine; anything marked **version-fragile** is re-verified after a Claude Code or VS Code extension upgrade.
+## Documentation
 
-### Keeping them current
+Read and update the document responsible for the decision:
 
-The docs are updated as part of the work that changed them, in the same commit — not in a documentation pass afterwards.
+| Document | Owns |
+|---|---|
+| [prd.md](docs/prd.md) | Product behavior, scope, requirements (R IDs), and implementation gaps |
+| [architecture.md](docs/architecture.md) | Component responsibilities, dependencies, state, and protocols |
+| [mechanics.md](docs/mechanics.md) | Dated experiments and source inspections, versions, limitations, and current use (M IDs) |
+| [testing.md](docs/testing.md) | Required checks, test layers, fixture rules, and isolation |
 
-**Rework in place; never append.** A decision that supersedes an earlier one replaces the paragraph that held it.
+Replace superseded text in place. Record the decision and its constraint; omit discussion history, discarded proposals, and changelog prose. Distinguish current implementation, future requirements, and experimental evidence. An experiment does not imply product support. Re-verify version-fragile mechanisms after upgrading the relevant CLI or editor extension.
 
-**No transitional language.** The doc describes the system as it is now. Never "this used to read the CLI directly, and now goes through a provider", never "as of the sessions work", never a changelog entry. Git holds the history; the doc holds the present.
+## Code and package boundaries
 
-**Write the decision, not the discussion.** What we settled on and the constraint that decided it. Options considered and discarded stay out.
+- Keep the VS Code board/extension and GitHub Chrome extension feature-equivalent wherever their platforms and permissions allow. Assess both clients for every user-facing change and update shared behavior in the same task. Adapt controls to each host while keeping capabilities, displayed state, and terminology consistent. Document intentional differences and their reasons in the PRD, and verify shared behavior in both clients under the [parity rules](docs/testing.md#client-parity-and-presentation).
+- Keep business decisions in `packages/*`. Neither packages nor `apps/hub` may import `vscode`; extension-host API calls belong in `extensions/ground-control`.
+- Agent packages must not import another agent or host package. Core defines neutral contracts and must not depend on adapters.
+- The VS Code webview and Chrome overlay use JavaScript with their own test harnesses. Chrome APIs are provided by the extension runtime.
+- Consult the [component table](docs/architecture.md#components-and-dependencies) for package responsibilities. `extensions/seize-probe` is an unshipped experiment, outside npm workspaces.
+- Root `package.json` lists workspaces in build order. Run `npm install` after changing the list.
+- Prefer existing tools before building substantial replacements. Refactor affected code when necessary; remove dead code, unused imports, and commented-out implementations.
+- Use direct names and simple implementations. Comments should explain non-obvious constraints or behavior, without boilerplate, metaphors, personification, or change history.
+- Validate external data at runtime. The project uses Zod schemas and explicit readers for external formats.
 
-## Development Methodology
+The stack is TypeScript 5.9 with strict checking, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, ES2022, NodeNext modules, and project references. npm workspaces require Node >= 20. Vitest provides tests and coverage; esbuild bundles the extension and vsce packages it. External integrations use `gh`, `claude`, `codex`, and local agent/editor files.
 
-- Plan first. Read the PRD, architecture, mechanics, and existing code, then write a plan that includes how you will verify the change — before coding.
-- All new functionality is verified by tests. `docs/testing.md` is the contract; it decides what earns a test and what does not.
-- After developing a feature, use subagents to review it before committing. Where appropriate, run several from different angles (spec adherence, regression, correctness, UX).
-- Exercise UI-visible changes in a real VS Code before calling them done: `npm run test:integration` runs the extension in one. A one-off check is a scratch test under `extensions/ground-control/test-integration/`, run and then deleted — never a request that someone else click through it.
-- One commit per story or task. Commit when a self-contained task is complete, reviewed, verified, and accepted by the user.
-- **Finish by rebuilding and reinstalling the extension.** The board is the installed VSIX, which carries its own bundled hub and never reads this repo's `dist/` — so until it is repackaged and reinstalled, a green build puts nothing in front of the developer. Then tell them it is installed and takes effect when they reload the window; reloading is theirs, not yours. See [Reinstalling after a change](#reinstalling-after-a-change).
-- Once assigned work, continue until all tasks are complete or you hit a blocker. Raise to the user if you need credentials, clarification, better requirements, a deviation from the PRD, or you cannot adequately verify the change.
+## Verification
 
-### Commit messages
+[testing.md](docs/testing.md) is the full contract.
 
-`type(scope): summary`, and `(fixes #123)` on that same line when the commit closes an issue.
+- Run `npm run verify` for executable changes: build, typecheck, tests, and coverage thresholds. The pre-commit hook runs it for staged changes beyond Markdown/text files. Bypass the hook only for docs-only work or an explicit WIP commit on an unshared branch.
+- Run `npm run test:integration` for VS Code host wiring or UI-visible behavior. It uses a real extension host with isolated settings and home. Use scratch integration tests for one-off checks; remove them unless they provide lasting regression coverage. Verify behavior directly instead of asking the developer to click through it.
+- Choose the test layer by API dependencies. Package logic and webview DOM belong in Vitest; `vscode` wiring belongs in the real-host suite. Chrome integration uses headless Playwright with an isolated copy that excludes `nativeMessaging`.
+- Use recorded, scrubbed fixtures and injected homes. No external network traffic or developer services in tests; test-owned loopback listeners are allowed.
+- Assert failures and refusals as well as success. Each assertion must detect a possible implementation defect.
+- Do not test decorative stylesheet values. Inspect presentation visually. Computed style is appropriate for behavioral visibility checks and effects on GitHub's existing DOM.
+- For documentation, check accuracy and links. For comment-only edits, also verify unchanged executable code, embedded scripts/styles, JSDoc types, and directives. Neither requires installation when behavior is unchanged.
 
-```
-feat(overlay): add a log sidebar
-fix(hub): stop queuing watchLog behind the restate (fixes #123)
-docs(architecture): record how the log viewer subscribes
-```
+Run commands from the repository root:
 
-- **type** — `feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`, `build`, etc.
-- **scope** — the area, not a file: `hub`, `board`, `overlay`, `core`, `github`, `transport`, `architecture`, etc.
-- **summary** — imperative, lower case, no full stop, under about 70 characters.
-
-**Name the thing.** Every summary and every bullet says which identifier changed and what changed about it — the module, function, class, setting, flag, file, message type or CLI argument, spelled as it appears in the code. Numbers are literal: `120s`, `64 kB`, `two at a time`. A summary that could describe three different commits is too vague, and an evocative phrase is never clearer than the identifier it stands in for.
-
-```
-BAD   fix(board): give a card the time a real one takes
-GOOD  fix(board): raise the triage timeout from 60s to 120s
-
-BAD   feat(board): show what each card is waiting on, on both boards
-GOOD  feat(board): render the triage action chip and sentence on both boards
-
-BAD   feat(hub): say what it is doing, and let a board ask to watch
-GOOD  feat(hub): add levelled logging and the watchLog subscription
-```
-
-The banned register is metaphor and personification: a card does not want anything, the hub does not say anything, nothing is put in front of anybody. Write what the code does.
-
-**The body is bullet points, never prose.** A trivial change is its summary alone. Anything larger gets two to five bullets, one line each, and only for what a reader cannot get from the diff: a measurement, an external constraint that forced the approach, or a defect the change fixes that the code does not make obvious.
-
-```
-fix(hub): read every response as bytes
-
-- setEncoding('utf8') hands the inspector's listener strings, which have no byteLength, so it throws once per chunk.
-- The stream decodes through a StringDecoder, which is what actually holds a multi-byte character split across two chunks.
-```
-
-Never a paragraph, never a review narrative, never a closing note that the gate passed. Reasoning lives in the code comments and in `docs/`; a commit message that retells them is one nobody reads.
-
-## Testing
-
-The full rules are in [docs/testing.md](docs/testing.md). The short version:
-
-- **`npm run verify` is the only definition of "the tree is good"** — typecheck + tests + coverage thresholds. A `pre-commit` hook runs it, and `npm run verify:full` adds the integration tests. Not a window that looked right, not a screenshot, not an agent reporting success.
-- `--no-verify` is legitimate exactly twice: a WIP commit on a branch nobody else reads, and a docs-only commit.
-- **Neither board's stylesheet is under test.** No test asserts a colour, a border, a weight, a tint or a font size out of `media/board.css` or the overlay's sheet — not by regex and not through `getComputedStyle`. Presentation is judged by looking at the board. `getComputedStyle` stays legitimate only for what the client does to a page it did not write, such as hiding GitHub's own avatar stack.
-- **No network in tests.** Fixtures in `packages/*/test/fixtures/`, recorded from real responses with `gh api graphql`, trimmed only by deleting whole nodes.
-- **Assert the refusal, not just the success.** A test that cannot fail is a bug — know what source change would break an assertion before you write it.
-- **Know which layer you are changing.** A webview script (`media/*.js`) imports nothing from `vscode`, so it belongs in vitest under jsdom. An `extensions/*/src/` file does import it, so it is reached by the integration tests in `extensions/ground-control/test-integration/` — mocha running inside a real extension host, against a temporary home. Decisions still belong in a `packages/*` module; what the integration layer proves is the wiring between them. Packaging gets the hard requirement that `vsce package --no-dependencies` succeeds — a development launch resolves workspace dependencies the packaged `.vsix` does not.
-- **The Chrome extension is driven by Playwright, headless, in the repo's own tests.** `chromium.launchPersistentContext` with `--disable-extensions-except=<dir>` and `--load-extension=<dir>` under `channel: 'chromium'` loads the unpacked extension; the content script runs and `context.serviceWorkers()` reaches the MV3 worker. What it loads is a copy with `nativeMessaging` stripped from the manifest — a native host is registered per user rather than per profile, so the directory itself would reach the developer's own bridge — and the shipped manifest is asserted separately. Both work with `headless: true`, so a run opens no window. Two things to know before writing one: `page.evaluate` runs in the page's main world where `chrome` is undefined, so drive messaging from the worker side; and the no-network rule holds — a content script's `matches` are the page's URL, so the test answers the github.com URL itself with `context.route(...)` and the recorded fixture, and nothing leaves the machine.
-
-## Code Quality
-
-- Follow best practices for TypeScript, Node, and the VS Code extension API.
-- Don't reinvent the wheel. Prefer existing tools; research before starting a significant build of something that likely exists.
-- Refactor as you go. If a feature reveals that existing code should change, change it — don't layer on top of bad foundations.
-- Delete dead code. No commented-out blocks, unused imports, or stale variables.
-- Prefer simple, direct solutions. Three clear lines beat a premature abstraction.
-- No AI slop: no boilerplate comments, no redundant docstrings, no filler error messages.
-- No transitional comments. Comments describe current behavior, concisely, and only where the behavior is genuinely non-obvious.
-
-## Tech Stack
-
-- **TypeScript 5.9**, strict, with `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. ES2022, `nodenext` modules, project references (`tsc -b`).
-- **npm workspaces**, Node >= 20.
-- **vitest** + `@vitest/coverage-v8`, per-package `vitest.config.ts` with its own coverage floor.
-- **zod** parses every external payload.
-- **esbuild** bundles the extension; **@vscode/vsce** packages it.
-- External data comes from two CLIs: **`gh`** for GitHub, **`claude`** for sessions.
-
-## Repo Structure
-
-| Directory | Purpose |
-| --- | --- |
-| `packages/core` | The seams every adapter implements (`AgentAdapter`, `HostAdapter`, `WorkSource`), the neutral `Session`, the lane and card types, the client protocol, and the helpers they share. Names no adapter. **Must not import `vscode`.** |
-| `packages/agent-claude` | The Claude Code agent adapter: `claude agents --json`, transcript titles, the activity hook. **Must not import `vscode`.** |
-| `packages/agent-codex` | The Codex agent adapter: the hook writer, the marker roster, the rollout history reader. **Must not import `vscode`.** |
-| `packages/host-vscode` | The VS Code host adapter's headless half: lock files, window stores, the placement table, the open plan, the changes fold. **Must not import `vscode`.** |
-| `packages/github` | The `github` work source: assigned issues read through the `gh` CLI. **Must not import `vscode`.** |
-| `packages/board` | Merges assigned issues and live sessions into board cards. **Must not import `vscode`.** |
-| `packages/automation` | Which cards the board may act on, what a run is authorised against, and what it remembers having run. **Must not import `vscode`.** |
-| `packages/hub` | The background process the boards are clients of, and how a client reaches it: the registries and defaults, the loop, activity install, the marker watcher, lane memory, the loopback server, and the client's own transport — finding or starting a hub, and the event stream it then rides. **Must not import `vscode`.** |
-| `apps/hub` | The hub as its own process: `ground-control-hub`, an argument parser over `packages/hub`, plus the machine half of its modes — the spawn, the native-messaging streams, and `reg.exe`. **Must not import `vscode`.** |
-| `extensions/ground-control` | The extension — activation, config, the webview board panel, and the client that starts the hub and talks to it. Carries the hub as `dist/hub.js`. Imports `vscode`. |
-| `extensions/chrome-github-board` | The browser overlay: an MV3 extension that paints the board onto GitHub's own project board. Plain JavaScript, no build step — Chrome loads the directory as it stands. Imports `chrome`. |
-| `extensions/seize-probe` | Probe extension that proves window-scoped command targeting for `docs/mechanics.md`. Not a workspace, not shipped. |
-
-That boundary is what makes the logic testable in vitest: a module importing `vscode` can only be verified by hand, so decisions belong in a `packages/*` module and the extension stays thin. One package per adapter is what makes the seams enforceable: `agent-claude` cannot reach `agent-codex` or `host-vscode`, and each carries its own coverage floor. Root `package.json` lists the workspaces in build order, and every script fans out in that order; run `npm install` after changing the list.
-
-## Essential Commands
-
-```bash
-npm run verify           # typecheck + test + coverage — the gate the hook runs
-npm run verify:full      # the gate plus the integration tests, in a real VS Code
-npm run test:integration # builds, then runs the extension in a real VS Code window
-npm run build            # tsc -b across packages, esbuild for the extension
-npm run watch            # incremental build while iterating
-npm test                 # vitest across workspaces
-npm run typecheck        # tsc -b plus each package's test tsconfig
-npm run hub              # run the hub in the foreground, after a build
-```
-
-`verify` is the pre-commit gate and stays fast and quiet. `verify:full` adds the integration run, which opens a real VS Code window for a few seconds — run it before committing anything the extension host touches, not on every save.
+| Command | Purpose |
+|---|---|
+| `npm run verify` | Build, typecheck, tests, coverage |
+| `npm run verify:full` | Verify plus VS Code integration tests |
+| `npm run test:integration` | Build and run VS Code integration tests |
+| `npm run build` | Build workspace packages and extension bundles |
+| `npm run watch` | Incremental builds |
+| `npm test` | Workspace tests with configured coverage |
+| `npm run typecheck` | Source and test typechecking |
 
 ### Reinstalling after a change
 
-The last step of every task touching the extension, the hub, or any `packages/*` they bundle. From the repo root:
+For executable changes to the VS Code extension, hub, or bundled packages:
 
 ```bash
 npm run build
-cd extensions/ground-control && npm run package && code --install-extension ground-control-0.0.0.vsix --force
+npm run package --workspace ground-control
+code --install-extension extensions/ground-control/ground-control-0.0.0.vsix --force
 ```
 
-`npm run package` has no `vscode:prepublish` hook, so `vsce` ships whatever is already in `dist/` — build first. Confirm by reading a phrase you changed back out of the **installed** bundle, since `dist/` being right is not the thing in doubt:
+Packaging must succeed with `vsce package --no-dependencies`; the workspace script includes that flag. It has no `vscode:prepublish` hook, so build first. A repository build alone does not update the installed VSIX.
 
-```bash
-node -e "console.log(require('fs').readFileSync(process.env.USERPROFILE+'/.vscode/extensions/groundcontrol.ground-control-0.0.0/dist/hub.js','utf8').includes('<phrase>'))"
+Verify the relevant installed bundle (`dist/hub.js` or `dist/extension.js`) contains the change. For example, replace the placeholder below with a changed, single-line ASCII string from the hub bundle:
+
+```javascript
+// Run with Node on Windows.
+const fs = require('node:fs');
+const file = process.env.USERPROFILE + '/.vscode/extensions/groundcontrol.ground-control-0.0.0/dist/hub.js';
+console.log(fs.readFileSync(file, 'utf8').includes('<changed ASCII text>'));
 ```
 
-Use an ASCII needle on one line: esbuild escapes non-ASCII, and a phrase spanning a line break is not a substring — either reports a false negative on a current bundle.
+Confirm installation and report that the developer can reload when ready. Do not reload their window. Activation copies the installed hub bundle to the shared home path and can replace an older running hub, including a foreground development process.
 
-The developer reloads the window when they choose; on activation the extension replaces the running hub with its own.
+## Commit messages
 
-## Running It
+Use `type(scope): summary`, adding `(fixes #123)` on the same line when closing an issue.
 
-`npm run test:integration` launches a VS Code of its own, loads the extension into it, and runs the tests in `extensions/ground-control/test-integration/` inside its extension host — against a temporary home, so it never touches the board you are using. That is how the extension is exercised.
+- Use a conventional type such as `feat`, `fix`, `docs`, `refactor`, `test`, or `chore`, and an area such as `hub`, `board`, or `architecture` as scope.
+- Write an imperative, lowercase summary under about 70 characters, without a final period.
+- Name the changed identifier and behavior. Use exact settings, flags, message types, and measurements. Avoid metaphors and personification.
+- A trivial change needs only the summary. Otherwise use two to five single-line bullets for non-obvious constraints, measurements, or defects. Omit diff narration, review history, and routine check results.
 
-The board's **Logs** button and **Ground Control: Toggle Hub Log** stream `hub.log` into an output channel as it is written, which is usually faster than opening the file — and **Ground Control: Show Board Log** carries what the extension itself is doing. Neither reads the hub until asked.
+```text
+fix(hub): decode streamed responses with StringDecoder
 
-`npm run hub` runs the hub as its own process against your real home. It prints the port; `~/.claude/ground-control/hub.json` carries the token, `config.json` the settings it last accepted from a client, and `hub.log` its own lines. `node apps/hub/dist/main.js --stop` stops it — there is no signal that will (`docs/mechanics.md` §25). `--home=<path>` points it at a home of its own, which is how to run one without touching your board's.
-
-The browser overlay is loaded by hand, because it is not on the Chrome Web Store. Run **Ground Control: Enable GitHub Overlay** in VS Code — that writes the native-messaging manifest and, on Windows, the `HKCU` key Chrome finds it by — then load `extensions/chrome-github-board` at `chrome://extensions` with Developer mode on. **Ground Control: Disable GitHub Overlay** undoes the registration, and uninstalling the extension does too. The overlay reaches the same hub the editor board does, through `hub.js --native-messaging`, which Chrome starts on demand.
-
-The extension does not use that copy. It writes the hub it carries to `~/.claude/ground-control/hub.js` on activation and starts that. A hub whose record predates the bundle on disk is stopped and replaced, so `npm run build` and a window reload are enough to put a rebuilt hub in front of a board; `node apps/hub/dist/main.js --stop` is still how you take one down by hand. That applies to a foreground `npm run hub` too — a build and a reload will stand it down for the bundle, so hold the rebuild while you are reading its output. The integration run starts a hub of its own against a temporary home and stops it on the way out; a run that crashes leaves one, which a later run's sweep takes once the home is an hour old.
+- The Node inspector requires byte chunks; setEncoding('utf8') supplies strings.
+- StringDecoder preserves multibyte characters split across chunks.
+```

@@ -83,11 +83,9 @@ export function disconnection(runtime) {
 export const LOG_LIMIT = 4000;
 
 /**
- * Which board tabs have a log sidebar open, and the lines to hand the next one that does. Here rather than in
- * `worker.js` because the two moments that decide whether the hub is read at all live here — the first sidebar
- * opening and the last one closing — and the worker is not a file vitest can reach.
- *
- * Keys are opaque; the worker passes its own ports.
+ * Track log subscribers and buffer lines for newly opened sidebars. Only the first subscriber and last
+ * unsubscribe change the hub subscription. Keys are opaque worker ports; state decisions remain testable
+ * outside worker.js.
  *
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @param {number} [limit]
@@ -120,10 +118,8 @@ export function makeLogSpool(limit = LOG_LIMIT) {
     },
 
     /**
-     * One tab's sidebar opening or closing. `tell` is what the hub has to be told, and it is only ever set on the
-     * first open and the last close: telling it again would have it backfill, and every other sidebar would show
-     * the tail of the file a second time. `backlog` is what this tab is handed instead, and it is handed over
-     * before the tab counts as watching, so a line the subscription itself writes arrives once rather than twice.
+     * Return a hub subscription change only for the first open or last close. Additional viewers receive the
+     * buffered backlog without requesting another hub backfill.
      *
      * @param {unknown} key
      * @param {boolean} wanted

@@ -195,7 +195,7 @@ describe('the checkout a card can be opened in', () => {
     expect(checkoutFor({ sessions: [session(), elsewhere], issue: issue() }, undefined, machine([WORKTREE, 'd:/work/repo']))?.only).toBe(false);
   });
 
-  // §23: a deleted directory something still holds keeps its name and refuses everything, and `code <it>` would
+  // M23: a deleted directory something still holds keeps its name and refuses everything, and `code <it>` would
   // open a window on nothing. A saved session is where this bites — the transcript outlives the worktree.
   it('is nothing where the directory a session recorded has gone', () => {
     expect(checkoutFor({ sessions: [], lastSession: historical, issue: issue() }, undefined, machine([]))).toBeNull();

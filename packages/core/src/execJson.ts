@@ -19,7 +19,7 @@ export type ExecOutcome = { ok: true; value: unknown } | ExecFailure;
 /**
  * How a call is run beyond its arguments. Every field is optional and the defaults are what a roster read has always
  * used, so a caller that wants none of it passes none. `stdin` is what keeps a long prompt off a command line
- * Windows caps at 32,767 characters (`docs/mechanics.md` §31), and `signal` is what lets a queued run be abandoned.
+ * Windows caps at 32,767 characters (`docs/mechanics.md` M31), and `signal` is what lets a queued run be abandoned.
  */
 export interface ExecOptions {
   timeoutMs?: number;
@@ -132,11 +132,11 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
       );
 
       // Abandoning a run has to reach the process, not just the promise: a classifier the board has stood down would
-      // otherwise go on spending until it answered nobody (`docs/mechanics.md` §31 — a `-p` session is killable only
+      // otherwise go on spending until it answered nobody (`docs/mechanics.md` M31 — a `-p` session is killable only
       // by pid). `once`, so a settled run leaves no listener on a signal the caller may reuse.
       options.signal?.addEventListener('abort', () => child.kill(), { once: true });
 
-      // The prompt is written rather than passed, because argv is capped and evidence is not (§31). A closed stdin
+      // The prompt is written rather than passed, because argv is capped and evidence is not (M31). A closed stdin
       // is what tells a CLI reading from it that the input is complete.
       if (options.stdin !== undefined) {
         // A child that dies before draining a long prompt makes this an EPIPE, which is an unhandled 'error' event
@@ -153,7 +153,7 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
 /**
  * Runs a CLI for whatever it prints. Never throws, and never through a shell: the path is developer configuration,
  * and a shell would let a crafted one run something else entirely — which on Windows also rewrites a leading `/` in
- * an argument into a filesystem path, silently turning a slash command into prose (`docs/mechanics.md` §33).
+ * an argument into a filesystem path, silently turning a slash command into prose (`docs/mechanics.md` M33).
  */
 export const runTextCli = async (path: string, args: string[], options: ExecOptions = {}): Promise<TextOutcome> => {
   const resolved = resolveOnDisk(path);

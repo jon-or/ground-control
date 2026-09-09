@@ -18,15 +18,9 @@ function checkoutDir(session: Session): string {
 }
 
 /**
- * The directory a card's work is being done in, or null where the card has no session to read one from. Never
- * guessed from a branch or an issue number: a session records where it runs, and a second answer for the same
- * question is a second thing to be wrong.
- *
- * Several sessions in one checkout is the ordinary case, so the pick only decides anything where two differ. The
- * most recently active wins rather than the most recently started, because a session just opened in the main clone
- * would otherwise beat the older worktree session doing the work — but that disagrees with the order the card
- * lists its sessions in, so `only` is false there and what used it must say which directory it took.
- * Ties break on agent then session id, as `mergeBoard` breaks its own.
+ * Rank recorded session checkouts by recent activity, then stable agent/session ID ties. Do not derive paths
+ * from branch names. Distinct checkouts require the caller to identify its selection; multiple sessions in one
+ * checkout do not.
  */
 function ranked(card: Pick<BoardCard, 'sessions' | 'lastSession'>): string[] {
   const order = [...card.sessions].sort(
@@ -60,7 +54,7 @@ export interface CheckoutReaders {
 
 /**
  * Whether a directory is one this machine can still be pointed at. A deleted directory something still holds keeps
- * its name and refuses everything (`mechanics.md` §23), while `code <it>` opens a window on nothing — so a root is
+ * its name and refuses everything (`mechanics.md` M23), while `code <it>` opens a window on nothing — so a root is
  * offered only where it reads back. Not a repository check: ad-hoc work under no checkout is still somewhere to go.
  */
 function reachable(root: string, readers: CheckoutReaders): boolean {

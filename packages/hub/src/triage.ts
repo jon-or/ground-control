@@ -98,7 +98,7 @@ export class TriageRunner {
 
   /**
    * The sessions this runner started. Belt-and-braces: a classification is listed by `claude agents --json` in
-   * exactly the shape `neverPrompted` already drops (`docs/mechanics.md` §31), so the adapter filters it first. This
+   * exactly the shape `neverPrompted` already drops (`docs/mechanics.md` M31), so the adapter filters it first. This
    * is what still holds if a flag ever stops doing what it says.
    */
   sessionIds(): ReadonlySet<string> {

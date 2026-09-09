@@ -21,10 +21,8 @@ const ASSIGNEE_SOURCES = [
 ];
 
 /**
- * One real assignee stack, with the person on it replaced. The login is written into the stack three times — the
- * caption, the `alt` and the tooltip — so it is replaced by value rather than by field. The tooltip's id is read
- * off the markup rather than written down: React mints it per render (`_r_v_`, `_r_1a_`, …), and a literal that
- * stopped matching would graft the same id onto two cards with nothing to catch it.
+ * Record and scrub one real assignee stack. Replace the login in its caption, alt text, and tooltip. Read the
+ * generated tooltip ID from the markup so reuse cannot create duplicate IDs.
  *
  * @returns {Promise<{ html: string, tooltipId: string, recorded: string[] }>}
  */

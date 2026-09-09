@@ -7,7 +7,7 @@ import { HOME } from './helpers.js';
 /**
  * Every event the board installs, and the phase each one claims. Asserted whole rather than sampled: an event
  * dropped from the install is a phase the board silently stops seeing, and one installed but unmapped is a spawn
- * per event that buys nothing. Measured in `docs/mechanics.md` §40.
+ * per event that buys nothing. Measured in `docs/mechanics.md` M40.
  */
 const WANTED = [
   ['SessionStart', null],
@@ -100,7 +100,7 @@ describe('installing the Codex hook entries', () => {
     expect(written(plan).hooks?.['Stop']).toHaveLength(1);
   });
 
-  /** §41: Codex reports `matcher` and `enabled` on every entry and persists neither, so this converges. */
+  /** M41: Codex reports `matcher` and `enabled` on every entry and persists neither, so this converges. */
   it('rewrites an entry of ours that carries a key the board never writes', () => {
     const extra = { hooks: { Stop: [{ hooks: [{ type: 'command', command: COMMAND, async: true, timeout: 5, matcher: null }] }] } };
     const plan = install(JSON.stringify(extra));

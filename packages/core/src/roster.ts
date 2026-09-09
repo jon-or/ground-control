@@ -52,12 +52,8 @@ export function sessionOf(snapshot: Snapshot | undefined, sessionId: string): Se
 }
 
 /**
- * The agent that reported a session, read off the snapshot a client is holding. Claude where the board has never
- * seen the id, which is the only answer available: the id says nothing about which CLI produced it.
- *
- * A client needs this because an open has to say whose extension is ready before the hub has decided anything, and
- * two agents' sessions sit on one card. It lives here rather than in a client because it is a decision, and a
- * decision in a module that imports `vscode` is one no test can reach.
+ * Resolve the agent from live or historical snapshot rows before checking extension readiness. Unknown IDs
+ * fall back to Claude. Keep the lookup in core so both clients share the same testable rule.
  */
 export function agentOfSession(snapshot: Snapshot | undefined, sessionId: string): string {
   const live = sessionOf(snapshot, sessionId);

@@ -1,81 +1,53 @@
 import { join } from '@ground-control/core';
 
-/**
- * Where one agent's integration with VS Code records its sessions, and the commands that reach them. The host owns
- * the storage format and the agent owns the identifiers, so this table is the host's, keyed by agent id.
- */
-/**
- * Where a tab of this agent's records which session it is showing. Two shapes, because the two extensions record it
- * differently and neither is ours: Claude keeps a session id inside the webview's own state, and Codex has no state
- * at all — its tab *is* the session, addressed by the resource URI it was opened with (`docs/mechanics.md` §44).
- */
+/** Read Claude session IDs from webview state and Codex IDs from editor resource URIs (M44). */
 export type SessionInTab =
   | { from: 'state'; key: string }
   | { from: 'resource'; scheme: string; prefix: string };
 
-/**
- * One argument of a command the board fires. `kind` is what the argument *is*, because `vscode.open` validates its
- * first argument as a `Uri` instance or an http/https string and rejects any other string outright — and a `Uri`
- * can only be built where `vscode` is importable. `absent` is a positional gap: Claude's start passes no session id
- * in the slot before the prompt, and dropping the slot would put the prompt in it.
- */
+/** `uri` arguments become vscode.Uri instances in the extension host; vscode.open rejects raw custom-scheme strings.
+ * `absent` preserves positional gaps, including the session-ID slot before a new Claude prompt. */
 export type CommandArg = { kind: 'text'; value: string } | { kind: 'uri'; value: string } | { kind: 'absent' };
 
-/** A VS Code command and its arguments, built where `vscode` cannot be imported and fired where it can. */
+/** A command plan built without vscode and executed in the extension host. */
 export interface CommandCall {
   command: string;
   args: readonly CommandArg[];
 }
 
 export interface AgentPlacement {
-  /** The `providedId` of the agent's editor-tab webview, which tells its tabs from any other webview (§21). */
+  /** The `providedId` of the agent's editor-tab webview, which tells its tabs from any other webview (M21). */
   webviewId: string;
-  /**
-   * Memento keys of the agent's sidebar view, preferred first: only one is registered on a given VS Code. Empty
-   * where the agent's sidebar records nothing — Codex's is always `{}`, so a thread held there is invisible (§44).
-   */
+  /** Sidebar memento keys, in preference order. Empty for Codex: its recorded sidebar state is `{}` and does not identify the thread (M44). */
   sidebarKeys: readonly string[];
-  /** How a tab says which session it holds. */
+  /** Session identity location in an editor tab. */
   session: SessionInTab;
-  /**
-   * Where the agent's windows announce themselves, one lock file per window (`docs/mechanics.md` §22). Absent for
-   * an agent that announces none, which is a host that finds no windows of its own to raise for it.
-   */
+  /** Optional agent IDE lock directory, with one file per window (M22). Process ancestry provides separate window evidence. */
   lockDir?(home: string, env: NodeJS.ProcessEnv): string;
   extensionId: string;
   /**
    * The Windows image name of the process a session's pid belongs to, whose parent is the extension host of the
-   * window showing it (§22, §47). Claude's session is that process; Codex's is the app-server its extension runs.
+   * window showing it (M22, M47). Claude's session is that process; Codex's is the app-server its extension runs.
    */
   processName: string;
-  /** Reveals a tab for one session without writing the developer's preferred location (`docs/mechanics.md` §6). */
+  /** Reveals a tab for one session without writing the developer's preferred location (`docs/mechanics.md` M6). */
   reveal(sessionId: string): CommandCall;
-  /**
-   * Starts a new session in the window it is fired in, prefilled with the prompt and unsent (`docs/mechanics.md`
-   * §51). Absent for an agent whose extension registers no way in, which is the whole of what `no-agent` means.
-   */
+  /** Start a session in the target window (M51). Prompt prefilling depends on startTakesPrompt. Absent when no start command is supported. */
   start?(prompt: string | null): CommandCall;
   /** Whether `start` puts the prompt in the new session. False where the agent's only way in takes no arguments. */
   startTakesPrompt: boolean;
   /**
    * Whether a reveal re-activates the surface already holding the session rather than opening a second agent on it
-   * (§6, §44). Only an idempotent one may be fired at a window whose surface VS Code has not recorded.
+   * (M6, M44). Only an idempotent one may be fired at a window whose surface VS Code has not recorded.
    */
   idempotentReveal: boolean;
   /** The views' own focus commands, tried in order; the one not registered on this VS Code rejects. */
   sidebarFocusCommands: readonly string[];
-  /**
-   * The OS URI the agent's extension handles, so a window needs nothing of ours in it (`docs/mechanics.md` §7).
-   * Absent where the agent has none that resolves — Codex's deep links never answered (§44), so a client that is
-   * resident in nothing cannot reach a Codex session at all.
-   */
+  /** Agent-provided OS URI for opening a session without Ground Control in the target window (M7). No working Codex deep link was measured (M44). */
   openUri?(sessionId: string): string;
 }
 
-/**
- * Where Claude Code keeps its state. `CLAUDE_CONFIG_DIR` moves the whole directory, and a developer who has set it has
- * no `~/.claude` for anything to be found under — every window would read as closed rather than as unreadable.
- */
+/** Resolve Claude storage, respecting CLAUDE_CONFIG_DIR for session and window discovery. */
 export function claudeDirOf(home: string, configDir: string | undefined): string {
   const configured = configDir?.trim();
 
@@ -86,7 +58,7 @@ export function claudeDirOf(home: string, configDir: string | undefined): string
 const CODEX_SCHEME = 'openai-codex';
 const CODEX_LOCAL = '/local/';
 
-/** Where Codex keeps its home. `CODEX_HOME` moves the whole directory, the way `CLAUDE_CONFIG_DIR` moves Claude's. */
+/** Resolve Codex storage, respecting CODEX_HOME. */
 export function codexDirOf(home: string, configured: string | undefined): string {
   const named = configured?.trim();
 
@@ -103,9 +75,8 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     processName: 'claude.exe',
     idempotentReveal: false,
     reveal: (sessionId) => ({ command: 'claude-vscode.primaryEditor.open', args: [{ kind: 'text', value: sessionId }] }),
-    // The same command with the session slot empty: the webview looks for the id it was given, finds none, and mints
-    // one of its own — which is why a start cannot be named in advance (§51). `editor.open` would rewrite the
-    // developer's preferred location as a side effect, so the reveal's command is the start's too (§6).
+    // An empty session-ID slot makes the webview allocate the ID (M51). primaryEditor.open preserves the
+    // preferred location; editor.open would change it (M6).
     start: (prompt) => ({
       command: 'claude-vscode.primaryEditor.open',
       args: [{ kind: 'absent' }, prompt === null ? { kind: 'absent' } : { kind: 'text', value: prompt }],
@@ -118,26 +89,24 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
   /**
    * Codex's thread is an editor resource rather than a webview holding an id, so the reveal is VS Code's own
    * `vscode.open` on the URI its extension registered a custom editor for — which is the call the Codex extension
-   * makes on itself, and is idempotent: a second one re-activates the tab rather than forking a surface (§44).
+   * makes on itself, and is idempotent: a second one re-activates the tab rather than forking a surface (M44).
    */
   codex: {
     webviewId: 'chatgpt.conversationEditor',
     // Its sidebar mementos exist and are always `{}`, so reading them would only ever find nothing.
     sidebarKeys: [],
     session: { from: 'resource', scheme: CODEX_SCHEME, prefix: CODEX_LOCAL },
-    // No `lockDir`: Codex announces no window anywhere. What it writes per thread says which thread is being
-    // written, never which window is writing it (§44), so there is no directory to name and none is invented.
+    // Codex has no measured IDE lock directory. Its thread records do not identify the window (M44).
     extensionId: 'openai.chatgpt',
     // The thread runs inside `codex app-server`, which the extension spawns per window, so the pid the hook records
-    // is that process and its parent is the window's extension host (§47).
+    // is that process and its parent is the window's extension host (M47).
     processName: 'codex.exe',
     idempotentReveal: true,
     reveal: (sessionId) => ({ command: 'vscode.open', args: [{ kind: 'uri', value: `${CODEX_SCHEME}://route${CODEX_LOCAL}${sessionId}` }] }),
-    // Codex's own command for a fresh panel, which takes no arguments at all (§51) — so a Codex session starts bare
-    // and the prompt is dropped rather than half-applied. `startTakesPrompt` is what the menu item says so from.
+    // This command accepts no prompt (M51). startTakesPrompt lets the menu disclose that limitation.
     start: () => ({ command: 'chatgpt.newCodexPanel', args: [] }),
     startTakesPrompt: false,
-    // Codex's sidebar records nothing the board can read (§44), so no route ever reaches a focus command for it.
+    // Codex's sidebar records nothing the board can read (M44), so no route ever reaches a focus command for it.
     sidebarFocusCommands: [],
   },
 };

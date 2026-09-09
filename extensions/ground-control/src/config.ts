@@ -73,12 +73,9 @@ export function readHubConfig(userDir: string): HubConfig {
 }
 
 /**
- * R39's bounds. Two flat keys per action rather than one object, for the same reason the triage block is flat: the
- * settings editor renders an object of typed properties as "Edit in settings.json" (`docs/mechanics.md` §50), and
- * R34 asks that what a developer is expected to set be settable without editing a file.
- *
- * An action with no prompt is off however `enabled` reads. There is no shipped default prompt, because what runs a
- * merge is the developer's own repository's skill and no two teams share one.
+ * Use flat enabled/prompt settings so VS Code renders editable controls (mechanics M50). An empty prompt
+ * disables automatic dispatch. Prompts are supplied by the developer because repository workflows differ
+ * (R39).
  */
 export function readActions(): HubConfig['actions'] {
   const cfg = vscode.workspace.getConfiguration(SECTION);

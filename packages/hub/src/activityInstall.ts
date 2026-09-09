@@ -117,17 +117,9 @@ function clearMarkers(dir: string): void {
 }
 
 /**
- * Puts each agent's activity signal in place, or takes it away. Every decision — what to write, what to refuse — is
- * the adapter's; this is the file system and the lock, and nothing else. Reports what it observed, never what it
- * intended (R25).
- *
- * `enabled` is the ids the configuration names, and an agent outside it is left untouched: writing into the
- * settings of a CLI the developer never asked the board to read would be the board's own doing (R30), and taking
- * entries out as a side effect of a settings edit makes one typo strip a working agent's hooks. Turning the hooks
- * off, or uninstalling, is what removes them — both pass no ids and so reach every agent.
- *
- * One state, not one per agent: a per-agent notice would be a board saying two things at once about one act. The
- * first agent that refuses is what the board reports.
+ * Apply adapter-provided hook plans under the filesystem lock and report observed results. Installation
+ * reaches configured agent IDs only. Disabling hooks or uninstalling reaches every registered agent. Report
+ * the first refusal as one installation result.
  */
 export function syncActivity(
   agents: readonly AgentAdapter[],
@@ -171,7 +163,7 @@ export function syncActivity(
       // it, and a missing script is a hook failure the developer sees in their own terminal.
       if (wanted === 'install') {
         // Retried: a directory another process is still holding open after a removal refuses this until that handle
-        // goes, and the window is short (`mechanics.md` §23).
+        // goes, and the window is short (`mechanics.md` M23).
         attempt(() => mkdirSync(activity.watchDir(home), { recursive: true }));
 
         if (activity.writer && read(activity.writer.path(home)) !== activity.writer.source) {
@@ -202,7 +194,7 @@ export function syncActivity(
       }
 
       // The markers go and the directory stays. Removing the directory means recreating it on the next install,
-      // and a directory something still holds open after a delete cannot be recreated (`mechanics.md` §23); it also
+      // and a directory something still holds open after a delete cannot be recreated (`mechanics.md` M23); it also
       // costs the watcher, which dies with the directory and takes up to a second to come back (R25).
       if (wanted === 'remove') {
         clearMarkers(activity.watchDir(home));
@@ -220,12 +212,8 @@ export function syncActivity(
 }
 
 /**
- * Markers of sessions that never reported an end — a killed process and a crashed editor both report nothing, and no
- * agent will ever sweep a directory of ours. Best effort, and not cost-free: for an agent whose roster *is* its
- * markers, an orphan is a card on the board until this ages it out.
- *
- * It also takes the output a dispatched run wrote, which nothing else would: one file per run, in the board's own
- * directory, holding that run's whole transcript.
+ * Best-effort cleanup of old activity markers and dispatched-process output files. Killed sessions may leave
+ * markers without SessionEnd; live-roster PID checks remain separate from age-based pruning.
  */
 export function pruneMarkers(agents: readonly AgentAdapter[], home: string, now: number = Date.now()): void {
   const dirs = new Set(agents.flatMap((agent) => (agent.activity ? [agent.activity.watchDir(home)] : [])));

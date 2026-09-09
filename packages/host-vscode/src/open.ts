@@ -4,7 +4,7 @@ import type { AgentPlacement } from './placements.js';
 
 /**
  * How long after a session starts its surface may still be missing from VS Code's store, which is flushed on a 63 s
- * cycle rather than on change: younger than this, a session is not yet placeable rather than unplaceable (§21).
+ * cycle rather than on change: younger than this, a session is not yet placeable rather than unplaceable (M21).
  */
 export const SETTLING_MS = 120_000;
 
@@ -23,7 +23,7 @@ export const VSCODE_ROUTES: readonly OpenRoute['route'][] = [
 ];
 
 /**
- * Whether an open in this window landed. `executeCommand` resolves either way (`docs/mechanics.md` §8), so a new tab
+ * Whether an open in this window landed. `executeCommand` resolves either way (`docs/mechanics.md` M8), so a new tab
  * is the evidence — except for a session already open here, which is revealed: that adds no tab but does focus one.
  */
 export function verifyOpen(before: number, after: number, agentPanelActive: boolean): OpenOutcome {
@@ -72,7 +72,7 @@ export function planOpen(
 
   // Before anything about windows: a detached run is not openable here at all. Opening a session in an editor resumes
   // it, and the CLI refuses that while the run's own process still holds the conversation, whether or not the run has
-  // finished its turn - the process it starts exits 1 (`docs/mechanics.md` §33).
+  // finished its turn - the process it starts exits 1 (`docs/mechanics.md` M33).
   if (session?.attachId != null) {
     return {
       refusal: 'attach-only',
@@ -166,7 +166,7 @@ export function planOpen(
 
   // A hand-over is revealed by the window that received it, or refused there. The window that raised this one read
   // the same records, so a plan that still says elsewhere is one that has been followed once already — and firing
-  // again is how two windows pass a session back and forth (§45).
+  // again is how two windows pass a session back and forth (M45).
   if (!here && request.handedOver === true) {
     return {
       refusal: 'elsewhere-not-allowed',
@@ -175,7 +175,7 @@ export function planOpen(
   }
 
   // Which window holds it is known and which surface is not. An idempotent reveal is fired anyway — it names the
-  // session and re-activates whatever holds it (§44) — where a guess at Claude's runs a second agent on one (§21).
+  // session and re-activates whatever holds it (M44) — where a guess at Claude's runs a second agent on one (M21).
   if (!held) {
     if (!placement.idempotentReveal) {
       return here
@@ -199,7 +199,7 @@ export function planOpen(
 
 /**
  * A session that started while an open was in flight. Revealing creates nothing, so anything new is evidence of a
- * miss: the URI follows the focused window, and a window that took focus first gets a fresh agent (§7).
+ * miss: the URI follows the focused window, and a window that took focus first gets a fresh agent (M7).
  */
 export function strayFrom(before: readonly Session[], after: readonly Session[], expectedSessionId?: string): Session | null {
   const had = new Set(before.map((session) => session.sessionId));
@@ -212,7 +212,7 @@ export function resumeRefusal(sessionId: string, roster: readonly Session[] | nu
   if (roster === null) return 'Could not verify whether this session is active. Refresh the board and try again.';
   if (roster.some((s) => s.sessionId === sessionId && !s.finished)) return 'This session is now active. Refresh the board to go to its existing session.';
   // A detached run stays on the roster after its turn, and its process goes on holding the conversation — which is
-  // what makes a resume exit 1 rather than continue it (§33). Finished is not gone.
+  // what makes a resume exit 1 rather than continue it (M33). Finished is not gone.
   if (roster.some((s) => s.sessionId === sessionId && s.attachId !== null)) return 'This is a run the board started in the background. Attach to it from its row rather than resuming it.';
   return null;
 }
@@ -245,12 +245,9 @@ export function planCheckout(request: CheckoutRequest, mayOpenWindow: boolean): 
 }
 
 /**
- * Whether to start a new session on a card here, or why the board will not.
- *
- * A start runs in the window performing it and nowhere else. Every other elsewhere route hands a session id to the
- * window it raises, and there is no id to hand: the agent mints one when the session appears (`docs/mechanics.md`
- * §51), so nothing can name in advance the session another window would be asked to open. The remedy is the other
- * verb — open the checkout, and the board in that window offers the start.
+ * Allow a new session only in the requesting window at the selected checkout. The agent assigns its ID during
+ * creation, so there is no existing session ID to route elsewhere (mechanics M51). Open the checkout first
+ * when another window is required.
  */
 export function planStart(request: StartRequest, placements: Readonly<Record<string, AgentPlacement>>): OpenPlan {
   const { key, agent, root, prompt } = request;

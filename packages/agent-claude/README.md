@@ -1,36 +1,27 @@
 # @ground-control/agent-claude
 
-The Claude Code agent adapter: live sessions from `claude agents --json`, transcript titles, and the activity hook. Must not import `vscode`. The seams it implements are `@ground-control/core`'s `AgentAdapter` and `ActivitySignal`.
+Claude Code discovery, history, activity, classification, background dispatch, and stop support. Implements `AgentAdapter` and `ActivitySignal` from `@ground-control/core`; does not import `vscode`.
 
-## Adding an agent CLI
+## Sessions and activity
 
-An adapter owns **its own transport** — `MachineDeps` deliberately carries no way to talk to a CLI, so two adapters can diverge as far as their CLIs do.
+`claude agents --json` supplies roster identity and liveness. Transcript readers supply titles and historical metadata; transcript modification time does not establish activity. `startedAt` uses epoch milliseconds. Claude-specific fields remain in `Session.details`; shared fields include explicit `finished` and background `attachId`.
 
-1. Write a package `packages/agent-<id>` exporting a factory that returns an `AgentAdapter` — `id`, `displayName`, `defaultPath`, `defaultEnabled`, `listSessions(path, deps)`, and `activity` where the CLI offers a phase signal. Take the transport as a parameter so a test can supply a recorded one, the way `makeClaudeAdapter` does. `runJsonCli` in `core` is a helper for the one-JSON-document-on-stdout shape, offered rather than imposed.
-2. Add the factory's result to the agent registry in `packages/hub`.
-3. Add the CLI's settings to the extension manifest.
-4. Record a fixture of the CLI's real output under `test/fixtures/`. Expect to write your own recorder: `record.js` here is Claude-shaped throughout — its command, its transcript layout, its slug rule.
+Hooks write raw events under `~/.claude/ground-control/activity/`. `phaseOf` maps them to observed phases. Unknown, mismatched, or invalid marker data produces no phase. Subagent payloads are excluded because their events use the parent's session ID and could overwrite its attention state.
 
-Set `defaultEnabled: false` for anything that is not the developer's primary agent. R30 says optional tools are detected and never required — a CLI nobody asked for must not produce a "not found" notice on every refresh.
+`HOOK_SOURCE` contains the standalone writer script. `planHookInstall` computes settings changes; the hub handles locks, backups, and writes. Tests spawn the writer and separately verify settings merges.
 
-**Two CLIs implement this seam.** The other is `packages/agent-codex`, and it is shaped differently: Codex has no session-list command at all, so its `listSessions` reads the markers its own activity hook writes, and liveness is a pid the writer walks to (`docs/mechanics.md` §39, §40). `MachineDeps` carries no liveness reader for the same reason it carries no CLI — how an adapter proves a session alive is as specific to its CLI as how it lists one. `gemini` is not installed, so a third is unmeasured.
+## Classification and dispatch
 
-## The hook contract
+Classification suppresses settings, tools, MCP servers, and session persistence. Background dispatch loads the developer's context, passes explicit permissions, and returns the CLI-assigned short ID. The hub resolves that ID against the roster. Background runs can attach in a terminal and be stopped; automated takeover remains future work.
 
-The package owns the Claude Code hook contract as well as the session reads, because both are Claude mechanics and neither may import `vscode`.
+See [Claude mechanics](../../docs/mechanics.md#claude-code) for dated evidence and [fixtures](test/fixtures/README.md) for recordings.
 
-`claude agents --json` cannot say what an interactive session is doing — measured, `docs/mechanics.md` §20 — so a hook writes one marker file per session under `~/.claude/ground-control/activity/`. **The hook transcribes the event and decides nothing.** `phaseOf` in `src/phase.ts` maps an event to a phase, which means a mapping bug ships as an extension update rather than as a rewrite of a file in the developer's home directory, and vitest can reach the ten branches of judgement that mapping involves.
+## Adding an agent
 
-`HOOK_SOURCE` is the writer's text, held as a string so it has no `.vsix` packaging surface and `test/hook-writer.test.ts` can spawn real `node` against it. The writer ignores any payload carrying `agent_id`: a subagent's hooks report the parent's session id, so its work would otherwise clear a `waiting` on a parent parked on a prompt. `planHookInstall` decides what to write to the developer's settings file and is pure — string in, string out — so the merge that touches the most dangerous file on the machine is entirely testable. The caller does the file system and nothing else.
+1. Implement `AgentAdapter` in its own package with `id`, `displayName`, `defaultPath`, `enabledByDefault(readers)`, and `listSessions(path, deps)`.
+2. Inject machine/transport dependencies. `MachineDeps` does not impose a CLI transport or liveness mechanism.
+3. Add supported optional capabilities: history, resume validation, activity, classification, dispatch, and stop. Omit unavailable capabilities.
+4. Register it in `packages/hub`, and add editor placement support if needed.
+5. Record real external fixtures and test the adapter independently.
 
-## What a session carries, and what it does not
-
-`Session` is neutral, so Claude's own words go in `details`: `kind` always, and `name`, `shortId`, `status` and `state` where the CLI supplied them — the last three are the `--bg` shape, and an interactive session carries none of them. A key absent from the bag is a word the CLI did not report, which is why they are left out rather than set to null.
-
-`finished` is the one thing read from that vocabulary and promoted to a field of its own, because the lane rules turn on it: a session the agent itself called `done` or `stopped`. `status: "idle"` is not that — an interactive session is idle whenever nobody is typing — and an exited session is never listed at all. R24 forbids a finish the board did not observe, so every other agent's sessions are simply never finished.
-
-`transcriptWrittenAt` is a write time in epoch milliseconds, not liveness: a live session's transcript can be many hours old, or absent entirely. R24 forbids the board claiming a state it has not verified, so absence is `null` here and stays `null` all the way to the card.
-
-`startedAt` is epoch **milliseconds**. Claude reports it that way; another CLI reporting seconds must multiply, or every one of its sessions lands in 1970 and the board sorts wrong in silence.
-
-`activity` is the last phase a hook reported and when it reported it — never a guarantee the session is in that phase now, because nothing can be. An event the board does not recognise, a marker that disagrees with the session it claims to be from, and a clock too far ahead to reason about all read as `null`, which is the truth rather than a guess.
+`enabledByDefault` is a method, not a boolean setting. Claude returns true; Codex checks for its home directory. Explicit agent configuration replaces the default set. See [adapter contracts](../../docs/architecture.md#adapter-contracts).

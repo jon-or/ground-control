@@ -114,7 +114,7 @@ function call(
       let size = 0;
 
       // Bytes, never `setEncoding`: a decoded chunk is a string, and a string has no `byteLength` for Node's
-      // inspector to report — which throws once per chunk and takes the extension host with it (`mechanics.md` §28).
+      // inspector to report — which throws once per chunk and takes the extension host with it (`mechanics.md` M28).
       response.on('data', (chunk: Buffer) => {
         chunks.push(chunk);
         size += chunk.byteLength;

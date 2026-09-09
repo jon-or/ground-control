@@ -31,23 +31,16 @@ export interface CodexMachine {
   env: NodeJS.ProcessEnv;
   /** Starts a run and leaves it going. Absent where the board may not start work at all. */
   start?: StartProcess;
-  /** Ends a process the board started. Absent with `start`, since a run nobody can stop must not be offered (R15). */
+  /** End an adapter-started process. Supplied together with start for card actions (R39). */
   kill?: (pid: number) => boolean;
   /** Asks Codex to trust the hooks the board installed. Absent where nothing may spawn, which leaves them untrusted. */
   trust?: TrustHooks;
 }
 
 /**
- * The Codex adapter. R30 keeps it off where Codex is not installed, so a machine without it is never polled or nagged.
- *
- * The roster is the one thing this adapter does differently from every other: Codex has no session list to read.
- * `codex agents` requires an app-server daemon that only runs on Unix, and a second app-server process reports
- * another one's threads as `notLoaded`, so the hook markers are the roster and the pid each marker carries is the
- * liveness (`docs/mechanics.md` §39, §40).
- *
- * That pid is also what makes a dispatch stoppable. Codex has no `claude stop`: a run is ended by signalling the
- * process, and the process is the one its own marker names — which every roster read refreshes, so a hub that
- * restarted can still stop a run it did not start (R15).
+ * Discover Codex sessions from hook markers and PID checks; no usable live-roster API was found on Windows
+ * (mechanics M39, M40). Enable by default when Codex home exists. Stop authorization is limited to runs
+ * dispatched by this adapter instance; it is not restored after a hub restart.
  */
 export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMachine, env: process.env }): AgentAdapter {
   const { alive, env, start, kill, trust } = machine;
@@ -58,12 +51,11 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
   const asked = new Map<string, TrustAttempt>();
 
   // Only the runs the board started. Filled by the dispatch itself, so a run whose hooks are not installed or not
-  // trusted is still stoppable (§41), and never by a roster read — the roster sees every session on the machine,
+  // trusted is still stoppable (M41), and never by a roster read — the roster sees every session on the machine,
   // including the developer's own, and a stop must not be able to reach one of those.
   const dispatched = new Map<string, number | null>();
 
-  // What the markers say those runs are running in, refreshed by every read: it is what lets a hub that restarted
-  // stop a run it did not start itself.
+  // Roster PIDs can fill a missing dispatch PID, but cannot authorize stopping an unrecorded dispatch.
   const observed = new Map<string, number>();
 
   /**
@@ -108,7 +100,7 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
       : {}),
 
     // A thread is addressed by its id alone — the reveal opened one whose recorded directory was somewhere else
-    // entirely (§44) — so what settles a resume is whether Codex still holds the rollout, not where it ran.
+    // entirely (M44) — so what settles a resume is whether Codex still holds the rollout, not where it ran.
     canResume: (session, deps) => rolloutExists(session.sessionId, deps, env),
 
     listSessions(path: string, deps: MachineDeps): Promise<AgentReading> {
@@ -134,10 +126,8 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
 }
 
 /**
- * Ends a run the board started. The process it spawned first, because that one is known from the moment of the
- * dispatch; the marker's pid second, which is what a hub that restarted has instead. A thread the board never
- * dispatched is refused outright — the roster knows every Codex process on the machine, the developer's own
- * included, and a stop must not be able to reach one of those.
+ * Stop only threads dispatched by this adapter instance, using the spawn PID or a roster PID fallback.
+ * The authorization map is not persisted, so a hub restart loses stop access to prior runs.
  */
 function stopper(
   dispatched: ReadonlyMap<string, number | null>,

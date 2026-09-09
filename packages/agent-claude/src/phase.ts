@@ -29,7 +29,7 @@ const WAITING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
 /**
  * `Notification` is not "the agent needs you": the same event carries `agent_completed` and `idle_prompt`, so
- * mapping it wholesale would paint a finished session as needing attention (`docs/mechanics.md` §20).
+ * mapping it wholesale would paint a finished session as needing attention (`docs/mechanics.md` M20).
  */
 const WAITING_NOTIFICATIONS = new Set(['permission_prompt', 'worker_permission_prompt', 'agent_needs_input']);
 
@@ -82,7 +82,7 @@ function sinceOf(phase: ActivityPhase, marker: ActivityMarker): number {
 
 /**
  * The session's last reported activity, or null when it has no marker, an unreadable one, or one that claims nothing.
- * Never liveness: the CLI's session list is what proves a session is alive (`docs/mechanics.md` §2).
+ * Never liveness: the CLI's session list is what proves a session is alive (`docs/mechanics.md` M2).
  */
 export function readActivity(
   home: string,
@@ -105,7 +105,7 @@ export function readActivity(
   }
 
   // A forked transcript reuses records under a new id, so a marker that disagrees with its own file name is not this
-  // session's (`docs/mechanics.md` §10).
+  // session's (`docs/mechanics.md` M10).
   if (!marker.success || marker.data.sessionId !== sessionId || marker.data.at > now + FUTURE_TOLERANCE_MS) {
     return null;
   }

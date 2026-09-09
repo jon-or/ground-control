@@ -71,10 +71,8 @@ export class HubClient {
   }
 
   /**
-   * The board's button, and the command that mirrors it for a window with no board open. Turning it on reveals the
-   * channel; turning it off says so there and leaves the panel where the developer put it. A toggle rather than a
-   * show, because the only thing that stops the hub's log crossing to this window is the developer saying so — and
-   * a board closed with it on would otherwise leave it streaming for the life of the window with no way off (R40).
+   * Toggle the hub-log subscription independently of board visibility. Starting reveals the channel; stopping
+   * leaves the output panel open. The command also permits unsubscribing after the board closes (R40).
    */
   toggleHubLog(): boolean {
     const streaming = this.#watchLog(!this.#watchingLog);

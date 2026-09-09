@@ -4,9 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 /**
- * Runs the integration suite and owns what it leaves behind. The suite cannot clean up after itself: the window is
- * still a client while its own hooks run, so a hub stopped from inside is replaced by the reconnect a second later.
- * This process outlives the window, which is the only place the last word can be said.
+ * Clean up after VS Code exits so a connected client cannot restart the hub.
  */
 const HOME_PREFIX = 'gc-vscode-home-';
 const PROFILE_PREFIX = 'gc-vscode-profile-';
@@ -31,7 +29,7 @@ function sweep(olderThanMs = 60 * 60 * 1000) {
   }
 }
 
-/** Windows has no signal that reaches a console-less process (`docs/mechanics.md` §25), so this is what takes one. */
+/** Force-terminate the recorded test hub; graceful signal handlers do not run on Windows (mechanics M25). */
 function stopHubIn(home) {
   try {
     process.kill(JSON.parse(readFileSync(join(home, '.claude', 'ground-control', 'hub.json'), 'utf8')).pid);

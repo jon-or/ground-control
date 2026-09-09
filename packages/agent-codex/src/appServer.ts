@@ -14,12 +14,9 @@ export type TrustHooks = (codexPath: string, home: string) => Promise<TrustAttem
 const TIMEOUT_MS = 20_000;
 
 /**
- * Has Codex trust the board's own hook entries, through Codex itself rather than around it: `codex app-server`
- * speaks newline-delimited JSON-RPC on stdio, and `trustExchange` decides what to send. Only the bytes are here.
- *
- * The board trusts only the entries whose command is the writer it installed. That grants no reach it did not
- * already have — anything that can write `hooks.json` can write the command Codex would run — and it is scoped so
- * that a hook of the developer's own, or a plugin's, is left exactly as Codex found it.
+ * Run Codex's hook-trust exchange over app-server JSON-RPC stdio. trustExchange selects requests; this module
+ * handles transport. Trust only entries matching the installed Ground Control writer command, preserving user
+ * and plugin hooks.
  */
 export function makeTrustOnMachine(env: NodeJS.ProcessEnv = process.env): TrustHooks {
   return function trustHooks(codexPath, home) {

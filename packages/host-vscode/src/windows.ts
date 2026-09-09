@@ -127,7 +127,7 @@ function lockedWindows(home: string, placements: Readonly<Record<string, AgentPl
 }
 
 export interface Windows {
-  /** The windows still open — a closed one leaves its lock file behind but stops listening (`docs/mechanics.md` §22). */
+  /** The windows still open — a closed one leaves its lock file behind but stops listening (`docs/mechanics.md` M22). */
   live: IdeWindow[];
   /** The window holding this session's own process, or null where its parent is not a window's extension host. */
   holding: IdeWindow | null;
@@ -135,7 +135,7 @@ export interface Windows {
 
 /**
  * Which VS Code windows are open, and which one is running this session. Liveness is read from who holds a port open
- * rather than by connecting, which would evict whatever client that window already has (`docs/mechanics.md` §22).
+ * rather than by connecting, which would evict whatever client that window already has (`docs/mechanics.md` M22).
  */
 export async function readWindows(
   home: string,

@@ -51,7 +51,7 @@ describe('what the extension asks Chrome for', () => {
 
   /**
    * The whole site, because a board reached by clicking through it is a soft navigation Chrome injects nothing for
-   * (`mechanics.md` §27). `isBoardPath` is what keeps the overlay off every other page, and the test below is what
+   * (`mechanics.md` M27). `isBoardPath` is what keeps the overlay off every other page, and the test below is what
    * proves it does.
    */
   it('runs its content script on github.com and nowhere else', () => {

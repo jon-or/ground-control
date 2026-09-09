@@ -181,7 +181,7 @@ describe('the ways a run cannot be started', () => {
   });
 
   it('keeps the run own noise out of the line it reads', () => {
-    // Codex's stderr is noisy by design (§13), and two writers appending to one file tear a line.
+    // Codex's stderr is noisy by design (M13), and two writers appending to one file tear a line.
     expect(existsSync(`${dispatchLogPathOf(home, 'run-1')}.err`)).toBe(true);
   });
 });

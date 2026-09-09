@@ -8,7 +8,7 @@ import { sessionIndexPathOf, threadNamesFrom } from './roster.js';
 /**
  * Enough of a rollout's head to hold its first record whole. Codex writes the model's whole instruction text into
  * `session_meta`, which measured 8–78 kB across this machine's fifteen rollouts, so the bound is three times the
- * largest one seen rather than a round number near it (`docs/mechanics.md` §42).
+ * largest one seen rather than a round number near it (`docs/mechanics.md` M42).
  */
 export const META_HEAD_BYTES = 256 * 1024;
 
@@ -91,7 +91,7 @@ function dayDirectories(root: string, deps: MachineDeps): string[] | null {
 /**
  * Saved Codex threads, read from the rollout files themselves rather than from `session_index.jsonl` — the index
  * holds only threads Codex has named, five of the twenty on this machine, so it is the title source and not the
- * roster (`docs/mechanics.md` §42). Metadata is cached by path and mtime; every read still finds additions.
+ * roster (`docs/mechanics.md` M42). Metadata is cached by path and mtime; every read still finds additions.
  */
 export function makeHistoryReader(env: NodeJS.ProcessEnv = {}): (deps: MachineDeps) => Promise<HistoryReading> {
   const cache = new Map<string, { at: number; metadata: RolloutMetadata | null }>();
@@ -208,7 +208,7 @@ export function makeHistoryReader(env: NodeJS.ProcessEnv = {}): (deps: MachineDe
 
 /**
  * Whether Codex still holds this thread's rollout. What a resume turns on: a thread is opened by its id alone, and
- * the directory it once ran in does not constrain where it can be opened (`docs/mechanics.md` §44) — so the saved
+ * the directory it once ran in does not constrain where it can be opened (`docs/mechanics.md` M44) — so the saved
  * checkout is not the question, and the file Codex would read is.
  */
 export function rolloutExists(sessionId: string, deps: MachineDeps, env: NodeJS.ProcessEnv = {}): boolean {

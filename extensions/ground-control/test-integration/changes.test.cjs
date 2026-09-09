@@ -6,14 +6,9 @@ const { join } = require('node:path');
 const vscode = require('vscode');
 
 /**
- * What only a real extension host settles about the Changes control. The fold itself is `changesPlan`, tested in
- * `packages/host-vscode`; here the three mechanisms it rides on are exercised against a real worktree, all of them
- * version-fragile and recorded as such in `docs/mechanics.md` §30:
- *
- * - `git.openRepository` opens a checkout outside this window's folder, given a path rather than a URI;
- * - the repository VS Code then answers with is that worktree, not the window's own — the failure the refusal
- *   exists for is silent, because a miss returns the window's only repository without prompting;
- * - `_workbench.openMultiDiffEditor` opens a tab from a `git:` original and a `file:` modified.
+ * Verify private Git integration in a real extension host (mechanics M30): git.openRepository accepts a path,
+ * the returned repository matches the requested worktree, and _workbench.openMultiDiffEditor accepts git:
+ * originals and file: modifications. changesPlan decisions are tested in packages/host-vscode.
  */
 describe('the changes editor, against a real worktree', () => {
   const REMOTE = 'https://github.com/example-org/example-repo.git';

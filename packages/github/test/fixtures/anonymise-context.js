@@ -12,12 +12,8 @@ const { loginMap } = require('./anonymise.js');
 const LONG_BODY_CHARS = 7_500;
 
 /**
- * A branch name is the issue title with the spaces taken out, so it names real work as surely as the title does. The
- * number is kept — the tests turn on it and an integer names nobody — and the rest is rebuilt through the shared
- * `branchFor`, so issue 19072's branch reads the same here as in every other package's recording.
- *
- * A branch every repository has is left alone. `master` names nobody, and whether a base equals the default branch
- * is the whole of what decides that a merge is one leg or a chain (R39).
+ * Scrub branch text while preserving issue numbers and shared fixture naming. Keep universal branches such as
+ * master unchanged so base/default-branch comparisons remain representative (R39).
  */
 function scrubBranch(ref) {
   if (typeof ref !== 'string' || ref === '' || UNIVERSAL.has(ref)) {

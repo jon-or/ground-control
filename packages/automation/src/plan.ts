@@ -52,7 +52,7 @@ export interface PlanInput {
   action: AutomatableAction;
   context: TriageContext;
   lane: LaneId;
-  /** How many live sessions the card already carries. One is enough to refuse: R18 forbids a second agent on it. */
+  /** Refuse unattended actions while any session is already on the card (R39). */
   liveSessions: number;
   checkout: CardCheckout | null;
   settings: ActionSettings;

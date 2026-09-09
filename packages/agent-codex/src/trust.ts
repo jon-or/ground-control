@@ -5,7 +5,7 @@ import { codexHomeOf, codexHooksPathOf, hookPathOf } from './hookScript.js';
 import { CODEX_AGENT_ID, CODEX_DISPLAY_NAME } from './ids.js';
 
 /** The hash Codex trusts is taken over its own representation of an entry, so the board never computes one: it asks
- * `hooks/list` for the hash and hands it straight back through `config/batchWrite` (`docs/mechanics.md` §41). */
+ * `hooks/list` for the hash and hands it straight back through `config/batchWrite` (`docs/mechanics.md` M41). */
 const TRUST_TABLE = /^\s*\[hooks\.state\.(?:'([^']*)'|"((?:[^"\\]|\\.)*)")\]\s*$/;
 const TRUSTED_HASH = /^\s*trusted_hash\s*=/;
 
@@ -19,7 +19,7 @@ function comparable(key: string): string {
   return normalize(key).toLowerCase();
 }
 
-/** `SessionStart` as Codex keys it. The event half of a trust key is snake case, the JSON half is Pascal (§41). */
+/** `SessionStart` as Codex keys it. The event half of a trust key is snake case, the JSON half is Pascal (M41). */
 export function trustKeyEventOf(event: string): string {
   return event.replace(/(?<!^)([A-Z])/g, '_$1').toLowerCase();
 }
@@ -196,10 +196,9 @@ export function trustEditFor(raw: unknown, home: string): TrustPlan {
 }
 
 /**
- * What to say when the board's hooks are installed and Codex will not run them. Until it will they fire nothing, no
- * marker is written, and the marker directory is the whole roster — so the board would otherwise show an empty Codex
- * and no reason for it (R25, `docs/mechanics.md` §41). Nothing is said while the board's own attempt is still to
- * come: the state it would name is one it is about to fix, and a notice per poll for that is the board nagging.
+ * Report untrusted hooks after a trust attempt returns (mechanics M41). Without hooks, the marker roster is
+ * empty. Suppress the notice while automatic trust is pending to avoid reporting a condition the exchange may
+ * resolve.
  */
 export function trustFailure(state: TrustState, attempt: string | null): ReadFailure | null {
   if (state.untrusted.length === 0 || attempt === null) {

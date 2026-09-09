@@ -668,7 +668,7 @@ describe('following a run to its end', () => {
 
     expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge-upstream' });
 
-    // The dispatched session appears on the roster under the short id the CLI printed (`mechanics.md` §33).
+    // The dispatched session appears on the roster under the short id the CLI printed (`mechanics.md` M33).
     await control.appear();
 
     expect(control.cardAction()).toMatchObject({ state: 'running' });
@@ -685,7 +685,7 @@ describe('following a run to its end', () => {
 
   /**
    * A `--bg` session does not leave the roster when its turn ends — it stays listed carrying the CLI's own end word
-   * (`mechanics.md` §33). A run waited on by presence alone would sit at Working for as long as the process lived.
+   * (`mechanics.md` M33). A run waited on by presence alone would sit at Working for as long as the process lived.
    */
   it('settles a run whose session is still listed once the agent calls it finished', async () => {
     const control = harness();
@@ -776,7 +776,7 @@ describe('following a run to its end', () => {
     });
   });
 
-  /** `--bg` returns before its session registers, so a run with no session yet is open rather than lost (§33). */
+  /** `--bg` returns before its session registers, so a run with no session yet is open rather than lost (M33). */
   it('leaves a dispatch whose session has not appeared open, and gives up once its budget is spent', async () => {
     const control = harness({ resultTimeoutMs: 60_000 });
     watch(control);

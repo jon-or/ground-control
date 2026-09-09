@@ -21,7 +21,7 @@ function said(at: string, author = 'dev-3'): TriageComment {
 }
 
 /**
- * The real shape of a hand-over, recorded from `ownerrez/orez` #19192 (`docs/mechanics.md` §32). One person moved the
+ * The real shape of a hand-over, recorded from `ownerrez/orez` #19192 (`docs/mechanics.md` M32). One person moved the
  * status and took themselves off it eight seconds later; somebody else put the developer on it two and a half hours
  * after that. Every comment on the card predates all of it.
  */

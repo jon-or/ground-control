@@ -3,7 +3,7 @@ import { planHookInstall } from './hookPlan.js';
 import { HOOK_SOURCE, activityDirOf, claudeSettingsPathOf, hookPathOf } from './hookScript.js';
 import { readActivity } from './phase.js';
 
-/** Claude's phase signal: a hook script writing one marker per session under the activity directory (`docs/mechanics.md` §20). */
+/** Claude's phase signal: a hook script writing one marker per session under the activity directory (`docs/mechanics.md` M20). */
 export const claudeActivity: ActivitySignal = {
   plan: planHookInstall,
   settingsPath: claudeSettingsPathOf,

@@ -10,7 +10,7 @@ const boardMenuEl = document.getElementById('board-menu');
 /**
  * What an element says on hover, in place of the browser's own tooltip: `title` opens after about a second, in the
  * operating system's shape rather than the editor's. The geometry and the timing are GitHub's own, measured off a
- * live board (`docs/mechanics.md` §35) and copied here, because this script imports nothing — pinned by the parity
+ * live board (`docs/mechanics.md` M35) and copied here, because this script imports nothing — pinned by the parity
  * table in both suites, since a tooltip that behaves differently on one board is the drift that table exists for.
  */
 const TIP_ATTR = 'data-gc-tip';
@@ -349,7 +349,7 @@ const AGENT_MARKS = { claude: CLAUDE_MARK, codex: OPENAI_MARK };
 
 /**
  * Where a row's click lands, in the two destinations the board has: a detached run is attached to in a terminal, and
- * every other session is opened in the editor (`docs/mechanics.md` §33). Stroke rather than fill, so neither reads as
+ * every other session is opened in the editor (`docs/mechanics.md` M33). Stroke rather than fill, so neither reads as
  * a third brand mark beside the agent's.
  */
 const DESTINATION_SHAPES = {
@@ -442,10 +442,8 @@ function sessionDot(phase, live, title = dotTitle(phase, live)) {
 }
 
 /**
- * The whole row is the control where there is a command to run, which is what the browser overlay makes of the same
- * row: the surface a hover paints is then the row rather than the words in it, and everything the surface covers is
- * the target. A control only where there is something to run — another CLI's session has none, and a button that
- * could only ever refuse is worse than no button, as well as costing the card a strip it could be dragged by.
+ * Make the entire session row clickable when an open operation is available. Leave other rows noninteractive
+ * and available for card dragging.
  */
 function sessionLine(session) {
   // A detached run is always reachable: `attach` needs a terminal rather than the agent's editor extension, and it
@@ -795,7 +793,7 @@ function actionChip(action, key) {
   const label = TRIAGE_LABELS[action.action] ?? action.action;
 
   if (action.state === 'running') {
-    // R15: what stopping costs is said before it is pressed. A merge stopped mid-way leaves the working tree
+    // R39: explain interruption before stopping. A merge stopped mid-way leaves the working tree
     // part-merged, which is the developer's to finish or throw away.
     const chip = badge(
       'action-running',
@@ -1395,9 +1393,8 @@ function card(boardCard, avatarPool, placeable) {
     badges.appendChild(pr);
   }
 
-  // R6, and no chip of its own: the card's edge carries it, and so does the row it is about, whose mark, words and
-  // weight all take that colour. A pill saying `Needs you` beside a row already painted yellow was the same claim
-  // twice. What a colour cannot reach is carried instead by the state mark's own accessible name.
+  // Attention changes the card border/tint and matching session state mark. Session text keeps its normal color
+  // and weight. The mark's accessible name identifies the state without relying on color (R6).
   if (boardCard.attention) {
     el.dataset.attention = boardCard.attention;
   }

@@ -1,459 +1,414 @@
-# ground-control — PRD
+# Ground Control requirements
 
-User-facing requirements only. Mechanisms, schemas, and APIs live in `docs/mechanics.md`.
+Ground Control is a personal board for assigned GitHub issues and local Claude Code and Codex sessions. A VS Code extension and an optional GitHub project overlay share one background process.
 
-## 1. Purpose
+This document defines product behavior and future requirements. [Architecture](architecture.md) describes the implementation; [mechanics](mechanics.md) records experiments, including mechanisms not used by the product; [testing](testing.md) defines verification.
 
-A VS Code extension and an optional browser overlay, over one background process, that give one developer a single place to see, and intervene in, every piece of work they own — the GitHub issues assigned to them and every Claude Code session running on their machine — on one Kanban board.
+## Audience and scope
 
-Today those live in three disconnected places: GitHub's project board, a fleet of VS Code windows across many worktrees, and a set of terminal sessions whose state is only visible by attaching to them. Nothing shows what an agent is doing right now, and nothing shows which agent belongs to which issue.
+The audience is any OwnerRez developer using their own machine. Support one clone with branch switching, multiple clones, and multiple worktrees. Do not require multiple editor windows, a second agent, or continuous agent use.
 
-## 2. Audience and scope
+In scope: assigned issues, local sessions, inspecting work, opening checkouts and sessions, and explicitly enabled automation. Team conventions belong in configurable defaults. Personal accounts, paths, permissions, and limits belong in user settings.
 
-**Any OwnerRez developer, on their own machine.** Not a team dashboard and not a manager view — a personal board — but one that any developer on the team can install and use on day one, not a tool shaped around one person's setup.
+Out of scope: other people's work as a separate workload, remote sessions, team reporting, and unrequested GitHub writes. Sessions on an issue no longer assigned to the developer remain inspectable as described in R9.
 
-That distinction drives real requirements. It must not assume the user runs dozens of worktrees, keeps seven VS Code windows open, has a second AI CLI installed, has hand-installed helper extensions, or works with agents at all times. A developer who runs one session a day and switches branches in a single clone has to get value from it, and a developer who never opens it must not be affected by it.
+Future development may add coordinated workflow stages, verified stage completion, interruption, and recovery. Those requirements are listed separately below; experiments demonstrating their feasibility do not establish product support.
 
-**In scope:** issues assigned to the user, sessions running on this machine, and the user's interventions on them.
+## Cards and sessions
 
-**Out of scope for v1:** other people's work, remote/cloud sessions, team reporting, and any writing to GitHub beyond what the user explicitly triggers.
+### R1. Assigned issues
 
-### Assumed, because it is how the team already works
+Show one card per assigned issue, with repository, number, title, and type. Treat all configured GitHub accounts as the developer's identity.
 
-The team's shared conventions are fair to rely on, but they belong in configuration, not in the product's assumptions about a person:
+The configured card source selects assigned issues on the project or all assigned open issues. Report excluded and truncated results. Do not imply the displayed set is complete when it is not.
 
-- Work is tracked as GitHub issues on the team's project board, with the developer as assignee.
-- Branch names carry the issue number.
-- Development happens in a local checkout of the repo, served by a local site.
+### R2. Local sessions
 
-Everything else about a developer's environment is theirs, and the board adapts to it.
+Show sessions from enabled agent adapters, including work unrelated to an assigned issue. Identify the agent by its official mark where available, otherwise by name. Keep brand colors where the mark has them; monochrome marks follow the theme.
 
-## 3. Requirements
+Exclude:
 
-### Board and cards
+- The board's own classifier processes.
+- Sessions that have never started work: no transcript, no reported activity, and no agent status. A missing transcript alone is insufficient.
 
-**R1. The board shows the GitHub issues assigned to the user.**
-One card per issue, with its number, title, and type. Issues nobody has assigned to the user do not appear.
+With hooks installed and a board visible, target arrival within one second of a session's first prompt and departure within one second of its end event. Polling detects changes without an event, including killed processes and renamed sessions. These targets depend on the agent's signal and successful reads.
 
-**R2. The board shows every active agent session on the machine.**
-No session is invisible. A session the user forgot about is exactly what this board exists to surface. Claude Code is the agent the board reads today; a developer running a second agent CLI sees its sessions on the same board, labelled by which agent reported them, rather than a second board. The label is that agent's own official mark where the board has one — Claude's and OpenAI's, each taken verbatim from its owner's own editor extension — and the CLI's name in text where it does not, because an unmarked row would read as one of the agents that has a mark. A mark carrying a brand colour of its own keeps it; a mark its owner ships in black and white takes the tone the name would have had, so it reads in both themes.
+### R3. Issue-linked sessions and history
 
-A session arrives on the board within a second of the first thing it does, and leaves within a second of ending: a session reports its own work and its own end, so neither edge waits on the board's next read of the machine. What reports nothing — a session killed outright, a renamed one — the board notices on that read instead.
+Group matching live sessions under their issue card. Multiple sessions may work on one issue. Idle and waiting sessions remain live.
 
-The board's own machinery is the one exception. When the board classifies a card (R38) it runs an agent process of its own, and that process is not the developer's work — it is the board reading. It is the only session the board hides from itself.
+For an issue card with no live sessions, show one saved session: the matching transcript with the newest modification time. Match using its saved branch, then saved directory name, and the configured issue pattern. Require the checkout's origin repository to match the issue repository. Do not use the checkout's current branch to assign historical work.
 
-A session that has never been prompted is not on it. An editor tab opened and left alone is a running process and nothing else — no transcript, no turn, no work — and a board of them is a board the user learns to ignore. The board omits a session only when all three of its independent signals are silent: no transcript, no reported activity, and no status of its own from the agent. Any one of them means the session has begun, so the cost of a transcript the board fails to locate is a card without a title, never a session it hides.
+A saved row:
 
-**R3. A session linked to an issue appears under that issue's card.**
-An issue card can hold several active sessions. The card is the unit of work; sessions are attempts at it.
+- Uses the same one-line layout as a live row, with an outlined state mark and no working animation.
+- Resumes on click, subject to R14's checks.
+- Shows retained activity when available; otherwise its transcript age.
+- Does not affect lane placement or live counts.
 
-When an existing issue card has no active session, both boards show exactly one saved-session row: the matching saved session with the most recently modified transcript. A live session remains active while idle or waiting. The row is the same one line every session row is — a state mark, an agent mark, a clickable title (or directory name) that truncates to fit, and an age at the right — with the exact moment that age counts from on hover. It carries no words saying it is a saved session: the unfilled mark at its head is what says so, and a row that spent a clause on it was the one row on the card that wrapped to two lines. Clicking resumes the saved session in VS Code. It never carries the working animation — a process that has gone is not working — and it changes neither lane placement nor active-session counts until the session resumes. What it does carry is the state the board last saw that session in, where R6 has kept one: the mark takes the state's own colour and the age counts from the reading rather than from the transcript, and the card is marked as R6 marks any other. Where there is no kept state the mark is plain and the age is the saved one. History creates no cards of its own, so ad-hoc cards still leave when their final live session ends.
+History creates no ad-hoc cards. Unknown repository identity, missing metadata, or an unreadable checkout can prevent a historical match. A partial or failed live-roster read suppresses history until inactivity can be established. A history failure does not disable live rows.
 
-A historical match uses the session's saved branch, falling back to its saved directory name, with the configured issue pattern. The checkout's origin remote must also match the issue's repository. Unknown repository identity (including a deleted checkout with no surviving remote configuration) or missing session metadata yields no fallback. The current checkout branch never assigns historical work. A partial or failed active-roster read suppresses history until a complete read can establish inactivity; a history read failure leaves live rows usable.
+### R4. Ad-hoc work
 
-**R4. Sessions with no linked issue get a card per repository and branch.**
-Ad-hoc work is first-class. It is not hidden, and it is not forced into an issue it does not belong to. The repository and the branch such a session runs on are what it has in common with the others beside it, so one checkout is one card however many agents are in it, and a session started in a subdirectory joins the card its checkout already has. A new worktree, and a branch switched to in a single clone, are each a card of their own — a branch is where the work is, and two branches are two pieces of work whatever directory they were opened from. Where git names no repository or no branch — a directory under no checkout, a detached HEAD — the checkout directory is the card, so such work is never folded in with somebody else's. Git allows only one worktree per branch, so within one clone tree a card is one checkout; two separate clones of one repository sitting on the same branch are one card, and the editor the card opens says which of them it read.
+Group sessions without a confirmed issue by canonical repository and branch. Sessions started in subdirectories join their checkout's card. Separate clones on the same repository and branch share a card; a branch switch produces a different card.
 
-The card is named for both: the repository stands where an issue card carries its number, and the branch is the title. The chip is the repository's own name and its tooltip qualifies that with the owner, because two checkouts of one name under different owners are the case a name alone cannot tell apart; the host the board compares repositories by is not shown, since it answers a question nobody looking at a card is asking. Where the branch is known but the remote is not, the checkout's own directory name stands in for the repository. Under no branch at all the card is named for its directory, and where the number would be it says whether one session is running there or several. The card appears only while something runs there — and because the card is the checkout, the lane the developer put it in belongs to the checkout too: it outlives any one session and new ad-hoc work on that branch joins the card where they left it. Moving to another branch does not carry the lane with it.
+If repository or branch identity is unavailable, use the checkout directory instead. Do not combine unrelated unknown repositories or detached checkouts.
 
-**R5. Each card shows enough to decide whether to act, without opening it.**
-At minimum: what stage it is in, whether anything is running, whether anything needs the user, and how long it has been in that state.
+Name the card by repository and branch, falling back to directory. Qualify the repository owner on hover. Show which checkout is used when several qualify. An ad-hoc card exists only while it has live sessions, but its saved lane applies to later work with the same card identity.
 
-A session's state is a mark at the head of its row, not a word before its duration: what the board saw is in the mark's colour — working, waiting on the developer, or neither — and whether the agent still has the session open is in whether the mark is filled or a ring. On a card carrying a mark of its own (R6), the row that mark is about takes the card's colour in the mark alone — the card's edge and the mark ahead of the row's words are one colour, and the words keep the colour and weight every other row's words have, because recolouring the words as well read as two claims about one session. Only that row: another session on the same card is in its own state, and the card's mark is not a claim about it. A colour is not a fact that reaches everyone reading this board, so the word is the mark's own accessible name rather than lost with it. Three colours and no more: a fourth would be a category to learn, where these are the three answers to *is this moving*.
+### R5. Card presentation and controls
 
-A session's name reads a step above the marks around it and a step below the editor's own body text, and the same tone on both boards (`mechanics.md` §38); the duration and the agent beside it stay at the quieter colour. Nothing on the row says anything further on hover except the two things a row cannot be read for. The mark says what it means — the phase in words, and what a ring rather than a fill says about the session being over — because a colour is the one thing on a row nobody can read. The age says what it counts, and what the board last saw, and the exact moment behind a rounded value. Neither repeats the other, and the name between them says nothing at all: its words are on it already. A name that can be opened is a target rather than a link: no underline, a rounded surface under it when it is pointed at, which is GitHub's own treatment of the same row and the only one available here, since the text is already spoken for by the phase colour and the pass of light.
+A card must show its stage, sessions, activity, attention, and relevant ages without opening another view.
 
-A running session's own name shimmers, so a board of ten cards shows which ones are moving without being read. The pass runs from the name's own colour up to the end of the range the theme runs to and back, so a working session is that name lit rather than a dimmed one brightening. The duration beside it is how long the reported phase has held: a running session counts the stretch of work it is in, from the prompt that began it, and every other phase counts from the event that reported it. It is not the age of the last observation: a heartbeat lands on every tool batch, so that number holds at zero for the whole of a busy turn and tells the developer nothing. Liveness is not its job either — a session its CLI no longer lists is off the board — so the question the duration answers is how long this has been going on. It reads as a single number in the largest unit that fits — seconds below a minute, then minutes below an hour, hours below a day, days below a week, and weeks beyond that — and never rounds up. One unit rather than two because the number is glanced at, not measured against: a board of ten cards is scanned, and a second figure on each is a figure to read past. Never rounding up because overstating is the one direction that matters — a session working steadily must not read older than it is, since that is exactly what a stuck one looks like. The number advances on the board's own clock, once a second: an anchor does not move, so its age needs no read of the machine to stay current, and a card never shows a duration that stopped when the last refresh did.
-
-Work that resumes with no prompt behind it — a background task waking a session, a cron, a session already running when the board installed its hooks — counts from where the board first saw it resume. That is a floor rather than the true start, and it is the honest one: the board never reports a stretch as older than what it observed. A stretch's age does include time it spent parked on the developer, because what is reported is how long the work has been open, not how much of it happened.
-
-A card that has been triaged also carries what it is waiting on and how long it has held the status it is in (R38), which is the only thing on a card the developer cannot read off the rest of it. The sentence behind it is on hover: it is a paragraph of prose per card, and a lane of them was more of the card than the card.
-
-A card is not itself a control. What opens on it is the title, the chips and the session rows, and each carries its own affordance: the title underlines under the pointer, a chip lifts its fill, a row takes a surface. The card answers a pointer with nothing at all — not a fill and not an edge — because neither is a claim the card as a whole can make good on, and on a marked card a hover that moved either also moved the one tint that means the card is asking for the developer. The title's underline runs under its words rather than across the card: it marks what opens, and the button around it is the width of the card only because a target should be easy to hit.
-
-The board is three tones deep, the way the team's own project board is. The page and a card are the same tone and never touch each other: the only surface either meets is the lane, which is recessed under both, and the card's lower half is one step off the card. That is what carries the depth — not a card painted lighter than the page, which a theme is free to make identical anyway — and a card is told from the lane it sits on by its own edge. Without the lane a full column reads as one field with text in it.
-
-A card reads in two halves. Above: what GitHub says the issue is — its repository and number, its title, and the labels the team put on it, which are the type, the stage and the pull request. The repository is named because a developer holds work in more than one, and a number alone does not say which. It is written without its owner, as a session's checkout is. Below, set apart on a surface of its own: everything this board adds — what it read the card to be waiting on, whether the card is asking for the user, and the sessions running on it. That is the split the browser overlay already makes on GitHub's own card (R36), so a developer moving between the two boards reads one card rather than two. The split is named to a screen reader as well as painted, because a tint and a rule are the eye's only, and it is the split that says which claims are GitHub's and which are the board's. The lower half is drawn on every card, empty or not: it is a fixed part of a card rather than something a reading conditionally adds, and it is where the controls the board grows will sit.
-
-What a card can be asked to do beyond its chips is a menu on the card's header rather than a control on its face, so the card stays the same size as the board learns more it can do. A card with nothing to offer carries no menu at all. The control appears when the card is pointed at, when the keyboard reaches it, and on any device that cannot point — a lane of cards is a list to read, not a row of controls waiting to be used, and a control revealed by hover alone is one that never appears on a touch screen. Nothing goes in there that the card should say without being asked: the reading, the marks and the pull request stay chips, because a card is read from across the board and a menu is not. The board itself carries the same control at the top-right of its header, holding what the board can be asked to do rather than what a card can: showing the archive, streaming the hub's log, revealing its own, and reading GitHub again. What is on the board comes before what the board is doing about it, so the archive is the first item. Those were four controls across the header, and a header is the one place on this board where width is spent on things a developer uses rarely. A state among them is checked rather than acted on, and because a shut menu says nothing, the control is marked while the hub's log is being read. An item the board has nothing to offer for is left out rather than drawn unusable, which is the rule a card's own menu already follows.
-
-**What a card says on hover, the board draws itself.** The browser's own tooltip opens after about a second, in the operating system's shape rather than the board's, and no stylesheet reaches it — so on a board read at a glance it is both too slow to be asked a question and too foreign to belong. Both boards draw one instead, in the shape GitHub uses on its own project board: a small dark pill, centred on what it names, open 120ms after the pointer arrives and gone the moment it leaves. It opens on focus as well as on hover, and describes what it names while it is showing, so it is not a thing only a mouse can reach. Inside a menu it is the pointer's alone: a menu hands the keyboard to an item as it opens, and a tooltip under that item would cover the items below it before they had been read. And it is only ever drawn where there is something further to say: the type, the stage and the pull-request chips carry none, because each is its own whole fact and a hover that repeats a chip is one a developer learns to ignore. Where a chip's colour is the only thing saying more — a pull request's state — the word stays in its accessible name, which is what a reader gets in place of the colour. In the editor it takes the colours of the developer's theme; in the browser, GitHub's own.
-
-The chip names one pull request: the most recently updated open one that would close the issue, or the most recently updated of any state when none is open. It is drawn unfilled, with muted words and a neutral edge — GitHub's own chip for the same thing, where the glyph is the only part carrying the state's colour. A reading (R38) is drawn the same way, as the browser overlay already draws it: a chip that is a reference or a reading stays quiet, and only what wants the developer is filled. An open one outranks a merged one, because a comment on work already landed must not speak for the card over work still in flight.
-
-**A card wears the face of whoever is carrying it, which is not always its assignee.** A card in review has a pull request on it, and the person who opened that pull request is who answered — the assignee is only who was asked. So a card whose status ends in the tracker's own **Dev Review** shows the author of its most recently updated pull request, and every other card shows its assignee, preferring the developer's own account where a card names several. That status is matched by name rather than through the status-to-lane map, so a team that renames it gets the assignee everywhere until the name here is changed with it. The face is labelled with which of the two it is, because "colleague" on a card assigned to the developer is otherwise a card that looks like somebody else's work. The overlay applies the same rule to GitHub's own board (R36), on the cards where it changes the answer: a card whose author the board picked has GitHub's assignees hidden and that author drawn in their place, and a card whose answer is its assignee is left showing GitHub's own — which on a card assigned to two people is both of their faces where the editor board narrows to one. The pick is made once, where the issues are read, and neither board decides it again. The swap needs a face to replace: a project view with the Assignees field turned off gives the overlay nowhere to draw, and it draws nothing rather than adding a face GitHub did not.
-
-A GitHub reference the board read itself is the way to that page: the issue number and the title open the issue in the browser, and the pull-request chip opens that pull request. The board resolves the address from its own read, so the card never carries a URL the webview hands back — which is also why an issue number the board only learned from a session's branch is shown but not linked. It has no read for that issue and will not guess its URL.
-
-**R6. Cards that need the user are visually unmistakable.**
-A card waiting on a decision must not look like a card that is working. Both carry a coloured edge; what separates them is that a mark is solid over a tint and a working edge is dashed over none. This is the board's primary job — a parked agent the user never noticed is the failure mode being designed against.
-
-Two things hold the user's turn, and the board marks both. **Needs you** is an agent that cannot go on without them — a permission prompt, a question, a plan to approve. **Your turn** is an agent that ended its turn and handed control back: finished is not done (R23), so a session sitting idle is either work to judge or work that stopped early, and both are the user's move. Needs you reads louder than your turn, and a card carrying both reads as needs you. Neither mark is ever claimed for a session the agent itself called finished: a dead session's last question is not a question anybody is waiting on.
-
-**A mark outlives the process that reported it.** The agent saying it has finished and the process merely going away are two different facts, and only the first ends a mark. So the last state the board saw a session in is kept, and the card goes on asking for the user after the window holding that session closes — an unanswered question is still unanswered, and a card that forgot it the moment the editor was shut is the failure R6 exists for at its worst, because the user closed the window believing the board would remember. Kept per session rather than per card: a reading is about the one session that reported it. A session that was working when its process ended is read as the user's turn — the work stopped mid-turn, which is theirs to pick up — and never as still working, which is a claim about a process that has gone. What ends a kept state is the card going past the user's hands and coming back (R9), which is a new pass at the work: a reading taken before that departure has been outlived, and the card returns as plain history. Nothing else ends one, and age never does — a question nobody has answered is as unanswered today as it was yesterday (R24). The row says the process is gone in its mark alone: the state's own colour, drawn as an outline where a live session's is filled (R5).
-
-Either mark is carried by one colour on four things at once — the card's border, the state mark at the head of the row it is about, that row's name, and the weight of it — because a single channel is not unmistakable to everyone who will use this. The border is on the card, not only on the session line, so it survives being seen from across the board. Neither board writes the mark in words: a pill reading `Needs you` beside a row already painted in the same colour was the same claim made twice, and the row is where the claim belongs, since it is the only place that says which session means it. What a colour cannot reach is carried instead by the state mark's own accessible name, which gives a reader the phase per row rather than one word per card. Such a card does not move to the top of its lane: a phase flips on its own every few minutes, and cards jumping under the cursor is worse than a static order.
-
-**A card that is working says so on its edge, under both marks.** A session with a process still running gets the card's edge too — dashed, in the green its own state mark takes, breathing rather than static. It is the quiet third and never a mark: no tint, no recoloured row, no place in the order above, so a card carrying a working session and a mark reads as the mark alone. It is drawn for the same reason the marks are — a board is read from across the room, and a card that has something happening on it is not the same as a card nobody has touched — and drawn differently for the opposite reason: it asks for nothing, and an edge a developer must walk over to is worse than none. A session the agent called finished carries no edge at all, and one whose process has gone is already the user's turn, which outranks this: neither is a process doing anything now.
-
-A finished turn asks nothing in **Done**, **Icebox** or **Archived**, and neither does a working one — the user has already said the card is not theirs to push on, so a finished turn there is the state they asked for and a working session there is not news. Both the marks and the working edge are dropped. A blocked agent is marked in every lane: a prompt nobody will answer is a mistake wherever it sits.
-
-### Lanes
-
-**R7. Lanes are the board's own stages, independent of the tracker's statuses.**
-A GitHub status is the team's, and its stages are coarser than the user's: the three statuses that keep a card name development and review, and nothing at all for agreeing what to build, for confirming a thing that has landed, or for work deliberately set down — while 🔖 Planned, 👀 Tasking Review, 🏃 Testing and 🚀 Releasable name steps the work is not the user's for. So the board keeps its own lanes, and a status is only ever one of the things that says where a card *arrives* (R8) — it never overrides a lane the user has chosen. Every lane names one action the card is asking for; a lane holding two unlike jobs should be two lanes or none.
-
-| Lane | The action it asks for |
+| Area | Content |
 |---|---|
-| **Unstarted** | pick it up, or leave it |
-| **Plan** | agree what to build |
-| **Build** | nothing, unless it stopped |
-| **Review** | read a diff and judge it, or answer a review of your own |
-| **Done** | confirm and let go |
-| **Icebox** | nothing, deliberately |
+| Header | Repository, issue number, title, type/status labels, selected pull request, avatar, overflow menu |
+| Footer | Triage result and session rows; visually and accessibly separated from GitHub's fields |
+| Session row | State mark, agent mark, truncated name, duration |
 
-The lane is called **Unstarted** rather than New so it is never confused with the 🆕 New status, which is a different thing and is not on the board at all.
+The footer remains present when empty. Cards and page use the same base tone; lanes are recessed and footers have a small contrasting tint. Borders distinguish cards when theme backgrounds coincide.
 
-**Review holds both kinds of review.** Checking an agent's diff before it ships and reviewing another developer's PR are the same process — read a diff, judge it — so they are one lane, and the card says whose work it is. Answering comments on the user's own PR is not review: there is code to change, so it belongs in **Build**. R8 reads that off both signals: a card under ⚒️ Dev arrives in Build however its PR is reviewed, a card under 🔍 Dev Review with changes requested arrives in Build too, and one under 🔍 Dev Review with nothing asked of it arrives in Review, where landing it is the judgement left.
+State marks use three meanings: working, waiting for the developer, and idle/unknown as applicable. Filled marks represent live sessions; outlines represent saved sessions. Provide accessible names for information conveyed by color and fill. Only the session responsible for card attention uses the card's attention color; do not recolor or embolden that session's name to repeat the same signal.
 
-**Done and Icebox are ends, not stages,** so an empty one is hidden. Both reappear the moment a card is picked up, or a card could never be dropped into an empty one.
+Animate the name of a working live session. Respect reduced motion and forced colors. Session names are more prominent than agent marks and durations.
 
-There is no Blocked lane. Its three would-be members are unlike: a session stopped by a usage limit recovers on its own (R20), a failed read is already a notice, and "I am avoiding this" is the Icebox. A card that is genuinely waiting says so on the card, in whatever lane it sits.
+Durations use one unit, rounded down: seconds, minutes, hours, days, or weeks. Update once per second without rereading the machine. A running duration starts at the prompt that began the turn; other phases start at the reporting event. For work resumed without a prompt, use the first observed event. This duration includes waiting within the turn; it is not CPU time. Hover explains the phase, time basis, exact timestamp, and last observation without duplicating the name.
 
-**R8. A card sits in exactly one lane: it arrives on its own evidence, and the user's own placement outranks that.**
-A card arrives in the lane its evidence names, and the board re-reads that evidence on every refresh for as long as the user has not moved the card — so a card nobody has touched follows its pull request and its status. First match wins:
+The card itself is not clickable. Titles, chips, and session rows have their own controls and hover feedback. Overflow menus contain secondary actions; hide unavailable items. Reveal card menus on hover, keyboard focus, and devices without hover. Keep current state when rebuilding an open menu.
 
-| What the board reads | Where the card arrives |
+The board header has one menu for archive visibility, logs, refresh, and Settings. Archive appears first. Check toggle items and mark the menu control while hub logging is enabled.
+
+Both clients draw tooltips rather than native `title` tooltips. Open after 120 ms, close on pointer exit, and support focus except inside menus where automatic focus would obscure other items. Provide descriptions independently of tooltip visibility. Do not repeat text already visible on a chip.
+
+Select the most recently updated open closing pull request; if none is open, select the most recently updated closing pull request of any state. Render its chip with a neutral outline and state-colored glyph. Use accessible text for the state. Selection is limited to the fetched page; see [GitHub query limits](mechanics.md#github-query-cost-and-limits).
+
+For a status ending in `Dev Review`, show the selected pull request's author. Otherwise show an assignee, preferring the developer's configured identity. Label the role. This status-name rule is independent of lane mapping. The overlay replaces GitHub's assignee display only where an author should replace it and an assignee area already exists; otherwise leave GitHub's display intact.
+
+Issue and pull-request controls open URLs resolved from source data. A guessed issue number is not sufficient to construct a link.
+
+### R6. Attention
+
+| Condition | Card indication |
 |---|---|
-| A status that names Build — ⚒️ Dev | **Build** |
-| The user's own open pull request, changes requested | **Build** |
-| The user's own open pull request, draft | **Build** |
-| The user's own open pull request, otherwise | **Review** |
-| A status that names another stage — 🔍 Dev Review, 🎁 Assigned | **Review**, **Unstarted** |
-| No issue of its own | **Build** |
-| Anything else | **Unstarted** |
+| Session waiting for permission, an answer, or approval | Needs you; highest priority |
+| Session completed a turn but is still open | Your turn |
+| Live session working, with neither attention condition | Dashed working border, no attention tint |
+| Agent explicitly reports the session finished | No session attention |
 
-**A status that names Build outranks the pull request,** because a review decision is not what this team hands work back with. Work returns to the developer by the issue being reassigned to them and moved to ⚒️ Dev, with what is wanted written as a comment; the PR is left open and its review decision untouched. So an open PR with nothing formally requested of it is no evidence the code is finished, and while the tracker says the work is in development the card is in Build. That is the same reasoning that has the review decision deciding Build under 🔍 Dev Review: the reliable signal wins. A status naming any other stage yields to the pull request, and a status naming none leaves it the only thing there is to read. A card whose pull request is approved while its status still says ⚒️ Dev sits in Build, because moving the status to 🔍 Dev Review is what offers the work for review — until then the tracker says it is being written. A merged or closed pull request is read as nothing — the status is the authority once it has landed — and one that is not the user's own says nothing about the user's stage, so it is read as nothing too. Whose it is comes from the same logins R28 identifies them by. Ad-hoc work with no issue arrives in **Build** rather than claiming to be unstarted: it is on the board only while its agent is running. Which statuses name a stage is a setting, shipped with the three that do. 🎁 Assigned names the lane an unmapped status would arrive in anyway, and is in the map because R38 reads the same map for what a status *means*.
+Attention uses the card border, a tint, and the responsible row's state mark. Working borders animate; reduced motion retains a static dashed border. Activity changes do not reorder cards.
 
-Once the user moves a card — by dragging it between columns, or with Alt and an arrow key on the focused card, which is the same move without a mouse — that placement *is* the lane, and nothing moves it again: not a status change, not a pull request opening, not a session starting or stopping. The board remembers it across refreshes and restarts, and the memory is one record per machine: a card moved on one board, in one window or in the browser, sits in that lane on every board. R9 holds the one exception. When the factory's stations exist they will move cards, and that is the one thing that will ever join the user in doing so.
+Implementation gap: the idle-attention branch does not exclude explicitly finished sessions. A finished session with idle activity can still produce Your turn outside Done, Icebox, and Archived. The intended rule is no session attention after an explicit finish.
 
-**R9. Work that has left the user's hands leaves the board.**
-A status decides board membership. The statuses that keep a card are the ones where the work is the user's; everything else — before it reaches them, or once it is with a tester, a release or another team — takes the card off. 🔍 Dev Review keeps the card: the user answers the comments, so the work is still theirs, and it names Review as the stage they are at (R8). Cards that leave are archived rather than deleted: a checked item in the header's own menu reveals them, with a count on its label, in an Archived column at the end, so nothing is hidden without saying so. The item is absent rather than unchecked while nothing is archived, and an archive that empties while its column is open clears the state as well — a column stranded on screen with nothing left in the menu to close it is worse than no column at all. The choice is the user's standing one: the extension holds it, so a board reopened tomorrow draws the Archived column if that is how it was left, and only the user's own toggle changes what is held. The column is drawn at full strength like every other — an archived card is one the user asked to see, and dimming a column they chose to open reads as a fault rather than a category.
+Retain the last observed activity after a process disappears. Retained waiting still needs the developer; retained running becomes Your turn because the process is gone. Retain by session identity, not by card. Age does not clear it. An issue's departure from active membership invalidates observations older than that departure (R9).
 
-**A card that goes past the user's hands loses its placement.** R8's rule holds within one pass through them; a card that left and came back is a new pass, and the lane it was parked in belongs to the pass that ended — a card sitting in Done that has come back needing work is the board lying about it. So an archived card forgets where the user put it and a later return arrives on its own evidence, marked as returned and sorted to the top of the lane it arrives in. R6's "unmistakable" is a marker on the card, never a lane of its own, because a returned PR and a bounced issue ask for different work. The mark clears when the user moves the card, which is the only evidence the board has that they have seen it. A card never loses a placement twice, and never for a reason outside its own status.
+Done, Icebox, and Archived suppress Your turn and the working border. Needs you remains visible in every lane.
 
-**It also loses what its sessions were last seen doing.** A state R6 kept past a session's own process belongs to the pass that has just ended, so the board records when each card went past the user's hands and shows a kept state only where the session reported it after that. Recorded as a date rather than as a fact about the card, because the two things being compared are moments: the board may be closed for the whole departure and return, and a comparison of dates is right either way where a count of passes is not. Dated on the render that archives the card and again on the render that archives it after a return — not on every render in between, which would outrun a reading taken while the card sat there. The departure date is not what moving a card clears: looking at a card is not the card leaving the user's hands again.
+## Lanes and membership
 
-**Editing the membership setting costs something, and the board says which.** Any edit to it clears the returned marks, and the placements of cards that were already archived: a changed set carries cards across the archive line for reasons no card caused, and a board where a settings edit looks like a dozen cards returning at once is worse than losing the marks. Narrowing the set also archives every card the removed status held, and each of those forgets its lane. Both status settings are user-level rather than per-workspace, because one board's memory is shared by every window.
+### R7. Lanes
 
-What a card has been read to be waiting on (R38) survives all of that, and is dropped only when the card itself goes past the developer's hands or off the board entirely. So does what its sessions were last seen doing (R6), and so do the departure dates that end those: an edit clears the returned marks, but forgetting when a card went away would put back a state that departure had already ended, and only a card's own pass past the user's hands may end one. A status set that moves cards across the archive line is not those cards changing what they want, and re-reading a dozen of them because a setting was edited would spend the developer's usage on a question none of them asked.
+Lanes are independent of GitHub project statuses.
 
-An archived status cannot hide a card that still has a live agent on it. R2 outranks R9: no session is ever invisible, so the card stays where the user put it and says on its face what its status is.
-
-**An issue nobody has assigned the user is off their board too, whatever its status says.** Finishing an issue takes it out of their hands by unassigning it, and a session left open on it must not leave the card named after the fact that it is gone. So a session naming an issue the assigned read did not return puts a card up with the issue's real title, read from what the board wrote down while the issue was still theirs and from the tracker only where it never saw one. That card is archived — being assigned is what puts work on this board, and an issue handed on is not the user's to act on — and being unassigned is enough on its own, so a closed issue and one still sitting in a status that keeps other cards both land there. The live-agent rule above does not hold here, and this is the one place it does not: a status is a claim about the work, which an agent can outrun, and being unassigned is a claim about whose the work is, which it cannot. So the card archives with a session still on it. That is not a session going invisible — the Archived column is on the header's own menu with a count on its label, and an agent blocked on the user is marked there as in every other lane (R6). Such a card is never triaged (R38), never acted on (R39), and never given a new session (R42): what an issue somebody else now owns is waiting on is not the user's to be told, a reading taken while it was theirs is not shown on it either, and starting work on it is not the board's to offer. Its checkout still opens (R41) — a window on code is not work on it.
-
-**What the card says is what actually took it off the board.** Closing an issue removes it from the assigned read as surely as being unassigned does, so a card still in the user's own name reads as closed rather than as somebody else's — the board never says an issue is not theirs when it is. An issue that is open, still theirs, and absent all the same says that instead, since the one thing it cannot be is somebody else's work.
-
-**A number that names nothing is not an issue.** The issue a session is on comes from its branch, which is a guess (R3). Where the tracker cannot produce that issue — no such number, or a checkout in a repository the board is not configured for — the session is ad-hoc work and joins its checkout's card (R4), because a card carrying a number and nothing else says less than the branch does.
-
-**R10. Each lane shows how full it is.**
-The lane header carries its card count, so the user can see at a glance that they have too much in flight. The board refuses nothing on the strength of it: a session it declined to show would be a session it was hiding (R2). What it does bound is its own work — how many card actions it may run at once and in a day (R39, R33).
-
-### Watching
-
-**R11. The user can see what a session is doing right now.**
-The current action, in plain language, updating live while it runs — not a log to read, and not a stale snapshot.
-
-A session is named by its own title: the one the developer set where they set one, otherwise the one the agent wrote for itself. The name the CLI reports is the fallback, not the label — for a session started without one it is derived from the directory, so two sessions in one checkout would otherwise read as the same work twice.
-
-**R12. Watching costs nothing.**
-Looking at a session never interrupts it, slows it, or changes its state.
-
-**R13. The user can tell a working session from a stuck one.**
-"Thinking" and "waiting on a 5-minute command" must not look the same as "stopped 40 minutes ago".
-
-The board reports two facts and never a third: the last phase it observed a session in, and how long that phase has held. It never turns a running session idle because time passed — a twenty-minute test run produces nothing to observe, and calling that stopped is the same lie in the other direction. A wedged session is a turn that has been running implausibly long for the work; the hover names the hook the board last saw it at.
-
-### Taking over
-
-**R14. The user can open a session in a Claude Code tab and drive it by hand.**
-A historical row under R3 resumes its saved session in a window on its recorded directory. The board rechecks the active roster and the transcript on click. If that session has become active, the existing reveal path takes precedence; if another session is active on the card, the stale historical click asks the user to refresh. Unreadable liveness, a missing transcript/directory, and a repeated in-flight resume are refused. A final fresh roster check and deadline protect the actual resume command from a delayed click.
-
-A historical session with no suitable open window gets a new window explicitly, so the user's folder-opening preference cannot replace the board's window mid-resume. Bringing or opening another window obeys `openWindowsForSessions`. Multi-root windows are not used for historical resumes because Claude reads history relative to its first folder; the saved directory gets a standalone window.
-The tab shows the full prior conversation and runs in that work's own directory, so anything typed operates on the right code.
-
-A session's own row on its card is the control, and it names the session by id — the board never hands out a path or a command line, the same rule the issue and pull-request buttons follow. Every Claude session is offered wherever it runs: the board exists to hold many worktrees at once, so where a session is held decides how it is reached, never whether it may be.
-
-**Where a session is held is read, not inferred.** VS Code records, per window, which session each of its Claude tabs is showing and which one its sidebar is showing. That record names both the window and the surface, and the two are reached differently: a tab is revealed by its session id, and no command reveals one session in the sidebar. Asking for a sidebar-held session as a tab builds a second surface on it, which is a second agent on one piece of work (R18) — so the board never does. The directory a session reports is not the answer either: a session sent to a worktree keeps the window it started in and reports the worktree.
-
-**A session in the sidebar is brought to, not opened.** Its window comes forward already showing it, and the board says which session that is — in this window as well as another, because the record is a minute old and the view that comes forward may be showing different work. That is the whole of what can be done for one, and saying so beats opening something that looks right and is not.
-
-**Which window holds a session is read from the session's own process**, not guessed from where it is working: the process belongs to one window, and that window is the one still listening on its own port. So a session sent to a worktree is found in the window it actually runs in, and a window that has closed — which leaves its record behind — is told from one still open. Bringing another window forward is a permission the developer holds, because it moves their focus. It is granted by default, since a board spanning worktrees is useless without it. Revoking it refuses a session elsewhere by name rather than disabling the board, and the refusal offers to grant it there and then — R34 asks that a setting be changeable without editing a file, and this is the one refusal a setting fixes. Where no open window holds an active session, the board says so rather than opening a fresh one the session is not in — and the same where the window holding it has no folder open, or several, because `code` is given one path and a folder of a multi-root window opens a second window rather than raising the first.
-
-**Where the window is known and the surface is not, what happens depends on what a reveal would do.** That case is common rather than exotic — a tab's record can go missing, and a sidebar may remember nothing at all. Where a reveal opens a surface by session id, firing would be a guess and the wrong guess runs a second agent on one piece of work, so the board takes the developer to the window and says so. Where the reveal names the session itself and re-activates whatever already holds it, there is nothing to get wrong, and the board reveals it in that window rather than stopping short.
-
-**The record is written on a cycle rather than on change**, about a minute behind. A session younger than that has not been placed yet, and the board says it is still settling rather than that it cannot be reached — the two have different remedies, and one of them is waiting. A session no window has ever shown is neither: it was started from a terminal, or its surface has since been given other work, and the board says that plainly.
-
-Aiming still has to be checked rather than assumed. A request that lands in the wrong window does not fail quietly; it starts a fresh, empty agent under that window's directory. So the board confirms focus actually left before it fires, and watches afterwards for a session that should not have appeared — comparing against the roster as it stood when the request went out, so work the developer starts themselves in the meantime is not reported as a miss.
-
-**An editor with an update staged under it is not launched at all.** VS Code finds the editor already running by a lock named after the version it is running, so a background update that has swapped the executable under open windows turns a launch into a second editor rather than a message to the first — and a second editor reopens every window the developer already has. Until those windows are restarted into the staged build, the board refuses every route that would launch one, names both versions, and asks for the restart that is the only thing that clears it.
-
-Everything the board cannot do, it names. A session another CLI reported, a clicked row the roster no longer carries, a missing Claude Code extension, an editor with an update staged under it, and a link naming something that is not a session of theirs are each refused in their own words, because each has a different remedy — the general rule of R25, applied to the one place the board acts rather than reads.
-
-The Claude Code extension stores where the developer prefers Claude to appear, and some of its commands rewrite that setting as a side effect of being called. The board never does: for a tab it uses the one command that leaves the setting alone, and for the sidebar it focuses the view directly rather than through the extension's own opener.
-
-**R15. Taking over stops the session, and the user is told so before it happens.**
-The cost is stated in specific terms — including how much in-flight work will be discarded — with the option to watch or redirect instead.
-
-There is a stop to quote only for a session the board dispatched. A session already running in an editor tab is the developer's to type into, and opening it takes nothing away — which is also why nothing is pre-filled for one: a prompt supplied to a tab that already exists is dropped, and the developer is told to type it in themselves, so the seeded reply R16 asks for is reliable only on the sessions R15 has to stop.
-
-**R16. Taking over pre-fills the most likely next message.**
-When a session stopped to ask something, the reply the user probably wants is already in the box. One keystroke should be the whole interaction.
-
-**R17. Closing the tab hands the session back.**
-No separate "give it back" step. When the user is done, they close the tab and the work resumes on its own, picking up where it left off — including anything that was interrupted.
-
-**R18. The user cannot accidentally create two agents on the same work.**
-If a session is already open somewhere, the board says so and refuses to start a second one rather than silently splitting the work in two.
-
-A session that already has a tab is revealed rather than opened again, in whichever window holds it, and the identity that decides it is the session id. The surface it is on matters as much as the window: a session the sidebar is showing has no tab to reveal, and asking for one builds a second surface on a session already held — two agents on one transcript, reached without anyone resuming anything. So the board reads the surface before it fires, and refuses that case outright rather than opening something that looks right.
-
-Two windows rooted at one directory is the case it still cannot separate, because the two share one record of what they are showing. A tab label is no substitute for telling them apart: a label is a lagging, renameable projection of a session, not a handle on one.
-
-### Redirecting without taking over
-
-**R19. The user can change what a session is doing by editing its working notes.**
-No need to stop it, and no need to argue with it in a chat window. The session picks up the change on its own.
-
-### Recovering by itself
-
-**R20. A session stopped by a usage limit resumes on its own when the limit lifts.**
-The card says what it is waiting for and when it expects to resume. No user action, and it does not count against their in-flight work.
-
-**R21. Transient failures retry without involving the user.**
-Only a failure that survives retrying becomes something the user sees.
-
-**R22. Work interrupted by a stop is resumed, not silently dropped.**
-Anything that was in flight when a session stopped comes back when it resumes, or the card says plainly that it did not.
-
-**R23. Nothing advances on an agent's word alone.**
-A stage completes when there is something to show for it. A session that stopped early — for any reason — must not look finished.
-
-### Configuration
-
-**R26. It works on first run with no setup.**
-A developer installs it, opens the board, and sees their assigned issues and running sessions. Anything the board can detect, it detects; anything it cannot, it asks for once, in place, rather than failing or showing an empty board with no explanation.
-
-Telling a running session from an idle one is part of that. The agent CLI does not report it, so the board installs its own hooks into the developer's Claude Code settings when it is activated — by opening the board, by one of its commands, or by a window reopening with the board tab already in it. A developer who has never opened it is never activated and so is never touched, which is what §2 asks. It backs the file up first, adds only its own entries — never a hook of the developer's own, even one sitting in the same group as ours — and refuses to write at all rather than repair a file it cannot fully read.
-
-**R27. Team-wide facts ship with the tool; personal facts are the developer's own settings.**
-
-| Shared — same for everyone, ships as defaults | Personal — differs per developer |
+| Lane | Purpose |
 |---|---|
-| Which repository and project board work is tracked on | Their GitHub account(s) |
-| The set of statuses and what they mean | Where their checkout(s) live, and whether they use worktrees |
-| The branch-naming convention | Their local site hostname(s) |
-| The default lane set, which statuses keep a card on the board, and which of them name a stage | Which extra AI CLIs they have installed |
-| Which work sources the board reads | Which editor applications the board reaches into |
-| | How much work they want in flight at once |
-| | How much the board is allowed to do on its own |
-| | What agents it starts are allowed to do without asking |
-| | Whether it may open new editor windows |
-| | How much the background process writes about what it is doing |
+| Unstarted | Work not begun |
+| Plan | Agree what to build |
+| Build | Implement or answer changes requested on your work |
+| Review | Review a diff or await review of your work |
+| Done | Confirm completion |
+| Icebox | Work deliberately set aside |
+| Archived | Issues outside active board membership; optionally displayed |
 
-A new developer should inherit every shared default without configuring anything, and should never have to edit a shared setting to make the tool work on their machine.
+Hide empty Done and Icebox lanes except during a drag, when they must be available as destinations. There is no Blocked lane: attention remains on the card in its existing lane.
 
-**R28. The developer declares their GitHub identity, and it can be more than one account.**
-Several developers work under both a personal account and a bot or AI account. Work under any of their accounts is theirs, and the board treats it as one person.
+### R8. Arrival and manual placement
 
-**R29. The board adapts to how the developer organizes checkouts.**
-One clone with branch switching, many clones, or many worktrees — all supported. The developer says where their code lives; the board does not impose a layout.
+A card has exactly one lane. Before manual placement, derive its lane from configured status mappings and the developer's own open pull request.
 
-**R30. Optional tools are detected, never required.**
-If a second AI CLI is installed, features that use it appear. If not, the board works without them and does not nag. Nothing is broken by absence. Codex is that second CLI, and the board detects it: a machine with a Codex home of its own gets Codex sessions with no setting at all, and a machine without one is never polled and never told it is missing. Detection is a directory read rather than a probe that spawns the CLI — a Codex roster is read from hook markers, not from a command, so nothing needs to run for the board to know. The agents setting stays, and what it is for is naming a CLI that is not on the path; naming any agent still replaces the detected set. Detected, Codex shows live sessions and saved threads with a phase, takes the developer to a running thread in the window running it, which the thread's own process names — and where that window is holding the thread in Codex's sidebar, which records nothing, the reveal opens it as an editor tab there rather than stopping at the window — and starts work on a card. What it still refuses it says plainly rather than half performing: it classifies no card, and it will not start work under a permission mode whose approvals nobody is there to answer.
+| Evidence | Arrival |
+|---|---|
+| Status mapped to Build | Build, regardless of review decision |
+| Own open PR is a draft or has changes requested | Build |
+| Own open non-draft PR, without changes requested | Review |
+| No qualifying own open PR | Configured status lane, otherwise Unstarted |
+| Ad-hoc work | Build |
 
-Trust is part of the install, not a step left to the developer. A hook Codex has not been told to trust fires nothing, and the hash it trusts is taken over Codex's own representation of an entry — so the board asks Codex for that hash and hands it back, and Codex writes its own `config.toml`. The board never computes a hash and never edits that file as text. What it trusts is only the entries whose command is the writer it installed: a hook the developer wrote, or a plugin did, is left exactly as Codex had it. Where the exchange cannot happen at all the board says what stopped it, with accepting the hooks in Codex as the remedy — an empty Codex with no reason given is the one outcome ruled out (R25).
+Closed, merged, and other people's PRs do not override the status. Defaults map Assigned to Unstarted, Dev to Build, and Dev Review to Review.
 
-**R31. Permissions for agents the board starts are the narrowest a run can finish under, and loosening them is explicit.**
-A developer who has not thought about it gets the least authority that still does the job. Anyone who wants more than that turns it on themselves, knowingly.
+Dragging or Alt+arrow on a focused card sets its lane. Persist that choice across clients, refreshes, and restarts. Status, PR, and session changes do not override it. R9 defines the departure exception. Future workflow state controls automated stage movement and may move a manually placed card.
 
-The narrowest is not the most cautious setting on offer. A dispatched session has nobody to answer a prompt, so a mode that asks parks forever and one that refuses fails at its first tool — either way the board reports work it never did, which is worse than the authority it withheld (R15). So the shipped mode is the one that consults the permission system and answers for itself, and the mode that turns that system off entirely is the developer's own decision.
+### R9. Archive, departure, and return
 
-Triage is the first agent the board starts, and it is the shape this asks for: no tools at all, no MCP servers, and no settings of the developer's loaded. It cannot read a file, run a command, or write anything anywhere. There is no looser setting to offer, because a classifier that needed one would be doing something other than classifying.
+The membership status setting determines which assigned issues remain active. Other statuses archive the issue. Show an archive count and an optional Archived lane through the header menu. Hide the menu item when the archive is empty; remove an empty displayed lane without erasing the user's standing preference to show it.
 
-**R32. How much work the board does on its own is a setting, and it starts at nothing.**
-Out of the box the board shows and intervenes; it does not start work. A developer opts in to more autonomy, in steps, at their own pace.
+On a genuine departure, clear manual placement and record a departure timestamp. If the card returns, derive its lane again, mark it returned, and sort it first in that lane. A manual move acknowledges the return. Record departure once per transition, not on every refresh.
 
-The line is work on the developer's code. An agent that edits a checkout, opens a pull request or advances a stage is work, and none of that happens unasked. Reading is not: the board already spawns CLIs to see what is on the machine, and classifying a card (R38) is one more read — no tools, no writes, nothing changed anywhere. It is on by default for that reason, and it has a setting of its own because it costs the developer's own usage and sends text off the machine, which no other read does.
+Retained session activity is valid only if observed after the card's recorded departure. Clearing a returned mark does not clear this timestamp.
 
-Card actions (R39) are the first step over that line, and they are shaped by it: a setting of its own per action, every one off, no prompt shipped, and a ceiling on what a mistake can cost. The developer turning one on is the whole of the consent, and the board says so out loud the first time one actually starts.
+Changing the membership setting clears returned marks and placements on already archived cards. Narrowing membership also clears placement for newly archived cards. Do not erase historical departure timestamps or discard triage solely because the setting changed. This prevents a settings edit from presenting false returns or restoring invalidated activity.
 
-**R33. How much work is allowed in flight is the developer's number.**
-Limits vary with how a person works and with what their account can sustain. The board enforces its own numbers where it is the one starting the work: how many card actions may run at once, and how many it may start in a day (R39). It enforces nothing on work the developer starts themselves — R10 counts those and refuses none — because a board that refused to show a session would be hiding one (R2).
+There are two different rules for live sessions:
 
-**R34. Settings are changeable without editing files.**
-Anything a developer is expected to set, they can set from the board or from normal editor settings. A **Settings** item in the board's own menu opens the editor's settings filtered to this extension, so the keys are reachable from the board that they govern rather than only by knowing what to search for.
+- An assigned issue in an excluded status remains active while it has a live session. Keep its lane and display its status.
+- An issue absent from the assigned read can still appear because a live session names it. Resolve its real metadata from the cache or source and archive it, even while the session remains live. Distinguish closed, unassigned, and otherwise absent issues accurately.
 
-Anything the board writes outside its own storage is reversible the same way, and reversible when the developer says so rather than at the next restart. Turning off the activity hooks removes the entries it added, on the change itself, rather than merely declining to add them again; the command is the same switch in one step. Uninstalling the extension removes them too — hook entries naming a writer nobody maintains would otherwise go on firing forever. The writer file itself is the one thing left behind, because sessions that already read the old settings go on spawning it and a deleted script makes each of them report a failure on every event.
+Archived issues outside the assigned set retain inspection and checkout opening, but offer no triage, card action, or new-session start. Do not show triage from their previous assignment. Needs you remains visible in Archived.
 
-**R35. The board's tracking runs in one background process per machine.**
-Reading the machine — the issues, the sessions, what each is doing, where each is showing — happens once, in a process every board shares, so two windows and a browser tab never read the same machine three times and never disagree about it. It starts the first time the developer reaches for the board, stops polling while no board is watching, and exits half an hour after the last window and browser tab that could show a board has gone; the next board open starts it again in about a second. A board coming back into view is shown what is already known rather than costing a fresh read of GitHub: the issues a board shows may be up to a minute old, because a developer moving between a board and their code becomes a board that is watching again every time, and a service that rate limits its callers is one the board must not ask on every glance. The sessions on this machine carry no such delay, and neither does what the developer asks for by hand: the refresh button, and settings they just changed, read now. Classifying a card obeys the same rule and matters more, because it costs the developer's own usage: an editor window stays connected with no board open, so a hub that read cards whenever it was merely running would spend on a board nobody had opened. Nothing is classified unless a board is watching, or the developer asked for that card by hand.
+If the source cannot establish the issue at all, use an ad-hoc card. Do not treat the initial absence of a source response as an empty assigned set.
 
-It remembers the settings it was last given, so a browser tab that starts it while every editor window is closed tracks the same repository and the same sources the developer chose, rather than reporting itself unconfigured. It can be stopped without editing a file, and uninstalling the extension stops and removes it. A developer who never opens a board never has one running, which is what §2 asks.
+### R10. Counts
 
-**R36. The board is also available as an overlay on the team's GitHub project board.**
-A developer looking at the project board in the browser sees, inside each of their cards, the sessions on it and what each is doing, and the same conditions R25 asks be stated once. Each session is named the way the editor board names it — what it calls itself, which agent reported it, the one state the board will claim for it, and how long that state has held, advancing once a second as R5 asks. A card wanting something is ringed on the card itself, and one whose session is working is ringed dashed in a third colour that asks for nothing, because a project board is read from across the room, and the session row that wants something is marked where it sits — the mark at its head in the ring's own colour, nothing on its words — so the ring's reason is one line rather than a badge repeating it. Sessions are stacked one to a line, the full width of the card, because a card's whole worth here is the name of the session on it. A working session is lit rather than coloured on its own row: its name carries a pass of light, monochrome, because colour on a row is spent on the two things that want the developer. A click on an active session takes the developer to it, in the editor. A click on a historical session resumes it under R3 and R14 through the same link. The overlay cannot reach into a window, but it can ask the operating system for one: the click is a link the editor answers, which raises VS Code and hands the window that takes it the focus every route then needs. From there it is the same open the editor's own board does, refusals and all. Because the link addresses the editor rather than a window that happens to be running, a session is offered whether or not one is: a browser tab with every editor window closed is the state R35 designs for, and the board answers it by asking for an editor rather than by refusing. That holds for a session, which the link names by an id; a card's checkout is named by the card, and the directory it means is the board's to resolve — so the overlay asks the board rather than the operating system, and with no editor board running there is nothing to ask (R41). Stopping a session and taking it over is still the editor's alone (R15): opening one takes nothing away, and that is why it may be done from a browser tab at all.
+Show a card count per lane. Do not hide or refuse developer-started sessions to enforce work-in-progress limits. Limits apply to board-dispatched work (R33).
 
-The overlay also gives the board back the height GitHub's own header takes: a button beside its own folds the project's title bar, the row of view tabs, and the Save and Discard an unsaved filter puts in the bar. The choice is the developer's and it sticks — remembered in the browser, so it holds across a reload and across every board they open, rather than resetting each time the tab does. It also closes the gap GitHub leaves between the columns and fades their dividers out towards the bottom, so the lanes read as one board rather than a row of separate boxes.
+## Inspecting and opening work
 
-**R37. A card shows what its work has changed, in the editor.**
-A card that has been worked on opens, in one editor, every file its checkout has touched — the commits on its branch and the uncommitted work together, the point the branch forked from on the left and the file on disk on the right. That is the question a developer looking at a card actually has, and no built-in answers it: a diff between two revisions cannot see the working tree, and the working tree's own view cannot see a commit. The checkout comes from the sessions the card already carries or from the folder the developer named for it (R41), never from a branch name or an issue number, so a card that has neither offers nothing rather than a control that could only refuse. Where the fork point cannot be established the editor holds the uncommitted work alone and says so in its own title, because showing half the answer under the whole answer's name is the failure R23 is about. The board never changes the checkout to look at it — not a config it writes, not a branch it moves — and it opens against the card's own worktree or refuses by name, since a diff of the wrong checkout under the right card's title is worse than no diff. A branch off a stale base is truncated rather than handed over whole, and the title says how much was left out. Which checkout it read is named on the editor itself wherever a card's sessions are spread over more than one, since the card lists them in a different order than the one that picks. Looking costs the window the checkout as an entry in its Source Control view, which is how the editor is reached at all and stays until the window is reloaded. This is the editor's alone: reading a diff means opening an editor onto files, which is a thing only something inside that editor can do — where what the overlay may ask for is a window, and nothing in it (R41).
+### R11. Current activity and names
 
-**R38. A card says what it is waiting on, worked out when it arrives.**
-A card the developer has not looked at is a title and a status; what it actually wants from them is several clicks away, in a conversation they have to read. So when a card arrives on the board — for the first time, coming back after leaving, or once its status has moved under it — the board reads the recent activity on the issue and on the pull request it is showing, and labels the card with one action and one sentence saying where it stands. **Develop**, **Answer review · followup**, **QA failure**, **Merge upstream**: enough to decide whether this is the card to pick up, which is what R5 asks of everything else on the card.
+Show the latest observed phase and update it as events arrive. Name sessions by the last manual title, then automatic title, then agent-provided name and other fallbacks. A directory-derived CLI name must not override an available title.
 
-**The status says what a card needs; the assignee says who does it.** That pair is the team's instruction, and most of the time it is the whole answer — a card moved to review and put in the developer's hands is a card to review, whatever anybody wrote. So the board works the label out from it wherever it can, and only asks the classifier where the status leaves the choice open. Which statuses carry that meaning is the same setting that says which lane a card arrives in: a status mapped to review names a review, one mapped to unstarted names work to begin, and one mapped to build — like a status left out of the map — leaves the label to the pull request and the conversation, because work under way does not say what it needs next. One map, because a status meaning two different things to two parts of the board is a setting nobody can keep straight. The one thing a status cannot say is *whose* review is pending: on the developer's own open pull request the review is somebody else's to give, so a review status settles nothing there and the card falls to its pull request and its conversation — which is what puts one with changes requested back on them as work (R7).
+Detailed live descriptions of individual tool calls remain a future requirement. The implemented activity view reports phases and their durations; streaming experiments in [mechanics](mechanics.md#claude-print-mode-and-streaming) demonstrate a possible source for finer detail.
 
-**A state change is an instruction even with nothing written beside it.** Work is handed over by moving a status and changing an assignee, and often that is all that happens: the question that was open got answered by a rewritten issue body, and the move is the only record that it was. So the board reads the status moves and assignments alongside the comments, in one list, and everything said before the last of them is background rather than something to act on — a card that was tasked must never read as a card still waiting on an answer. A run of changes one named person made in quick succession — each within a minute of the one before — is one instruction, since a hand-over reaches GitHub as three or four separate writes and somebody working at a card keeps going; two people inside the same minute are two, and the later one is what the card is waiting on. Where GitHub names nobody, nothing joins: two anonymous changes are as likely two people as one. An instruction is dated when it began rather than when it finished, because what somebody wrote while handing a card over belongs to the hand-over and not to whatever it answered. The card being added to the project is nobody's instruction and is not one of them.
+### R12. Non-interrupting inspection
 
-**Every label names something to do.** There is no label for a card that is merely waiting. A pull request nobody has reviewed yet, or one that cannot merge until something else lands, is somebody else's queue rather than a card asking the developer for anything — it reads as **Other**, with the sentence saying what it waits for. There is no label of its own for that state: a classifier given somewhere to put "nothing to do here" puts cards there that had something to do, and a board saying *Waiting on others* about work that is in fact the developer's is worse than one that says nothing.
+Viewing state must not stop or alter a session. Tracking must avoid connections that evict an agent's existing editor integration.
 
-**It names people, and calls the developer "you".** A card is read by the person whose board it is, so the sentence addresses them in the second person and never by name — *sent back to you for re-review*. Everybody else is a first name rather than a login, taken from their GitHub profile, because that is how a team refers to itself and a login is a thing to decode. A profile carrying no name — every bot that reviews or comments — leaves the login standing, which is the honest fallback. Where GitHub's answer is not the person, one setting overrides it by login: an agent account's profile names the agent rather than whoever drives it.
+### R13. Long-running activity
 
-**The sentence is logistics, not engineering.** Where the card stands and whose move it is — "Sent back to Jon for re-review" — never a summary of the change, the cause, or what each reviewer said, which is the half of the card the developer can read for themselves. It counts nothing, in digits or in words. The classifier is shown only the most recent few comments and review threads, never all of them, so every total it could write is a guess: "Mayur has some questions" is both shorter than "Mayur asked five questions" and, unlike it, true.
+Show the phase and its duration without converting running to idle merely because no event arrived. A long command may legitimately be silent. Hover identifies the last observed event; do not claim automatic stuck-session detection.
 
-**It labels; it never moves.** R8 keeps one author for placement, and that is the developer. A reading that also placed cards would give the board a second opinion nobody verified, fighting the arrival table that already reads Build from Review off the pull request.
+### R14. Open or resume a session
 
-**What can be read as fact is never guessed.** Red checks, and whether a review round is a first or a later one, are read from GitHub directly, and that reading outranks anything anybody wrote — but not the status, which is the team's own word on what the card needs where a branch is an artefact of doing it. A round on somebody else's pull request is a later one once anybody but its author has submitted a review of it, or once the developer has spoken on it at all. Reviews here arrive as often in a plain comment, or from an agent account that is none of the developer's logins, as they do as something GitHub recorded as a review, and a re-review is a re-review whoever gave the first one. A draft review nobody but its writer has seen is not one, and where GitHub cannot name the pull request's author no review counts — claiming a round the developer has not had is the worse miss (R24).
+An editor session opens by ID, with the prior conversation available. Use the agent's supported operation and apply these rules:
 
-**The action is settled before the model is asked, never corrected after.** Where the status or the pull request already decided it, the classifier is told the action and writes only the sentence — so the two describe the same card. A label fixed up after the fact leaves a sentence describing a state the card is no longer in, which is the contradiction R24 is about.
+- Reveal an existing tab in its owning window.
+- For Claude in a sidebar, focus the sidebar/window and identify the requested session; opening another surface can duplicate its process.
+- When the owning window is known but its surface is not, reveal only if the agent's operation is idempotent. Otherwise focus the window and explain the limitation.
+- Attach to a live detached Claude run in a terminal (R39).
+- Recheck history before resuming: confirm readable liveness, valid saved data, no conflicting live session on the card, and no pending resume. Use a final fresh roster check and an expiry deadline.
 
-**Mergeability is not read at all, and a merge is something somebody asked for.** A branch quietly falling behind is not an instruction to touch it, so **Merge upstream** appears because a person wrote it on the card — asking for a rebase, saying an auto-merge failed — and never because GitHub computed a state. A branch that will not merge is not on this board's list of things to do: resolving conflicts belongs to the team that owns the merge queue, so the classifier is told so and labels the card by what is actually being asked. Nothing at all is read off a draft, off somebody else's pull request, or off one already landed.
+Determine the owning window from process and host records, not from session cwd alone. Explain missing, stale, or not-yet-persisted placement. Do not substitute a newly opened empty window for the owner of an active session.
 
-**The action is on the card and the sentence is on hover.** The label is what a scan of a lane is for — *Answer review · followup* decides whether this is the card to pick up — and the sentence is what the developer reads once they have picked it. A sentence on every card put a paragraph of prose under every title in the lane, which is more of the card than the card, so it is the label's tooltip on both boards.
+Historical resumes use the saved directory and a standalone window. Reuse a suitable single-folder window or explicitly open a new one; do not depend on the user's folder-opening preference. Agent-specific history validation remains necessary.
 
-**The age on the label is the card's, not the reading's.** How long the card has held the status it is in sits beside the action, because that is what says whether the label is still the card to pick up: a review handed over an hour ago and one sitting a week both read *Answer review*, and only the age tells them apart. When the board decided is a different question and a quieter one — it goes in the tooltip with the sentence, where it qualifies the words it belongs to. Nothing is written where the project board records no move, which is a card off the board rather than a card that has never moved.
+Opening or raising another window obeys `openWindowsForSessions`, enabled by default. A refusal caused by this setting offers to enable it. Do not modify the agent extension's preferred location as a side effect.
 
-**It says when it decided, and a moved status makes it read again.** A card is read once, so a label can be overtaken. The board marks a reading as out of date when the card has actually moved under it — a pull request opened or closed, the status changed, somebody commented or reviewed or pushed, a build gone red — and never for any other reason. Age alone is not one: a reading nobody has contradicted is as true today as it was yesterday, and marking every card that had sat overnight said something had moved on cards where nothing had, which is the claim R24 forbids. The board gives the age either way, as a fact about the reading rather than a verdict on it. One change earns more than a mark: a status that has moved is somebody saying what the card now needs, so the card is read again. Nothing else is, because everything else that overtakes a label costs the developer's usage to chase and settles nothing.
+Check cross-window focus and unexpected session creation. Refuse editor launches when the staged-update check detects a version mismatch; explain the required restart. This protection has a known detection limit recorded in [mechanics](mechanics.md#vs-code-updates-and-window-launches).
 
-**The review decision is not read, and is not shown to the classifier.** GitHub's `reviewDecision` lags what the team actually decided — a pull request sits at `REVIEW_REQUIRED` on work approved days ago by moving the status — so putting it in front of the model states an outstanding review that is not outstanding. The submitted reviews and the status carry the same fact without the lag.
+Missing extensions, unsupported agents, unavailable sessions, ambiguous windows, and expired requests receive specific refusals.
 
-**Reading a card again is the editor's, and it takes a press of its own.** Every card carries a control for it, including the ones whose reading failed — those most of all, since a card the board could not read is otherwise the one card with nothing to press. On a card that was read, the control is its own mark at the right of the label rather than the label itself: the label carries a sentence worth clicking to see in full, and that click must not be the one that spends the developer's usage. It stands in the place of the age, appearing only while the card is pointed at or the keyboard is inside it — a lane is a list to read, not a row of buttons waiting to be used, and the age is what a card at rest carries. The two share one place, so a card is the same width either way. Where nothing can hover, both are drawn: a control revealed by hover alone is one that never appears on a touch screen. A card the board could not read has no sentence to click for, so there the whole chip is the control. Asking twice in quick succession is refused, and so is asking while the board is already reading as many cards as it may: the ask spends the developer's usage, and it is the one thing on the board that does. The browser overlay shows the reading and offers no control, the same rule R37 follows.
+### R18. Prevent accidental duplicate sessions
 
-**It stops trying on its own.** A card the board cannot read is tried again on a widening delay and then left alone, rather than spawning against a CLI that will not answer for as long as the board is open. The card says so, and the developer's own ask is what starts it again.
+Do not open a second editor process on a session already held elsewhere. Session identity determines duplication, not the issue or checkout: intentionally starting another session on the same card is allowed (R42).
 
-**A reading that fails leaves no label,** and the reason is stated once above the lanes rather than on every card it hit (R25). A card that could not be read looks exactly like one that has not been, which is the truth.
+Use window and surface records before opening. Labels cannot establish identity. Two windows sharing one workspace store remain an ambiguity; fail conservatively when the records cannot resolve it.
 
-**Classifying sends the card's text off the machine.** The issue and pull request titles, bodies and recent comments go to the model's API, because inference is not local — other people's comments included, and with them who wrote each one *by name*, how they relate to the repository, what any review said, and who moved the card between which statuses and when. Names are read from the profiles the repository already shows on every comment; they leave the machine with the words beside them. Everything else the board does stays on this machine. This is the one thing it does that does not, it is on by default, and one setting turns it off.
+### R37. Combined changes
 
-**Its own session is not on the board.** Reading a card runs an agent process, and that process is the board's machinery rather than the developer's work: it leaves no transcript, no history, and no session on any card (R2).
+From a card's verified checkout, open one diff showing branch commits and uncommitted changes together, from merge base to disk. Use a session-derived or explicitly selected checkout (R41); do not guess from an issue number or branch name.
 
-**R39. One of the things a card asks for, the board can do rather than only name.**
-Merging the base branch into the head is a job with a right answer that a developer does by hand a dozen times a week. So where a card is asking for one, the board offers to do it: on the card, in a checkout it has seen an agent run in, as an ordinary agent session the developer can watch, take over and stop. A folder the developer merely named for a card (R41) is not that: it is enough to open a window on, and to start a session they are sitting in front of, and it is not enough for the board to edit code in unwatched. Nothing else is automated — not the failing check, not the conflict a merge runs into, which is another team's job here anyway.
+If no merge base is available, show uncommitted changes and state that limitation in the title. State truncation and identify the selected checkout when several qualify. Do not change Git configuration or branches to inspect work. Refuse a repository mismatch.
 
-**A row says where its click lands, and a run's name says it is one.** Two destinations and no more: a terminal for a detached run, the editor for everything else. Which one a row goes to is known before it is clicked, so it is drawn on it — under the pointer, in the slot the duration holds, on both boards. A run's own name is set apart from the sessions the developer is sitting in, and by weight rather than by colour, because every colour on that row already means something.
+Opening this view adds the repository to the window's Source Control list until reload. This operation is available only in the editor.
 
-**A run is opened by attaching to it, in a terminal.** R39's "watch, take over and stop" is not the same door the rest of the board's sessions use: a run is a detached process no editor window holds, and opening one as an editor tab resumes it — which the CLI refuses outright while the run is still alive. So a run's row attaches instead, at its own checkout, and closing the terminal leaves it running — the same row in the browser does the same thing, its navigation raising the editor first, because which board a developer is looking at is not a fact about the work. What the board says about a run is the run's own state in the board's words, so a row drawn from a hook and one drawn from the CLI's roster are the same kind of claim.
+### R41. Open or select a checkout
 
-**The board never decides a merge is due; it reads the request.** GitHub's mergeability is not consulted, and no fact about a stale branch starts anything. What starts a run is the card's reading naming a merge — which R38 takes from what people wrote — or the developer pressing the control. A merge into an already-current branch is a no-op, so nothing is lost by not second-guessing the ask, and what is gained is that the board never touches a branch nobody asked it to.
+Open an editor window on the card's checkout without starting an agent. Resolve the directory from a session that ran there, otherwise from a folder the developer selected for the card.
 
-**What runs is the developer's own, and there is no default.** The board supplies facts — the issue, the repository, the pull request, the head branch, the base branch, the checkout — and the developer supplies the prompt that uses them, which is normally a slash command naming the merge skill their repository already carries. A team's merge is theirs: what it builds, what it tests, when it pushes and what it writes on the issue are not the board's to decide, and a shipped default would be the board having an opinion about somebody else's repository. An action with no prompt is off however it is otherwise set.
+Never infer a checkout merely because its remote matches the issue's repository. Several worktrees can share that remote. The editor's folder picker validates the selected directory against the card's repository and remembers it per card and machine.
 
-**It starts at nothing, and every step up is the developer's own.** R32's line, applied: each action is off until turned on, one at a time, and turning one on is also a decision about what a session it starts may do without asking (R31) — a merge under a mode that asks simply parks, which is why the shipped one does not. There is a ceiling on how many run at once and on how many may run in a day, because the cost of a rule that fires more often than expected should be bounded by a number the developer chose rather than by how long it takes them to notice.
+Offer only readable directories; skip a deleted session checkout if another qualifying one exists. Preserve saved picks while their cards are absent, but do not offer a pick that no longer validates.
 
-**It acts on what the card was read to need, so the status still has the first word.** R38 settles some labels from the status before anything else is consulted: a card the team has put in a status meaning *develop* reads as work to do, and the board does not merge it. That is the right way round — the status is where the team says what a card needs. Where the status names neither develop nor review — ⚒️ Dev among them, which says only that the work is under way — the conversation decides, and that is where a merge is asked for.
+Reuse an existing single-folder window, obey R14's window permission, and explain when the requesting editor already has the checkout open. The overlay can request opening by card ID through a connected editor; it cannot supply a path or choose a folder.
 
-**It merges one leg, and refuses a chain.** The branch to merge from is the pull request's own base, read from GitHub — never a convention, and never the word "master". Where that base is not the repository's default branch, the work is stacked on somebody else's branch and keeping it current means merging in an order the board cannot verify. It says so on the card and does nothing. That refusal is the point: the board would rather name a case it cannot handle than half-handle it.
+### R42. Start a session
 
-**Everything it will not do, it says on the card,** in that case's own words (R25): a draft, a colleague's pull request, one already landed, a card in a lane the developer parked it in, a card something is already working on (R18), and a card with no checkout. A card not asking for a merge is the one case with nothing to say — it carries no control and no reason, because a merge was never on offer there. That last one is not a gap to close: a checkout is read from a session that has actually run on the card, never guessed from a branch name, so work nobody has touched on this machine is work the board will not start in a directory it invented (R37).
+Offer one start item per supported agent on a card with a checkout. Start in the requesting window only. For another checkout, direct the developer to open it first.
 
-**It never runs the same thing twice against the same card.** A run is authorised against the head commit at that moment, and the board will not start another until that moves: one run per push. The head is the branch's own state and nobody else's, which is what makes it the right thing to authorise against — the base branch moves all day without this card changing. A merge that stopped short stays stopped until somebody pushes.
+The `newSession.prompt` setting defaults to empty. Substitute `{issue}`, `{repo}`, `{title}`, `{url}`, and `{checkout}`; leave unknown placeholders unchanged. Prefill without submitting. Claude accepts the prompt; Codex's available start command opens a bare session, which its menu item states.
 
-**A merge that landed is final.** The board will not run another on that card however far the branch moves afterwards, because the push the merge made is itself what moves the head commit — so authorising on the commit alone would have every success authorise the next one, and a base branch that keeps moving would have the board merging on a timer nobody asked for. The request was answered. Asking again is the developer's, on the card. A dispatch that never started a session is the exception, because nothing was spent and nothing was done: that is tried again, on the same widening delay every other refusal is (R21). What overrides all of it is the developer asking, on the card.
+Allow additional sessions on the same card. Prevent repeated starts for the same card and agent during the launch interval. These deliberate starts do not consume automation limits. The overlay cannot start sessions.
 
-**Deciding costs a read, so a card it has answered for is left alone for a while.** Whether to act cannot be read off the label — that is up to twelve hours old and this authorises a push — so every decision is a fresh read of the pull request. A board of fifteen cards asking GitHub about each of them on every loop is a board that gets rate limited, so a card the board has just answered for, either way, is not asked about again for half an hour. The developer's own ask waits for nothing.
+## Triage and card actions
 
-**If it cannot record what it has run, it stops.** Everything bounding a runaway — that a card is being worked on, when it may next be considered, and how many runs the day has had — is one file. A board that could not write it and carried on would be a board with no ceilings at all, starting the same merge over and over. So it stands down instead and says so, and what that costs is the board doing nothing until the file is writable again.
+### R38. Triage
 
-**Whether it worked is the run's own signal, because nothing else measures the run.** The session writes a two-value outcome and one sentence to a path the prompt hands it, and the card shows both. The board does not re-read the pull request to check: the base branch moves within minutes of a merge, so a conflict somebody else landed afterwards would read as this run having failed, and a branch nothing touched would read as fine. Only the session knows whether it finished the job. A run that wrote nothing reads as stopped short rather than as a landing — silence is not success. The last run's copy of that file is cleared before a new one starts, and a board that could not clear it starts nothing: a stale account of a merge that worked would otherwise be read as this run having worked. This does not bend R23: the report advances nothing. It moves no lane, no status and no placement; it is a sentence on a chip, and the session it describes is one the developer can open and read for themselves.
+Classify a newly eligible card, a returned card, or a card whose status changed. Show one action and a short explanation. Actions include Develop, questions, QA failure, review, answer review, fix checks, merge upstream, and Other.
 
-**A run is an ordinary session on its card.** It has a name saying the board started it, it shows what it is doing like any other (R5), it can be opened and taken over (R14, R15), and one press stops it. The board's own classifier is hidden because that is the board reading; this is the board working, and hiding it would be a process editing the developer's code with nothing on screen saying so. The first time one actually starts, the board says so once.
+Determine the action from status and PR facts where possible; ask the model for the explanation. When those facts do not settle the action, ask the model to choose it too. Do not correct the action after generating a contradictory explanation.
 
-**Starting work is the editor's,** the same rule R37 follows: a page on the internet must not be able to start an agent in a developer's checkout, so the browser overlay offers no control that begins a run and the message is refused in its own words before it reaches the board. Opening a run that is already going is not starting one — a row in the browser attaches to it, at the checkout that run is already working in, and nothing new is spawned in a directory nobody chose. What a run came to is not on the overlay either: the card there says what the card is waiting on, and a run's outcome is one more thing the editor board carries.
+| Input | Rule |
+|---|---|
+| Status mapped to Review | Review, except an own open PR requires further interpretation |
+| Status mapped to Unstarted | Develop |
+| Status mapped to Build, or unmapped | Inspect PR facts and conversation |
+| Failing checks | Deterministic evidence, subject to status precedence |
+| Merge upstream | Requires a written request or a deliberate action; never infer from mergeability |
 
-**Stopping a run discards what it was doing,** and the control says so before it is pressed. A merge stopped in the middle leaves the developer's working tree part-merged, which is theirs to finish or throw away; the board neither cleans it up nor pretends it did (R15). Nor does it claim a stop it did not achieve — where the session cannot be stopped, the card says that and keeps offering.
+Read status and assignment events alongside comments. Consecutive changes by the same identified person, no more than one minute apart, form one instruction dated at its first event. Different people or anonymous actors do not combine. Comments before the latest instruction are background. Adding the issue to a project is not an instruction.
 
-### Honesty
+Use submitted reviews and relevant comments to distinguish initial review from follow-up. Ignore draft reviews. Without a known PR author, submitted reviews alone cannot establish a prior round; developer comments and replies remain evidence. Do not use `reviewDecision` as triage evidence; lane arrival uses it separately (R8).
 
-**R24. The board never shows a state it has not verified.**
-If an action may not have worked, the board says so rather than assuming success.
+The explanation describes status and responsibility, not technical implementation. Address the developer as “you”; use colleagues' first names, profile-name overrides, or logins as fallback. Do not invent counts from a partial conversation. Other covers waiting with no identified action. The label is visible; the explanation and classification time are on hover. The label's adjacent age is time in the current status.
 
-A session reports what it is doing through the board's own hooks, and anything the board cannot read it declines to name: an event it has never seen, a report that disagrees with the session it claims to be from, a clock too far ahead to reason about. Each of those shows a session with no reported state, which is the truth, rather than a guess. The board also shows one state per session, never two — its own observation where it has one, and what the agent reported where it does not, in the board's own three words rather than the CLI's four for the same states.
+Mark triage stale when issue/PR evidence changes. Age alone does not invalidate it. Automatically reread only on eligibility or status changes; other changes mark it stale without spending another model call. Triage never moves a card.
 
-**R25. The user can see why a card cannot move forward.**
-In their own terms: what is missing, or what failed. Where that fits a badge, the badge carries it; a condition that belongs to the whole board — a status set matching nothing, a source that failed to read, hooks that could not be installed — is stated once above the lanes rather than on every card. A card carries what triage read it to be waiting on and no more: the action, and the sentence saying where the card stands (R38). There is no per-card hover explaining why a card cannot move: that would restate what the card already shows, where a reading is the one thing on the card the developer cannot read off the rest of it. A triage that failed writes nothing there, so a card never explains its own absence of an explanation.
+Run only while a board is visible or on an explicit editor request, with bounded concurrency, timeout, and retry backoff. Stop automatic retries after the retry budget. A failed classification leaves no result label; show the failure once above the board and retain a retry control. The overlay displays results but cannot request classification.
 
-A condition that clears itself is not one the developer is told about. A source the machine cannot reach — a laptop just back from sleep, a network that has not come up — keeps the board on what it last read and says nothing for a minute while it retries on its own. A source with no read behind it says so at once, because an empty board owes its reason, and a failure somebody could act on — a repository that is gone, a query GitHub refused — is stated the moment it happens. The board still shows that it could not refresh, because R24 forbids implying otherwise. Past that minute it is named above the lanes like every other failure, in the board's own words rather than the CLI's, and what it asks for is to wait: pointing a developer at a refresh button, or at their own internet connection, is wrong about a board that is already trying again.
+Completed triage has a separate reread control, accessible by keyboard and touch. Clicking the label or age to inspect its explanation must not start classification or spend usage.
 
-Where the board is an overlay on a page that is not its own, "once" is once per board rather than a line above the lanes: what failed is put in front of the developer, and what is merely true — how old the reading is, what an install did — is a click away in the overlay’s own menu. A condition a developer has to go looking for is one they never see; a fact that is not a problem, restated every few seconds, is noise.
+Triage is enabled by default and sends issue/PR text, recent comments, identities, review information, and status/assignment history to the configured model service. It uses the developer's usage allowance. Provide a setting to disable it. Classifier sessions have no tools, MCP servers, developer settings, or saved conversation visible to the board.
 
-Newly installed hooks are one of those conditions: sessions already running cannot report what they are doing until they restart, and a board showing no state for any of them looks like a board where nothing is happening. The board says how many, **once** — an install is something that happened, not a condition of the board, and a line the developer has already read and cannot act on is noise on every subsequent refresh. Removing the hooks and installing them again says it again.
+### R39. Merge-upstream action
 
-**R40. The developer can watch what the board and the background process are doing.**
-Two logs, on whichever board they are looking at: the board's own, and the background process's. Every board carries both, because the two halves are what tell a stuck board from a stuck hub — a board with nothing on it and a hub that has not read anything look identical from outside.
+The only implemented unattended card action merges a PR's base branch into its head. It is disabled by default and requires a developer-supplied prompt. Supply issue, repository, PR, branches, and checkout facts to that prompt; do not define the repository's build, test, push, or commenting policy.
 
-**The board's own half is written whether or not anybody is looking.** There is nothing to hold back — a board's own account of itself is not somebody else's process — so a developer who opens it after a board went quiet gets the connect, the retries and the outage that led there, rather than an empty pane that starts recording from the moment they arrived. The line-per-message detail behind that is a level down and off by default on either board, because a pane where every reading writes four lines is one nothing is found in.
+Automatic eligibility comes from triage identifying a requested merge. A manual editor control can run or retry that candidate even when automatic dispatch is disabled; it cannot create a merge candidate on an unrelated card. Before dispatch, reread the PR and apply all safety checks and configured limits.
 
-**The background process's half is read only while a viewer is open.** It is another process, on a machine the developer shares with nothing else that should see it, and streaming it costs a subscription across a boundary. So nothing about it crosses until the developer asks: no subscriber, no file read, no traffic. Opening a viewer is answered with the recent past as well as the present, because the thing worth seeing has usually already happened.
+Refuse drafts, other people's PRs, closed/merged PRs, disallowed lanes, active work on the card, missing session-derived checkouts, and stacked PRs whose base is not the repository's default branch. A manually selected checkout alone cannot authorize unattended edits. If merge is not a candidate action, show neither a merge control nor an irrelevant refusal.
 
-**Turning it on and off is visible on the board.** Nothing else can say whether the log is streaming — the pane looks the same subscribed or not — so the control carries its own state, and turning it off says so in the log rather than clearing what is there. It is reachable without a board too: the state outlives any one board, so a board closed with the log streaming must still leave a way to stop it.
+Bound automatic work by:
 
-**Where the log covers the board, going back to the board closes it.** A browser overlay paints over the work it is about, so clicking off the log puts the cards back and stops the reading in one gesture — the developer did not have to decide they were finished. Watching the log while working is the case that has to be asked for, so it is a pin on the panel rather than the default.
+- Concurrent runs and starts in a rolling 24-hour window.
+- One attempt per head commit, except attempts recorded as failed.
+- A 30-minute reconsideration interval after an automatic decision.
+- No automatic repeat after a successful outcome, even if its push changed the head.
+- Durable run records; a failed write prevents further dispatch.
 
-**Watching the log is not watching the board.** A developer reading a log is not a board on screen, and the background process keeps its own idea of when to stop working (R35) regardless.
+An explicit manual request can bypass automatic eligibility history and cooldowns, but not safety checks, the required prompt, or concurrency limits. A positive daily limit also applies to manual requests; zero disables automatic starts while allowing manual requests.
 
-**A browser board is shown less of it than an editor board is.** The background process records the origin of every web page that reached it and was refused, which is a slice of the developer's own browsing; a board painted into somebody else's page must not be handed that. The refusal itself stays, because a page probing the port is the thing worth seeing. Which page it was is not the browser's to be told.
+Track the dispatched process as an ordinary session, identify it as board-started, and notify the developer on the first dispatch. A detached Claude row attaches in a terminal at its checkout; closing the terminal leaves it running. The overlay can attach through the editor link but cannot start or stop work, and does not display action outcomes.
 
-**R41. A card can be opened in an editor, and the developer says where its work lives.**
-A card the developer wants to work on brings up an editor window on its own checkout — no agent, nothing started, just the code in front of them. It is read the way everything else about the card reads it: from a session that has actually run there, and otherwise from a folder the developer named for that card. The two verbs here take either; the board's own unattended runs take only the first (R39), because a folder pointed at is a gesture the developer is present for and a run they may not be.
+Read an outcome and explanation from the run's designated result file. Clear the previous file before starting; if that fails, do not dispatch. Missing output means stopped short. This is a session-reported outcome, not independently verified stage completion: it changes no lane or GitHub status.
 
-**A repository match is not a checkout, and is refused as a source.** A worktree shares its remote configuration with the clone it came from, so matching an open folder's repository against a card's issue matches every worktree of that repository at once. On a machine with a worktree per issue that would offer to open — and later to work in — somebody else's. It is weaker evidence than the branch name R37 already refuses, so the board asks instead of guessing: a card with nowhere to point offers to be given a folder, once, and remembers it.
+Stopping a run warns that work in progress may be incomplete. Do not reset a partially merged checkout. Report a failed stop and keep the control available. Automatic repair of failing checks and general conflict resolution are not additional actions.
 
-**The pick is checked where it is made.** The folder comes from the editor's own picker, because a path is the one thing no board may name on its own, and the board refuses one that is not a checkout of that card's repository rather than storing it and failing at every later open. It is remembered per card and per machine, the way a lane is (R8), so the answer is the same on every board. A folder that stops being that card's checkout is not offered again — the entry stays, because a pick made for a card that is merely off the board for an afternoon must survive it.
+Implementation limits: run records are written after dispatch returns, so persistence failure can leave an already started process unrecorded. Concurrent starts can exceed the remaining daily allowance because pending requests do not reserve it. Failed attempts count toward that allowance and can include a process whose ID could not be read. Codex stop authorization is lost on hub restart, even though the action record remains. These gaps require implementation work to meet the intended dispatch and recovery guarantees.
 
-**A directory that is no longer there is not a checkout.** A deleted worktree a process still holds keeps its name and refuses everything, and a session running in one goes on being reported — so the board offers a directory only while it reads back, and passes over a session in a deleted one for another session on the same card that still has somewhere to go.
+## Setup, permissions, and lifecycle
 
-**Bringing the window forward is R14's permission, and the board never opens a second window on a checkout that already has one.** Where the board's own window is the one on that checkout there is nothing to open, and it says so rather than appearing to do nothing.
+### R26. First-run setup
 
-**The browser overlay may ask for the window; it may not name the folder.** Opening a checkout starts no agent and the board resolves the directory itself, so a card on the project board can offer it and an editor window carries it out. Choosing the folder is the editor's alone — a page on the internet naming a directory on this machine is the thing that must not be possible (R36). Where no editor board is running there is nothing to carry it out, and the overlay is told that rather than left to wonder.
+Target: show useful work on first run, detect available information, and ask once in place for what cannot be detected. Do not silently display an empty board when configuration is missing.
 
-**R42. A card can be given a new session, prefilled and unsent.**
-A card the developer has decided to work on opens a fresh agent session in its own checkout (R41), with a prompt already in the composer. Nothing is sent: the prompt is a starting point they edit, send, or clear, and the board never puts words into a running agent (R15). One item per agent the editor has a way into, so a machine with two agents offers both and the developer picks.
+Implementation gap: the repository defaults to empty, so first run still requires repository configuration. GitHub identity can be detected but must be selected by the developer. Whether the OwnerRez repository should ship as a default remains a product decision.
 
-**It starts in the window the board is in, and nowhere else.** Every other cross-window route hands the receiving window a session id, and there is no id to hand — the agent mints one when the session appears, and a caller cannot name it in advance. So a card whose checkout is another window's refuses by name and points at the other verb: open the checkout, and the board in that window offers the start.
+On activation by a board, command, restored board, or URI, install enabled activity hooks with backups. Preserve unrelated entries and refuse malformed settings. Merely installing the extension without activating it must not change agent settings.
 
-**What the prompt says is one setting, and it ships empty.** `{issue}`, `{repo}`, `{title}`, `{url}` and `{checkout}` are filled from the card; anything else in braces is left as typed, because a prompt that came out half-substituted would still run. Empty starts a bare session rather than refusing one — the difference from a card action (R39) is that nothing here runs unattended. An agent whose only way in takes no arguments starts bare whatever the setting says, and the item that offers it says so rather than letting a configured prompt look like it arrived.
+### R27. Shared defaults and personal settings
 
-**A second session on a card is allowed.** R18 keeps one editor per *session*, and a card holds several attempts at one issue (R3) — a developer starting another is not the accident R18 describes. What is held is the click: one start per card is in flight at a time, because between the click and the agent registering there is no session to tell a second click apart by. Nothing else gates it — the concurrency and daily ceilings bound work *the board* starts (R33), and the board enforces nothing on work the developer starts themselves.
+Ship team status conventions, lane defaults, project selection, and branch patterns as configurable defaults. Keep personal logins, paths, window permissions, agents, logging, and automation limits in user settings. Settings sent to the shared hub are application-scoped so windows do not disagree.
 
-**Starting work is the editor's.** The overlay does not offer it: a browser board is resident in no editor, and a start is a command fired inside the window it lands in.
+The repository-default gap is recorded in R26. The distribution of additional team defaults remains open.
 
-## 4. What success looks like
+### R28. Multiple GitHub identities
 
-- The user can answer "what is every agent on this machine doing?" in one glance, from one window.
-- No agent sits parked and unnoticed for hours.
-- Taking over a session and handing it back is a small enough action to do casually, several times a day.
-- Work is never silently lost or silently duplicated.
-- The user stops keeping a mental list of which worktree holds which task.
-- A second developer installs it and gets value the same day, without a setup session or a document to follow.
+Allow several accounts to represent one developer. Require an explicit selection; authentication alone does not establish which account's work to display.
 
-## 5. Open questions
+### R29. Checkout layouts
 
-1. **Whether the lane set survives use.** *Settled for now.* R7's seven lanes are decided, R8's arrival is read from the world and its placement is the user's own, and both status settings — which keep a card, and which name a stage — ship as defaults the developer can change. What is untested is whether Plan and Review earn their columns once the factory's stations start moving cards, or whether the stations turn out to be the finer-grained thing and the lanes should coarsen.
-2. **When the board starts enforcing limits.** *Settled for the board's own work, open for the developer's.* R39's actions are bounded by a concurrency and a daily ceiling, because the board is what starts them. R10 still refuses nothing about sessions the developer starts: refusing to show one would be hiding it (R2), and what a limit there would even mean is undecided.
-3. **How much of the pipeline is automatic?** *Opened, not settled.* R39 answers it for the one job with a right answer — merging a base branch into a head, where somebody asked for one — and deliberately for nothing else. The test a candidate has to pass is R39's: a job a developer already does by hand the same way every time, whose refusals the board can name in advance, and which somebody asks for in words rather than the board inferring it from a state. **Fix failing checks** is the obvious next one and does not obviously pass it — the work is open-ended and the board cannot say in advance what it would refuse. **Resolve conflicts** is ruled out for a different reason: it is not this team's job, and a board that did it would be doing somebody else's work. "Unattended overnight" is still not a goal.
-4. **What links a session to an issue?** Branch name, working directory, something the user sets by hand, or a mixture. Affects how often R3 guesses wrong.
-5. **Sessions on other machines.** Out of scope for v1, but the board's value grows if it is the one place to look.
-6. **Where shared defaults come from.** *Settled for the status settings, open for the rest.* Which statuses keep a card and which name a stage ship inside the extension and are user-level: the memory they are compared against is one store shared by every window, so a per-workspace value would have two windows overwriting each other's. The open half is everything else — checked into the repo so a new developer inherits it by pulling, which keeps it reviewable alongside the code it describes, or shipped in the extension, which keeps it working before a checkout exists.
-7. **What links a session to an issue when the branch does not say.** *Partly settled.* The board reads the branch of the checkout the session runs in, searching upward so a session started in a subdirectory still finds it, and falls back to the checkout directory's own name. A session it cannot link joins the card for the repository and branch it runs on (R4) rather than a guess. What is still open is the case the branch genuinely cannot answer — a session started before a branch exists, or a single clone carrying several issues — where asking the developer once per session may beat guessing. There is no way for a developer to set the link by hand today.
-8. **Whether a developer can see the board without the extension changing anything.** A read-only first run would let someone evaluate it with no risk, which matters for adoption across a team.
+Support a single clone, multiple clones, and worktrees without imposing directory layout. Use configured branch conventions and verified checkout identity.
+
+### R30. Optional agents
+
+Detect optional agents without repeatedly spawning missing tools. Codex detection uses its home directory. Claude is enabled by default without an installation check and can report a missing executable; disable it explicitly on a Codex-only machine. Explicit agent configuration replaces the default set and can supply executable paths.
+
+Codex supports live sessions, saved history, phases, opening threads, and dispatch. It does not classify cards. Refuse unsupported permission modes explicitly.
+
+Install and trust only Ground Control's Codex hooks. Obtain hashes and write trust through Codex's own API; do not calculate hashes or rewrite TOML directly. Preserve other hooks and trust entries. If trust cannot be established, explain the failure and manual remedy.
+
+### R31. Dispatch permissions
+
+Use the least authority under which the unattended job can complete. Pass the chosen mode explicitly. Modes requiring unanswered prompts are not suitable defaults for unattended work.
+
+Claude defaults to `auto`; bypassing permissions requires a deliberate setting. Codex translates supported modes to its own sandbox and approval policy and refuses unsupported ones. A global default accepted by Claude is not necessarily accepted by Codex.
+
+Triage has no tools or developer settings and offers no broader permission mode.
+
+### R32. Opt-in automation
+
+Unattended code changes start disabled. Enable actions individually, each with its own prompt. Triage is a separately configurable read that costs model usage and sends text off-machine; it is enabled by default. Starting a prefilled editor session is a deliberate user action, not unattended automation.
+
+### R33. Limits
+
+The developer sets concurrent and daily limits on dispatched card actions. Do not apply them to sessions started independently or deliberately through R42.
+
+### R34. Settings and reversibility
+
+Expose supported personal settings through normal editor settings and a Settings menu item on the board.
+
+Disabling hooks removes Ground Control entries immediately. Uninstall removes hooks too. Leave the inert writer file available for sessions that cached the old settings, so they do not fail on every event. Overlay registration is explicitly enabled and can be disabled or removed on uninstall.
+
+### R35. Shared background process
+
+One hub per machine performs reads and maintains shared board state. Clients report whether a board is visible. Stop polling, activity reads, automatic triage, and automatic action starts when none is visible. Already dispatched processes continue independently. An activated editor remains connected for configuration changes even with its board closed.
+
+Exit after 30 minutes with no connected clients. Start on demand and remember accepted settings so the browser can use them without an editor running.
+
+A newly visible board receives cached issues if the previous source read is less than one minute old; otherwise request a read. This is a refresh floor, not a maximum age guarantee. Normal GitHub polling defaults to 300 seconds and session polling to 30 seconds. Manual refresh and relevant settings changes bypass the visibility floor. Display freshness accurately and retry transient failures.
+
+### R36. GitHub overlay
+
+On supported GitHub project pages, add triage and session rows inside matching issue cards, with the same names, phases, durations, attention, and open/attach behavior as the editor board. Preserve GitHub's card controls and drag behavior. Offer local lane moves without changing GitHub status.
+
+Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, request triage, or open combined diffs.
+
+Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.
+
+## Accuracy and diagnostics
+
+### R24. State accuracy
+
+Report observed phase and age without inventing state. Reject malformed, mismatched, or excessively future-dated activity. Use the agent's normalized state only when no accepted observation exists. Explicitly distinguish saved activity and session-reported action results from live observations and verified completion.
+
+### R25. Failures and limitations
+
+Give each actionable failure a specific explanation and remedy. Show board-wide failures once, not on every card. Do not add per-card explanations that merely repeat visible state.
+
+For a transient source failure with cached data, retain that data, mark freshness accurately, and retry silently for one minute. Report initial-load failures and actionable failures immediately. After the grace period, show the transient failure and explain that retry is automatic.
+
+In the overlay, failures use dismissible notices; informational details belong in its menu. Announce newly installed hooks once per client, including how many existing sessions may need restart. Repeat the announcement only after a new install cycle.
+
+### R40. Logs
+
+Provide both client and hub logs. Record client connection and failure history without requiring a viewer. Detailed message logging is off by default.
+
+Subscribe to hub logs only on request, starting with recent history. Subscription is independent of board visibility and must survive reconnects. Show its state in a control available even after the board closes; stopping streaming retains displayed lines.
+
+The overlay log closes on outside click unless pinned. Filters are reversible. Redact refused-request origins before sending hub logs to the browser. Other displayed log contents may include private work data readable by scripts on the host page; do not describe them as public or local-only.
+
+## Future workflow requirements
+
+These requirements are retained goals, not implemented capabilities. Relevant experiments remain in [mechanics](mechanics.md#workflow-and-recovery-experiments).
+
+| ID | Requirement | Constraint |
+|---|---|---|
+| R15 | Stop an automated session and take over in an editor | Explain interruption cost, including in-flight subagents, before stopping; offer inspection or redirection where possible |
+| R16 | Prefill a likely response when taking over | Do not auto-submit; distinguish this from the generic new-session prompt in R42 |
+| R17 | Resume automated work after the developer closes the takeover tab | Confirm release, preserve session identity and developer input, and prevent duplicate writers |
+| R19 | Redirect work without stopping it | Retain editable working notes as an intended interaction; direct message injection is an experimental alternative requiring a product decision |
+| R20 | Resume after a usage limit resets | Display the reason and expected resume time; do not count such waiting as active automated work |
+| R22 | Recover interrupted work | Resume outstanding work or explicitly report what could not be recovered |
+| R23 | Require evidence before stage completion | Validate runner-produced artifacts; an agent's success report alone cannot advance a stage |
+
+### R21. Bounded retries
+
+Implemented: transient source failures and failed triage/dispatch starts retry under their respective limits. Future: extend bounded retries to interrupted workflow stages. Escalate persistent failures to the developer rather than retrying indefinitely.
+
+## Open product decisions
+
+- First-run repository default and distribution of additional team configuration (R26–R27).
+- Which coordinated stages should be implemented.
+- Whether finer tool-level activity is needed beyond the current phase view (R11).
+- Redirection through notes, direct messages, or both (R19).
+- Manual issue linking when branch and directory conventions cannot establish a match.
+- A read-only evaluation mode before installing hooks or enabling model-backed triage.
+- Further automation candidates. Fixing failing checks requires its own scope and refusal rules; general merge-queue conflict resolution is outside this team's current scope. Unattended overnight operation is not a committed goal.
+
+## Success criteria
+
+- A developer can identify active work and sessions needing attention from one board.
+- Closing an editor does not erase unresolved session attention the board observed.
+- Opening work uses the correct session and checkout without accidental duplication.
+- Failures and partial reads are visible without repeated noise.
+- Another developer can adopt the board without reproducing one person's machine layout.
+- Future takeover and recovery preserve developer input and verify completion before advancing work.

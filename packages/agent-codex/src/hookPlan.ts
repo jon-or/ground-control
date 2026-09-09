@@ -18,7 +18,7 @@ interface HookGroup {
 
 /**
  * Codex clamps these two events to three seconds and reports every longer timeout as an error item in the
- * developer's own session, so the shipped entry asks for what it will get (`docs/mechanics.md` §41).
+ * developer's own session, so the shipped entry asks for what it will get (`docs/mechanics.md` M41).
  */
 const CLAMPED_EVENTS = new Set(['SessionEnd', 'Interrupt']);
 const TIMEOUT_SECONDS = 5;
@@ -73,7 +73,7 @@ function commandFor(hookPath: string): string {
 
 /**
  * Ours by the exact command we write. A substring test would take a hook of the developer's own that wraps the same
- * writer with arguments of theirs; Codex leaves this file byte-identical (`docs/mechanics.md` §41), so the command
+ * writer with arguments of theirs; Codex leaves this file byte-identical (`docs/mechanics.md` M41), so the command
  * it holds is the command we wrote.
  */
 function isOurEntry(entry: unknown, hookPath: string): boolean {
@@ -127,7 +127,7 @@ function keysAre(value: Record<string, unknown>, allowed: ReadonlySet<string>): 
 /**
  * Whether a group already says exactly what the board would write. Field by field rather than by serialised text, and
  * no extra key is tolerated because `enabled: false` and a `matcher` each change whether the hook fires. Codex
- * reports those two on every entry but persists neither, so this converges on the second run (`mechanics.md` §41).
+ * reports those two on every entry but persists neither, so this converges on the second run (`mechanics.md` M41).
  */
 function alreadySays(group: unknown, wanted: HookGroup): boolean {
   if (!isRecord(group) || !Array.isArray(group.hooks)) {
@@ -150,12 +150,8 @@ function alreadySays(group: unknown, wanted: HookGroup): boolean {
 }
 
 /**
- * What to write to `~/.codex/hooks.json`, as text. Pure, so the whole merge is testable: the file is hand-curated,
- * rewritten by Codex itself, and shared by every session on the machine, so the board refuses anything it does not
- * fully understand rather than repairing it.
- *
- * A written entry does not fire yet: Codex hashes each command and runs only the entries a developer has trusted,
- * so the install is complete when they accept it in Codex (`docs/mechanics.md` §41).
+ * Plan edits to shared hooks.json, preserving unrelated entries and refusing unsupported structure. Installed
+ * entries require trust; the adapter requests it through Codex's app-server exchange (mechanics M41).
  */
 export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInput): ActivityPlan {
   const hookPath = hookPathOf(home);

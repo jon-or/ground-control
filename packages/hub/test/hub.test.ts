@@ -281,7 +281,7 @@ describe('what the hub polls', () => {
     expect(h.clock.cadences()).toEqual([]);
   });
 
-  /** Two sources, two costs: a network round trip and a CLI spawn do not belong on one timer (mechanics §2). */
+  /** Two sources, two costs: a network round trip and a CLI spawn do not belong on one timer (mechanics M2). */
   it('polls the two sources on their own cadences', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -2412,7 +2412,7 @@ describe('a client that opened a log viewer', () => {
  * hub resolved for that card, which is what makes the same message safe from a browser overlay.
  */
 describe('opening a card in an editor', () => {
-  /** A real directory, because a root is offered only where it reads back — a deleted one refuses everything (§23). */
+  /** A real directory, because a root is offered only where it reads back — a deleted one refuses everything (M23). */
   function checkoutDir(name = 'project-1'): string {
     const root = join(home, name);
     mkdirSync(root, { recursive: true });
@@ -2599,7 +2599,7 @@ describe('opening a card in an editor', () => {
     });
   });
 
-  // A headless hub can open a window but cannot bring one forward (§26), so this is honest rather than a silent
+  // A headless hub can open a window but cannot bring one forward (M26), so this is honest rather than a silent
   // nothing — and it names the remedy, which is opening the board in an editor at all.
   it('tells the overlay no editor is running rather than opening a window it cannot raise', async () => {
     const h = harness();
@@ -2734,7 +2734,7 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('Reload') });
   });
 
-  // Two boards, or two clicks: no session exists between the click and the agent minting one (§51), so the card is
+  // Two boards, or two clicks: no session exists between the click and the agent minting one (M51), so the card is
   // the only thing there is to tell a second from the first by.
   it('holds one card’s start against a second while the first is in flight', async () => {
     const { h, client, inbox, key } = await boardWith();
@@ -2777,7 +2777,7 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(2);
   });
 
-  // Every route follows this rule, and a start has no headless fallback to be handed to instead (§26).
+  // Every route follows this rule, and a start has no headless fallback to be handed to instead (M26).
   it('refuses a route the host itself does not call resident, rather than sending it', async () => {
     const { h, client, inbox, key } = await boardWith();
 

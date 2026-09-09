@@ -11,7 +11,7 @@ export const PLACEABLE_LANES: readonly LaneId[] = LANE_ORDER.filter((id) => id !
 
 /**
  * The statuses whose cards stay on the board. Each also names a stage, in `DEFAULT_STATUS_LANES`.
- * `docs/mechanics.md` §17 lists all 17 and what they mean.
+ * `docs/mechanics.md` M17 lists all 17 and what they mean.
  */
 export const DEFAULT_BOARD_STATUSES: readonly string[] = ['🎁 Assigned', '⚒️ Dev', '🔍 Dev Review'];
 
@@ -138,12 +138,9 @@ export function retainedPhase(retained: RetainedActivity): 'waiting' | 'idle' {
 }
 
 /**
- * What the card's edge carries. `blocked` is an agent that cannot go on without them; `your-turn` is one that ended its turn and handed control
- * back — finished is not the same as done (R23). `running` ranks under both: a session with a process still working asks nothing, so it is the
- * last thing an edge is spent on and never outranks a mark. Null is a card whose sessions reported nothing at all (R24).
- *
- * `retained` is the reading a saved session kept past its process. A window closing is not the agent saying it finished, so an unanswered
- * question still reads as one — and only the card leaving the developer's hands ends the reading, which `assignLanes` has already applied.
+ * Rank card attention as blocked, your-turn, then running; no observed phase means no attention. Include
+ * retained session state after lane departure rules have invalidated older observations. Finished sessions do
+ * not retain blocked attention (R6, R24).
  */
 export function attentionOf(sessions: readonly Session[], lane: LaneId, retained?: RetainedActivity): Attention | null {
   // A finished agent cannot be blocked on anybody. Its last event can still be a prompt it never got past, and reading that as blocked

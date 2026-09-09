@@ -3,13 +3,9 @@ const vscode = require('vscode');
 
 describe('the board in a real webview', () => {
   /**
-   * The one thing no other layer can see: that the script runs at all. A content policy that rejects it, or a bundle
-   * that is not there, leaves the board on its loading line forever while every other test in the tree still passes,
-   * and the developer is told nothing (R25).
-   *
-   * What it draws is not asserted here. This window is pointed at CLIs that do not exist, so the board has no cards
-   * to lay out, and an assertion over an empty board holds for a board that drew nothing at all. Rendering is jsdom's,
-   * where the payload is given rather than read.
+   * Verify that the real webview script starts and reports its rendered state. Missing bundles or CSP failures
+   * otherwise leave the loading screen unchanged (R25). Card rendering belongs in jsdom tests with populated
+   * snapshots; this isolated host has no agent or GitHub data.
    */
   it('loads its script, and reports the screen it finished rather than the one it started', async () => {
     const api = await vscode.extensions.getExtension('groundcontrol.ground-control').activate();

@@ -51,7 +51,7 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: Failure };
 const projectItem = z.object({
   project: z.object({ number: z.number() }),
   // Defaulted, not required: a recording made before it was selected must stay readable. It tracks the Status value
-  // alone — an assignment leaves it where it was (`docs/mechanics.md` §32).
+  // alone — an assignment leaves it where it was (`docs/mechanics.md` M32).
   fieldValueByName: z
     .object({ name: z.string(), color: z.string().nullable(), updatedAt: z.string().nullable().default(null) })
     .nullable(),

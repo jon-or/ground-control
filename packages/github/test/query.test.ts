@@ -20,7 +20,7 @@ describe('ASSIGNED_ISSUES_QUERY', () => {
 
   /**
    * GraphQL bills the nodes asked for, not the nodes returned, so the `commits` selection above costs 8 points at
-   * `first:5` and 103 at `first:100` (`docs/mechanics.md` §48). `selectPullRequest` returns one.
+   * `first:5` and 103 at `first:100` (`docs/mechanics.md` M48). `selectPullRequest` returns one.
    */
   it('asks for five closing pull requests, not a hundred', () => {
     expect(ASSIGNED_ISSUES_QUERY).toContain('closedByPullRequestsReferences(first:5)');

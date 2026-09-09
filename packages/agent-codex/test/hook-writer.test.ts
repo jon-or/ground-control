@@ -139,7 +139,7 @@ describe('the Codex activity writer', () => {
   });
 
   /**
-   * The resurrection R9 forbids: `Stop` is async and `SessionEnd` is synchronous (`docs/mechanics.md` §41), so a
+   * The resurrection R9 forbids: `Stop` is async and `SessionEnd` is synchronous (`docs/mechanics.md` M41), so a
    * `Stop` still in flight when the session ended would otherwise put a card back that nothing ever clears.
    */
   it('refuses to put a marker back for an event that arrives after the session ended', () => {
@@ -164,7 +164,7 @@ describe('the Codex activity writer', () => {
   });
 
   it('leaves the marker a later event wrote in the same millisecond alone', () => {
-    // Measured in §40: a session's start and its first prompt land together, and the start claims no phase — so the
+    // Measured in M40: a session's start and its first prompt land together, and the start claims no phase — so the
     // start winning the rename would cost the card its phase for the whole first turn.
     run(payload('UserPromptSubmit'));
     run(payload('SessionStart'));
@@ -245,7 +245,7 @@ describe('the Codex activity writer', () => {
 describe('the pid the writer walks to', () => {
   /**
    * Runs the writer under a process named for Codex, which is what the walk looks for: Codex spawns a command hook
-   * through a shell, so its own process is up the chain rather than named by any environment variable (§40). A copy
+   * through a shell, so its own process is up the chain rather than named by any environment variable (M40). A copy
    * of node is that process here — the walk matches a process name, not a binary.
    */
   function underCodex(sent: HookPayload): void {
@@ -307,7 +307,7 @@ describe('the pid the writer walks to', () => {
 
 describe('two writers at once', () => {
   it('leaves one marker and no temporary file behind', async () => {
-    // Measured in §40: two hooks landed in the same millisecond and one rename lost its event on Windows.
+    // Measured in M40: two hooks landed in the same millisecond and one rename lost its event on Windows.
     const spawn = promisify(execFile);
     const start = (sent: HookPayload) => {
       const running = spawn(process.execPath, [writer], {

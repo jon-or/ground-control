@@ -71,10 +71,8 @@ export class FrameReader {
 export type BridgeMessage = HubMessage | { type: 'trouble'; message: string | null };
 
 /**
- * What the browser may ask for, and what it may not. The overlay watches, moves cards, and asks for a window on a
- * card's checkout; it goes to a session by navigating rather than through here (R36). A configuration carries paths
- * the hub would spawn, stopping a session and taking it over is the editor's (R15), and starting work on a card runs
- * an agent against the developer's own checkout (R39, R42) — none of those is the browser's to send.
+ * Allow refresh, visibility, lane moves, log subscriptions, and checkout opening (R36). Session opening uses
+ * editor URIs. Configuration, classification, path selection, and starting/stopping work remain editor-only.
  */
 export type BridgeAction = { send: ClientMessage } | { refused: string };
 
@@ -93,8 +91,7 @@ export function bridgeAction(raw: unknown): BridgeAction {
     return { send: { type: 'refresh' } };
   }
 
-  // The overlay's own sidebar. It reads the hub's log and sends nothing but whether it is open, so it widens
-  // nothing the snapshot has not already carried — with the one exception `redactForBrowser` takes back out.
+  // Explicit log subscription. redactForBrowser removes refused-request origins; other operational text remains.
   if (message.type === 'watchLog') {
     return { send: { type: 'watchLog', watching: message.watching === true } };
   }
@@ -113,8 +110,7 @@ export function bridgeAction(raw: unknown): BridgeAction {
     return { refused: 'The browser board goes to a session by opening its link, not by asking the hub.' };
   }
 
-  // Refused by name rather than by the catch-all below, because this is the one message that would have a web page
-  // start an agent in the developer's checkout. The overlay shows what a run came to and offers no control (R39).
+  // The overlay neither controls card actions nor renders their outcomes (R39).
   if (message.type === 'runAction' || message.type === 'stopAction') {
     return { refused: 'Starting and stopping work on a card is the editor board’s, not the browser’s.' };
   }
@@ -141,11 +137,9 @@ export function bridgeAction(raw: unknown): BridgeAction {
 }
 
 /**
- * The one thing in `hub.log` a browser may not have. The hub records the `Origin` of every web page that reached
- * the loopback port and was refused, which is a slice of the developer's own browsing — and the overlay paints
- * into a page on github.com, whose own scripts can read what the sidebar writes. Everything else in that file the
- * snapshot already carries. The refusal itself stays, because a page probing the port is the thing worth seeing;
- * which page it was is not the browser's to be told.
+ * Redact refused-request origins before displaying logs inside github.com. Page scripts can read the overlay
+ * DOM. Other log text is preserved and may contain details beyond the snapshot; this is not general-purpose
+ * log sanitization.
  */
 export function redactForBrowser(message: BridgeMessage): BridgeMessage {
   if (message.type !== 'log') {

@@ -16,7 +16,7 @@
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
 
-/** GitHub's board markup, as measured on 2026-09-04 (`mechanics.md` §27). Every other class on the page is hashed. */
+/** GitHub's board markup, as measured on 2026-09-04 (`mechanics.md` M27). Every other class on the page is hashed. */
 export const BOARD_REGION = '#project-items-region';
 export const CARD = '[data-board-card-id]';
 export const COLUMN = '[data-board-column]';
@@ -144,15 +144,9 @@ const DURATION_TITLE = 'Counts from the event that reported the phase.';
 const ATTENTION_ATTR = 'data-gc-attention';
 
 /**
- * The card's own box pads 8px above and 12px below its content and nothing at the sides (`mechanics.md` §27), so a
- * footer reaches the card's three edges by cancelling that bottom padding alone. The columns are pulled together
- * over the attribute GitHub's own drag-and-drop needs rather than the hashed class beside it, and by 1px rather
- * than to 0: each column draws a 1px border, so meeting at 0 would draw the divider between two of them twice.
- *
- * The dividers between them are then drawn as two 1px background strips over transparent borders, rather than as
- * the borders themselves: only that way do they fade, and `border-image` — the one property that gradients a real
- * border — would take the column's 6px radius with it. `border-box` origin puts each strip on the border it
- * replaces, the radius clips them, and the token carries the colour into GitHub's dark theme.
+ * Cancel the card's bottom padding to align the footer with its edges (mechanics M27). Overlap adjacent column
+ * borders by 1px. Draw fading dividers as background strips over transparent borders; border-image would
+ * remove the rounded corners.
  */
 const CSS = `
 ${COLUMN} { margin-right: -1px !important;
@@ -180,9 +174,8 @@ ${COLUMN} { margin-right: -1px !important;
 .${BADGE_CLASS} a.gc-session { text-decoration: none; }
 .${BADGE_CLASS} a.gc-session:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
 .${BADGE_CLASS} span.gc-session { cursor: default; }
-/* The session's state at the head of the row: the phase in the colour, and whether the agent still has it open in
-   the fill. The two phases that want the developer are said again by the row's colour and weight, so R6's channels
-   do not rest on a hue that a 5mm circle is the only carrier of. */
+/* State-mark color represents phase; fill identifies a live session. Attention also changes the card border/tint.
+   Session text keeps its normal color and weight (R6). */
 .gc-dot { flex: none; box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%;
   border: 1px solid var(--gc-dot, var(--fgColor-muted, #59636e)); }
 .gc-dot[data-live="true"] { background: var(--gc-dot, var(--fgColor-muted, #59636e)); }
@@ -197,7 +190,7 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-agent-icon { fill: var(--fgColor-muted, #59636e); }
 .gc-agent-icon[data-agent="claude"] { fill: #d97757; }
 /* A step above the marks around it and a step below Primer's own body text: 55% of the pair lands on the tone the
-   editor board takes from --vscode-foreground, so one session row reads the same on either board (mechanics.md §38).
+   editor board takes from --vscode-foreground, so one session row reads the same on either board (mechanics.md M38).
    Shrink to fit rather than grow: the running gradient is 300% of this box, so a box wider than the words runs the
    pass of light past them in a fraction of its 1.8s. The age pushes itself right instead. */
 .gc-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -236,7 +229,7 @@ a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination {
 }
 /* One colour per state, and the same one the mark on the row beneath it takes: Primer's foreground tokens rather
    than its emphasis pair, which is a surface colour and read a shade off the words it was ringing. It is also what
-   puts each ring within a few percent of the chart colour the editor board takes for that state (mechanics.md §38). */
+   puts each ring within a few percent of the chart colour the editor board takes for that state (mechanics.md M38). */
 ${CARD}[${ATTENTION_ATTR}] { outline: 1px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
   border-radius: 6px; }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--fgColor-accent, #0969da); }
@@ -259,7 +252,7 @@ ${CARD}[${ATTENTION_ATTR}="running"] { outline-style: dashed;
 @keyframes gc-shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
 /* How far the pass of light travels from the name's own colour. It cannot be derived: the peak is the end of the
    range the theme runs to, which is white in one and black in the other. GitHub says which on the document element —
-   an explicit choice as dark or light, and auto deferring to the operating system (mechanics.md §38). */
+   an explicit choice as dark or light, and auto deferring to the operating system (mechanics.md M38). */
 .gc-session[data-phase="running"] .gc-name { --gc-peak: var(--fgColor-default, #1f2328); }
 [data-color-mode="dark"] .gc-session[data-phase="running"] .gc-name { --gc-peak: #ffffff; }
 [data-color-mode="light"] .gc-session[data-phase="running"] .gc-name { --gc-peak: #000000; }
@@ -342,9 +335,8 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
   border-radius: 50%; background: var(--bgColor-attention-emphasis, #bf8700); }
 #${PERCH_ID} { display: flex; justify-content: flex-end; margin: 8px 16px; }
 /*
- * GitHub's own tooltip, measured off a live board (mechanics.md s35): 12px/1.625 on --bgColor-emphasis, 4px 8px,
- * a 6px radius, centred, capped at 250px and wrapping rather than truncating. Above everything the overlay draws,
- * and deaf to the pointer - a tooltip that took the hover it is explaining would flicker against its own anchor.
+ * Tooltip geometry follows mechanics M35: 12px/1.625, 4px 8px padding, 6px radius, and 250px maximum width.
+ * Disable pointer events to preserve hover on the anchor.
  */
 #${TIP_ID} { position: fixed; z-index: 300; display: none; box-sizing: border-box; pointer-events: none;
   width: max-content; max-width: 250px; padding: 4px 8px; border-radius: 6px;
@@ -365,13 +357,8 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
   color: inherit; opacity: 0.8; }
 
 /*
- * The log sidebar. Fixed and over the board rather than beside it: making room would reflow GitHub's own columns,
- * and a developer reading a log wants the board where they left it when they close the panel.
- *
- * Wide, because the lines are the hub's own and they run long — a cwd, a branch, a CLI's own words about why it
- * failed. They wrap rather than truncate, so a narrow panel costs nothing but reading three lines to take in one.
- * That the panel goes when the developer clicks back onto the board is what makes taking this much of it cheap.
- * A character measure leads, so the width follows the text rather than the monitor; the viewport cap is the laptop.
+ * Overlay the log panel without reflowing GitHub's columns. Size it in characters with a viewport cap, and
+ * wrap long lines without truncation.
  */
 #${LOG_ID} { position: fixed; top: 0; right: 0; bottom: 0; width: min(140ch, 80vw); z-index: 100;
   display: flex; flex-direction: column; font-size: 12px;
@@ -403,9 +390,8 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 `;
 
 /**
- * The overlay's own display state, and the one thing a repaint carries across: opening a menu is itself a DOM
- * change, which schedules the scan that rebuilds the page — so a menu held anywhere but here is destroyed one frame
- * after it opens.
+ * Keep the selected lane menu across scans. Painting reconciles DOM from this state and can retain unchanged
+ * footers.
  *
  * @type {string | null}
  */
@@ -413,9 +399,8 @@ let openMenu = null;
 let panelOpen = false;
 
 /**
- * Whether the log sidebar is on screen. Held here with the rest of the overlay's display state, and the one panel
- * a scan does not rebuild: it is appended to a line at a time, so a repaint that replaced it would drop what the
- * developer has scrolled back through and reset them to the bottom.
+ * Keep log visibility independent of card rendering. Retain the panel and append lines so scans preserve
+ * scroll position.
  */
 let logOpen = false;
 
@@ -542,10 +527,7 @@ function age(el, at, now) {
 }
 
 /**
- * Writes an age into the text node already there rather than over the element's children. `textContent` replaces
- * that node, which is a `childList` record — and this runs outside the disarmed paint, so the scan observer answers
- * one with a rebuild of the whole board (`mechanics.md` §27). A `nodeValue` write is a `characterData` record,
- * which the observer does not ask for.
+ * Update the existing text node to avoid unnecessary child-list mutations and DOM scans (mechanics M27).
  *
  * @param {Element} el
  * @param {string} text
@@ -570,9 +552,7 @@ function setAge(el, text) {
 }
 
 /**
- * Advances every rendered duration where it stands, once a second (R5). A repaint would rebuild every footer and
- * fight the observer that watches for one, and the phase itself only changes when a hook fires — so the text is
- * rewritten and every other node is left alone.
+ * Update existing duration text once per second (R5), avoiding a full DOM scan for clock-only changes.
  *
  * @param {Document} doc
  * @param {number} now
@@ -617,13 +597,9 @@ export function issueRefOf(card) {
 }
 
 /**
- * The `figure` GitHub wraps a card's assignees in — its caption and its avatar stack together — or null when the
- * card has none. Classed per build, so it is reached by climbing from the Primer attribute on the stack inside it
- * (`mechanics.md` §27). The whole figure, because the caption names the assignee as surely as the avatar shows them.
- *
- * The climb is bounded by the card. `closest` has no limit of its own, so a build that dropped the `figure` while
- * keeping the stack — the change §27 marks version-fragile — would hand back a `figure` above the card, and the
- * rule that empties one would blank a region of the board that no later scan looks inside to undo.
+ * Find the assignee figure through AvatarStack's stable attribute (mechanics M27). Include its caption so
+ * replacement removes the old accessible name. Bound the ancestor lookup to this card to avoid hiding
+ * unrelated content if GitHub changes its markup.
  *
  * @param {Element} card
  * @returns {Element | null} the figure, not the stack within it
@@ -635,10 +611,8 @@ export function assigneeStackOf(card) {
 }
 
 /**
- * Who the card is for, in place of who it is assigned to. On a card in review the assignee is who was asked and the
- * pull request's author is who answered, so where the hub picked an author GitHub's stack is hidden and that author
- * drawn in its place. The pick is `selectCardAvatar` in `@ground-control/github`, made once for both boards — this
- * reads its answer and never re-decides it, which is what keeps the two boards naming the same person.
+ * Replace GitHub's assignee figure with the avatar selected by selectCardAvatar in @ground-control/github. Use
+ * the shared selection so both clients identify the same person.
  *
  * @param {Document} doc
  * @param {Element} element
@@ -857,11 +831,8 @@ let tipAnchor = null;
 let tips = null;
 
 /**
- * What an element says on hover, and what a reader is told about it. `title` is neither: it opens after about a
- * second, in the operating system's shape rather than the board's, and cannot be styled to match the page it sits
- * on. `aria-description` rather than a description written while the tooltip shows — that one arrives after focus
- * has already been announced, and a reader in browse mode never reaches a tooltip on something it cannot focus.
- * Chromium exposes it exactly as it exposed `title`, and Chromium is what loads this.
+ * Set tooltip text and an accessible description before focus. Native title uses a delayed system tooltip;
+ * adding a description only on hover misses the initial focus announcement and browse-mode readers.
  *
  * @param {Element} el
  * @param {string} text
@@ -971,15 +942,14 @@ function hideTip(doc) {
 }
 
 /**
- * The handlers that open and close it, on the document rather than on each element: a scan rebuilds every card, and
- * listeners bound to the elements themselves would be re-bound by the hundred every ten seconds. `mouseover` rather
- * than `mouseenter` for the same reason — only the first of the two carries far enough up to be delegated.
+ * Delegate tooltip handlers to the document so newly created or replaced cards work without rebinding
+ * listeners. mouseover bubbles; mouseenter does not.
  *
  * @param {Document} doc
  */
 function ensureTips(doc) {
   // Built here rather than at the first hover: a scan runs with the observer disarmed, and appending this to the
-  // body at any other moment is a `childList` record that schedules the next scan (`mechanics.md` §27).
+  // body at any other moment is a `childList` record that schedules the next scan (`mechanics.md` M27).
   tipElement(doc);
 
   if (tips?.doc === doc) {
@@ -1212,10 +1182,8 @@ function filterActions(doc) {
 }
 
 /**
- * Everything the collapse folds away: the project's title bar, the row of view tabs, and the Save and Discard an
- * unsaved filter puts in the bar. Each row is found by an attribute GitHub gives it and then climbed to the last
- * ancestor that still does not hold the board — the wrappers are hashed per build, and hiding the tab list alone
- * would leave the container it sits in as a stripe of empty page.
+ * Find the title, view tabs, and unsaved-filter controls by stable attributes. Hide their outer wrappers
+ * without including the board, so hashed wrapper classes and empty containers do not affect collapse behavior.
  *
  * @param {Document} doc
  * @returns {Element[]}
@@ -1281,7 +1249,7 @@ function setCollapsed(doc, wanted) {
 
 /**
  * Folds the header away, or puts it back. Reapplied on every scan rather than once, because a view switch replaces
- * those rows along with the cards (`mechanics.md` §27) and the replacement arrives unhidden.
+ * those rows along with the cards (`mechanics.md` M27) and the replacement arrives unhidden.
  *
  * @param {Document} doc
  */
@@ -1752,7 +1720,7 @@ function sessionRow(doc, session, now, openable) {
 
   if (reachable) {
     // A real link, not a button: the navigation has to read as the developer's own gesture in the application they
-    // are looking at, which is the only thing that gives VS Code the foreground (`mechanics.md` §26, §29).
+    // are looking at, which is the only thing that gives VS Code the foreground (`mechanics.md` M26, M29).
     row.setAttribute('href', `${attachId === null ? OPEN_SESSION_URI : ATTACH_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
     // A few pixels of drift on the way to a click would otherwise drag the card GitHub wraps around this.
     row.setAttribute('draggable', 'false');
@@ -1953,10 +1921,8 @@ function renderAttention(doc, element, head, card) {
 }
 
 /**
- * One card's footer: the lane the board has it in, and a full-width row per session with its phase and how long
- * that phase has held. It goes inside the card's own box — the card element is a drag handle wrapped around it, and anything
- * appended there hangs below the border. Built whole rather than patched, and kept by `drawn` until what it draws
- * changes: a re-render replaces the card node and takes the footer with it (`mechanics.md` §27), which is a miss.
+ * Build the lane and session footer inside the card box, not on its outer drag handle. The drawn cache retains
+ * it until its content changes or GitHub replaces the card node (mechanics M27).
  *
  * @param {Document} doc
  * @param {Element} element
@@ -2021,11 +1987,8 @@ function renderBadge(doc, element, card, now, actions, openable) {
 }
 
 /**
- * R38 on the project board's card: the action on the head line beside the lane, with how old the reading is, and the
- * sentence it produced on hover rather than on a line of its own — a paragraph of prose per card was more of the
- * footer than the cards. Not an attention channel: a card being read asks for nothing, and every colour a card edge
- * takes is already spoken for. There is no control here: re-reading a card spends the developer's usage,
- * and the bridge takes refresh, watching and move and nothing else — the editor's own chip is where that press is.
+ * Display the triage action and age, with its explanation on hover (R38). Triage does not affect attention
+ * styling. Retriage is editor-only; the browser bridge refuses it.
  *
  * @param {Document} doc
  * @param {HTMLElement} head
@@ -2091,9 +2054,8 @@ function renderTriage(doc, head, card, now) {
 export const LOG_LIMIT = 4000;
 
 /**
- * The log sidebar, and the one thing on the page a scan does not rebuild. Everything else here is redrawn from the
- * snapshot every few seconds (`mechanics.md` §27), but the log is appended to a line at a time — so this creates
- * the panel once, by id, and afterwards only reconciles it being open or closed and which sources it shows.
+ * Create the log panel once by ID. Later scans reconcile visibility and source filters while appended lines
+ * and scroll state remain intact.
  *
  * @param {Document} doc
  * @param {Actions} actions
@@ -2201,12 +2163,8 @@ function buildLog(doc, actions) {
 }
 
 /**
- * Opened or closed, and the hub told either way. Nothing about the hub's log crosses to this browser until this
- * says open, and it stops the moment it says closed (R40).
- *
- * The panel is built here rather than left to the repaint below: a scan runs on the next frame, and what the
- * subscription is answered with comes back sooner than that — so a sidebar that did not exist yet would drop the
- * one thing it was opened for.
+ * Create the log panel before subscribing: the initial backlog can arrive before the next repaint. Closing the
+ * panel unsubscribes from hub logs (R40).
  *
  * @param {Document} doc
  * @param {boolean} open
@@ -2338,10 +2296,8 @@ export function clear(doc) {
 }
 
 /**
- * The footer each card is carrying, and what it was drawn from. Beside GitHub's node rather than on it: a view
- * switch replaces the node (`mechanics.md` §27), which is a miss here and rebuilds, so the replaced case and the
- * survived case stay one path. What it buys is the survived case — a scan that rebuilt an unchanged footer
- * restarted every running session's shimmer, dropped the hover under the pointer, and drew every avatar again.
+ * Cache each footer by card node and content signature. Preserve unchanged nodes to keep animation, hover, and
+ * avatars stable. A GitHub view switch replaces the card node and forces a rebuild (mechanics M27).
  *
  * @type {WeakMap<Element, { sig: string, badge: Element }>}
  */

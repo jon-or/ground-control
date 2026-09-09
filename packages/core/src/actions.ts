@@ -1,9 +1,8 @@
 import type { TriageAction } from './triage.js';
 
 /**
- * The one triage action the board is willing to perform rather than merely label (`prd.md` R39): merging the base
- * branch into the head, where somebody asked for it. A branch that will not merge is not on this list — resolving
- * conflicts is not the developer's job on this team, so the board has nothing to offer there.
+ * Supported unattended card action: merge the requested base branch into the PR head (R39). General conflict
+ * resolution is not a separate action.
  */
 export const AUTOMATABLE_ACTIONS = ['merge-upstream'] as const;
 
@@ -17,33 +16,29 @@ export function isAutomatable(action: TriageAction): action is AutomatableAction
 export interface ActionSetting {
   enabled: boolean;
   /**
-   * What the dispatched session is told to do, with `{issue}`, `{repo}`, `{pr}`, `{branch}`, `{base}`, `{checkout}`
-   * and `{resultPath}` filled from the board's own read. A leading `/` reaches the CLI as a slash command
-   * (`docs/mechanics.md` §33), which is what lets a developer name the skill their repository already carries.
+   * Prompt placeholders are filled from fresh card context: {issue}, {repo}, {pr}, {branch}, {base},
+   * {checkout}, and {resultPath}. Claude supports leading slash commands (mechanics M33); Codex receives plain
+   * prompt text.
    */
   prompt: string;
 }
 
 /**
- * What the board may do on its own. Every field bounds a spend or a blast radius, so a hand-edited one is floored
- * rather than taken, the way `TriageSettings` is.
+ * Dispatch permissions and limits. Configuration parsing supplies defaults and clamps numeric bounds.
  */
 export interface ActionSettings {
   /**
-   * What a dispatched session may do without asking. `auto` is the shipped value: it is the narrowest mode a `--bg`
-   * run finishes under, since `manual` and `acceptEdits` park on the first `git` command and `dontAsk` denies it
-   * (`docs/mechanics.md` §33). Loosening past it to `bypassPermissions` is the developer's own (R31).
+   * Explicit permission mode. Claude defaults to auto based on the background-dispatch probes (mechanics M33).
+   * Codex refuses auto and requires a supported override (R31).
    */
   permissionMode: string;
   /**
-   * How many dispatched sessions may be working at once — counted from the runs the board is following, not from
-   * how many are being started, because `--bg` returns long before the work finishes. These are real builds in real
-   * checkouts, so the shipped value is one.
+   * Concurrent running jobs plus in-flight dispatches. Default: one.
    */
   concurrency: number;
   /**
-   * How many the board may start in a rolling day, whatever else changes. A runaway costs money and pushes code, so
-   * this is the ceiling on a mistake. Zero stops the board acting on its own and leaves each card's control working.
+   * Rolling 24-hour dispatch-attempt limit, including failures. Zero disables automatic starts while
+   * permitting manual requests. Pending dispatches are not reserved against this limit.
    */
   dailyLimit: number;
   /** How long a dispatch whose session never appeared is left open before the board calls it lost. */
@@ -52,9 +47,9 @@ export interface ActionSettings {
 }
 
 /**
- * One run the board started, as it is stored. `evidence` is what the card looked like when the run was authorised;
- * a card whose evidence has not moved is never dispatched again, which is what keeps a merge that halted from being
- * started over on every pass. A run that `failed` is the exception — no session started, so nothing was spent.
+ * Persisted dispatch attempt and authorization evidence. Failed attempts may retry; landed outcomes block
+ * automatic repeats even after a head change. An unreadable dispatch ID can produce failed after process
+ * creation.
  */
 export interface ActionRun {
   key: string;
@@ -67,7 +62,7 @@ export interface ActionRun {
   /** Epoch milliseconds the board settled the outcome, or null while it is still open. */
   endedAt: number | null;
   agent: string;
-  /** The session the CLI minted, resolved from the roster by the short id it printed (`mechanics.md` §33). */
+  /** The session the CLI minted, resolved from the roster by the short id it printed (`mechanics.md` M33). */
   sessionId: string | null;
   /** What the CLI printed as the session's short id, which is what the full one is resolved by, and what stops it. */
   shortId: string;
@@ -77,8 +72,8 @@ export interface ActionRun {
 }
 
 /**
- * How a run ended. Every one of these is what the run said about itself or what stopped it — `landed` included,
- * since only the session knows whether it finished the job (R23). The board decides none of them from GitHub.
+ * Runner state and session-reported outcome. landed is not independently verified completion evidence (R39);
+ * future R23 requires a separate stage-completion check.
  */
 export type ActionOutcome = 'running' | 'landed' | 'halted' | 'failed' | 'stopped';
 
@@ -91,7 +86,9 @@ export interface ActionRefusalRecord {
   revision: number;
 }
 
-/** What a dispatched session says it did, at the path the prompt was given. This is the verdict — nothing else measures the run. */
+/**
+ * Session-written result used to settle an action; not independent verification.
+ */
 export interface ActionReport {
   outcome: 'pushed' | 'halted';
   detail: string;
@@ -100,12 +97,8 @@ export interface ActionReport {
 }
 
 /**
- * What the board remembers about its own runs across restarts. Keyed by card key, as lanes and triage are.
- *
- * `gates` is what keeps the board from asking GitHub about the same card on every pass. Deciding whether a card may
- * be acted on needs a fresh read — the stored reading is up to twelve hours old and this authorises a push — so a
- * card the board has just answered for is not asked about again until its gate lifts. Without it a board of fifteen
- * cards would query GitHub fifteen times a loop for cards it has already refused.
+ * Persist action runs, refusals, retry gates, and dispatch timestamps by card. gates bound fresh-context reads
+ * for automatic decisions; cached triage cannot authorize edits.
  */
 export interface ActionState {
   runs: Record<string, ActionRun>;
@@ -119,17 +112,13 @@ export interface ActionState {
 export const EMPTY_ACTIONS: ActionState = { runs: {}, refusals: {}, gates: {}, dispatches: [] };
 
 /**
- * What the board is willing to act on. Bumped whenever a gate changes what a run against the same evidence would
- * do: a run stored under an older revision stops blocking a fresh dispatch, which is what lets a corrected gate
- * reach cards a broken one already spent.
+ * Increment when action rules change enough to invalidate prior refusals and automatic-repeat checks.
  */
 export const ACTION_REVISION = 2;
 
 /**
- * What a client draws about a card's action, where the board has one. `available` is a card the board could act on
- * and the developer may press, whether or not the setting is on: it is what keeps the setting from being the only
- * way to run one. `refused` carries the reason, and is what a card shows rather than a control that could only
- * refuse — a stacked base branch, no checkout, an agent already on the card, or no prompt configured.
+ * Editor action state. available permits a manual request regardless of automatic enablement; refused supplies
+ * the failed check. Running and completed results take precedence.
  */
 export type CardAction =
   | { state: 'available'; action: AutomatableAction }

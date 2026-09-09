@@ -1,10 +1,6 @@
 /**
- * The template with the board's own facts in it. The keys of `values` are the whole of what is substituted, and a
- * name that is not one of them is left exactly as typed rather than emptied: a prompt that came out half-substituted
- * would still run, and a run is not a thing to guess at. A developer's own prompt may contain braces of its own.
- *
- * `Object.hasOwn`, not a lookup: every object literal inherits `constructor`, `toString` and the rest, and a plain
- * read would substitute those into a prompt that merely mentions one.
+ * Substitute only own keys of values and preserve unknown placeholders. Object.hasOwn prevents inherited names
+ * such as constructor and toString from being inserted into user prompts.
  */
 export function fillTemplate(template: string, values: Readonly<Record<string, string>>): string {
   return template.replace(/\{([A-Za-z]+)\}/g, (whole, name: string) => (Object.hasOwn(values, name) ? values[name] ?? whole : whole));

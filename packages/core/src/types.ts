@@ -45,7 +45,7 @@ export interface RetainedActivity {
 
 /**
  * The last phase an activity signal reported, and when it began. Never a guarantee the session is in it now — an agent CLI does not say what
- * an interactive session is doing, which is why the signal exists at all (`docs/mechanics.md` §20).
+ * an interactive session is doing, which is why the signal exists at all (`docs/mechanics.md` M20).
  */
 export interface SessionActivity {
   phase: ActivityPhase;
@@ -82,14 +82,14 @@ export interface Session {
   issueNumber: number | null;
   /**
    * When the session's transcript was last written, or null when there is none. Not liveness: a live session can
-   * have a transcript hours old, or none at all, so `docs/mechanics.md` §3 forbids deriving running from it.
+   * have a transcript hours old, or none at all, so `docs/mechanics.md` M3 forbids deriving running from it.
    */
   transcriptWrittenAt: number | null;
   /** Null when no signal has reported on this session, or reported nothing the board recognises. */
   activity: SessionActivity | null;
   /**
    * The agent's own word that this session has ended. Never inferred from silence or from a transcript's age
-   * (R24, `docs/mechanics.md` §3), and false for every agent whose CLI does not report an end.
+   * (R24, `docs/mechanics.md` M3), and false for every agent whose CLI does not report an end.
    */
   finished: boolean;
   /**

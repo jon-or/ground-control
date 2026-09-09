@@ -5,12 +5,8 @@ import { read, writeIfChanged } from './fs.js';
 import { checkoutsPathOf } from './paths.js';
 
 /**
- * The directory the developer picked for each card, by card key. Written only by an explicit pick — never by the
- * loop and never from a match the board made itself, which is the whole reason this file exists rather than an
- * inference (`checkoutFor`). One record per machine, so a pick made on one board is the pick on every board.
- *
- * An entry outlives the card it was made for: a key nothing on the board matches costs one unused string, and a
- * prune keyed on today's cards would forget a pick while its issue was merely off the board for an afternoon.
+ * Persist explicit checkout picks by card key, shared across clients. Retain entries when cards temporarily
+ * leave the board. Session-derived checkout selection remains separate from this store.
  */
 export type CheckoutMemory = Record<string, string>;
 

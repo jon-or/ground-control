@@ -82,7 +82,7 @@ describe('the extension in a real window', () => {
     await until(() => installedHooks() === 0, 'the hook entries were still in the agent settings');
     await until(() => readdirSync(activityDir).length === 0, 'the markers were still there after turning it off');
 
-    // The directory itself stays: one that anything holds open after a delete cannot be created back (mechanics §23).
+    // The directory itself stays: one that anything holds open after a delete cannot be created back (mechanics M23).
     assert.ok(existsSync(activityDir), 'the directory survived the removal');
 
     await settings().update('installSessionHooks', true, vscode.ConfigurationTarget.Global);

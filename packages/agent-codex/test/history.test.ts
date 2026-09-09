@@ -9,7 +9,7 @@ const ROOT = sessionsRootOf(HOME);
 const FILE = `rollout-2026-09-05T15-09-26-${ID}.jsonl`;
 const PATH = `${ROOT}/2026/09/05/${FILE}`;
 
-/** The first line of a real rollout, trimmed to the fields the reader looks at (`docs/mechanics.md` §42). */
+/** The first line of a real rollout, trimmed to the fields the reader looks at (`docs/mechanics.md` M42). */
 function meta(over: Record<string, unknown> = {}): string {
   return `${JSON.stringify({
     timestamp: '2026-09-05T19:10:51.441Z',

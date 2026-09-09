@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// bump.mjs — prototype of `factory bump`. Reconstructs orphaned subagents from disk and emits the
-// resume prompt for `claude --bg --resume <sid> "$(bump)"`. See docs/mechanics.md §14.
+// Experimental subagent recovery. Reconstructs orphaned subagents from disk and emits the
+// resume prompt for `claude --bg --resume <sid> "$(bump)"`. See docs/mechanics.md M14.
 //
 // Usage: node bump.mjs <project-slug-dir> <session-id> [--json]
 //
-// PROTOTYPE — known broken, see mechanics §14 "Classifier details the prototype got wrong":
+// Known prototype defects; see docs/mechanics.md, Subagent recovery (M14):
 //   1. Notification status is keyed on <task-id> (the agentId), NOT <tool-use-id>. This parser looks
 //      for the latter and finds none, so completed agents still report as orphaned.
 //   2. `death` takes the last error anywhere in the transcript, not the terminal one, and does not

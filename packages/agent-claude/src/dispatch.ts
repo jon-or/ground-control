@@ -2,21 +2,10 @@ import type { DispatchInput, DispatchResult, ExecText, ReadFailure } from '@grou
 import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from './ids.js';
 
 /**
- * The flags a dispatched session runs under, measured in `docs/mechanics.md` §33. Unlike a classification this is
- * meant to be seen, so nothing here suppresses a transcript or a setting — a run the developer cannot open, stop and
- * take over is a run the board should not be making (R15).
- *
- * - `--bg` is what makes it stoppable: a `-p` session has no short id and `claude stop` refuses it (§10).
- * - `--permission-mode` is passed on every dispatch, because a bare `--bg` runs under `auto` and R31 asks that the
- *   conservative value be the one a developer who has not thought about it gets.
- * - `-n` is the display name, which is how a run the board started is told from one the developer started.
- * - `--settings` turns off `worktree.bgIsolation`, which otherwise refuses every `Edit` and `Write` a `--bg` session
- *   makes in a repository's main checkout (§33). A merge that conflicts is the case the board exists for.
- * - `--session-id` is deliberately **not** passed: `--bg` warns and ignores it, minting its own id (§33).
- *
- * The prompt is the last element and may begin with `/`, which the CLI resolves as a slash command — but only if it
- * arrives as argv. `runJsonCli` spawns with an argument array and refuses a batch shim rather than reaching for a
- * shell, and a shell on Windows would rewrite a leading `/name` into a filesystem path (§33).
+ * Run visible, stoppable Claude background work with an explicit permission mode and display name (mechanics
+ * M33). Disable worktree.bgIsolation so repository-main-checkout edits are permitted. Omit --session-id
+ * because --bg ignores it. Pass the prompt as an argv element to preserve leading slash commands; shell
+ * conversion can turn them into paths. Print-mode jobs cannot be stopped through claude stop (M10).
  */
 export function dispatchArgs(input: DispatchInput): string[] {
   return [
@@ -96,7 +85,7 @@ export function makeClaudeDispatcher(runText: ExecText) {
 
 /**
  * Stops a session this adapter started. `claude stop` and never `claude rm`: `rm` deletes the session "and its
- * worktree when that is safe", and the checkout a run works in holds the developer's own code (§33).
+ * worktree when that is safe", and the checkout a run works in holds the developer's own code (M33).
  */
 export function makeClaudeStopper(runText: ExecText) {
   return async function stopDispatch(path: string, shortId: string): Promise<ReadFailure | null> {

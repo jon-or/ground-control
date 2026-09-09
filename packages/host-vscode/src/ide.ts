@@ -4,7 +4,7 @@ import type { AgentPlacement } from './placements.js';
 
 /**
  * One VS Code window, as it announces itself in the lock file an agent's extension writes per window. The only live
- * enumeration of windows on the machine — VS Code offers none — and undocumented, so **version-fragile** (§22).
+ * enumeration of windows on the machine — VS Code offers none — and undocumented, so **version-fragile** (M22).
  */
 export interface IdeWindow extends HostWindow {
   port: number;
@@ -18,7 +18,7 @@ export interface IdeLock {
 
 /**
  * The windows the lock files claim. A closed window leaves its lock behind — two of seven were stale when measured —
- * so this is a list of candidates, and only a port that answers is a window (`docs/mechanics.md` §22).
+ * so this is a list of candidates, and only a port that answers is a window (`docs/mechanics.md` M22).
  */
 export function ideWindowsFrom(locks: readonly IdeLock[]): IdeWindow[] {
   const windows: IdeWindow[] = [];
@@ -128,7 +128,7 @@ export function processesFrom(stdout: string): ProcessEntry[] {
 
 /**
  * The window holding a session's own process: its parent is that window's extension host, which is the process
- * listening on the window's lock port (`docs/mechanics.md` §22), so the parent pid names the window exactly.
+ * listening on the window's lock port (`docs/mechanics.md` M22), so the parent pid names the window exactly.
  */
 export function windowForProcess(
   sessionPid: number | null,

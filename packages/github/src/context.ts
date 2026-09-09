@@ -141,12 +141,9 @@ function forwardTo(text: string, at: number): number {
 }
 
 /**
- * Text bounded to `limit` characters of the original, keeping both ends and saying what came out of the middle.
- * Characters, not bytes: this counts UTF-16 code units, so a body of CJK or emoji is longer on the wire than it is
- * here. The middle is what goes because a comment's last line is usually the ask — the whole reason the board is
- * reading it — where a clip that took the tail would carry the preamble and drop the request.
- *
- * The marker is added on top of `limit`, so what is bounded is how much of the original text travels.
+ * Keep both ends of text, bounded by UTF-16 code units of original content. Add the omission marker outside
+ * that limit. Preserving the tail retains requests commonly placed at the end of comments; wire bytes may
+ * exceed the character count.
  */
 export function clip(text: string | null, limit: number): string {
   const trimmed = (text ?? '').trim();

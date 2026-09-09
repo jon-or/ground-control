@@ -12,7 +12,7 @@ const TOOL_USE = 'exec-00000000-0000-4000-8000-000000000002';
 const CWD = `${HOME}/recorded`;
 const TRANSCRIPT = `${HOME}/recorded/rollout-recorded.jsonl`;
 
-/** The events one session fires, and the only set a fixture may carry. Measured in `docs/mechanics.md` §40. */
+/** The events one session fires, and the only set a fixture may carry. Measured in `docs/mechanics.md` M40. */
 const EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'Stop', 'SessionEnd'];
 
 /**

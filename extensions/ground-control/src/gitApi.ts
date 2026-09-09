@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 /**
  * The parts of the built-in Git extension's API (`vscode.git`, version 1) this board calls. Declared here rather
  * than vendored whole: the shipped extension carries no `.d.ts`, so every field below is one measured against
- * `resources/app/extensions/git/dist/main.js` on 2026-09-05 and named in `docs/mechanics.md` §30.
+ * `resources/app/extensions/git/dist/main.js` on 2026-09-05 and named in `docs/mechanics.md` M30.
  */
 export const GIT_EXTENSION_ID = 'vscode.git';
 

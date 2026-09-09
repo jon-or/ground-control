@@ -87,8 +87,8 @@ function toSession(marker: ActivityMarker, cwd: string, title: string | null, de
 /**
  * Every live Codex session, from the markers its hooks wrote. Codex has no command that lists them: `codex agents`
  * requires a daemon this platform does not run, and a second app-server reports another process's threads as
- * `notLoaded` (`docs/mechanics.md` §39). So the marker directory is the roster, and the pid in each marker is the
- * liveness — a process that was killed fired no `SessionEnd` and left its marker behind (§40).
+ * `notLoaded` (`docs/mechanics.md` M39). So the marker directory is the roster, and the pid in each marker is the
+ * liveness — a process that was killed fired no `SessionEnd` and left its marker behind (M40).
  */
 export function readRoster(
   deps: MachineDeps,

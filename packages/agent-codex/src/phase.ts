@@ -31,8 +31,7 @@ const activityMarker = z.object({
 export type ActivityMarker = z.infer<typeof activityMarker>;
 
 /**
- * The phase a marker reports, or null to claim nothing. Null is the honest floor and what makes an event the board has never seen safe: the
- * card renders without a phase rather than guessing one (R24). Every arm here is measured in `docs/mechanics.md` §40.
+ * Map measured hook events to phases; return null for unsupported events (R24, mechanics M40).
  */
 export function phaseOf(marker: ActivityMarker): ActivityPhase | null {
   switch (marker.event) {
@@ -105,7 +104,7 @@ export function activityOf(marker: ActivityMarker): SessionActivity | null {
 
 /**
  * The session's last reported activity, or null when it has no marker, an unreadable one, or one that claims nothing. Never liveness — that
- * is the marker's pid, because Codex has no command that lists its live sessions (`docs/mechanics.md` §40).
+ * is the marker's pid, because Codex has no command that lists its live sessions (`docs/mechanics.md` M40).
  */
 export function readActivity(
   home: string,

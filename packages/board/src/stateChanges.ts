@@ -36,20 +36,9 @@ function own(login: string | null, logins: readonly string[]): boolean {
 }
 
 /**
- * The acts on a card, oldest first. Events chain into one act while each is within a minute of the one before it
- * **and** the same named person did it: a hand-over is one intent spread over three mutations, but two people moving
- * the same card inside a minute are two, and the later one is what the card is now waiting on. Chaining is by the
- * gap rather than by the span, so an act is however long a person kept working at it a minute at a time.
- *
- * Nobody chains to nobody. Where GitHub names no actor — a deleted account — two events are two people as readily as
- * one, and merging them would put a status move under a stranger's assignment on no evidence at all (R24).
- *
- * A status move out of nothing is the card being added to the project, which is not somebody moving it. That is
- * matched on the empty `from` rather than on the automation's login, because the login is a repository setting and
- * the shape is not (`docs/mechanics.md` §32).
- *
- * Sorted before anything is read off it, and an event GitHub gave no usable time is dropped: the order is what the
- * whole reading turns on, and the timeline arriving ascending is a convention rather than a guarantee.
+ * Sort valid events by time and group adjacent events by the same identified actor when each gap is at most
+ * one minute. Do not group unknown actors. Ignore project-addition status events with an empty previous status
+ * (mechanics M32). Grouping uses adjacent gaps, not total duration.
  */
 export function collapseStateChanges(events: readonly TriageStateEvent[]): TriageStateChange[] {
   const changes: TriageStateChange[] = [];
@@ -105,10 +94,8 @@ export function collapseStateChanges(events: readonly TriageStateEvent[]): Triag
 }
 
 /**
- * What the card was last told to be. The status comes from the card rather than from replaying the acts — a project
- * option renamed since rewrites every event that names it, where the card's own status is what the board is showing.
- * `from` is carried off the most recent act that moved the status, which is not always the most recent act at all:
- * a colleague can move a card and somebody else assign it hours later, and both are the same instruction.
+ * Use the card's current status rather than reconstructing it from timeline option names. Take the previous
+ * status from the latest status-changing group, which may precede a separate assignment event.
  */
 export function foldInstruction(
   changes: readonly TriageStateChange[],

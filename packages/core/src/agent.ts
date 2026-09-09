@@ -56,7 +56,7 @@ export interface ActivitySignal {
 
 /**
  * One bounded question put to an agent, answered as JSON and nothing else. The session it runs in must not become a
- * session the board shows — the adapter owns how, and Claude's flags are measured in `docs/mechanics.md` §31.
+ * session the board shows — the adapter owns how, and Claude's flags are measured in `docs/mechanics.md` M31.
  */
 export interface ClassifyInput {
   /** The CLI, from the same configuration the roster read spawns. */
@@ -79,18 +79,18 @@ export type ClassifyResult = { value: unknown } | { failure: ReadFailure };
 /**
  * One piece of work handed to an agent to carry out, in the developer's own checkout. Unlike a classification this
  * is meant to be seen: it writes a transcript, loads the developer's settings, and becomes a session on the card
- * (R2). The caller cannot name the session — `--bg` mints its own id (`docs/mechanics.md` §33).
+ * (R2). The caller cannot name the session — `--bg` mints its own id (`docs/mechanics.md` M33).
  */
 export interface DispatchInput {
   /** The CLI, from the same configuration the roster read spawns. */
   path: string;
-  /** What the session is told to do. A leading `/` reaches the CLI as a slash command (§33). */
+  /** Work prompt. Claude interprets a leading slash as a command (mechanics M33); other adapters may differ. */
   prompt: string;
-  /** The display name the session carries, which is how the developer tells a dispatched session from their own. */
+  /** Requested display name. Adapter support varies; Claude uses it and Codex currently ignores it. */
   name: string;
   /** The checkout the work happens in, read from a session the card already carries and never from a branch name. */
   cwd: string;
-  /** What the session may do without asking. Passed explicitly, because a bare `--bg` runs under `auto` (§33). */
+  /** What the session may do without asking. Passed explicitly, because a bare `--bg` runs under `auto` (M33). */
   permissionMode: string;
   model: string | null;
   timeoutMs: number;
@@ -98,8 +98,8 @@ export interface DispatchInput {
 }
 
 /**
- * What a dispatch produced. `shortId` is what the CLI printed; the full session id is resolved from the next roster
- * read by prefix, because the CLI will not take one it is given (§33).
+ * Dispatch identity or failure. Claude returns a short ID, Codex a full thread ID. The runner matches the value
+ * against a subsequent roster by prefix. A failure can follow process creation when identity cannot be read.
  */
 export type DispatchResult = { shortId: string } | { failure: ReadFailure };
 
@@ -112,25 +112,24 @@ export interface AgentAdapter {
   readonly displayName: string;
   readonly defaultPath: string;
   /**
-   * R30: whether this machine has the tool at all, which is what decides whether the board polls it before any
-   * setting is given. Readers rather than a spawn: a probe that ran the CLI would cost a process per hub start on
-   * every machine, and answer nothing on the one where it is absent.
+   * Whether to include the agent before explicit configuration (R30). This can use filesystem detection or a
+   * fixed default; it does not guarantee that the executable is installed.
    */
   enabledByDefault(readers: MachineReaders): boolean;
   /** Lists every live session this CLI reports. Never throws — a failure comes back classified. */
   listSessions(path: string, deps: MachineDeps): Promise<AgentReading>;
   /** Saved metadata only. The caller establishes absence from the live roster independently. */
   listHistory?(deps: MachineDeps): Promise<HistoryReading>;
-  /** Whether this saved transcript can still be resumed from its recorded directory. Checked on click. */
+  /** Whether saved history remains resumable. Checked on click; checkout requirements are agent-specific. */
   canResume?(session: HistoricalSession, deps: MachineDeps): boolean;
   /**
-   * Answers one bounded question as JSON. Optional, because an agent CLI that cannot do this without leaving a session
-   * on the board must not offer it — absence costs the developer a label, not a feature that half works (R30).
+   * Answer a bounded question as JSON without creating a session visible to the board. Omit this capability if
+   * the agent cannot isolate classification from ordinary session discovery (R30).
    */
   classify?(input: ClassifyInput): Promise<ClassifyResult>;
   /**
-   * Starts one piece of work in a checkout. Optional, because an agent CLI that cannot start a session the board can
-   * later stop and hand over must not offer it — a run nobody can take back is worse than no automation (R15, R30).
+   * Start work in a checkout and return its dispatch identity (R39). Adapters offering dispatch must support
+   * stopping their runs. Automated takeover is a separate future requirement (R15).
    */
   dispatch?(input: DispatchInput): Promise<DispatchResult>;
   /** Stops a session this adapter started, by the short id the dispatch returned. Absent where the CLI cannot. */

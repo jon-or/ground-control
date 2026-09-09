@@ -32,9 +32,8 @@ export interface HubConfig {
 }
 
 /**
- * What a session the developer starts from a card is prefilled with. Ships empty, and empty means a bare session
- * rather than no session — unlike a card action, where an empty prompt means the action is off (R39). Nothing here
- * runs unattended: the prompt lands in the composer unsent, and the developer sends it or does not (R16).
+ * Optional unsent prompt for a developer-started session (R42). Empty opens a bare session; it does not disable
+ * starting. This differs from an automatic action, which requires a nonempty prompt (R39).
  */
 export interface NewSessionSettings {
   prompt: string;
@@ -110,18 +109,13 @@ const ACTION_RESULT_TIMEOUT_FLOOR_MS = 60_000;
 const ACTION_RESULT_TIMEOUT_CEILING_MS = 4 * 60 * 60 * 1000;
 
 /**
- * The permission modes a dispatched session may be given, as the CLI names them (`docs/mechanics.md` §33). A value
- * outside this list would be handed straight to a spawn, so it is refused rather than passed through.
- */
-/**
- * The command that runs one agent's CLI, from the `agents` map a client holds. An id named with no path is the CLI on
- * the path under its own name, which is the same fallback an adapter makes of an empty configured path — a client
- * that resolved it differently would run a command the hub never would.
+ * Resolve the configured command or fall back to the agent ID on PATH, matching adapter command resolution.
  */
 export function agentCommand(configured: Record<string, string>, id: string): string {
   return configured[id]?.trim() || id;
 }
 
+/** Shared mode names. Parsing defaults unknown values to auto; adapters may refuse unsupported modes (M33, M46). */
 export const PERMISSION_MODES = ['manual', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions'] as const;
 
 export const DEFAULT_ACTIONS: ActionSettings = {

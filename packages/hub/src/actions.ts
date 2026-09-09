@@ -49,7 +49,7 @@ export interface ActionDeps {
   notify(message: string): void;
 }
 
-/** How long a dispatch is given to print the id it minted. `--bg` returns as soon as it has (`mechanics.md` §33). */
+/** How long a dispatch is given to print the id it minted. `--bg` returns as soon as it has (`mechanics.md` M33). */
 const DISPATCH_TIMEOUT_MS = 60_000;
 
 /**
@@ -98,11 +98,8 @@ export class ActionRunner {
   }
 
   /**
-   * How many cards the board is working on, which is what the concurrency ceiling is judged against. Counted from
-   * the store rather than from what is being dispatched: `--bg` returns in milliseconds, so a dispatch is out of
-   * `#inFlight` almost at once while its session runs for minutes. Counting only the dispatch would cap starts per
-   * pass rather than sessions at once — and starting one broadcasts, which considers again, so a cap of one would
-   * start every eligible card in a cascade.
+   * Count persisted running jobs and in-flight dispatches without duplication. Detached dispatch returns
+   * before work completes, so counting only starts would allow more concurrent jobs than configured.
    */
   #busy(): number {
     return new Set([...this.#inFlight.keys(), ...this.running()]).size;
@@ -136,15 +133,8 @@ export class ActionRunner {
   }
 
   /**
-   * Settles runs the board can no longer see working, and dispatches whatever is due. Cheap when nothing is open and
-   * nothing is enabled, which is every call but a few: both are set differences over card keys before any read.
-   *
-   * `watched` is what keeps an unwatched hub from acting. A window that has activated the extension stays connected
-   * with no board open (R35), so without this, opening the editor would start merges at nobody.
-   *
-   * `sessionsRead` is what keeps it from acting on a roster it has not taken. The two reads land independently, so
-   * the first source read of a hub's life arrives while the roster is still empty — and every card then looks like a
-   * card nothing is working on, which is exactly the state R18 exists to refuse.
+   * Reconcile tracked runs, then consider automatic starts only while watched and after successful source and
+   * roster reads. An initial empty roster is not evidence that a card has no active sessions (R35).
    */
   consider(
     lanes: readonly Lane[],
@@ -182,13 +172,9 @@ export class ActionRunner {
   }
 
   /**
-   * Writes the store, and stands the runner down for good if it cannot. Every ceiling this class has — the run
-   * record that says a card is being worked on, the read gate, and the ledger the daily limit is counted from —
-   * lives in that one file. A write that failed silently leaves all three unrecorded, and the next broadcast finds
-   * the card due again with nothing spent: a dispatch loop bounded by nothing, spawning real agents that push.
-   *
-   * So a failed write fails closed. What it costs is the board stopping until the developer restarts it; what it
-   * buys is that the one file bounding a runaway can never be the thing that fails open.
+   * Stop further dispatches if run-state persistence fails. The same store enforces running-job, retry, and
+   * daily limits; ignoring a write failure could repeatedly dispatch unrecorded work. Restart is required
+   * after the file becomes writable.
    */
   #write(state: ActionState): void {
     if (this.#deps.store.write(state)) {
@@ -200,9 +186,8 @@ export class ActionRunner {
   }
 
   /**
-   * The developer asking for a card's action by hand. Every gate a dispatch the board made itself runs, and every
-   * ceiling — what the click replaces is the setting and the read gate, because a card with nothing to press is a
-   * feature nobody can try once before configuring it (R32).
+   * Manual requests bypass automatic enablement/history while retaining safety checks, concurrency, and
+   * positive daily limits. A zero daily limit disables automatic starts only (R32, R39).
    */
   runAction(lanes: readonly Lane[], key: string): ReadFailure | null {
     if (this.#disposed) {
@@ -320,8 +305,7 @@ export class ActionRunner {
       return null;
     }
 
-    // R18, said before the press rather than after it: a card with an agent already on it must not carry a control
-    // offering to start a second one, however the press would then be refused.
+    // Refuse unattended actions while any session is already on the card (R39).
     if (card.sessions.length > 0) {
       return 'Something is already working on this card.';
     }
@@ -336,12 +320,8 @@ export class ActionRunner {
   }
 
   /**
-   * The cards the board may dispatch for on its own, in board order. A card is due when its reading names an action
-   * that is turned on, nothing is running or in flight for it, and its read gate has lifted.
-   *
-   * A card the board has already run on is still due here, and is stopped by `alreadyRun` against the fresh read
-   * instead. That is the whole difference between "this card has been done" and "this card has been done *in the
-   * state it is in now*": a halted merge the developer has since pushed a fix for is a card to try again.
+   * Select enabled candidate actions with no active run and an expired read gate. Check alreadyRun only after
+   * fetching fresh evidence, so a changed head can permit retry after a halted run.
    */
   #due(lanes: readonly Lane[]): string[] {
     const state = this.#deps.store.read();
@@ -386,7 +366,7 @@ export class ActionRunner {
   #settle(lanes: readonly Lane[], sessions: readonly Session[], sourcesRead: boolean): void {
     const state = this.#deps.store.read();
     // `finished` and not merely listed: a `--bg` session stays on the roster after its turn with the CLI's own end
-    // word on it, so a run waited on by presence alone would never close (`docs/mechanics.md` §33).
+    // word on it, so a run waited on by presence alone would never close (`docs/mechanics.md` M33).
     const live = new Set(sessions.filter((session) => !session.finished).map((session) => session.sessionId));
     const cards = new Map(lanes.flatMap((lane) => lane.cards).map((card) => [card.key, card]));
     let next = state;
@@ -397,7 +377,7 @@ export class ActionRunner {
       }
 
       // The full id is resolved from the roster by the short id the CLI printed, because `--bg` will not take one it
-      // is given (`docs/mechanics.md` §33). Until that lands the run is open and untouched.
+      // is given (`docs/mechanics.md` M33). Until that lands the run is open and untouched.
       if (run.sessionId === null) {
         const found = sessions.find((session) => session.sessionId.startsWith(run.shortId) && run.shortId !== '');
 
@@ -439,10 +419,8 @@ export class ActionRunner {
   }
 
   /**
-   * What became of one finished run, taken from what the run itself wrote. The board does not re-read the pull
-   * request for this: the base branch moves under a card within minutes, so a conflict somebody else landed after
-   * the merge would read as this run having failed, and a card that was never touched would read as fine. Only the
-   * session knows whether it finished the job, so it says so — and the sentence beside it is its own (R23).
+   * Settle from the session-written result file without inferring success from current PR state. This is a
+   * reported outcome (R39), not the independent stage-completion evidence required by future R23.
    */
   #settled(state: ActionState, key: string): ActionState {
     const report = readActionReport(readJson(actionReportPathOf(this.#deps.home, key)));
@@ -625,13 +603,8 @@ export class ActionRunner {
   }
 
   /**
-   * Records why a card was not acted on. A refusal the board reached on its own is stored, so the same read is not
-   * made again on every pass and the card can say why.
-   *
-   * One the developer asked for is answered rather than stored: they are standing in front of the answer, and a
-   * stored refusal would close the read gate on the next honest attempt. Every gate a hand-asked run reaches is
-   * reached after their click returned, so without the notice a press that refused would be a press that did nothing
-   * and said nothing (R25).
+   * Persist automatic refusals and their retry gates. Return manual refusals as notices without closing the
+   * next attempt's gate; manual validation completes asynchronously after the click (R25).
    */
   #refuse(key: string, asked: boolean, refused: ActionRefusal): void {
     if (asked) {

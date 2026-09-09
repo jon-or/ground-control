@@ -7,11 +7,9 @@ import { client } from './hubClient.js';
 import { agentExtensionReady } from './resident.js';
 
 /**
- * The board's second entry point: a `vscode://groundcontrol.ground-control/open?session=…` navigation from the browser
- * overlay. It exists because focus cannot be taken, only given — a navigation raises VS Code and hands this window
- * the foreground, which is what every route then needs (`docs/mechanics.md` §26, §29).
- *
- * The link is reachable from any page, so this takes one well-formed id, an agent where the board named one, and nothing else. An open goes through the hub, which resolves the id against its live roster and saved history and refuses what it does not know. An attach is this window's own terminal, so it resolves the id the same way and refuses it here.
+ * Handle browser and cross-window session links. Validate the ID and agent before resolving an open through
+ * the hub or an attach through the roster. OS URI routing and foreground activation have measured limits
+ * (mechanics M26, M29); receiving a link does not establish session ownership.
  */
 export function registerUriHandler(): vscode.Disposable {
   return vscode.window.registerUriHandler({
@@ -57,7 +55,7 @@ export function registerUriHandler(): vscode.Disposable {
   });
 }
 
-/** How long a link is given to find its run. A cold window registers its hub in 3.2s (`docs/mechanics.md` §8). */
+/** How long a link is given to find its run. A cold window registers its hub in 3.2s (`docs/mechanics.md` M8). */
 const ATTACH_DEADLINE_MS = 8_000;
 
 async function attach(sessionId: string): Promise<void> {
@@ -69,12 +67,8 @@ async function attach(sessionId: string): Promise<void> {
 }
 
 /**
- * The run a link named, from this window's own board where it has one and from the hub's roster otherwise: a window
- * the navigation raised may never have had a board open, so the snapshot is not there to read.
- *
- * A URI is an activation event, so this can run before the client has a connection at all — and until it has one,
- * `roster()` answers null rather than an empty list. Null is asked again; a list is the whole answer, so a run absent
- * from one is absent, and only a deadline ends the wait for a hub that never answers.
+ * Resolve an attach ID from the snapshot or a fresh roster. URI activation can precede connection: retry null
+ * roster responses until the deadline, but treat a returned list as authoritative for that read.
  */
 async function runNamed(sessionId: string): Promise<Session | null> {
   const held = client();

@@ -18,7 +18,7 @@ import type { Logger } from '@ground-control/core';
 
 /**
  * What a process VS Code starts must not inherit. `VSCODE_IPC_HOOK` names the window that started a hub to every CLI
- * that hub spawns (`mechanics.md` §26), and `VSCODE_NLS_CONFIG` and `VSCODE_CODE_CACHE_PATH` name its build (§49).
+ * that hub spawns (`mechanics.md` M26), and `VSCODE_NLS_CONFIG` and `VSCODE_CODE_CACHE_PATH` name its build (M49).
  */
 export function sanitizeEnvironment(env: NodeJS.ProcessEnv = process.env): string[] {
   const removed = Object.keys(env).filter(
@@ -107,7 +107,7 @@ function claimRecord(home: string, text: string): boolean {
 /**
  * Starts the hub for a home, unless one is already answering for it. Two things decide that, in order: a probe of
  * the recorded port before binding, and an exclusive create of `hub.json` after. A record whose port answers as
- * nothing is a hub that was killed, which is the normal state on Windows (`mechanics.md` §25) and is taken over.
+ * nothing is a hub that was killed, which is the normal state on Windows (`mechanics.md` M25) and is taken over.
  */
 export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   const home = options.home ?? homedir();
@@ -216,7 +216,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
 
   rmSync(exitPathOf(home), { force: true });
 
-  // Best effort only: a process killed on Windows runs nothing (`mechanics.md` §25), which is why every client's
+  // Best effort only: a process killed on Windows runs nothing (`mechanics.md` M25), which is why every client's
   // liveness check is the probe rather than this file.
   process.on('exit', unclaim);
 

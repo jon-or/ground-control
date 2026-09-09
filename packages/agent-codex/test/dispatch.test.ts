@@ -83,7 +83,7 @@ describe('the permission modes Codex can and cannot run under', () => {
   });
 
   /**
-   * §46: a connect from inside `workspace-write` fails `EACCES` without this override, so a merge action under the
+   * M46: a connect from inside `workspace-write` fails `EACCES` without this override, so a merge action under the
    * mode the refusal recommends would do the work and fail its push. `read-only` keeps none, because a plan does
    * not push, and the bypass has no sandbox to open.
    */
@@ -127,8 +127,7 @@ describe('dispatching work to Codex', () => {
   });
 
   it('remembers the process it started, before any marker exists for it', async () => {
-    // A run whose hooks are not installed or not trusted writes no marker at all (§41), so the pid the board
-    // itself spawned is the only thing that can stop it — and R15 says a run nobody can stop must not be offered.
+    // Without trusted hooks, no marker supplies a PID. Retain the spawn PID for stopping this action (R39, M41).
     const remembered: [string, number | null][] = [];
     const { start } = starter();
 

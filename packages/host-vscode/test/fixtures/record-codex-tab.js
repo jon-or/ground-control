@@ -166,7 +166,7 @@ function anonymise(store) {
     thread: SYNTHETIC_THREAD,
     /** The memento as VS Code stores it: one JSON string per tab, inside the editor grid. */
     editor: rewrite(scrubTitles(store.editor)),
-    /** Codex's own sidebar state, which names no thread whatever the sidebar is showing (§44). */
+    /** Codex's own sidebar state, which names no thread whatever the sidebar is showing (M44). */
     sidebar: rewrite(store.sidebar),
   };
 

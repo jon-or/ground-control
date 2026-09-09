@@ -76,11 +76,8 @@ export function formatLogLine(entry: LogEntry): string {
 const LINE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z) (debug|info|warn|error) (?:\[([a-z][a-z0-9-]*)\] )?(.*?)\r?$/;
 
 /**
- * `hub.log` back into entries, which is what a board opening its viewer is shown. The file carries lines the logger
- * never wrote — the spawn points the hub's own stdout and stderr at the same descriptor — so anything that does not
- * parse is kept verbatim under the timestamp of the line above it. That is what puts a stack trace under the error
- * it belongs to rather than at the epoch, and it is why an unreadable line is never dropped: the lines the logger
- * did not write are the ones a developer opening the log after a crash came for.
+ * Parse log entries while preserving unstructured stdout/stderr. Associate raw lines with the preceding
+ * timestamp so stack traces remain beside their error and crash output is not discarded.
  */
 export function parseLogLines(lines: readonly string[]): LogEntry[] {
   const entries: LogEntry[] = [];

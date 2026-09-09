@@ -1,8 +1,6 @@
 /**
- * The board's own address in VS Code. A browser tab cannot reach into an editor, but it can navigate, and a
- * navigation is a user gesture in the application the developer is looking at — the one thing Windows honours
- * (`docs/mechanics.md` §26, §29). So a click on a session in the browser overlay becomes this URI, VS Code takes
- * the focus, and the window that handles it runs the same open the editor board's own row runs.
+ * Construct editor links for browser navigation. OS routing and foreground behavior depend on the registered
+ * handler and launch context (mechanics M26, M29). The URI alone does not guarantee target-window focus.
  */
 
 /** The two paths the handler answers. Anything else is a link the board did not write. */
@@ -39,14 +37,9 @@ function sessionIdIn(query: string): string | null {
 }
 
 /**
- * The agent of a session the board is handing to a window it has just raised, or null for a click in a browser.
- *
- * The distinction is what keeps two windows from passing one session back and forth: a handed-over request is
- * revealed by the window that receives it or refused there, and never routed onward. A browser can set it too — the
- * cost of that is a reveal in the window the developer is looking at, which is what they asked for by clicking.
- *
- * The agent rides in the URI rather than being looked up, because the window receiving it may never have had a
- * board open and so may hold no snapshot to look it up in. The caller checks it against the agents it can place.
+ * Read the handover agent when hop=1. The receiving window must validate the request and either open locally
+ * or refuse; it cannot forward again. Carry the agent because the receiver may have no snapshot. Browser-
+ * supplied parameters receive the same validation.
  */
 export function handedOver(query: string): string | null {
   const params = new URLSearchParams(query);

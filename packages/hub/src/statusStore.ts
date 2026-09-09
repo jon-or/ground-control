@@ -60,13 +60,9 @@ export function makeStatusStore(home: string): StatusStore {
 }
 
 /**
- * The readings to store after a roster read. A live session's own phase outranks whatever was held for it, and a session the read did not list
- * keeps what it had — that absence is the case the store exists for.
- *
- * A reading is replaced unless it is the same phase of the same stretch of work. `PostToolBatch` lands on every tool batch of a running turn,
- * so restamping on each would rewrite this file all turn — and the moment the phase began is what a live row already counts from, so the kept
- * row reads the same number either way. `activity.since` is what tells one stretch from the next, so a session asked again after a resume
- * still takes a fresh date even though the phase has not moved: without that, its new question would be judged by the old one's date.
+ * Retain missing sessions' observations. Replace a live observation when its phase or work interval changes;
+ * same-turn PostToolBatch events must not rewrite the file continuously. Explicit finished state removes the
+ * observation.
  */
 export function retaining(
   held: ReadonlyMap<string, RetainedActivity>,

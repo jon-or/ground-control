@@ -60,7 +60,7 @@ describe('the Codex adapter', () => {
     expect(adapter.enabledByDefault(machine({ dirs: { [`${HOME}/.codex`]: ['config.toml'] } }))).toBe(false);
   });
 
-  /** The markers are the whole roster, so untrusted hooks are an empty Codex with no reason given (R25, §41). */
+  /** The markers are the whole roster, so untrusted hooks are an empty Codex with no reason given (R25, M41). */
   function withOurHook(): Record<string, string> {
     return {
       [codexHooksPathOf(HOME)]: JSON.stringify({
@@ -131,11 +131,11 @@ describe('the Codex adapter', () => {
     });
 
     expect(adapter.canResume!(held, deps)).toBe(true);
-    // The saved checkout is not the question: a thread is opened by its id, wherever it once ran (§44).
+    // The saved checkout is not the question: a thread is opened by its id, wherever it once ran (M44).
     expect(adapter.canResume!(held, machine({}))).toBe(false);
   });
 
-  /** R15: a run nobody can take back is worse than no automation, so the two are offered together or not at all. */
+  /** Card actions require dispatch and stop capabilities together (R39). */
   it('offers dispatch only alongside a way to stop what it started', () => {
     const start = () => Promise.resolve({ pid: 1, failure: null, firstLine: () => Promise.resolve(null) });
 
@@ -166,7 +166,7 @@ describe('the Codex adapter', () => {
     expect(signalled).toEqual([4242]);
   });
 
-  /** R15's other half: a stop must be able to reach what the board started, and nothing else on the machine. */
+  /** Stop only runs authorized by this adapter instance (R39). */
   it('refuses to stop a session the board did not start', async () => {
     const signalled: number[] = [];
     const adapter = makeCodexAdapter({

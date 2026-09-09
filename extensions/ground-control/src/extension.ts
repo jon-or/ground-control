@@ -25,8 +25,7 @@ export interface GroundControl {
 }
 
 export function activate(context: vscode.ExtensionContext): GroundControl {
-  // On activation, which for this extension means the developer opened the board or ran one of its commands — or
-  // reopened a window that had the board tab in it. A developer who never opens it is never activated (PRD §2).
+  // Commands, restored boards, and URIs can activate the extension (PRD R26). Installation alone does not activate it.
   const home = homedir();
   const version = String((context.extension.packageJSON as { version?: unknown }).version ?? '0.0.0');
 

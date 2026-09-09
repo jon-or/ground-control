@@ -43,12 +43,9 @@ export interface VscodeHost extends HostAdapter {
 }
 
 /**
- * The VS Code host, headless half. Every route it can plan is resident: each one fires a URI or a command, and both
- * follow whichever window has focus (`docs/mechanics.md` §7, §8), so the process performing one has to be able to
- * see that focus landed. A headless process cannot, so this adapter offers no `open` and the hub forwards instead.
- *
- * `release` is unbuilt: closing the surface costs the window its IDE connection (§22), and what reopening one costs
- * is uncharacterised, so nothing here claims to hand a session back.
+ * Plan VS Code operations for execution by a resident extension. In-process commands target that extension's
+ * window; external URI routing depends on focus (mechanics M7, M8). This headless adapter implements neither
+ * open nor release. Tab release remains experimental (M11).
  */
 export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacement>> = PLACEMENTS): VscodeHost {
   let settings: VscodeConfig = config.parse({});

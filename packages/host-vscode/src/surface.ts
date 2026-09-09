@@ -4,7 +4,7 @@ import type { AgentPlacement, SessionInTab } from './placements.js';
 
 /**
  * One VS Code window's persisted state, from its `workspaceStorage` directory. Taken verbatim rather than parsed by
- * the reader, so every layer of the unwrapping is testable without a database (`docs/mechanics.md` §21).
+ * the reader, so every layer of the unwrapping is testable without a database (`docs/mechanics.md` M21).
  */
 export interface WindowStore {
   /** `workspace.json`, naming the window's folder or its `.code-workspace` file. */
@@ -42,7 +42,7 @@ function sessionIn(state: unknown, stateKey: string): string | null {
 /**
  * The session a tab's own resource names, for an agent whose tab is the session rather than a webview holding an
  * id. VS Code marshals the URI, so `path` is the one field to read: `fsPath` arrives with Windows separators and
- * `external` is percent-encoded (`docs/mechanics.md` §44).
+ * `external` is percent-encoded (`docs/mechanics.md` M44).
  */
 function sessionAt(resource: unknown, want: { scheme: string; prefix: string }): string | null {
   const uri = resource as { scheme?: unknown; path?: unknown } | null;
@@ -96,7 +96,7 @@ export function rootFrom(workspaceJson: string | null): string | null {
 
 /** The session the window's agent sidebar is showing, or null where it has never shown one. */
 export function sidebarSession(sidebar: string | null, session: SessionInTab): string | null {
-  // Only a state-carrying sidebar can answer: Codex's records nothing at all, so there is nothing to read (§44).
+  // Only a state-carrying sidebar can answer: Codex's records nothing at all, so there is nothing to read (M44).
   return session.from === 'state'
     ? sessionIn((parse(sidebar) as { webviewState?: unknown } | null)?.webviewState, session.key)
     : null;

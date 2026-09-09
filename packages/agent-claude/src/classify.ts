@@ -3,19 +3,10 @@ import type { ClassifyInput, ClassifyResult, ExecJson, ReadFailure } from '@grou
 import { CLAUDE_AGENT_ID } from './ids.js';
 
 /**
- * The flags that keep a classification from becoming a session anybody sees, measured in `docs/mechanics.md` §31:
- *
- * - `--no-session-persistence` writes no transcript and no `session-env` directory, so history never finds it and the
- *   card's **Last session** row is untouched.
- * - `--setting-sources ""` loads no settings at any level, so the board's own activity hooks never fire for it. The
- *   stronger form of naming sources hoped to be empty — project and local settings resolve by walking up from the
- *   working directory, and `~/.claude/settings.json` sits at an ancestor of anything under the home directory.
- * - `--tools ""` and `--strict-mcp-config` leave the session no way to read or write anything, which is both R31's
- *   conservative default and 55× cheaper than loading the tool definitions.
- * - `--session-id` is minted by the caller, so it recognises its own run rather than waiting to be told.
- *
- * Deleting any of these is a silent regression — the classification still works, and the developer's board fills with
- * transcripts — which is why the whole array is asserted rather than sampled.
+ * Classification flags suppress transcripts/session-env, all settings, tools, and MCP servers, and assign a
+ * known session ID (mechanics M31). Empty setting-sources also prevents ancestor settings from installing
+ * hooks. Assert the complete argument list: classification can succeed even when an omitted flag leaks it into
+ * history or activity.
  */
 export function classifyArgs(input: ClassifyInput): string[] {
   return [
@@ -61,7 +52,7 @@ export function makeClaudeClassifier(run: ExecJson) {
     const outcome = await run(input.path, classifyArgs(input), {
       timeoutMs: input.timeoutMs,
       cwd: input.cwd,
-      // Argv is capped at 32,767 characters on Windows and a card's conversation is not (`docs/mechanics.md` §31).
+      // Argv is capped at 32,767 characters on Windows and a card's conversation is not (`docs/mechanics.md` M31).
       stdin: input.prompt,
       signal: input.signal,
     });

@@ -30,7 +30,7 @@ describe('the placement table', () => {
   });
 
   /**
-   * §51: Claude's start is the reveal's own command with the session slot left empty, so the webview mints an id
+   * M51: Claude's start is the reveal's own command with the session slot left empty, so the webview mints an id
    * rather than being handed one; Codex's is its own no-argument command, which no prompt can reach.
    */
   it('pins the whole of each agent’s start command, including the slot the prompt goes in', () => {
@@ -55,11 +55,11 @@ describe('the placement table', () => {
 
   it('offers a URI only for the agent whose extension answers one', () => {
     expect(PLACEMENTS['claude']!.openUri!('abc def')).toContain('abc%20def');
-    // Codex's deep links never resolved when fired at a window, so the board must not pretend it can reach one (§44).
+    // Codex's deep links never resolved when fired at a window, so the board must not pretend it can reach one (M44).
     expect(PLACEMENTS['codex']!.openUri).toBeUndefined();
   });
 
-  /** §44: Codex's sidebar mementos are always empty, so nothing reads them and no route focuses that view. */
+  /** M44: Codex's sidebar mementos are always empty, so nothing reads them and no route focuses that view. */
   it('reads no sidebar, and focuses none, for the agent whose sidebar records nothing', () => {
     expect(PLACEMENTS['claude']!.sidebarKeys.length).toBeGreaterThan(0);
     expect(PLACEMENTS['claude']!.sidebarFocusCommands.length).toBeGreaterThan(0);
@@ -67,14 +67,14 @@ describe('the placement table', () => {
     expect(PLACEMENTS['codex']!.sidebarFocusCommands).toEqual([]);
   });
 
-  /** §44: nothing Codex writes says which window holds a thread, so no directory is invented for it. */
+  /** Codex has no IDE lock directory (M44); process ancestry provides separate window evidence (M47). */
   it('names a lock directory only for the agent whose windows announce themselves', () => {
     expect(PLACEMENTS['claude']!.lockDir!('/home/dev', {})).toBe('/home/dev/.claude/ide');
     expect(PLACEMENTS['codex']!.lockDir).toBeUndefined();
   });
 
   /**
-   * §47: the pid a session reports belongs to a process the window's extension host started, which is what ties a
+   * M47: the pid a session reports belongs to a process the window's extension host started, which is what ties a
    * session to a window. Claude's session is `claude.exe`; a Codex thread runs inside the extension's app-server.
    */
   it('names the executable whose parent is the window running the session', () => {
@@ -82,7 +82,7 @@ describe('the placement table', () => {
     expect(PLACEMENTS['codex']!.processName).toBe('codex.exe');
   });
 
-  /** §6, §44: Claude's reveal forks a surface, so only Codex's may be fired at an unrecorded one. */
+  /** M6, M44: Claude's reveal forks a surface, so only Codex's may be fired at an unrecorded one. */
   it('claims an idempotent reveal only for the agent whose reveal re-activates the surface', () => {
     expect(PLACEMENTS['claude']!.idempotentReveal).toBe(false);
     expect(PLACEMENTS['codex']!.idempotentReveal).toBe(true);
