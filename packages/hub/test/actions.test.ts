@@ -259,6 +259,7 @@ function harness(
 
       return control.dispatch;
     },
+    dispatchPermissions: ['manual', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions'],
     stopDispatch: async (_path: string, shortId: string): Promise<ReadFailure | null> => {
       control.stopped.push(shortId);
 

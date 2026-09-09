@@ -56,6 +56,8 @@ export class ActionRunner {
   /** Disable automatic dispatch until a client supplies settings. */
   #settings: ActionSettings = { ...DEFAULT_ACTIONS, dailyLimit: 0 };
   #agentPaths = new Map<string, { path: string; model: string | null }>();
+  /** Settings used to authorize pending context reads. Changed settings require a fresh request. */
+  #configuration = '';
   #disposed = false;
   #considering = false;
   /** Persistence failure blocking further dispatches; see #write. */
@@ -68,6 +70,7 @@ export class ActionRunner {
   configure(settings: ActionSettings, agents: readonly { id: string; path: string; model?: string | undefined }[]): void {
     this.#settings = settings;
     this.#agentPaths = new Map(agents.map((agent) => [agent.id, { path: agent.path, model: agent.model ?? null }]));
+    this.#configuration = JSON.stringify([settings, agents]);
   }
 
   /** Card keys with running actions, used for display and duplicate prevention. */
@@ -403,15 +406,37 @@ export class ActionRunner {
     this.#inFlight.set(key, controller);
 
     try {
+      const configuration = this.#configuration;
       const card = lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
       const source = this.#deps.sources.find((candidate) => candidate.readContext !== undefined);
+      const selected = this.#settings.agent ?? 'auto';
       const agent = this.#deps.agents.find(
-        (candidate) => candidate.dispatch !== undefined && this.#agentPaths.has(candidate.id),
+        (candidate) => candidate.dispatch !== undefined && this.#agentPaths.has(candidate.id) && (selected === 'auto' || candidate.id === selected),
       );
       const configured = agent ? this.#agentPaths.get(agent.id) : undefined;
 
-      if (card?.issue == null || source === undefined || agent === undefined || configured === undefined) {
+      if (card?.issue == null || source === undefined) {
         this.#refuse(key, asked, { kind: 'action-unavailable', message: 'The board cannot act on that card.' });
+
+        return;
+      }
+
+      if (agent === undefined || configured === undefined) {
+        this.#refuse(key, asked, {
+          kind: 'action-agent-unavailable',
+          message: selected === 'auto'
+            ? 'No enabled agent supports card actions. Enable a supported agent in groundControl.agents.'
+            : `The selected action agent "${selected}" is not enabled or cannot dispatch. Enable it in groundControl.agents or change groundControl.actions.agent.`,
+        });
+
+        return;
+      }
+
+      if (!agent.dispatchPermissions?.includes(this.#settings.permissionMode)) {
+        this.#refuse(key, asked, {
+          kind: 'action-permission-unsupported',
+          message: `${agent.displayName} cannot use "${this.#settings.permissionMode}" for card actions. Set groundControl.actions.permissionMode to a supported mode (${agent.dispatchPermissions?.join(', ') || 'none declared'}) or change groundControl.actions.agent.`,
+        });
 
         return;
       }
@@ -426,6 +451,12 @@ export class ActionRunner {
       }
 
       const reading = await source.readContext!(card.issue, controller.signal);
+
+      if (configuration !== this.#configuration) {
+        this.#refuse(key, asked, { kind: 'action-settings-changed', message: 'Action settings changed while reading the card. Retry with the current settings.' });
+
+        return;
+      }
 
       if (reading.context === null) {
         this.#refuse(key, asked, {
@@ -510,7 +541,7 @@ export class ActionRunner {
       name: dispatchName(plan),
       cwd: plan.checkout,
       permissionMode: this.#settings.permissionMode,
-      model: configured.model,
+      model: this.#settings.model === undefined ? configured.model : this.#settings.model || null,
       timeoutMs: DISPATCH_TIMEOUT_MS,
       signal,
     });

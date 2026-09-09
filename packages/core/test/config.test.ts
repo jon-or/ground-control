@@ -205,6 +205,14 @@ describe('triage settings', () => {
     expect(triageOf({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: { buildfriday: 7 } })).toMatchObject({ names: {} });
   });
 
+  it('preserves absent triage models, trims explicit models, and rejects malformed values', () => {
+    const settings = { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} };
+    expect(triageOf(settings)).not.toHaveProperty('model');
+    expect(triageOf({ ...settings, model: '  classifier-model  ' })).toMatchObject({ model: 'classifier-model' });
+    expect(triageOf({ ...settings, model: ' ' })).toMatchObject({ model: '' });
+    expect(triageOf({ ...settings, model: 4 })).toMatchObject({ kind: 'bad-config' });
+  });
+
   it('floors and ceilings a hand-edited spend, in both directions', () => {
     expect(triageOf({ enabled: true, concurrency: 0, timeoutMs: 1 })).toEqual({
       enabled: true,
@@ -309,13 +317,25 @@ describe('what the board may do on its own', () => {
   });
 
   /** This value is handed straight to a spawn, so one the CLI does not know must never reach it. */
-  it('falls back to the shipped permission mode rather than passing one the CLI has no word for', () => {
+  it('refuses unknown permission modes instead of substituting auto', () => {
     expect(actionsOf({ permissionMode: 'yolo', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 })).toMatchObject({
-      permissionMode: 'auto',
+      kind: 'bad-config',
     });
     expect(actionsOf({ permissionMode: 7, concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 })).toMatchObject({
-      permissionMode: 'auto',
+      kind: 'bad-config',
     });
+  });
+
+  it('keeps absent model fields distinct from explicit empty defaults', () => {
+    const legacy = actionsOf({ permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 });
+    expect(legacy).not.toHaveProperty('model');
+    expect(actionsOf({ permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000, agent: 'codex', model: '  ' }))
+      .toMatchObject({ agent: 'codex', model: '' });
+  });
+
+  it.each([{ agent: 'other' }, { agent: 4 }, { model: false }])('refuses malformed action selection %j', (selection) => {
+    expect(actionsOf({ permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000, ...selection }))
+      .toMatchObject({ kind: 'bad-config' });
   });
 
   /** A later build naming an action this one does not perform must not cost the developer their configuration. */

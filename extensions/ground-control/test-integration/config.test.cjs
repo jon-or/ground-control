@@ -66,6 +66,10 @@ describe('what this window pushes to the hub', () => {
     await settings().update('triage.mode', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('triage.enabled', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('triage.dailyLimit', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('triage.model', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.agent', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.model', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.permissionMode', undefined, vscode.ConfigurationTarget.Global);
   });
 
   /** Verify the host configuration structure reaches the hub without treating setting fields as host IDs. */
@@ -94,6 +98,23 @@ describe('what this window pushes to the hub', () => {
     await untilStored((c) => c.triage?.mode === 'manual' && c.triage.dailyLimit === 3 && c.triage.enabled,
       'explicit mode and limit did not reach the hub');
     await untilSnapshot((s) => s.triage?.mode === 'manual' && s.triage.canRequest, 'manual capability was not displayed');
+  });
+
+  it('keeps action agent and model independent of triage and discovery configuration', async () => {
+    await settings().update('agents', { claude: 'claude-not-on-this-path', codex: 'codex-not-on-this-path' }, vscode.ConfigurationTarget.Global);
+    await settings().update('triage.model', 'classifier-one', vscode.ConfigurationTarget.Global);
+    await settings().update('actions.agent', 'codex', vscode.ConfigurationTarget.Global);
+    await settings().update('actions.permissionMode', 'dontAsk', vscode.ConfigurationTarget.Global);
+    await settings().update('actions.model', 'coding-model', vscode.ConfigurationTarget.Global);
+    const selected = await untilStored((c) => c.triage?.model === 'classifier-one' && c.actions?.agent === 'codex' && c.actions.model === 'coding-model' && c.actions.permissionMode === 'dontAsk',
+      'separate action and triage settings did not reach the hub');
+    assert.deepStrictEqual(selected.agents, [{ id: 'claude', path: 'claude-not-on-this-path' }, { id: 'codex', path: 'codex-not-on-this-path' }]);
+
+    await settings().update('triage.model', 'classifier-two', vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.triage?.model === 'classifier-two' && c.actions?.model === 'coding-model' && c.agents.every((agent) => agent.model === undefined),
+      'changing triage modified action or discovery models');
+    await settings().update('actions.model', '', vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.actions?.model === '' && c.triage?.model === 'classifier-two', 'empty action model did not clear the explicit selection');
   });
 
   it('reports absent classification for Codex-only settings and clears it when Claude is restored', async () => {

@@ -25,30 +25,18 @@ export type StartProcess = (
  * acceptEdits because unattended codex exec cannot obtain the approvals those modes require. Supported
  * mappings are explicit below (R31).
  */
+const SANDBOX_ARGS: Readonly<Record<string, readonly string[]>> = {
+  // Plan mode permits reads without approval prompts.
+  plan: ['--sandbox', 'read-only', '-c', 'approval_policy="never"'],
+  // Explicit network access permits pushes from workspace-write (M46).
+  dontAsk: ['--sandbox', 'workspace-write', '-c', 'approval_policy="never"', '-c', 'sandbox_workspace_write.network_access=true'],
+  bypassPermissions: ['--dangerously-bypass-approvals-and-sandbox'],
+};
+
+export const DISPATCH_PERMISSIONS: readonly string[] = Object.keys(SANDBOX_ARGS);
+
 export function sandboxArgs(permissionMode: string): string[] | null {
-  switch (permissionMode) {
-    // Plan mode permits reads without approval prompts.
-    case 'plan':
-      return ['--sandbox', 'read-only', '-c', 'approval_policy="never"'];
-
-    // `workspace-write` blocks outbound sockets, so a merge action under it cannot push — measured on Windows at
-    // 0.153.4, where a connect inside the sandbox fails `EACCES` until `network_access` is set (M46).
-    case 'dontAsk':
-      return [
-        '--sandbox',
-        'workspace-write',
-        '-c',
-        'approval_policy="never"',
-        '-c',
-        'sandbox_workspace_write.network_access=true',
-      ];
-
-    case 'bypassPermissions':
-      return ['--dangerously-bypass-approvals-and-sandbox'];
-
-    default:
-      return null;
-  }
+  return Object.hasOwn(SANDBOX_ARGS, permissionMode) ? [...SANDBOX_ARGS[permissionMode]!] : null;
 }
 
 /**

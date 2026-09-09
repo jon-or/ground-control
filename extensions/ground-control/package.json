@@ -306,6 +306,21 @@
             "order": 2,
             "markdownDescription": "Prompt for merge sessions that may push changes, following the [prompt and result format](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings)."
           },
+          "groundControl.actions.agent": {
+            "scope": "application",
+            "type": "string",
+            "default": "auto",
+            "enum": ["auto", "claude", "codex"],
+            "order": 3,
+            "markdownDescription": "Agent for card actions; auto selects the first enabled dispatcher, Claude before Codex."
+          },
+          "groundControl.actions.model": {
+            "scope": "application",
+            "type": "string",
+            "default": "",
+            "order": 4,
+            "markdownDescription": "Model for card actions; empty uses the selected CLI default independently of triage."
+          },
           "groundControl.actions.permissionMode": {
             "scope": "application",
             "type": "string",
@@ -318,7 +333,7 @@
               "plan",
               "bypassPermissions"
             ],
-            "order": 3,
+            "order": 5,
             "markdownDescription": "Permissions for action sessions, subject to [agent support](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings).",
             "enumDescriptions": [
               "Automatic permission checks (Claude only).",
@@ -335,7 +350,7 @@
             "default": 1,
             "minimum": 1,
             "maximum": 4,
-            "order": 4,
+            "order": 6,
             "markdownDescription": "Maximum actions running at once."
           },
           "groundControl.actions.dailyLimit": {
@@ -344,7 +359,7 @@
             "default": 10,
             "minimum": 0,
             "maximum": 50,
-            "order": 5,
+            "order": 7,
             "markdownDescription": "Maximum action starts per rolling 24 hours; zero allows only manual starts."
           },
           "groundControl.actions.resultMinutes": {
@@ -353,7 +368,7 @@
             "default": 30,
             "minimum": 1,
             "maximum": 240,
-            "order": 6,
+            "order": 8,
             "markdownDescription": "Minutes to wait for a dispatched session to appear before marking it lost."
           }
         }

@@ -248,7 +248,7 @@ export class TriageRunner {
     const source = this.#source()!;
     const agent = this.#deps.agents.find((a) => a.classify !== undefined && this.#agentPaths.has(a.id));
     const configured = this.#agentPaths.get(agent!.id)!;
-    return { key, card: row.issue, agent: agent!, source, path: configured.path, model: configured.model };
+    return { key, card: row.issue, agent: agent!, source, path: configured.path, model: this.#settings.model === undefined ? configured.model : this.#settings.model || null };
   }
 
   #start(due: Due): void {

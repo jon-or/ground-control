@@ -1,6 +1,6 @@
 import type { AgentAdapter, AgentReading, MachineDeps, ReadFailure } from '@ground-control/core';
 import { makeCodexActivity } from './activity.js';
-import { makeCodexDispatcher } from './dispatch.js';
+import { DISPATCH_PERMISSIONS, makeCodexDispatcher } from './dispatch.js';
 import type { StartProcess } from './dispatch.js';
 import { makeHistoryReader, rolloutExists } from './history.js';
 import { CODEX_AGENT_ID, CODEX_DISPLAY_NAME } from './ids.js';
@@ -91,6 +91,7 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
     ...(start && kill
       ? {
           dispatch: makeCodexDispatcher(start, (threadId, pid) => dispatched.set(threadId, pid)),
+          dispatchPermissions: DISPATCH_PERMISSIONS,
           stopDispatch: stopper(dispatched, observed, kill),
         }
       : {}),

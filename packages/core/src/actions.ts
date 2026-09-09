@@ -27,6 +27,10 @@ export interface ActionSetting {
  * Dispatch permissions and limits. Configuration parsing supplies defaults and clamps numeric bounds.
  */
 export interface ActionSettings {
+  /** Auto selects the first enabled dispatcher in registry order. */
+  agent?: 'auto' | 'claude' | 'codex' | undefined;
+  /** Empty uses the CLI default; absent preserves a legacy AgentConfig model. */
+  model?: string | undefined;
   /**
    * Explicit permission mode. Claude defaults to auto based on the background-dispatch probes (mechanics M33).
    * Codex refuses auto and requires a supported override (R31).

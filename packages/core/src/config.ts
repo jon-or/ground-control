@@ -40,6 +40,8 @@ export interface NewSessionSettings {
 /** Triage enablement, concurrency, timeout, and display names. */
 export interface TriageSettings {
   enabled: boolean;
+  /** Empty uses the classifier default; absent preserves a legacy AgentConfig model. */
+  model?: string | undefined;
   /** Explicit mode overrides legacy enabled. Missing mode preserves legacy configuration. */
   mode?: 'off' | 'manual' | 'automatic';
   /** Automatic attempts per rolling 24 hours, including failures and cancellations. */
@@ -84,6 +86,7 @@ export function triageMode(settings: TriageSettings): 'off' | 'manual' | 'automa
 
 const triage = z.object({
   enabled: z.boolean(),
+  model: z.string().trim().optional(),
   mode: z.enum(['off', 'manual', 'automatic']).optional(),
   dailyLimit: z.number().int().min(0).max(1000).default(100),
   concurrency: z.number().finite().transform((n) => Math.min(TRIAGE_CONCURRENCY_CEILING, Math.max(1, Math.trunc(n)))),
@@ -114,7 +117,7 @@ export function agentCommand(configured: Record<string, string>, id: string): st
   return configured[id]?.trim() || id;
 }
 
-/** Shared mode names. Parsing defaults unknown values to auto; adapters may refuse unsupported modes (M33, M46). */
+/** Shared mode names. Reject unknown values; adapters declare the modes they support (M33, M46). */
 export const PERMISSION_MODES = ['manual', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions'] as const;
 
 export const DEFAULT_ACTIONS: ActionSettings = {
@@ -131,7 +134,9 @@ const actionSetting = z.object({
 });
 
 const actions = z.object({
-  permissionMode: z.enum(PERMISSION_MODES).catch('auto').default('auto'),
+  agent: z.enum(['auto', 'claude', 'codex']).optional(),
+  model: z.string().trim().optional(),
+  permissionMode: z.enum(PERMISSION_MODES).default('auto'),
   concurrency: z
     .number()
     .finite()
@@ -172,7 +177,7 @@ export const hubConfig = z.object({
   // Absent from a configuration written by a client that predates triage.
   triage: triage.default(DEFAULT_TRIAGE),
   // Older configurations default to no unattended actions (R32).
-  actions: actions.default(DEFAULT_ACTIONS),
+  actions: actions.default({ ...DEFAULT_ACTIONS, permissionMode: 'auto' }),
   newSession: newSession.default(DEFAULT_NEW_SESSION),
 });
 

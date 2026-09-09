@@ -76,6 +76,10 @@ Switching to manual cancels automatic readings; switching off cancels all readin
 
 Setting `actions.merge-upstream.prompt` enables the manual merge control on eligible cards, even with automatic merging disabled. The agent runs in the card's observed checkout and may push changes. Automatic starts also require `actions.merge-upstream.enabled`.
 
+`actions.agent` chooses `auto`, `claude`, or `codex`; auto preserves registry order, Claude before Codex, among enabled agents that can dispatch. An explicit selection must also be enabled in `agents`. Both agents can remain available for discovery while card actions use one of them.
+
+`actions.model` selects the coding model; empty uses that CLI's default. `triage.model` affects classification only. Saved hub configurations from older clients inherit each agent's legacy `model` only while the corresponding new model field is absent; an explicit empty field clears that inheritance. The current VS Code client sends both fields, so upgrades stop using the classification model for actions unless it is also set in `actions.model`.
+
 Merge prompts accept `{issue}`, `{repo}`, `{pr}`, `{branch}`, `{base}`, `{checkout}`, and `{resultPath}`. A prompt beginning with `/` invokes a slash command. The session must write JSON to `{resultPath}` with `outcome` (`pushed` or `halted`), `detail`, and optionally `auditPath`, for example:
 
 ```json
@@ -84,7 +88,7 @@ Merge prompts accept `{issue}`, `{repo}`, `{pr}`, `{branch}`, `{base}`, `{checko
 
 The board reports `pushed` as Merged and missing output as stopped short; it does not independently verify the merge on GitHub. Stacked PRs and cards without a session-derived checkout are refused. See [merge action requirements](docs/prd.md#r39-merge-upstream-action).
 
-`actions.permissionMode` defaults to Claude's `auto`. Claude's `manual` and `acceptEdits` modes can wait for approval in unattended runs; `dontAsk` denies operations needing approval, `plan` cannot write, and `bypassPermissions` disables permission checks. Codex supports only `plan`, `dontAsk`, and `bypassPermissions`.
+`actions.permissionMode` defaults to Claude's `auto`. Claude's `manual` and `acceptEdits` modes can wait for approval in unattended runs; `dontAsk` denies operations needing approval, `plan` cannot write, and `bypassPermissions` disables permission checks. Codex supports only `plan`, `dontAsk`, and `bypassPermissions`. Unsupported agent/mode combinations refuse before reading card context or dispatching; unknown modes reject configuration. Ground Control never substitutes broader permissions.
 
 A positive `actions.dailyLimit` applies to both automatic and manual starts over a rolling 24 hours; zero disables automatic starts but permits manual starts. `actions.resultMinutes` limits the wait for a dispatched session to appear, not the duration of its work.
 

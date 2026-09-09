@@ -4,7 +4,6 @@ import { boardStatuses, statusLanes } from '@ground-control/board';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubConfig } from '@ground-control/github';
-import { CLAUDE_AGENT_ID } from '@ground-control/agent-claude';
 import { AUTOMATABLE_ACTIONS, diskReaders, idsFrom } from '@ground-control/core';
 import type { ActionSetting, AgentConfig, AutomatableAction, HubConfig } from '@ground-control/core';
 import { defaultConfig, makeRegistries } from '@ground-control/hub';
@@ -44,13 +43,9 @@ export function readHubConfig(userDir: string): HubConfig {
       ? Object.entries(configured).map(([id, path]) => ({ id, path }))
       : defaults.agents;
 
-  // Set the Claude model on its agent configuration; core triage settings cannot contain adapter-specific
-  // model IDs.
-  const model = cfg.get<string>('triage.model', '').trim();
-
   return {
     ...defaults,
-    agents: model === '' ? agents : agents.map((agent) => (agent.id === CLAUDE_AGENT_ID ? { ...agent, model } : agent)),
+    agents,
     branchIssuePattern: cfg.get<string>('branchIssuePattern', '^(\\d+)-'),
     hosts: Object.fromEntries(hostIds().map((id) => [id, id === VSCODE_HOST_ID ? vscodeSettings(userDir) : {}])),
     sources: Object.fromEntries(sourceIds().map((id) => [id, id === GITHUB_SOURCE_ID ? readConfig() : {}])),
@@ -94,6 +89,8 @@ export function readActions(): HubConfig['actions'] {
   };
 
   return {
+    agent: cfg.get<NonNullable<HubConfig['actions']['agent']>>('actions.agent', 'auto'),
+    model: cfg.get<string>('actions.model', ''),
     permissionMode: cfg.get<string>('actions.permissionMode', 'auto'),
     concurrency: number('actions.concurrency', 1),
     dailyLimit: number('actions.dailyLimit', 10),
@@ -121,6 +118,7 @@ export function readTriage(): HubConfig['triage'] {
 
   return {
     enabled: mode !== 'off',
+    model: cfg.get<string>('triage.model', ''),
     mode,
     dailyLimit: number('triage.dailyLimit', 100),
     concurrency: number('triage.concurrency', 2),

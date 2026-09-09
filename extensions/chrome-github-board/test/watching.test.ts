@@ -117,6 +117,8 @@ it('aggregates visible project tabs across navigation, disconnects, and reconnec
   // A content reconnect also wakes the native connection, without waiting for the alarm interval.
   await worker.evaluate('probe.dropContent()');
   await expect.poll(() => worker.evaluate('probe.opens'), { timeout: 20_000 }).toBe(2);
+  // The native port can reopen for the first tab before the second tab's delayed content reconnect.
+  await expect.poll(() => worker.evaluate('probe.ports.length'), { timeout: 20_000 }).toBe(3);
   expect(await watching()).toBe(false);
   await visibility(second, 'visible');
   await expect.poll(watching).toBe(true);

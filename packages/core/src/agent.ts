@@ -118,6 +118,8 @@ export interface AgentAdapter {
    * stopping their runs. Automated takeover is a separate future requirement (R15).
    */
   dispatch?(input: DispatchInput): Promise<DispatchResult>;
+  /** Dispatch must declare supported modes so the hub can refuse before reading card context. */
+  readonly dispatchPermissions?: readonly string[];
   /** Stop a session started by this adapter using its dispatch ID. */
   stopDispatch?(path: string, shortId: string): Promise<ReadFailure | null>;
   readonly activity?: ActivitySignal;

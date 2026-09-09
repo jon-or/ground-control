@@ -64,6 +64,10 @@ An activity signal supplies settings-edit plans, paths, a reader, and optionally
 
 Classification and dispatch have different contracts. Classification suppresses tools, settings, transcripts, and visible session state. Dispatch loads the developer's working context, produces an ordinary session, and must be stoppable. Claude dispatch returns a short ID that the hub resolves against a subsequent roster; it cannot choose the session ID in advance.
 
+The hub selects action adapters through `actions.agent`, retaining registry order for `auto` and requiring explicit selections to be enabled and dispatch-capable. Adapters declare `dispatchPermissions`; the runner checks the requested mode before reading context. Missing declarations and unsupported modes refuse. Codex derives its declarations from its sandbox mapping. A settings change during a pending read prevents dispatch with obsolete authorization.
+
+`triage.model` and `actions.model` are separate neutral strings passed only to their respective adapter operations. Missing fields preserve legacy `AgentConfig.model`; explicit empty strings pass null for the CLI default. The editor no longer adds a classification model to agent discovery configuration. Runtime schemas reject malformed model values and unknown action agent or permission selections.
+
 Codex hook trust is performed asynchronously through `codex app-server`: read entry keys and hashes with `hooks/list`, then write only Ground Control entries through `config/batchWrite`. Normalize hook paths and identify entries by the installed command. Never calculate trust hashes or rewrite `config.toml` as text. Roster reads do not wait for the exchange; later reads expose any failure.
 
 Codex dispatch translates permission modes to sandbox and approval settings. `plan`, `dontAsk`, and `bypassPermissions` are supported; `manual`, `auto`, and `acceptEdits` are refused. Workspace-write dispatch enables network access for jobs that push. The shared default `auto` therefore requires an explicit override for Codex actions. Codex ignores the requested dispatch display name.

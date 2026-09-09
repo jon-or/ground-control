@@ -344,6 +344,18 @@ describe('reading a card that arrives', () => {
     expect(control.classified[0]?.prompt).toContain('ISSUE #17198');
   });
 
+  it.each([['classifier-model', 'classifier-model'], ['', null]] as const)('uses explicit triage model %j independently of legacy and action models', async (model, expected) => {
+    const control = harness();
+    const configured = hubConfig({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: {}, model });
+    control.hub.configure({ ...configured, actions: { ...configured.actions, model: 'coding-model' } });
+    watch(control.hub);
+    await control.hub.refresh('asked');
+    await control.settle();
+
+    expect(control.classified).toHaveLength(1);
+    expect(control.classified[0]?.model).toBe(expected);
+  });
+
   it('applies configured display names to the prompt', () => {
     const control = harness();
     control.hub.configure(hubConfig({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: { buildfriday: 'Chris' } }));

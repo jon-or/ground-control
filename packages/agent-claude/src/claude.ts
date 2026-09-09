@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { linkOf, normalize, runJsonCli, runTextCli } from '@ground-control/core';
+import { PERMISSION_MODES, linkOf, normalize, runJsonCli, runTextCli } from '@ground-control/core';
 import type {
   AgentAdapter,
   AgentReading,
@@ -262,6 +262,7 @@ export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText 
     activity: claudeActivity,
     classify: makeClaudeClassifier(run),
     dispatch: makeClaudeDispatcher(runText),
+    dispatchPermissions: PERMISSION_MODES,
     stopDispatch: makeClaudeStopper(runText),
     listHistory: makeHistoryReader(),
     canResume: (session, deps) => deps.listDir(session.cwd) !== null && findTranscript(deps.home, session.cwd, session.sessionId, deps) !== null,

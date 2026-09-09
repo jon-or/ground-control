@@ -268,6 +268,8 @@ Only Claude currently provides classification. Report absent classifier or confi
 
 The only implemented unattended card action merges a PR's base branch into its head. It is disabled by default and requires a developer-supplied prompt. Supply issue, repository, PR, branches, and checkout facts to that prompt; do not define the repository's build, test, push, or commenting policy.
 
+`actions.agent` selects `auto`, `claude`, or `codex` independently of session discovery; explicit selection requires that enabled adapter to support dispatch. Auto preserves registry order among enabled dispatchers. `actions.model` selects the coding model, with empty using the CLI default. `triage.model` affects classification only. Older saved configurations inherit `AgentConfig.model` only when the corresponding model field is absent; an explicit empty field clears inheritance. The current editor sends separate model fields, ending accidental classification-model inheritance for actions.
+
 Automatic eligibility comes from triage identifying a requested merge. A manual editor control can run or retry that candidate even when automatic dispatch is disabled; it cannot create a merge candidate on an unrelated card. Before dispatch, reread the PR and apply all safety checks and configured limits.
 
 Refuse drafts, other people's PRs, closed/merged PRs, disallowed lanes, active work on the card, missing session-derived checkouts, and stacked PRs whose base is not the repository's default branch. A manually selected checkout alone cannot authorize unattended edits. If merge is not a candidate action, show neither a merge control nor an irrelevant refusal.
@@ -328,7 +330,7 @@ Install and trust only Ground Control's Codex hooks. Obtain hashes and write tru
 
 Use the least authority under which the unattended job can complete. Pass the chosen mode explicitly. Modes requiring unanswered prompts are not suitable defaults for unattended work.
 
-Claude defaults to `auto`; bypassing permissions requires a deliberate setting. Codex translates supported modes to its own sandbox and approval policy and refuses unsupported ones. A global default accepted by Claude is not necessarily accepted by Codex.
+The global `actions.permissionMode` defaults to Claude's `auto`; bypassing permissions requires a deliberate setting. Codex supports only `plan`, `dontAsk`, and `bypassPermissions`, translating them to its sandbox and approval policy. Validate adapter-declared supported modes before reading action context or dispatching. Reject unknown mode names and refuse unsupported combinations without substituting permissions. Changing settings during a pending context read requires a fresh request.
 
 Triage has no tools or developer settings and offers no broader permission mode.
 

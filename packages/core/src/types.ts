@@ -2,7 +2,7 @@
 export interface AgentConfig {
   id: string;
   path: string;
-  /** Classification model in the adapter CLI vocabulary. */
+  /** Legacy fallback when the corresponding triage.model or actions.model field is absent. */
   model?: string | undefined;
 }
 
