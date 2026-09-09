@@ -1261,9 +1261,10 @@ describe('what a second costs', () => {
 
 describe('the manifest and the code agree on every default', () => {
   const manifest = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
-    contributes: { configuration: { properties: Record<string, { default: unknown }> } };
+    contributes: { configuration: { properties: Record<string, { default: unknown }> }[] };
   };
-  const declared = (name: string) => manifest.contributes.configuration.properties[`groundControl.${name}`]?.default;
+  const properties = Object.assign({}, ...manifest.contributes.configuration.map(group => group.properties)) as Record<string, { default: unknown }>;
+  const declared = (name: string) => properties[`groundControl.${name}`]?.default;
 
   // Two copies of a default is what VS Code's settings UI costs; a test is what keeps them from drifting apart.
   it('ships the board statuses the package computes', () => {

@@ -336,6 +336,8 @@ The developer sets concurrent and daily limits on dispatched card actions. Do no
 
 Expose supported personal settings through normal editor settings and a Settings menu item on the board.
 
+Organize editor settings into GitHub, Board, Sessions, Triage, Actions, and Advanced, in that order. Use short category titles and at most one sentence per description, omitting descriptions where the control is self-explanatory. Keep configuration formats and detailed behavior in linked documentation. Preserve existing setting keys for compatibility; VS Code derives individual titles from those keys. These settings configure the shared hub for both clients; the Chrome overlay does not provide its own settings editor.
+
 Disabling hooks removes Ground Control entries immediately. Uninstall removes hooks too. Leave the inert writer file available for sessions that cached the old settings, so they do not fail on every event. Overlay registration is explicitly enabled and can be disabled or removed on uninstall.
 
 ### R35. Shared background process
