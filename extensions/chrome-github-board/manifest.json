@@ -5,6 +5,7 @@
   "description": "Shows local agent sessions on GitHub project boards.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2Ahsf0sY43Kn+bO7OKjmMmarV/8gk6fJnKjQsbJNBMYIbWFXmUcnRDqq4wU/qyoqDpkug7UHe3ms28YxYB+lD9HRPDVv/7uvlXp27zxpx5gNbjj28O01C8q3Ev4rIrhPhyfk1Qc00cEvm6TozeEuC8HCpRmi0EU2bx8oYh5ScPVORRdhoZ5biCiuK84NsDDubIDUCcX9q9FHC/7h3EbnMgF2fpjDS6ZFq0JXrY+21vVk9Cvu4PzehI3hDZfejTt8vytGsJOlB/o8WGOK6I0a8yFGo7nqlMy7DAAh9SlXhbrZIgGuPiJIRLDZB9Rv0OU6Lfx/2CKO0IOcjioe8jEiGwIDAQAB",
   "permissions": ["nativeMessaging", "alarms", "storage"],
+  "options_ui": { "page": "options.html", "open_in_tab": true },
   "background": {
     "service_worker": "src/worker.js",
     "type": "module"
@@ -18,7 +19,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/overlay.js", "src/state.js"],
+      "resources": ["src/overlay.js", "src/state.js", "src/preferences.js"],
       "matches": ["https://github.com/*"]
     }
   ]

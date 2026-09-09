@@ -6,17 +6,6 @@
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
  */
 
-/**
- * Recheck board paths after every navigation. Chrome does not reinject content scripts on github.com soft
- * navigation.
- *
- * @param {string} pathname
- * @returns {boolean}
- */
-export function isBoardPath(pathname) {
-  return /^\/(orgs|users)\/[^/]+\/projects\/[^/]+/.test(pathname);
-}
-
 /** @returns {State} */
 export function initialState() {
   return { snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null };

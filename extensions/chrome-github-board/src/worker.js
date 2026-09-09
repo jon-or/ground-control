@@ -4,6 +4,7 @@
  * reconnects, and snapshots in chrome.storage.session.
  */
 import { makeLogSpool } from './state.js';
+import { allowsProject, watchPreferences } from './preferences.js';
 
 const NATIVE_HOST = 'com.groundcontrol.ground_control';
 const KEEPALIVE = 'gc-keepalive';
@@ -12,6 +13,11 @@ const KEEPALIVE = 'gc-keepalive';
 const boards = new Set();
 /** @type {Set<chrome.runtime.Port>} */
 const watchers = new Set();
+/** @type {Map<chrome.runtime.Port, { board: boolean, visible: boolean, pathname: string, token: number }>} */
+const reports = new Map();
+/** @type {import('./preferences.js').Preferences | null} */
+let preferences = null;
+let policyRevision = 0;
 
 /**
  * Keep log subscribers and history in memory through makeLogSpool. Reconnecting tabs restore subscriptions;
@@ -24,6 +30,18 @@ let native = null;
 
 /** Replay the latest hub snapshot to newly connected tabs. */
 let last = null;
+let snapshotRevision = 0;
+
+/** Recheck policy on every delivery, including asynchronous cache reads. */
+function permitted(port) {
+  const report = reports.get(port);
+  return report !== undefined && report.board && allowsProject(preferences, report.pathname);
+}
+
+function send(port, message, token = reports.get(port)?.token) {
+  if (!boards.has(port) || !permitted(port) || token !== reports.get(port)?.token) return;
+  try { port.postMessage({ ...message, pageToken: token }); } catch { /* The tab closed. */ }
+}
 
 /** Where every tab starts, and where the worker returns when the last board closes and it drops the native port. */
 const UNANSWERED = 'Waiting for the Ground Control hub.';
@@ -47,21 +65,13 @@ function say(level, message, scope) {
 
 function toWatchers(message) {
   for (const watcher of /** @type {Iterable<chrome.runtime.Port>} */ (spool.viewers())) {
-    try {
-      watcher.postMessage(message);
-    } catch {
-      // A tab that closed between the loop and the send. Its disconnect is already on its way.
-    }
+    send(watcher, message);
   }
 }
 
 function broadcast(message) {
   for (const board of boards) {
-    try {
-      board.postMessage(message);
-    } catch {
-      // A tab that closed between the loop and the send. Its disconnect is already on its way.
-    }
+    send(board, message);
   }
 }
 
@@ -97,7 +107,9 @@ function connectNative() {
     return;
   }
 
-  native.onMessage.addListener((message) => {
+  const connected = native;
+  connected.onMessage.addListener((message) => {
+    if (native !== connected) return;
     // Clear trouble only on a native-port response; a cached snapshot does not establish liveness (R24).
     if (trouble !== null) {
       troubled(null);
@@ -116,6 +128,7 @@ function connectNative() {
     }
 
     if (message.type === 'snapshot' || message.type === 'changed') {
+      snapshotRevision++;
       last = message;
       void chrome.storage.session.set({ last: message });
     }
@@ -123,7 +136,8 @@ function connectNative() {
     broadcast(message);
   });
 
-  native.onDisconnect.addListener(() => {
+  connected.onDisconnect.addListener(() => {
+    if (native !== connected) return;
     native = null;
     troubled('Disconnected from Ground Control. Enable the GitHub overlay from VS Code, or open the board there.');
   });
@@ -147,15 +161,11 @@ function connectNative() {
  * @param {boolean} open
  */
 function watchLog(port, open) {
-  const { tell, backlog } = spool.view(port, open);
+  const { tell, backlog } = spool.view(port, open && permitted(port));
 
   // Send backlog before new subscription log lines so each line arrives once.
   if (backlog.length > 0) {
-    try {
-      port.postMessage({ type: 'log', entries: backlog });
-    } catch {
-      // A tab that closed in the same turn it asked. Its disconnect takes it back out of the spool.
-    }
+    send(port, { type: 'log', entries: backlog });
   }
 
   if (tell === null) {
@@ -172,20 +182,24 @@ function watchLog(port, open) {
 
 /** What a tab is shown before the hub has answered: the last reading, and the fact that it is only that. */
 function replay(port) {
-  port.postMessage({ type: 'trouble', message: trouble });
+  const token = reports.get(port)?.token;
+  send(port, { type: 'trouble', message: trouble }, token);
 
   if (last !== null) {
-    port.postMessage(last);
+    send(port, last, token);
 
     return;
   }
 
+  const revision = snapshotRevision;
+  const policy = policyRevision;
   void chrome.storage.session.get('last').then((held) => {
-    if (held.last) {
+    if (policy !== policyRevision || !boards.has(port) || !permitted(port) || token !== reports.get(port)?.token) return;
+    if (held.last && last === null && revision === snapshotRevision) {
       last = held.last;
-      port.postMessage(held.last);
     }
-  });
+    if (last !== null) send(port, last, token);
+  }, () => {});
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -193,22 +207,27 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
 
+  // Only this extension's GitHub content scripts may register project state.
+  try {
+    if (new URL(port.sender?.url ?? '').origin !== 'https://github.com') return;
+  } catch { return; }
+  reports.set(port, { board: false, visible: false, pathname: '', token: 0 });
+
   port.onMessage.addListener((message) => {
     if (message?.type === 'boardState') {
-      const joined = message.board === true && !boards.has(port);
-      if (message.board === true) boards.add(port);
-      else {
-        boards.delete(port);
-        watchLog(port, false);
-      }
-      if (message.board === true && message.visible === true) watchers.add(port);
-      else watchers.delete(port);
-      reconcile();
-      if (joined) replay(port);
+      const previous = reports.get(port);
+      if (!previous || typeof message.pathname !== 'string' || !Number.isSafeInteger(message.token) || message.token < 0) return;
+      reports.set(port, { board: message.board === true, visible: message.visible === true, pathname: message.pathname, token: message.token });
+      applyBoard(port, previous.token !== message.token || previous.pathname !== message.pathname);
       return;
     }
 
-    if (!boards.has(port)) return;
+    if (!boards.has(port) || !permitted(port)) return;
+
+    if (message?.type === 'openOptions') {
+      void chrome.runtime.openOptionsPage();
+      return;
+    }
 
     if (message?.type === 'logView') {
       watchLog(port, message.open === true);
@@ -224,6 +243,7 @@ chrome.runtime.onConnect.addListener((port) => {
     void chrome.runtime.lastError;
 
     boards.delete(port);
+    reports.delete(port);
     watchers.delete(port);
     watchLog(port, false);
     say('debug', `board tab disconnected; ${boards.size} open`, 'tabs');
@@ -236,13 +256,37 @@ function reconcile() {
   if (boards.size === 0) {
     if (native !== null) {
       toNative({ type: 'watching', watching: false });
-      native.disconnect();
+      const disconnected = native;
       native = null;
+      disconnected.disconnect();
     }
     troubled(UNANSWERED);
   } else if (native === null) connectNative();
   else toNative({ type: 'watching', watching: watchers.size > 0 });
 }
+
+function applyBoard(port, changed = false, immediately = true) {
+  const joined = permitted(port) && !boards.has(port);
+  if (permitted(port)) boards.add(port);
+  else {
+    boards.delete(port);
+    watchLog(port, false);
+  }
+  if (boards.has(port) && reports.get(port)?.visible) watchers.add(port);
+  else watchers.delete(port);
+  if (immediately) {
+    reconcile();
+    if (joined || (changed && boards.has(port))) replay(port);
+  }
+}
+
+watchPreferences(chrome.storage, (next) => {
+  preferences = next.value;
+  policyRevision++;
+  for (const port of reports.keys()) applyBoard(port, false, false);
+  reconcile();
+  for (const port of boards) replay(port);
+});
 
 chrome.alarms.create(KEEPALIVE, { periodInMinutes: 1 });
 

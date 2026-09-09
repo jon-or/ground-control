@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ground Control overlay settings</title>
+  <link rel="stylesheet" href="src/options.css">
+</head>
+<body>
+  <main>
+    <h1>Ground Control overlay</h1>
+    <p>These preferences apply to this browser. Shared board settings remain in VS Code.</p>
+    <form id="preferences">
+      <label class="toggle"><input id="enabled" type="checkbox"> Enable overlay</label>
+      <label for="projects">Allowed project URLs</label>
+      <textarea id="projects" rows="6" spellcheck="false" placeholder="https://github.com/orgs/example/projects/3" aria-describedby="projects-help"></textarea>
+      <p id="projects-help">One GitHub project URL per line. Leave empty to allow all supported project pages.</p>
+      <p id="error" role="alert"></p>
+      <button type="submit">Save</button>
+      <p id="status" role="status">Loading preferences…</p>
+    </form>
+    <p><a href="vscode://settings/groundControl.github.repo">Open shared settings in VS Code</a></p>
+  </main>
+  <script type="module" src="src/options.js"></script>
+</body>
+</html>

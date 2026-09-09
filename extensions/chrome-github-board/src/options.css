@@ -1,0 +1,15 @@
+:root { color-scheme: light dark; font: 15px/1.5 system-ui, sans-serif; }
+body { margin: 0; }
+main { max-width: 620px; margin: 48px auto; padding: 0 24px; }
+h1 { font-size: 26px; }
+form { margin: 28px 0; }
+label { display: block; font-weight: 600; margin-top: 18px; }
+.toggle { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+input[type=checkbox] { width: 18px; height: 18px; }
+textarea { box-sizing: border-box; width: 100%; margin-top: 8px; padding: 12px; font: 14px/1.5 ui-monospace, monospace; border: 1px solid GrayText; border-radius: 6px; resize: vertical; }
+button { padding: 8px 22px; font: inherit; border: 1px solid GrayText; border-radius: 6px; cursor: pointer; }
+#projects-help { color: GrayText; margin-top: 6px; }
+#error { color: light-dark(#a01919, #ffb4ab); }
+#error:empty { display: none; }
+a { color: light-dark(#0969da, #79b8ff); }
+:focus-visible { outline: 2px solid Highlight; outline-offset: 3px; }

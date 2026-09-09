@@ -39,6 +39,8 @@ For Chrome, run **Ground Control: Enable GitHub Overlay** in VS Code, then load 
 
 The overlay displays card/session state and supports local lane moves, session links, checkout opening, and logs. Starting or stopping work, requesting classification, selecting paths, and opening combined diffs require VS Code. Checkout opening requires a connected editor.
 
+Use **Overlay settings** in its menu, or **Extension options** in Chrome, to disable the overlay or restrict it to listed GitHub projects. It defaults to enabled; an empty project list allows all supported project pages. Preferences persist in this browser and apply to open tabs immediately. Disabled or disallowed pages receive no overlay UI, snapshots, or logs and do not keep hub work active through this client.
+
 ## Settings
 
 VS Code groups settings under **GitHub**, **Board**, **Sessions**, **Triage**, **Actions**, and **Advanced**, in that order; existing `groundControl.*` keys also work in `settings.json`.

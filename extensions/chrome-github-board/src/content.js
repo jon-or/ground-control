@@ -10,6 +10,13 @@
   let overlay = null;
   /** @type {any} */
   let helpers = null;
+  /** @type {any} */
+  let policy = null;
+  /** @type {import('./preferences.js').Preferences | null} */
+  let preferences = null;
+  let identity = null;
+  let pageToken = 0;
+  let replayed = false;
 
   /** @type {any} */
   let state = null;
@@ -26,15 +33,37 @@
   let watchingLog = false;
   let reported = '';
 
+  function eligible() {
+    return policy !== null && policy.allowsProject(preferences, location.pathname);
+  }
+
+  // Policy changes must clear hidden tabs without waiting for a suspended animation frame.
+  function syncPage() {
+    const next = eligible() ? policy.projectPath(location.pathname) : null;
+    if (next === identity) return;
+    identity = next;
+    pageToken++;
+    replayed = false;
+    observer.disconnect();
+    if (watchingLog) {
+      watchingLog = false;
+      post({ type: 'logView', open: false });
+    }
+    overlay.clear(document);
+    state = helpers.initialState();
+    if (!stopped) observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
   // Visibility reporting cannot wait for a frame: Chrome suspends frames in hidden tabs.
   function report() {
     if (helpers === null || stopped) return;
-    const board = helpers.isBoardPath(location.pathname);
+    syncPage();
+    const board = eligible();
     const visible = document.visibilityState === 'visible';
-    const next = `${board}:${visible}`;
+    const next = `${location.pathname}:${board}:${visible}:${pageToken}`;
     if (next === reported || port === null) return;
     reported = next;
-    post({ type: 'boardState', board, visible });
+    post({ type: 'boardState', board, visible, pathname: location.pathname, token: pageToken });
   }
 
   const observer = new MutationObserver(() => schedule());
@@ -43,14 +72,17 @@
     refresh: () => post({ type: 'refresh' }),
     move: (key, lane) => post({ type: 'move', key, lane }),
     openCheckout: (key) => post({ type: 'openCheckout', key }),
+    openOptions: () => post({ type: 'openOptions' }),
     repaint: () => schedule(),
     watchLog: (open) => {
+      if (open && !eligible()) return;
       watchingLog = open;
       post({ type: 'logView', open });
     },
   };
 
   function post(message) {
+    if (message.type !== 'boardState' && !(message.type === 'logView' && message.open === false) && !eligible()) return;
     try {
       port?.postMessage(message);
     } catch {
@@ -61,7 +93,7 @@
   /** Coalesce renders to one frame and pause the observer during writes to prevent mutation loops. */
   function schedule() {
     report();
-    if (scheduled || overlay === null) {
+    if (scheduled || overlay === null || !eligible() || !replayed) {
       return;
     }
 
@@ -71,7 +103,8 @@
       observer.disconnect();
 
       try {
-        if (helpers.isBoardPath(location.pathname)) {
+        syncPage();
+        if (eligible() && replayed) {
           overlay.paint(document, state, Date.now(), actions);
         } else {
           overlay.clear(document);
@@ -135,6 +168,9 @@
     report();
 
     port.onMessage.addListener((message) => {
+      report();
+      if (!eligible() || message.pageToken !== pageToken) return;
+      replayed = true;
       attempt = 0;
 
       // Appended rather than repainted, and the observer is off while it happens: a line is a DOM change of our
@@ -159,7 +195,7 @@
 
     // Chrome stops an idle worker, which loses every tab it had streaming. A sidebar the developer left open has to
     // say so again, or it sits there showing the lines from before the worker went and no others.
-    if (watchingLog) {
+    if (watchingLog && eligible()) {
       post({ type: 'logView', open: true });
     }
   }
@@ -174,11 +210,16 @@
     setTimeout(connect, helpers.retryDelay(attempt));
   }
 
-  void Promise.all([import(`${url}overlay.js`), import(`${url}state.js`)]).then(([drawing, decisions]) => {
+  void Promise.all([import(`${url}overlay.js`), import(`${url}state.js`), import(`${url}preferences.js`)]).then(([drawing, decisions, preferencesModule]) => {
     overlay = drawing;
     helpers = decisions;
+    policy = preferencesModule;
     state = helpers.initialState();
     connect();
+    policy.watchPreferences(chrome.storage, (next) => {
+      preferences = next.value;
+      schedule();
+    });
     schedule();
   });
 
@@ -198,7 +239,7 @@
   // text node it already had, but an observer armed over a write of its own is what schedules a scan per second.
   timers.push(
     setInterval(() => {
-      if (overlay === null || !helpers.isBoardPath(location.pathname)) {
+      if (overlay === null || !eligible()) {
         return;
       }
 

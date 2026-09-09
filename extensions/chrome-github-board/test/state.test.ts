@@ -5,7 +5,6 @@ import {
   applyMessage,
   disconnection,
   initialState,
-  isBoardPath,
   makeLogSpool,
   retryDelay,
 } from '../src/state.js';
@@ -22,27 +21,6 @@ const SNAPSHOT: Snapshot = {
   needs: null,
   fetchedAt: '2026-09-04T12:00:00Z',
 };
-
-describe('which pages the overlay paints', () => {
-  it('matches organization and user project boards', () => {
-    expect(isBoardPath('/orgs/example-org/projects/3')).toBe(true);
-    expect(isBoardPath('/orgs/example-org/projects/3/views/1')).toBe(true);
-    expect(isBoardPath('/users/dev-1/projects/7')).toBe(true);
-  });
-
-  /**
-   * Check board paths after soft navigation because Chrome does not reinject content scripts; leave non-board
-   * pages unchanged.
-   */
-  it('is nothing else on the site', () => {
-    expect(isBoardPath('/example-org/example-repo/issues/4501')).toBe(false);
-    expect(isBoardPath('/example-org/example-repo/pull/12')).toBe(false);
-    expect(isBoardPath('/orgs/example-org/repositories')).toBe(false);
-    expect(isBoardPath('/orgs/example-org/projects')).toBe(false);
-    expect(isBoardPath('/')).toBe(false);
-    expect(isBoardPath('/notifications')).toBe(false);
-  });
-});
 
 describe('what a message from the worker changes', () => {
   it('starts out saying nothing has answered', () => {

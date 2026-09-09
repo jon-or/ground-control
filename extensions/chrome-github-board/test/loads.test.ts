@@ -45,7 +45,7 @@ describe('what the extension asks Chrome for', () => {
 
   /**
    * The whole site, because a board reached by clicking through it is a soft navigation Chrome injects nothing for
-   * (`mechanics.md` M27). `isBoardPath` is what keeps the overlay off every other page, and the test below is what
+   * (`mechanics.md` M27). Project preferences keep the overlay off every other page, and the test below is what
    * proves it does.
    */
   it('runs its content script on github.com and nowhere else', () => {
@@ -54,9 +54,9 @@ describe('what the extension asks Chrome for', () => {
     expect(shipped.content_scripts[0]?.js).toEqual(['src/content.js']);
   });
 
-  /** The content script imports both at runtime. A resource left out of this list resolves to nothing, silently. */
-  it('lets the page reach the two modules the content script imports', () => {
-    expect(shipped.web_accessible_resources[0]?.resources).toEqual(['src/overlay.js', 'src/state.js']);
+  /** The content script imports these at runtime. Missing resources prevent policy or rendering from loading. */
+  it('lets the page reach the modules the content script imports', () => {
+    expect(shipped.web_accessible_resources[0]?.resources).toEqual(['src/overlay.js', 'src/state.js', 'src/preferences.js']);
   });
 });
 

@@ -346,7 +346,7 @@ The developer sets concurrent and daily limits on dispatched card actions. Do no
 
 Expose supported personal settings through normal editor settings and a Settings menu item on the board.
 
-Organize editor settings into GitHub, Board, Sessions, Triage, Actions, and Advanced, in that order. Use short category titles and at most one sentence per description, omitting descriptions where the control is self-explanatory. Keep configuration formats and detailed behavior in linked documentation. Preserve existing setting keys for compatibility; VS Code derives individual titles from those keys. These settings configure the shared hub for both clients; the Chrome overlay does not provide its own settings editor.
+Organize editor settings into GitHub, Board, Sessions, Triage, Actions, and Advanced, in that order. Use short category titles and at most one sentence per description, omitting descriptions where the control is self-explanatory. Keep configuration formats and detailed behavior in linked documentation. Preserve existing setting keys for compatibility; VS Code derives individual titles from those keys. These settings configure the shared hub for both clients. Chrome provides browser-local overlay preferences and a link to shared editor settings, without hub configuration permissions.
 
 `installSessionHooks` globally permits hook installation; `sessionHooks.claude` and `sessionHooks.codex` select hooks for each enabled agent. All default to true. Global false removes Ground Control entries for every registered agent, overriding individual choices. A per-agent false removes only that agent's entries; omitted agents also have their entries removed. Reconcile changes under one filesystem lock, preserving unrelated settings and the existing backup and malformed-file safeguards. Uninstall removes all owned hooks too.
 
@@ -364,7 +364,9 @@ A newly visible board receives cached issues if the previous source read is less
 
 On supported GitHub project pages, add triage and session rows inside matching issue cards, with the same names, phases, durations, attention, and open/attach behavior as the editor board. Preserve GitHub's card controls and drag behavior. Offer local lane moves without changing GitHub status.
 
-Only visible project tabs count as watched boards. Ordinary GitHub pages do not open or retain a hub connection. Hidden project tabs retain their connection and requested logs, but do not enable polling or automatic work. Recompute visibility on navigation and reconnect.
+Browser-local overlay enablement defaults to true; an empty project allowlist permits all supported project roots and view pages. Match owner kind, owner, and project number exactly, ignoring owner case and view selection. Persist preferences in extension-owned durable storage. Invalid or unreadable preferences refuse access until corrected.
+
+Only enabled, allowed, visible project tabs count as watched boards. Ordinary GitHub pages and disabled/disallowed projects receive no snapshots or logs and do not open or retain a hub connection. Hidden allowed project tabs retain their connection and requested logs, but do not enable polling or automatic work. Recompute eligibility and visibility on preference changes, navigation, and reconnect. Immediately restore modified GitHub DOM and stop log subscriptions when eligibility ends, including hidden tabs. Reject stale deliveries from prior page or preference state.
 
 Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, request triage, or open combined diffs.
 

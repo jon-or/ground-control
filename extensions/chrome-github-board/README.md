@@ -11,16 +11,26 @@ Session links open VS Code. Checkout opening requires a connected editor. The ov
 
 There is no build step. The manifest's public key fixes the extension ID used by native-host registration. After reloading the extension, reload existing GitHub tabs to replace invalidated content scripts.
 
+## Preferences
+
+Open **Overlay settings** from the overlay menu, or **Extension options** from Chrome's extension details. **Enable overlay** defaults to on. **Allowed project URLs** accepts one HTTPS GitHub project URL per line; an empty list allows all supported projects. Organization and personal projects are distinct, and project numbers match exactly. View URLs and query strings normalize to their project URL.
+
+Preferences use durable extension storage and apply across open tabs immediately. Disabled or disallowed pages remove the overlay, restore GitHub's header and assignee display, stop logs, and do not count as watchers or retain a hub connection. Hidden allowed project tabs can retain requested logs but do not start hub polling or automatic work. Invalid or unreadable preferences pause access until corrected.
+
+**Open shared settings in VS Code** links to the editor settings used by both clients. The browser options page changes only browser preferences; it cannot configure the hub or dispatch work.
+
 ## Implementation
 
 | File | Responsibility | Verification |
 |---|---|---|
 | `src/overlay.js` | DOM matching, card rendering, menus, tooltips, and log panel | Vitest/jsdom and browser behavior tests |
-| `src/state.js` | Snapshot state, page matching, retries, and log subscriptions | Vitest |
+| `src/state.js` | Snapshot state, retries, and log subscriptions | Vitest |
+| `src/preferences.js` | Project eligibility, validation, and preference updates | Vitest and browser tests |
+| `options.html`, `src/options.js` | Browser preference editor and shared-settings link | Headless Playwright |
 | `src/content.js` | Worker port, observer, and repaint scheduling | Headless Playwright |
 | `src/worker.js` | Native port, tab ports, snapshot cache, and reconnect alarm | Headless Playwright |
 
-The content script injects across github.com to support soft navigation, but renders only on supported project pages. JSDoc checks snapshot types against core. Unchanged footers are retained by card node and content signature; GitHub view changes replace nodes and require rebuilding.
+The content script injects across github.com to support soft navigation, but renders only on enabled, allowed project roots and their `/views/<number>` pages. Both content and worker enforce eligibility before rendering or delivering data. JSDoc checks snapshot types against core. Unchanged footers are retained by card node and content signature; GitHub view changes replace nodes and require rebuilding.
 
 The worker connects through native messaging and makes no direct GitHub API requests. It caches the latest snapshot in `chrome.storage.session`. Log lines remain in memory. The first sidebar subscribes to hub logs; the last closing sidebar unsubscribes and discards hub backfill.
 

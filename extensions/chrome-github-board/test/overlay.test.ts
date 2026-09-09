@@ -336,6 +336,17 @@ describe('swapping the assignee for the pull request author', () => {
     expect(document.querySelector('[data-gc-actor]')).toBeNull();
     expect(document.querySelector('figure[role]')).toBeNull();
   });
+
+  it.each(['clear', 'repaint'])('restores an existing assignee role after %s', (operation) => {
+    const figure = assigneeStackOf(document.querySelector('[data-board-card-id]')!)!;
+    figure.setAttribute('role', 'group');
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+    expect(figure.getAttribute('role')).toBe('presentation');
+    if (operation === 'clear') clear(document);
+    else paint(document, state({ snapshot: snapshot({ lanes: [] }) }), NOW, actions);
+    expect(figure.getAttribute('role')).toBe('group');
+    expect(document.querySelector('.gc-actor')).toBeNull();
+  });
 });
 
 /** Verify shared tooltip geometry and timing measured from GitHub (mechanics M35). */
@@ -768,6 +779,7 @@ describe('painting the board', () => {
     expect(badges()).toHaveLength(0);
     expect(document.getElementById('gc-menu')).toBeNull();
     expect(document.getElementById('gc-toasts')).toBeNull();
+    expect(document.getElementById('gc-style')).toBeNull();
     expect(document.querySelectorAll('[data-gc-issue]')).toHaveLength(0);
   });
 });
@@ -1921,7 +1933,7 @@ describe('durations that advance on their own', () => {
     const armed = [...content.matchAll(/observer\.observe\(document\.documentElement, (\{[^}]+\})\)/g)];
 
     // Verify consistent observer options initially and after rendering, log appends, and timer updates.
-    expect(armed).toHaveLength(4);
+    expect(armed).toHaveLength(5);
     expect(new Set(armed.map(([, options]) => options))).toEqual(new Set(['{ childList: true, subtree: true }']));
 
     const shown = snapshot({

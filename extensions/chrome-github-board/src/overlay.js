@@ -10,7 +10,7 @@
  * @typedef {import('@ground-control/core').Session} Session
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void }} Actions
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, openOptions?: () => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -625,9 +625,22 @@ function renderActor(doc, element, card) {
   slot.appendChild(image);
 
   // Remove the empty figure from the accessibility tree; its replacement avatar supplies the accessible name.
+  originalRoles.set(figure, figure.getAttribute('role'));
   figure.setAttribute('role', 'presentation');
   figure.setAttribute(ACTOR_ATTR, actor.login);
   figure.appendChild(slot);
+}
+
+/** @type {WeakMap<Element, string | null>} */
+const originalRoles = new WeakMap();
+
+/** Restore the host role both on removal and when a later snapshot stops replacing its avatar. @param {Element} figure */
+function restoreActor(figure) {
+  const role = originalRoles.get(figure);
+  if (role === null) figure.removeAttribute('role');
+  else if (role !== undefined) figure.setAttribute('role', role);
+  originalRoles.delete(figure);
+  figure.removeAttribute(ACTOR_ATTR);
 }
 
 /**
@@ -1364,6 +1377,8 @@ export function renderMenu(doc, state, now, actions) {
   panel.appendChild(
     item(doc, logOpen ? 'Hide log' : 'Show log', () => setLogOpen(doc, !logOpen, actions), logOpen ? '✓' : ''),
   );
+
+  if (actions.openOptions) panel.appendChild(item(doc, 'Overlay settings', actions.openOptions));
 
   panel.appendChild(doc.createElement('hr'));
 
@@ -2196,7 +2211,7 @@ export function clear(doc) {
     row.removeAttribute(HIDDEN_ATTR);
   }
 
-  for (const id of [MENU_ID, MENU_FALLBACK_ID, TOASTS_ID, LOG_ID]) {
+  for (const id of [MENU_ID, MENU_FALLBACK_ID, TOASTS_ID, LOG_ID, STYLE_ID]) {
     doc.getElementById(id)?.remove();
   }
 
@@ -2208,8 +2223,7 @@ export function clear(doc) {
   }
 
   for (const figure of doc.querySelectorAll(`[${ACTOR_ATTR}]`)) {
-    figure.removeAttribute(ACTOR_ATTR);
-    figure.removeAttribute('role');
+    restoreActor(figure);
   }
 
   for (const card of doc.querySelectorAll('[data-gc-issue]')) {
@@ -2384,10 +2398,9 @@ export function paint(doc, state, now, actions) {
       }
 
       // Restore the original assignee figure before recalculating avatar replacement; a card may have lost
-      // its PR. Remove roles from bare figures.
+      // its PR, preserving GitHub's original accessibility role.
       for (const figure of element.querySelectorAll(`[${ACTOR_ATTR}]`)) {
-        figure.removeAttribute(ACTOR_ATTR);
-        figure.removeAttribute('role');
+        restoreActor(figure);
       }
     }
 
