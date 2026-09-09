@@ -28,6 +28,8 @@ export function readConfig(): GithubConfig {
     repo: cfg.get<string>('github.repo', ''),
     logins: splitLogins(cfg.get<string>(LOGINS, '')),
     projectNumber: cfg.get<number>('github.projectNumber', 3),
+    projectOwner: cfg.get<string>('github.projectOwner', ''),
+    statusField: cfg.get<string>('github.statusField', 'Status'),
     cardSource: cfg.get<CardSource>('cardSource', 'project'),
     maxPages: 5,
   };

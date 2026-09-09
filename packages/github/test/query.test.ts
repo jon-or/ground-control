@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildSearchQuery } from '../src/index.js';
-import { ASSIGNED_ISSUES_QUERY, CARD_CONTEXT_QUERY } from '../src/queries.js';
+import { ASSIGNED_ISSUES_QUERY, CARD_CONTEXT_QUERY, ISSUE_BY_NUMBER_QUERY } from '../src/queries.js';
 import { config } from './helpers.js';
 
 describe('ASSIGNED_ISSUES_QUERY', () => {
@@ -46,7 +46,20 @@ describe('buildSearchQuery', () => {
     expect(buildSearchQuery(config(), false)).not.toContain('project:');
   });
 
-  it('takes the project owner from the repo, not a separate setting', () => {
+  it('takes the project owner from the repo when none is set', () => {
     expect(buildSearchQuery(config({ repo: 'someone/else', projectNumber: 9 }), true)).toContain('project:someone/9');
+  });
+
+  it('reads the status field through a variable, so the document never names one field', () => {
+    for (const query of [ASSIGNED_ISSUES_QUERY, ISSUE_BY_NUMBER_QUERY]) {
+      expect(query).toContain('$status:String!');
+      expect(query).toContain('fieldValueByName(name:$status)');
+      expect(query).toContain('field(name:$status){ __typename }');
+      expect(query).not.toContain('"Status"');
+    }
+  });
+
+  it('names the configured project owner, since a project need not belong to the repository owner', () => {
+    expect(buildSearchQuery(config({ repo: 'someone/else', projectNumber: 9, projectOwner: 'their-org' }), true)).toContain('project:their-org/9');
   });
 });

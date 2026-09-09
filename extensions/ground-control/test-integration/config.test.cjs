@@ -74,6 +74,15 @@ describe('what this window pushes to the hub', () => {
     for (const key of SESSION_SCOPE_KEYS) {
       await settings().update(`sessions.${key}`, undefined, vscode.ConfigurationTarget.Global);
     }
+    await settings().update('github.projectOwner', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('github.statusField', undefined, vscode.ConfigurationTarget.Global);
+  });
+
+  it('sends the project owner and status field to the hub', async () => {
+    await untilStored((c) => c.sources?.github?.statusField === 'Status' && c.sources?.github?.projectOwner === '', 'the defaults never reached the hub');
+    await settings().update('github.projectOwner', 'their-org', vscode.ConfigurationTarget.Global);
+    await settings().update('github.statusField', 'Stage', vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.sources?.github?.projectOwner === 'their-org' && c.sources?.github?.statusField === 'Stage', 'the project settings never reached the hub');
   });
 
   /** Verify the host configuration structure reaches the hub without treating setting fields as host IDs. */

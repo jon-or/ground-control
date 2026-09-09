@@ -46,6 +46,10 @@ Use **Overlay settings** in its menu, or **Extension options** in Chrome, to dis
 VS Code groups settings under **GitHub**, **Board**, **Sessions**, **Triage**, **Actions**, and **Advanced**, in that order; existing `groundControl.*` keys also work in `settings.json`.
 These application settings configure the shared hub for both clients; Chrome has no separate editor for them.
 
+### GitHub settings
+
+`github.repo` names one github.com repository. `cardSource` selects assigned issues on the project or every open assigned issue. `github.projectNumber` and `github.projectOwner` identify the project; an empty owner uses the repository owner, and the same number under another owner is a different project. `github.statusField` names the single-select project field read as card status, default `Status`. A project without that field, or with a field of another type, shows a notice in both clients, and its cards stay on the board without a status. Only the built-in `Status` field records changes on the issue timeline, so triage sees status moves with that field alone; other fields supply the current value, color, and change time. Multiple repositories and GitHub Enterprise are not supported.
+
 ### Board settings
 
 `boardStatuses` selects active project statuses; all others archive the card. Editing the list clears Returned marks and archived placements, including cards newly archived by the edit.

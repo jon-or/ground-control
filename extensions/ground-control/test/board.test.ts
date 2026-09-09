@@ -82,6 +82,7 @@ function message(overrides: Partial<SnapshotMessage> = {}): SnapshotMessage {
       matched: 0,
       totalAssigned: 0,
       notOnProject: 0,
+      fieldProblem: null,
       truncated: false,
       fetchedAt: '2026-09-01T20:00:00Z',
     },
@@ -700,6 +701,7 @@ describe('board webview', () => {
           matched: 8,
           totalAssigned: 10,
           notOnProject: 2,
+          fieldProblem: null,
           truncated: true,
           fetchedAt: '2026-09-01T20:00:00Z',
         },
@@ -714,6 +716,27 @@ describe('board webview', () => {
     expect(document.getElementById('lanes')?.classList).toContain('stale');
     expect(document.getElementById('meta')?.textContent).toContain('could not refresh');
     expect(document.querySelector('.empty')?.textContent).toBe('None of your assigned issues match the current card source.');
+  });
+
+  it('names a status field the project cannot supply, with the setting that fixes it', () => {
+    send(
+      message({
+        issues: {
+          count: 1,
+          matched: 1,
+          totalAssigned: 1,
+          notOnProject: 0,
+          fieldProblem: 'Project example-org/3 has no field named "Stage".',
+          truncated: false,
+          fetchedAt: '2026-09-01T20:00:00Z',
+        },
+      }),
+    );
+
+    const notice = Array.from(document.querySelectorAll('.notice')).find((held) => held.textContent?.includes('has no field named "Stage"'));
+
+    expect(notice?.classList).toContain('error');
+    expect(notice?.textContent).toContain('groundControl.github.statusField');
   });
 
   /** Assert the completed DOM report so a mid-render report cannot pass with old metadata and empty notices. */

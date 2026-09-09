@@ -289,6 +289,34 @@ describe('the state changes on a card', () => {
     expect(elsewhere.stateEvents.filter((e) => e.status === null)).toHaveLength(3);
   });
 
+  it('ignores status changes on the same project number under another owner', async () => {
+    // The recording predates the owner lookup; derive it, as the fixtures README allows.
+    const owned = structuredClone(fixture('context-handover')) as {
+      data: { repository: { issue: { timelineItems: { nodes: { __typename: string; project?: Record<string, unknown> | null }[] } } } };
+    };
+
+    for (const node of owned.data.repository.issue.timelineItems.nodes) {
+      if (node.__typename === 'ProjectV2ItemStatusChangedEvent' && node.project) {
+        node.project['owner'] = { login: 'example-org' };
+      }
+    }
+
+    const ours = await fetchCardContext(config(), card({ number: 19192, pullRequest: null }), runnerOf(owned), new AbortController().signal);
+    const theirs = await fetchCardContext(config({ projectOwner: 'someone-else' }), card({ number: 19192, pullRequest: null }), runnerOf(owned), new AbortController().signal);
+
+    expect(ours.context?.stateEvents.filter((e) => e.status !== null)).toHaveLength(4);
+    expect(theirs.context?.stateEvents.filter((e) => e.status !== null)).toEqual([]);
+    expect(theirs.context?.stateEvents.filter((e) => e.status === null)).toHaveLength(3);
+  });
+
+  /** GitHub records timeline status events for the built-in Status field only (M32); another field's moves are not on the timeline. */
+  it('keeps assignments but no status moves when another field supplies the status', async () => {
+    const events = (await contextOf('context-handover', { number: 19192, pullRequest: null }, config({ statusField: 'Stage' }))).stateEvents;
+
+    expect(events.filter((e) => e.status !== null)).toEqual([]);
+    expect(events.filter((e) => e.assigned !== null || e.unassigned !== null)).toHaveLength(3);
+  });
+
   it('drops a status cleared rather than reading it as a move to nowhere', async () => {
     // Derive null status for a cleared field; the API cannot produce it on demand. Ignore empty destinations because empty from already means project addition.
     const cleared = structuredClone(fixture('context-handover')) as {

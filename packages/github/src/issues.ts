@@ -1,12 +1,14 @@
 import { ASSIGNED_ISSUES_QUERY, ISSUE_BY_NUMBER_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
 import { makeGhRunner } from './gh.js';
+import { onConfiguredProject, projectOwnerOf } from './project.js';
 import type {
   AssignedIssues,
   CardAvatar,
   CardPullRequest,
   GithubConfig,
   IssueCard,
+  ProjectItem,
   Result,
   SearchNode,
 } from './types.js';
@@ -20,7 +22,7 @@ export function buildSearchQuery(cfg: GithubConfig, withProject: boolean): strin
   const parts = [`repo:${cfg.repo}`, 'is:issue', 'is:open', ...cfg.logins.map((l) => `assignee:${l}`)];
 
   if (withProject) {
-    parts.push(`project:${cfg.repo.split('/')[0]}/${cfg.projectNumber}`);
+    parts.push(`project:${projectOwnerOf(cfg)}/${cfg.projectNumber}`);
   }
 
   return parts.join(' ');
@@ -73,8 +75,31 @@ function selectPullRequest(node: Pick<SearchNode, 'pullRequests'>): CardPullRequ
   };
 }
 
+function itemOf(node: Pick<SearchNode, 'projectItems'>, cfg: GithubConfig): ProjectItem | undefined {
+  return node.projectItems.nodes.find((item) => onConfiguredProject(item.project, cfg));
+}
+
+/**
+ * Why the configured field cannot supply status for an item on the project, or null. An unset value is not a
+ * problem; a card without status stays active (R1).
+ */
+export function fieldProblemOf(item: ProjectItem, cfg: GithubConfig): string | null {
+  const project = `${projectOwnerOf(cfg)}/${cfg.projectNumber}`;
+  const field = item.project.field;
+
+  if (field === null) {
+    return `Project ${project} has no field named "${cfg.statusField}".`;
+  }
+
+  if (field !== undefined && field.__typename !== 'ProjectV2SingleSelectField') {
+    return `The "${cfg.statusField}" field on project ${project} is a ${field.__typename}, not a single-select field.`;
+  }
+
+  return null;
+}
+
 function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
-  const item = node.projectItems.nodes.find((i) => i.project.number === cfg.projectNumber);
+  const item = itemOf(node, cfg);
   const status = item?.fieldValueByName?.name ?? null;
 
   return {
@@ -118,9 +143,16 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
   let matched = 0;
   let totalAssigned = 0;
   let hasNextPage = false;
+  let fieldProblem: string | null = null;
 
   for (let page = 0; page < cfg.maxPages; page++) {
-    const args = ['api', 'graphql', '-f', `query=${ASSIGNED_ISSUES_QUERY}`, '-f', `cards=${cardsQuery}`, '-f', `all=${allQuery}`];
+    const args = [
+      'api', 'graphql',
+      '-f', `query=${ASSIGNED_ISSUES_QUERY}`,
+      '-f', `cards=${cardsQuery}`,
+      '-f', `all=${allQuery}`,
+      '-f', `status=${cfg.statusField}`,
+    ];
 
     if (after) {
       args.push('-f', `after=${after}`);
@@ -152,6 +184,12 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
 
     for (const node of cards.nodes) {
       seen.set(node.number, toCard(node, cfg));
+
+      const item = itemOf(node, cfg);
+
+      if (item !== undefined && fieldProblem === null) {
+        fieldProblem = fieldProblemOf(item, cfg);
+      }
     }
 
     // A null cursor would repeat page one even when hasNextPage is true.
@@ -172,6 +210,7 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
       truncated: hasNextPage,
       fetchedAt: new Date().toISOString(),
       sourceQuery: cardsQuery,
+      fieldProblem,
     },
   };
 }
@@ -187,7 +226,7 @@ export async function fetchIssue(
 ): Promise<Result<IssueCard | null>> {
   const run = runner ?? makeGhRunner(cfg.ghPath);
   const raw = await run(
-    ['api', 'graphql', '-f', `query=${ISSUE_BY_NUMBER_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`],
+    ['api', 'graphql', '-f', `query=${ISSUE_BY_NUMBER_QUERY}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`, '-f', `status=${cfg.statusField}`],
     signal ? { timeoutMs: PAGE_TIMEOUT_MS, signal } : { timeoutMs: PAGE_TIMEOUT_MS },
   );
 

@@ -9,7 +9,11 @@ import type {
 } from '@ground-control/core';
 import { CARD_CONTEXT_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
+import { onConfiguredProject } from './project.js';
 import type { GithubConfig } from './types.js';
+
+/** GitHub records status changes on the issue timeline only for this built-in field (mechanics M32). */
+export const TIMELINE_STATUS_FIELD = 'Status';
 
 /** Duplicated to avoid a circular import with source.ts. */
 const GITHUB_SOURCE_ID = 'github';
@@ -39,7 +43,10 @@ const timelineItem = z.object({
   // GitHub returns null for a cleared status.
   previousStatus: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
-  project: z.object({ number: z.number() }).nullable().optional(),
+  project: z
+    .object({ number: z.number(), owner: z.object({ login: z.string().optional() }).nullable().default(null) })
+    .nullable()
+    .optional(),
 });
 
 const contextResponse = z.object({
@@ -159,9 +166,13 @@ function commentsOf(nodes: z.infer<typeof comment>[], limit = COMMENT_LIMIT): Tr
   }));
 }
 
-/** Read status changes and assignments in timeline order. Skip other projects, undated events, and unknown types. */
-function stateEventsOf(nodes: z.infer<typeof timelineItem>[], projectNumber: number): TriageStateEvent[] {
+/**
+ * Read status changes and assignments in timeline order, skipping other projects, undated events, and unknown
+ * types. Status events describe the built-in Status field only, so another configured field keeps assignments alone.
+ */
+function stateEventsOf(nodes: z.infer<typeof timelineItem>[], cfg: GithubConfig): TriageStateEvent[] {
   const events: TriageStateEvent[] = [];
+  const statusEvents = cfg.statusField === TIMELINE_STATUS_FIELD;
 
   for (const node of nodes) {
     if (node.createdAt === undefined) {
@@ -171,7 +182,7 @@ function stateEventsOf(nodes: z.infer<typeof timelineItem>[], projectNumber: num
     const at = { at: node.createdAt, actor: node.actor?.login ?? null, actorName: node.actor?.name ?? null };
 
     // Ignore cleared statuses. Empty from already denotes a card added to the project.
-    if (node.__typename === 'ProjectV2ItemStatusChangedEvent' && node.project?.number === projectNumber && node.status) {
+    if (node.__typename === 'ProjectV2ItemStatusChangedEvent' && statusEvents && node.project && onConfiguredProject(node.project, cfg) && node.status) {
       events.push({ ...at, status: { from: node.previousStatus ?? '', to: node.status }, assigned: null, unassigned: null });
     }
 
@@ -301,7 +312,7 @@ export async function fetchCardContext(
       title: issue.title,
       body: clip(issue.body, BODY_LIMIT),
       status: card.status,
-      stateEvents: stateEventsOf(issue.timelineItems.nodes, config.projectNumber),
+      stateEvents: stateEventsOf(issue.timelineItems.nodes, config),
       comments: commentsOf(issue.comments.nodes),
       pullRequest: pullRequestOf(parsed.data.data.repository.pullRequest),
       logins: config.logins,

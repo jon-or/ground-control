@@ -1133,6 +1133,7 @@ export class Hub {
       totalAssigned: read.reduce((total, items) => total + items.totalAssigned, 0),
       notOnProject: read.reduce((total, items) => total + items.notOnProject, 0),
       truncated: read.some((items) => items.truncated),
+      fieldProblem: read.map((items) => items.fieldProblem).find((problem) => problem !== null) ?? null,
       // Use the oldest source timestamp for board freshness.
       fetchedAt: read.map((items) => items.fetchedAt).sort()[0]!,
     };
@@ -1583,6 +1584,7 @@ export class Hub {
             notOnProject: items.notOnProject,
             truncated: items.truncated,
             fetchedAt: items.fetchedAt,
+            fieldProblem: items.fieldProblem,
           }
         : null,
       sessions: this.#sessions

@@ -11,6 +11,10 @@ export interface GithubConfig {
   repo: string;
   logins: string[];
   projectNumber: number;
+  /** Login of the organization or user owning the project; empty means the repository owner. */
+  projectOwner: string;
+  /** Single-select project field read as card status. */
+  statusField: string;
   cardSource: CardSource;
   maxPages: number;
 }
@@ -27,6 +31,8 @@ export interface AssignedIssues {
   truncated: boolean;
   fetchedAt: string;
   sourceQuery: string;
+  /** Why the configured status field cannot supply status on the configured project, or null. */
+  fieldProblem: string | null;
 }
 
 export type FailureKind =
@@ -48,11 +54,20 @@ export interface Failure {
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: Failure };
 
+/** A project owner of an unexpected type matches no fragment and arrives without a login. */
+const projectOwner = z.object({ login: z.string().optional() }).nullable().default(null);
+
 const projectItem = z.object({
-  project: z.object({ number: z.number() }),
-  // Older fixtures omit updatedAt. It tracks Status changes, not assignments (M32).
+  project: z.object({
+    number: z.number(),
+    // Older fixtures omit the owner and the field lookup; production queries request both.
+    owner: projectOwner,
+    field: z.object({ __typename: z.string() }).nullable().optional(),
+  }),
+  // Older fixtures omit updatedAt. It tracks status changes, not assignments (M32). A field of another type
+  // matches no fragment and arrives as an empty object.
   fieldValueByName: z
-    .object({ name: z.string(), color: z.string().nullable(), updatedAt: z.string().nullable().default(null) })
+    .object({ name: z.string().optional(), color: z.string().nullable().default(null), updatedAt: z.string().nullable().default(null) })
     .nullable(),
 });
 
@@ -120,3 +135,4 @@ export const issueResponse = z.object({
 
 export type SearchResponse = z.infer<typeof searchResponse>;
 export type SearchNode = z.infer<typeof searchNode>;
+export type ProjectItem = z.infer<typeof projectItem>;

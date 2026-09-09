@@ -12,6 +12,8 @@ export interface WorkItems {
   notOnProject: number;
   truncated: boolean;
   fetchedAt: string;
+  /** Why the configured status field cannot supply status, or null. Shown by both clients. */
+  fieldProblem: string | null;
 }
 
 /**

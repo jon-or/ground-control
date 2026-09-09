@@ -10,12 +10,12 @@ Scrub recordings before saving them in this public repository.
 | File | Command or scenario |
 |---|---|
 | `avatars.json` | `$Q` with `cards` and `all` filtered by issue number; include a Dev Review card with differing assignee/PR author, plus a Dev card with an older linked PR |
-| `project-mode.json` | `gh api graphql -f query="$Q" -f cards='repo:$REPO is:issue is:open assignee:$LOGIN project:$REPO_OWNER/$PROJECT' -f all='repo:$REPO is:issue is:open assignee:$LOGIN'` |
+| `project-mode.json` | `gh api graphql -f query="$Q" -f status=Status -f cards='repo:$REPO is:issue is:open assignee:$LOGIN project:$REPO_OWNER/$PROJECT' -f all='repo:$REPO is:issue is:open assignee:$LOGIN'` |
 | `not-on-project.json` | Same query with a project that excludes all assigned issues |
 | `paged-page1.json` | `-f cards='repo:$REPO is:issue is:open' -f all='…'`, nodes trimmed to 3 |
 | `paged-page2.json` | Same query plus `-f after='Y3Vyc29yOjEwMA=='`, nodes trimmed to 2 |
 | `project-truncated.json` | `-f cards='repo:$REPO is:issue is:open project:$REPO_OWNER/$PROJECT' -f all='repo:$REPO is:issue is:open'`, nodes trimmed to 3; filtered and assigned counts differ, with more pages available |
-| `issue-by-number.json` | `gh api graphql -f query="$ISSUE_Q" -f owner=$REPO_OWNER -f name=$REPO_NAME -F number=<closed unassigned issue>` |
+| `issue-by-number.json` | `gh api graphql -f query="$ISSUE_Q" -f status=Status -f owner=$REPO_OWNER -f name=$REPO_NAME -F number=<closed unassigned issue>` |
 | `untyped.json` | `-f cards='repo:$REPO is:issue -type:Bug -type:Feature -type:Task -type:Epic' -f all=<same>`, nodes trimmed to 2 |
 
 ## Scrubbing
@@ -33,6 +33,11 @@ remain unchanged. The script rejects remaining recorded titles, repositories, an
 
 Tests may derive nullable fields, such as `pageInfo.endCursor`, from recorded fixtures when the API cannot produce
 the state on demand. Document the derivation in the test; do not save it as a recording.
+
+`$Q` and `$ISSUE_Q` take `-f status=<field>`; the context query does not. The recordings predate `project.owner`
+and `project.field`, which the schemas treat as absent; `issues.test.ts` and `context.test.ts` derive them,
+including the same project number under another owner, which the API cannot produce on demand. Project owner
+logins are scrubbed to `example-org` and `other-org` in order of appearance.
 
 ## Triage context
 

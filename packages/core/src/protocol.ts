@@ -29,6 +29,7 @@ export interface Snapshot {
     notOnProject: number;
     truncated: boolean;
     fetchedAt: string;
+    fieldProblem: string | null;
   } | null;
   sessions: { count: number; patternError: string | null; fetchedAt: string } | null;
   /** Session IDs openable by this client host. */

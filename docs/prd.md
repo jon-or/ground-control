@@ -22,6 +22,8 @@ Show one card per assigned issue, with repository, number, title, and type. Trea
 
 The configured card source selects assigned issues on the project or all assigned open issues. Report excluded and truncated results. Do not imply the displayed set is complete when it is not.
 
+Identify the project by owner and number; the owner setting defaults to the repository owner. Read status from the configured single-select project field, default `Status`. Report a missing or non-single-select field as a diagnostic in both clients; affected cards keep a null status and remain active. Only the built-in Status field records status changes on the issue timeline (M32), so triage receives status-change instructions with that field alone and assignment events with any other. One repository per configuration; multiple repositories and GitHub Enterprise are out of scope.
+
 ### R2. Local sessions
 
 Show in-scope sessions from enabled agent adapters, including work unrelated to an assigned issue unless ad-hoc display is disabled. Identify the agent by its official mark where available, otherwise by name. Keep brand colors where the mark has them; monochrome marks follow the theme.
@@ -316,7 +318,7 @@ On activation by a board, command, restored board, or URI, install selected acti
 
 ### R27. Shared defaults and personal settings
 
-Ship team status conventions, lane defaults, project selection, and branch patterns as configurable defaults. Keep personal logins, paths, window permissions, agents, logging, and automation limits in user settings. Settings sent to the shared hub are application-scoped so windows do not disagree.
+Ship team status conventions, lane defaults, project owner, number, and status field, and branch patterns as configurable defaults. Keep personal logins, paths, window permissions, agents, logging, and automation limits in user settings. Settings sent to the shared hub are application-scoped so windows do not disagree.
 
 The repository-default gap is recorded in R26. The distribution of additional team defaults remains open.
 

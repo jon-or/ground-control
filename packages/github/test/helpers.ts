@@ -15,6 +15,8 @@ export function config(over: Partial<GithubConfig> = {}): GithubConfig {
     repo: 'example-org/example-repo',
     logins: ['dev-1'],
     projectNumber: 3,
+    projectOwner: '',
+    statusField: 'Status',
     cardSource: 'project',
     maxPages: 5,
     ...over,

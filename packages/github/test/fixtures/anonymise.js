@@ -44,6 +44,32 @@ function loginMap(selfLogins) {
   };
 }
 
+/** Project owners become example-org, then other-org, other-org-2, in order of appearance, keeping who owns what. */
+function ownerMap() {
+  const map = new Map();
+
+  return {
+    of(login) {
+      if (/^(example-org|other-org(-\d+)?)$/.test(login)) {
+        return login;
+      }
+
+      if (!map.has(login)) {
+        map.set(login, map.size === 0 ? 'example-org' : map.size === 1 ? 'other-org' : `other-org-${map.size}`);
+      }
+
+      return map.get(login);
+    },
+  };
+}
+
+/** Owner logins in project items and timeline events that the scrubber has not replaced. */
+function recordedOwner(project) {
+  const login = project?.owner?.login;
+
+  return login && !/^(example-org|other-org(-\d+)?)$/.test(login) ? login : null;
+}
+
 /** Select assigned-search and by-number issue nodes. projectItems distinguishes them from triage context handled by anonymise-context.js. */
 function issueNodesOf(response) {
   const issue = response?.data?.repository?.issue;
@@ -52,12 +78,18 @@ function issueNodesOf(response) {
 }
 
 /** Replace identifying fields while preserving the recorded GraphQL structure. */
-function anonymiseResponse(response, logins) {
+function anonymiseResponse(response, logins, owners = ownerMap()) {
   const nodes = issueNodesOf(response);
 
   for (const node of nodes) {
     node.title = title(node.number);
     node.url = `https://github.com/${REPO}/issues/${node.number}`;
+
+    for (const item of node.projectItems?.nodes ?? []) {
+      if (item.project?.owner?.login) {
+        item.project.owner.login = owners.of(item.project.owner.login);
+      }
+    }
 
     if (node.repository) {
       node.repository.nameWithOwner = REPO;
@@ -92,6 +124,7 @@ function assertScrubbed(recorded, written, logins) {
     issueNodesOf(r).flatMap((n) => [
       n.title === title(n.number) ? null : n.title,
       n.repository?.nameWithOwner === REPO ? null : n.repository?.nameWithOwner,
+      ...(n.projectItems?.nodes ?? []).map((item) => recordedOwner(item.project)),
       ...(n.assignees?.nodes ?? []).flatMap(identifyingActorValues),
       ...(n.pullRequests?.nodes ?? []).flatMap((pr) => [
         pr.url?.startsWith(`https://github.com/${REPO}/`) ? null : pr.url,
@@ -132,4 +165,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { REPO, anonymiseResponse, issueNodesOf, loginMap, title };
+module.exports = { REPO, anonymiseResponse, issueNodesOf, loginMap, ownerMap, recordedOwner, title };

@@ -1434,6 +1434,17 @@ export function renderToasts(doc, state) {
     });
   }
 
+  const fieldProblem = state.snapshot?.issues?.fieldProblem ?? null;
+
+  if (fieldProblem !== null) {
+    problems.push({
+      key: `field:${fieldProblem}`,
+      message: fieldProblem,
+      remedy: 'Set groundControl.github.statusField in VS Code to a single-select field on the project.',
+      tone: 'danger',
+    });
+  }
+
   // Display the latest action result, including browser permission refusals.
   if (state.notice !== null) {
     problems.push({ key: `notice:${state.notice}`, message: state.notice, remedy: null, tone: 'default' });

@@ -1742,6 +1742,10 @@ function draw(payload) {
     );
   }
 
+  if (payload.issues?.fieldProblem) {
+    notice(payload.issues.fieldProblem, 'Set groundControl.github.statusField to a single-select field on the project.', true);
+  }
+
   // A status set that matches nothing archives the whole board, and no card can say that from its own status.
   if (archived && archived.cards.length > 0 && countCards(payload.lanes) === archived.cards.length) {
     notice(

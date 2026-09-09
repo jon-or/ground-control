@@ -20,6 +20,8 @@ async function main() {
     repo: process.env.GC_RECORD_REPO ?? 'owner/repo',
     logins: (process.env.GC_RECORD_LOGINS ?? '').split(',').filter(Boolean),
     projectNumber: Number(process.env.GC_RECORD_PROJECT ?? 1),
+    projectOwner: process.env.GC_RECORD_PROJECT_OWNER ?? '',
+    statusField: 'Status',
     cardSource: 'project',
     maxPages: 5,
   });

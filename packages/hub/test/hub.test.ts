@@ -40,6 +40,7 @@ const ISSUES: AssignedIssues = {
   matched: 0,
   totalAssigned: 0,
   notOnProject: 0,
+  fieldProblem: null,
   truncated: false,
   fetchedAt: '2026-09-03T12:00:00Z',
   sourceQuery: 'assignee:dev-1',
@@ -693,6 +694,7 @@ describe('snapshot state', () => {
           matched: 2,
           totalAssigned: 3,
           notOnProject: 1,
+          fieldProblem: 'Project example-org/3 has no field named "Stage".',
           truncated: true,
           fetchedAt: '2026-09-03T08:00:00Z',
         },
@@ -724,7 +726,7 @@ describe('snapshot state', () => {
 
     const { issues, lanes } = h.hub.snapshot();
 
-    expect(issues).toMatchObject({ count: 2, matched: 7, totalAssigned: 9, notOnProject: 3, truncated: true });
+    expect(issues).toMatchObject({ count: 2, matched: 7, totalAssigned: 9, notOnProject: 3, truncated: true, fieldProblem: 'Project example-org/3 has no field named "Stage".' });
     // The combined board timestamp must use the older source read.
     expect(issues?.fetchedAt).toBe('2026-09-03T08:00:00Z');
     expect(lanes.find((lane) => lane.cards.some((c) => c.issueNumber === 4521))?.id).toBe('review');

@@ -3,7 +3,7 @@
 // thread resolution, timestamps, and merge/check fields (docs/testing.md).
 const { remark, title } = require('../../../../tools/fixture-words.js');
 const { UNIVERSAL, branchFor } = require('../../../../tools/fixture-scrub.js');
-const { loginMap } = require('./anonymise.js');
+const { loginMap, ownerMap, recordedOwner } = require('./anonymise.js');
 
 /** Exceed the body limit to verify middle clipping. */
 const LONG_BODY_CHARS = 7_500;
@@ -47,7 +47,7 @@ function scrubComments(nodes, number, logins, offset = 0) {
 }
 
 /** Replace identifying text while preserving test-relevant structure. */
-function anonymiseContext(response, logins, { longBody = false } = {}) {
+function anonymiseContext(response, logins, { longBody = false, owners = ownerMap() } = {}) {
   const repository = response?.data?.repository;
   const issue = repository?.issue;
 
@@ -62,6 +62,10 @@ function anonymiseContext(response, logins, { longBody = false } = {}) {
 
       if (node.assignee?.login) {
         node.assignee.login = logins.of(node.assignee.login);
+      }
+
+      if (node.project?.owner?.login) {
+        node.project.owner.login = owners.of(node.project.owner.login);
       }
     }
   }
@@ -115,6 +119,7 @@ function identifyingValues(response) {
     ...(issue?.timelineItems?.nodes ?? []).flatMap((node) => [
       ...named(node.actor),
       synthetic(node.assignee?.login) ? null : node.assignee?.login,
+      recordedOwner(node.project),
     ]),
     pr?.title,
     pr?.body,

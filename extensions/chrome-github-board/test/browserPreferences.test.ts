@@ -29,7 +29,7 @@ const reading: Snapshot = {
       avatar: { login: 'reviewer', source: 'pull-request', url: 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==' },
     },
   }] }],
-  issues: { count: 1, matched: 1, totalAssigned: 1, notOnProject: 0, truncated: false, fetchedAt: '' },
+  issues: { count: 1, matched: 1, totalAssigned: 1, notOnProject: 0, fieldProblem: null, truncated: false, fetchedAt: '' },
   sessions: { count: 0, patternError: null, fetchedAt: '' }, openable: [], startable: [], hooks: null,
   failures: [], stale: false, needs: null, fetchedAt: '2026-09-09T12:00:00Z',
 };

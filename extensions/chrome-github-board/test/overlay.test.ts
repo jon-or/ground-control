@@ -67,7 +67,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
 
   return {
     lanes: shown,
-    issues: { count: 1, matched: 1, totalAssigned: 1, notOnProject: 0, truncated: false, fetchedAt: '' },
+    issues: { count: 1, matched: 1, totalAssigned: 1, notOnProject: 0, fieldProblem: null, truncated: false, fetchedAt: '' },
     sessions: { count: 1, patternError: null, fetchedAt: '' },
     // What the hub sends a browser board: every session of an agent the host is placed for, which is Claude's (R14).
     openable: (over.lanes ?? shown)
@@ -1280,6 +1280,19 @@ describe('what went wrong, as a toast', () => {
     expect(toasts()).toHaveLength(1);
     expect(toasts()[0]!.textContent).toContain('The GitHub CLI is not installed.');
     expect(toasts()[0]!.textContent).toContain('Install gh.');
+    expect(toasts()[0]!.dataset.tone).toBe('danger');
+  });
+
+  it('names a status field the project cannot supply, and where to fix it', () => {
+    const unsupported = snapshot({
+      issues: { count: 1, matched: 1, totalAssigned: 1, notOnProject: 0, fieldProblem: 'Project example-org/3 has no field named "Stage".', truncated: false, fetchedAt: '' },
+    });
+
+    paint(document, state({ snapshot: unsupported }), NOW, actions);
+
+    expect(toasts()).toHaveLength(1);
+    expect(toasts()[0]!.textContent).toContain('has no field named "Stage"');
+    expect(toasts()[0]!.textContent).toContain('groundControl.github.statusField');
     expect(toasts()[0]!.dataset.tone).toBe('danger');
   });
 

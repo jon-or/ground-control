@@ -620,6 +620,8 @@ Project-addition events had empty previousStatus and `wasAutomated: false`, desp
 
 `ProjectV2ItemFieldSingleSelectValue.updatedAt` matched the status-change time and did not change on the later assignment in the sample. This lets ordinary polling detect a status trigger without fetching a per-card timeline. The behavior was checked on three issues, not all project mutations.
 
+Schema introspection on 2026-09-09: `IssueTimelineItemsItemType` lists `PROJECT_V2_ITEM_STATUS_CHANGED_EVENT`, project addition/removal events, and issue field events, but no event for a change to a custom project field, so status changes reach the timeline for the built-in Status field only. `ProjectV2.owner` is the `ProjectV2Owner` interface (Organization, User, Issue, PullRequest); `owner{ ... on Organization{ login } ... on User{ login } }` resolves the login. `ProjectV2Item.fieldValueByName(name:)` accepts a variable, returns null for an absent field or unset value, and returns an object matching no single-select fragment for a field of another type; `ProjectV2.field(name:)` returns null for an absent field. Used by project identity and the status-field diagnostic.
+
 ### GitHub query cost and limits
 
 **Record M48. API measurements, 2026-09-08, 13 assigned issues and 31 open PRs. Used by polling and triage freshness.**

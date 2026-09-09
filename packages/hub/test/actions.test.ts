@@ -225,6 +225,7 @@ function harness(
         matched: control.cards.length,
         totalAssigned: control.cards.length,
         notOnProject: 0,
+        fieldProblem: null,
         truncated: false,
         fetchedAt: '2026-09-03T12:00:00Z',
       },

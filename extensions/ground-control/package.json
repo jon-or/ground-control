@@ -98,6 +98,20 @@
             "default": 3,
             "order": 4,
             "markdownDescription": "Project number used when Card Source is Project."
+          },
+          "groundControl.github.projectOwner": {
+            "scope": "application",
+            "type": "string",
+            "default": "",
+            "order": 5,
+            "markdownDescription": "Organization or user that owns the project. Empty uses the repository owner."
+          },
+          "groundControl.github.statusField": {
+            "scope": "application",
+            "type": "string",
+            "default": "Status",
+            "order": 6,
+            "markdownDescription": "Single-select project field read as card status. Only the built-in `Status` field records changes on the issue timeline, which triage reads; other fields supply the current value only."
           }
         }
       },

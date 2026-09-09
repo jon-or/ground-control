@@ -33,9 +33,20 @@ describe('the GitHub entry in a pushed configuration', () => {
       repo: 'example-org/example-repo',
       logins: [],
       projectNumber: 0,
+      projectOwner: '',
+      statusField: 'Status',
       cardSource: 'project',
       maxPages: 5,
     });
+  });
+
+  it('trims the project owner and field name, and refuses a field name with nothing in it', () => {
+    const read = accepted({ repo: 'o/r', projectOwner: ' someone ', statusField: ' Stage ' });
+
+    expect(read.projectOwner).toBe('someone');
+    expect(read.statusField).toBe('Stage');
+    expect(accepted({ repo: 'o/r', projectOwner: '   ' }).projectOwner).toBe('');
+    expect(refusal({ repo: 'o/r', statusField: '   ' })).toContain('statusField');
   });
 
   it('takes what the developer set', () => {
@@ -98,6 +109,7 @@ const ISSUES: AssignedIssues = {
   matched: 4,
   totalAssigned: 6,
   notOnProject: 2,
+  fieldProblem: null,
   truncated: false,
   fetchedAt: '2026-09-04T09:00:00Z',
   sourceQuery: 'assignee:dev-1',

@@ -91,7 +91,7 @@ function harness(options: {
   const source: WorkSource = {
     id: 'github', displayName: 'GitHub', configure: () => null,
     read: async () => ({
-      items: { cards: assigned, owners: ['developer'], matched: assigned.length, totalAssigned: assigned.length, notOnProject: 0, truncated: false, fetchedAt: '2026-09-09T12:00:00Z' },
+      items: { cards: assigned, owners: ['developer'], matched: assigned.length, totalAssigned: assigned.length, notOnProject: 0, fieldProblem: null, truncated: false, fetchedAt: '2026-09-09T12:00:00Z' },
       failure: null, needs: null,
     }),
     readCard: async (repository, number) => { lookups.push(`${repository}#${number}`); return { card: issue(number), failure: null }; },

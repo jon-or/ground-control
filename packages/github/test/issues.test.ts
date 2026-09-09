@@ -2,6 +2,35 @@ import { describe, expect, it } from 'vitest';
 import { ISSUE_BY_NUMBER_QUERY, fetchAssignedIssues, fetchIssue } from '../src/index.js';
 import { config, fixture, runnerOf } from './helpers.js';
 
+type Item = { project: Record<string, unknown>; fieldValueByName: unknown };
+type Page = { data: { cards: { nodes: { projectItems: { nodes: Item[] } }[] } } };
+
+/**
+ * The recordings predate the owner and field lookups, which the API cannot omit on demand. Derive them here, as
+ * the fixtures README allows, rather than editing recordings by hand.
+ */
+function withProject(name: string, project: { owner?: string | Record<string, never>; field?: { __typename: string } | null; value?: unknown }): Page {
+  const page = structuredClone(fixture(name)) as Page;
+
+  for (const node of page.data.cards.nodes) {
+    for (const item of node.projectItems.nodes) {
+      if (project.owner !== undefined) {
+        item.project['owner'] = typeof project.owner === 'string' ? { login: project.owner } : project.owner;
+      }
+
+      if (project.field !== undefined) {
+        item.project['field'] = project.field;
+      }
+
+      if ('value' in project) {
+        item.fieldValueByName = project.value;
+      }
+    }
+  }
+
+  return page;
+}
+
 async function unwrap(...args: Parameters<typeof fetchAssignedIssues>) {
   const result = await fetchAssignedIssues(...args);
 
@@ -266,6 +295,80 @@ describe('fetchAssignedIssues', () => {
     expect(value.cards.every((c) => c.status === null)).toBe(true);
   });
 
+  it('tells the same project number under another owner apart from the configured project', async () => {
+    const owned = withProject('project-mode', { owner: 'example-org' });
+    const ours = await unwrap(config(), runnerOf(owned));
+    const theirs = await unwrap(config({ projectOwner: 'someone-else' }), runnerOf(owned));
+
+    expect(ours.cards.find((c) => c.number === 18953)?.status).toBe('⚒️ Dev');
+    expect(theirs.cards.every((c) => c.status === null)).toBe(true);
+    expect(theirs.sourceQuery).toContain('project:someone-else/3');
+  });
+
+  it('does not take an owner of a kind without a login for the configured one', async () => {
+    const value = await unwrap(config(), runnerOf(withProject('project-mode', { owner: {} })));
+
+    expect(value.cards.every((c) => c.status === null)).toBe(true);
+  });
+
+  it('compares project owners as GitHub compares logins, ignoring case', async () => {
+    const value = await unwrap(config({ projectOwner: 'EXAMPLE-org' }), runnerOf(withProject('project-mode', { owner: 'Example-Org' })));
+
+    expect(value.cards.find((c) => c.number === 18953)?.status).toBe('⚒️ Dev');
+  });
+
+  it('asks for the configured field by name, on both reads', async () => {
+    const pages = runnerOf(fixture('project-mode'));
+    await unwrap(config({ statusField: 'Stage' }), pages);
+
+    expect(pages.calls[0]).toContain('status=Stage');
+
+    const one = runnerOf(fixture('issue-by-number'));
+    await fetchIssue(config({ statusField: 'Stage' }), 'example-org', 'example-repo', 1, one);
+
+    expect(one.calls[0]).toContain('status=Stage');
+  });
+
+  it('carries a custom field value, its color, and when it changed, the same as the built-in one', async () => {
+    const custom = withProject('project-mode', {
+      owner: 'example-org',
+      field: { __typename: 'ProjectV2SingleSelectField' },
+      value: { name: 'Building', color: 'BLUE', updatedAt: '2026-09-08T10:00:00Z' },
+    });
+    const value = await unwrap(config({ statusField: 'Stage' }), runnerOf(custom));
+
+    expect(value.fieldProblem).toBeNull();
+    expect(value.cards[0]).toMatchObject({ status: 'Building', statusColor: 'BLUE', statusChangedAt: '2026-09-08T10:00:00Z' });
+  });
+
+  it('reports a project that has no such field, and keeps the cards on the board', async () => {
+    const value = await unwrap(config({ statusField: 'Stage' }), runnerOf(withProject('project-mode', { owner: 'example-org', field: null, value: null })));
+
+    expect(value.fieldProblem).toBe('Project example-org/3 has no field named "Stage".');
+    expect(value.cards).toHaveLength(15);
+    expect(value.cards.every((c) => c.status === null)).toBe(true);
+  });
+
+  it('reports a field of another type by what it is, whose value matches no fragment and arrives empty', async () => {
+    const value = await unwrap(config({ statusField: 'Notes' }), runnerOf(withProject('project-mode', { owner: 'example-org', field: { __typename: 'ProjectV2Field' }, value: {} })));
+
+    expect(value.fieldProblem).toBe('The "Notes" field on project example-org/3 is a ProjectV2Field, not a single-select field.');
+    expect(value.cards.every((c) => c.status === null)).toBe(true);
+  });
+
+  it('treats an unset value on a single-select field as no status, not as a problem', async () => {
+    const value = await unwrap(config(), runnerOf(withProject('project-mode', { owner: 'example-org', field: { __typename: 'ProjectV2SingleSelectField' }, value: null })));
+
+    expect(value.fieldProblem).toBeNull();
+    expect(value.cards.every((c) => c.status === null && c.statusChangedAt === null)).toBe(true);
+  });
+
+  it('says nothing about a field on a project none of the cards are on', async () => {
+    const value = await unwrap(config({ projectOwner: 'someone-else' }), runnerOf(withProject('project-mode', { owner: 'example-org', field: null })));
+
+    expect(value.fieldProblem).toBeNull();
+  });
+
   it('leaves type null for an issue with no issue type', async () => {
     const value = await unwrap(config({ maxPages: 1 }), runnerOf(fixture('untyped')));
 
@@ -454,6 +557,8 @@ describe('fetchIssue', () => {
       'name=example-repo',
       '-F',
       'number=15619',
+      '-f',
+      'status=Status',
     ]);
     expect(runner.bounds[0]?.timeoutMs).toBeGreaterThan(0);
   });

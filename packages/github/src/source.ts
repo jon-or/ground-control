@@ -18,6 +18,8 @@ const github = z
     repo: z.string().min(1),
     logins: z.array(z.string()).default([]),
     projectNumber: z.number().int().nonnegative().default(0),
+    projectOwner: z.string().trim().default(''),
+    statusField: z.string().trim().min(1).default('Status'),
     cardSource: z.enum(['project', 'issueSearch']).default('project'),
     maxPages: z.number().int().min(1).max(20).default(5),
   })
@@ -149,10 +151,10 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
         return { items: null, failure: { ...result.error, subject: GITHUB_SOURCE_ID }, needs: null };
       }
 
-      const { cards, matched, totalAssigned, notOnProject, truncated, fetchedAt } = result.value;
+      const { cards, matched, totalAssigned, notOnProject, truncated, fetchedAt, fieldProblem } = result.value;
 
       return {
-        items: { cards, owners: config.logins, matched, totalAssigned, notOnProject, truncated, fetchedAt },
+        items: { cards, owners: config.logins, matched, totalAssigned, notOnProject, truncated, fetchedAt, fieldProblem },
         failure: null,
         needs: null,
       };

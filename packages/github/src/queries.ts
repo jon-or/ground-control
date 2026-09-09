@@ -1,8 +1,7 @@
 /** cards applies the project filter; assignedTotal omits it to count excluded assigned issues. */
 /**
- * Share issue fields between assigned and by-number reads so cards retain the same metadata. Fetch five
- * closing PR references to bound GraphQL cost (mechanics M48). Include statusCheckRollup so failing checks
- * change triage evidence.
+ * Shared card fields: five closing PRs bound cost (M48), statusCheckRollup feeds triage, $status names the status
+ * field, and the project's field(name:) lookup tells a missing or differently typed field from an unset value.
  */
 const ISSUE_FIELDS = `
   number title url state updatedAt
@@ -15,12 +14,12 @@ const ISSUE_FIELDS = `
     commits(last:1){ nodes{ commit{ oid statusCheckRollup{ state } } } }
   }}
   projectItems(first:20){ nodes{
-    project{ number }
-    fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue{ name color updatedAt } }
+    project{ number owner{ ... on Organization{ login } ... on User{ login } } field(name:$status){ __typename } }
+    fieldValueByName(name:$status){ ... on ProjectV2ItemFieldSingleSelectValue{ name color updatedAt } }
   }}`;
 
 export const ASSIGNED_ISSUES_QUERY = `
-query($cards:String!, $all:String!, $after:String){
+query($cards:String!, $all:String!, $status:String!, $after:String){
   cards: search(query:$cards, type:ISSUE, first:100, after:$after){
     issueCount
     pageInfo{ hasNextPage endCursor }
@@ -32,7 +31,7 @@ query($cards:String!, $all:String!, $after:String){
 
 /** Read issues absent from the assigned search with the same card fields. */
 export const ISSUE_BY_NUMBER_QUERY = `
-query($owner:String!, $name:String!, $number:Int!){
+query($owner:String!, $name:String!, $number:Int!, $status:String!){
   repository(owner:$owner, name:$name){
     issue(number:$number){${ISSUE_FIELDS}
     }
@@ -56,7 +55,7 @@ query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
         __typename
         ... on AssignedEvent{ createdAt actor{ login ...profile } assignee{ ... on User{ login } } }
         ... on UnassignedEvent{ createdAt actor{ login ...profile } assignee{ ... on User{ login } } }
-        ... on ProjectV2ItemStatusChangedEvent{ createdAt actor{ login ...profile } previousStatus status project{ number } }
+        ... on ProjectV2ItemStatusChangedEvent{ createdAt actor{ login ...profile } previousStatus status project{ number owner{ ... on Organization{ login } ... on User{ login } } } }
       }}
     }
     pullRequest(number:$pr) @include(if:$withPr){
