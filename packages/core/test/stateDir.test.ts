@@ -1,5 +1,8 @@
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { MIGRATION_STALE_MS, formatStatePointer, parseStatePointer, resolveStateDir, statePointerPathOf } from '../src/stateDir.js';
+import { MIGRATION_STALE_MS, formatStatePointer, parseStatePointer, readPointerFromDisk, resolveStateDir, statePointerPathOf } from '../src/stateDir.js';
 
 const HOME = 'C:\\Users\\dev';
 const BOOTSTRAP = 'C:/Users/dev/.claude/ground-control';
@@ -35,6 +38,24 @@ describe('the state pointer', () => {
     ['a missing field', '{"dir":"E:/state"}', 'state-dir.json is not a usable state pointer.'],
   ])('ignores a pointer with %s and says why', (_case, text, problem) => {
     expect(resolveStateDir(HOME, reader(text), NOW)).toEqual({ stateDir: BOOTSTRAP, migratingTo: null, interruptedTo: null, problem });
+  });
+
+  it('reports an existing but unreadable pointer instead of treating the bootstrap directory as current', () => {
+    const unreadable = (path: string) => (path === statePointerPathOf(HOME) ? { unreadable: 'EACCES: permission denied' } : null);
+
+    expect(resolveStateDir(HOME, unreadable, NOW)).toEqual({ stateDir: BOOTSTRAP, migratingTo: null, interruptedTo: null, problem: 'state-dir.json exists but cannot be read: EACCES: permission denied' });
+  });
+
+  it('reads a pointer from disk, telling a missing file from a directory in its place', () => {
+    const home = mkdtempSync(join(tmpdir(), 'gc-pointer-'));
+
+    expect(readPointerFromDisk(statePointerPathOf(home))).toBeNull();
+
+    mkdirSync(statePointerPathOf(home), { recursive: true });
+    expect(readPointerFromDisk(statePointerPathOf(home))).toMatchObject({ unreadable: expect.stringContaining('EISDIR') });
+    expect(resolveStateDir(home, undefined, NOW).problem).toContain('exists but cannot be read');
+
+    rmSync(home, { recursive: true, force: true });
   });
 
   it('reports a fresh migration as in progress and a stale one as interrupted', () => {

@@ -1,6 +1,5 @@
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { readTextFromDisk } from './machine.js';
-import type { ReadText } from './machine.js';
 import { bootstrapDirOf, isAbsolute, join, normalize } from './paths.js';
 
 /** Pointer in the bootstrap directory naming the state directory. Absent means the bootstrap directory itself. */
@@ -59,16 +58,30 @@ export function formatStatePointer(pointer: StatePointer): string {
   return `${JSON.stringify(pointer, null, 2)}\n`;
 }
 
+/** Pointer text, null when no pointer exists, or why an existing pointer could not be read. */
+export type ReadPointer = (path: string) => string | null | { unreadable: string };
+
+export const readPointerFromDisk: ReadPointer = (path) => {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+
+    return code === 'ENOENT' || code === 'ENOTDIR' ? null : { unreadable: (error as Error).message };
+  }
+};
+
 /** Resolve the state directory for a home from its pointer, defaulting to the bootstrap directory. */
-export function resolveStateDir(home: string, readText: ReadText = readTextFromDisk, now: number = Date.now()): ResolvedStateDir {
+export function resolveStateDir(home: string, readPointer: ReadPointer = readPointerFromDisk, now: number = Date.now()): ResolvedStateDir {
   const fallback = bootstrapDirOf(home);
-  const text = readText(statePointerPathOf(home));
+  const text = readPointer(statePointerPathOf(home));
 
   if (text === null) {
     return { stateDir: fallback, migratingTo: null, interruptedTo: null, problem: null };
   }
 
-  const pointer = parseStatePointer(text);
+  // An unreadable pointer is not evidence that the bootstrap directory is current; callers refuse rather than guess.
+  const pointer = typeof text === 'string' ? parseStatePointer(text) : `${STATE_POINTER_FILE} exists but cannot be read: ${text.unreadable}`;
 
   if (typeof pointer === 'string') {
     return { stateDir: fallback, migratingTo: null, interruptedTo: null, problem: pointer };
