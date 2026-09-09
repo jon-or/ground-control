@@ -2,6 +2,8 @@
 import { PREFERENCES_KEY, parsePreferences, watchPreferences } from './preferences.js';
 
 const enabled = /** @type {HTMLInputElement} */ (document.getElementById('enabled'));
+const animations = /** @type {HTMLInputElement} */ (document.getElementById('animations'));
+const replaceAvatars = /** @type {HTMLInputElement} */ (document.getElementById('replaceAvatars'));
 const projects = /** @type {HTMLTextAreaElement} */ (document.getElementById('projects'));
 const error = /** @type {HTMLElement} */ (document.getElementById('error'));
 const status = /** @type {HTMLElement} */ (document.getElementById('status'));
@@ -11,6 +13,8 @@ document.getElementById('preferences')?.addEventListener('input', () => { edited
 watchPreferences(chrome.storage, (state) => {
   if (edited) return;
   enabled.checked = state.value?.enabled ?? false;
+  animations.checked = state.value?.animations ?? true;
+  replaceAvatars.checked = state.value?.replaceAvatars ?? true;
   projects.value = state.value?.projects.join('\n') ?? '';
   error.textContent = state.error ?? '';
   status.textContent = state.error ? 'Overlay access is paused until preferences are corrected.' : '';
@@ -18,7 +22,12 @@ watchPreferences(chrome.storage, (state) => {
 
 document.getElementById('preferences')?.addEventListener('submit', async (event) => {
   event.preventDefault();
-  const parsed = parsePreferences({ enabled: enabled.checked, projects: projects.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) });
+  const parsed = parsePreferences({
+    enabled: enabled.checked,
+    projects: projects.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+    animations: animations.checked,
+    replaceAvatars: replaceAvatars.checked,
+  });
   status.textContent = '';
   if (parsed.value === null) {
     error.textContent = 'Enter valid HTTPS GitHub project URLs, one per line.';

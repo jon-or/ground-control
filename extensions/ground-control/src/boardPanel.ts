@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { agentOfSession, basename, sessionOf } from '@ground-control/core';
 import type { BoardMessage, CardCheckout, ClientMessage, LaneId, Snapshot } from '@ground-control/core';
-import { readHubConfig, userDirOf } from './config.js';
+import { SECTION, readHubConfig, userDirOf } from './config.js';
 import { promptForLogins } from './identity.js';
 import { client } from './hubClient.js';
 import type { HubClient } from './hubClient.js';
@@ -155,6 +155,13 @@ export class BoardPanel {
     );
 
     this.#panel.onDidDispose(() => this.dispose(), undefined, this.#disposables);
+    this.#disposables.push(
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration(`${SECTION}.animations`)) {
+          this.#postPresentation();
+        }
+      }),
+    );
 
     this.#post({ type: 'loading' });
     this.#watchForBlank();
@@ -188,6 +195,7 @@ export class BoardPanel {
       case 'ready':
         this.#postLogs();
         this.#post({ type: 'showArchived', shown: this.#memento.get<boolean>(SHOW_ARCHIVED_KEY, false) });
+        this.#postPresentation();
 
         return;
 
@@ -433,6 +441,11 @@ export class BoardPanel {
 
   #postLogs(): void {
     this.#post({ type: 'logs', streaming: this.#client.streamingHubLog });
+  }
+
+  /** System reduced-motion still applies in the webview; this only adds the developer's own choice. */
+  #postPresentation(): void {
+    this.#post({ type: 'presentation', animations: vscode.workspace.getConfiguration(SECTION).get<boolean>('animations', true) });
   }
 
   #post(message: BoardMessage): void {

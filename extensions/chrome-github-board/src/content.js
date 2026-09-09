@@ -105,7 +105,7 @@
       try {
         syncPage();
         if (eligible() && replayed) {
-          overlay.paint(document, state, Date.now(), actions);
+          overlay.paint(document, state, Date.now(), actions, policy.presentationOf(preferences));
         } else {
           overlay.clear(document);
 

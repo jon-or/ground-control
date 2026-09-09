@@ -171,6 +171,17 @@ let streamingLogs = false;
 
 /** Archive visibility and count. Offer the toggle only when the archive contains cards. */
 let showArchived = false;
+/** Mirrors groundControl.animations; kept in webview state so a restored board does not flash the shimmer first. */
+let animations = true;
+
+/** The stylesheet repeats its reduced-motion rules under this attribute; the OS preference still applies on its own. */
+function applyMotion() {
+  if (animations) {
+    delete document.body.dataset.motion;
+  } else {
+    document.body.dataset.motion = 'reduced';
+  }
+}
 let archivedCount = 0;
 
 /** Build board actions with current toggle states. */
@@ -1690,7 +1701,7 @@ function draw(payload) {
     showArchived = false;
   }
 
-  vscode.setState({ payload, showArchived });
+  vscode.setState({ payload, showArchived, animations });
 
   const shown = payload.lanes.filter((lane) => lane.id !== 'archived' || showArchived);
 
@@ -1804,6 +1815,13 @@ window.addEventListener('message', (event) => {
     return;
   }
 
+  if (message.type === 'presentation') {
+    animations = message.animations !== false;
+    applyMotion();
+    vscode.setState({ payload: board, showArchived, animations });
+    return;
+  }
+
   if (message.type === 'showArchived') {
     showArchived = message.shown === true;
 
@@ -1858,6 +1876,8 @@ paintLogs(false);
 
 // Read before the payload guard: a stored board too old to draw does not make the developer's Archived choice stale.
 showArchived = restored?.showArchived === true;
+animations = restored?.animations !== false;
+applyMotion();
 
 if (isCurrentPayload(restored?.payload)) {
   render(restored.payload);

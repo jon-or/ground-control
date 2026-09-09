@@ -56,6 +56,8 @@ These application settings configure the shared hub for both clients; Chrome has
 
 `avatar` chooses whose face a card shows in both clients: `review-author` (default) shows the selected pull request's author while the status is mapped to the Review lane and the assignee otherwise; `assignee` always shows the assignee, preferring your configured identity.
 
+`animations` (default true) animates working borders, running session names, and tooltips on the editor board; off keeps the static dashed working border, state marks, and accessible names. The system reduced-motion preference disables animation regardless. In Chrome the same choice, and whether the overlay replaces GitHub's assignee avatars with the pull request author in review, live in **Overlay settings**, because Chrome has no shared settings and GitHub owns the DOM being restored.
+
 `statusLanes` maps project statuses to initial lanes and informs triage. A `build` mapping takes precedence over your open PR; your open PR takes precedence over other mappings. Manual placement persists until the card leaves your active work and returns. See [arrival rules](docs/prd.md#r8-arrival-and-manual-placement).
 
 ### Session settings

@@ -185,11 +185,14 @@ it('saves accessible options, rejects invalid URLs, and preserves disabled start
   await expect.poll(() => settings.getByRole('alert').textContent()).toMatch(/GitHub|github|project|URL/);
   expect(await worker.evaluate('chrome.storage.local.get("preferences").then(held => held.preferences)')).toBeUndefined();
   await settings.getByLabel('Allowed project URLs', { exact: true }).fill('https://github.com/orgs/EXAMPLE-ORG/projects/3/views/2?filter=test');
+  expect(await settings.getByLabel(/Animate working borders/).isChecked()).toBe(true);
+  expect(await settings.getByLabel(/Replace assignee avatars/).isChecked()).toBe(true);
+  await settings.getByLabel(/Replace assignee avatars/).uncheck();
   await settings.getByLabel('Enable overlay', { exact: true }).uncheck();
   await settings.getByRole('button', { name: 'Save', exact: true }).click();
   await shown(board, false);
   expect(await worker.evaluate('chrome.storage.local.get("preferences").then(held => held.preferences)'))
-    .toEqual({ enabled: false, projects: [BOARD] });
+    .toEqual({ enabled: false, projects: [BOARD], animations: true, replaceAvatars: false });
 
   await context.close();
   await launch();
@@ -200,6 +203,7 @@ it('saves accessible options, rejects invalid URLs, and preserves disabled start
   const restored = await options();
   expect(await restored.getByLabel('Enable overlay', { exact: true }).isChecked()).toBe(false);
   expect(await restored.getByLabel('Allowed project URLs', { exact: true }).inputValue()).toBe(BOARD);
+  expect(await restored.getByLabel(/Replace assignee avatars/).isChecked()).toBe(false);
 });
 
 it('matches exact projects across open tabs and soft navigation without delivering private data to other projects', async () => {

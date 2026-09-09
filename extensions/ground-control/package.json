@@ -180,12 +180,19 @@
             "order": 3,
             "markdownDescription": "Whose avatar a card shows, in both clients."
           },
+          "groundControl.animations": {
+            "scope": "application",
+            "type": "boolean",
+            "default": true,
+            "order": 4,
+            "markdownDescription": "Animate working borders, running session names, and tooltips on the editor board. The system reduced-motion preference disables them regardless."
+          },
           "groundControl.refreshIntervalSeconds": {
             "scope": "application",
             "type": "number",
             "default": 300,
             "minimum": 30,
-            "order": 4,
+            "order": 5,
             "markdownDescription": "Seconds between issue refreshes while a board is visible."
           }
         }

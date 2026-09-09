@@ -105,7 +105,7 @@ Issue and pull-request controls open URLs resolved from source data. A guessed i
 | Live session working, with neither attention condition | Dashed working border, no attention tint |
 | Agent explicitly reports the session finished | No session attention |
 
-Attention uses the card border, a tint, and the responsible row's state mark. Working borders animate; reduced motion retains a static dashed border. Activity changes do not reorder cards.
+Attention uses the card border, a tint, and the responsible row's state mark. Working borders animate; reduced motion, from the system preference or the editor's `animations` setting, retains a static dashed border. Activity changes do not reorder cards.
 
 Implementation gap: the idle-attention branch does not exclude explicitly finished sessions. A finished session with idle activity can still produce Your turn outside Done, Icebox, and Archived. The intended rule is no session attention after an explicit finish.
 
@@ -386,7 +386,7 @@ A newly visible board receives cached issues if the previous source read is less
 
 On supported GitHub project pages, add triage and session rows inside matching issue cards, with the same names, phases, durations, attention, and open/attach behavior as the editor board. Preserve GitHub's card controls and drag behavior. Offer local lane moves without changing GitHub status.
 
-Browser-local overlay enablement defaults to true; an empty project allowlist permits all supported project roots and view pages. Match owner kind, owner, and project number exactly, ignoring owner case and view selection. Persist preferences in extension-owned durable storage. Invalid or unreadable preferences refuse access until corrected.
+Browser-local overlay enablement defaults to true; an empty project allowlist permits all supported project roots and view pages. Animation and assignee-avatar replacement are browser-local preferences too, defaulting on; the editor's `animations` setting is per user. This host difference is intentional: Chrome has no shared settings, and GitHub owns the DOM that replacement alters. Turning replacement off restores GitHub's figure and role on open boards; turning animation off keeps the static working border, state marks, and accessible names, and the system reduced-motion preference applies regardless. Match owner kind, owner, and project number exactly, ignoring owner case and view selection. Persist preferences in extension-owned durable storage. Invalid or unreadable preferences refuse access until corrected.
 
 Only enabled, allowed, visible project tabs count as watched boards. Ordinary GitHub pages and disabled/disallowed projects receive no snapshots or logs and do not open or retain a hub connection. Hidden allowed project tabs retain their connection and requested logs, but do not enable polling or automatic work. Recompute eligibility and visibility on preference changes, navigation, and reconnect. Immediately restore modified GitHub DOM and stop log subscriptions when eligibility ends, including hidden tabs. Reject stale deliveries from prior page or preference state.
 

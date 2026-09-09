@@ -40,6 +40,12 @@ const TIP_ATTR = 'data-gc-tip';
 
 /** Mark replaced assignee figures so later scans can restore them. */
 const ACTOR_ATTR = 'data-gc-actor';
+/** Set on the document root while the overlay preference turns animation off. */
+const MOTION_ATTR = 'data-gc-motion';
+
+/** @typedef {import('./preferences.js').Presentation} Presentation */
+/** @type {Presentation} */
+const DEFAULT_PRESENTATION = { animations: true, replaceAvatars: true };
 
 /**
  * Store the timestamp for each displayed duration so one timer updates all ages. Both clients use the same
@@ -268,12 +274,16 @@ ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-dot {
 ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   --gc-dot: var(--fgColor-accent, #0969da); }
 
-/* Keep the running indicator visible with animation disabled. */
+/* Keep the running indicator visible with animation disabled, by OS preference or by the overlay preference. */
 @media (prefers-reduced-motion: reduce) {
   .gc-session[data-phase="running"] .gc-name {
     background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
   ${CARD}[${ATTENTION_ATTR}="running"] { animation: none; }
 }
+[${MOTION_ATTR}="reduced"] .gc-session[data-phase="running"] .gc-name {
+  background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
+[${MOTION_ATTR}="reduced"] ${CARD}[${ATTENTION_ATTR}="running"] { animation: none; }
+[${MOTION_ATTR}="reduced"] .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
 
 /* Restore text color when forced colors suppress the gradient. */
 @media (forced-colors: active) {
@@ -335,6 +345,7 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${TIP_ID}[data-open="true"] { display: block; animation: gc-tip-appear 0.1s ease-out; }
 @keyframes gc-tip-appear { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #${TIP_ID}[data-open="true"] { animation: none; } }
+[${MOTION_ATTR}="reduced"] #${TIP_ID}[data-open="true"] { animation: none; }
 #${TOASTS_ID} { position: fixed; left: 16px; bottom: 16px; z-index: 200; display: flex; flex-direction: column;
   gap: 8px; max-width: 420px; }
 #${TOASTS_ID} .gc-toast { display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; border-radius: 6px;
@@ -2230,6 +2241,7 @@ function logLine(doc, entry) {
  */
 export function clear(doc) {
   removeTips();
+  doc.documentElement.removeAttribute(MOTION_ATTR);
   openMenu = null;
   panelOpen = false;
   logOpen = false;
@@ -2356,7 +2368,7 @@ function syncActivity(badge, card, now) {
  * @param {string} sig
  * @returns {Element | null} the footer to keep, or null to rebuild
  */
-function keptBadge(element, card, sig) {
+function keptBadge(element, card, sig, replaceAvatars = true) {
   const held = drawn.get(element);
   const box = element.firstElementChild ?? element;
 
@@ -2365,10 +2377,12 @@ function keptBadge(element, card, sig) {
   }
 
   const actor = card.issue?.avatar;
+  const stack = assigneeStackOf(element);
+  const replaced = stack?.querySelector(`.${ACTOR_CLASS}`) != null;
 
   // Check the avatar slot: GitHub can replace it while leaving the attribute that hides original assignees,
-  // producing a blank area.
-  if (actor?.source === 'pull-request' && assigneeStackOf(element)?.querySelector(`.${ACTOR_CLASS}`) == null) {
+  // producing a blank area. A replacement the preference no longer wants is rebuilt so GitHub's figure comes back.
+  if (replaceAvatars ? actor?.source === 'pull-request' && !replaced : replaced || stack?.hasAttribute(ACTOR_ATTR) === true) {
     return null;
   }
 
@@ -2382,12 +2396,19 @@ function keptBadge(element, card, sig) {
  * @param {State} state
  * @param {number} now
  * @param {Actions} actions
+ * @param {Presentation} presentation
  * @returns {{ scanned: number, badges: number, menu: boolean }}
  */
-export function paint(doc, state, now, actions) {
+export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTATION) {
   ensureStyle(doc);
   ensureTips(doc);
   repaintNow = actions.repaint;
+
+  if (presentation.animations) {
+    doc.documentElement.removeAttribute(MOTION_ATTR);
+  } else {
+    doc.documentElement.setAttribute(MOTION_ATTR, 'reduced');
+  }
 
   // Remove previous lane menus before rendering because their cards may have disappeared. Keep the unchanged
   // board menu inside #gc-menu.
@@ -2422,7 +2443,7 @@ export function paint(doc, state, now, actions) {
     const card = ref === null ? undefined : index?.byRef.get(`${ref.repo}#${ref.number}`) ?? index?.byNumber.get(ref.number);
     const sig = card === undefined ? null : badgeSignature(card, openable);
     // Rebuild the card with an open lane menu because renderBadge must recreate the menu removed above.
-    const kept = card === undefined || sig === null || openMenu === card.key ? null : keptBadge(element, card, sig);
+    const kept = card === undefined || sig === null || openMenu === card.key ? null : keptBadge(element, card, sig, presentation.replaceAvatars);
 
     if (kept === null) {
       for (const stale of element.querySelectorAll(`.${BADGE_CLASS}, .${ACTOR_CLASS}`)) {
@@ -2459,7 +2480,10 @@ export function paint(doc, state, now, actions) {
       continue;
     }
 
-    renderActor(doc, element, card);
+    if (presentation.replaceAvatars) {
+      renderActor(doc, element, card);
+    }
+
     open.push(...renderBadge(doc, element, card, now, actions, openable));
     drawn.set(element, { sig: /** @type {string} */ (sig), badge: element.querySelector(`.${BADGE_CLASS}`) ?? element });
 

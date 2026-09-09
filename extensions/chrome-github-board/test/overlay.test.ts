@@ -253,6 +253,34 @@ describe('swapping the assignee for the pull request author', () => {
     expect(stack.getAttribute('role')).toBe('presentation');
   });
 
+  /** The browser preference is the developer's; GitHub's own figure, role and caption come back when it is off. */
+  it('restores the assignee figure when replacement is turned off, and never replaces while it stays off', () => {
+    const presentation = { animations: true, replaceAvatars: false };
+
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+    expect(document.querySelector('.gc-actor')).not.toBeNull();
+
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions, presentation);
+
+    const stack = assigneeStackOf(cardElement(4501))!;
+
+    expect(document.querySelector('.gc-actor')).toBeNull();
+    expect(stack.hasAttribute('data-gc-actor')).toBe(false);
+    expect(stack.getAttribute('role')).not.toBe('presentation');
+    expect(getComputedStyle(stack.querySelector<HTMLElement>('[data-component="AvatarStack"]')!).display).not.toBe('none');
+
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions, presentation);
+    expect(document.querySelector('.gc-actor')).toBeNull();
+  });
+
+  it('marks the page for reduced motion while the preference is off and clears it when it returns', () => {
+    paint(document, state(), NOW, actions, { animations: false, replaceAvatars: true });
+    expect(document.documentElement.getAttribute('data-gc-motion')).toBe('reduced');
+
+    paint(document, state(), NOW, actions, { animations: true, replaceAvatars: true });
+    expect(document.documentElement.hasAttribute('data-gc-motion')).toBe(false);
+  });
+
   it("leaves the assignees alone where the hub picked the issue's own assignee", () => {
     paint(document, state({ snapshot: laneOf(actorCard(4501, ASSIGNEE)) }), NOW, actions);
 

@@ -760,7 +760,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   --gc-dot: var(--vscode-charts-blue);
 }
 
-/* Keep the running indicator visible with animation disabled. */
+/* Keep the running indicator visible with animation disabled, by OS preference or by groundControl.animations. */
 @media (prefers-reduced-motion: reduce) {
   .card[data-attention='running'],
   .card[data-attention='running']:hover {
@@ -772,6 +772,17 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
     color: var(--vscode-foreground);
     animation-name: none;
   }
+}
+
+body[data-motion='reduced'] .card[data-attention='running'],
+body[data-motion='reduced'] .card[data-attention='running']:hover {
+  animation: none;
+}
+
+body[data-motion='reduced'] .session[data-phase='running'] .session-label {
+  background-image: none;
+  color: var(--vscode-foreground);
+  animation-name: none;
 }
 
 /* Restore readable text when forced colors suppress the gradient and leave its text transparent. */
@@ -1098,6 +1109,11 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   }
 }
 
+body[data-motion='reduced'] .badge.triage-running {
+  animation: none;
+  opacity: 0.7;
+}
+
 /* A card the board tried and could not read. No words about why — that is one line above the lanes (R25). */
 .badge.triage-failed {
   border-style: dashed;
@@ -1144,4 +1160,8 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   #tip[data-open='true'] {
     animation: none;
   }
+}
+
+body[data-motion='reduced'] #tip[data-open='true'] {
+  animation: none;
 }

@@ -17,6 +17,8 @@ Open **Overlay settings** from the overlay menu, or **Extension options** from C
 
 Preferences use durable extension storage and apply across open tabs immediately. Disabled or disallowed pages remove the overlay, restore GitHub's header and assignee display, stop logs, and do not count as watchers or retain a hub connection. Hidden allowed project tabs can retain requested logs but do not start hub polling or automatic work. Invalid or unreadable preferences pause access until corrected.
 
+**Animate working borders and session names** (default on) and **Replace assignee avatars with the pull request author in review** (default on) are browser-local presentation choices. Turning replacement off restores GitHub's assignee figure on open boards; turning animation off keeps the static dashed working border and accessible names. The system reduced-motion preference applies regardless.
+
 **Open shared settings in VS Code** links to the editor settings used by both clients. The browser options page changes only browser preferences; it cannot configure the hub or dispatch work.
 
 ## Implementation

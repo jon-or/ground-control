@@ -242,7 +242,7 @@ describe('board webview', () => {
     const image = avatar.querySelector<HTMLImageElement>('img')!;
     const renderedSession = card.querySelector<HTMLElement>('.session')!;
 
-    expect(api.setState).toHaveBeenCalledWith({ payload, showArchived: false });
+    expect(api.setState).toHaveBeenCalledWith({ payload, showArchived: false, animations: true });
     expect(card.querySelector('.status')?.textContent).toBe('Dev Review');
     expect(card.querySelector('.type')?.textContent).toBe('Bug');
     // Nothing on hover: a chip that is its own whole fact has nothing left to say when it is pointed at.
@@ -841,6 +841,22 @@ describe('reported activity', () => {
 
     // jsdom leaves an unanimated element's animation-name empty rather than at its 'none' initial value.
     expect(names.map((style) => style.animationName)).toEqual(['gc-shimmer', '', '']);
+  });
+
+  /** With animation off the running row keeps its phase and name; only the shimmer goes (R6). */
+  it('stops the shimmer when the developer turns animations off, and keeps the running row readable', () => {
+    send({ type: 'presentation', animations: false });
+
+    const card = sendCard([withPhase('running', Date.now(), { sessionId: 's-run' })]);
+    const row = card.querySelector<HTMLElement>('.session')!;
+
+    expect(document.body.dataset.motion).toBe('reduced');
+    expect(row.dataset.phase).toBe('running');
+    expect(getComputedStyle(row.querySelector('.session-label')!).animationName).toBe('none');
+    expect(row.querySelector('.session-label')?.textContent?.trim()).not.toBe('');
+
+    send({ type: 'presentation', animations: true });
+    expect(document.body.dataset.motion).toBeUndefined();
   });
 
   /** Show attention on the card border and relevant session dot, without a duplicate attention chip (R6). */

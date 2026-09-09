@@ -110,4 +110,6 @@ export type BoardMessage =
   | { type: 'logs'; streaming: boolean }
   // Persistent archive visibility from the extension, retained across webview closure.
   | { type: 'showArchived'; shown: boolean }
+  // Editor presentation settings; the webview mirrors them as body data attributes for the stylesheet.
+  | { type: 'presentation'; animations: boolean }
   | SnapshotMessage;
