@@ -62,7 +62,7 @@ export function makeClaudeDispatcher(runText: ExecText) {
       const remedy =
         outcome.reason === 'missing' || outcome.reason === 'not-executable'
           ? 'Check groundControl.agents, or turn the action off in Settings.'
-          : 'Nothing was started. The card keeps its reading; run the action again to retry.';
+          : 'The triage result is retained. Run the action again to retry.';
 
       return { failure: failure(`dispatch-${outcome.reason}`, `${CLAUDE_DISPLAY_NAME} could not start this work: ${outcome.detail}`, remedy) };
     }
@@ -73,8 +73,8 @@ export function makeClaudeDispatcher(runText: ExecText) {
       return {
         failure: failure(
           'dispatch-unreadable',
-          `${CLAUDE_DISPLAY_NAME} started the work but did not say which session it is.`,
-          `Run \`${input.path} agents\` to find it — the board cannot follow or stop a session it was not told the id of.`,
+          `${CLAUDE_DISPLAY_NAME} started work without returning a session ID.`,
+          `Run \`${input.path} agents\` to find the session. Ground Control cannot track or stop it without its ID.`,
         ),
       };
     }

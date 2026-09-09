@@ -62,5 +62,5 @@ export function stagedUpdate(execPath: string, appRoot: string): StagedUpdate | 
 export function stagedUpdateRefusal(staged: StagedUpdate, running: string): string {
   const version = staged.version ?? 'a newer build';
 
-  return `VS Code has ${version} staged and these windows still run ${running}. Opening another window now would start a second VS Code and reopen every window you have. Restart VS Code first.`;
+  return `Restart VS Code before opening another window. This window runs ${running}; the staged update is ${version}. Opening another window could start a second VS Code instance and reopen all windows.`;
 }

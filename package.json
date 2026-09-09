@@ -2,7 +2,7 @@
   "name": "ground-control-root",
   "private": true,
   "version": "0.0.0",
-  "description": "One board for the GitHub issues you own and the Claude Code sessions running on your machine.",
+  "description": "Assigned GitHub issues and local Claude Code and Codex sessions.",
   "engines": {
     "node": ">=20"
   },

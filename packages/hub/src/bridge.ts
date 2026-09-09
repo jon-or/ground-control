@@ -82,7 +82,7 @@ function isLane(value: unknown): value is LaneId {
 
 export function bridgeAction(raw: unknown): BridgeAction {
   if (typeof raw !== 'object' || raw === null) {
-    return { refused: 'The overlay sent something that is not a message.' };
+    return { refused: 'Invalid overlay message.' };
   }
 
   const message = raw as { type?: unknown; key?: unknown; lane?: unknown; watching?: unknown };
@@ -107,12 +107,12 @@ export function bridgeAction(raw: unknown): BridgeAction {
   }
 
   if (message.type === 'open') {
-    return { refused: 'The browser board goes to a session by opening its link, not by asking the hub.' };
+    return { refused: 'Open sessions through their links in the overlay.' };
   }
 
   // The overlay neither controls card actions nor renders their outcomes (R39).
   if (message.type === 'runAction' || message.type === 'stopAction') {
-    return { refused: 'Starting and stopping work on a card is the editor board’s, not the browser’s.' };
+    return { refused: 'Start or stop card actions in VS Code.' };
   }
 
   // The card and nothing else: the hub resolves the directory, so there is nothing here a page could point at a
@@ -126,11 +126,11 @@ export function bridgeAction(raw: unknown): BridgeAction {
   // Both by name. `setCheckout` is the one message carrying a filesystem path, which R41 keeps to the editor's own
   // picker; `startSession` runs an agent, which R42 keeps to the editor entirely.
   if (message.type === 'setCheckout') {
-    return { refused: 'Choosing the folder a card’s work happens in is the editor board’s, not the browser’s.' };
+    return { refused: 'Choose card checkouts in VS Code.' };
   }
 
   if (message.type === 'startSession') {
-    return { refused: 'Starting a session on a card is the editor board’s, not the browser’s.' };
+    return { refused: 'Start card sessions in VS Code.' };
   }
 
   return { refused: `The overlay may not send ${String(message.type)}.` };

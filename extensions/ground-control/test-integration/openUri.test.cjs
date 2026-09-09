@@ -77,7 +77,7 @@ describe('the link the browser board opens a session with', () => {
     await fire(`vscode://groundcontrol.ground-control/attach?session=${SESSION}`);
 
     await said(
-      (message) => message.includes('no longer on this machine'),
+      (message) => message.includes('This run is unavailable or does not support attaching.'),
       'the attach link did not reach the handler',
       30_000,
     );
@@ -97,7 +97,7 @@ describe('the link the browser board opens a session with', () => {
       await fire(uri);
 
       const message = await said(
-        (said_) => said_.includes('does not name a session'),
+        (said_) => said_.includes('Invalid or unsupported session link.'),
         `nothing was said about ${uri}`,
       );
 

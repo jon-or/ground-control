@@ -170,7 +170,7 @@ describe('the overlay as Chrome loads it', () => {
 
     // The worker cannot open its port to the bridge here. What the developer must see is that the badges are
     // missing because nothing answered — never a board that looks empty (R24, R25).
-    await expect.poll(() => toast.textContent(), { timeout: 20_000 }).toMatch(/Ground Control is not/);
+    await expect.poll(() => toast.textContent(), { timeout: 20_000 }).toMatch(/Ground Control is not registered with this browser/);
 
     expect(await page.locator('.gc-badge').count()).toBe(0);
     expect(await page.locator('[data-gc-issue]').count()).toBe(3);

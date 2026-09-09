@@ -37,20 +37,20 @@ function lastExit(home: string): string {
   const text = read(exitPathOf(home));
 
   if (text === null) {
-    return 'It left no reason behind, which is what a killed process leaves.';
+    return 'No exit reason recorded.';
   }
 
   try {
     const parsed = JSON.parse(text) as { reason?: unknown };
 
-    return typeof parsed.reason === 'string' ? `It last stopped because ${parsed.reason}.` : 'It left no reason behind.';
+    return typeof parsed.reason === 'string' ? `Last exit reason: ${parsed.reason}.` : 'No exit reason recorded.';
   } catch {
-    return 'It left no reason behind.';
+    return 'No exit reason recorded.';
   }
 }
 
 function tellThem(home: string, what: string): string {
-  return `${what} ${lastExit(home)} Its log is at ${logPathOf(home)}.`;
+  return `${what} ${lastExit(home)} Log: ${logPathOf(home)}.`;
 }
 
 /** Read the port recorded by a duplicate-instance startup refusal. */
@@ -67,13 +67,13 @@ function alsoRunning(home: string): string {
 
   return port === null
     ? ''
-    : ` The hub this window started stood down because one is already serving this home on port ${port}, so a hub is running that this window cannot reach.`;
+    : ` Another hub is already running for this home on port ${port}, but this window cannot connect to it.`;
 }
 
 /** Describe the final discovery failure and available recovery steps. Report a PID only when identity was verified. */
 function whatIsThere(home: string, miss: HubMiss): string {
   if (miss.why === 'no-record') {
-    return tellThem(home, 'The board started its background process and it never answered.');
+    return tellThem(home, 'The hub started but did not respond.');
   }
 
   // The port comes from the record in every case; the pid only where the listener proved it wrote that record.
@@ -83,10 +83,10 @@ function whatIsThere(home: string, miss: HubMiss): string {
 
   switch (miss.why) {
     case 'unreachable':
-      return tellThem(home, 'The board started its background process and it never recorded itself.');
+      return tellThem(home, 'Could not connect to the recorded hub.');
 
     case 'silent':
-      return `Something holds port ${held.port}, which is where this board's hub was, and will not answer this window. ${stop}${alsoRunning(home)}`;
+      return `The process on recorded hub port ${held.port} did not respond. ${stop}${alsoRunning(home)}`;
 
     case 'not-a-hub':
       return `Port ${held.port} answered, but not as Ground Control (HTTP ${miss.saw.status}${miss.saw.said === '' ? '' : `: ${miss.saw.said}`}), and ${hubJsonPathOf(home)} still names it. Stop that process, or delete that file, and open the board again.${alsoRunning(home)}`;
@@ -95,10 +95,10 @@ function whatIsThere(home: string, miss: HubMiss): string {
       return `The hub on port ${held.port} is tracking a different home, and this board cannot use it. ${stop}${alsoRunning(home)}`;
 
     case 'unproven':
-      return `Something is already serving this board's home on port ${held.port}, holding a token this window cannot verify. ${stop}${alsoRunning(home)}`;
+      return `Could not verify the authentication token for the hub on port ${held.port}. ${stop}${alsoRunning(home)}`;
 
     case 'another-protocol':
-      return `A Ground Control of another version is running (pid ${held.pid}, on port ${held.port}) and would not give up this machine. ${stop}`;
+      return `Another hub version is running (pid ${held.pid}, port ${held.port}) and did not stop. ${stop}`;
   }
 }
 
@@ -149,7 +149,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
       }
 
       if (!mayStart(now)) {
-        return { failed: tellThem(deps.home, 'The board keeps starting its background process and it keeps stopping.') };
+        return { failed: tellThem(deps.home, 'The hub repeatedly exited after starting.') };
       }
     }
 
@@ -158,7 +158,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
     try {
       deps.start();
     } catch (error) {
-      return { failed: `The board could not start its background process: ${String(error)}` };
+      return { failed: `Could not start the hub: ${String(error)}` };
     }
 
     // Bounded by the clock rather than by the sleeps it adds up: each look can spend its own deadline, and a port

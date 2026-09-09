@@ -195,7 +195,7 @@ export class IssueLookup {
 
   #record(key: string, card: IssueCard | null): void {
     this.#deps.store.write(withKnownIssue(this.#deps.store.read(), key, card, this.#deps.now()));
-    this.#deps.log.info(card === null ? `issue ${key} names no issue` : `issue ${key} read: ${card.title}`, 'issues');
+    this.#deps.log.info(card === null ? `issue ${key} not found` : `issue ${key} read: ${card.title}`, 'issues');
     this.#deps.changed();
   }
 }

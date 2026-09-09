@@ -97,7 +97,7 @@ export function makeCodexDispatcher(start: StartProcess, remember: (threadId: st
       return {
         failure: failure(
           'dispatch-refused',
-          `${CODEX_DISPLAY_NAME} cannot run work under the "${input.permissionMode}" permission mode: a run the board starts has nobody to answer its approval prompts, so it would fail at its first tool.`,
+          `${CODEX_DISPLAY_NAME} cannot use "${input.permissionMode}" for card actions because background runs cannot accept approval prompts.`,
           'Set groundControl.actions.permissionMode to "dontAsk", "plan" or "bypassPermissions" to let the board start Codex work, or run this card with Claude.',
         ),
       };
@@ -113,7 +113,7 @@ export function makeCodexDispatcher(start: StartProcess, remember: (threadId: st
       const remedy =
         started.failure.reason === 'missing' || started.failure.reason === 'not-executable'
           ? 'Check groundControl.agents, or turn the action off in Settings.'
-          : 'Nothing was started. The card keeps its reading; run the action again to retry.';
+          : 'The triage result is retained. Run the action again to retry.';
 
       return {
         failure: failure(
@@ -131,8 +131,8 @@ export function makeCodexDispatcher(start: StartProcess, remember: (threadId: st
       return {
         failure: failure(
           'dispatch-unreadable',
-          `${CODEX_DISPLAY_NAME} started the work but did not say which thread it is.`,
-          'The board cannot follow or stop a session it was not told the id of. Check the run in Codex, and stop it there.',
+          `${CODEX_DISPLAY_NAME} started work without returning a thread ID.`,
+          'Ground Control cannot track or stop the session without its ID. Check and stop the run in Codex.',
         ),
       };
     }

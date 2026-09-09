@@ -40,7 +40,7 @@ export class HubClient {
       log: (level, message) => boardLog()[level](message),
       onTrouble: (message) => {
         if (message === null) {
-          boardLog().info('the hub is reachable again');
+          boardLog().info('hub connection restored');
 
           return;
         }
@@ -134,7 +134,7 @@ export class HubClient {
     // hello is the channel's first content rather than a repeat of anything.
     if (this.#watchingLog) {
       if (this.#hubLines > 0) {
-        hubLog().appendLine('--- reconnected; what follows is the log again from the top ---');
+        hubLog().appendLine('--- reconnected; replaying recent hub logs ---');
       }
 
       this.#transport.send({ type: 'watchLog', watching: true });
@@ -152,10 +152,10 @@ export class HubClient {
     // The channel keeps whatever it already holds, so the line is what tells a developer that the lines above it
     // are the last there will be. Nothing else marks it: an unsubscribed channel and a quiet hub look the same.
     if (!watching) {
-      hubLog().appendLine('--- this window stopped reading the hub’s log ---');
+      hubLog().appendLine('--- hub log streaming stopped ---');
     }
 
-    boardLog().info(watching ? 'reading the hub’s log' : 'stopped reading the hub’s log');
+    boardLog().info(watching ? 'hub log streaming started' : 'hub log streaming stopped');
     this.#streaming.fire(watching);
 
     return watching;

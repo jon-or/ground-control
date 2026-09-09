@@ -168,7 +168,7 @@ describe('trustFailure', () => {
     expect(failure?.subject).toBe('codex');
     expect(failure?.message).toContain("the board's session hooks");
     expect(failure?.message).toContain('Codex stopped before it answered');
-    expect(failure?.remedy).toContain('accept the hooks');
+    expect(failure?.remedy).toContain('approve the Ground Control hooks');
   });
 
   /** Codex arms trust per entry, and a trusted SessionEnd is what takes a finished session off the board. */

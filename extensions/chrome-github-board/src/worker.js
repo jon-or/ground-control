@@ -27,7 +27,7 @@ let native = null;
 let last = null;
 
 /** Where every tab starts, and where the worker returns when the last board closes and it drops the native port. */
-const UNANSWERED = 'Ground Control has not answered yet.';
+const UNANSWERED = 'Waiting for the Ground Control hub.';
 
 /**
  * What the overlay's staleness line says now. One string rather than a message sent from each place that changes
@@ -37,7 +37,7 @@ let trouble = UNANSWERED;
 
 function troubled(message) {
   trouble = message;
-  say(message === null ? 'info' : 'warn', message ?? 'the hub is answering again', 'native');
+  say(message === null ? 'info' : 'warn', message ?? 'hub connection restored', 'native');
   broadcast({ type: 'trouble', message });
 }
 
@@ -74,7 +74,7 @@ function toNative(message) {
   // has gone quiet, and a panel claiming the hub was told something while there was no port is the wrong answer to
   // the one question it exists for.
   if (native === null) {
-    say('warn', `nothing to send ${message?.type} to: there is no port to the hub`, 'native');
+    say('warn', `cannot send ${message?.type}: hub port disconnected`, 'native');
 
     return;
   }
@@ -134,7 +134,7 @@ function connectNative() {
 
   native.onDisconnect.addListener(() => {
     native = null;
-    troubled('Ground Control is not running. Enable the GitHub overlay from VS Code, or open the board there.');
+    troubled('Disconnected from Ground Control. Enable the GitHub overlay from VS Code, or open the board there.');
   });
 
   // A reopened port is a new bridge process and so a new client of the hub, which knows nothing about this browser.
@@ -145,7 +145,7 @@ function connectNative() {
   if (spool.watching()) {
     // Said before the ask, because what comes back is the whole tail of the file and most of it is already on
     // screen: a hundred lines repeating themselves with nothing between them reads as the hub looping.
-    say('info', 'asking the hub for its log again; what follows is the file from the top', 'logs');
+    say('info', 'resubscribing to hub logs; replaying recent entries', 'logs');
     toNative({ type: 'watchLog', watching: true });
   }
 }
@@ -178,7 +178,7 @@ function watchLog(port, open) {
   toNative({ type: 'watchLog', watching: tell });
   say(
     'info',
-    tell ? 'a log sidebar opened; the hub has been asked for its log' : 'the last log sidebar closed; the hub is not read',
+    tell ? 'log sidebar opened' : 'last log sidebar closed',
     'logs',
   );
 }
@@ -225,7 +225,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
     boards.delete(port);
     watchLog(port, false);
-    say('debug', `a board tab went; ${boards.size} open`, 'tabs');
+    say('debug', `board tab disconnected; ${boards.size} open`, 'tabs');
 
     // No board tab is looking, so nothing on this machine needs polling. The hub keeps its own half-hour before it
     // exits, so a tab reopened a minute later reaches the one that was already up (R35).

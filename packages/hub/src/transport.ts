@@ -108,7 +108,7 @@ export class HubTransport {
   }
 
   dispose(): void {
-    this.#say('info', 'closing this window’s connection');
+    this.#say('info', 'closing hub connection');
     this.#disposed = true;
     clearTimeout(this.#retry);
     this.#stream?.destroy();
@@ -249,7 +249,7 @@ export class HubTransport {
     }
 
     this.#retryMs = FIRST_RETRY_MS;
-    this.#say('info', `the hub accepted this window, with ${this.#pending.length} action(s) queued`);
+    this.#say('info', `hub connected; ${this.#pending.length} action(s) queued`);
     this.#trouble(null);
     this.#deps.afterHello();
 
@@ -293,7 +293,7 @@ export class HubTransport {
       return;
     }
 
-    this.#say('warn', `the stream went: ${why}`);
+    this.#say('warn', `hub stream disconnected: ${why}`);
     this.#stream?.destroy();
     this.#stream = undefined;
     this.#live = false;

@@ -29,7 +29,7 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   const home = homedir();
   const version = String((context.extension.packageJSON as { version?: unknown }).version ?? '0.0.0');
 
-  boardLog().info(`Ground Control ${version} activating against ${home}`);
+  boardLog().info(`Ground Control ${version} activating with home ${home}`);
   migrateLaneMemory(context.globalState, home);
 
   const bundle = bundlePathOf(home);
@@ -40,7 +40,7 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
     // Everything else in this window still works, and a hub already on disk from an earlier run still starts. What
     // must not happen is the commands, the board, and the settings listener going with it.
     boardLog().error(`could not write the hub to ${bundle}: ${String(error)}`);
-    void vscode.window.showErrorMessage(`The board could not write its background process to ${bundle}: ${String(error)}`);
+    void vscode.window.showErrorMessage(`Could not write the hub bundle to ${bundle}: ${String(error)}`);
   }
 
   // Connected on activation rather than when a board opens, because turning the signal off has to take effect with

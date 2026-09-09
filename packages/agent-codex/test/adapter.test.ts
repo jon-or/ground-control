@@ -109,7 +109,7 @@ describe('the Codex adapter', () => {
     await adapter.listSessions('codex', deps);
     await Promise.resolve();
 
-    expect((await adapter.listSessions('codex', deps)).failure?.message).toContain('could not read');
+    expect((await adapter.listSessions('codex', deps)).failure?.message).toContain('could not be read');
   });
 
   it('offers no classification, which is the one thing it cannot yet do', () => {

@@ -313,8 +313,8 @@ export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText 
             sessions: [],
             failure: failure(
               'bad-response',
-              `${CLAUDE_DISPLAY_NAME} answered \`agents --json\` with output that is not JSON: ${outcome.detail}`,
-              `Run \`${path} agents --json\` in a terminal to see the whole of it.`,
+              `${CLAUDE_DISPLAY_NAME} returned non-JSON output for \`agents --json\`: ${outcome.detail}`,
+              `Run \`${path} agents --json\` in a terminal to see the full output.`,
             ),
           };
         }

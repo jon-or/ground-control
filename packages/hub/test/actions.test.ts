@@ -453,15 +453,15 @@ describe('dispatching a card action', () => {
     watch(control);
     await control.pass();
 
-    const said = control.notices.filter((notice) => notice.includes('starting work on'));
+    const said = control.notices.filter((notice) => notice.includes('Started merge-upstream for'));
 
     expect(said).toHaveLength(1);
-    expect(said[0]).toContain('may push');
+    expect(said[0]).toContain('may edit and push');
     expect(said[0]).toContain('groundControl.actions');
 
     await control.pass(PAST_GATE);
 
-    expect(control.notices.filter((notice) => notice.includes('starting work on'))).toHaveLength(1);
+    expect(control.notices.filter((notice) => notice.includes('Started merge-upstream for'))).toHaveLength(1);
   });
 
   /** A notice spent on a run that never happened is the one notice the developer ever gets, spent on nothing. */
@@ -473,7 +473,7 @@ describe('dispatching a card action', () => {
     watch(control);
     await control.pass();
 
-    expect(control.notices.filter((notice) => notice.includes('starting work on'))).toEqual([]);
+    expect(control.notices.filter((notice) => notice.includes('Started merge-upstream for'))).toEqual([]);
   });
 
   /** The one rule that keeps a merge that halted from being started over on every pass. */
@@ -574,7 +574,7 @@ describe('what the board refuses to act on', () => {
     expect(control.dispatched).toEqual([]);
     expect(control.cardAction()).toMatchObject({
       state: 'refused',
-      reason: '#4021 merges into 17000-parent-feature, not master, so keeping it current is a chain.',
+      reason: '#4021 targets 17000-parent-feature. Merge-upstream requires the default branch, master.',
     });
   });
 
@@ -596,7 +596,7 @@ describe('what the board refuses to act on', () => {
     await control.settle();
 
     expect(control.dispatched).toEqual([]);
-    expect(control.notices).toContain('This card is not asking for a merge.');
+    expect(control.notices).toContain('This card has no merge-upstream action.');
   });
 
   it('refuses a card with no checkout, without spending a read to find that out', async () => {
@@ -611,7 +611,7 @@ describe('what the board refuses to act on', () => {
     expect(control.cardAction()).toEqual({
       state: 'refused',
       action: 'merge-upstream',
-      reason: 'The board has no checkout an agent has worked in for this card.',
+      reason: 'No checkout from a previous session is available for this card.',
     });
   });
 
@@ -643,7 +643,7 @@ describe('what the board refuses to act on', () => {
     expect(control.cardAction()).toEqual({
       state: 'refused',
       action: 'merge-upstream',
-      reason: 'The board has no checkout an agent has worked in for this card.',
+      reason: 'No checkout from a previous session is available for this card.',
     });
   });
 
@@ -758,7 +758,7 @@ describe('following a run to its end', () => {
     expect(control.dispatched).toEqual([]);
     expect(control.cardAction()).toMatchObject({
       state: 'refused',
-      reason: expect.stringContaining('could not tell a new run apart from the last one'),
+      reason: expect.stringContaining('Could not clear the previous result'),
     });
   });
 
@@ -863,7 +863,7 @@ describe('the developer asking by hand', () => {
     await control.settle();
 
     expect(control.dispatched).toHaveLength(1);
-    expect(control.notices).toContain('That card is already being worked on.');
+    expect(control.notices).toContain('A card action is already running.');
   });
 
   /**
@@ -881,7 +881,7 @@ describe('the developer asking by hand', () => {
     await control.settle();
 
     expect(control.notices).toContain(
-      '#4021 merges into 17000-parent-feature, not master, so keeping it current is a chain.',
+      '#4021 targets 17000-parent-feature. Merge-upstream requires the default branch, master.',
     );
     expect(control.dispatched).toEqual([]);
 

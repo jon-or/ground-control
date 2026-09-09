@@ -27,7 +27,7 @@ function classify(err: ExecFileException, stderr: string): Failure {
     return {
       kind: 'not-authenticated',
       message: 'GitHub rejected the credentials the CLI is using.',
-      remedy: 'Run `gh auth login` in a terminal — the login may have expired — then refresh the board.',
+      remedy: 'Run `gh auth login` in a terminal, then refresh the board.',
     };
   }
 
@@ -41,7 +41,7 @@ function classify(err: ExecFileException, stderr: string): Failure {
     return {
       kind: 'offline',
       message: 'GitHub could not be reached.',
-      remedy: 'The board is showing what it last read, and keeps trying on its own.',
+      remedy: 'Showing cached data when available. Retrying automatically.',
       transient: true,
     };
   }
@@ -52,7 +52,7 @@ function classify(err: ExecFileException, stderr: string): Failure {
     return {
       kind: 'timed-out',
       message: 'GitHub did not answer in time.',
-      remedy: 'The board is showing what it last read, and keeps trying on its own.',
+      remedy: 'Showing cached data when available. Retrying automatically.',
       transient: true,
     };
   }
@@ -86,7 +86,7 @@ function spawnGh(ghPath: string): GhRunner {
                   options.signal?.aborted === true
                     ? {
                         kind: 'query-failed',
-                        message: 'The read was stood down before it answered.',
+                        message: 'The request was cancelled.',
                         remedy: 'Refresh the board to try again.',
                       }
                     : classify(err, stderr),

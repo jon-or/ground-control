@@ -46,7 +46,7 @@ describe('which pages the overlay paints', () => {
 
 describe('what a message from the worker changes', () => {
   it('starts out saying nothing has answered', () => {
-    expect(initialState()).toEqual({ snapshot: null, trouble: 'Ground Control has not answered yet.', notice: null });
+    expect(initialState()).toEqual({ snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null });
   });
 
   it('takes a snapshot, and takes a change the same way', () => {
@@ -59,15 +59,15 @@ describe('what a message from the worker changes', () => {
    * tab that cleared the line on receiving one would show hours-old badges under a banner saying all was well (R24).
    */
   it('leaves the trouble line to the worker rather than clearing it on a snapshot', () => {
-    const troubled = applyMessage(initialState(), { type: 'trouble', message: 'Ground Control is not running.' });
+    const troubled = applyMessage(initialState(), { type: 'trouble', message: 'Disconnected from Ground Control.' });
     const after = applyMessage(troubled, { type: 'snapshot', snapshot: SNAPSHOT });
 
-    expect(after.trouble).toBe('Ground Control is not running.');
+    expect(after.trouble).toBe('Disconnected from Ground Control.');
     expect(after.snapshot).toBe(SNAPSHOT);
   });
 
   it('clears the trouble line when the worker says the hub answered', () => {
-    const troubled = applyMessage(initialState(), { type: 'trouble', message: 'Ground Control is not running.' });
+    const troubled = applyMessage(initialState(), { type: 'trouble', message: 'Disconnected from Ground Control.' });
 
     expect(applyMessage(troubled, { type: 'trouble', message: null }).trouble).toBeNull();
   });
@@ -110,7 +110,7 @@ describe('trying the worker again', () => {
   it('gives up and asks for a tab reload when the extension is what went away', () => {
     expect(disconnection({})).toEqual({
       retry: false,
-      trouble: 'Ground Control was reloaded. Reload this tab to bring the overlay back.',
+      trouble: 'Ground Control was reloaded. Reload this tab to restore the overlay.',
     });
     expect(disconnection(undefined).retry).toBe(false);
   });

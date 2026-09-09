@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "private": true,
   "publisher": "groundcontrol",
-  "description": "One board for the GitHub issues you own and the Claude Code sessions running on your machine.",
+  "description": "Assigned GitHub issues and local Claude Code and Codex sessions.",
   "engines": {
     "vscode": "^1.104.0"
   },
@@ -265,7 +265,7 @@
             "type": "boolean",
             "default": false,
             "order": 1,
-            "markdownDescription": "Automatically run the configured merge prompt when a card requests a merge upstream."
+            "markdownDescription": "Automatically run the configured merge prompt when triage identifies a request to merge upstream."
           },
           "groundControl.actions.merge-upstream.prompt": {
             "scope": "application",

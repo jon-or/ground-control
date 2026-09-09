@@ -69,7 +69,7 @@ export function makeClaudeClassifier(run: ExecJson) {
     const parsed = printResult.safeParse(outcome.value);
 
     if (!parsed.success) {
-      return { failure: failure('classify-unreadable', 'Claude Code answered in a shape the board does not read.', 'Refresh the board to try again.') };
+      return { failure: failure('classify-unreadable', 'Claude Code returned an unsupported response format.', 'Refresh the board to try again.') };
     }
 
     // The CLI reports its own trouble in the body rather than in an exit code — a usage limit reached mid-answer is a
@@ -79,7 +79,7 @@ export function makeClaudeClassifier(run: ExecJson) {
         failure: failure(
           'classify-refused',
           `Claude Code did not finish classifying this card${parsed.data.subtype ? ` (${parsed.data.subtype})` : ''}.`,
-          'Check groundControl.triage.model names a model Claude Code has. The card is left unread; its chip tries again.',
+          'Check Claude Code usage limits and groundControl.triage.model, then retry triage from the card in VS Code.',
         ),
       };
     }

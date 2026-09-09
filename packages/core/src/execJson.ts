@@ -103,7 +103,7 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
           // An abort and a timeout both arrive as a killed child, and they are different things to a caller: one is
           // the board standing a run down, the other is a CLI that would not answer.
           if (options.signal?.aborted === true) {
-            resolve({ ok: false, reason: 'aborted', detail: 'the run was stood down before it answered' });
+            resolve({ ok: false, reason: 'aborted', detail: 'command cancelled before completion' });
 
             return;
           }
@@ -164,7 +164,7 @@ export const runTextCli = async (path: string, args: string[], options: ExecOpti
 
   // Nothing is spawned for a run already stood down, so a queue drained on shutdown starts no process at all.
   if (options.signal?.aborted === true) {
-    return { ok: false, reason: 'aborted', detail: 'the run was stood down before it started' };
+    return { ok: false, reason: 'aborted', detail: 'command cancelled before starting' };
   }
 
   return spawn(resolved ?? path, args, options, resolved !== null);

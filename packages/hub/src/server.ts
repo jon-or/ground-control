@@ -305,7 +305,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
     if (refusals <= REFUSALS_PER_MINUTE) {
       deps.log.warn(`refused ${request.method ?? '?'} ${clipped(request.url ?? '?')}: ${detail}`, 'server');
     } else if (refusals === REFUSALS_PER_MINUTE + 1) {
-      deps.log.warn('refusing more than this log will carry; saying no more about it this minute', 'server');
+      deps.log.warn('request refusal log limit reached; suppressing further entries this minute', 'server');
     }
 
     refuse(response, status, message);

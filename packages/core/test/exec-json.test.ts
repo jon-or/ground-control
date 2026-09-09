@@ -124,7 +124,7 @@ describe('runJsonCli', () => {
       signal: AbortSignal.abort(),
     });
 
-    expect(outcome).toEqual({ ok: false, reason: 'aborted', detail: 'the run was stood down before it started' });
+    expect(outcome).toEqual({ ok: false, reason: 'aborted', detail: 'command cancelled before starting' });
   });
 
   it('tells a run it stood down from one that would not answer', async () => {
@@ -136,7 +136,7 @@ describe('runJsonCli', () => {
 
     setTimeout(() => controller.abort(), 50);
 
-    expect(await outcome).toEqual({ ok: false, reason: 'aborted', detail: 'the run was stood down before it answered' });
+    expect(await outcome).toEqual({ ok: false, reason: 'aborted', detail: 'command cancelled before completion' });
   });
 
   it('survives a path the platform will not accept at all', async () => {

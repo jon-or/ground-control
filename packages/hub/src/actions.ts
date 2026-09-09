@@ -127,7 +127,7 @@ export class ActionRunner {
           subject: 'action',
           kind: 'action-failed',
           message: `A card action could not be run: ${run.detail}`,
-          remedy: "The card keeps its reading. Use the card's action control to try again.",
+          remedy: "Use the card's action control to retry.",
         })),
     ];
   }
@@ -201,17 +201,17 @@ export class ActionRunner {
     const state = this.#deps.store.read();
 
     if (state.runs[key]?.outcome === 'running' || this.#inFlight.has(key)) {
-      return refusal('action-running', 'That card is already being worked on.');
+      return refusal('action-running', 'A card action is already running.');
     }
 
     if (this.#busy() >= this.#settings.concurrency) {
-      return refusal('action-busy', 'The board is already running as many card actions as it may at once.');
+      return refusal('action-busy', 'Concurrent card action limit reached.');
     }
 
     // A ceiling of zero is the board acting on nothing, which is not the developer being refused their own click —
     // that is the one configuration a cautious developer reaches for, and the setting says so in as many words.
     if (this.#settings.dailyLimit > 0 && dispatchesInWindow(state, this.#deps.now()) >= this.#settings.dailyLimit) {
-      return refusal('action-daily-limit', 'The board has started as many actions today as it is allowed.');
+      return refusal('action-daily-limit', 'Card action limit reached for the last 24 hours.');
     }
 
     void this.#run(key, lanes, true);
@@ -230,7 +230,7 @@ export class ActionRunner {
     const run = this.#deps.store.read().runs[key];
 
     if (run === undefined || run.outcome !== 'running') {
-      return refusal('action-not-running', 'Nothing is running on that card.');
+      return refusal('action-not-running', 'No action is running on this card.');
     }
 
     this.#inFlight.get(key)?.abort();
@@ -247,7 +247,7 @@ export class ActionRunner {
 
     // Held while the stop is out, so the settle pass does not decide this run's outcome from underneath it.
     this.#settling.add(key);
-    this.#deps.log.info(`${key}: asked to stop`, 'actions');
+    this.#deps.log.info(`${key}: stop requested`, 'actions');
 
     try {
       // The seam is public and may throw rather than answer. A throw escaping here is an unhandled rejection in the
@@ -258,7 +258,7 @@ export class ActionRunner {
           subject: 'action',
           kind: 'stop-crashed',
           message: `Stopping that session failed: ${error instanceof Error ? error.message : String(error)}`,
-          remedy: `Stop it from a terminal — the board has left it running.`,
+          remedy: `Stop the session from a terminal.`,
         }));
 
       if (failure === null) {
@@ -307,11 +307,11 @@ export class ActionRunner {
 
     // Refuse unattended actions while any session is already on the card (R39).
     if (card.sessions.length > 0) {
-      return 'Something is already working on this card.';
+      return 'This card has an active session.';
     }
 
     if (ranIn(card) === null) {
-      return 'The board has no checkout an agent has worked in for this card.';
+      return 'No checkout from a previous session is available for this card.';
     }
 
     return promptFor(action, this.#settings) === null
@@ -464,7 +464,7 @@ export class ActionRunner {
       const action = actionOf(card);
 
       if (action === null) {
-        this.#refuse(key, asked, { kind: 'not-a-merge', message: 'This card is not asking for a merge.' });
+        this.#refuse(key, asked, { kind: 'not-a-merge', message: 'This card has no merge-upstream action.' });
 
         return;
       }
@@ -502,7 +502,7 @@ export class ActionRunner {
       if (!asked && alreadyRun(this.#deps.store.read(), key, decision.plan.evidence)) {
         this.#refuse(key, asked, {
           kind: 'already-run',
-          message: 'The board has already run this action against this state of the card.',
+          message: 'This action already ran for the card’s current state.',
         });
 
         return;
@@ -535,7 +535,7 @@ export class ActionRunner {
     if (template === null) {
       this.#refuse(key, asked, {
         kind: 'no-prompt',
-        message: `No prompt is set for ${plan.action}, so the board has nothing to run.`,
+        message: `Set a prompt for ${plan.action} before starting it.`,
       });
 
       return;
@@ -546,7 +546,7 @@ export class ActionRunner {
     if (!clearReport(reportPath)) {
       this.#refuse(key, asked, {
         kind: 'report-unclearable',
-        message: `The board could not clear ${reportPath}, so it could not tell a new run apart from the last one.`,
+        message: `Could not clear the previous result at ${reportPath}. No new run was started.`,
       });
 
       return;
@@ -596,8 +596,8 @@ export class ActionRunner {
     // developer's code, and announcing it would spend the one notice they ever get on something that did not happen.
     if (!failed) {
       this.#deps.announce(
-        `Ground Control is starting work on #${plan.issueNumber}: ${plan.action} in ${plan.checkout}. ` +
-          'That runs an agent against your checkout and may push. Turn it off with groundControl.actions.',
+        `Started ${plan.action} for #${plan.issueNumber} in ${plan.checkout}. ` +
+          'The agent may edit and push changes. Disable future automatic runs in groundControl.actions.',
       );
     }
   }

@@ -60,8 +60,8 @@ describe('the GitHub entry in a pushed configuration', () => {
 
   /** A hub the browser started alone has been told nothing. That is not a developer who broke their settings. */
   it('says an entry nobody has filled in has not been filled in', () => {
-    expect(refusal({})).toBe('The board has not been told which repository your work is tracked in.');
-    expect(refusal(undefined)).toBe('The board has not been told which repository your work is tracked in.');
+    expect(refusal({})).toBe('No GitHub repository is configured.');
+    expect(refusal(undefined)).toBe('No GitHub repository is configured.');
   });
 
   /** How much of someone's GitHub one client may ask the hub for, which is why it is a bound and not a default. */
@@ -217,7 +217,7 @@ describe('a board nobody has named a repository for', () => {
     const outcome = readGithubConfig({ ghPath: 'gh', repo: '', logins: [], projectNumber: 3, cardSource: 'project', maxPages: 5 });
 
     expect('failure' in outcome && outcome.failure).toMatchObject({ kind: 'bad-config' });
-    expect('failure' in outcome && outcome.failure.message).toContain('has not been told which repository');
+    expect('failure' in outcome && outcome.failure.message).toContain('No GitHub repository is configured');
     expect('failure' in outcome && outcome.failure.remedy).toContain('groundControl.github.repo');
   });
 

@@ -139,7 +139,7 @@ function stopper(
       return Promise.resolve({
         subject: CODEX_AGENT_ID,
         kind: 'stop-unknown',
-        message: `The board did not start ${CODEX_DISPLAY_NAME} thread ${shortId}, so it did not stop it.`,
+        message: `Cannot stop ${CODEX_DISPLAY_NAME} thread ${shortId}: it was not started by Ground Control.`,
         remedy: 'Stop the session in Codex.',
       });
     }
@@ -150,7 +150,7 @@ function stopper(
       return Promise.resolve({
         subject: CODEX_AGENT_ID,
         kind: 'stop-unknown',
-        message: `The board does not know which process ${CODEX_DISPLAY_NAME} thread ${shortId} is running in, so it did not stop it.`,
+        message: `Cannot stop ${CODEX_DISPLAY_NAME} thread ${shortId}: process ID unknown.`,
         remedy: 'Refresh the board, and stop the session in Codex if it is still running.',
       });
     }
@@ -161,8 +161,8 @@ function stopper(
         : {
             subject: CODEX_AGENT_ID,
             kind: 'stop-failed',
-            message: `The board could not stop ${CODEX_DISPLAY_NAME} thread ${shortId}: nothing answered for process ${pid}.`,
-            remedy: 'The run may already have finished. Check it in Codex, and end the process yourself if it is still going.',
+            message: `Could not stop ${CODEX_DISPLAY_NAME} thread ${shortId}: process ${pid} did not respond.`,
+            remedy: 'Check the session in Codex. If it is still running, stop its process manually.',
           },
     );
   };

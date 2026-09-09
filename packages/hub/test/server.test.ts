@@ -602,7 +602,7 @@ describe('what a refusal leaves behind', () => {
     }
 
     expect(logged).toHaveLength(REFUSALS_PER_MINUTE + 1);
-    expect(logged.at(-1)).toContain('saying no more about it this minute');
+    expect(logged.at(-1)).toContain('suppressing further entries this minute');
   });
 
   it('keeps only enough of what it was sent to recognise it', async () => {

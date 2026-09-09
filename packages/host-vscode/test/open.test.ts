@@ -419,7 +419,7 @@ describe('resuming historical sessions', () => {
   });
   it('requires a complete inactive roster immediately before firing', () => {
     expect(resumeRefusal(live.sessionId, null)).toContain('Could not verify');
-    expect(resumeRefusal(live.sessionId, [live])).toContain('now active');
+    expect(resumeRefusal(live.sessionId, [live])).toContain('already active');
     expect(resumeRefusal(live.sessionId, [])).toBeNull();
     expect(resumeRefusal(live.sessionId, [{ ...live, finished: true }])).toBeNull();
     // A `--bg` run stays listed after its turn and its process keeps holding the conversation, so finished is not
@@ -539,7 +539,7 @@ describe('starting a session on a card', () => {
     const plan = ask({ workspaceRoot: 'd:/work/repo' });
 
     expect(refusalOf(plan)).toBe('checkout-elsewhere');
-    expect('message' in plan && plan.message).toContain('Open that checkout first');
+    expect('message' in plan && plan.message).toContain('in VS Code, then start the session from its board.');
   });
 
   it('refuses a start from a window with no folder at all, which is no checkout either', () => {

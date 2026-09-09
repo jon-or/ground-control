@@ -459,10 +459,10 @@ describe('the tooltip', () => {
 
     // The row is named rather than described: its words are on it, so a tooltip repeating them says it twice. What
     // it does not say — what the board saw — is the description, and it hangs from the state at the end of the row.
-    expect(row.getAttribute('aria-label')).toContain('go to this session in VS Code');
+    expect(row.getAttribute('aria-label')).toContain('open this session in VS Code');
     expect(row.hasAttribute('aria-description')).toBe(false);
     // The mark is named rather than described, so the described half of the row is the duration beside it.
-    expect(row.querySelector('.gc-state')!.getAttribute('aria-description')).toContain('Counts from the event');
+    expect(row.querySelector('.gc-state')!.getAttribute('aria-description')).toContain('Time since the phase was reported');
     expect(row.querySelector('.gc-dot')!.hasAttribute('aria-description')).toBe(false);
     // And nothing is wired up as the tooltip opens: GitHub's own cards carry `aria-describedby`, the overlay's do not.
     expect(document.querySelector(`[data-gc-tip][aria-describedby]`)).toBeNull();
@@ -850,11 +850,11 @@ describe('the footer on a card', () => {
     expect(chip.firstElementChild!.className).toBe('gc-dot');
     // Nothing on the row: its words are on it. What the board saw is on the state, which is the part that is not.
     expect(tipOf(chip)).toBe('');
-    expect(chip.getAttribute('aria-label')).toBe('Working on it — go to this session in VS Code.');
+    expect(chip.getAttribute('aria-label')).toBe('Working on it — open this session in VS Code.');
     // The phase is the mark's; the duration says only what it counts, or the row would say the same thing twice.
-    expect(tipOf(chip.querySelector('.gc-dot'))).toBe('This session is waiting on you.');
+    expect(tipOf(chip.querySelector('.gc-dot'))).toBe('Waiting for your input.');
     expect(tipOf(chip.querySelector('.gc-state'))).toBe(
-      'Counts from the event that reported the phase. Last seen at the PermissionRequest hook.',
+      'Time since the phase was reported. Last event: PermissionRequest.',
     );
     // 13, matching the mark the editor board draws at 13.6px - the two boards are read side by side.
     expect(chip.querySelector('svg.gc-agent-icon')!.getAttribute('width')).toBe('13');
@@ -866,7 +866,7 @@ describe('the footer on a card', () => {
    */
   it.each([
     ['running', false, 'var(--fgColor-success, #1a7f37)', 'running, open'],
-    ['waiting', false, 'var(--fgColor-attention, #9a6700)', 'needs you, open'],
+    ['waiting', false, 'var(--fgColor-attention, #9a6700)', 'waiting for input, open'],
     ['idle', false, '', 'idle, open'],
     ['idle', true, '', 'idle, ended'],
   ] as const)('marks a %s session, finished %s, in its own colour and fill', (phase, finished, colour, named) => {
@@ -908,10 +908,10 @@ describe('the footer on a card', () => {
    * other (`docs/testing.md`).
    */
   it.each([
-    ['running', false, 'This session is working.'],
-    ['waiting', false, 'This session is waiting on you.'],
-    ['idle', false, 'The board last saw this session finish.'],
-    ['idle', true, 'The board last saw this session finish. The agent has since ended it.'],
+    ['running', false, 'Turn in progress.'],
+    ['waiting', false, 'Waiting for your input.'],
+    ['idle', false, 'Last reported state: turn complete.'],
+    ['idle', true, 'Last reported state: turn complete. The session has since ended.'],
   ] as const)('says what the mark means for a %s session, finished %s', (phase, finished, said) => {
     paint(
       document,
@@ -930,7 +930,7 @@ describe('the footer on a card', () => {
   it('says the mark means nothing has reported, where nothing has', () => {
     paint(document, state({ snapshot: laneOf(card(4501, { sessions: [session({ activity: null })] })) }), NOW, actions);
 
-    expect(tipOf(document.querySelector('.gc-dot'))).toBe('No hook has reported on this session.');
+    expect(tipOf(document.querySelector('.gc-dot'))).toBe('No activity reported.');
   });
 
   it("marks a Codex session with OpenAI's own icon rather than the word — R2", () => {
@@ -1017,7 +1017,7 @@ describe('the menu in the board’s own filter bar', () => {
     paint(document, state(), NOW, actions);
     open();
 
-    expect(panelText()).toContain('Read this machine 1m ago');
+    expect(panelText()).toContain('Board updated 1m ago');
     expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('false');
   });
 
@@ -1036,13 +1036,13 @@ describe('the menu in the board’s own filter bar', () => {
     document.querySelector<HTMLElement>('#gc-menu button')!.click();
     paint(document, state({ snapshot: null }), NOW, actions);
 
-    expect(panelText()).toContain('has not read this machine yet');
+    expect(panelText()).toContain('No session or issue data received yet');
     expect(badges()).toHaveLength(0);
   });
 
   /** The button carries the one thing worth seeing without opening it: that what is on the board may be old. */
   it('marks itself when the reading is stale', () => {
-    paint(document, state({ trouble: 'Ground Control is not running.' }), NOW, actions);
+    paint(document, state({ trouble: 'Disconnected from Ground Control.' }), NOW, actions);
 
     expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('true');
   });
@@ -1320,10 +1320,10 @@ describe('what went wrong, as a toast', () => {
 
   /** A bridge that lost its hub must not leave badges that look current. */
   it('says when it cannot reach the board at all', () => {
-    paint(document, state({ trouble: 'Ground Control is not running.' }), NOW, actions);
+    paint(document, state({ trouble: 'Disconnected from Ground Control.' }), NOW, actions);
 
-    expect(toasts()[0]!.textContent).toContain('Ground Control is not running.');
-    expect(toasts()[0]!.textContent).toContain('showing what it last read');
+    expect(toasts()[0]!.textContent).toContain('Disconnected from Ground Control.');
+    expect(toasts()[0]!.textContent).toContain('Showing cached data when available');
   });
 
   /** The bridge refuses what the browser may not ask for. A refusal nobody renders is a button that does nothing. */
@@ -2071,7 +2071,7 @@ describe('going to a session from the browser', () => {
 
     expect(row.tagName).toBe('A');
     expect(row.getAttribute('href')).toBe(`vscode://groundcontrol.ground-control/attach?session=${SESSION_ID}`);
-    expect(row.getAttribute('aria-label')).toContain('attach to this run in a terminal in VS Code');
+    expect(row.getAttribute('aria-label')).toContain('attach to this run in a VS Code terminal');
     expect(row.dataset.detached).toBe('true');
     expect(row.querySelector('.gc-destination')?.getAttribute('data-destination')).toBe('terminal');
   });
@@ -2107,7 +2107,7 @@ describe('going to a session from the browser', () => {
 
     expect(chip.tagName).toBe('SPAN');
     expect(chip.getAttribute('href')).toBeNull();
-    expect(chip.getAttribute('aria-label')).toContain('no editor of yours can open this one');
+    expect(chip.getAttribute('aria-label')).toContain('cannot open this session in VS Code');
   });
 
   it('offers a link only for the sessions the hub named', () => {
@@ -2195,9 +2195,9 @@ describe('historical session rows', () => {
    * because `data-phase` also drives the running shimmer and the your-turn tone, and both are claims about a session that has a process.
    */
   it.each([
-    ['waiting', 'waiting', 'waiting on you'],
-    ['idle', 'idle', 'finished its turn'],
-    ['running', 'idle', 'stopped short'],
+    ['waiting', 'waiting', 'waiting for your input'],
+    ['idle', 'idle', 'completed its turn'],
+    ['running', 'idle', 'before completing its turn'],
   ] as const)('outlines a %s reading kept past the process as %s, and says which on hover', (phase, drawn, said) => {
     const at = NOW - 300_000;
 
@@ -2335,7 +2335,7 @@ describe('what a card was read to be waiting on (R38)', () => {
 
     expect(mark()?.dataset.stale).toBe('true');
     // The sentence, when it was read, and the caveat — the caveat is about the sentence, so they read together.
-    expect(tipOf(mark())).toBe('Pick it up. Read 1m ago; the card has moved since.');
+    expect(tipOf(mark())).toBe('Pick it up. Read 1m ago; card details have changed.');
   });
 
   it('says a card could not be read, and offers no control — reading again is the editor own', () => {

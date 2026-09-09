@@ -373,7 +373,7 @@ describe('board webview', () => {
     // Nothing on hover: the name is on the row already. What a reader needs beyond it — that this one opens — is
     // the accessible name instead, since a hover repeating a row's own words is a hover to learn to ignore.
     expect(tipOf(row)).toBe('');
-    expect(row.getAttribute('aria-label')).toBe('cache-remediation - go to this session');
+    expect(row.getAttribute('aria-label')).toBe('cache-remediation - open this session');
     expect(getComputedStyle(row).cursor).toBe('pointer');
     // A button brings its own colour, and on a dark card the UA default is the wrong one. The name is a step above
     // the marks around it, which stay at the description colour - the tone the overlay mixes to (`mechanics.md` M38).
@@ -875,7 +875,7 @@ describe('reported activity', () => {
     );
 
     expect(Array.from(card.querySelectorAll('.dot')).map((el) => el.getAttribute('aria-label'))).toEqual([
-      'needs you, open',
+      'waiting for input, open',
       'running, open',
     ]);
   });
@@ -894,7 +894,7 @@ describe('reported activity', () => {
    */
   it.each([
     ['running', false, 'running, open'],
-    ['waiting', false, 'needs you, open'],
+    ['waiting', false, 'waiting for input, open'],
     ['idle', false, 'idle, open'],
     ['idle', true, 'idle, ended'],
   ] as const)('names a %s session, finished %s, on the mark a reader can hear', (phase, finished, named) => {
@@ -1013,7 +1013,7 @@ describe('reported activity', () => {
 
     // Not the phase: that is the mark's at the other end of the row, and saying it twice is two hovers to ignore.
     expect(tipOf(state)).toBe(
-      'Counts the turn it is in, from the prompt that began it where the board saw one. Last seen at the PostToolBatch hook.',
+      'Time in this turn, from its prompt when recorded. Last event: PostToolBatch.',
     );
     expect(tipOf(state)).not.toContain('working');
   });
@@ -1023,10 +1023,10 @@ describe('reported activity', () => {
    * The fill is the second half of what it means, and a saved row says what its own hollow mark is about.
    */
   it.each([
-    ['running', false, 'This session is working.'],
-    ['waiting', false, 'This session is waiting on you.'],
-    ['idle', false, 'The board last saw this session finish.'],
-    ['idle', true, 'The board last saw this session finish. The agent has since ended it.'],
+    ['running', false, 'Turn in progress.'],
+    ['waiting', false, 'Waiting for your input.'],
+    ['idle', false, 'Last reported state: turn complete.'],
+    ['idle', true, 'Last reported state: turn complete. The session has since ended.'],
   ] as const)('says what the mark means for a %s session, finished %s', (phase, finished, said) => {
     const card = sendCard([{ ...withPhase(phase, Date.now()), finished }]);
 
@@ -1036,7 +1036,7 @@ describe('reported activity', () => {
   it('says the mark means nothing has reported, where nothing has', () => {
     const card = sendCard([{ ...session, activity: null }]);
 
-    expect(tipOf(card.querySelector('.dot'))).toBe('No hook has reported on this session.');
+    expect(tipOf(card.querySelector('.dot'))).toBe('No activity reported.');
   });
 
   /**
@@ -1105,13 +1105,13 @@ describe('reported activity', () => {
   });
 
   it('states once above the lanes what it did about the hooks', () => {
-    send(message({ hooks: { notice: 'Session activity hooks installed. 3 sessions started before that and will not report until restarted.' } }));
+    send(message({ hooks: { notice: 'Session activity hooks installed. Restart 3 sessions to enable activity reporting.' } }));
 
     const notices = Array.from(document.querySelectorAll('#notices .notice'));
 
     expect(notices).toHaveLength(1);
     expect(notices[0]?.classList).not.toContain('error');
-    expect(notices[0]?.textContent).toContain('3 sessions started before that');
+    expect(notices[0]?.textContent).toContain('Restart 3 sessions');
   });
 
   it('reports a failed install as an error, and says nothing when there is nothing to say', () => {
@@ -1292,7 +1292,7 @@ describe('lanes', () => {
     key: 'issue:18900',
     issueNumber: 18900,
     lane: 'archived',
-    reason: '🏃 Testing — not yours to act on right now.',
+    reason: '🏃 Testing — outside active board statuses.',
     sessions: [],
   };
 
@@ -1669,9 +1669,9 @@ describe('historical rows', () => {
    * shimmer and the your-turn tone, and both are claims about a session that still has a process.
    */
   it.each([
-    ['waiting', 'waiting', 'waiting on you'],
-    ['idle', 'idle', 'finished its turn'],
-    ['running', 'idle', 'stopped short'],
+    ['waiting', 'waiting', 'waiting for your input'],
+    ['idle', 'idle', 'completed its turn'],
+    ['running', 'idle', 'before completing its turn'],
   ] as const)('outlines a %s reading kept past the process as %s, and says which on hover', (phase, drawn, said) => {
     const at = Date.now() - 300_000;
     const retained = { ...lastSession, retained: { phase, event: 'PreToolUse', at } };
@@ -2299,7 +2299,7 @@ describe('what a card was read to be waiting on (R38)', () => {
 
       expect(chip()?.dataset['stale']).toBe('true');
       // The sentence, when it was read, and the caveat — the caveat is about the sentence, so they read together.
-      expect(tipOf(chip())).toBe('Pick it up. Read 5d ago; the card has moved since.');
+      expect(tipOf(chip())).toBe('Pick it up. Read 5d ago; card details have changed.');
     } finally {
       vi.useRealTimers();
     }
@@ -2322,10 +2322,10 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(sent()).toContainEqual({ type: 'retriage', key: 'issue:18953' });
   });
 
-  it('says when the board has stopped trying on its own', () => {
+  it('reports when automatic triage retries stop', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 5, exhausted: true })] }) }));
 
-    expect(tipOf(chip())).toContain('has stopped trying');
+    expect(tipOf(chip())).toContain('Automatic retries stopped');
   });
 
   it('never paints a reading in a colour R6 keeps for the two things that want the developer', () => {
@@ -2604,7 +2604,7 @@ describe("the board's own menu", () => {
     expect(toggle.getAttribute('role')).toBe('menuitemcheckbox');
     expect(toggle.getAttribute('aria-checked')).toBe('true');
     expect(toggle.querySelector('.menu-check')?.textContent).toBe('\u2713');
-    expect(tipOf(toggle)).toContain('Choose this to stop');
+    expect(tipOf(toggle)).toContain('Stop streaming');
 
     document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     send({ type: 'logs', streaming: false });
@@ -2750,11 +2750,11 @@ describe('the tooltip', () => {
    */
   it('describes what it names before anything is hovered at all', () => {
     expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
-    expect(document.querySelector('.session')!.getAttribute('aria-label')).toContain('go to this session');
+    expect(document.querySelector('.session')!.getAttribute('aria-label')).toContain('open this session');
     // The state is the row's described half: what the board saw is the part not written on the row.
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, activity: { phase: 'running', since: Date.now(), at: Date.now(), event: 'PostToolBatch' } }] }] }) }));
     // The mark is named rather than described, so the described half of the row is the duration beside it.
-    expect(document.querySelector('.state')!.getAttribute('aria-description')).toContain('Counts the turn it is in');
+    expect(document.querySelector('.state')!.getAttribute('aria-description')).toContain('Time in this turn');
     expect(document.querySelector('.dot')!.hasAttribute('aria-description')).toBe(false);
     expect(document.querySelector('[aria-describedby]')).toBeNull();
   });

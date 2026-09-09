@@ -42,7 +42,7 @@ export async function fetchSessions(
         failure: {
           subject: agent.id,
           kind: 'unknown-agent',
-          message: `The board does not know how to read sessions from "${agent.id}".`,
+          message: `Unsupported agent: "${agent.id}".`,
           remedy: 'Remove it from the configured agents, or check the spelling.',
         },
       });

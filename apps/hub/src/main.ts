@@ -35,7 +35,7 @@ async function main(argv: readonly string[]): Promise<number> {
   if (flag(argv, 'stop') !== null) {
     const stopped = await stopHub(home);
 
-    process.stdout.write(stopped ? 'Stopped the hub.\n' : 'No hub is answering for this home.\n');
+    process.stdout.write(stopped ? 'Stopped the hub.\n' : 'No hub responded for this home directory.\n');
 
     return 0;
   }
@@ -82,7 +82,7 @@ async function main(argv: readonly string[]): Promise<number> {
   });
 
   if ('existing' in result) {
-    process.stdout.write(`A hub is already serving this home on port ${result.existing.record.port}.\n`);
+    process.stdout.write(`Hub already running for this home directory on port ${result.existing.record.port}.\n`);
 
     return 0;
   }
@@ -127,6 +127,6 @@ void main(process.argv.slice(2))
   .catch((error: unknown) => {
     // Non-zero, and said on stderr: a mode that threw and exited 0 reads to its caller as a mode that worked, and
     // the caller here is a menu item telling the developer their browser can now reach the board (R34).
-    report('the hub could not do that', error);
+    report('Hub command failed', error);
     process.exit(1);
   });

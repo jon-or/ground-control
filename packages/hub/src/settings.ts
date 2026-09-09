@@ -22,7 +22,7 @@ function settingsFailure(path: string, message: string): ReadFailure {
   return {
     subject: 'config',
     kind: 'bad-config',
-    message: `The settings this machine last accepted cannot be used: ${message}`,
+    message: `Saved hub settings are invalid: ${message}`,
     remedy: `Open the board in an editor to push its settings again, or delete ${path}.`,
   };
 }

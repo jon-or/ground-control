@@ -45,7 +45,7 @@ export function readGithubConfig(raw: unknown): { config: GithubConfig } | { fai
       failure: {
         subject: GITHUB_SOURCE_ID,
         kind: 'bad-config',
-        message: 'The board has not been told which repository your work is tracked in.',
+        message: 'No GitHub repository is configured.',
         remedy: 'Set groundControl.github.repo in Settings.',
       },
     };
@@ -147,7 +147,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
           failure: {
             subject: GITHUB_SOURCE_ID,
             kind: 'no-logins',
-            message: 'The board does not know which GitHub account is yours, so it is showing sessions only.',
+            message: 'No GitHub account is selected. Showing sessions only.',
             remedy:
               'Set groundControl.github.logins in Settings, or run Ground Control: Refresh Board to be asked again.',
           },
@@ -179,7 +179,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
             failure: {
               subject: GITHUB_SOURCE_ID,
               kind: 'bad-config',
-              message: 'The board has not been told which repository your work is tracked in.',
+              message: 'No GitHub repository is configured.',
               remedy: 'Set groundControl.github.repo in Settings.',
             },
           })

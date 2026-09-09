@@ -237,7 +237,7 @@ describe('the hub as its own process', () => {
     const second = run(home);
 
     expect(await second.ended).toBe(0);
-    expect(second.output()).toContain(`already serving this home on port ${there.port}`);
+    expect(second.output()).toContain(`already running for this home directory on port ${there.port}`);
     expect(record(home)?.port).toBe(there.port);
   });
 
@@ -315,7 +315,7 @@ describe('the hub as its own process', () => {
     const hub = run(home);
 
     expect(await hub.ended).toBe(1);
-    expect(hub.output()).toContain('the hub could not do that');
+    expect(hub.output()).toContain('Hub command failed');
   });
 
   it('ends itself when nobody has connected for the idle span', async () => {

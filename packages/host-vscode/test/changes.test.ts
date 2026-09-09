@@ -33,7 +33,7 @@ describe('the repository a command will actually run against', () => {
   // that failed to open would have the main clone diffed under its name.
   it('refuses a different repository, naming both and what to do', () => {
     expect(repositoryRefusal(ROOT, 'd:/work/repo')).toBe(
-      `VS Code answered with the repository at d:/work/repo rather than ${ROOT}. Open the worktree in a window of its own and try again.`,
+      `VS Code selected d:/work/repo instead of ${ROOT}. Open ${ROOT} in a separate window and try again.`,
     );
   });
 
@@ -48,14 +48,14 @@ describe('folding the commits, the index and the working tree into one editor', 
   it('refuses a checkout that matches what it forked from and has nothing uncommitted', () => {
     expect(changesPlan(request())).toEqual({
       refusal: 'no-changes',
-      message: '#18941 Inbox badge has no changes: its branch matches what it forked from, and nothing is uncommitted.',
+      message: '#18941 Inbox badge: no changes since the merge base and no uncommitted changes.',
     });
   });
 
   it('says which of the two ran out when there is no merge base', () => {
     expect(changesPlan(request({ base: null }))).toEqual({
       refusal: 'no-changes',
-      message: '#18941 Inbox badge has nothing uncommitted, and the board could not work out what its branch forked from.',
+      message: '#18941 Inbox badge: no uncommitted changes. Merge base unavailable.',
     });
   });
 

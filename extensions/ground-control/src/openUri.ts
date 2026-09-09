@@ -27,7 +27,7 @@ export function registerUriHandler(): vscode.Disposable {
       const sessionId = sessionFromUri(uri.path, uri.query);
 
       if (sessionId === null) {
-        void vscode.window.showWarningMessage('That link does not name a session Ground Control can open.');
+        void vscode.window.showWarningMessage('Invalid or unsupported session link.');
 
         return;
       }
@@ -62,7 +62,7 @@ async function attach(sessionId: string): Promise<void> {
   const known = await runNamed(sessionId);
 
   if (!known || !attachTo(known)) {
-    void vscode.window.showWarningMessage('That run is no longer on this machine, or is not one the board can attach to.');
+    void vscode.window.showWarningMessage('This run is unavailable or does not support attaching.');
   }
 }
 

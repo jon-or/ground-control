@@ -92,7 +92,7 @@ export class TriageRunner {
       subject: 'triage',
       kind: failure.kind,
       message: `A card could not be triaged: ${failure.message}`,
-      remedy: 'The card keeps whatever reading it had. Click its triage chip to try again.',
+      remedy: 'Previous triage results are retained. Use the card’s triage retry control in VS Code.',
     }));
   }
 
@@ -154,9 +154,9 @@ export class TriageRunner {
 
       if (waiting.length > 0) {
         this.#deps.announce(
-          `Reading ${waiting.length === 1 ? 'a card' : `${waiting.length} cards`} to work out what each is waiting on. ` +
-            `That spends your Claude usage and sends each card's issue and pull request text to the model. ` +
-            `Turn it off with groundControl.triage.enabled.`,
+          `Triaging ${waiting.length === 1 ? 'a card' : `${waiting.length} cards`}. ` +
+            `This uses your Claude allowance and sends issue and pull request text to the model. ` +
+            `Disable triage with groundControl.triage.enabled.`,
         );
       }
 
@@ -179,7 +179,7 @@ export class TriageRunner {
     const now = this.#deps.now();
 
     if (due === null) {
-      return refusal('triage-unknown-card', 'That card is not on the board, so there is nothing to read.');
+      return refusal('triage-unknown-card', 'This card is no longer on the board.');
     }
 
     if (!this.#settings.enabled) {
@@ -191,13 +191,13 @@ export class TriageRunner {
     }
 
     if (this.#running.has(key)) {
-      return refusal('triage-running', 'That card is being read now.');
+      return refusal('triage-running', 'Triage is already running for this card.');
     }
 
     // The cap is the cap however the reading was asked for. The cooldown is per card, so without this a board of
     // fifteen chips is fifteen clicks away from fifteen classifications at once.
     if (this.#running.size >= this.#settings.concurrency) {
-      return refusal('triage-busy', 'The board is already reading as many cards as it may at once. Try again shortly.');
+      return refusal('triage-busy', 'Concurrent triage limit reached. Try again shortly.');
     }
 
     if (now - asked < RETRIAGE_COOLDOWN_MS) {
@@ -277,7 +277,7 @@ export class TriageRunner {
 
       // A run the board stood down itself is not a card that could not be read. A timeout is, and reaches here.
       if (this.#disposed || this.#stoodDown.has(due.key)) {
-        this.#deps.log.debug(`${due.key} was stood down before it landed`, 'triage');
+        this.#deps.log.debug(`${due.key}: triage cancelled`, 'triage');
 
         return;
       }
@@ -337,7 +337,7 @@ export class TriageRunner {
     const result = readTriageResult(answered.value, settled);
 
     if (result === null) {
-      return { kind: 'triage-unreadable', message: 'The classifier answered with an action the board does not have.' };
+      return { kind: 'triage-unreadable', message: 'Classifier returned an unsupported action.' };
     }
 
     const { action, qualifier, detail } = resolveTriage(settled, result, reading.context);
@@ -361,7 +361,7 @@ export class TriageRunner {
 }
 
 function refusal(kind: string, message: string): ReadFailure {
-  return { subject: 'triage', kind, message, remedy: 'Nothing to do — the card keeps whatever reading it had.' };
+  return { subject: 'triage', kind, message, remedy: 'Previous triage results are retained.' };
 }
 
 /**

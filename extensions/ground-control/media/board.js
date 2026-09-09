@@ -209,7 +209,7 @@ function boardActions() {
   if (archivedCount > 0) {
     actions.push({
       label: `Show archived (${archivedCount})`,
-      hint: showArchived ? 'Take the Archived lane back off the board.' : 'Draw the Archived lane beside the others.',
+      hint: showArchived ? 'Hide the Archived lane.' : 'Show the Archived lane.',
       checked: showArchived,
       run: () => {
         showArchived = !showArchived;
@@ -227,24 +227,24 @@ function boardActions() {
     {
       label: 'Stream hub log',
       hint: streamingLogs
-        ? 'The hub log is streaming into Output. Choose this to stop reading it.'
+        ? 'Stop streaming the hub log into Output.'
         : 'Stream the hub log into the Output panel.',
       checked: streamingLogs,
       run: () => vscode.postMessage({ type: 'toggleLogs' }),
     },
     {
       label: 'Show board log',
-      hint: "Reveal this board's own output channel in the Output panel.",
+      hint: "Show the board log in Output.",
       run: () => vscode.postMessage({ type: 'showBoardLog' }),
     },
     {
       label: 'Refresh',
-      hint: 'Read the sessions and the project board again now.',
+      hint: 'Refresh sessions and issues.',
       run: () => vscode.postMessage({ type: 'refresh' }),
     },
     {
       label: 'Settings',
-      hint: "Open the editor's settings, filtered to Ground Control.",
+      hint: "Open Ground Control settings.",
       run: () => vscode.postMessage({ type: 'openSettings' }),
     },
   );
@@ -466,7 +466,7 @@ function sessionLine(session) {
   // the row does not say — what the board saw, and when — stays on the state at the other end of it.
   if (reachable) {
     el.type = 'button';
-    nameFor(el, attachId === null ? `${name} - go to this session` : `${name} - attach to this run in a terminal`);
+    nameFor(el, attachId === null ? `${name} - open this session` : `${name} - attach to this run in a terminal`);
     // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
     el.draggable = false;
     el.addEventListener('click', () =>
@@ -536,15 +536,15 @@ function retainedMark(retained) {
   const said = `Last seen at the ${retained.event} hook.`;
 
   if (retained.phase === 'waiting') {
-    return { phase: 'waiting', at: retained.at, title: `This session was waiting on you when its process ended. ${said}` };
+    return { phase: 'waiting', at: retained.at, title: `The session ended while waiting for your input. ${said}` };
   }
 
   if (retained.phase === 'running') {
-    return { phase: 'idle', at: retained.at, title: `This session was working when its process ended, so it stopped short. ${said}` };
+    return { phase: 'idle', at: retained.at, title: `The session ended before completing its turn. ${said}` };
   }
 
   if (retained.phase === 'idle') {
-    return { phase: 'idle', at: retained.at, title: `This session finished its turn, and its process has since ended. ${said}` };
+    return { phase: 'idle', at: retained.at, title: `The session completed its turn, then ended. ${said}` };
   }
 
   return undefined;
@@ -585,7 +585,7 @@ function historyLine(session) {
   if (mark) el.dataset.phase = mark.phase;
 
   el.append(
-    sessionDot(mark?.phase, false, mark ? mark.title : 'The last session that ran here. Nothing is running on this card now.'),
+    sessionDot(mark?.phase, false, mark ? mark.title : 'Last session on this card. No active sessions.'),
     agentMark(session.agent),
     label,
     state,
@@ -601,19 +601,19 @@ function historyLine(session) {
   return el;
 }
 
-const PHASE_WORDS = { running: 'running', waiting: 'needs you', idle: 'idle' };
+const PHASE_WORDS = { running: 'running', waiting: 'waiting for input', idle: 'idle' };
 
 const PHASE_TITLES = {
-  running: 'This session is working.',
-  waiting: 'This session is waiting on you.',
-  idle: 'The board last saw this session finish.',
+  running: 'Turn in progress.',
+  waiting: 'Waiting for your input.',
+  idle: 'Last reported state: turn complete.',
 };
 
 /** What the mark means, since a colour is the one thing on a row that cannot be read. Its fill is the second half. */
 function dotTitle(phase, live) {
-  const what = PHASE_TITLES[phase] ?? 'No hook has reported on this session.';
+  const what = PHASE_TITLES[phase] ?? 'No activity reported.';
 
-  return live ? what : `${what} The agent has since ended it.`;
+  return live ? what : `${what} The session has since ended.`;
 }
 
 /**
@@ -621,10 +621,10 @@ function dotTitle(phase, live) {
  * row: a hover on one repeating the other is two tooltips to learn to ignore.
  */
 const DURATION_TITLES = {
-  running: 'Counts the turn it is in, from the prompt that began it where the board saw one.',
+  running: 'Time in this turn, from its prompt when recorded.',
 };
 
-const DURATION_TITLE = 'Counts from the event that reported the phase.';
+const DURATION_TITLE = 'Time since the phase was reported.';
 
 /**
  * How long ago, as one number in the largest unit that fits, and never rounded up. Overstating is the one direction
@@ -658,7 +658,7 @@ function ago(ms) {
 function stateTitle(activity) {
   const what = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
 
-  return activity.event ? `${what} Last seen at the ${activity.event} hook.` : what;
+  return activity.event ? `${what} Last event: ${activity.event}.` : what;
 }
 
 /**
@@ -799,7 +799,7 @@ function actionChip(action, key) {
       'action-running',
       'Working…',
       'GRAY',
-      `The board is running ${label} on this card. Click to stop it — whatever it has already done to the checkout stays there.`,
+      `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
       () => vscode.postMessage({ type: 'stopAction', key }),
     );
     chip.dataset.running = 'true';
@@ -819,7 +819,7 @@ function actionChip(action, key) {
     return badge('action-refused', 'Not run', 'GRAY', action.reason);
   }
 
-  return badge('action', `Run ${label.toLowerCase()}`, 'GRAY', `Start ${label} on this card, in its own checkout.`, () =>
+  return badge('action', `Run ${label.toLowerCase()}`, 'GRAY', `Start ${label} in this card’s checkout.`, () =>
     vscode.postMessage({ type: 'runAction', key }),
   );
 }
@@ -859,7 +859,7 @@ function cardActions(boardCard) {
 
     actions.push({
       label: 'Open in VS Code',
-      hint: `Bring up a window on ${boardCard.checkout.root}`,
+      hint: `Open ${boardCard.checkout.root} in VS Code`,
       run: () => vscode.postMessage({ type: 'openCheckout', key: boardCard.key }),
     });
 
@@ -883,7 +883,7 @@ function cardActions(boardCard) {
   if (boardCard.issue != null && picked) {
     actions.push({
       label: hasCheckout(boardCard) ? 'Change folder…' : 'Choose folder…',
-      hint: 'Say which checkout this issue’s work happens in',
+      hint: 'Choose a checkout for this issue',
       run: () => vscode.postMessage({ type: 'chooseCheckout', key: boardCard.key }),
     });
   }
@@ -1401,7 +1401,7 @@ function card(boardCard, avatarPool, placeable) {
 
   if (boardCard.returned) {
     const mark = badge('returned', 'Returned', 'ORANGE');
-    tip(mark, 'This card was past your hands and has come back.');
+    tip(mark, 'This card returned to you.');
     marks.appendChild(mark);
   }
 
@@ -1411,7 +1411,7 @@ function card(boardCard, avatarPool, placeable) {
   const readAgain = () => vscode.postMessage({ type: 'retriage', key: boardCard.key });
 
   if (triage?.state === 'running') {
-    marks.appendChild(badge('triage-running', 'Reading…', 'GRAY', 'Working out what this card is waiting on.'));
+    marks.appendChild(badge('triage-running', 'Reading…', 'GRAY', 'Identifying the next action.'));
   } else if (triage?.state === 'failed') {
     // No words about what went wrong: that is one line above the lanes (R25). What this is, is somewhere to click,
     // without which the cards that most need reading again are the only ones with nothing to press.
@@ -1421,8 +1421,8 @@ function card(boardCard, avatarPool, placeable) {
         'Not read',
         'GRAY',
         triage.exhausted
-          ? `The board could not read this card after ${triage.attempts} tries and has stopped trying. Click to try now.`
-          : `The board could not read this card. Click to try now.`,
+          ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped. Click to retry.`
+          : `Triage failed. Click to retry.`,
         readAgain,
       ),
     );
@@ -1431,7 +1431,7 @@ function card(boardCard, avatarPool, placeable) {
     // The sentence the reading produced is the chip's tooltip rather than a line of the card: it is a paragraph of
     // prose on every card that has one, and a lane of them was more of the footer than the cards themselves.
     const read = triage.stale
-      ? `Read ${ago(Date.now() - triage.at)} ago; the card has moved since.`
+      ? `Read ${ago(Date.now() - triage.at)} ago; card details have changed.`
       : `Read ${ago(Date.now() - triage.at)} ago.`;
     const chip = badge('triage', triageText(triage), 'GRAY', `${triage.detail} ${read}`);
 

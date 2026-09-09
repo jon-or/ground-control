@@ -46,14 +46,14 @@ export function registerOverlayCommands(context: vscode.ExtensionContext, home: 
 
         void vscode.window.showInformationMessage(`${said} ${unpacked(context)}`);
       } catch (error) {
-        void vscode.window.showErrorMessage(`The browser overlay could not be enabled: ${String(error)}`);
+        void vscode.window.showErrorMessage(`Could not enable the browser overlay: ${String(error)}`);
       }
     }),
     vscode.commands.registerCommand('groundControl.disableGithubOverlay', async () => {
       try {
         void vscode.window.showInformationMessage(await runHub(bundle, home, 'uninstall-chrome-host'));
       } catch (error) {
-        void vscode.window.showErrorMessage(`The browser overlay could not be disabled: ${String(error)}`);
+        void vscode.window.showErrorMessage(`Could not disable the browser overlay: ${String(error)}`);
       }
     }),
   ];

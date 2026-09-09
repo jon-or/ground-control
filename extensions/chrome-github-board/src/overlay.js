@@ -73,7 +73,7 @@ export const LANE_TITLES = {
 };
 
 /** @type {Record<string, string>} */
-const PHASE_WORDS = { running: 'running', waiting: 'needs you', idle: 'idle' };
+const PHASE_WORDS = { running: 'running', waiting: 'waiting for input', idle: 'idle' };
 
 /**
  * What each triage action is called. A copy of `TRIAGE_LABELS` in `packages/board` — this extension imports nothing
@@ -108,9 +108,9 @@ export function triageText(triage) {
 /** @type {Record<string, string>} */
 /** @type {Record<string, string>} */
 const PHASE_TITLES = {
-  running: 'This session is working.',
-  waiting: 'This session is waiting on you.',
-  idle: 'The board last saw this session finish.',
+  running: 'Turn in progress.',
+  waiting: 'Waiting for your input.',
+  idle: 'Last reported state: turn complete.',
 };
 
 /**
@@ -121,9 +121,9 @@ const PHASE_TITLES = {
  * @returns {string}
  */
 function dotTitle(phase, live) {
-  const what = PHASE_TITLES[phase ?? ''] ?? 'No hook has reported on this session.';
+  const what = PHASE_TITLES[phase ?? ''] ?? 'No activity reported.';
 
-  return live ? what : `${what} The agent has since ended it.`;
+  return live ? what : `${what} The session has since ended.`;
 }
 
 /**
@@ -132,10 +132,10 @@ function dotTitle(phase, live) {
  */
 /** @type {Record<string, string>} */
 const DURATION_TITLES = {
-  running: 'Counts the turn it is in, from the prompt that began it where the board saw one.',
+  running: 'Time in this turn, from its prompt when recorded.',
 };
 
-const DURATION_TITLE = 'Counts from the event that reported the phase.';
+const DURATION_TITLE = 'Time since the phase was reported.';
 
 /**
  * Where a card's attention is written, so a scan that no longer finds one can take it off again. It is the card's
@@ -1399,13 +1399,13 @@ export function renderMenu(doc, state, now, actions) {
   read.className = 'gc-note';
 
   if (snapshot === null) {
-    read.textContent = 'Ground Control has not read this machine yet.';
+    read.textContent = 'No session or issue data received yet.';
   } else {
     // The age is a node of its own so the tick advances it where it stands, like every other duration on the page.
     const held = doc.createElement('span');
 
     age(held, Date.parse(snapshot.fetchedAt), now);
-    read.append('Read this machine ', held, ' ago.');
+    read.append('Board updated ', held, ' ago.');
   }
 
   panel.appendChild(read);
@@ -1467,7 +1467,7 @@ export function renderToasts(doc, state) {
     problems.push({
       key: `trouble:${state.trouble}`,
       message: state.trouble,
-      remedy: 'The overlay is showing what it last read.',
+      remedy: 'Showing cached data when available.',
       tone: 'danger',
     });
   }
@@ -1618,7 +1618,7 @@ function laneMenu(doc, card, actions) {
     });
 
     open.dataset.action = 'open-checkout';
-    open.title = `Bring up a window on ${card.checkout.root}`;
+    open.title = `Open ${card.checkout.root} in VS Code`;
     menu.appendChild(open);
   }
 
@@ -1691,10 +1691,10 @@ function destinationMark(doc, kind) {
  */
 function destinationWords(reachable, attachId) {
   if (!reachable) {
-    return 'no editor of yours can open this one';
+    return 'cannot open this session in VS Code';
   }
 
-  return attachId === null ? 'go to this session in VS Code' : 'attach to this run in a terminal in VS Code';
+  return attachId === null ? 'open this session in VS Code' : 'attach to this run in a VS Code terminal';
 }
 
 /**
@@ -1816,7 +1816,7 @@ function historyRow(doc, session, now, openable) {
   // The phase colours the mark and nothing else on the row: `data-phase` also drives the running shimmer and the your-turn tone, and both
   // are claims about a session with a process. An outline says the process is gone, which is the whole of what this row adds to the phase.
   if (mark) row.dataset.phase = mark.phase;
-  row.appendChild(sessionDot(doc, mark?.phase, false, mark ? mark.title : 'The last session that ran here. Nothing is running on this card now.'));
+  row.appendChild(sessionDot(doc, mark?.phase, false, mark ? mark.title : 'Last session on this card. No active sessions.'));
   const icon = agentIcon(doc, session.agent);
   if (icon) row.appendChild(icon);
   else {
@@ -1864,15 +1864,15 @@ function retainedMark(retained) {
   const said = `Last seen at the ${retained.event} hook.`;
 
   if (retained.phase === 'waiting') {
-    return { phase: 'waiting', at: retained.at, title: `This session was waiting on you when its process ended. ${said}` };
+    return { phase: 'waiting', at: retained.at, title: `The session ended while waiting for your input. ${said}` };
   }
 
   if (retained.phase === 'running') {
-    return { phase: 'idle', at: retained.at, title: `This session was working when its process ended, so it stopped short. ${said}` };
+    return { phase: 'idle', at: retained.at, title: `The session ended before completing its turn. ${said}` };
   }
 
   if (retained.phase === 'idle') {
-    return { phase: 'idle', at: retained.at, title: `This session finished its turn, and its process has since ended. ${said}` };
+    return { phase: 'idle', at: retained.at, title: `The session completed its turn, then ended. ${said}` };
   }
 
   return undefined;
@@ -1887,13 +1887,13 @@ function retainedMark(retained) {
 function stateTitle(activity) {
   const what = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
 
-  return activity.event ? `${what} Last seen at the ${activity.event} hook.` : what;
+  return activity.event ? `${what} Last event: ${activity.event}.` : what;
 }
 
 /**
  * R6 and the working edge, on the project board's own card: the state goes onto GitHub's own element, which rings
  * the card so it reads from across a board, and the CSS paints the session row a mark is about. No word of its own —
- * the row already says `needs you` beside the session it means, and a card-level pill said the same without naming one.
+ * the row already says `waiting for input` beside the session it means, and a card-level pill said the same without naming one.
  *
  * @param {Document} doc
  * @param {Element} element
@@ -1907,7 +1907,7 @@ function renderAttention(doc, element, head, card) {
     mark.className = 'gc-mark';
     mark.dataset.mark = 'returned';
     mark.textContent = 'Returned';
-    tip(mark, 'This card was past your hands and has come back.');
+    tip(mark, 'This card returned to you.');
     head.appendChild(mark);
   }
 
@@ -2010,7 +2010,7 @@ function renderTriage(doc, head, card, now) {
 
   if (triage.state === 'running') {
     mark.textContent = 'Reading…';
-    tip(mark, 'Working out what this card is waiting on.');
+    tip(mark, 'Identifying the next action.');
 
     return;
   }
@@ -2019,7 +2019,7 @@ function renderTriage(doc, head, card, now) {
   // browser bridge takes refresh, watching and move and nothing else (R38).
   if (triage.state === 'failed') {
     mark.textContent = 'Not read';
-    tip(mark, 'The board could not read this card. Its triage chip in the editor will try again.');
+    tip(mark, 'Triage failed. Retry from the card in VS Code.');
 
     return;
   }
@@ -2028,7 +2028,7 @@ function renderTriage(doc, head, card, now) {
   mark.dataset.stale = String(triage.stale);
   tip(
     mark,
-    `${triage.detail} ${triage.stale ? `Read ${ago(now - triage.at)} ago; the card has moved since.` : `Read ${ago(now - triage.at)} ago.`}`,
+    `${triage.detail} ${triage.stale ? `Read ${ago(now - triage.at)} ago; card details have changed.` : `Read ${ago(now - triage.at)} ago.`}`,
   );
 
   // How long the card has held the status it is in — not when the board read it, which is in the tooltip with the
@@ -2127,7 +2127,7 @@ function buildLog(doc, actions) {
     logPinned = pin.checked;
     panel.dataset.pinned = String(logPinned);
   });
-  tip(pinLabel, 'Keep the log open when you click back onto the board.');
+  tip(pinLabel, 'Keep the log open when clicking outside it.');
   pinLabel.append(pin, doc.createTextNode('pin'));
   bar.appendChild(pinLabel);
 
@@ -2153,7 +2153,7 @@ function buildLog(doc, actions) {
   const empty = doc.createElement('span');
 
   empty.className = 'gc-empty';
-  empty.textContent = 'Waiting for the first line…';
+  empty.textContent = 'Waiting for log entries…';
   lines.appendChild(empty);
 
   panel.append(bar, lines);

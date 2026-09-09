@@ -91,7 +91,7 @@ function failed(wanted: Wanted, subject: string, home: string, error: unknown, a
       kind: 'activity-failed',
       message: `The board could not ${wanted === 'install' ? 'install' : 'remove'} its session activity hooks: ${(error as Error).message}`,
       remedy:
-        'Sessions still appear on the board; they cannot report what they are doing. ' +
+        'Activity reporting may be unavailable. ' +
         `A copy of your settings from before this run is in ${groundControlDirOf(home)}.`,
     },
   };
@@ -278,13 +278,13 @@ export function activityNotice({ plan, wanted, unreported }: ActivityNoticeInput
   }
 
   if (wanted === 'remove') {
-    return 'Session activity hooks were removed. Sessions no longer report what they are doing.';
+    return 'Session activity hooks removed. Activity reporting is disabled.';
   }
 
   if (unreported > 0) {
     const sessions = unreported === 1 ? '1 session' : `${unreported} sessions`;
 
-    return `Session activity hooks installed. ${sessions} started before that and will not report until restarted.`;
+    return `Session activity hooks installed. Restart ${sessions} to enable activity reporting.`;
   }
 
   return 'Session activity hooks installed.';

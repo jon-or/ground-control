@@ -76,7 +76,7 @@ export function planOpen(
   if (session?.attachId != null) {
     return {
       refusal: 'attach-only',
-      message: `${sessionLabel(session)} is a run the board started in the background. Attach to it from its row on the editor board — opening it here would start a second process on the same conversation.`,
+      message: `${sessionLabel(session)} is a background run. Attach from its row in VS Code to avoid starting a duplicate process.`,
     };
   }
 
@@ -104,7 +104,7 @@ export function planOpen(
   if (placement === undefined) {
     return {
       refusal: 'other-agent',
-      message: `This editor has no way to show a ${session.agent} session.`,
+      message: `This editor cannot open ${session.agent} sessions.`,
     };
   }
 
@@ -125,18 +125,18 @@ export function planOpen(
     if (request.window !== null) {
       return {
         refusal: 'unnamed-window',
-        message: `${sessionLabel(session)} is in a VS Code window the board has no path to — it has no folder open, or several. Switch to that window yourself.`,
+        message: `${sessionLabel(session)} is in a VS Code window with no single folder path. Switch to that window manually.`,
       };
     }
 
     return request.now - session.startedAt < SETTLING_MS
       ? {
           refusal: 'settling',
-          message: `${sessionLabel(session)} started moments ago and VS Code has not recorded which window holds it yet. Try again in a minute.`,
+          message: `${sessionLabel(session)} just started. Its window is not yet recorded. Try again in a minute.`,
         }
       : {
           refusal: 'no-surface',
-          message: `${sessionLabel(session)} is running in ${session.cwd}, but no VS Code window is showing it — it was started from a terminal, or its tab has since been given another session.`,
+          message: `${sessionLabel(session)} is running in ${session.cwd}, but no VS Code tab or sidebar is recorded for it.`,
         };
   }
 
@@ -160,7 +160,7 @@ export function planOpen(
   if (!here && !mayOpenWindow) {
     return {
       refusal: 'elsewhere-not-allowed',
-      message: `${sessionLabel(session)} is open in the window on ${root}, and the board is not allowed to bring it forward.`,
+      message: `${sessionLabel(session)} is open in ${root}. Allow other windows to focus it.`,
     };
   }
 
@@ -170,7 +170,7 @@ export function planOpen(
   if (!here && request.handedOver === true) {
     return {
       refusal: 'elsewhere-not-allowed',
-      message: `${sessionLabel(session)} is showing in the window on ${root}, which did not come forward. Open it from that window.`,
+      message: `Could not focus ${root}. Open ${sessionLabel(session)} from that window.`,
     };
   }
 
@@ -210,10 +210,10 @@ export function strayFrom(before: readonly Session[], after: readonly Session[],
 /** A resume may create a process only after a complete read proves that nobody already holds this session. */
 export function resumeRefusal(sessionId: string, roster: readonly Session[] | null): string | null {
   if (roster === null) return 'Could not verify whether this session is active. Refresh the board and try again.';
-  if (roster.some((s) => s.sessionId === sessionId && !s.finished)) return 'This session is now active. Refresh the board to go to its existing session.';
+  if (roster.some((s) => s.sessionId === sessionId && !s.finished)) return 'This session is already active. Refresh the board to open it.';
   // A detached run stays on the roster after its turn, and its process goes on holding the conversation — which is
   // what makes a resume exit 1 rather than continue it (M33). Finished is not gone.
-  if (roster.some((s) => s.sessionId === sessionId && s.attachId !== null)) return 'This is a run the board started in the background. Attach to it from its row rather than resuming it.';
+  if (roster.some((s) => s.sessionId === sessionId && s.attachId !== null)) return 'This is a background run. Attach to it from its board row.';
   return null;
 }
 
@@ -235,7 +235,7 @@ export function planCheckout(request: CheckoutRequest, mayOpenWindow: boolean): 
   if (!mayOpenWindow) {
     return {
       refusal: 'elsewhere-not-allowed',
-      message: `Opening ${root} needs a window of its own, and the board is not allowed to bring one forward.`,
+      message: `Opening ${root} requires another window. Allow other windows to continue.`,
     };
   }
 
@@ -254,7 +254,7 @@ export function planStart(request: StartRequest, placements: Readonly<Record<str
   const placement = placements[agent];
 
   if (placement?.start === undefined) {
-    return { refusal: 'no-agent', message: `This editor has no way to start a ${agent} session.` };
+    return { refusal: 'no-agent', message: `This editor cannot start ${agent} sessions.` };
   }
 
   if (!request.extensionReady) {
@@ -267,7 +267,7 @@ export function planStart(request: StartRequest, placements: Readonly<Record<str
   if (request.workspaceRoot === null || dirKey(request.workspaceRoot) !== dirKey(root)) {
     return {
       refusal: 'checkout-elsewhere',
-      message: `A new session starts in the window it is asked from, and this one is not on ${root}. Open that checkout first, and start the session from the board there.`,
+      message: `Open ${root} in VS Code, then start the session from its board.`,
     };
   }
 

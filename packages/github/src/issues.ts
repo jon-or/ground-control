@@ -115,7 +115,7 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
       ok: false,
       error: {
         kind: 'no-logins',
-        message: 'No GitHub account is configured, so the board cannot tell which issues are yours.',
+        message: 'No GitHub account is configured.',
         remedy: 'Set groundControl.github.logins to your GitHub username, comma-separated if you use more than one.',
       },
     };
@@ -152,7 +152,7 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
         ok: false,
         error: {
           kind: 'bad-response',
-          message: `GitHub returned a shape the board does not understand: ${parsed.error.issues[0]?.path.join('.')} ${parsed.error.issues[0]?.message}`,
+          message: `GitHub returned an unexpected response: ${parsed.error.issues[0]?.path.join('.')} ${parsed.error.issues[0]?.message}`,
           remedy: 'The GitHub API may have changed. Refresh, and report it if it persists.',
         },
       };
@@ -219,7 +219,7 @@ export async function fetchIssue(
       ok: false,
       error: {
         kind: 'bad-response',
-        message: `GitHub's answer for issue #${number} was not the shape the board reads.`,
+        message: `GitHub returned an unexpected response for issue #${number}.`,
         remedy: 'The GitHub API may have changed. Refresh, and report it if it persists.',
       },
     };

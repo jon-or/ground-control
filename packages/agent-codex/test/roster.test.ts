@@ -143,7 +143,7 @@ describe('the roster the markers make', () => {
 
     expect(reading.sessions).toHaveLength(1);
     expect(reading.failure?.kind).toBe('bad-response');
-    expect(reading.failure?.message).toContain('1 session marker');
+    expect(reading.failure?.message).toContain('1 Codex session marker');
   });
 
   it('reports a marker with no directory as unreadable, because a card cannot be placed without one', () => {
@@ -155,7 +155,7 @@ describe('the roster the markers make', () => {
     );
 
     expect(reading.sessions).toEqual([]);
-    expect(reading.failure?.message).toContain('could not read');
+    expect(reading.failure?.message).toContain('could not be read');
   });
 
   it('says it cannot prove a session is running when its marker carries no pid', () => {
@@ -200,7 +200,7 @@ describe('what the roster says when several markers are wrong', () => {
 
       expect(reading.sessions).toEqual([]);
       // A file the board cannot parse is the fault a reinstall fixes, so it is the one the board names first.
-      expect(reading.failure?.message).toContain('2 session markers');
+      expect(reading.failure?.message).toContain('2 Codex session markers');
     });
 
     it('says how many sessions it cannot prove are running, in the plural', () => {

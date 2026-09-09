@@ -215,7 +215,7 @@ export function trustFailure(state: TrustState, attempt: string | null): ReadFai
   return {
     subject: CODEX_AGENT_ID,
     kind: 'bad-response',
-    message: `${CODEX_DISPLAY_NAME} will not run ${some}, and the board could not ask it to: ${attempt}`,
-    remedy: `Run ${CODEX_DISPLAY_NAME} once and accept the hooks it asks about. Until then its sessions cannot report what they are doing, and may not appear at all.`,
+    message: `Could not trust ${some} in ${CODEX_DISPLAY_NAME}: ${attempt}`,
+    remedy: `Open ${CODEX_DISPLAY_NAME} and approve the Ground Control hooks to enable session discovery and activity reporting.`,
   };
 }

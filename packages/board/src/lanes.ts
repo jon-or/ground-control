@@ -144,7 +144,7 @@ export function retainedPhase(retained: RetainedActivity): 'waiting' | 'idle' {
  */
 export function attentionOf(sessions: readonly Session[], lane: LaneId, retained?: RetainedActivity): Attention | null {
   // A finished agent cannot be blocked on anybody. Its last event can still be a prompt it never got past, and reading that as blocked
-  // would leave a dead session saying "needs you" for as long as the CLI keeps listing it.
+  // would leave a dead session saying "waiting for input" for as long as the CLI keeps listing it.
   if (sessions.some((session) => session.activity?.phase === 'waiting' && !session.finished)) {
     return 'blocked';
   }
@@ -255,8 +255,8 @@ function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>,
 
   // R2 outranks R9: a status that would archive the card cannot hide a session still running on it.
   return running
-    ? { ...base, reason: `${status} — past your hands, but an agent is still running.` }
-    : archive(`${status} — not yours to act on right now.`);
+    ? { ...base, reason: `${status} — session still active.` }
+    : archive(`${status} — outside active board statuses.`);
 }
 
 /**

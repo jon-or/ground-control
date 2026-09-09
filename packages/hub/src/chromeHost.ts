@@ -97,11 +97,11 @@ export function installChromeHost(plan: ChromeHostPlan, deps: ChromeHostDeps): s
     const failed = deps.registry(['add', plan.registryKey, '/ve', '/t', 'REG_SZ', '/d', plan.manifestPath, '/f']);
 
     if (failed !== null) {
-      throw new Error(`Chrome could not be told where the bridge is: ${failed}`);
+      throw new Error(`Could not register the Chrome bridge: ${failed}`);
     }
   }
 
-  return `The GitHub overlay can now reach the board. Chrome starts ${plan.wrapperPath}.`;
+  return `GitHub overlay connection enabled. Chrome launcher: ${plan.wrapperPath}.`;
 }
 
 export function uninstallChromeHost(plan: ChromeHostPlan, deps: ChromeHostDeps): string {
@@ -113,5 +113,5 @@ export function uninstallChromeHost(plan: ChromeHostPlan, deps: ChromeHostDeps):
   deps.remove(plan.manifestPath);
   deps.remove(plan.wrapperPath);
 
-  return 'The GitHub overlay can no longer reach the board.';
+  return 'GitHub overlay connection disabled.';
 }

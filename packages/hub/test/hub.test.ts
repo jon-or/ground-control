@@ -971,7 +971,7 @@ describe('what the snapshot says', () => {
     const failure = {
       subject: 'config',
       kind: 'bad-config',
-      message: 'The settings this machine last accepted cannot be used: it names a claude that is not there.',
+      message: 'Saved hub settings are invalid: it names a claude that is not there.',
       remedy: 'Open the board in an editor to push its settings again.',
     };
     const h = harness({}, { stored: { failure } });
@@ -1585,7 +1585,7 @@ describe('the activity signal', () => {
     await settle();
 
     expect(inbox.filter((message) => message.type === 'notice')).toEqual([
-      { type: 'notice', level: 'info', message: 'Session activity hooks were removed. Sessions no longer report what they are doing.' },
+      { type: 'notice', level: 'info', message: 'Session activity hooks removed. Activity reporting is disabled.' },
     ]);
   });
 
@@ -2197,7 +2197,7 @@ describe('what the hub writes down about itself', () => {
     h.hub.disconnect(client);
 
     expect(h.logged).toContain('board-1 connected from fake-host, watching');
-    expect(h.logged).toContain('board-1 went away, leaving 0');
+    expect(h.logged).toContain('board-1 disconnected; 0 clients remain');
   });
 
   it('writes down a card the developer moved, and where to', async () => {
@@ -2219,7 +2219,7 @@ describe('what the hub writes down about itself', () => {
     const refusal = latest(inbox).failures.find((failure) => failure.subject === 'config');
 
     expect(refusal?.message).toBeDefined();
-    expect(h.logged).toContain(`a client's settings were refused: ${refusal!.message}`);
+    expect(h.logged).toContain(`client settings rejected: ${refusal!.message}`);
   });
 
   // Every board that opens restates its settings, and a hub that wrote a line for each would say nothing else.
@@ -2233,7 +2233,7 @@ describe('what the hub writes down about itself', () => {
     h.hub.receive(client, { type: 'configure', config: settings });
     await settle();
 
-    expect(h.logged.filter((line) => line.startsWith('settings changed by a client'))).toHaveLength(1);
+    expect(h.logged.filter((line) => line.startsWith('client updated settings'))).toHaveLength(1);
     expect(h.logged.filter((line) => line === 'settings restated unchanged')).toHaveLength(1);
   });
 
@@ -2265,13 +2265,13 @@ describe('what the hub writes down about itself', () => {
     await settle();
 
     expect(h.logged).toContain('fake: no CLI');
-    expect(h.logged).not.toContain('every agent is readable again');
+    expect(h.logged).not.toContain('all agent reads recovered');
 
     h.agent.failure = null;
     h.clock.fire(h.config().sessionIntervalMs);
     await settle();
 
-    expect(h.logged).toContain('every agent is readable again');
+    expect(h.logged).toContain('all agent reads recovered');
   });
 
   // The per-item detail. It is off by default, and turning it on is a setting a client pushes like any other.

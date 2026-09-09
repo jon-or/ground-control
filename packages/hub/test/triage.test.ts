@@ -518,7 +518,7 @@ describe('telling the developer what it is about to spend', () => {
 
     expect(told).toHaveLength(1);
     expect(told[0]).toContain('2 cards');
-    expect(told[0]).toContain('spends your Claude usage');
+    expect(told[0]).toContain('uses your Claude allowance');
     expect(told[0]).toContain('groundControl.triage.enabled');
 
     control.cards = [issue({ number: 3 })];
@@ -623,7 +623,7 @@ describe('asking for a card again', () => {
     await control.settle();
 
     expect(control.peak()).toBe(2);
-    expect(told.join(' ')).toContain('as many cards as it may');
+    expect(told.join(' ')).toContain('Concurrent triage limit reached');
   });
 
   it('refuses a key no card holds, rather than spawning against it', async () => {
@@ -644,7 +644,7 @@ describe('asking for a card again', () => {
     await control.settle();
 
     expect(control.contexts).toEqual([17198]);
-    expect(told.join(' ')).toContain('not on the board');
+    expect(told.join(' ')).toContain('no longer on the board');
   });
 });
 

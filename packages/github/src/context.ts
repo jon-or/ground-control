@@ -268,7 +268,7 @@ export async function fetchCardContext(
       failure: {
         subject: GITHUB_SOURCE_ID,
         kind: 'bad-response',
-        message: `The board could not tell which repository issue #${card.number} is in.`,
+        message: `Repository unknown for issue #${card.number}.`,
         remedy: 'Refresh the board so the card is read again.',
       },
     };
@@ -307,8 +307,8 @@ export async function fetchCardContext(
       failure: {
         subject: GITHUB_SOURCE_ID,
         kind: 'bad-response',
-        message: `GitHub's answer for issue #${card.number} was not the shape the board reads.`,
-        remedy: 'Refresh the board, and re-record the context fixture if the API has changed.',
+        message: `GitHub returned an unexpected response for issue #${card.number}.`,
+        remedy: 'Refresh the board. If the error persists, report it.',
       },
     };
   }

@@ -95,13 +95,13 @@ describe('what the browser may ask the hub for', () => {
   /** The overlay reaches a session by navigating to the editor's own link (R36), so nothing asks the hub for one. */
   it('refuses to open a session, and says how the browser board does it instead', () => {
     expect(bridgeAction({ type: 'open', sessionId: 'a-session' })).toEqual({
-      refused: 'The browser board goes to a session by opening its link, not by asking the hub.',
+      refused: 'Open sessions through their links in the overlay.',
     });
   });
 
   /** The one message that would have a web page start an agent in the developer's own checkout (R39). */
   it('refuses to start or stop work on a card', () => {
-    const refused = { refused: 'Starting and stopping work on a card is the editor board’s, not the browser’s.' };
+    const refused = { refused: 'Start or stop card actions in VS Code.' };
 
     expect(bridgeAction({ type: 'runAction', key: 'issue:17198' })).toEqual(refused);
     expect(bridgeAction({ type: 'stopAction', key: 'issue:17198' })).toEqual(refused);
@@ -126,21 +126,21 @@ describe('what the browser may ask the hub for', () => {
   // starting an agent is R42's editor-only. Both by name, so a refusal says which verb rather than which type.
   it('refuses to choose a card’s folder, which is the one message that would carry a path', () => {
     expect(bridgeAction({ type: 'setCheckout', key: 'issue:17198', root: 'd:/anything' })).toEqual({
-      refused: 'Choosing the folder a card’s work happens in is the editor board’s, not the browser’s.',
+      refused: 'Choose card checkouts in VS Code.',
     });
   });
 
   it('refuses to start a session on a card', () => {
     expect(bridgeAction({ type: 'startSession', key: 'issue:17198', agent: 'claude', extensionReady: true })).toEqual({
-      refused: 'Starting a session on a card is the editor board’s, not the browser’s.',
+      refused: 'Start card sessions in VS Code.',
     });
   });
 
   it('refuses everything else by name', () => {
     expect(bridgeAction({ type: 'configure', config: {} })).toEqual({ refused: 'The overlay may not send configure.' });
     expect(bridgeAction({ type: 'hello' })).toEqual({ refused: 'The overlay may not send hello.' });
-    expect(bridgeAction('refresh')).toEqual({ refused: 'The overlay sent something that is not a message.' });
-    expect(bridgeAction(null)).toEqual({ refused: 'The overlay sent something that is not a message.' });
+    expect(bridgeAction('refresh')).toEqual({ refused: 'Invalid overlay message.' });
+    expect(bridgeAction(null)).toEqual({ refused: 'Invalid overlay message.' });
   });
 
   it('connects as a client that is resident in nothing, so no route is ever forwarded to it', () => {
@@ -206,7 +206,7 @@ describe('relaying one Chrome port', () => {
       {
         type: 'notice',
         level: 'warning',
-        message: 'The browser board goes to a session by opening its link, not by asking the hub.',
+        message: 'Open sessions through their links in the overlay.',
       },
     ]);
   });

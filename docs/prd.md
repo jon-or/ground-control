@@ -366,6 +366,10 @@ Report observed phase and age without inventing state. Reject malformed, mismatc
 
 Give each actionable failure a specific explanation and remedy. Show board-wide failures once, not on every card. Do not add per-card explanations that merely repeat visible state.
 
+Follow the repository-wide [wording rules](../AGENTS.md#wording). Keep shared wording consistent across clients; do not imply completion or automatic recovery without evidence.
+
+A client disconnection does not prove that the hub stopped. A board update time describes its snapshot, not a successful source refresh. Failure messages must not promise session visibility or claim that no process started unless the failure establishes it.
+
 For a transient source failure with cached data, retain that data, mark freshness accurately, and retry silently for one minute. Report initial-load failures and actionable failures immediately. After the grace period, show the transient failure and explain that retry is automatic.
 
 In the overlay, failures use dismissible notices; informational details belong in its menu. Announce newly installed hooks once per client, including how many existing sessions may need restart. Repeat the announcement only after a new install cycle.

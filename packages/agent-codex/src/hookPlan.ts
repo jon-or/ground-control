@@ -170,21 +170,21 @@ export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInpu
     root = JSON.parse(body);
   } catch (error) {
     return refuse(
-      `${HOOKS_PATH} is not valid JSON, so the board left it alone: ${(error as Error).message}`,
-      `Fix ${HOOKS_PATH}, then reopen the board. Sessions still appear; they cannot report what they are doing.`,
+      `${HOOKS_PATH} contains invalid JSON. File unchanged: ${(error as Error).message}`,
+      `Fix ${HOOKS_PATH}, then reopen the board. Activity reporting may be unavailable.`,
     );
   }
 
   if (!isRecord(root)) {
     return refuse(
-      `${HOOKS_PATH} does not hold a JSON object, so the board left it alone.`,
+      `${HOOKS_PATH} must contain a JSON object. File unchanged.`,
       `Fix ${HOOKS_PATH}, then reopen the board.`,
     );
   }
 
   if (root.hooks !== undefined && !isRecord(root.hooks)) {
     return refuse(
-      `The "hooks" key in ${HOOKS_PATH} is not an object, so the board left it alone.`,
+      `The "hooks" key in ${HOOKS_PATH} must be an object. File unchanged.`,
       `Fix or remove "hooks" in ${HOOKS_PATH}, then reopen the board.`,
     );
   }
@@ -210,7 +210,7 @@ export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInpu
       }
 
       return refuse(
-        `"hooks.${event}" in ${HOOKS_PATH} is not a list, so the board left the file alone.`,
+        `"hooks.${event}" in ${HOOKS_PATH} must be a list. File unchanged.`,
         `Fix "hooks.${event}" in ${HOOKS_PATH}, then reopen the board.`,
       );
     }

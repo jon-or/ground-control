@@ -116,7 +116,7 @@ describe('what the board will act on', () => {
   it('refuses a pull request based on anything but the repository default branch', () => {
     expect(refusedAs(plan({ baseRefName: '17000-parent-feature' }))).toBe('stacked-branch');
     expect(plan({ baseRefName: '17000-parent-feature' })).toMatchObject({
-      refusal: { message: '#4021 merges into 17000-parent-feature, not master, so keeping it current is a chain.' },
+      refusal: { message: '#4021 targets 17000-parent-feature. Merge-upstream requires the default branch, master.' },
     });
   });
 

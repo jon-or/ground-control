@@ -82,7 +82,7 @@ describe('a session handed to this window', () => {
     const answer = await fire('session=../../etc/passwd&hop=1&agent=claude');
 
     assert.ok(
-      answer.includes('does not name a session'),
+      answer.includes('Invalid or unsupported session link.'),
       `expected the handler own refusal for a malformed id, got: ${answer}`,
     );
   });

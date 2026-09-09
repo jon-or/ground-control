@@ -7,8 +7,8 @@ import { saveLogins, splitLogins } from './config.js';
  */
 export async function promptForLogins(detected: readonly string[]): Promise<string[]> {
   const answer = await vscode.window.showInputBox({
-    title: 'Ground Control — whose issues is this board for?',
-    prompt: 'GitHub username. Comma-separate several if you work under more than one account.',
+    title: 'Ground Control — GitHub accounts',
+    prompt: 'GitHub usernames, separated by commas.',
     value: detected.join(','),
     placeHolder: 'your-github-username',
     ignoreFocusOut: true,

@@ -129,7 +129,7 @@ describe('getting a hub to talk to', () => {
     const { ensure } = harness();
     const answer = await ensure();
 
-    expect('failed' in answer && answer.failed).toContain('killed process');
+    expect('failed' in answer && answer.failed).toContain('No exit reason recorded');
   });
 
   it('refuses a second start inside the minute rather than spawning again', async () => {
@@ -142,7 +142,7 @@ describe('getting a hub to talk to', () => {
     const answer = await ensure();
 
     expect(shape.starts).toBe(1);
-    expect('failed' in answer && answer.failed).toContain('keeps stopping');
+    expect('failed' in answer && answer.failed).toContain('repeatedly exited');
   });
 
   it('tries again once the minute has passed, and stops after three inside five', async () => {
@@ -158,7 +158,7 @@ describe('getting a hub to talk to', () => {
     const answer = await ensure();
 
     expect(shape.starts).toBe(3);
-    expect('failed' in answer && answer.failed).toContain('keeps stopping');
+    expect('failed' in answer && answer.failed).toContain('repeatedly exited');
   });
 
   /**
@@ -263,7 +263,7 @@ describe('getting a hub to talk to', () => {
       },
     });
 
-    expect(await ensure()).toEqual({ failed: 'The board could not start its background process: Error: EACCES' });
+    expect(await ensure()).toEqual({ failed: 'Could not start the hub: Error: EACCES' });
   });
 });
 
@@ -336,8 +336,8 @@ describe('something serving this home that will not take this client', () => {
    * of them — end it — and which one it was is the whole of what a developer has to go on.
    */
   const misses: [string, Found, string][] = [
-    ['a hub holding a token this client cannot prove', { miss: { why: 'unproven', record: held } }, 'cannot verify'],
-    ['a listener that will not answer', { miss: { why: 'silent', record: held } }, 'will not answer'],
+    ['a hub holding a token this client cannot prove', { miss: { why: 'unproven', record: held } }, 'Could not verify'],
+    ['a listener that will not answer', { miss: { why: 'silent', record: held } }, 'did not respond'],
     [
       'something that is not a hub',
       { miss: { why: 'not-a-hub', record: held, saw: { status: 502, said: 'Proxy Error' } } },
@@ -361,7 +361,7 @@ describe('something serving this home that will not take this client', () => {
     expect('failed' in answer && answer.failed).toContain(said);
     expect('failed' in answer && answer.failed).toContain('4321');
     expect('failed' in answer && answer.failed).not.toContain('6789');
-    expect('failed' in answer && answer.failed).not.toContain('never answered');
+    expect('failed' in answer && answer.failed).not.toContain('The hub started but did not respond');
   });
 
   /**
@@ -396,7 +396,7 @@ describe('something serving this home that will not take this client', () => {
 
     const answer = await ensure();
 
-    expect('failed' in answer && answer.failed).toContain('a hub is running that this window cannot reach');
+    expect('failed' in answer && answer.failed).toContain('this window cannot connect to it');
   });
 
   /** The one listener that proved it wrote the record, so the one whose pid is the process to stop. */
@@ -407,7 +407,7 @@ describe('something serving this home that will not take this client', () => {
 
     const answer = await ensure();
 
-    expect('failed' in answer && answer.failed).toContain('another version');
+    expect('failed' in answer && answer.failed).toContain('Another hub version');
     expect('failed' in answer && answer.failed).toContain('pid 6789');
   });
 
@@ -415,14 +415,14 @@ describe('something serving this home that will not take this client', () => {
    * Nothing holds the port the record names, which is a hub that died rather than one in the way. The port it left
    * is not one a new hub would take — every hub binds whatever is free — so the failure does not name it.
    */
-  it('says the hub it started never recorded itself when nothing holds the recorded port', async () => {
+  it('reports an unreachable hub when nothing holds the recorded port', async () => {
     const { shape, ensure } = harness();
 
     shape.miss = { miss: { why: 'unreachable', record: held } };
 
     const answer = await ensure();
 
-    expect('failed' in answer && answer.failed).toContain('never recorded itself');
+    expect('failed' in answer && answer.failed).toContain('Could not connect to the recorded hub');
     expect('failed' in answer && answer.failed).not.toContain('4321');
   });
 
@@ -461,7 +461,7 @@ describe('something serving this home that will not take this client', () => {
 
     expect(stops).toBe(1);
     expect(shape.starts).toBe(1);
-    expect('failed' in answer && answer.failed).toContain('never answered');
+    expect('failed' in answer && answer.failed).toContain('did not respond');
   });
 });
 

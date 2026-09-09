@@ -420,7 +420,7 @@ describe('what a client can write about its own connection (R40)', () => {
     await until(() => client.inbox.length > 0, 'the snapshot never arrived');
 
     expect(client.said).toContain(`info opening a stream to 127.0.0.1:${server.port}`);
-    expect(client.said).toContain('info the hub accepted this window, with 0 action(s) queued');
+    expect(client.said).toContain('info hub connected; 0 action(s) queued');
     expect(client.said).toContain('debug sent hello: ok');
     expect(client.said).toContain('debug sent refresh: ok');
     expect(client.said).toContain('debug the hub sent snapshot');

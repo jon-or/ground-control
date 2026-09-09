@@ -82,7 +82,7 @@ export function configureHosts(registries: Registries, hosts: Record<string, unk
         {
           subject: id,
           kind: 'unknown-host',
-          message: `The board does not know how to reach into "${id}".`,
+          message: `Unsupported host: "${id}".`,
           remedy: 'Remove it from groundControl.hosts, or check the spelling.',
         },
       ];
@@ -108,7 +108,7 @@ export function configureSources(registries: Registries, sources: Record<string,
         {
           subject: id,
           kind: 'unknown-source',
-          message: `The board does not know how to read work from "${id}".`,
+          message: `Unsupported work source: "${id}".`,
           remedy: 'Remove it from groundControl.sources, or check the spelling.',
         },
       ];

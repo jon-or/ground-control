@@ -143,7 +143,7 @@ describe('starting a hub for a home', () => {
     const second = await serving(home);
 
     expect('existing' in second.result && second.result.existing.record.port).toBe(first.port);
-    expect(second.lines.join(' ')).toContain('already serving');
+    expect(second.lines.join(' ')).toContain('hub already running');
   });
 
   /**

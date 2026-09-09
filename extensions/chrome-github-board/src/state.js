@@ -21,7 +21,7 @@ export function isBoardPath(pathname) {
 
 /** @returns {State} */
 export function initialState() {
-  return { snapshot: null, trouble: 'Ground Control has not answered yet.', notice: null };
+  return { snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null };
 }
 
 /**
@@ -71,7 +71,7 @@ export function retryDelay(attempt) {
  */
 export function disconnection(runtime) {
   return runtime?.id === undefined
-    ? { retry: false, trouble: 'Ground Control was reloaded. Reload this tab to bring the overlay back.' }
+    ? { retry: false, trouble: 'Ground Control was reloaded. Reload this tab to restore the overlay.' }
     : { retry: true, trouble: 'The overlay lost its connection to Ground Control.' };
 }
 

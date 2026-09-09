@@ -300,7 +300,7 @@ export class Hub {
   disconnect(client: Client): void {
     this.#clients.get(client.id)?.unwatchLog?.();
     this.#clients.delete(client.id);
-    this.#deps.log.info(`${client.id} went away, leaving ${this.#clients.size}`, 'clients');
+    this.#deps.log.info(`${client.id} disconnected; ${this.#clients.size} clients remain`, 'clients');
     this.#retime();
   }
 
@@ -430,7 +430,7 @@ export class Hub {
     const host = this.#hostFor(client.hello);
 
     if (host?.planStart === undefined) {
-      client.send({ type: 'notice', level: 'warning', message: 'This board has no editor it can start a session in.' });
+      client.send({ type: 'notice', level: 'warning', message: 'Starting a session requires a connected editor.' });
 
       return;
     }
@@ -443,7 +443,7 @@ export class Hub {
         type: 'notice',
         level: 'warning',
         refusal: 'no-checkout',
-        message: 'This card has no checkout to start a session in. Choose the folder its work happens in.',
+        message: 'This card has no checkout to start a session in. Choose a checkout for this card.',
       });
 
       return;
@@ -469,7 +469,7 @@ export class Hub {
     }
 
     if (this.#starting.has(startKey)) {
-      client.send({ type: 'notice', level: 'warning', message: `A ${agent} session is already being started for this card. Give its tab a moment to appear.` });
+      client.send({ type: 'notice', level: 'warning', message: `A ${agent} session is already being started for this card. Wait for its tab to open.` });
 
       return;
     }
@@ -515,7 +515,7 @@ export class Hub {
     const card = this.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
 
     if (card === undefined) {
-      client.send({ type: 'notice', level: 'warning', message: 'That card is no longer on the board. Refresh and try again.' });
+      client.send({ type: 'notice', level: 'warning', message: 'This card is no longer on the board. Refresh and try again.' });
 
       return;
     }
@@ -530,14 +530,14 @@ export class Hub {
       client.send({
         type: 'notice',
         level: 'warning',
-        message: `${root} is not a checkout of ${card.issue?.repository ?? 'this card’s repository'}. Choose the folder this issue’s work happens in.`,
+        message: `${root} is not a checkout of ${card.issue?.repository ?? 'this card’s repository'}. Choose a checkout for this issue.`,
       });
 
       return;
     }
 
     if (!this.#deps.checkouts.write(key, chosen)) {
-      client.send({ type: 'notice', level: 'warning', message: 'That folder could not be stored. Check that the hub can write to its own directory.' });
+      client.send({ type: 'notice', level: 'warning', message: 'Could not save the checkout. Check write access to the hub directory.' });
 
       return;
     }
@@ -568,7 +568,7 @@ export class Hub {
     const host = this.#hostFor(client.hello);
 
     if (host?.planCheckout === undefined) {
-      client.send({ type: 'notice', level: 'warning', message: 'This board has no editor it can open a checkout in.' });
+      client.send({ type: 'notice', level: 'warning', message: 'Opening a checkout requires a connected editor.' });
 
       return;
     }
@@ -581,7 +581,7 @@ export class Hub {
         type: 'notice',
         level: 'warning',
         refusal: 'no-checkout',
-        message: 'This card has no checkout to open. Choose the folder its work happens in.',
+        message: 'This card has no checkout to open. Choose a checkout for this card.',
       });
 
       return;
@@ -599,7 +599,7 @@ export class Hub {
       // Said to a developer who clicked twice, and not to a page that fired thirty: a notice per item would be
       // thirty warnings for something they did not do.
       if (client.hello.hostId !== null) {
-        client.send({ type: 'notice', level: 'info', message: 'That window is already being opened. Give it a moment to come forward.' });
+        client.send({ type: 'notice', level: 'info', message: 'This window is already opening.' });
       }
 
       return;
@@ -685,7 +685,7 @@ export class Hub {
     // a process: taking half of a configuration would leave the hub polling with two clients' settings mixed.
     if ('failure' in parsed) {
       this.#configFailures = [parsed.failure];
-      this.#deps.log.warn(`a client's settings were refused: ${parsed.failure.message}`, 'config');
+      this.#deps.log.warn(`client settings rejected: ${parsed.failure.message}`, 'config');
       this.#broadcast();
 
       return null;
@@ -699,7 +699,7 @@ export class Hub {
       this.#deps.log.debug('settings restated unchanged', 'config');
     } else {
       // Written before `#applyConfig` moves the floor, so turning the log down still says why it went quiet.
-      this.#deps.log.info(`settings changed by a client; the log level is now ${parsed.config.logLevel}`, 'config');
+      this.#deps.log.info(`client updated settings; log level: ${parsed.config.logLevel}`, 'config');
     }
 
     const sessionsChanged = !same(before.agents, parsed.config.agents) || before.branchIssuePattern !== parsed.config.branchIssuePattern;
@@ -890,7 +890,7 @@ export class Hub {
     this.#lastTickAt = now;
 
     if (slept) {
-      this.#deps.log.info(`the machine was away about ${Math.round(gap / 1000)}s; reading everything again`, 'loop');
+      this.#deps.log.info(`polling gap: ${Math.round(gap / 1000)}s; refreshing all sources and sessions`, 'loop');
       // The sleep is not part of the outage: a source that failed on the way down gets its minute over again, and
       // its next try is now. One the board has already stated stays stated — `#riding` keys on that rather than on
       // the clock, because a stall long enough to look like a suspend must not retract a notice that still holds.
@@ -916,7 +916,7 @@ export class Hub {
     }
 
     if (overdue.length > 0) {
-      this.#deps.log.warn(`${overdue.length} source(s) unreachable for over a minute; saying so on the board`, 'sources');
+      this.#deps.log.warn(`${overdue.length} source(s) unreachable for over a minute; displaying failures`, 'sources');
       this.#broadcast();
     }
 
@@ -1057,7 +1057,7 @@ export class Hub {
           subject: source.id,
           kind: 'source-failed',
           message: `${source.displayName} could not be read: ${String(error)}`,
-          remedy: 'Refresh the board. If it keeps happening, the hub log carries what it threw.',
+          remedy: 'Refresh the board. If the error persists, check the hub log.',
         },
         needs: null,
       }),
@@ -1200,7 +1200,7 @@ export class Hub {
 
     // An empty set that was not empty before is a CLI that has come back, which is worth as much as its going.
     if (key === '') {
-      this.#deps.log.info('every agent is readable again', 'sessions');
+      this.#deps.log.info('all agent reads recovered', 'sessions');
 
       return;
     }
@@ -1325,7 +1325,7 @@ export class Hub {
       const now = this.#deps.clock.now();
       for (const [id, until] of this.#resuming) if (until <= now) this.#resuming.delete(id);
       if (this.#resuming.has(sessionId)) {
-        client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'This session is already being opened. Give its tab a moment to appear.' });
+        client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'This session is already being opened. Wait for its tab to open.' });
         return;
       }
       const agent = this.#deps.registries.agents.find((a) => a.id === historical.agent);

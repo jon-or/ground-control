@@ -113,7 +113,7 @@ export async function openChanges(cwd: string, label: string, key: string): Prom
   try {
     await open(cwd, label, key);
   } catch (error) {
-    void vscode.window.showErrorMessage(`${label}: the board could not open its changes — ${String(error)}`);
+    void vscode.window.showErrorMessage(`${label}: could not open changes: ${String(error)}`);
   }
 }
 
@@ -129,7 +129,7 @@ async function open(cwd: string, label: string, key: string): Promise<void> {
   const api = await gitApi();
 
   if (!api) {
-    void vscode.window.showWarningMessage('The Git extension is disabled in this window, so the board cannot show changes.');
+    void vscode.window.showWarningMessage('Enable the Git extension to view changes.');
 
     return;
   }

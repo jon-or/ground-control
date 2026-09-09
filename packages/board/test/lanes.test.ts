@@ -159,7 +159,7 @@ describe('assignLanes', () => {
       expect(card.reason).toBe(
         status === null || DEFAULT_BOARD_STATUSES.includes(status!)
           ? status
-          : `${status} — past your hands, but an agent is still running.`,
+          : `${status} — session still active.`,
       );
     }
   });
@@ -235,7 +235,7 @@ describe('assignLanes', () => {
     const held = lanes(restatus(19072, '🏃 Testing'), [live]);
 
     expect(issueIn(held, 19072)).toBe('unstarted');
-    expect(lane(held, 'unstarted').cards.find((c) => c.issueNumber === 19072)?.reason).toContain('still running');
+    expect(lane(held, 'unstarted').cards.find((c) => c.issueNumber === 19072)?.reason).toContain('session still active');
   });
 
   it('archives that same card once its agents have finished', () => {

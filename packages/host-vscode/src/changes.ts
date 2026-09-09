@@ -65,7 +65,7 @@ export function noRepository(wanted: string): string {
 export function repositoryRefusal(wanted: string, answered: string): string | null {
   return dirKey(answered) === dirKey(wanted)
     ? null
-    : `VS Code answered with the repository at ${answered} rather than ${wanted}. Open the worktree in a window of its own and try again.`;
+    : `VS Code selected ${answered} instead of ${wanted}. Open ${wanted} in a separate window and try again.`;
 }
 
 /** One file followed through the stages: where it started, whether it was there, and what it is called now. */
@@ -130,8 +130,8 @@ export function changesPlan(request: ChangesRequest): ChangesPlan {
     return {
       refusal: 'no-changes',
       message: request.base
-        ? `${request.label} has no changes: its branch matches what it forked from, and nothing is uncommitted.`
-        : `${request.label} has nothing uncommitted, and the board could not work out what its branch forked from.`,
+        ? `${request.label}: no changes since the merge base and no uncommitted changes.`
+        : `${request.label}: no uncommitted changes. Merge base unavailable.`,
     };
   }
 

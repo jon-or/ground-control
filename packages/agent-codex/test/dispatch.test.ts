@@ -149,7 +149,7 @@ describe('dispatching work to Codex', () => {
     for (const [reason, kind, remedy] of [
       ['missing', 'dispatch-missing', 'groundControl.agents'],
       ['not-executable', 'dispatch-not-executable', 'groundControl.agents'],
-      ['failed', 'dispatch-failed', 'Nothing was started'],
+      ['failed', 'dispatch-failed', 'Run the action again to retry'],
     ] as const) {
       const start = () =>
         Promise.resolve({ pid: null, failure: { reason, detail: 'why' }, firstLine: () => Promise.resolve(null) });
@@ -189,6 +189,6 @@ describe('dispatching work to Codex', () => {
     // The dangerous case: something is editing the checkout and the board cannot follow or stop it, so it says so
     // rather than reporting a dispatch that failed cleanly.
     expect(outcome).toMatchObject({ failure: { kind: 'dispatch-unreadable' } });
-    expect('failure' in outcome && outcome.failure.message).toContain('did not say which thread');
+    expect('failure' in outcome && outcome.failure.message).toContain('without returning a thread ID');
   });
 });

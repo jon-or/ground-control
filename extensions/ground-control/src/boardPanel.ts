@@ -346,7 +346,7 @@ export class BoardPanel {
     const session = sessionOf(this.#last, sessionId);
 
     if (session === null || !attachTo(session)) {
-      void vscode.window.showWarningMessage('That run is no longer on the board, or is not one the board can attach to.');
+      void vscode.window.showWarningMessage('This run is unavailable or does not support attaching.');
     }
   }
 
@@ -354,7 +354,7 @@ export class BoardPanel {
     const card = this.#last?.lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
 
     if (!card) {
-      void vscode.window.showWarningMessage('That card is no longer on the board. Refresh and try again.');
+      void vscode.window.showWarningMessage('This card is no longer on the board. Refresh and try again.');
 
       return;
     }
@@ -362,7 +362,7 @@ export class BoardPanel {
     const checkout = card.checkout;
 
     if (!checkout) {
-      void vscode.window.showWarningMessage('That card has no checkout to read changes from.');
+      void vscode.window.showWarningMessage('This card has no checkout. Choose one to view changes.');
 
       return;
     }
@@ -379,7 +379,7 @@ export class BoardPanel {
     const card = this.#last?.lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
 
     if (!card) {
-      void vscode.window.showWarningMessage('That card is no longer on the board. Refresh and try again.');
+      void vscode.window.showWarningMessage('This card is no longer on the board. Refresh and try again.');
 
       return;
     }

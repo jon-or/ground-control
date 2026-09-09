@@ -152,7 +152,7 @@ function failureFor(unreadable: number, unproven: number): ReadFailure | null {
     return {
       subject: CODEX_AGENT_ID,
       kind: 'bad-response',
-      message: `${CODEX_DISPLAY_NAME} left ${unreadable} session marker${unreadable === 1 ? '' : 's'} the board could not read.`,
+      message: `${unreadable} ${CODEX_DISPLAY_NAME} session marker${unreadable === 1 ? '' : 's'} could not be read.`,
       remedy: 'Reinstall the activity hook from the board menu, and report it if it persists.',
     };
   }

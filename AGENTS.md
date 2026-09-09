@@ -12,6 +12,15 @@ A VS Code board and Chrome overlay for assigned GitHub issues and local Claude C
 
 Continue until the task is complete or blocked. Ask for clarification when required intent is unresolved, credentials are missing, the work would deviate from the PRD, or verification is inadequate.
 
+## Wording
+
+Use concise, direct wording everywhere in this repository, including code, identifiers, comments, prompts, documentation, tests, settings, logs, user-facing copy, and generated output.
+
+- Use familiar words and concrete names. State the action, fact, or constraint directly.
+- Remove filler, repetition, boilerplate, metaphors, personification, and unnecessary detail. Avoid invented jargon and vague or cryptic names.
+- Keep code simple. Comments should explain non-obvious behavior or constraints, not restate the code or narrate change history.
+- Preserve meaning, technical precision, uncertainty, diagnostic details, and recovery steps. Brevity must not hide relevant information or change behavior, required syntax, or external contracts.
+
 ## Documentation
 
 Read and update the document responsible for the decision:
@@ -34,7 +43,6 @@ Replace superseded text in place. Record the decision and its constraint; omit d
 - Consult the [component table](docs/architecture.md#components-and-dependencies) for package responsibilities. `extensions/seize-probe` is an unshipped experiment, outside npm workspaces.
 - Root `package.json` lists workspaces in build order. Run `npm install` after changing the list.
 - Prefer existing tools before building substantial replacements. Refactor affected code when necessary; remove dead code, unused imports, and commented-out implementations.
-- Use direct names and simple implementations. Comments should explain non-obvious constraints or behavior, without boilerplate, metaphors, personification, or change history.
 - Validate external data at runtime. The project uses Zod schemas and explicit readers for external formats.
 
 The stack is TypeScript 5.9 with strict checking, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, ES2022, NodeNext modules, and project references. npm workspaces require Node >= 20. Vitest provides tests and coverage; esbuild bundles the extension and vsce packages it. External integrations use `gh`, `claude`, `codex`, and local agent/editor files.

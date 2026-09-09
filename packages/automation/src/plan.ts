@@ -67,7 +67,7 @@ export function planAction(input: PlanInput): ActionDecision {
   const pr = context.pullRequest;
 
   if (PARKED_LANES.includes(lane)) {
-    return refuse('lane-parked', `This card is in ${lane}, so the board leaves it alone.`);
+    return refuse('lane-parked', `Card actions are disabled in ${lane}.`);
   }
 
   if (pr === null) {
@@ -87,7 +87,7 @@ export function planAction(input: PlanInput): ActionDecision {
   }
 
   if (context.defaultBranch === null) {
-    return refuse('no-default-branch', 'The board could not read which branch this repository merges into.');
+    return refuse('no-default-branch', 'Repository default branch unavailable.');
   }
 
   // The whole of the multi-leg case. A branch based on another feature branch needs its parent current before this
@@ -95,22 +95,22 @@ export function planAction(input: PlanInput): ActionDecision {
   if (pr.baseRefName !== context.defaultBranch) {
     return refuse(
       'stacked-branch',
-      `#${pr.number} merges into ${pr.baseRefName}, not ${context.defaultBranch}, so keeping it current is a chain.`,
+      `#${pr.number} targets ${pr.baseRefName}. Merge-upstream requires the default branch, ${context.defaultBranch}.`,
     );
   }
 
   if (pr.headRefName === '') {
-    return refuse('no-head-branch', `The board could not read which branch #${pr.number} is on.`);
+    return refuse('no-head-branch', `Head branch unavailable for #${pr.number}.`);
   }
 
   if (liveSessions > 0) {
-    return refuse('session-running', 'Something is already working on this card.');
+    return refuse('session-running', 'This card has an active session.');
   }
 
   // A checkout an agent has run in, never one the developer merely picked and never a branch name (R37, R39): the
   // caller narrows it, because a folder pointed at is enough to open a window and not enough to edit code unwatched.
   if (checkout === null) {
-    return refuse('no-checkout', 'The board has no checkout an agent has worked in for this card.');
+    return refuse('no-checkout', 'No checkout from a previous session is available for this card.');
   }
 
   return {

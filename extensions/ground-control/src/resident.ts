@@ -133,7 +133,7 @@ async function raise(root: string, newWindow = false): Promise<string | null> {
 
   const failure = await runCode(newWindow ? ['--new-window', root] : [root]);
 
-  return failure === null ? null : `The window on ${root} could not be opened: ${failure}`;
+  return failure === null ? null : `Could not open a window on ${root}: ${failure}`;
 }
 
 /** Focuses whichever of the agent's views this VS Code registered; the other rejects rather than doing nothing. */
@@ -174,7 +174,7 @@ async function revealHere(session: { agent: string; sessionId: string }): Promis
   const placement = placementOf(session.agent);
 
   if (placement === null) {
-    return `The board does not know how to open a ${session.agent} session in VS Code.`;
+    return `Opening ${session.agent} sessions in VS Code is not supported.`;
   }
 
   const before = agentTabCount(placement);
@@ -213,14 +213,14 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
 
     if (stray) {
       void vscode.window.showErrorMessage(
-        `The session was aimed at the window on ${root}, but a new session started in ${stray.cwd} — another window took focus first. Close that tab.`,
+        `A session started in ${stray.cwd} instead of ${root} after focus changed. Close the new tab in ${stray.cwd}.`,
       );
 
       return;
     }
   }
   if (expectedSessionId) {
-    void vscode.window.showWarningMessage('The historical session did not appear in its working directory. Refresh the board before trying again.');
+    void vscode.window.showWarningMessage('The resumed session did not appear in its working directory. Refresh the board and try again.');
   }
 }
 
@@ -235,7 +235,7 @@ async function revealElsewhere(roster: Roster, session: Session | HistoricalSess
   if (raised !== null) return raised;
 
   // The URI reaches whichever window has focus, so this one losing it is the only proof the fire will land there.
-  if (!(await focusLeft(FOCUS_TIMEOUT_MS))) return `Could not bring the window on ${root} forward, so nothing was opened.`;
+  if (!(await focusLeft(FOCUS_TIMEOUT_MS))) return `Could not focus the window on ${root}. The session was not opened.`;
 
   // Read here rather than taken from the render: anything already running when the fire went out is the developer's
   // own work, and reporting it as a stray would tell them to close a session they had just started themselves.
@@ -249,7 +249,7 @@ async function revealElsewhere(roster: Roster, session: Session | HistoricalSess
   const placement = placementOf(session.agent);
 
   if (placement === null) {
-    return `The board does not know how to open a ${session.agent} session in VS Code.`;
+    return `Opening ${session.agent} sessions in VS Code is not supported.`;
   }
 
   // The agent's own URI where it answers one, and the board's own where it does not: a raised window runs Ground
@@ -299,7 +299,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       const placement = placementOf(plan.session.agent);
 
       if (placement === null || !(await focusSidebar(placement))) {
-        return `The ${plan.session.agent} sidebar would not come forward. Open it from the activity bar.`;
+        return `Could not open the ${plan.session.agent} sidebar. Open it from the activity bar.`;
       }
 
       // Said out loud because the sidebar shows one session and the record of which is up to a minute old: the view
@@ -326,7 +326,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
 
     case 'unknown-surface-here':
       void vscode.window.showInformationMessage(
-        `${sessionLabel(plan.session)} is somewhere in this window. VS Code has not recorded which tab or sidebar holds it, and guessing would run a second agent on it.`,
+        `${sessionLabel(plan.session)} is in this window, but its tab or sidebar is unknown. Locate it manually to avoid starting a duplicate session.`,
       );
 
       return null;
@@ -336,7 +336,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       if (raised !== null) return raised;
 
       void vscode.window.showInformationMessage(
-        `${sessionLabel(plan.session)} is in the window on ${plan.root}. VS Code has not recorded which tab or sidebar holds it, so this is as close as the board can take you.`,
+        `${sessionLabel(plan.session)} is in the window on ${plan.root}, but its tab or sidebar is unknown. Locate it in that window.`,
       );
 
       return null;
@@ -361,7 +361,7 @@ async function startHere(agent: string, root: string, prompt: string | null): Pr
   const placement = placementOf(agent);
 
   if (placement?.start === undefined) {
-    return `The board does not know how to start a ${agent} session in VS Code.`;
+    return `Starting ${agent} sessions in VS Code is not supported.`;
   }
 
   if (dirKey(boardRoot() ?? '') !== dirKey(root)) {

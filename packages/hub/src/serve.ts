@@ -123,7 +123,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   const already = await recordedHub(home);
 
   if (already) {
-    log.info(`a hub is already serving this home on port ${already.record.port}; nothing to do`);
+    log.info(`hub already running for this home on port ${already.record.port}`);
     standDown(home, already.record.port);
 
     return { existing: already };
@@ -201,10 +201,10 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
       hub.dispose();
 
       if (!other) {
-        throw new Error(`Another process keeps claiming ${hubJsonPathOf(home)} and none of them is answering.`);
+        throw new Error(`The hub record at ${hubJsonPathOf(home)} repeatedly changed, but no recorded hub responded.`);
       }
 
-      log.info(`another hub claimed this home first, on port ${other.record.port}; standing down`);
+      log.info(`another hub started for this home on port ${other.record.port}; exiting`);
       standDown(home, other.record.port);
 
       return { existing: other };
