@@ -5,7 +5,7 @@ import { TRIAGE_ACTIONS } from '../src/triage.js';
 
 const NOW = Date.parse('2026-09-05T12:00:00Z');
 
-/** The one heading the comments and the state changes share, which is the whole point of the merge. */
+/** Shared heading for comments and state changes. */
 const ACTIVITY = 'Recent activity — comments and state changes, oldest first:';
 
 function comment(author: string, body: string, association = 'MEMBER', authorName: string | null = null) {
@@ -62,15 +62,15 @@ function pullRequest(over = {}) {
 }
 
 describe('the system prompt', () => {
-  it('names every action there is, so retiring or adding one cannot leave the prompt behind', () => {
+  it('lists every supported action', () => {
     for (const action of TRIAGE_ACTIONS) {
       expect(TRIAGE_SYSTEM_PROMPT).toContain(`${action}:`);
     }
   });
 
-  it('gives an order to take when more than one fits, since several routinely do', () => {
+  it('specifies action precedence', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('take the first that applies');
-    // The order the numbers put them in, which is the whole of what the rule is worth.
+    // Assert action precedence independently of the prompt.
     const order = ['merge-upstream', 'fix-checks', 'qa-failure', 'qa-question', 'dev-question', 'address-review', 'review-others', 'develop', 'other'];
     const at = order.map((action) => TRIAGE_SYSTEM_PROMPT.indexOf(`${action}:`));
 
@@ -78,64 +78,59 @@ describe('the system prompt', () => {
     expect(at.every((i) => i > 0)).toBe(true);
   });
 
-  it('says an assigned issue with nothing on it is develop, since that is most of a first run', () => {
+  it('defaults assigned issues without discussion or PRs to develop', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('is develop, not other');
   });
 
-  it('counts the actions above other the way the list does, so retiring one cannot leave the prose wrong', () => {
-    const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven'];
-
-    expect(TRIAGE_SYSTEM_PROMPT).toContain(`none of the ${words[TRIAGE_ACTIONS.length - 1]} above fits`);
+  it('uses other only when no listed action fits', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('Use other only if no listed action fits.');
   });
 
-  it('names the merge as something asked for, and says a conflict is not the developer to fix', () => {
-    // R39: nothing derives a merge, so the words somebody wrote are the only channel. And a branch that will not
-    // merge is somebody else's job on this team, which the model has to be told or it labels it anyway.
+  it('requires merge requests and excludes inferred conflict work', () => {
+    // Merges require written requests. Failing-check facts are applied before model classification (R39).
     expect(TRIAGE_SYSTEM_PROMPT).toContain('somebody has asked you to merge or rebase the base branch into yours');
     expect(TRIAGE_SYSTEM_PROMPT).toContain('A branch that will not merge is not yours to fix.');
     expect(TRIAGE_SYSTEM_PROMPT).toContain('is failing');
   });
 
-  it('tells the model to take the most recent word on a problem, so a fixed one is not still pending', () => {
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('has since said is fixed is not what the card is waiting on');
+  it('uses the latest report of a problem', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('as pending after someone reports it fixed');
   });
 
-  it('tells the model what day it is, since three of the actions turn on recency', () => {
+  it('includes the current date', () => {
     expect(buildTriagePrompt(context(), Date.parse('2026-09-05T12:00:00Z'))).toContain('Today is 2026-09-05.');
   });
 
-  it('asks for the one sentence length the parser enforces', () => {
+  it('limits the explanation to 160 characters', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('160 characters');
   });
 
-  it('asks for logistics rather than a summary of the change, which is what the developer already knows', () => {
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('logistics, not engineering');
+  it('requests status and responsibility without implementation detail', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('Describe the status and who needs to act');
     expect(TRIAGE_SYSTEM_PROMPT).toContain('Do not summarise the change');
   });
 
-  it('forbids a count in words as well as digits, since the reading that started this said "all nine findings"', () => {
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('Count nothing, in digits or in words');
+  it('forbids counts from partial evidence', () => {
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('Do not give counts in digits or words');
     expect(TRIAGE_SYSTEM_PROMPT).toContain('never "Mayur asked five questions"');
   });
 
-  it('states how to write the sentence before it lists the actions, which is where the rule holds', () => {
+  it('places explanation constraints before action choices', () => {
     // Both rules regressed when they sat at the end: counts came back and the sentence went technical again.
-    for (const rule of ['logistics, not engineering', 'Count nothing']) {
+    for (const rule of ['Describe the status and who needs to act', 'Do not give counts']) {
       expect(TRIAGE_SYSTEM_PROMPT.indexOf(rule)).toBeLessThan(TRIAGE_SYSTEM_PROMPT.indexOf('1. merge-upstream'));
     }
   });
 
-  it('lets Opened by decide whose review it is, for the statuses the board rules leave open', () => {
-    // A colleague's pull request, stacked on a parent, on an issue at Dev Review: what it waits on to merge is not
-    // what the card waits on, and without this every such card read as blocked on somebody else.
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('"Opened by" says whose job that is');
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('review even when it cannot merge yet');
+  it('uses PR authorship to determine review responsibility', () => {
+    // A colleague PR can require review while its parent branch prevents merging.
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('Use "Opened by" to identify whose review it is');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('pull request even when it cannot merge yet');
   });
 
-  it('gives an unreviewed or blocked pull request nowhere to go but other, so no card claims to be waiting', () => {
-    // Both misreadings the removed action produced: a colleague's stacked pull request awaiting its parent, and the
-    // developer's own awaiting a reviewer while the issue had already been handed back to them.
-    expect(TRIAGE_SYSTEM_PROMPT).toContain("is somebody else's queue");
+  it('classifies own PRs awaiting review or dependencies as other', () => {
+    // Distinguish colleague PRs needing review from own PRs awaiting someone else.
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('For your own PR awaiting a reviewer');
     expect(TRIAGE_SYSTEM_PROMPT).toContain('answer other');
     expect(TRIAGE_SYSTEM_PROMPT).not.toContain('awaiting-others');
   });
@@ -151,7 +146,7 @@ describe('building the prompt', () => {
     expect(prompt.indexOf('First.')).toBeLessThan(prompt.indexOf('Second.'));
   });
 
-  it('writes the developer as you and never as a name, because the sentence is addressed to them', () => {
+  it('addresses the developer as you', () => {
     const prompt = buildTriagePrompt(
       context({ comments: [comment('dev-1', 'Mine.', 'MEMBER', 'Jon Hynes'), comment('dev-2', 'Theirs.')] }),
       NOW,
@@ -214,7 +209,7 @@ describe('building the prompt', () => {
     const prompt = buildTriagePrompt(context({ pullRequest: pr }), NOW);
 
     expect(prompt).toContain('Opened by: Mayur');
-    expect(prompt).toContain('Reviewers asked for: you, Bri');
+    expect(prompt).toContain('Requested reviewers: you, Bri');
     expect(prompt).toContain('Reviews submitted: you COMMENTED');
   });
 
@@ -238,7 +233,7 @@ describe('building the prompt', () => {
     expect(prompt).toContain('PULL REQUEST #4021: Fix paging');
     expect(prompt).toContain('Opened by: you');
     expect(prompt).toContain('State: OPEN');
-    expect(prompt).toContain('Reviewers asked for: dev-5');
+    expect(prompt).toContain('Requested reviewers: dev-5');
     expect(prompt).toContain('Reviews submitted: dev-4 CHANGES_REQUESTED');
   });
 
@@ -269,7 +264,7 @@ describe('building the prompt', () => {
     );
 
     expect(bare).toContain(`${ACTIVITY}\n(none)`);
-    expect(bare).toContain('Reviewers asked for: (none)');
+    expect(bare).toContain('Requested reviewers: (none)');
     expect(bare).toContain('Reviews submitted: (none)');
     expect(bare).toContain('Unresolved review threads (the most recent few):\n(none)');
   });
@@ -297,8 +292,7 @@ describe('building the prompt', () => {
     });
     const prompt = buildTriagePrompt(context({ pullRequest: many }), NOW);
 
-    // Every heading, not just the one that carried a count: a number beside a truncated list is a number the model
-    // will repeat, and `reviewThreads(last:5)` means the number was never the total in the first place.
+    // Partial comment and thread lists must not imply totals.
     for (const heading of prompt.split('\n').filter((line) => line.endsWith(':'))) {
       expect(heading).not.toMatch(/\(\d+\)/);
     }
@@ -308,7 +302,7 @@ describe('building the prompt', () => {
     expect(prompt).toContain('Unresolved review threads (the most recent few):');
   });
 
-  it('sorts state changes in among the comments, so the last line is the last thing that happened', () => {
+  it('lists comments and state changes oldest first, as the system prompt specifies', () => {
     const prompt = buildTriagePrompt(
       context({
         status: '🔍 Dev Review',
@@ -319,14 +313,14 @@ describe('building the prompt', () => {
     );
     const activity = prompt.split(`${ACTIVITY}\n`)[1]!.split('\n\n')[0]!.split('\n');
 
+    expect(TRIAGE_SYSTEM_PROMPT).toContain('Activity is listed oldest first.');
     expect(activity[0]).toContain('dev-3, member on 2026-09-01T09:00:00Z');
     expect(activity[2]).toBe('► dev-3 on 2026-09-04T13:53:36Z: moved the status ⚒️ Dev → 🔍 Dev Review');
-    expect(activity[3]).toBe('► dev-5 on 2026-09-04T16:28:42Z: handed it to you');
+    expect(activity[3]).toBe('► dev-5 on 2026-09-04T16:28:42Z: assigned to you');
   });
 
   it('leads with what the card was last told to be, and says how much of the talk that answered', () => {
-    // The whole point: a question asked before the hand-over is background, and a classifier reading the last
-    // comment for what to do next reads a card that was tasked as a card still waiting on an answer.
+    // Comments before the latest state instruction are background.
     const prompt = buildTriagePrompt(
       context({
         status: '🔍 Dev Review',
@@ -336,11 +330,11 @@ describe('building the prompt', () => {
       NOW,
     );
 
-    expect(prompt).toContain('dev-5 handed this to you on 2026-09-04T16:28:42Z, moving it ⚒️ Dev → 🔍 Dev Review.');
-    expect(prompt).toContain('Nothing has been said on the issue since. Every comment below is background.');
+    expect(prompt).toContain('dev-5 assigned this to you on 2026-09-04T16:28:42Z, status ⚒️ Dev → 🔍 Dev Review.');
+    expect(prompt).toContain('No issue comments since this change. Earlier comments are background.');
   });
 
-  it('says what is still open where somebody spoke after the hand-over', () => {
+  it('identifies comments since the latest instruction', () => {
     const prompt = buildTriagePrompt(
       context({
         comments: [{ ...comment('dev-3', 'Actually, one more thing.'), createdAt: '2026-09-04T18:00:00Z' }],
@@ -349,14 +343,14 @@ describe('building the prompt', () => {
       NOW,
     );
 
-    expect(prompt).toContain('Only what was said after that is still open.');
+    expect(prompt).toContain('Only comments since this change remain open.');
   });
 
-  it('drops the card being added to the project, so an automation is never read as somebody tasking you', () => {
+  it('excludes project additions from instructions', () => {
     const prompt = buildTriagePrompt(context({ stateEvents: [moved('2026-08-24T20:41:34Z', 'dev-4', '', '🆕 New')] }), NOW);
 
     expect(prompt).not.toContain('►');
-    expect(prompt).not.toContain('handed this to you');
+    expect(prompt).not.toContain('assigned this to you');
   });
 
   it('names the developer as you wherever a state change touches them, never by login', () => {
@@ -365,13 +359,13 @@ describe('building the prompt', () => {
       NOW,
     );
 
-    expect(prompt).toContain('► you on 2026-09-04T13:00:00Z: moved the status 🔍 Dev Review → ⚒️ Dev, handed it to dev-3');
+    expect(prompt).toContain('► you on 2026-09-04T13:00:00Z: moved the status 🔍 Dev Review → ⚒️ Dev, assigned to dev-3');
     expect(prompt).toContain('you last changed its state on');
   });
 
   it('tells the model the action where the evidence settled one, and asks for it where it did not', () => {
     expect(buildTriagePrompt(context(), NOW, {}, 'review-others')).toContain(
-      'The action is already decided: review-others — Review their PR. Write only the sentence',
+      'The action is already decided: review-others — Review their PR. Write one sentence explaining that action.',
     );
     expect(buildTriagePrompt(context(), NOW)).toContain('Answer with the action and the sentence.');
   });

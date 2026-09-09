@@ -1,16 +1,14 @@
 // @ts-check
 /**
- * The browser client's decisions, held apart from the two files that hold a `chrome` port so vitest can reach them.
- * What is left in `content.js` and `worker.js` is wiring: connect, observe, relay.
+ * Browser state logic, independent of Chrome APIs for unit testing.
  *
  * @typedef {import('@ground-control/core').Snapshot} Snapshot
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
  */
 
 /**
- * The pages the overlay paints. The content script is injected across github.com rather than on these alone,
- * because reaching a board by clicking through the site is a soft navigation and Chrome injects nothing for one —
- * so the match has to be made here, again, every time the location changes.
+ * Recheck board paths after every navigation. Chrome does not reinject content scripts on github.com soft
+ * navigation.
  *
  * @param {string} pathname
  * @returns {boolean}
@@ -25,9 +23,8 @@ export function initialState() {
 }
 
 /**
- * What one message from the worker does to what the overlay draws. `trouble` is the worker's to set and clear, not
- * something a snapshot clears on arrival: a snapshot replayed from storage is a real reading and an old one, and a
- * tab that cleared the line on receiving it would look current while nothing was answering (R24).
+ * Update state from worker messages. Only the worker clears trouble: cached snapshots do not establish a live
+ * connection (R24).
  *
  * @param {State} state
  * @param {{ type?: string, snapshot?: Snapshot, message?: string | null }} message
@@ -42,8 +39,7 @@ export function applyMessage(state, message) {
     return { ...state, trouble: message.message ?? null };
   }
 
-  // The answer to something the developer just did — an action refused, or one the hub could not carry out. Held
-  // until the next one, because a browser tab has nowhere else to put it.
+  // Display the latest action result, including browser permission refusals.
   if (message.type === 'notice') {
     return { ...state, notice: message.message ?? null };
   }
@@ -52,7 +48,7 @@ export function applyMessage(state, message) {
 }
 
 /**
- * Doubling from a second to half a minute — the same shape the editor's transport uses, for the same reason.
+ * Exponential reconnect delay from one to thirty seconds, matching the editor transport.
  *
  * @param {number} attempt
  * @returns {number}
@@ -62,9 +58,8 @@ export function retryDelay(attempt) {
 }
 
 /**
- * What a dropped port means, and whether reconnecting can mean anything at all. Chrome leaves the content script
- * running in every open tab when the extension is reloaded, and every `chrome.runtime` call from that orphan throws
- * from then on — `chrome.runtime.id` going undefined is what separates it from a worker Chrome merely stopped.
+ * Retry stopped workers. An extension reload invalidates existing content scripts; missing chrome.runtime.id
+ * requires a page reload.
  *
  * @param {{ id?: string } | undefined} runtime
  * @returns {{ retry: boolean, trouble: string }}
@@ -76,9 +71,8 @@ export function disconnection(runtime) {
 }
 
 /**
- * How many lines the spool holds. Over twice what the hub's 64 KB backfill can carry at its shortest line — the ISO
- * timestamp alone puts a floor near 35 bytes — so a sidebar opening beside a spool already holding the browser's
- * own half does not drop part of what the hub has just sent.
+ * Retain more than twice the hub 64 KB backfill at its minimum line size (about 35 bytes), allowing space for
+ * browser logs too.
  */
 export const LOG_LIMIT = 4000;
 
@@ -104,8 +98,7 @@ export function makeLogSpool(limit = LOG_LIMIT) {
     watching: () => open.size > 0,
 
     /**
-     * Kept whether or not a sidebar is open when they are the browser's own — nothing about those leaves this
-     * process, so a developer opening the panel after the overlay went quiet gets the lines that led there.
+     * Retain local browser logs without a viewer so opening the sidebar includes events preceding a failure.
      *
      * @param {readonly LogEntry[]} entries
      */
@@ -144,8 +137,8 @@ export function makeLogSpool(limit = LOG_LIMIT) {
         return { tell: null, backlog: [] };
       }
 
-      // The hub's half goes with the last sidebar. Opening one again is answered with a fresh tail of `hub.log`, so
-      // keeping this copy would show that history twice — and nothing of the hub's is held longer than a viewer is.
+      // Drop hub history when the last sidebar closes; reopening fetches a fresh tail and would otherwise
+      // duplicate it.
       lines = lines.filter((entry) => entry.source !== 'hub');
 
       return { tell: false, backlog: [] };

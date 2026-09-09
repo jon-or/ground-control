@@ -10,10 +10,7 @@ import { sanitizeEnvironment, serveHub } from '../src/serve.js';
 import type { ServeResult } from '../src/serve.js';
 import { captureLog, tempHome } from './helpers.js';
 
-/**
- * Every hub and every home this file makes, torn down whatever the test did. Without it an assertion that fails
- * before its own `stop()` leaves a listening socket, a live loop with watchers, and a home deleted underneath it.
- */
+/** Always stop hubs and remove test homes, including after assertion failures. */
 const later: (() => void | Promise<void>)[] = [];
 
 afterEach(async () => {
@@ -100,8 +97,8 @@ async function connectClient(port: number, token: string, id: string): Promise<(
 }
 
 describe('what a hub refuses to inherit', () => {
-  /** VS Code spawns the hub as its own executable running as node; these would make its own `code` do the same. */
-  it('drops the variables that would make its own spawns run as node', () => {
+  /** Remove inherited Electron flags before invoking the editor CLI. */
+  it('removes inherited Node-mode flags for child editor processes', () => {
     const env = {
       ELECTRON_RUN_AS_NODE: '1',
       ELECTRON_NO_ATTACH_CONSOLE: '1',
@@ -136,7 +133,7 @@ describe('starting a hub for a home', () => {
     expect(await probe(hub.port)).toMatchObject({ hub: 'ground-control', fingerprint: fingerprintOf(home) });
   });
 
-  /** Single instance is the record, claimed by exclusive create: the second process has nothing to do. */
+  /** Exclusive record creation prevents a second hub for the same home. */
   it('leaves a home that already has a hub alone', async () => {
     const home = homeForThisTest();
     const first = served((await serving(home)).result);
@@ -146,12 +143,8 @@ describe('starting a hub for a home', () => {
     expect(second.lines.join(' ')).toContain('hub already running');
   });
 
-  /**
-   * The client that spawned it waits for a hub and gets none, and a spawn that died leaves the same silence. Only
-   * this file tells the two apart, and without it the board tells a developer to go stop a stranger while their own
-   * hub is up and only that window cannot reach it.
-   */
-  it('leaves the reason it stood down where a client reads why its start came to nothing', async () => {
+  /** Use the exit record to distinguish duplicate-instance refusal from startup failure. */
+  it('records duplicate-instance refusal for client diagnostics', async () => {
     const home = homeForThisTest();
     const first = served((await serving(home)).result);
 
@@ -187,7 +180,7 @@ describe('starting a hub for a home', () => {
     expect(JSON.parse(readFileSync(hubJsonPathOf(home), 'utf8')).pid).toBe(process.pid);
   });
 
-  it('takes the record away when it stops, and says why it went', async () => {
+  it('removes its connection record and records the exit reason', async () => {
     const home = homeForThisTest();
     const hub = served((await serving(home)).result);
 
@@ -203,7 +196,7 @@ describe('starting a hub for a home', () => {
     expect(await probe(hub.port, 200)).toBe('unreachable');
   });
 
-  /** R35: a hub nobody is watching costs a developer nothing, so it goes rather than polling for nobody. */
+  /** Exit after idle timeout instead of polling without clients (R35). */
   it('ends itself once nobody has been connected for the idle span', async () => {
     const home = homeForThisTest();
     const { result, exits, lines } = await serving(home, { idleMs: 250 });
@@ -235,7 +228,7 @@ describe('starting a hub for a home', () => {
     expect(exits).toEqual([0]);
   });
 
-  it('writes its own lines to hub.log when nothing else is listening to it', async () => {
+  it('writes hub.log without subscribers', async () => {
     const home = homeForThisTest();
     const result = await serveHub({ home, version: '1.2.3', exit: () => {} });
     const hub = served(result);
@@ -271,7 +264,7 @@ describe('the hub log', () => {
     }
   });
 
-  it('does nothing about a log that is not there', () => {
+  it('skips rotation for missing logs', () => {
     expect(rotateLog(`${homeForThisTest()}/never-written.log`, 1)).toBe(false);
   });
 });

@@ -11,10 +11,7 @@ import type { AssignedIssues, GithubConfig, Result } from './types.js';
 
 export const GITHUB_SOURCE_ID = 'github';
 
-/**
- * The GitHub entry in a pushed configuration. Parsed rather than trusted, because a client is not necessarily this
- * editor: `ghPath` becomes a process, and `maxPages` bounds how much of someone's GitHub a client can ask for.
- */
+/** Validate client settings: ghPath starts a process and maxPages bounds GitHub reads. */
 const github = z
   .object({
     ghPath: spawnable.default('gh'),
@@ -26,14 +23,13 @@ const github = z
   })
   .strict();
 
-/** Nothing has been said about this source yet — a hub the browser started alone. Not something a developer broke. */
+/** Detect missing settings, including a hub started by the browser alone. */
 function unconfigured(raw: unknown): boolean {
   if (raw === undefined || raw === null || (typeof raw === 'object' && Object.keys(raw).length === 0)) {
     return true;
   }
 
-  // A blank repository is the shipped default, so it is the commonest way to arrive here: an editor sends every
-  // setting it has, and the one that decides whether this source can read anything at all is empty.
+  // The default editor settings contain a blank repository.
   const repo = (raw as { repo?: unknown }).repo;
 
   return typeof repo === 'string' && repo.trim().length === 0;
@@ -69,7 +65,7 @@ export function readGithubConfig(raw: unknown): { config: GithubConfig } | { fai
   };
 }
 
-/** Whose issues these are, seeded from what the CLI already knows. Detected only — adopting one is the developer's (R26). */
+/** Detect logged-in accounts; the developer chooses which to use (R26). */
 export function detectLogins(ghPath: string): Promise<string[]> {
   return new Promise((resolve) => {
     execFile(ghPath, ['auth', 'status'], { windowsHide: true }, (_error, stdout, stderr) =>
@@ -79,7 +75,7 @@ export function detectLogins(ghPath: string): Promise<string[]> {
 }
 
 export interface GithubSourceDeps {
-  /** Where each `gh` invocation is timed. Absent leaves the runner exactly as it was, with no wrapper at all. */
+  /** Optional duration logging for gh invocations. */
   log: Logger;
   fetch(config: GithubConfig): Promise<Result<AssignedIssues>>;
   detectLogins(ghPath: string): Promise<string[]>;
@@ -87,19 +83,12 @@ export interface GithubSourceDeps {
   readCard(config: GithubConfig, owner: string, name: string, number: number, signal: AbortSignal): Promise<Result<IssueCard | null>>;
 }
 
-/**
- * The canonical key of the repository this source reads. `gh` talks to github.com and the setting is a bare
- * `owner/name`, so an Enterprise checkout matches nothing here and its sessions stay unlinked (R4).
- */
+/** Match github.com owner/name repositories only. Enterprise checkouts remain unlinked (R4). */
 function repositoryKeyOf(config: GithubConfig): string {
   return `github.com/${config.repo}`.toLowerCase();
 }
 
-/**
- * The issues assigned to the developer on the team's project board, as a work source. It holds the last
- * configuration it accepted: a refused one leaves it holding nothing, so a board that is named as misconfigured is
- * never also polled with settings nobody set.
- */
+/** Read assigned issues with the last accepted configuration. Invalid settings disable reads. */
 export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSource {
   const fetch = deps.fetch ?? ((config: GithubConfig) => fetchAssignedIssues(config, makeGhRunner(config.ghPath, deps.log)));
   const detect = deps.detectLogins ?? detectLogins;
@@ -112,7 +101,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
     ((config: GithubConfig, card: IssueCard, signal: AbortSignal) =>
       fetchCardContext(config, card, makeGhRunner(config.ghPath, deps.log), signal));
 
-  let held: GithubConfig | null = null;
+  let currentConfig: GithubConfig | null = null;
 
   return {
     id: GITHUB_SOURCE_ID,
@@ -122,25 +111,24 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
       const parsed = readGithubConfig(raw);
 
       if ('failure' in parsed) {
-        held = null;
+        currentConfig = null;
 
         return parsed.failure;
       }
 
-      held = parsed.config;
+      currentConfig = parsed.config;
 
       return null;
     },
 
     async read(): Promise<SourceReading> {
-      const config = held;
+      const config = currentConfig;
 
       if (config === null) {
         return { items: null, failure: null, needs: null };
       }
 
-      // Nobody to read for. Every query is `assignee:`, so there is no read to make and no default that would be
-      // anything but somebody else's issues.
+      // Every query requires an explicit assignee; do not default to another account.
       if (config.logins.length === 0) {
         return {
           items: null,
@@ -171,9 +159,8 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
     },
 
     readContext(card, signal): Promise<ContextReading> {
-      // Reading with settings nobody set is what a refused configuration must never do, and a card's conversation
-      // is read for the developer's own logins the same way its issues are.
-      return held === null
+      // Use only accepted settings for context reads.
+      return currentConfig === null
         ? Promise.resolve({
             context: null,
             failure: {
@@ -183,19 +170,17 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
               remedy: 'Set groundControl.github.repo in Settings.',
             },
           })
-        : context(held, card, signal);
+        : context(currentConfig, card, signal);
     },
 
     async readCard(repository, number, signal): Promise<CardReading | null> {
-      // Only this source's own repository. A number read off a branch in some other checkout would otherwise fetch
-      // whatever issue happens to carry it here, and the card would be plausible and wrong. Null rather than an
-      // empty reading: "not mine to answer" must not be written down as "there is no such issue".
-      if (held === null || repository !== repositoryKeyOf(held)) {
+      // Only query the configured repository. Null means this source does not serve it, not that the issue is missing.
+      if (currentConfig === null || repository !== repositoryKeyOf(currentConfig)) {
         return null;
       }
 
-      const [owner = '', name = ''] = held.repo.split('/');
-      const result = await readOne(held, owner, name, number, signal);
+      const [owner = '', name = ''] = currentConfig.repo.split('/');
+      const result = await readOne(currentConfig, owner, name, number, signal);
 
       return result.ok
         ? { card: result.value, failure: null }

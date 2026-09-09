@@ -3,17 +3,17 @@ import type { SessionSurface } from '@ground-control/core';
 import type { AgentPlacement, SessionInTab } from './placements.js';
 
 /**
- * One VS Code window's persisted state, from its `workspaceStorage` directory. Taken verbatim rather than parsed by
- * the reader, so every layer of the unwrapping is testable without a database (`docs/mechanics.md` M21).
+ * Raw state from a window's workspaceStorage directory. Parse separately so nested formats can be tested
+ * without SQLite (M21).
  */
 export interface WindowStore {
   /** `workspace.json`, naming the window's folder or its `.code-workspace` file. */
   workspaceJson: string | null;
   /** `memento/workbench.parts.editor`, holding one serialised input per editor tab. */
   editor: string | null;
-  /** The agent sidebar view's memento, holding the session the sidebar shows now. */
+  /** Agent sidebar memento containing the displayed session. */
   sidebar: string | null;
-  /** When the store was last written. A closed window's state survives it, so recency is what settles a conflict. */
+  /** Database write time, used to prefer recent records over stale window state. */
   updatedAt: number;
 }
 
@@ -31,7 +31,7 @@ function parse(text: string | null | undefined): unknown {
   }
 }
 
-/** A webview's own state, which is where one agent's extension records the session the surface is showing. */
+/** Read the displayed session from agent webview state. */
 function sessionIn(state: unknown, stateKey: string): string | null {
   const parsed = parse(typeof state === 'string' ? state : null) as Record<string, unknown> | null;
   const id = parsed?.[stateKey];
@@ -40,9 +40,8 @@ function sessionIn(state: unknown, stateKey: string): string | null {
 }
 
 /**
- * The session a tab's own resource names, for an agent whose tab is the session rather than a webview holding an
- * id. VS Code marshals the URI, so `path` is the one field to read: `fsPath` arrives with Windows separators and
- * `external` is percent-encoded (`docs/mechanics.md` M44).
+ * Read session identity from the editor resource URI. Use path: fsPath has platform separators and external is
+ * percent-encoded (M44).
  */
 function sessionAt(resource: unknown, want: { scheme: string; prefix: string }): string | null {
   const uri = resource as { scheme?: unknown; path?: unknown } | null;
@@ -56,7 +55,7 @@ function sessionAt(resource: unknown, want: { scheme: string; prefix: string }):
   return id.length > 0 && !id.includes('/') ? id : null;
 }
 
-/** The session one tab holds, however its agent records it. */
+/** Read a tab's session using its agent placement. */
 function sessionOf(input: Record<string, unknown>, session: SessionInTab): string | null {
   return session.from === 'state'
     ? sessionIn(input['state'], session.key)
@@ -64,8 +63,8 @@ function sessionOf(input: Record<string, unknown>, session: SessionInTab): strin
 }
 
 /**
- * The path `code` is given to raise the window. Stored as a percent-encoded file URI, and a Windows drive arrives
- * behind a leading slash that has to go. A window with neither key is one `code` has no argument for.
+ * Decode the window's folder or workspace URI for code. Strip the leading slash before Windows drive letters;
+ * return null when neither key exists.
  */
 export function rootFrom(workspaceJson: string | null): string | null {
   const parsed = parse(workspaceJson) as { folder?: unknown; workspace?: unknown } | null;
@@ -87,25 +86,21 @@ export function rootFrom(workspaceJson: string | null): string | null {
     return null;
   }
 
-  // What follows `file://` is a path only when it starts with a slash; anything else is an authority, which is how a
-  // network share is written and has to keep both leading slashes to stay absolute.
+  // Preserve the authority and leading double slash for network-share paths.
   const path = rest.startsWith('/') ? rest : `//${rest}`;
 
   return /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
 }
 
-/** The session the window's agent sidebar is showing, or null where it has never shown one. */
+/** Read the sidebar session, or null when none is recorded. */
 export function sidebarSession(sidebar: string | null, session: SessionInTab): string | null {
-  // Only a state-carrying sidebar can answer: Codex's records nothing at all, so there is nothing to read (M44).
+  // Codex sidebar state contains no session ID (M44).
   return session.from === 'state'
     ? sessionIn((parse(sidebar) as { webviewState?: unknown } | null)?.webviewState, session.key)
     : null;
 }
 
-/**
- * Every one of the agent's tabs' sessions in one window. The editor grid nests to whatever depth the developer has
- * split their editors to, so it is walked rather than indexed, and a tab opened but never bound contributes nothing.
- */
+/** Walk nested editor groups to collect the agent's session IDs. Ignore tabs with no session assigned. */
 export function tabSessions(editor: string | null, placement: Pick<AgentPlacement, 'webviewId' | 'session'>): string[] {
   const found: string[] = [];
 
@@ -145,9 +140,8 @@ function walk(node: unknown, placement: Pick<AgentPlacement, 'webviewId' | 'sess
 }
 
 /**
- * Where each session is held, across every window and every agent placed in the host. Two rules settle a session
- * more than one record names: the window that wrote most recently wins, and within one window a tab beats the
- * sidebar, being the only surface reachable by id.
+ * Locate sessions across windows and agents. Prefer the latest window record, then a tab over a sidebar because
+ * tabs can be revealed by ID.
  */
 export function surfacesFrom(
   stores: readonly WindowStore[],
@@ -160,8 +154,7 @@ export function surfacesFrom(
     return root === null ? [] : [{ store, root }];
   });
 
-  // Windows are flushed on a shared cycle, so two stores can carry the same timestamp; the root breaks the tie, which
-  // keeps the answer off the order the storage directories happened to be listed in.
+  // Break timestamp ties by root for stable results independent of directory listing order.
   rooted.sort((a, b) => a.store.updatedAt - b.store.updatedAt || dirKey(a.root).localeCompare(dirKey(b.root)));
 
   for (const { store, root } of rooted) {

@@ -21,7 +21,7 @@ afterEach(() => {
 
 interface Listener {
   port: number;
-  /** Every request it saw, verbatim. Pinned by contents rather than scanned, so an empty list proves nothing. */
+  /** Capture complete requests for exact assertions; an empty request list proves no payload behavior. */
   asked: string[];
 }
 
@@ -86,15 +86,14 @@ function writeRecord(home: string, over: Record<string, unknown>): void {
 
 describe('which hub this is', () => {
   it('is the configuration directory, so two homes never share one', () => {
-    // Pinned, rather than compared against the same call: an assertion the source computes both sides of holds
-    // whatever the source does.
+    // Use a literal expected fingerprint independent of the implementation.
     expect(fingerprintOf('d:/users/one')).toBe(
       createHash('sha256').update('d:/users/one/.claude/ground-control').digest('hex').slice(0, 16),
     );
     expect(fingerprintOf('d:/users/one')).not.toBe(fingerprintOf('d:/users/two'));
   });
 
-  /** The fingerprint says which home; a home path is guessable, so only this says the listener minted the record. */
+  /** Require proof of token possession; the home fingerprint alone is guessable. */
   it('proves possession of the token without disclosing it', () => {
     expect(proofOf(TOKEN, 'a-nonce')).toBe(proofOf(TOKEN, 'a-nonce'));
     expect(proofOf(TOKEN, 'a-nonce')).not.toBe(proofOf(TOKEN, 'another-nonce'));
@@ -117,7 +116,7 @@ describe('reading the record a hub left', () => {
   });
 
   /** A hub mid-write, a hub from a version that wrote something else, and no hub at all are all the same answer. */
-  it('reads nothing rather than half a record', () => {
+  it('rejects partial records', () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -146,22 +145,20 @@ describe('asking a port what it is', () => {
     expect(listener.asked).toEqual(['GET /hub no-token']);
   });
 
-  it('tells a listener that is not a hub from a port nothing holds', async () => {
+  it('distinguishes unexpected listeners from unreachable ports', async () => {
     const notJson = await foreignListener('<html>a dev server</html>');
     const wrongShape = await foreignListener({ hub: 'something-else', protocol: 1, fingerprint: 'abc' });
     const refusing = await foreignListener({ hub: 'ground-control', protocol: 1, fingerprint: 'abc' }, 500);
 
-    // What it answered is kept, and it is the whole of the evidence: telling a developer a stranger holds the
-    // port is a claim, and the status and the first line of the body are what backs it.
+    // Retain the unexpected HTTP status and body excerpt for diagnostics.
     expect(await probe(notJson.port)).toEqual({ notAHub: { status: 200, said: '<html>a dev server</html>' } });
     expect(await probe(wrongShape.port)).toMatchObject({ notAHub: { status: 200 } });
-    // A hub answers `/hub` before it reads a token, and a client's own probe carries nothing it would refuse, so
-    // an answer that says no is a listener that is not one — never this developer's hub turning them away.
+    // GET /hub requires no token; an authentication refusal is not a valid hub response.
     expect(await probe(refusing.port)).toMatchObject({ notAHub: { status: 500 } });
     expect(await probe(1, 200)).toBe('unreachable');
   });
 
-  /** A notification is one line. What a listener that keeps talking said is cut down to something that fits one. */
+  /** Limit unexpected response details to one notification line. */
   it('keeps only enough of the answer to recognise what gave it', async () => {
     const chatty = await foreignListener(`a dev server ${'x'.repeat(400)}`);
     const answer = await probe(chatty.port);
@@ -174,7 +171,7 @@ describe('asking a port what it is', () => {
   });
 
   /** The deadline is what a hub waits on before it binds, so a listener that never finishes must not hold it there. */
-  it('gives up on a listener that accepts and says nothing', async () => {
+  it('times out silent listeners', async () => {
     const silent = await listening(() => {});
     const started = Date.now();
 
@@ -182,11 +179,8 @@ describe('asking a port what it is', () => {
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
-  /**
-   * A socket's own timeout is reset by every byte, so a listener trickling faster than it resets it forever. Anything
-   * that took a dead hub's port and streams — a dev server, a log tailer — would otherwise hang the next hub start.
-   */
-  it('gives up on a listener that answers forever', async () => {
+  /** Use an absolute timeout so continuously streamed bytes cannot block discovery indefinitely. */
+  it('bounds continuously streamed responses', async () => {
     const trickle = await listening((_incoming, response) => {
       response.writeHead(200, { 'Content-Type': 'application/json' });
 
@@ -203,11 +197,8 @@ describe('asking a port what it is', () => {
 });
 
 describe('what a client will not send its token to', () => {
-  /**
-   * The token is the developer's snapshot, and the fingerprint is a hash of a path anyone on the machine can guess.
-   * A listener that cannot prove it holds the token is not one to send it to, however right it looks.
-   */
-  it('is a listener that cannot prove it holds the token, and a stop is refused rather than sent blind', async () => {
+  /** Do not send the token to a listener that cannot prove possession, even with the correct home fingerprint. */
+  it('refuses shutdown without proof of token possession', async () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -229,8 +220,8 @@ describe('what a client will not send its token to', () => {
     }
   });
 
-  /** Liveness is the probe, never the file: a hub killed on Windows never gets to remove its own record. */
-  it('is a record naming a port nothing holds', async () => {
+  /** Probe for liveness because forced Windows exits leave stale records. */
+  it('classifies unreachable recorded ports', async () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -245,7 +236,7 @@ describe('what a client will not send its token to', () => {
 });
 
 describe('stopping the hub a home has', () => {
-  it('asks it, with the token from its own record', async () => {
+  it('uses the discovered token for shutdown', async () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -294,11 +285,7 @@ describe('stopping the hub a home has', () => {
   });
 });
 
-/**
- * Seven things come to the same nothing at a client, and only one of them is "there is no hub". A board that names
- * the wrong one sends the developer to a log describing none of it, because whatever turned the client away keeps
- * no record of having done so.
- */
+/** Distinguish discovery failure causes so client recovery instructions identify the actual problem. */
 describe('why this home has no hub to talk to', () => {
   it('is the hub itself when the record and the listener agree', async () => {
     const { home, dispose } = tempHome();
@@ -353,10 +340,7 @@ describe('why this home has no hub to talk to', () => {
     }
   });
 
-  /**
-   * Both asks came to nothing. A port held by something that accepts and never answers is the case that would
-   * otherwise stretch a client's five-second wait into minutes, so it has to be a state of its own.
-   */
+  /** Classify a listener that accepts but never responds separately after both probe deadlines expire. */
   it('is silent when the listener will not answer either ask', async () => {
     const { home, dispose } = tempHome();
 
@@ -402,15 +386,14 @@ describe('why this home has no hub to talk to', () => {
       const found = await findHub(home);
 
       expect('miss' in found && found.miss.why).toBe('another-protocol');
-      // Not a hub this client can speak to, and still the hub a client may have to stop and a starting one must
-      // stand down against — which is the whole difference between the two questions.
+      // An authenticated incompatible hub still blocks duplicate startup and may need replacement.
       expect((await recordedHub(home))?.record.port).toBe(listener.port);
     } finally {
       dispose();
     }
   });
 
-  it('is nothing at all when no hub has left a record', async () => {
+  it('returns no hub when the record is absent', async () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -421,7 +404,7 @@ describe('why this home has no hub to talk to', () => {
   });
 
   /** Nothing holds the port the record names, which is the ordinary state after a hub is killed. */
-  it('is unreachable when nothing holds the port the record names', async () => {
+  it('reports an unreachable recorded port', async () => {
     const { home, dispose } = tempHome();
 
     try {
@@ -439,10 +422,7 @@ describe('why this home has no hub to talk to', () => {
     }
   });
 
-  /**
-   * The half-second deadline is spent on the client's own event loop, so a window that has just activated can miss
-   * an answer a hub did send. Giving up there is what makes a board start a second hub against a working one.
-   */
+  /** Retry initial timeouts because activation can delay the client event loop despite a responsive hub. */
   it('asks a second time, with room, before calling a quiet listener gone', async () => {
     const { home, dispose } = tempHome();
 
@@ -479,13 +459,9 @@ describe('why this home has no hub to talk to', () => {
   });
 });
 
-/**
- * Between finding a hub and standing it down, another client's replacement can hold the record. A stop that re-read
- * the file would then kill the hub this client was about to connect to, which is the shape of every rebuild once a
- * client stops one for running an older bundle.
- */
+/** Use the discovered record for shutdown; rereading could stop another client's replacement hub. */
 describe('stopping one particular hub', () => {
-  it('goes to the record it was handed, whatever the file says by then', async () => {
+  it('stops the discovered instance despite record replacement', async () => {
     const { home, dispose } = tempHome();
 
     try {

@@ -5,11 +5,7 @@ import type { Session } from '../src/types.js';
 
 const session = { agent: 'claude', sessionId: 'a1b2c3d4-0000-4000-8000-000000000000' } as Session;
 
-/**
- * What holds a route in flight, so a second click on the same thing is dropped (R18). A route is held by its
- * session where it has one and by its card where it does not, and reading the wrong field would leave the two
- * routes that spawn something with no guard at all.
- */
+/** Deduplicate session routes by session ID and checkout/start routes by card and operation (R18). */
 describe('what a route is held by while it is being performed', () => {
   it('is the session, for every route that reaches one', () => {
     const routes: OpenRoute[] = [
@@ -36,9 +32,8 @@ describe('what a route is held by while it is being performed', () => {
     expect(routeKey(one)).not.toBe(routeKey(two));
   });
 
-  // Both items sit in one card's menu, and `raise()` holds an open for as long as it waits for focus — so opening
-  // a card's window would otherwise swallow the click that starts a session in it, silently.
-  it('tells one card’s two verbs apart, so opening it does not swallow the click that starts a session', () => {
+  // Opening a checkout must not suppress a distinct start-session request while focus is pending.
+  it('deduplicates checkout and start routes separately', () => {
     const open: OpenRoute = { route: 'open-checkout', key: 'issue:1', root: 'd:/one', newWindow: false };
     const start: OpenRoute = { route: 'start-session', key: 'issue:1', agent: 'claude', root: 'd:/one', prompt: null };
 

@@ -5,9 +5,8 @@ import * as vscode from 'vscode';
 import { spawnEnvironment } from '@ground-control/hub';
 
 /**
- * Registering the browser overlay writes outside the extension's own storage — a manifest in the developer's Chrome
- * profile, and on Windows a key under `HKCU`. R34 asks that such a thing be a deliberate act and reversible the same
- * way, so it is two commands rather than something activation does.
+ * Registration writes a native-host manifest and, on Windows, an HKCU entry. Explicit enable/disable commands
+ * keep these changes reversible (R34).
  */
 function runHub(bundle: string, home: string, mode: string): Promise<string> {
   const env = spawnEnvironment();
@@ -26,9 +25,8 @@ function runHub(bundle: string, home: string, mode: string): Promise<string> {
 }
 
 /**
- * What to hand Chrome's `Load unpacked`, when this install has it to hand. The browser extension is not on the
- * Chrome Web Store; it sits beside the editor extension in the repository, which an installed `.vsix` does not
- * carry — so a path is offered only where one exists rather than named and found missing.
+ * The overlay is loaded unpacked and excluded from the VSIX. Offer the adjacent repository path when present;
+ * otherwise give repository instructions.
  */
 function unpacked(context: vscode.ExtensionContext): string {
   const beside = join(context.extensionPath, '..', 'chrome-github-board');
@@ -42,9 +40,9 @@ export function registerOverlayCommands(context: vscode.ExtensionContext, home: 
   return [
     vscode.commands.registerCommand('groundControl.enableGithubOverlay', async () => {
       try {
-        const said = await runHub(bundle, home, 'install-chrome-host');
+        const result = await runHub(bundle, home, 'install-chrome-host');
 
-        void vscode.window.showInformationMessage(`${said} ${unpacked(context)}`);
+        void vscode.window.showInformationMessage(`${result} ${unpacked(context)}`);
       } catch (error) {
         void vscode.window.showErrorMessage(`Could not enable the browser overlay: ${String(error)}`);
       }

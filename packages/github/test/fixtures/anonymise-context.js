@@ -1,14 +1,11 @@
-// Scrubs a recorded triage context. Unlike the search fixtures, this shape is almost entirely free text written by
-// named colleagues on a private repository, so every body is overwritten wholesale rather than matched — no list of
-// logins or paths will ever catch what somebody wrote about their own work (`docs/testing.md`).
-//
-// What survives is the structure the tests turn on: issue and pull request numbers, who wrote what and in what order,
-// author associations, review states, thread resolution, timestamps, and every merge and check field.
+// Replace all free-text bodies, names, and nonstandard branches in recorded triage context.
+// Preserve issue/PR numbers, authorship relationships, order, associations, review states,
+// thread resolution, timestamps, and merge/check fields (docs/testing.md).
 const { remark, title } = require('../../../../tools/fixture-words.js');
 const { UNIVERSAL, branchFor } = require('../../../../tools/fixture-scrub.js');
 const { loginMap } = require('./anonymise.js');
 
-/** Long enough to cross the reader's own body limit, so one fixture proves the middle is what comes out. */
+/** Exceed the body limit to verify middle clipping. */
 const LONG_BODY_CHARS = 7_500;
 
 /**
@@ -22,12 +19,11 @@ function scrubBranch(ref) {
 
   const number = /^(\d+)-/.exec(ref)?.[1];
 
-  // A branch with no issue number in it is still somebody's words. It gets a synthetic name seeded by its own, so
-  // two different such branches do not collapse into one.
+  // Derive a synthetic seed from nonnumeric branch names to preserve distinctions.
   return branchFor(Number(number ?? [...ref].reduce((sum, c) => sum + c.charCodeAt(0), 0)));
 }
 
-/** A profile name identifies somebody far more surely than a login does, so it is replaced wherever it is carried. */
+/** Replace both login and profile name wherever present. */
 function scrubActor(actor, logins) {
   if (!actor) {
     return;
@@ -37,7 +33,7 @@ function scrubActor(actor, logins) {
     actor.login = logins.of(actor.login);
   }
 
-  // Two words, because the board shows a first name and one fixture has to prove which word that is.
+  // Use two words to verify first-name display.
   if (typeof actor.name === 'string') {
     actor.name = `${logins.of(actor.login ?? actor.name)} Surname`;
   }
@@ -50,7 +46,7 @@ function scrubComments(nodes, number, logins, offset = 0) {
   });
 }
 
-/** Rewrites every field that spells out real work, leaving every field a test reads structure from. */
+/** Replace identifying text while preserving test-relevant structure. */
 function anonymiseContext(response, logins, { longBody = false } = {}) {
   const repository = response?.data?.repository;
   const issue = repository?.issue;
@@ -60,8 +56,7 @@ function anonymiseContext(response, logins, { longBody = false } = {}) {
     issue.body = longBody ? remark(issue.number, 0, LONG_BODY_CHARS) : remark(issue.number, 0);
     scrubComments(issue.comments?.nodes, issue.number, logins, 1);
 
-    // Who moved a card names them as surely as a comment author does. The statuses themselves stay: they are the
-    // project's own column names, the tests turn on them, and the shipped defaults already carry the same list.
+    // Scrub timeline actors. Retain project status names used by tests and shipped defaults.
     for (const node of issue.timelineItems?.nodes ?? []) {
       scrubActor(node.actor, logins);
 
@@ -89,7 +84,7 @@ function anonymiseContext(response, logins, { longBody = false } = {}) {
       const reviewer = request.requestedReviewer;
       scrubActor(reviewer, logins);
 
-      // A team is named the way a person is, because a team name identifies the employer as surely as a login does.
+      // Replace identifying team slugs with synthetic names.
       if (reviewer?.slug) {
         reviewer.slug = `team-${logins.of(reviewer.slug).replace(/^dev-/, '')}`;
       }
@@ -103,13 +98,13 @@ function anonymiseContext(response, logins, { longBody = false } = {}) {
   return response;
 }
 
-/** Every string the recording carried that a reader could identify somebody or something real by. */
+/** Collect original identifying values for leak checks. */
 function identifyingValues(response) {
   const repository = response?.data?.repository;
   const issue = repository?.issue;
   const pr = repository?.pullRequest;
   const synthetic = (login) => /^dev-\d+(-[a-z0-9-]+)?$/.test(login ?? '');
-  /** Both halves of an author: the login, and the profile name, which no login list would ever have caught. */
+  /** Check both login and profile name. */
   const named = (actor) => [synthetic(actor?.login) ? null : actor?.login, actor?.name];
   const fromComments = (nodes) => (nodes ?? []).flatMap((node) => [node.body, ...named(node.author)]);
 
@@ -123,8 +118,7 @@ function identifyingValues(response) {
     ]),
     pr?.title,
     pr?.body,
-    // A recorded branch name that survived would name real work. The branches every repository has are excluded:
-    // they name nobody, and the tests turn on a base either matching the default branch or not.
+    // Exclude standard branches; base/default equality must remain testable.
     UNIVERSAL.has(pr?.baseRefName) ? null : pr?.baseRefName,
     UNIVERSAL.has(pr?.headRefName) ? null : pr?.headRefName,
     ...named(pr?.author),
@@ -138,11 +132,7 @@ function identifyingValues(response) {
   ];
 }
 
-/**
- * Fails the run rather than writing a fixture that still names something real, and asserts twice: that every value it
- * set out to replace is gone, and that nothing of the shape it scrubs survives at all. The second is what catches a
- * name the recorder never enumerated — a URL inside a comment, an email in a signature.
- */
+/** Reject original values and unrecognized links, email addresses, mentions, or branch names before writing. */
 function assertContextScrubbed(recorded, written, logins) {
   const json = JSON.stringify(written);
 
@@ -157,7 +147,7 @@ function assertContextScrubbed(recorded, written, logins) {
     throw new Error(`anonymise-context left ${leaked.length} recorded value(s): ${leaked.slice(0, 3).map((v) => v.slice(0, 60)).join(' | ')}`);
   }
 
-  // The sweep the first assertion passes over: anything shaped like a link, an address or a mention, wherever it sits.
+  // Check links, email addresses, and mentions in all fields.
   const shapes = [/https?:\/\/\S+/g, /\b[\w.+-]+@[\w-]+\.[\w.]+\b/g, /(^|\s)@[\w-]{2,}/g];
   const survivors = shapes.flatMap((shape) => json.match(shape) ?? []);
 
@@ -165,8 +155,7 @@ function assertContextScrubbed(recorded, written, logins) {
     throw new Error(`anonymise-context left ${survivors.length} link/address/mention(s): ${survivors.slice(0, 3).join(' | ')}`);
   }
 
-  // The same sweep for branch names, which is what catches one arriving in a field nobody enumerated — a `headRef`
-  // the query grows, a merge-queue entry. Every ref-shaped value must be one `branchFor` would have written.
+  // Check all branch-shaped values against branchFor, including fields added to future queries.
   const refs = [...new Set(json.match(/"\d+-[a-z][a-z0-9-]{3,}"/g) ?? [])].map((ref) => ref.slice(1, -1));
   const invented = refs.filter((ref) => ref !== branchFor(Number(/^(\d+)-/.exec(ref)[1])));
 

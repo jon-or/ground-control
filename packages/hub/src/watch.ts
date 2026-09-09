@@ -2,15 +2,11 @@ import { existsSync, readdirSync, watch } from 'node:fs';
 import type { FSWatcher } from 'node:fs';
 import type { ActivityChange } from '@ground-control/core';
 
-/**
- * A turn boundary writes several markers at once, and every one of them would otherwise re-post the whole board. The
- * window runs from the first event and is never extended: seventeen live sessions can write faster than it, and a
- * batch that re-arms on every write is a session end that never reaches the board.
- */
+/** Batch marker events from the first event without extending the deadline; continuous writes must not delay session-end updates. */
 export const BATCH_MS = 150;
 
-/** How often a directory that does not exist yet is looked for. `fs.watch` cannot be armed on a missing path. */
-const APPEAR_MS = 1000;
+/** Retry interval for missing directories, which fs.watch cannot watch. */
+const DIRECTORY_RETRY_MS = 1000;
 
 export interface WatchDeps {
   setTimeout: (fn: () => void, ms: number) => NodeJS.Timeout;
@@ -32,7 +28,7 @@ export function watchDir(
   deps: WatchDeps = REAL,
 ): { dispose: () => void } {
   let watcher: FSWatcher | undefined;
-  let appearing: NodeJS.Timeout | undefined;
+  let retryTimer: NodeJS.Timeout | undefined;
   let pending: NodeJS.Timeout | undefined;
   let disposed = false;
 
@@ -53,11 +49,10 @@ export function watchDir(
   const record = (file: string): void => {
     const sessionId = nameOf(file);
     const held = present.has(sessionId);
-    // This one path, not a listing of the directory: a listing taken while a turn boundary is writing already holds
-    // the markers whose own events have not arrived yet, which would read every one of them as a rewrite.
+    // Check only the changed path; listing all markers would misclassify pending create events as changes.
     const there = existsSync(`${dir}/${file}`);
 
-    // A marker that appeared and went inside one batch is a session that ended, so absence decides before presence.
+    // Check absence first to detect markers created and deleted within one batch.
     const kind: ActivityChange['kind'] = !there ? 'deleted' : held ? 'changed' : 'created';
 
     if (there) {
@@ -66,8 +61,7 @@ export function watchDir(
       present.delete(sessionId);
     }
 
-    // A `deleted` wins whenever it is seen, because it is the only kind `rosterIsStale` acts on: a session that ends
-    // just after a tool completes writes then unlinks inside one batch, and first-kind-wins would drop the end.
+    // Preserve deletion when a marker is written and unlinked in one batch; rosterIsStale must observe the session end.
     if (kind === 'deleted' || !batch.has(sessionId)) {
       batch.set(sessionId, kind);
     }
@@ -87,18 +81,17 @@ export function watchDir(
           try {
             record(file);
           } catch {
-            // The directory went away mid-event. The watcher's own close re-arms.
+            // The directory disappeared during the event; the close handler restarts the watcher.
           }
         }
       });
 
-      // A watcher whose directory is removed emits an error or simply closes, and either leaves the board deaf to
-      // every phase from then on. Both re-arm rather than being reported: the install brings it back.
+      // Restart after either error or close so watching resumes when the directory is recreated.
       watcher.on('error', reArm);
       watcher.on('close', reArm);
     } catch {
-      // The directory is not there yet, which is the state before the first install and after a removal.
-      appearing = deps.setTimeout(arm, APPEAR_MS);
+      // Retry before the first install and after directory removal.
+      retryTimer = deps.setTimeout(arm, DIRECTORY_RETRY_MS);
     }
   };
 
@@ -107,7 +100,7 @@ export function watchDir(
     watcher = undefined;
 
     if (!disposed) {
-      appearing = deps.setTimeout(arm, APPEAR_MS);
+      retryTimer = deps.setTimeout(arm, DIRECTORY_RETRY_MS);
     }
   }
 
@@ -121,8 +114,8 @@ export function watchDir(
         deps.clearTimeout(pending);
       }
 
-      if (appearing !== undefined) {
-        deps.clearTimeout(appearing);
+      if (retryTimer !== undefined) {
+        deps.clearTimeout(retryTimer);
       }
 
       watcher?.removeAllListeners();

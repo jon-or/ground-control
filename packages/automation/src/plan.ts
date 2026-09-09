@@ -7,48 +7,41 @@ import type {
 } from '@ground-control/core';
 import { actionEvidence } from './evidence.js';
 
-/** Why the board will not act on a card. Each has its own remedy, so each is named rather than folded (R25). */
+/** Specific action refusal and remedy (R25). */
 export interface ActionRefusal {
   kind: string;
   message: string;
 }
 
-/** Everything a dispatch needs, once every gate has passed. Nothing here is guessed; each field was read. */
+/** Validated dispatch facts from fresh context. */
 export interface ActionPlan {
   action: AutomatableAction;
   evidence: string;
   repository: string;
   issueNumber: number;
   pullRequest: number;
-  /** The branch the work is on — what the merge goes into. */
+  /** Head branch receiving the merge. */
   branch: string;
-  /** The branch it merges from, which every gate below has proved is the repository's own default. */
+  /** Verified repository default branch to merge from. */
   base: string;
   checkout: string;
 }
 
 export type ActionDecision = { ok: true; plan: ActionPlan } | { ok: false; refusal: ActionRefusal };
 
-/**
- * Lanes the board never acts in. Done and Icebox are the developer saying the card is not theirs to push on (R7),
- * and Archived is work that has left their hands (R9). A merge started in one of those is the board overruling a
- * placement, which is the one thing R8 keeps for the developer alone.
- */
-const PARKED_LANES: readonly LaneId[] = ['done', 'icebox', 'archived'];
+/** Disable actions in Done, Icebox, and Archived to respect placement and membership (R7-R9). */
+const INACTIVE_LANES: readonly LaneId[] = ['done', 'icebox', 'archived'];
 
 function refuse(kind: string, message: string): ActionDecision {
   return { ok: false, refusal: { kind, message } };
 }
 
-function mine(login: string | null, logins: readonly string[]): boolean {
-  return login !== null && logins.some((own) => own.toLowerCase() === login.toLowerCase());
+function isDeveloperLogin(login: string | null, logins: readonly string[]): boolean {
+  return login !== null && logins.some((developerLogin) => developerLogin.toLowerCase() === login.toLowerCase());
 }
 
 export interface PlanInput {
-  /**
-   * What the card was read to need. The board derives no merge of its own — a branch going stale is not an
-   * instruction to touch it (R39) — so this is a request somebody wrote, or the developer's own press.
-   */
+  /** Requested action; stale branches alone do not authorize merging (R39). */
   action: AutomatableAction;
   context: TriageContext;
   lane: LaneId;
@@ -58,15 +51,12 @@ export interface PlanInput {
   settings: ActionSettings;
 }
 
-/**
- * Whether the board may act on this card, decided entirely on the fresh read. Every refusal names itself, and the
- * order is what makes the message useful: the most specific thing wrong is the one the developer is told about.
- */
+/** Check fresh context for dispatch eligibility. Return the first, most specific refusal. */
 export function planAction(input: PlanInput): ActionDecision {
   const { action, context, lane, liveSessions, checkout } = input;
   const pr = context.pullRequest;
 
-  if (PARKED_LANES.includes(lane)) {
+  if (INACTIVE_LANES.includes(lane)) {
     return refuse('lane-parked', `Card actions are disabled in ${lane}.`);
   }
 
@@ -82,7 +72,7 @@ export function planAction(input: PlanInput): ActionDecision {
     return refuse('pull-request-draft', `Pull request #${pr.number} is a draft.`);
   }
 
-  if (!mine(pr.author, context.logins)) {
+  if (!isDeveloperLogin(pr.author, context.logins)) {
     return refuse('pull-request-not-yours', `Pull request #${pr.number} is not yours to merge.`);
   }
 
@@ -90,8 +80,7 @@ export function planAction(input: PlanInput): ActionDecision {
     return refuse('no-default-branch', 'Repository default branch unavailable.');
   }
 
-  // The whole of the multi-leg case. A branch based on another feature branch needs its parent current before this
-  // merge means anything, and the board has no way to establish that order — so it labels the card and stops.
+  // Refuse stacked branches because the parent branch may need updating first (R39).
   if (pr.baseRefName !== context.defaultBranch) {
     return refuse(
       'stacked-branch',
@@ -107,8 +96,7 @@ export function planAction(input: PlanInput): ActionDecision {
     return refuse('session-running', 'This card has an active session.');
   }
 
-  // A checkout an agent has run in, never one the developer merely picked and never a branch name (R37, R39): the
-  // caller narrows it, because a folder pointed at is enough to open a window and not enough to edit code unwatched.
+  // The caller must supply a session-derived checkout; a manual folder pick does not authorize unattended edits (R37, R39).
   if (checkout === null) {
     return refuse('no-checkout', 'No checkout from a previous session is available for this card.');
   }
@@ -128,17 +116,14 @@ export function planAction(input: PlanInput): ActionDecision {
   };
 }
 
-/** Whether the developer has turned this action on and given it something to run. */
+/** Whether the action is enabled with a nonempty prompt. */
 export function actionEnabled(action: AutomatableAction, settings: ActionSettings): boolean {
   const setting = settings.actions[action];
 
   return setting !== undefined && setting.enabled && setting.prompt.trim().length > 0;
 }
 
-/**
- * The prompt for one action, or null where it has none. An action turned on with nothing to say is off: there is no
- * shipped default, because what runs a merge is the developer's own repository's skill and no two teams share one.
- */
+/** Return the configured prompt, or null when empty. Repository workflow has no shipped prompt default. */
 export function promptFor(action: AutomatableAction, settings: ActionSettings): string | null {
   const prompt = settings.actions[action]?.prompt.trim() ?? '';
 

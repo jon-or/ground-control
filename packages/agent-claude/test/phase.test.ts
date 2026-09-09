@@ -7,7 +7,7 @@ import { HOME } from './helpers.js';
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
 
-/** A marker is the board's own shape, written by the board's own hook, so a case is built rather than recorded. */
+/** Construct markers directly because the board owns their format. */
 function marker(over: Partial<ActivityMarker> = {}): ActivityMarker {
   return {
     v: HOOK_MARKER_VERSION,
@@ -33,8 +33,7 @@ describe('phaseOf', () => {
     expect(phaseOf(marker({ event: 'PermissionRequest', toolName: 'Bash' }))).toBe('waiting');
   });
 
-  // Compaction fires SessionStart mid-turn on a working session, so the one source that must not blank the card is
-  // the one that arrives while it is busy.
+  // SessionStart during compaction must preserve the running phase.
   it('reads a compaction as running', () => {
     expect(phaseOf(marker({ event: 'SessionStart', source: 'compact' }))).toBe('running');
   });
@@ -59,8 +58,7 @@ describe('phaseOf', () => {
     expect(phaseOf(marker({ event: 'PreToolUse' }))).toBeNull();
   });
 
-  // Notification is not "the agent needs you": the same event carries agent_completed and idle_prompt, so mapping
-  // the event wholesale would paint a finished session as needing attention.
+  // Distinguish input requests from completion and idle notifications.
   it.each(['permission_prompt', 'worker_permission_prompt', 'agent_needs_input'])(
     'reads a %s notification as waiting',
     (notificationType) => {
@@ -72,7 +70,7 @@ describe('phaseOf', () => {
     expect(phaseOf(marker({ event: 'Notification', notificationType: 'agent_completed' }))).toBe('idle');
   });
 
-  // The 60-second nag fires at a session that is already idle; treating it as waiting would invent a decision.
+  // The idle reminder requires no user decision and must not map to waiting.
   it.each(['idle_prompt', 'auth_success', 'push_notification', null])(
     'claims nothing for a %s notification',
     (notificationType) => {
@@ -110,7 +108,7 @@ describe('readActivity', () => {
     });
   });
 
-  // A heartbeat lands on every tool batch, so an event-time anchor holds a busy card's duration at zero all turn.
+  // Tool-batch events must not reset running duration.
   it('counts a running session from the turn it is in, not from the heartbeat that reported it', () => {
     expect(reads(marker({ event: 'PostToolBatch', at, turnAt: at - 600_000 }))?.since).toBe(at - 600_000);
   });
@@ -129,8 +127,7 @@ describe('readActivity', () => {
     expect(reads(marker({ event: 'PostToolBatch', at, turnAt: null }))?.since).toBe(at);
   });
 
-  // An older extension's marker carries no turn at all, and a session losing its phase over an added field is a card
-  // that goes blank on an upgrade until the developer prompts it.
+  // Older markers lack turnAt; default it without losing the activity phase.
   it('keeps the phase of a marker written before the turn was recorded, and counts from the event', () => {
     const older = { ...marker({ event: 'PostToolBatch', at }) } as Record<string, unknown>;
 
@@ -139,7 +136,7 @@ describe('readActivity', () => {
     expect(reads(older)).toEqual({ phase: 'running', since: at, at: at, event: 'PostToolBatch' });
   });
 
-  // A turn cannot have begun after the event that rode on it; a stamp saying so came from a clock that moved.
+  // Ignore turn timestamps later than their event after clock changes.
   it('counts from the event when the turn stamp is later than the event itself', () => {
     expect(reads(marker({ event: 'PostToolBatch', at, turnAt: at + 5_000 }))?.since).toBe(at);
   });
@@ -156,7 +153,7 @@ describe('readActivity', () => {
     expect(reads({ sessionId: SESSION, event: 'Stop' })).toBeNull();
   });
 
-  // A forked transcript reuses records under a new id, so a marker naming a different session is not this one's.
+  // Reject markers naming another session, as reused fork records can do.
   it('reports nothing for a marker that disagrees with its own file name', () => {
     expect(reads(marker({ sessionId: 'someone-else' }))).toBeNull();
   });
@@ -169,7 +166,7 @@ describe('readActivity', () => {
     expect(reads(marker({ at: at + 30_000 }), at)?.phase).toBe('running');
   });
 
-  // Two extension versions share one `~/.claude`, so a marker whose field set was redefined is not this one's.
+  // Shared-home readers must reject incompatible marker versions.
   it('reports nothing for a marker written to a different version of the format', () => {
     expect(reads({ ...marker(), v: HOOK_MARKER_VERSION + 1 })).toBeNull();
   });

@@ -12,8 +12,7 @@ if (cwds.length === 0) {
   process.exit(1);
 }
 
-// One `.git` and one `HEAD` per checkout, plus the worktree gitdirs they point at. A null value is a real read
-// failure — a plain `.git` is a directory, so reading it as text fails.
+// Record .git, HEAD, and referenced gitdirs. Null means a read failed, including text reads of a clone .git directory.
 const reads = {};
 
 const record = (p) => {

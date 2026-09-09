@@ -21,8 +21,7 @@ describe('the placement table', () => {
       args: [{ kind: 'text', value: 'abc' }],
     });
 
-    // `vscode.open` takes a `Uri` instance or an http/https string and refuses any other string outright, so a
-    // resource has to be named as one — the client is the only place a `Uri` can be built.
+    // Custom schemes require a Uri instance. The extension host converts the plan's URI argument.
     expect(PLACEMENTS['codex']!.reveal('abc')).toEqual({
       command: 'vscode.open',
       args: [{ kind: 'uri', value: 'openai-codex://route/local/abc' }],
@@ -30,16 +29,16 @@ describe('the placement table', () => {
   });
 
   /**
-   * M51: Claude's start is the reveal's own command with the session slot left empty, so the webview mints an id
-   * rather than being handed one; Codex's is its own no-argument command, which no prompt can reach.
+   * Claude starts through its reveal command with the session slot absent; Codex uses a no-argument command
+   * (M51).
    */
-  it('pins the whole of each agent’s start command, including the slot the prompt goes in', () => {
+  it('checks complete start commands and prompt positions', () => {
     expect(PLACEMENTS['claude']!.start!('do the thing')).toEqual({
       command: 'claude-vscode.primaryEditor.open',
       args: [{ kind: 'absent' }, { kind: 'text', value: 'do the thing' }],
     });
 
-    // A bare session is the same call with the prompt slot empty too — never `open('')`, which would prefill blank.
+    // Omit both session and prompt slots for an empty session; an empty string would prefill a blank prompt.
     expect(PLACEMENTS['claude']!.start!(null)).toEqual({
       command: 'claude-vscode.primaryEditor.open',
       args: [{ kind: 'absent' }, { kind: 'absent' }],
@@ -48,14 +47,14 @@ describe('the placement table', () => {
     expect(PLACEMENTS['codex']!.start!('do the thing')).toEqual({ command: 'chatgpt.newCodexPanel', args: [] });
   });
 
-  it('says which agent’s start carries the prompt, so the menu item can say so too', () => {
+  it('identifies agents whose start command accepts a prompt', () => {
     expect(PLACEMENTS['claude']!.startTakesPrompt).toBe(true);
     expect(PLACEMENTS['codex']!.startTakesPrompt).toBe(false);
   });
 
   it('offers a URI only for the agent whose extension answers one', () => {
     expect(PLACEMENTS['claude']!.openUri!('abc def')).toContain('abc%20def');
-    // Codex's deep links never resolved when fired at a window, so the board must not pretend it can reach one (M44).
+    // No working Codex OS deep link was measured (M44).
     expect(PLACEMENTS['codex']!.openUri).toBeUndefined();
   });
 
@@ -73,16 +72,13 @@ describe('the placement table', () => {
     expect(PLACEMENTS['codex']!.lockDir).toBeUndefined();
   });
 
-  /**
-   * M47: the pid a session reports belongs to a process the window's extension host started, which is what ties a
-   * session to a window. Claude's session is `claude.exe`; a Codex thread runs inside the extension's app-server.
-   */
+  /** Check both process names for extension-host ancestry: claude.exe and the Codex app-server (M47). */
   it('names the executable whose parent is the window running the session', () => {
     expect(PLACEMENTS['claude']!.processName).toBe('claude.exe');
     expect(PLACEMENTS['codex']!.processName).toBe('codex.exe');
   });
 
-  /** M6, M44: Claude's reveal forks a surface, so only Codex's may be fired at an unrecorded one. */
+  /** Only Codex supports idempotent reveal when the current surface is unknown (M6, M44). */
   it('claims an idempotent reveal only for the agent whose reveal re-activates the surface', () => {
     expect(PLACEMENTS['claude']!.idempotentReveal).toBe(false);
     expect(PLACEMENTS['codex']!.idempotentReveal).toBe(true);
@@ -122,7 +118,7 @@ describe('claudeDirOf', () => {
     );
   });
 
-  it('treats an empty or blank setting as unset rather than as the filesystem root', () => {
+  it('treats blank storage settings as unset', () => {
     expect(claudeDirOf('C:/Users/dev', '')).toBe('C:/Users/dev/.claude');
     expect(claudeDirOf('C:/Users/dev', '   ')).toBe('C:/Users/dev/.claude');
   });

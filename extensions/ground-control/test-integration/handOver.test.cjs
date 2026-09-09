@@ -60,7 +60,7 @@ describe('a session handed to this window', () => {
     return noticed.join(' | ');
   };
 
-  it('is planned by the hub rather than revealed on the link own word', async () => {
+  it('asks the hub to validate a hand-over link', async () => {
     const answer = await fire(`session=${SESSION}&agent=codex&hop=1`);
 
     assert.ok(answer.includes(REFUSED), `expected the hub to refuse an unknown session, got: ${answer}`);
@@ -72,13 +72,13 @@ describe('a session handed to this window', () => {
     assert.ok(answer.includes(REFUSED), `expected the hub to refuse an unknown session, got: ${answer}`);
   });
 
-  it('is planned even when the hand-over names no agent, which names nothing to reveal it with', async () => {
+  it('asks the hub to validate a hand-over link without an agent', async () => {
     const answer = await fire(`session=${SESSION}&hop=1`);
 
     assert.ok(answer.includes(REFUSED), `expected the hub to refuse an unknown session, got: ${answer}`);
   });
 
-  it('refuses a link that does not name a session at all, without the hub hearing of it', async () => {
+  it('rejects an invalid session ID before contacting the hub', async () => {
     const answer = await fire('session=../../etc/passwd&hop=1&agent=claude');
 
     assert.ok(

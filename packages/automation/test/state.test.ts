@@ -65,17 +65,15 @@ describe('reading what is stored', () => {
     expect(readActionState(42)).toEqual(EMPTY_ACTIONS);
   });
 
-  /** One unusable entry costs that card its record; refusing the file whole would make every card eligible again. */
+  /** Discard invalid records individually to preserve other cards and limits. */
   it('drops one unreadable run and keeps the rest', () => {
     const state = readActionState({
-      // `land` is a triage action the board does not perform, so a run naming one was written by a build with a
-      // different idea of what may be automated. It is dropped rather than taken.
+      // Discard run records naming unsupported actions.
       runs: { good: run(), bad: { key: 'bad' }, wrongAction: { ...run(), action: 'land' } },
       refusals: {
         r: { kind: 'k', message: 'm', at: 1, revision: ACTION_REVISION },
         broken: { kind: 'k' },
-        // A reason a retired gate wrote. Such a card is never reconsidered while its action is off, so a refusal
-        // kept across a revision bump would sit on it naming a rule that no longer exists.
+        // Discard refusals from older revisions, including disabled actions.
         stale: { kind: 'not-computed', message: 'wait', at: 1, revision: ACTION_REVISION - 1 },
       },
       gates: { g: 5, notANumber: 'x' },
@@ -95,7 +93,7 @@ describe('reading what is stored', () => {
   });
 });
 
-describe('what a run may say about itself', () => {
+describe('action reports', () => {
   it('reads a report a run wrote', () => {
     expect(readActionReport({ outcome: 'pushed', detail: 'Merged master, 3 commits.' })).toEqual({
       outcome: 'pushed',
@@ -103,14 +101,14 @@ describe('what a run may say about itself', () => {
     });
   });
 
-  it('refuses a report with no outcome the board knows, and one with nothing to say', () => {
+  it('rejects unknown outcomes and empty explanations', () => {
     expect(readActionReport({ outcome: 'landed', detail: 'x' })).toBe(null);
     expect(readActionReport({ outcome: 'pushed', detail: '' })).toBe(null);
     expect(readActionReport(null)).toBe(null);
   });
 });
 
-describe('the rule that stops a loop', () => {
+describe('repeat-run prevention', () => {
   it('blocks a second run against the same evidence, whatever the first one came to', () => {
     for (const outcome of ['landed', 'halted', 'stopped', 'running'] as const) {
       const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome }) } };
@@ -119,11 +117,7 @@ describe('the rule that stops a loop', () => {
     }
   });
 
-  /**
-   * A dispatch that never started a session spent nothing on the card and did nothing to it, so holding the card
-   * against it until somebody pushes would cost every retry to a CLI that was briefly missing (R21). What paces the
-   * retry is the read gate, not this.
-   */
+  /** Failed dispatch attempts may retry unchanged evidence; the read interval limits their frequency (R21). */
   it('does not block on a dispatch that never started', () => {
     const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome: 'failed' }) } };
 
@@ -136,11 +130,7 @@ describe('the rule that stops a loop', () => {
     expect(alreadyRun(state, 'issue:17198', '17198|4021|def')).toBe(false);
   });
 
-  /**
-   * The merge the card asked for happened, and the push it made is itself what moves `headOid` — so comparing
-   * evidence alone would have every successful merge authorise the next one, and a base branch that keeps moving
-   * would have the board merging on a timer nobody asked for.
-   */
+  /** A successful merge blocks automatic repeats even when its own push changes headOid. */
   it('blocks a run after one landed, however far the evidence has moved since', () => {
     const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome: 'landed' }) } };
 
@@ -244,10 +234,7 @@ describe('what a render leaves behind', () => {
     expect(Object.keys(next.gates)).toEqual(['issue:99']);
   });
 
-  /**
-   * The agent is in the developer's checkout whatever became of the card, and the record is the only thing that can
-   * stop it. An issue closed mid-merge would otherwise leave a session pushing that no board can reach.
-   */
+  /** Retain running actions for absent cards so stop and completion tracking remain available. */
   it('keeps a run still working, even for a card that has left the board', () => {
     const dispatched = withDispatch(EMPTY_ACTIONS, run({ outcome: 'running' }), NOW);
     const next = nextActionState(laneWith('issue:99'), dispatched, true, NOW);

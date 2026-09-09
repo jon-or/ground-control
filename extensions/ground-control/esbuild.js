@@ -1,9 +1,9 @@
 const esbuild = require('esbuild');
 const { version } = require('./package.json');
 
-// Bundling is not an optimisation: the `@ground-control/*` packages live outside this folder and vsce copies only what is beneath it, so an unbundled
-// .vsix throws MODULE_NOT_FOUND on activate. `src/uninstall.ts` is separate because `vscode:uninstall` runs outside the host, without `vscode`.
-// `hub` is the background process itself, carried in the extension and written to a stable path on disk (R35).
+// Bundle workspace packages because vsce excludes files outside this directory; otherwise activation fails with MODULE_NOT_FOUND.
+// Keep `src/uninstall.ts` separate because `vscode:uninstall` runs outside the host, without `vscode`.
+// Bundle the background hub in the extension for copying to a stable path on disk (R35).
 const options = {
   entryPoints: [
     { in: 'src/extension.ts', out: 'extension' },

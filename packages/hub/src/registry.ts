@@ -7,10 +7,7 @@ import type { AgentAdapter, HostAdapter, HubConfig, Logger, MachineReaders, Read
 import { makeGithubSource } from '@ground-control/github';
 import { makeVscodeHost } from '@ground-control/host-vscode';
 
-/**
- * Every target the board knows how to reach. This is the composition root: `core` names no adapter, so adding one is
- * an entry here and a configuration id, and nothing in the loop, the merge or any client changes.
- */
+/** Compose adapters here; core depends only on neutral contracts. */
 export interface Registries {
   agents: readonly AgentAdapter[];
   hosts: readonly HostAdapter[];
@@ -21,22 +18,20 @@ export function makeRegistries(log?: Logger, home: string = homedir()): Registri
   const codex = makeCodexAdapter({
     alive: pidAliveOnMachine,
     env: process.env,
-    // The hub's own home, not the machine's: a dispatch under `--home` must not write a run's transcript, prompt
-    // and all, into the home of the board the developer is actually using.
+    // Use the injected home so --home dispatches do not write transcripts to the developer's active home.
     start: makeMachineStarter(home),
     kill: killOnMachine,
-    // The hub's home again, for the same reason: a trust written under `--home` must not reach the developer's own
-    // Codex, and `CODEX_HOME` is what decides which `config.toml` the exchange writes.
+    // Use the injected CODEX_HOME so --home trust changes do not affect the developer's active config.toml.
     trust: makeTrustOnMachine(),
   });
 
   return { agents: [makeClaudeAdapter(), codex], hosts: [makeVscodeHost()], sources: [makeGithubSource(log ? { log } : {})] };
 }
 
-/** The team's convention, so it ships as a default rather than as something a new developer has to set (R27). */
+/** Default issue-number convention (R27). */
 const BRANCH_ISSUE_PATTERN = '^(\\d+)-';
 
-/** A network round trip, so it polls slowly; a session read spawns a CLI, so it polls quickly (mechanics M2). */
+/** Poll network sources less frequently than local session CLIs (M2). */
 const REFRESH_INTERVAL_MS = 300_000;
 const SESSION_INTERVAL_MS = 30_000;
 
@@ -52,8 +47,7 @@ export function defaultConfig(registries: Registries, readers: MachineReaders): 
       .map((agent) => ({ id: agent.id, path: agent.defaultPath })),
     branchIssuePattern: BRANCH_ISSUE_PATTERN,
     hosts: Object.fromEntries(registries.hosts.map((host) => [host.id, {}])),
-    // Named with nothing in them: a source no client has configured says what it is missing, which is what a hub
-    // the browser started alone has to do — silence there reads as a board with no work on it (R25).
+    // Create unconfigured sources so browser-only startup reports missing settings (R25).
     sources: Object.fromEntries(registries.sources.map((source) => [source.id, {}])),
     boardStatuses: [...DEFAULT_BOARD_STATUSES],
     statusLanes: { ...DEFAULT_STATUS_LANES },
@@ -62,17 +56,13 @@ export function defaultConfig(registries: Registries, readers: MachineReaders): 
     installActivity: true,
     logLevel: 'info',
     triage: { ...DEFAULT_TRIAGE },
-    // Nothing on, and no prompt: the board shows and intervenes, and does not start work until asked to (R32).
+    // Disable automatic actions until configured (R32).
     actions: { ...DEFAULT_ACTIONS, actions: {} },
     newSession: { ...DEFAULT_NEW_SESSION },
   };
 }
 
-/**
- * Applies the host entries in a configuration, and names every id the registry does not carry. An unknown id is a
- * failure on the board rather than a silent omission (R25) — a developer who mistyped one otherwise sees a host
- * that simply never reaches anything.
- */
+/** Configure hosts and report unknown IDs (R25). */
 export function configureHosts(registries: Registries, hosts: Record<string, unknown>): ReadFailure[] {
   return Object.entries(hosts).flatMap(([id, raw]) => {
     const host = registries.hosts.find((candidate) => candidate.id === id);
@@ -94,11 +84,7 @@ export function configureHosts(registries: Registries, hosts: Record<string, unk
   });
 }
 
-/**
- * Applies the source entries in a configuration, and names every id the registry does not carry. A source is read
- * only once it has taken a configuration, so a refused entry is a named failure and no read at all — never a read
- * made with whatever the last client set.
- */
+/** Configure sources and report unknown IDs. Rejected settings disable reads instead of retaining prior client settings. */
 export function configureSources(registries: Registries, sources: Record<string, unknown>): ReadFailure[] {
   return Object.entries(sources).flatMap(([id, raw]) => {
     const source = registries.sources.find((candidate) => candidate.id === id);

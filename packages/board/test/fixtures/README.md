@@ -1,26 +1,24 @@
 # Recorded fixtures
 
-The output of the real readers against the live machine. To re-record:
+Record actual reader output from the package directory:
 
 ```
 npm run build --workspaces && node test/fixtures/record.js
 ```
 
-| File | What it holds |
+| File | Contents |
 |---|---|
-| `issues.json` | what `fetchAssignedIssues` returned, with titles, URLs, account names and the selected avatar replaced by `anonymise.js` — this repo is public, and no test reads those fields |
-| `sessions.json` | what `fetchSessions` returned for the sessions live at that moment, links, titles, transcript times and reported activity included |
+| `issues.json` | Assigned-issue results with text, URLs, accounts, and avatars scrubbed |
+| `sessions.json` | Live session results, including links, titles, transcript times, and activity |
 
-The tests assert the merge's invariants — every session on exactly one card, issue order preserved, keys unique — against whatever this recording holds, plus that the recording still covers all three ways a session reaches the board (linked to an issue on the board, linked to one that is not, and unlinked), an issue card holding more than one session, and an issue with no session at all. A re-recording that loses a case fails rather than passing quietly.
+Tests require unique card keys, preserved issue order, and exactly one card per session. Recordings must cover sessions linked to assigned issues, sessions naming other issues, unlinked sessions, multiple sessions on one issue, and issues without sessions.
 
-`helpers.ts` asserts every row of `sessions.json` carries every field of `Session`. It has to: this file once predated the `title` field, and `as Session[]` handed every test `undefined` where the type promised `string | null` without a single failure. A recording that has gone stale against the type now fails the run and names the missing field.
+`helpers.ts` checks every recorded session against all `Session` fields. Type assertions alone cannot detect fields missing from a recording.
 
-The two files are separate recordings and `record.js` writes both. Re-record only what changed: nothing about `IssueCard` moves when the session shape does, and a fresh issue recording changes which issue numbers the lane tests can name.
+`record.js` writes both files. Retain only the recording needed for a shape change; refreshing issues also changes the issue numbers used by lane tests.
 
-`details` is an open bag, so the anonymiser asserts twice over it: the values under `name` and `shortId` are rebuilt and must be gone, and every key it holds must be one this file knows — `kind`, `status` and `state` are the agent's own vocabulary and are kept, anything else fails the recording. Without the second assertion the next field an adapter adds to the bag would ship whatever it says about the developer's work.
+The anonymiser replaces `details.name` and `details.shortId`, preserves known neutral `kind`, `status`, and `state` values, and rejects unknown keys so new adapter fields cannot bypass scrubbing.
 
-`issues.json` predates the pull-request `author`, `isDraft` and `reviewDecision` fields, which is why the recorded rules carry no login: nothing may read a field the recording does not hold. A test that turns on one derives the whole pull request and says so there.
+`issues.json` predates PR `author`, `isDraft`, and `reviewDecision` fields. Test helpers supply missing values; tests requiring specific PR data derive it explicitly.
 
-The current recording carries reported activity on some rows and none on others, which is what makes the attention mark testable as something that follows the phases rather than as a constant. Where a lane test needs a specific phase it derives one and says so there.
-
-Where the machine will not produce a shape on demand — two sessions naming the same absent issue, an empty board — the test derives it from these fixtures and says so there; nothing derived is saved back here.
+Session rows include both reported and absent activity. Tests derive specific phases or cases unavailable on demand, such as an empty board or duplicate references to an absent issue. Do not save those derived cases over the recordings.

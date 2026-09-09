@@ -2,11 +2,10 @@ const assert = require('node:assert');
 const vscode = require('vscode');
 
 /**
- * The URI handler is registered on activation and answers a navigation from the browser board. What only a real
- * extension host settles is that the registration takes, that a link reaches it, and that what it accepts goes on
- * to the hub — the decision about what a link may name is `sessionFromUri`, tested in `packages/host-vscode`.
+ * Verify activation registers the URI handler and accepted links reach the hub. Package tests cover URI
+ * validation.
  */
-describe('the link the browser board opens a session with', () => {
+describe('browser session URI handling', () => {
   const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
 
   /** Every notification this window raised while a link was in flight. */
@@ -35,7 +34,7 @@ describe('the link the browser board opens a session with', () => {
   });
 
   /** Polls: the handler is async, the hub answers over a socket, and `vscode.open` waits for neither. */
-  async function said(matches, why, within = 15_000) {
+  async function waitForWarning(matches, why, within = 15_000) {
     const deadline = Date.now() + within;
 
     for (;;) {
@@ -45,7 +44,7 @@ describe('the link the browser board opens a session with', () => {
         return found;
       }
 
-      assert.ok(Date.now() < deadline, `${why}; said: ${JSON.stringify(warned)}`);
+      assert.ok(Date.now() < deadline, `${why}; warnings: ${JSON.stringify(warned)}`);
       await new Promise((done) => setTimeout(done, 100));
     }
   }
@@ -53,30 +52,27 @@ describe('the link the browser board opens a session with', () => {
   const fire = (uri) => vscode.commands.executeCommand('vscode.open', vscode.Uri.parse(uri));
 
   /**
-   * The whole chain, proven by the answer that comes back: this window's hub is running against a temporary home
-   * with no agent CLI on it, so a well-formed link is carried through to a hub that refuses the id by name. An
-   * assertion that merely nothing was said would pass on a handler that never ran.
+   * Assert the hub missing-session refusal; silence would not prove handler execution.
    */
   it('carries a well-formed session id through to the hub, which answers for it', async () => {
     await fire(`vscode://groundcontrol.ground-control/open?session=${SESSION}`);
 
-    await said(
+    await waitForWarning(
       (message) => message.includes('no longer on the board'),
       'the link did not reach the hub',
     );
   });
 
   /**
-   * The other path, which does not go through the hub: a detached run is entered by attaching to it, in this window's
-   * own terminal. This home has no such run, so what proves the path is registered and ran is the answer it gives
-   * for one it cannot find - an assertion that no terminal appeared would pass on a handler that never fired.
+   * Assert the missing-run response for attach URIs; absence of a terminal alone would not prove the handler
+   * ran.
    */
   it('answers an attach link for a run this machine does not have', async () => {
     const before = vscode.window.terminals.length;
 
     await fire(`vscode://groundcontrol.ground-control/attach?session=${SESSION}`);
 
-    await said(
+    await waitForWarning(
       (message) => message.includes('This run is unavailable or does not support attaching.'),
       'the attach link did not reach the handler',
       30_000,
@@ -96,9 +92,9 @@ describe('the link the browser board opens a session with', () => {
     it(`refuses ${why}, and says so`, async () => {
       await fire(uri);
 
-      const message = await said(
+      const message = await waitForWarning(
         (said_) => said_.includes('Invalid or unsupported session link.'),
-        `nothing was said about ${uri}`,
+        `no warning for ${uri}`,
       );
 
       // Refused here rather than passed on: the hub never hears about a link this window would not write.

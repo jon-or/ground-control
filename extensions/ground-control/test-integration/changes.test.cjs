@@ -55,8 +55,8 @@ describe('the changes editor, against a real worktree', () => {
     // Left uncommitted, so the editor has to span both halves to hold it at all.
     writeFileSync(join(worktree, 'dirty.txt'), 'not committed\n');
 
-    // Staged and then deleted on disk: the index says modified and the working tree says gone. One status per path
-    // keeps whichever was read last, and this must come out a deletion rather than a row pointing at nothing.
+    // A staged modification deleted on disk must render as a deletion; read index and working-tree status
+    // separately.
     writeFileSync(join(worktree, 'staged.txt'), 'staged and edited\n');
     git(worktree, 'add', 'staged.txt');
     rmSync(join(worktree, 'staged.txt'));
@@ -119,22 +119,18 @@ describe('the changes editor, against a real worktree', () => {
 
     assert.ok(tab, 'nothing opened');
 
-    // The editor appends its own count to the title it was given, so this is VS Code counting the resources it
-    // accepted rather than the board repeating what it sent: four files, the three committed and the one dirty.
-    // added.txt, removed.txt, dirty.txt, staged.txt and the rename of kept.txt — five, whichever half each came
-    // from. `staged.txt` is the one that only appears if the index and the working tree were read separately.
+    // Assert the editor-added resource count: added.txt, removed.txt, dirty.txt, staged.txt, and the kept.txt
+    // rename. staged.txt verifies separate index and working-tree reads.
     assert.strictEqual(tab.label, '#18941 Inbox badge — since ' + base.slice(0, 7) + ' (5 files)');
 
-    // Only a row with both sides is reported back, so this is the renamed file; an addition and a deletion each
-    // have one side and are counted above rather than listed here.
+    // textDiffs reports only the renamed file; the title count independently covers additions and deletions.
     const pairs = (tab.input.textDiffs ?? []).map((diff) => [diff.original, diff.modified]);
 
     assert.strictEqual(pairs.length, 1, `expected one two-sided row, got ${pairs.length}`);
 
     const [original, modified] = pairs[0];
 
-    // The left-hand side is the merge base under the name the file had there, the right-hand side is the file on
-    // disk under the name it has now. A rename that started a second row would leave two pairs, not one.
+    // Verify the old path at merge base and renamed path on disk, with one diff pair.
     assert.strictEqual(original.scheme, 'git');
     assert.strictEqual(JSON.parse(original.query).ref, base);
     assert.ok(original.fsPath.endsWith('kept.txt'), original.fsPath);

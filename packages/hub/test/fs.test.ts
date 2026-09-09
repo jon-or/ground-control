@@ -30,19 +30,19 @@ describe('lockIsStale', () => {
 });
 
 describe('the install lock', () => {
-  it('is taken when nothing holds it, and refused while something does', () => {
+  it('acquires an absent lock and refuses an existing one', () => {
     expect(takeLock(lockPath())).toBe(true);
     expect(existsSync(lockPath())).toBe(true);
   });
 
-  /** Not this process's own second take: a lock file already there is another process mid-install. */
+  /** An existing lock blocks reacquisition, including by this process. */
   it('refuses a lock a live process is holding', () => {
     writeFileSync(lockPath(), 'another-process');
 
     expect(takeLock(lockPath())).toBe(false);
   });
 
-  it('breaks a lock nothing alive is holding', () => {
+  it('replaces expired locks', () => {
     writeFileSync(lockPath(), 'a process that crashed');
     const stale = new Date(Date.now() - LOCK_STALE_MS - 5_000);
     utimesSync(lockPath(), stale, stale);
@@ -96,10 +96,7 @@ describe('writeAtomic', () => {
     expect(readFileSync(`${home}/lanes.json`, 'utf8')).toBe('second');
   });
 
-  /**
-   * The temporary has to go even when nothing lands, and it is named after the destination — so the destination
-   * must be inside the directory being listed, or the sweep is of a directory the temporary was never in.
-   */
+  /** Check the destination directory for leftover temporary files after a failed write. */
   it('leaves no temporary behind when it cannot write at all', () => {
     mkdirSync(`${home}/occupied`);
 

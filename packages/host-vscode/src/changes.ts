@@ -1,38 +1,38 @@
 import { dirKey } from '@ground-control/core';
 
-/** What happened to one path across one stage. `from` is set only by a rename, and is the name it had going in. */
+/** Change type within one stage. */
 export type ChangeKind = 'added' | 'modified' | 'deleted';
 
 export interface ChangedPath {
   path: string;
   kind: ChangeKind;
+  /** Previous path for a rename; absent for other changes. */
   from?: string;
 }
 
 /**
- * One side of a row. `ref` null is the file as it stands on disk; anything else is that path at that revision. The
- * caller turns the pair into whatever URIs its editor wants — this package names no `vscode` type.
+ * Diff path and revision; null ref means the working-tree file. The extension converts these values to editor
+ * URIs.
  */
 export interface DiffSide {
   path: string;
   ref: string | null;
 }
 
-/** A missing side is a file that does not exist there: no original is an addition, no modified is a deletion. */
+/** Null original means an addition; null modified means a deletion. */
 export interface DiffRow {
   original: DiffSide | null;
   modified: DiffSide | null;
 }
 
 /**
- * Three stages, because each answers something the others cannot: what the branch committed, what the index holds
- * against that, and what the working tree holds against the index. A file staged as an edit and then deleted on
- * disk says different things in two of them, and one status per path keeps whichever was read last.
+ * Keep committed, staged, and working-tree changes separate. A path can have different changes in each stage,
+ * such as a staged edit followed by an unstaged deletion.
  */
 export interface ChangesRequest {
-  /** What the editor tab is called — the card and, where a card spans more than one, its checkout. */
+  /** Editor tab title: card label and checkout when needed. */
   label: string;
-  /** The merge base. Null where none could be established, and then only uncommitted work is shown, and said. */
+  /** Merge base, or null to show and label uncommitted changes only. */
   base: string | null;
   /** `base...HEAD`, empty when there is no base. */
   committed: readonly ChangedPath[];
@@ -46,21 +46,17 @@ export type ChangesPlan =
   | { refusal: 'no-changes'; message: string }
   | { title: string; rows: DiffRow[]; shown: number; total: number };
 
-/**
- * How many rows one editor is given. A branch off a stale base can be thousands of files, and every resource is
- * handed over at once; past this the editor is a scrollbar rather than a review, so it is truncated and says so.
- */
+/** Limit diff resources sent to the editor; report truncation when a branch exceeds this count. */
 export const MAX_ROWS = 400;
 
-/** A checkout the editor would not open. Its Git integration is off for that folder, or the path is not there. */
+/** Explain why VS Code could not open the checkout repository. */
 export function noRepository(wanted: string): string {
   return `VS Code has no repository at ${wanted}. Open that folder in a window, or check that Git is enabled for it.`;
 }
 
 /**
- * Whether the repository that answered is the one that was asked for. VS Code resolves a repository argument by
- * longest open-repository root prefix and, on a miss, returns the window's only repository without prompting — so a
- * worktree that failed to open would diff the main clone silently. Nothing runs until the roots match.
+ * Verify the selected root before diffing. VS Code may fall back to a prefix match or the only open repository,
+ * which could select the main clone instead of a worktree.
  */
 export function repositoryRefusal(wanted: string, answered: string): string | null {
   return dirKey(answered) === dirKey(wanted)
@@ -68,18 +64,15 @@ export function repositoryRefusal(wanted: string, answered: string): string | nu
     : `VS Code selected ${answered} instead of ${wanted}. Open ${wanted} in a separate window and try again.`;
 }
 
-/** One file followed through the stages: where it started, whether it was there, and what it is called now. */
+/** Track a file's original and current paths across stages. */
 interface Chain {
   basePath: string;
   existedAtBase: boolean;
-  /** Null once a stage has deleted it. A later stage recreating that path picks the same chain back up. */
+  /** Null after deletion; later recreation of the path continues the same record. */
   nowPath: string | null;
 }
 
-/**
- * Follows one stage. A change is looked up under the name the file had going in, which is what makes a rename meet
- * the file it renamed rather than start a second row beside it.
- */
+/** Apply changes by their previous paths so renames update existing records. */
 function advance(chains: Map<string, Chain>, changes: readonly ChangedPath[]): void {
   for (const change of changes) {
     const before = change.from ?? change.path;
@@ -91,17 +84,14 @@ function advance(chains: Map<string, Chain>, changes: readonly ChangedPath[]): v
 
     chains.delete(dirKey(before));
     chain.nowPath = change.kind === 'deleted' ? null : change.path;
-    // Keyed by the name it now has, so the next stage finds it under that name.
+    // Index by the resulting path for the next stage.
     chains.set(dirKey(change.path), chain);
   }
 }
 
 /**
- * Every file the branch has touched, committed work and uncommitted together: the base on the left, the working
- * tree on the right. No single Git command produces that set, so the stages are folded here.
- *
- * A file that moves through them is one row spanning the whole distance, and a file added and then deleted again
- * is no row at all.
+ * Combine committed, staged, and working-tree changes into base-to-working-tree rows. Follow renames across
+ * stages and omit files added then deleted.
  */
 export function changesPlan(request: ChangesRequest): ChangesPlan {
   const chains = new Map<string, Chain>();
@@ -110,8 +100,7 @@ export function changesPlan(request: ChangesRequest): ChangesPlan {
   advance(chains, request.staged);
   advance(chains, request.working);
 
-  // The original side is the merge base where there is one. Where there is not, it is HEAD and the title says so:
-  // a missing base silently becoming HEAD would show uncommitted work while claiming to show the branch.
+  // Use HEAD when no merge base exists and label the result as uncommitted changes only.
   const ref = request.base ?? 'HEAD';
   const rows: DiffRow[] = [];
 
@@ -142,10 +131,7 @@ export function changesPlan(request: ChangesRequest): ChangesPlan {
   return { title: titleOf(request, shown.length, rows.length), rows: shown, shown: shown.length, total: rows.length };
 }
 
-/**
- * The editor appends its own file count to whatever it is given, so this counts nothing: it says what the left-hand
- * side is, and how much was left out where anything was.
- */
+/** Label the base and any truncation. The editor supplies the file count. */
 function titleOf(request: ChangesRequest, shown: number, total: number): string {
   const scope = request.base ? `since ${request.base.slice(0, 7)}` : 'uncommitted only, no merge base';
   const left = shown === total ? '' : `, first ${shown} of ${total}`;

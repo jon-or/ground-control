@@ -6,64 +6,49 @@ import type { HubRecord } from './discover.js';
 import type { Ensured } from './ensure.js';
 
 export interface TransportDeps {
-  /** Finds or starts the hub. Called again on every reconnect, because a hub that exited has to be started again. */
+  /** Find or start the hub on each reconnect. */
   ensure(): Promise<Ensured>;
-  /** Built fresh per connection, so what it says about watching is what is true when the stream opens. */
+  /** Build each hello from the current watching state. */
   hello(): ClientHello;
   onMessage(message: HubMessage): void;
-  /** Ran after every accepted hello, so a client can restate anything the hub forgot — a hub it just started knows nothing. */
+  /** Restate client settings after each accepted hello, including hub restarts. */
   afterHello(): void;
-  /** Said once per outage, and once when it clears. A board that cannot reach its hub shows nothing otherwise. */
+  /** Report each outage and recovery once. */
   onTrouble(message: string | null): void;
-  /**
-   * Every step of the connection and every message over it, for the client's own log. Levelled, because a client
-   * writes these to a channel a developer opens after something went wrong: the connection's own story has to be
-   * there at the default filter, and the line per message must not be.
-   */
+  /** Log connection changes at the default level and individual messages at debug level. */
   log?(level: 'debug' | 'info' | 'warn', message: string): void;
-  /** How long a request may take before it is treated as a hub that is gone. Injected only so a test can wait. */
+  /** Request timeout, injectable for tests. */
   deadlineMs?: number;
 }
 
-/** Doubling from a second, capped where a developer who walked away is not making a request a second forever. */
+/** Exponential reconnect delay, starting at one second and capped. */
 const FIRST_RETRY_MS = 1000;
 const MAX_RETRY_MS = 30_000;
 
-/** Longer than the hub's 20 s heartbeat, so quiet is only ever read as dead when the heartbeat has stopped too. */
+/** Exceed the hub's 20-second heartbeat interval before declaring the stream disconnected. */
 const STREAM_IDLE_MS = 60_000;
 
-/**
- * Absolute, not a socket's inactivity timer: a listener that trickles bytes faster than that timer resets it forever.
- * Wide enough for `GET /roster`, which spawns an agent CLI before it can answer (`mechanics.md` M2).
- */
+/** Use an absolute deadline so trickling bytes cannot prevent timeout. Allow time for GET /roster CLI reads (M2). */
 const REQUEST_DEADLINE_MS = 15_000;
 
-/** Actions taken while the stream was down, replayed after the next hello. Bounded: a queue is not a spool. */
+/** Bound the action queue while disconnected; replay after hello. */
 const PENDING_LIMIT = 32;
 
-/** A request the hub never received, as against one it received and refused. Only the first is worth trying again. */
+/** Distinguish transport failures, which permit retries, from hub refusals. */
 type Posted = 'ok' | 'refused' | 'unreachable';
 
-/**
- * What a client says again after every hello, and so must never be queued. A `configure` held over a reconnect is
- * by then the settings of some earlier minute, and replayed on top of the restated one it would undo the change the
- * developer had just made; a queued `watchLog` would arrive behind the restated one and have the hub re-read and
- * re-send the whole tail of its log, which the viewer has by then already been shown.
- */
+/** Do not queue messages restated after hello: stale configure messages overwrite current settings and duplicate watchLog requests repeat log backfill. */
 function restated(message: ClientMessage): boolean {
   return message.type === 'configure' || message.type === 'watchLog';
 }
 
-/**
- * This window's connection to the hub: an event stream in, actions out, and a reconnect when either goes. The
- * transport holds no board state — what it carries is the protocol, and what it decides is only when to try again.
- */
+/** Maintain the event stream, action requests, and reconnection without storing board state. */
 export class HubTransport {
   readonly #deps: TransportDeps;
   readonly #id: string;
   readonly #pending: ClientMessage[] = [];
 
-  /** The stream request, held from before its response so that disposing mid-connect has something to abort. */
+  /** Retain the request before its response so disposal can abort connection attempts. */
   #stream: ClientRequest | undefined;
   #live = false;
   #record: HubRecord | undefined;
@@ -80,7 +65,7 @@ export class HubTransport {
     void this.#connect();
   }
 
-  /** Queued while the stream is down and sent after the next hello, so a card moved mid-reconnect is not dropped. */
+  /** Queue actions until reconnect so lane changes are retained. */
   send(message: ClientMessage): void {
     if (this.#disposed) {
       return;
@@ -97,10 +82,7 @@ export class HubTransport {
     void this.#deliver(message);
   }
 
-  /**
-   * A fresh read of the machine, for a route being carried out here. Null is a read that did not happen — never an
-   * empty list, which its caller would take for "nothing is running" and act on (R24).
-   */
+  /** Read the roster for a local open route. Null means the read failed; an empty list would falsely imply no active sessions (R24). */
   async roster(): Promise<readonly Session[] | null> {
     const answer = (await this.#get('/roster')) as { sessions?: Session[] } | null;
 
@@ -125,7 +107,7 @@ export class HubTransport {
 
     const ensured = await this.#deps.ensure();
 
-    // Disposed while the hub was being found or started. Whatever it started is the next window's to connect to.
+    // Ignore discovery results after disposal; leave the shared hub running.
     if (this.#disposed) {
       return;
     }
@@ -158,8 +140,7 @@ export class HubTransport {
         agent: false,
       },
       (response) => {
-        // Not the stream this transport is on any more: disposed, or replaced by a reconnect. Answering now would
-        // register this window with the hub again and hold a stream nothing here would ever close.
+        // Ignore replaced or disposed streams to avoid registering an untracked connection.
         if (this.#disposed || this.#stream !== outbound) {
           response.resume();
           outbound.destroy();
@@ -177,10 +158,7 @@ export class HubTransport {
         this.#live = true;
         void this.#sayHello();
 
-        // A decoder rather than `setEncoding`: this stream is handed bytes, because a decoded chunk is a string
-        // and a string has no `byteLength` for Node's inspector to report — which throws once per chunk, and this
-        // stream never ends, so it throws until the extension host aborts (`mechanics.md` M28). The decoder still
-        // holds a split multi-byte character across chunks, which is what `setEncoding` was here for.
+        // Keep byte chunks for Node inspector compatibility (M28). StringDecoder preserves multibyte characters split across chunks.
         const decoder = new StringDecoder('utf8');
 
         let buffer = '';
@@ -200,13 +178,13 @@ export class HubTransport {
 
     this.#stream = outbound;
 
-    // The hub writes a heartbeat every 20 s, so silence past this is a hub that is gone rather than a quiet one.
+    // The heartbeat interval is 20 seconds; longer silence triggers reconnection.
     outbound.setTimeout(STREAM_IDLE_MS, () => outbound.destroy());
     outbound.on('error', () => this.#lost('This window could not reach the hub.'));
     outbound.end();
   }
 
-  /** One event. Every message the hub sends is the frame's own JSON, so the event name is not read. */
+  /** Parse each event's JSON data; the event name is unused. */
   #frame(text: string): void {
     const data = text
       .split('\n')
@@ -221,24 +199,18 @@ export class HubTransport {
     try {
       const message = JSON.parse(data) as HubMessage;
 
-      // Every kind but the log itself: one line per hub line would double the traffic this window writes about, and
-      // the entries are being written to a channel of their own as they arrive anyway.
+      // Exclude log messages from transport logging; they already have their own output channel.
       if (message.type !== 'log') {
         this.#say('debug', `the hub sent ${message.type}`);
       }
 
       this.#deps.onMessage(message);
     } catch {
-      // A frame this client cannot parse is a hub speaking something else, which the protocol check at connect is
-      // what guards; dropping the frame beats taking the extension host down over it.
+      // Ignore malformed frames instead of failing the extension host.
     }
   }
 
-  /**
-   * The hub knows nothing of a client until its hello, so a stream without one is not a connection. A hello that
-   * did not land goes back through `#lost`: the alternative is a transport that looks healthy, is registered
-   * nowhere, and never drains what it queued.
-   */
+  /** Complete hello before treating the stream as connected. Failed registration must reconnect and retain queued actions. */
   async #sayHello(): Promise<void> {
     const said = await this.#deliver({ type: 'hello', hello: this.#deps.hello() });
 
@@ -253,27 +225,20 @@ export class HubTransport {
     this.#trouble(null);
     this.#deps.afterHello();
 
-    // One at a time: fired together they arrive in whatever order the sockets settle in, and two of these are a
-    // lane placement and a visibility, where the last one to land is the one that sticks.
+    // Send sequentially to preserve action order, including lane and visibility changes.
     while (this.#live && this.#pending.length > 0) {
       await this.#deliver(this.#pending.shift()!);
     }
   }
 
-  /**
-   * Sends one action, and treats a hub that never received it as a connection that has gone: the message goes back
-   * on the queue and the reconnect delivers it. A hub that received and refused it is not retried — nothing about
-   * sending it again would change the answer.
-   */
+  /** Requeue transport failures and reconnect. Do not retry requests the hub refused. */
   async #deliver(message: ClientMessage): Promise<Posted> {
     const posted = await this.#post(message);
 
     this.#say(posted === 'ok' ? 'debug' : 'warn', `sent ${message.type}: ${posted}`);
 
     if (posted === 'unreachable' && message.type !== 'hello') {
-      // The same rule the queue is guarded by above, and it has to be here too: this is the path a message takes
-      // when the socket died under a send the transport still thought was live, which is when a `watchLog` is most
-      // likely to be in flight — the restate is already going to say it, and both would land.
+      // Exclude restated messages here too when a previously live connection fails during send.
       if (!restated(message) && this.#pending.length < PENDING_LIMIT) {
         this.#pending.unshift(message);
       }
@@ -284,10 +249,7 @@ export class HubTransport {
     return posted;
   }
 
-  /**
-   * A stream that went away. Called for a connection that was never established as well, which is the same to a
-   * developer and the same to the backoff — but only the established case has anything to tear down.
-   */
+  /** Reconnect after connection failure or stream loss, cleaning up established streams. */
   #lost(why: string): void {
     if (this.#disposed) {
       return;
@@ -316,13 +278,9 @@ export class HubTransport {
     this.#retryMs = Math.min(MAX_RETRY_MS, this.#retryMs * 2);
   }
 
-  /**
-   * The client's own narration, which is written whether or not anyone is looking — it is this window's file, not
-   * the hub's, so nothing crosses a process boundary to produce it (R40).
-   */
+  /** Write connection diagnostics to the client log even when no board is visible (R40). */
   #say(level: 'debug' | 'info' | 'warn', message: string): void {
-    // Nothing after disposal: an action still in flight settles up to the request deadline later, and by then a
-    // client's log may have been torn down with the rest of it.
+    // Ignore requests completing after disposal; the client log may already be closed.
     if (this.#disposed) {
       return;
     }
@@ -330,7 +288,7 @@ export class HubTransport {
     this.#deps.log?.(level, message);
   }
 
-  /** Said on the way in and on the way out, and never twice: an outage is one message, not one per retry. */
+  /** Report outage and recovery once each, not per retry. */
   #trouble(message: string | null): void {
     if (message === null) {
       if (this.#troubled) {
@@ -371,8 +329,7 @@ export class HubTransport {
             'Content-Type': 'application/json',
             'Content-Length': Buffer.byteLength(body),
           },
-          // Never a pooled socket: the hub closes an idle one after five seconds, and an action dispatched onto it
-          // as it goes fails with a reset that no client is told to retry.
+          // Disable socket pooling to avoid resets when the hub closes idle connections.
           agent: false,
         },
         (response) => {

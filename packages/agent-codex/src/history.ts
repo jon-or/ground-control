@@ -6,9 +6,8 @@ import { codexHomeOf } from './hookScript.js';
 import { sessionIndexPathOf, threadNamesFrom } from './roster.js';
 
 /**
- * Enough of a rollout's head to hold its first record whole. Codex writes the model's whole instruction text into
- * `session_meta`, which measured 8–78 kB across this machine's fifteen rollouts, so the bound is three times the
- * largest one seen rather than a round number near it (`docs/mechanics.md` M42).
+ * Read up to three times the largest measured session_meta record. Instructions made these records 8–78 kB
+ * across fifteen rollouts (M42).
  */
 export const META_HEAD_BYTES = 256 * 1024;
 
@@ -31,15 +30,14 @@ export function sessionsRootOf(home: string, env: NodeJS.ProcessEnv = {}): strin
 
 export interface RolloutMetadata {
   cwd: string;
-  /** The branch the session started on, which is the saved fact rather than the checkout's branch now. */
+  /** Branch recorded at session start; it may differ from the current checkout branch. */
   branch: string | null;
   repositoryUrl: string | null;
 }
 
 /**
- * A rollout's saved directory and branch; `null` when its first record is not a `session_meta` for this session, and
- * `'truncated'` when the bounded read ended inside that record. The two are different answers — one is a file that
- * holds no session, the other a session the board could not read — and only the second is a failure to report.
+ * Read saved session metadata. Return null for a nonmatching first record, or truncated when the read limit
+ * cuts it short. Only truncation indicates a read failure.
  */
 export function rolloutMetadata(head: string, sessionId: string): RolloutMetadata | 'truncated' | null {
   const end = head.indexOf('\n');
@@ -89,9 +87,8 @@ function dayDirectories(root: string, deps: MachineDeps): string[] | null {
 }
 
 /**
- * Saved Codex threads, read from the rollout files themselves rather than from `session_index.jsonl` — the index
- * holds only threads Codex has named, five of the twenty on this machine, so it is the title source and not the
- * roster (`docs/mechanics.md` M42). Metadata is cached by path and mtime; every read still finds additions.
+ * Discover saved threads from rollout files. session_index.jsonl contains titles for named threads only (M42).
+ * Cache metadata by path and mtime while checking for new files each read.
  */
 export function makeHistoryReader(env: NodeJS.ProcessEnv = {}): (deps: MachineDeps) => Promise<HistoryReading> {
   const cache = new Map<string, { at: number; metadata: RolloutMetadata | null }>();
@@ -104,8 +101,7 @@ export function makeHistoryReader(env: NodeJS.ProcessEnv = {}): (deps: MachineDe
     const sessions: HistoricalSession[] = [];
     let unreadable = false;
 
-    // An agent that has never saved a session has no history. A home that will not list is not that claim, so an
-    // unreadable one is a failure rather than silence.
+    // An absent sessions directory means no history; an unreadable home is a failure.
     if (days === null) {
       const held = deps.listDir(codexHomeOf(deps.home, env));
 
@@ -147,8 +143,7 @@ export function makeHistoryReader(env: NodeJS.ProcessEnv = {}): (deps: MachineDe
           const head = deps.readHead(path, META_HEAD_BYTES);
           const found = head === null ? 'truncated' : rolloutMetadata(head, sessionId);
 
-          // Not cached: a record too long for the bound is the board's own limit, and caching the miss would hold
-          // this session out of history for the life of the hub.
+          // Do not cache truncated records, which would exclude sessions from history until hub restart.
           if (found === 'truncated') {
             unreadable = true;
             continue;
@@ -165,8 +160,8 @@ export function makeHistoryReader(env: NodeJS.ProcessEnv = {}): (deps: MachineDe
         }
 
         if (!repositories.has(found.cwd)) {
-          // The checkout's own remote first, because that is what a card is keyed on. The saved URL answers for a
-          // checkout that has since been deleted, which is the case a saved session is most likely to be in.
+          // Prefer the checkout remote used for card identity; fall back to the saved URL for deleted
+          // checkouts.
           repositories.set(found.cwd, repositoryOf(found.cwd, deps.readText) ?? repositoryKey(found.repositoryUrl ?? ''));
         }
 
@@ -207,9 +202,8 @@ export function makeHistoryReader(env: NodeJS.ProcessEnv = {}): (deps: MachineDe
 }
 
 /**
- * Whether Codex still holds this thread's rollout. What a resume turns on: a thread is opened by its id alone, and
- * the directory it once ran in does not constrain where it can be opened (`docs/mechanics.md` M44) — so the saved
- * checkout is not the question, and the file Codex would read is.
+ * Check for the rollout required to resume a thread. Its original checkout directory does not constrain where
+ * it can open (M44).
  */
 export function rolloutExists(sessionId: string, deps: MachineDeps, env: NodeJS.ProcessEnv = {}): boolean {
   const root = sessionsRootOf(deps.home, env);

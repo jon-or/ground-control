@@ -1,5 +1,4 @@
-// Re-records these fixtures by running the real readers against the live machine, so the output is what the two
-// packages actually produced: `npm run build --workspaces && node test/fixtures/record.js`.
+// Record actual reader output with npm run build --workspaces && node test/fixtures/record.js.
 const fs = require('node:fs');
 const path = require('node:path');
 const { fetchAssignedIssues } = require('@ground-control/github');

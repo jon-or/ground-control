@@ -1,6 +1,5 @@
-// Records real Claude Code hook payloads: `node test/fixtures/record-hooks.js [--interactive]`.
-// Hooks are supplied through `claude --settings <file>`, so the developer's own ~/.claude/settings.json is never
-// touched. Read the diff before committing — a fixture is evidence.
+// Record Claude hook payloads with node test/fixtures/record-hooks.js [--interactive]. Supply hooks through
+// --settings without changing user settings. Review the diff before committing.
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -10,10 +9,7 @@ const { HOME } = require('./anonymise.js');
 const here = __dirname;
 const OUT = path.join(here, 'hook-payloads.json');
 
-/**
- * Every event the board installs, plus `PostToolUse` and `SessionStart` — recorded so a test can prove the writer
- * transcribes an event the board maps to nothing rather than refusing it.
- */
+/** Record installed events and events with no mapped phase to verify the writer preserves both. */
 const EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
@@ -28,7 +24,7 @@ const EVENTS = [
   'SessionEnd',
 ];
 
-/** What a `-p` run cannot produce: there is no prompt for a human to answer, so no human gate is ever reached. */
+/** Events requiring interactive user input, unavailable in print mode. */
 const INTERACTIVE_ONLY = ['PermissionRequest', 'PermissionDenied', 'Notification'];
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-hooks-'));
@@ -72,8 +68,7 @@ const read = () =>
       }
     });
 
-// One turn that reads a file, runs two commands in one batch, and spawns a subagent — which is what makes
-// PostToolBatch fire more than once and SubagentStop fire at all.
+// Trigger multiple PostToolBatch events and SubagentStop with file reads, batched commands, and a subagent.
 const PROMPT =
   "Read note.txt, then run 'echo one' and 'echo two' with Bash in a single message, then use the Task tool to " +
   'launch one Explore subagent that reports what note.txt says. Be brief.';
@@ -109,7 +104,7 @@ answer. Run this in another terminal, do the five things below, then exit it and
 
 const captured = read();
 
-/** Keys whose values name real work — a prompt, a command, a checkout — and cannot be anonymised by rewriting. */
+/** Free-text and machine-specific fields replaced during scrubbing. */
 const PROSE = new Set([
   'prompt',
   'tool_input',
@@ -135,8 +130,8 @@ const idFor = (value) => {
 };
 
 /**
- * Values out, shape in. Every field the writer reads keeps its recorded value; every field that names real work is
- * replaced, and a `background_tasks` entry becomes an empty object because only its count is ever read.
+ * Preserve fields used by the writer and replace identifying values. Keep background_tasks length with empty
+ * objects because only the count is read.
  */
 function scrub(payload) {
   const out = {};
@@ -171,8 +166,7 @@ function scrub(payload) {
 const fresh = captured.map(scrub);
 const freshEvents = new Set(fresh.map((p) => p.hook_event_name));
 
-// Carried forward, not replaced: the interactive payloads cannot be produced by this script, so a routine
-// re-recording without `--interactive` would otherwise drop them and the tests would lose those cases silently.
+// Preserve previous interactive payloads when recording without --interactive so those cases remain covered.
 let held = [];
 
 try {
@@ -190,7 +184,7 @@ if (missingCovered.length > 0) {
   throw new Error(`the recording is missing ${missingCovered.join(', ')} — a re-recording must not lose a case`);
 }
 
-// The scrub is asserted, not trusted: this repo is public and a recording named real checkouts a moment ago.
+// Verify identifiers were removed before publishing the fixture.
 const written = JSON.stringify(recorded);
 const real = [os.homedir(), os.homedir().split('\\').join('/'), work, temp, log].filter(Boolean);
 

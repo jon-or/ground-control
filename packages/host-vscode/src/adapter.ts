@@ -24,9 +24,8 @@ import { primeWindows, readWindows } from './windows.js';
 export const VSCODE_HOST_ID = 'vscode';
 
 /**
- * What the developer may set about this host. `userDir` is the running install's own `User` directory, which a
- * portable or Insiders install moves. `mayOpenWindow` is R14's permission to bring another window forward, granted
- * by default because a board spanning worktrees is useless without it; that it is theirs to set is R27's.
+ * Host settings: the installation's User directory and permission to focus other windows (R14, R27). Window
+ * opening defaults to enabled for worktree navigation.
  */
 const config = z
   .object({
@@ -38,7 +37,7 @@ const config = z
 export type VscodeConfig = z.infer<typeof config>;
 
 export interface VscodeHost extends HostAdapter {
-  /** What `configure` last accepted, which is what a client reads to build an `OpenRequest`. */
+  /** Last accepted settings, used to build OpenRequest. */
   settings(): VscodeConfig;
 }
 
@@ -89,8 +88,7 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
     },
 
     plan(request: OpenRequest): OpenPlan {
-      // R14 is this host's own rule, applied where its settings were parsed: the hub has no business holding a
-      // permission whose meaning is "may this application bring one of its windows forward".
+      // Apply window-opening permission in the host that owns the setting (R14).
       return planOpen(request, placements, settings.mayOpenWindow);
     },
 
@@ -98,7 +96,7 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
       return planCheckout(request, settings.mayOpenWindow);
     },
 
-    // No `mayOpenWindow`: a start never raises a window, so R14 has nothing to say about it.
+    // Starting a session stays in the current window; window-opening permission does not apply (R14).
     planStart(request: StartRequest): OpenPlan {
       return planStart(request, placements);
     },

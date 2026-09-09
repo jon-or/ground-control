@@ -1,5 +1,4 @@
-// This repo is going public, so recorded fixtures carry no real issue text, repository, or account names. Applied
-// by `record.js` on every recording: a hand-scrub would be undone by the next one.
+// Scrub issue text, repositories, and accounts on every recording for this public repository.
 const { title } = require('../../../../tools/fixture-words.js');
 const { assertNoAbsolutePaths } = require('../../../../tools/fixture-scrub.js');
 
@@ -29,11 +28,7 @@ function slug(number) {
   return `${number}-${title(number).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '')}`;
 }
 
-/**
- * The `details` keys an agent may report whose value names no work of the developer's: a vocabulary word the CLI
- * chose, not a sentence about what is being built. Anything else is rebuilt below or fails the assertion, so the
- * next field an adapter adds to the bag cannot leak by being unknown to this file.
- */
+/** Allow only known neutral CLI values unchanged. Rebuild work-specific fields and reject unknown keys. */
 const NEUTRAL_DETAIL_KEYS = new Set(['kind', 'status', 'state', 'waitingFor']);
 
 /** The two `details` keys that name real work: Claude derives `name` from the directory, and `shortId` is its own id. */
@@ -62,11 +57,7 @@ function remote(name) {
   return `github.com/${REPO.split('/')[0]}/${name}`.toLowerCase();
 }
 
-/**
- * Session ids, timings, links and reported activity are kept — they carry no names and the tests turn on them.
- * Everything that spells out real work is rebuilt: a branch, the checkout path it sits in, the display name derived
- * from both, and the session's own title, which is a sentence about the work and so the most identifying of all.
- */
+/** Preserve IDs, timestamps, relationships, and activity. Scrub branches, paths, names, and titles. */
 function anonymiseSessions(sessions) {
   const roots = new Map();
 
@@ -129,10 +120,7 @@ function anonymiseIssues(cards) {
   });
 }
 
-/**
- * Fails the recording rather than writing a fixture that still names something real. The tests cannot catch this —
- * they only ever see anonymised output, so an anonymiser that stopped scrubbing would leave them green.
- */
+/** Reject unsanitized recordings before writing; tests only see the saved, scrubbed output. */
 function assertScrubbed(recorded, written) {
   const json = JSON.stringify(written);
 
@@ -146,8 +134,7 @@ function assertScrubbed(recorded, written) {
       i.pullRequest?.url,
       i.pullRequest?.author,
     ]),
-    // Only the detail values that name real work. A neutral key's value is the CLI's own vocabulary word and is
-    // kept deliberately, so asserting it is gone would fail every recording.
+    // Check that work-specific values were removed; retain neutral CLI vocabulary.
     ...recorded.sessions.flatMap((s) => [
       s.cwd,
       s.checkoutRoot,
@@ -164,8 +151,7 @@ function assertScrubbed(recorded, written) {
     throw new Error(`anonymise left ${leaked.length} identifying value(s) in the fixtures: ${leaked.slice(0, 5).join(', ')}`);
   }
 
-  // The bag is open, so a key this file has never seen is one nothing above rebuilt. Failing the recording is the
-  // only thing that catches the next agent-reported field: the tests only ever see scrubbed output.
+  // Reject unknown details keys so new adapter fields cannot bypass scrubbing.
   const unknown = [
     ...new Set(written.sessions.flatMap((s) => Object.keys(s.details))),
   ].filter((key) => key !== 'name' && key !== 'shortId' && !NEUTRAL_DETAIL_KEYS.has(key));
@@ -174,8 +160,7 @@ function assertScrubbed(recorded, written) {
     throw new Error(`anonymise does not know how to scrub these session details: ${unknown.join(', ')}`);
   }
 
-  // The second assertion: a recording of this machine carries paths nothing above enumerated — a checkout no session
-  // is rooted at, a drive letter cased the other way — and the list of values to replace passes cleanly over them.
+  // Also detect unenumerated absolute paths and alternate drive-letter casing.
   assertNoAbsolutePaths(json, [CHECKOUTS]);
 }
 

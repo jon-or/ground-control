@@ -47,11 +47,7 @@ export interface TranscriptFixture {
   entries: TranscriptEntry[];
 }
 
-/**
- * Every field a recorded entry must carry. A cast is not a check: a row missing one reads `undefined` where the type
- * promised a value, and nothing fails until something reads it. `satisfies` fails the typecheck the day
- * `TranscriptEntry` grows a field, and the row check fails the run until the recording is refreshed.
- */
+/** Check required fixture fields at runtime; satisfies detects TranscriptEntry additions during typechecking. */
 const ENTRY_KEYS = {
   name: true,
   cwd: true,
@@ -76,10 +72,7 @@ const recorded = ((): TranscriptFixture => {
   return read;
 })();
 
-/**
- * Deliberately not the machine's own home: a reader ignoring its injected home would land on the real directory
- * and pass. Nothing exists here, so only a reader using what it was handed finds anything.
- */
+/** Use a nonexistent home so tests cannot pass by bypassing injected readers. */
 export const HOME = '/nowhere/home';
 
 const PROJECTS = `${HOME}/.claude/projects`;
@@ -115,7 +108,7 @@ export function failingRunner(reason: FailureReason, detail = ''): ExecJson {
   return async () => ({ ok: false, reason, detail });
 }
 
-/** The recorded git reads, keyed by forward-slash path. An unrecorded path reads as absent, which is the truth. */
+/** Recorded Git reads by normalized path; unknown paths return null. */
 export function gitReads(): ReadText {
   const reads = fixture('git-reads') as Record<string, string | null>;
 
@@ -125,33 +118,28 @@ export function gitReads(): ReadText {
 /** The recorded listing, under a home only an injected reader can reach. */
 export const listRecordedDirs: ListDir = (path) => (path === PROJECTS ? recorded.projectDirs : null);
 
-/**
- * Keyed on the whole recorded path, directory included, so a wrong project directory reads as absent here exactly
- * as it would on disk.
- */
+/** Use complete recorded paths so incorrect project-directory resolution returns absent. */
 export const recordedMtimes: StatMtime = (path) => {
   const entry = recorded.entries.find((e) => e.dir !== null && path === `${PROJECTS}/${e.dir}/${e.sessionId}.jsonl`);
 
   return entry?.writtenAt ?? null;
 };
 
-/** What a positional read of a real transcript's end starts with: the back half of whatever line it cut through. */
+/** Incomplete initial fragment from a bounded transcript tail read. */
 const CUT_LINE = 'pe":"text","text":"...the rest of a message the read cut through"}]}}';
 
-/** A conversation line that holds the word and parses, so the reader's cheap prefilter is not the only thing tested. */
+/** Valid conversation JSON containing title text, to test beyond the string prefilter. */
 const DECOY = JSON.stringify({
   type: 'assistant',
   message: { role: 'assistant', content: [{ type: 'text', text: 'I will set the title of the report next.' }] },
 });
 
-/** Filler standing in for the conversation between title records, so the records do not all sit at the very end. */
+/** Synthetic conversation text separates title records from EOF. */
 const FILLER = JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'x'.repeat(2000) } });
 
 /**
- * Each recorded transcript's tail, rebuilt from its recorded title records. The conversation bytes around them name
- * real work and so are not recorded; what the reader has to cope with is preserved — the records, their order, the
- * fragment a positional read leaves at the front, filler between and after them, and a line holding the word
- * `title` without being a record.
+ * Reconstruct tails from recorded title metadata, preserving order and adding a leading fragment, surrounding
+ * filler, and nonrecord title text. Exclude original conversations.
  */
 export const readRecordedTails: ReadTail = (path, bytes) => {
   const entry = recorded.entries.find((e) => e.dir !== null && path === `${PROJECTS}/${e.dir}/${e.sessionId}.jsonl`);
@@ -171,7 +159,7 @@ export const readRecordedTails: ReadTail = (path, bytes) => {
   return lines.join('\n').slice(-bytes);
 };
 
-/** What a reader must resolve for a recorded session: the developer's own title, else the agent's. */
+/** Expected title: manual first, then automatic. */
 export function expectedTitle(entry: TranscriptEntry): string | null {
   const last = (type: TitleRecord['type']): string | null => {
     const found = [...entry.titles].reverse().find((title) => title.type === type);
@@ -182,7 +170,7 @@ export function expectedTitle(entry: TranscriptEntry): string | null {
   return last('custom-title') ?? last('ai-title');
 }
 
-/** The real Claude adapter wired to a recorded transport, which is what an adapter-owned transport makes possible. */
+/** Real Claude adapter with recorded transport. */
 export function claudeWith(run: ExecJson): readonly AgentAdapter[] {
   return [makeClaudeAdapter(run)];
 }

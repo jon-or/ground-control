@@ -63,7 +63,7 @@ describe('a staged background update', () => {
     expect(stagedUpdate(execPath, stagedAppRoot)).toBeNull();
   });
 
-  it('reads the commit from the directory rather than the version, which carries a quality on Insiders', () => {
+  it('compares commit directories for Insiders builds', () => {
     const { execPath, stagedAppRoot } = install(COMMIT, { version: '1.137.0-insider' });
 
     expect(stagedUpdate(execPath, stagedAppRoot)).toBeNull();
@@ -103,7 +103,7 @@ describe('the refusal', () => {
     expect(message).toContain('Restart VS Code');
   });
 
-  it('says a newer build where the staged version could not be read', () => {
+  it('describes an unreadable staged version as a newer build', () => {
     expect(stagedUpdateRefusal({ version: null }, '1.136.1')).toContain('a newer build');
   });
 });

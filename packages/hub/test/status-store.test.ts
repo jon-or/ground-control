@@ -53,7 +53,7 @@ function saved(over: Partial<HistoricalSession> = {}): HistoricalSession {
 }
 
 describe('the status store', () => {
-  it('reads nothing on a machine where no session has ever reported a phase', () => {
+  it('returns empty state before any phase is recorded', () => {
     expect(makeStatusStore(home).read()).toEqual(new Map());
   });
 
@@ -63,15 +63,15 @@ describe('the status store', () => {
     expect(makeStatusStore(home).read()).toEqual(new Map([['claude:a-session', WAITING]]));
   });
 
-  it('reads nothing from a file the developer has broken, rather than throwing on every render', () => {
+  it('returns empty state for invalid JSON', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(statusPathOf(home), '{ not json');
 
     expect(makeStatusStore(home).read()).toEqual(new Map());
   });
 
-  /** One entry the wrong shape is the whole file refused: a phase this build cannot read is not one it may guess at (R24). */
-  it('reads nothing from an entry whose phase is not one the board knows', () => {
+  /** Reject invalid stored phase data without guessing a replacement (R24). */
+  it('rejects unknown phases', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(statusPathOf(home), JSON.stringify({ entries: { 'claude:a-session': { phase: 'thinking', event: 'Stop', at: 1 } } }));
 
@@ -87,8 +87,8 @@ describe('what a roster read retains', () => {
     expect(statusKeyOf(live)).toBe('claude:a-session');
   });
 
-  /** The reading is dated by the event, not by the turn the duration counts from — that is what the archive line is compared against. */
-  it('dates a running reading by its own event rather than by the turn it belongs to', () => {
+  /** Compare archive times against event timestamps, not turn start times. */
+  it('uses event time rather than turn start for retained activity', () => {
     const live = session({ activity: { phase: 'running', since: 1_000, at: 6_000, event: 'PostToolBatch' } });
 
     expect(retaining(new Map(), [live]).get('claude:a-session')).toEqual({ phase: 'running', event: 'PostToolBatch', at: 6_000 });
@@ -98,7 +98,7 @@ describe('what a roster read retains', () => {
     expect(retaining(new Map([['claude:a-session', WAITING]]), [])).toEqual(new Map([['claude:a-session', WAITING]]));
   });
 
-  /** `PostToolBatch` lands on every tool batch, so a reading restamped on each one would rewrite the file through a whole running turn. */
+  /** Do not rewrite retained state on every tool batch within one turn. */
   it('leaves a phase it already holds alone while the same stretch of work reports it again', () => {
     const held = new Map([['claude:a-session', { phase: 'running' as const, event: 'UserPromptSubmit', at: 6_000 }]]);
     const later = session({ activity: { phase: 'running', since: 6_000, at: 30_000, event: 'PostToolBatch' } });
@@ -106,7 +106,7 @@ describe('what a roster read retains', () => {
     expect(retaining(held, [later]).get('claude:a-session')).toEqual({ phase: 'running', event: 'UserPromptSubmit', at: 6_000 });
   });
 
-  /** Its new question would otherwise be dated by the old one, and a card's departure between the two would end a reading still standing. */
+  /** Update the timestamp for new input requests so an intervening archive does not invalidate current activity. */
   it('dates the same phase again when it belongs to a later stretch of work', () => {
     const held = new Map([['claude:a-session', { phase: 'waiting' as const, event: 'Notification', at: 6_000 }]]);
     const asked = session({ activity: { phase: 'waiting', since: 40_000, at: 40_000, event: 'Notification' } });
@@ -124,27 +124,27 @@ describe('what a roster read retains', () => {
     });
   });
 
-  /** R6 claims no mark for a session the agent itself called finished, so retaining its phase would put one back once the CLI stopped listing it. */
-  it('records nothing for a session the agent has called finished', () => {
+  /** Do not retain phases for explicitly finished sessions (R6). */
+  it('excludes explicitly finished sessions', () => {
     const done = session({ finished: true, activity: { phase: 'waiting', since: 5_000, at: 5_000, event: 'PreToolUse' } });
 
     expect(retaining(new Map(), [done])).toEqual(new Map());
   });
 
-  /** Held, the reading would reach the card as a mark the moment the CLI stopped listing the session, which is the one thing R6 refuses. */
+  /** Remove prior observations for finished sessions so roster removal cannot restore attention (R6). */
   it('takes away the reading it held once the agent calls that session finished', () => {
     const done = session({ finished: true, activity: { phase: 'waiting', since: 5_000, at: 5_000, event: 'PreToolUse' } });
 
     expect(retaining(new Map([['claude:a-session', WAITING]]), [done])).toEqual(new Map());
   });
 
-  it('records nothing for a session that reported no phase', () => {
+  it('excludes sessions without activity', () => {
     expect(retaining(new Map(), [session()])).toEqual(new Map());
   });
 });
 
 describe('what a clean pair of reads prunes', () => {
-  it('keeps a reading whose session is still live, and one whose transcript history still holds it', () => {
+  it('retains observations present in the roster or history', () => {
     const held = new Map([
       ['claude:live', WAITING],
       ['claude:a-session', WAITING],

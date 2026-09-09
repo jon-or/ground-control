@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
-// The two files that hold no `chrome` port. What `worker.js` and `content.js` have left after `state.js` is wiring —
-// connect, observe, relay — and the Playwright run is what proves that, not a number here.
+// Measure unit coverage for overlay and state logic. Playwright tests Chrome messaging and observers in
+// worker.js and content.js.
 export default defineConfig({
   test: {
     environment: 'jsdom',

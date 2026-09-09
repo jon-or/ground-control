@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { compareVersions, shouldWrite, stamp, versionOf } from '../src/bundle.js';
 
-// Longer than the marker, and its first newline past it: a short one reads as unstamped whether or not the
-// marker is checked at all, which is a fixture that hides a missing guard.
+// Use a long first line so rejecting unstamped input depends on the marker check, not file length.
 const code = '"use strict";var a=1;var b=2;var c=3;\nconsole.log(a + b + c);\n';
 
 describe('which copy of the hub wins', () => {
-  it('reads back the version it stamped, and nothing off a file it did not', () => {
+  it('reads stamped versions and rejects unstamped files', () => {
     expect(versionOf(stamp('1.2.3', code))).toBe('1.2.3');
     expect(versionOf(code)).toBeNull();
     expect(versionOf(null)).toBeNull();
@@ -20,14 +19,14 @@ describe('which copy of the hub wins', () => {
     expect(compareVersions('0.9.9', '1.0.0')).toBe(-1);
   });
 
-  /** A prerelease tag is not a number, so it sorts below every version that is — and below nothing but itself. */
+  /** Nonnumeric prerelease parts sort below numeric version parts. */
   it('sorts a version it cannot read as numbers below one it can', () => {
     expect(compareVersions('1.0.0-beta.1', '1.0.0')).toBe(-1);
     expect(compareVersions('1.0.0', '1.0.0-beta.1')).toBe(1);
     expect(compareVersions('1.0.0-beta.1', '1.0.0-beta.2')).toBe(0);
   });
 
-  it('writes when there is nothing there, and never over a newer hub', () => {
+  it('writes missing bundles and preserves newer versions', () => {
     expect(shouldWrite(stamp('1.0.0', code), null)).toBe(true);
     expect(shouldWrite(stamp('1.1.0', code), stamp('1.0.0', code))).toBe(true);
     expect(shouldWrite(stamp('1.0.0', code), stamp('1.1.0', code))).toBe(false);

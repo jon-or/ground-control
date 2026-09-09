@@ -59,7 +59,7 @@ describe('Chrome native-messaging frames', () => {
     expect(frames(reader, Buffer.concat([bad, encodeFrame({ type: 'refresh' })]))).toEqual([{ type: 'refresh' }]);
   });
 
-  /** A header this large is a stream out of step with its frames; reading on waits forever for a body that is not coming. */
+  /** Reject oversized frames instead of waiting indefinitely for their bodies. */
   it('gives up on a header claiming more than any frame carries', () => {
     const reader = new FrameReader();
     const absurd = Buffer.alloc(4);
@@ -92,14 +92,14 @@ describe('what the browser may ask the hub for', () => {
     });
   });
 
-  /** The overlay reaches a session by navigating to the editor's own link (R36), so nothing asks the hub for one. */
-  it('refuses to open a session, and says how the browser board does it instead', () => {
+  /** Chrome opens sessions through editor URLs (R36). */
+  it('refuses session opening and provides browser instructions', () => {
     expect(bridgeAction({ type: 'open', sessionId: 'a-session' })).toEqual({
       refused: 'Open sessions through their links in the overlay.',
     });
   });
 
-  /** The one message that would have a web page start an agent in the developer's own checkout (R39). */
+  /** Reject browser requests that start unattended work (R39). */
   it('refuses to start or stop work on a card', () => {
     const refused = { refused: 'Start or stop card actions in VS Code.' };
 
@@ -107,10 +107,7 @@ describe('what the browser may ask the hub for', () => {
     expect(bridgeAction({ type: 'stopAction', key: 'issue:17198' })).toEqual(refused);
   });
 
-  /**
-   * The one verb the browser carries. It names a card and nothing else — the hub resolves the directory, so there
-   * is nothing in this message a page could point at a folder of its own choosing (R41).
-   */
+  /** Forward only the card key; the hub resolves its checkout path (R41). */
   it('forwards a request to open a card’s checkout, which names a card and no path', () => {
     expect(bridgeAction({ type: 'openCheckout', key: 'issue:17198' })).toEqual({
       send: { type: 'openCheckout', key: 'issue:17198' },
@@ -122,8 +119,7 @@ describe('what the browser may ask the hub for', () => {
     expect(bridgeAction({ type: 'openCheckout' })).toEqual({ refused: 'That card cannot be opened.' });
   });
 
-  // A page on the internet naming a directory on this machine is the thing that must not be possible (R36), and
-  // starting an agent is R42's editor-only. Both by name, so a refusal says which verb rather than which type.
+  // Reject page-supplied paths and agent starts by message name (R36, R42).
   it('refuses to choose a card’s folder, which is the one message that would carry a path', () => {
     expect(bridgeAction({ type: 'setCheckout', key: 'issue:17198', root: 'd:/anything' })).toEqual({
       refused: 'Choose card checkouts in VS Code.',
@@ -143,7 +139,7 @@ describe('what the browser may ask the hub for', () => {
     expect(bridgeAction(null)).toEqual({ refused: 'Invalid overlay message.' });
   });
 
-  it('connects as a client that is resident in nothing, so no route is ever forwarded to it', () => {
+  it('connects without resident route capabilities', () => {
     expect(bridgeHello('chrome-1', true)).toEqual({
       id: 'chrome-1',
       hostId: null,
@@ -196,7 +192,7 @@ describe('relaying one Chrome port', () => {
     expect(h.written).toEqual([]);
   });
 
-  it('tells the browser what it refused rather than dropping it', () => {
+  it('reports refused browser messages', () => {
     const h = harness();
 
     h.fromChrome({ type: 'open', sessionId: 'a-session' });
@@ -211,12 +207,8 @@ describe('relaying one Chrome port', () => {
     ]);
   });
 
-  /**
-   * A tab that comes back is sent a snapshot by the hub itself, on the `watching` it just received. Asking for one
-   * here as well put two on the wire over different sockets, in no order, and the overlay painted whichever landed
-   * last — which could be the older of the two.
-   */
-  it('relays a watch and asks for nothing else', async () => {
+  /** The hub sends a snapshot on watching. A second request could arrive out of order and display stale data. */
+  it('forwards watching without an extra snapshot request', async () => {
     const h = harness();
 
     h.fromChrome({ type: 'watching', watching: true });
@@ -226,7 +218,7 @@ describe('relaying one Chrome port', () => {
     expect(h.written).toEqual([]);
   });
 
-  it('frames what the hub says on its way to the browser', () => {
+  it('encodes hub messages for the browser', () => {
     const h = harness();
     const message: BridgeMessage = { type: 'changed', snapshot: SNAPSHOT };
 
@@ -235,7 +227,7 @@ describe('relaying one Chrome port', () => {
     expect(h.written).toEqual([message]);
   });
 
-  /** Chrome closes stdin when the last board tab goes. The bridge is Chrome's process; it has nothing left to do. */
+  /** Exit the bridge when Chrome closes stdin after the last board tab closes. */
   it('stops when Chrome closes the port', () => {
     const h = harness();
 
@@ -261,8 +253,7 @@ describe('what the overlay may ask about the log, and what it is told back', () 
     expect(bridgeAction({ type: 'watchLog', watching: 'yes' })).toEqual({ send: { type: 'watchLog', watching: false } });
   });
 
-  // The refusal this exists for: the hub records the Origin of every page that reached the loopback port, and the
-  // overlay paints into a page on github.com whose own scripts can read what the sidebar writes.
+  // Redact refused Origins because GitHub page scripts can read the overlay DOM.
   it('takes the page out of a refused-request line before the browser sees it', () => {
     const redacted = redactForBrowser({
       type: 'log',

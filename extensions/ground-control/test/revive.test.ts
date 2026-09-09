@@ -5,9 +5,8 @@ import { LANE_ORDER, LANE_TITLES } from '@ground-control/board';
 import type { Session, SnapshotMessage } from '@ground-control/core';
 
 /**
- * The board a panel comes back to after a reload, which is the one payload the webview reads that it did not just
- * receive. A panel revived after an extension update holds the payload the previous version stored, so the shape is
- * whatever that version wrote — the reason this is its own file is that the script reads the state once, at import.
+ * Test cached state from older extension versions. Import the script separately because it reads saved state
+ * only on startup.
  */
 
 /** A card carrying one session, built from the protocol's own type so a field renamed in `core` fails here. */
@@ -81,10 +80,7 @@ const CURRENT: Session = {
   details: { kind: 'interactive', name: 'cache-remediation' },
 };
 
-/**
- * The same board as one card with no issue, which is where a session's own fields are read to name the card — an
- * issue card takes the issue's title and never touches them.
- */
+/** Use an ad-hoc card to exercise session fields used for naming; issue cards use their issue title. */
 function checkoutPayload(session: Session | Record<string, unknown>): Record<string, unknown> {
   const current = payloadWith(CURRENT) as unknown as {
     lanes: { cards: { key: string; issueNumber: number | null; issue: unknown; sessions: unknown[] }[] }[];
@@ -156,8 +152,8 @@ describe('reviving a stored board', () => {
   it('draws nothing from a board stored by a version whose sessions predate the details bag', async () => {
     await revive({ payload: legacyPayload(LEGACY), showArchived: false });
 
-    // Not a caught exception: the render must never be attempted, because a half-drawn lane is what the developer
-    // would be left looking at until the first live message arrives.
+    // Reject invalid cached state before rendering so the board cannot remain partially drawn until its first
+    // live snapshot.
     expect(document.querySelectorAll('.card')).toHaveLength(0);
     expect(document.getElementById('lanes')?.children).toHaveLength(0);
   });

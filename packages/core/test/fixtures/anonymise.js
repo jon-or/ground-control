@@ -1,15 +1,10 @@
-// This repo is public, so recorded git reads name no real checkout or branch. Applied by `record.js` on every
-// recording: a hand-scrub would be undone by the next one. The vocabulary is `tools/fixture-scrub.js`, so a checkout
-// reads the same here as in every other package's fixtures.
+// Scrub every recording using the shared fixture vocabulary; manual edits would be lost on re-recording.
 const { assertNoAbsolutePaths, checkoutMap, gitReadsFor, identifyingReads, HOME, REPO } = require('../../../../tools/fixture-scrub.js');
 
 /** Synthetic prefixes every path in the fixture must start with. A real one that survived would not match any. */
 const SYNTHETIC = [HOME, REPO, 'd:/work', 'c:/users/dev'];
 
-/**
- * Fails the recording rather than writing a fixture that still names something real. The tests cannot catch this —
- * they only ever see anonymised output, so an anonymiser that stopped scrubbing would leave them green.
- */
+/** Reject unsanitized recordings before writing; tests only see the saved, scrubbed output. */
 function assertScrubbed(recorded, written) {
   const json = JSON.stringify(written);
   const leaked = [...new Set(identifyingReads(recorded))].filter((value) => json.includes(value));

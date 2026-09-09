@@ -21,10 +21,7 @@ export async function fetchSessionHistory(
   return { sessions: readings.flatMap((r) => r.sessions), failures: readings.flatMap((r) => r.failure ? [r.failure] : []) };
 }
 
-/**
- * Every live session across every configured agent CLI, read concurrently. Always a snapshot: one CLI being absent
- * must not hide another's sessions, which is R2's "no session is invisible" on a machine running several agents.
- */
+/** Read configured agents concurrently, preserving successful results when another agent fails (R2). */
 export async function fetchSessions(
   cfg: SessionsConfig,
   adapters: readonly AgentAdapter[],

@@ -2,8 +2,8 @@ import type { ActivityPlan, ActivityPlanInput } from '@ground-control/core';
 import { hookPathOf } from './hookScript.js';
 
 /**
- * One hook entry the board installs. `args` spawns `node` with no shell — without it Windows starts PowerShell per event and parses the path.
- * `async` keeps the session from waiting on the writer at all, which is what makes R12 literally true rather than nearly.
+ * Run node with an args array to avoid a shell and Windows path parsing. Async hooks do not block the session
+ * (R12).
  */
 interface HookEntry {
   type: 'command';
@@ -19,18 +19,18 @@ interface HookGroup {
 }
 
 /**
- * Always pipe-separated. Comma is a list separator only on the five tool events; elsewhere the CLI falls through to `new RegExp(matcher)`,
- * and a pattern full of commas matches nothing — so a comma there is a hook that never fires: a missing phase, not a wasted spawn.
+ * Use regex alternation for all matchers. Commas separate values only for tool events; other events parse them
+ * literally.
  */
 const ALTERNATION = '|';
 
 /**
- * The events the board installs and the matcher each is filtered by. A matcher only stops a spawn; `phaseOf` handles every value regardless.
- * `Stop`, `PostToolBatch` and `UserPromptSubmit` carry no query string, so a matcher on them would be ignored and none is written.
+ * Install events with optional spawn filters. phaseOf handles payload values independently. Stop,
+ * PostToolBatch, and UserPromptSubmit ignore matchers.
  */
-const WANTED: readonly (readonly [event: string, alternatives: string[] | null])[] = [
-  // Installed for the roster, not for a phase: a new session reaches the board on the event instead of the next poll. Unfiltered, because a
-  // `startup` matcher is a regex against `source` whose semantics are unconfirmed, and a matcher that misses is a hook that never fires.
+const HOOK_EVENTS: readonly (readonly [event: string, alternatives: string[] | null])[] = [
+  // Refresh discovery on SessionStart before the next poll. Leave it unfiltered because source matcher
+  // semantics are unverified.
   ['SessionStart', null],
   ['UserPromptSubmit', null],
   ['PostToolBatch', null],
@@ -53,7 +53,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Two spaces unless the file says otherwise: a re-indented settings file is a diff the developer did not ask for. */
+/** Preserve existing indentation; default to two spaces. */
 function indentOf(text: string): string | number {
   const found = /\n([ \t]+)"/.exec(text)?.[1];
 
@@ -65,8 +65,8 @@ function indentOf(text: string): string | number {
 }
 
 /**
- * Ours by the hook's own path. A marker key of our own would not survive: entries go through a schema that strips
- * what it does not declare, so the key would vanish on the CLI's first rewrite and every install would duplicate.
+ * Identify board entries by writer path; Claude strips undeclared marker fields on rewrite, which would cause
+ * duplicate installs.
  */
 function isOurEntry(entry: unknown, hookPath: string): boolean {
   if (!isRecord(entry)) {
@@ -79,8 +79,8 @@ function isOurEntry(entry: unknown, hookPath: string): boolean {
 }
 
 /**
- * A group with our entries taken out, or null when nothing of ours was in it. Entry by entry, never the whole group: a developer who put a
- * hook of their own beside ours would otherwise lose it to an install, and the board must not change what it did not write.
+ * Remove board entries individually, preserving user hooks in the same group. Return null when no board entry
+ * exists.
  */
 function withoutOurs(group: unknown, hookPath: string): { kept: unknown; removed: number } | null {
   if (!isRecord(group) || !Array.isArray(group.hooks)) {
@@ -97,7 +97,7 @@ function withoutOurs(group: unknown, hookPath: string): { kept: unknown; removed
   return { kept: kept.length === 0 ? null : { ...group, hooks: kept }, removed };
 }
 
-/** Whether anything of ours is in this group, or in this non-array value the developer put under an event. */
+/** Check for board entries, including malformed non-array event values. */
 function hasOurEntry(group: unknown, hookPath: string): boolean {
   return isRecord(group) && Array.isArray(group.hooks) && group.hooks.some((entry) => isOurEntry(entry, hookPath));
 }
@@ -108,7 +108,7 @@ function groupFor(alternatives: string[] | null, hookPath: string): HookGroup {
   return alternatives === null ? { hooks: [entry] } : { matcher: alternatives.join(ALTERNATION), hooks: [entry] };
 }
 
-/** The keys a group and an entry of ours are allowed to carry. Anything else is a hand edit, not what we wrote. */
+/** Allowed keys for installed board groups and entries. */
 const GROUP_KEYS = new Set(['matcher', 'hooks']);
 const ENTRY_KEYS = new Set(['type', 'command', 'args', 'async', 'timeout']);
 
@@ -117,44 +117,41 @@ function keysAre(value: Record<string, unknown>, allowed: ReadonlySet<string>): 
 }
 
 /**
- * Whether a group already says exactly what the board would write. Field by field, not by serialised text: the CLI may reorder keys, and a text
- * comparison would rewrite the file every board open. No extra key is tolerated — `timeout: 0`, `once` and `if` each disable the hook.
+ * Compare fields without relying on JSON key order. Reject extra keys because timeout, once, and if can disable
+ * hooks.
  */
-function alreadySays(group: unknown, wanted: HookGroup): boolean {
+function matchesGroup(group: unknown, wanted: HookGroup): boolean {
   if (!isRecord(group) || group.matcher !== wanted.matcher || !Array.isArray(group.hooks)) {
     return false;
   }
 
   const entry = group.hooks[0];
-  const mine = wanted.hooks[0]!;
+  const expected = wanted.hooks[0]!;
 
   return (
     keysAre(group, GROUP_KEYS) &&
     group.hooks.length === 1 &&
     isRecord(entry) &&
     keysAre(entry, ENTRY_KEYS) &&
-    entry.type === mine.type &&
-    entry.command === mine.command &&
-    entry.async === mine.async &&
-    entry.timeout === mine.timeout &&
+    entry.type === expected.type &&
+    entry.command === expected.command &&
+    entry.async === expected.async &&
+    entry.timeout === expected.timeout &&
     Array.isArray(entry.args) &&
     entry.args.length === 1 &&
-    entry.args[0] === mine.args[0]
+    entry.args[0] === expected.args[0]
   );
 }
 
-/**
- * What to write to `~/.claude/settings.json`, as text. Pure, so the whole merge is testable: the file is hand-curated, written by the CLI
- * itself, and shared by every window on the machine, so the board refuses anything it does not fully understand rather than repairing it.
- */
+/** Plan edits to shared Claude settings, preserving unrelated entries and refusing unsupported structure. */
 export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInput): ActivityPlan {
   const hookPath = hookPathOf(home);
 
-  // Nothing to lose and nothing to misread. Creating the file is not the repair of a corrupt one.
+  // Create missing files as empty objects; reject malformed existing files below.
   const text = settingsText ?? '{}\n';
 
-  // PowerShell 5.1's `Out-File` and Notepad both write one, and `JSON.parse` rejects it. Refusing a file the CLI
-  // itself reads happily would be the board's own bug, not the developer's.
+  // Strip and preserve the BOM accepted by the CLI but rejected by JSON.parse. PowerShell 5.1 and Notepad can
+  // write it.
   const body = text.replace(/^\uFEFF/, '');
   const bom = text.length === body.length ? '' : '\uFEFF';
 
@@ -185,21 +182,20 @@ export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInpu
 
   const hooks: Record<string, unknown> = isRecord(root.hooks) ? { ...root.hooks } : {};
 
-  // Install walks what it wants *and* what is already there: an event dropped from WANTED would otherwise keep an
-  // entry of ours wired forever, with nothing to notice it. Remove walks only what is there.
-  const events = [...new Set([...(wanted === 'install' ? WANTED.map(([event]) => event) : []), ...Object.keys(hooks)])];
+  // Inspect desired and existing events to remove obsolete board hooks. Uninstall inspects existing events
+  // only.
+  const events = [...new Set([...(wanted === 'install' ? HOOK_EVENTS.map(([event]) => event) : []), ...Object.keys(hooks)])];
 
   let added = 0;
   let removed = 0;
 
   for (const event of events) {
     const existing = hooks[event];
-    const mine = WANTED.find(([name]) => name === event);
-    const wants = wanted === 'install' && mine !== undefined;
+    const eventSpec = HOOK_EVENTS.find(([name]) => name === event);
+    const wants = wanted === 'install' && eventSpec !== undefined;
 
     if (existing !== undefined && !Array.isArray(existing)) {
-      // Only an event the plan is about to touch. Refusing over one it would never write is a refusal the
-      // developer cannot act on, and it would leave the board's own entries installed on a removal.
+      // Validate only events being changed; unrelated malformed events must not block hook removal.
       if (!wants && !hasOurEntry(existing, hookPath)) {
         continue;
       }
@@ -211,11 +207,11 @@ export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInpu
     }
 
     const current = Array.isArray(existing) ? existing : [];
-    const group = wants ? groupFor(mine![1], hookPath) : null;
+    const group = wants ? groupFor(eventSpec![1], hookPath) : null;
 
-    // One correct group already there is the steady state, and reaching it means writing nothing at all.
+    // Skip writes when exactly one matching board group is already installed.
     if (group && current.filter((c) => hasOurEntry(c, hookPath)).length === 1) {
-      if (current.some((c) => alreadySays(c, group))) {
+      if (current.some((c) => matchesGroup(c, group))) {
         continue;
       }
     }
@@ -254,15 +250,14 @@ export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInpu
     return { kind: 'up-to-date' };
   }
 
-  // Assigned back whole, so JSON's insertion order — and with it every key the developer put in this file — survives.
+  // Preserve existing object key order.
   if (Object.keys(hooks).length === 0) {
     delete root.hooks;
   } else {
     root.hooks = hooks;
   }
 
-  // A file kept in a dotfiles repo would otherwise come back as a whole-file diff, which is the same thing
-  // `indentOf` exists to avoid.
+  // Preserve line endings and the trailing newline to avoid unrelated diffs.
   const crlf = body.includes('\r\n');
   const trailing = body.endsWith('\n') ? (crlf ? '\r\n' : '\n') : '';
   const serialised = JSON.stringify(root, null, indentOf(body));
@@ -272,22 +267,22 @@ export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInpu
 }
 
 /**
- * How stale a lock has to be before it is another window's crash rather than its work in progress. One install is a
- * read, a compare and a rename, so a lock this old is not being held by anything alive.
+ * Treat install locks older than this limit as stale; installation normally needs only a read, comparison, and
+ * rename.
  */
 export const LOCK_STALE_MS = 60_000;
 
-/** Whether to take a lock, given the age of the one already there. A lock nobody clears would block installs forever. */
+/** Expire old or far-future lock timestamps to recover from crashes and clock changes. */
 export function lockIsStale(mtimeMs: number, now: number): boolean {
   return now - mtimeMs > LOCK_STALE_MS || mtimeMs > now + LOCK_STALE_MS;
 }
 
-/** How many backups of the developer's settings file are kept. Enough to undo a bad run, not enough to accumulate. */
+/** Maximum retained settings backups. */
 export const BACKUPS_KEPT = 5;
 
 /**
- * The backups to delete, oldest first. Named for the time they were taken, so the names sort chronologically and the newest are the tail.
- * This list is handed to `rmSync` in the developer's home, which is why it is a tested function rather than a slice expression in glue code.
+ * Select old settings backups for deletion, preserving the newest BACKUPS_KEPT files. Timestamped names sort
+ * chronologically.
  */
 export function backupsToDelete(names: readonly string[]): string[] {
   const ours = names.filter((name) => /^settings-backup-.+\.json$/.test(name)).sort();
@@ -295,10 +290,10 @@ export function backupsToDelete(names: readonly string[]): string[] {
   return ours.slice(0, Math.max(0, ours.length - BACKUPS_KEPT));
 }
 
-/** How long an orphaned marker is kept. A session that never fired SessionEnd leaves one, and nothing else sweeps it. */
+/** Retention limit for markers left without SessionEnd. */
 export const MARKER_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Whether a marker is old enough to be an orphan rather than a live session's. Deletes files, so it is tested. */
+/** Check whether a marker exceeds the retention limit. */
 export function markerIsOrphaned(mtimeMs: number, now: number): boolean {
   return now - mtimeMs > MARKER_MAX_AGE_MS;
 }

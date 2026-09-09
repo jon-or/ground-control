@@ -2,9 +2,8 @@ import { checkoutFor } from '@ground-control/core';
 import type { CheckoutReaders, Lane, LanedCard } from '@ground-control/core';
 
 /**
- * The same reads, answered once per pass. `checkoutFor` walks up from a root reading `.git`, `commondir` and
- * `config`, and cards sharing a clone would each walk it. Held no longer than the pass, so a directory deleted
- * between two snapshots is seen to have gone.
+ * Cache filesystem reads within a snapshot so cards sharing a clone reuse them. Discard between snapshots to
+ * detect deleted directories.
  */
 function onceEach(readers: CheckoutReaders): CheckoutReaders {
   const dirs = new Map<string, string[] | null>();
@@ -28,10 +27,7 @@ function onceEach(readers: CheckoutReaders): CheckoutReaders {
   };
 }
 
-/**
- * Which directory each card's work happens in, attached after the lanes are settled. It changes no lane: where a
- * card can be opened is not a claim about what stage it is at.
- */
+/** Attach checkout information after lane assignment without changing lanes. */
 export function withCheckouts(
   lanes: readonly Lane[],
   remembered: Readonly<Record<string, string>>,

@@ -2,13 +2,10 @@ import type { IssueCard } from './cards.js';
 import type { TriageContext } from './triage.js';
 import type { ReadFailure } from './types.js';
 
-/**
- * What one source read. The counts are what the board says about how much of the developer's work it is showing,
- * because an item that is missing has to be a number on screen rather than an absence (R1).
- */
+/** Source read metadata, including counts for incomplete-result notices (R1). */
 export interface WorkItems {
   cards: IssueCard[];
-  /** Who this was read for. The lane rules tell the developer's own pull request from a colleague's by it. */
+  /** Logins used for this read and for identifying own PRs. */
   owners: string[];
   matched: number;
   totalAssigned: number;
@@ -18,11 +15,8 @@ export interface WorkItems {
 }
 
 /**
- * One read. Every field is null for a source with nothing to say — one whose configuration was refused, which the
- * board already names. `items` null beside a failure is a source that failed and keeps whatever it last read (R24).
- *
- * `needs` is the identities the source could work out for itself but may not adopt: the hub has no screen, so it
- * detects and a client puts the question to the developer (R26, R28).
+ * Source result. Null items with a failure retain cached items (R24). Detected identities in needs require
+ * developer selection by a client (R26, R28).
  */
 export interface SourceReading {
   items: WorkItems | null;
@@ -30,25 +24,18 @@ export interface SourceReading {
   needs: { detected: string[] } | null;
 }
 
-/**
- * Where work items come from. Configured by id, so adding one is a registry entry and a configuration key: nothing
- * in the loop, the merge, or any client knows which source produced a card.
- */
+/** Work-source adapter selected by configuration and registry ID. */
 export interface WorkSource {
   readonly id: string;
   readonly displayName: string;
-  /** Takes this source's entry in a pushed configuration and holds it, or names why it will not read with it. */
+  /** Validate and store source configuration, or return a failure. */
   configure(raw: unknown): ReadFailure | null;
   read(): Promise<SourceReading>;
-  /**
-   * Everything one card's triage reads, for a card this source produced. Optional: a source with no conversation to
-   * read leaves its cards untriaged rather than triaged on nothing (R30).
-   */
+  /** Optional conversation context for triage; omit if unavailable (R30). */
   readContext?(card: IssueCard, signal: AbortSignal): Promise<ContextReading>;
   /**
-   * One item by number, for a session naming work this source did not report as the developer's. `repository` is a
-   * `repositoryKey`, and `null` means this source does not serve it — which is not the same answer as no such item.
-   * Optional: a source that cannot look one up leaves the session unlinked rather than bare (R4).
+   * Optional issue lookup by repositoryKey and number. Return null for an unsupported repository, distinct from a
+   * missing issue. Without lookup, preserve the unlinked session (R4).
    */
   readCard?(repository: string, number: number, signal: AbortSignal): Promise<CardReading | null>;
 }
@@ -59,7 +46,7 @@ export interface CardReading {
   failure: ReadFailure | null;
 }
 
-/** One card's context, or why it could not be read. Never both — a partial context is a classification on half the story. */
+/** Complete triage context or failure; never classify partial context. */
 export interface ContextReading {
   context: TriageContext | null;
   failure: ReadFailure | null;

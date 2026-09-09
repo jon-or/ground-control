@@ -50,10 +50,7 @@ function refusal(raw: unknown): string {
   return parsed.failure.message;
 }
 
-/**
- * Resolved here rather than in the client that runs it: an empty configured path is the adapter's own default, so a
- * client falling back to nothing would run a bare `attach` with no command in front of it.
- */
+/** Empty command settings must fall back to the adapter command before constructing attach arguments. */
 describe('the command that runs an agent', () => {
   it('takes the path the developer named, and the id where they named none', () => {
     expect(agentCommand({ claude: 'C:/tools/claude.exe' }, 'claude')).toBe('C:/tools/claude.exe');
@@ -80,10 +77,7 @@ describe('the path a client asks the hub to spawn', () => {
     expect(accepted(config({ agents: [{ id: 'claude', path }] })).agents[0]?.path).toBe(path);
   });
 
-  /**
-   * The one field of a pushed configuration that becomes a process. A client is not necessarily this editor, so a
-   * path naming nothing is refused rather than spawned and reported as a missing CLI.
-   */
+  /** Reject nonexistent configured paths before process launch. */
   it('refuses a path to nothing, and says which field it was', () => {
     expect(refusal(config({ agents: [{ id: 'claude', path: `${dir}/not-here.exe` }] }))).toContain('agents.0.path');
   });
@@ -133,8 +127,8 @@ describe('the rest of a pushed configuration', () => {
   });
 
   it('refuses something that is not a configuration at all', () => {
-    expect(refusal(null)).toContain('could not be read');
-    expect(refusal('{}')).toContain('could not be read');
+    expect(refusal(null)).toContain('Could not read settings:');
+    expect(refusal('{}')).toContain('Could not read settings:');
   });
 
   /** Host and source entries belong to the adapter that owns the id, so nothing here judges their shape. */
@@ -192,8 +186,7 @@ describe('triage settings', () => {
   });
 
   it('reads a names map that is not one as none, rather than costing the whole configuration', () => {
-    // Every other field here refuses and takes the configuration down with it. This one is a display nicety on a
-    // client that may be older than the setting, so a bad value costs the names and nothing else.
+    // Invalid display-name overrides must not invalidate the full configuration.
     expect(triageOf({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: 'buildfriday=Chris' })).toMatchObject({ names: {} });
     expect(triageOf({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: { buildfriday: 7 } })).toMatchObject({ names: {} });
   });
@@ -338,7 +331,7 @@ describe('how much the hub says about itself', () => {
     return 'config' in parsed ? parsed.config.logLevel : parsed.failure;
   }
 
-  it('defaults a configuration written before the hub said anything about itself, rather than refusing it', () => {
+  it('defaults log settings in older configurations', () => {
     const parsed = parseHubConfig(config());
 
     expect('config' in parsed && parsed.config.logLevel).toBe('info');
@@ -348,13 +341,12 @@ describe('how much the hub says about itself', () => {
     expect(levelOf('debug')).toBe('debug');
   });
 
-  // Caught rather than refused, the way `permissionMode` is: a level a later build names is not worth a dead board.
+  // An invalid optional field must not discard unrelated repository or login settings.
   it.each([['verbose'], [42], [null], [['debug']]])('falls back to info rather than refusing %s', (bad) => {
     expect(levelOf(bad)).toBe('info');
   });
 
-  // The floors stop at `info` on purpose: above it, a stored setting would silence the hub coming up and every
-  // refused request — and a client whose hub will not start sends the developer to that file to find out why.
+  // Retain info-level lifecycle and refusal logs needed to diagnose hub startup.
   it.each([['warn'], ['error']])('refuses to take %s as a floor, because it would silence what happened', (level) => {
     expect(levelOf(level)).toBe('info');
   });
@@ -377,8 +369,7 @@ describe('what a session started from a card is prefilled with', () => {
     expect(promptOf({ prompt: '  Work on #{issue}.  ' })).toBe('  Work on #{issue}.  ');
   });
 
-  // Caught rather than refused: a hand-edited settings file is what this exists for, and one bad field must not
-  // cost the developer the repository and the logins in the same file.
+  // An invalid optional field must not discard unrelated repository or login settings.
   it.each([[42], [null], [['a prompt']], [{}]])('falls back to a bare session rather than refusing %s', (bad) => {
     expect(promptOf({ prompt: bad })).toBe('');
   });

@@ -6,7 +6,7 @@ import { read } from './fs.js';
 import { hubJsonPathOf } from './paths.js';
 import { proofOf } from './server.js';
 
-/** What a running hub records so a client can reach it. Written after the bind, so a port here was live once. */
+/** Connection record written after binding the hub port. */
 export interface HubRecord {
   protocol: number;
   version: string;
@@ -27,12 +27,12 @@ const hubRecord = z.object({
   fingerprint: z.string().min(1),
 });
 
-/** What `GET /hub` answers. Enough to tell a hub from any other process that took the port, and nothing else. */
+/** GET /hub identity response. */
 export interface HubIdentity {
   hub: string;
   protocol: number;
   fingerprint: string;
-  /** Present when a nonce was asked for: the listener's proof that it holds the token, never the token itself. */
+  /** Proof of token possession when requested with a nonce; excludes the token. */
   proof?: string | undefined;
 }
 
@@ -43,15 +43,12 @@ const hubIdentity = z.object({
   proof: z.string().optional(),
 });
 
-/**
- * Which hub this is: the configuration directory it runs against. Two developers on one machine, or one developer
- * running against a second home, get different hubs, and neither sends its token to the other's listener.
- */
+/** Identify the configuration home so clients do not send tokens to another home's hub. */
 export function fingerprintOf(home: string): string {
   return createHash('sha256').update(groundControlDirOf(home)).digest('hex').slice(0, 16);
 }
 
-/** Never throws: a hub mid-write, a hub killed, and no hub at all are all "nothing to connect to yet". */
+/** Return null for missing, unreadable, or incomplete records. */
 export function readHubRecord(home: string): HubRecord | null {
   const text = read(hubJsonPathOf(home));
 
@@ -70,10 +67,10 @@ export function readHubRecord(home: string): HubRecord | null {
 
 const PROBE_TIMEOUT_MS = 500;
 
-/** What a probe that went quiet is given on the second ask, wide enough for a client that was busy rather than lost. */
+/** Longer timeout for retrying a silent probe after client startup or suspend. */
 const SECOND_LOOK_MS = 3000;
 
-/** A hub's answers are a few hundred bytes. Anything that keeps writing is something else, and is not read to the end. */
+/** Bound identity responses to reject oversized or continuously streamed data. */
 const ANSWER_LIMIT_BYTES = 256 * 1024;
 
 interface Answer {
@@ -81,14 +78,10 @@ interface Answer {
   body: string;
 }
 
-/** Why a call did not come back. Kept apart because a port nothing holds and a port that went quiet are not one state. */
+/** Distinguish connection failures from listeners that accept but do not respond. */
 type Unanswered = 'unreachable' | 'silent';
 
-/**
- * Null for anything that is not a whole answer inside the deadline. The deadline is absolute rather than the socket's
- * own inactivity timer: a listener that trickles bytes faster than that timer resets it forever, and this call is
- * what a hub makes before it binds, so a hang here is a hub that never starts and never says why.
- */
+/** Require a complete response within an absolute deadline; trickling bytes must not delay hub startup indefinitely. */
 function call(
   port: number,
   method: string,
@@ -106,15 +99,13 @@ function call(
 
     let settled = false;
 
-    // Never a pooled socket, the rule every request this package makes follows: the agent belongs to whatever
-    // process the client runs in, and a hub probe must not queue behind whatever else that process is doing.
+    // Disable pooling so hub probes do not queue behind unrelated requests in the client process.
     const outbound = request({ host: '127.0.0.1', port, method, path, headers, agent: false }, (response) => {
       const chunks: Buffer[] = [];
 
       let size = 0;
 
-      // Bytes, never `setEncoding`: a decoded chunk is a string, and a string has no `byteLength` for Node's
-      // inspector to report — which throws once per chunk and takes the extension host with it (`mechanics.md` M28).
+      // Keep byte chunks for Node inspector compatibility; decoded strings lack byteLength (M28).
       response.on('data', (chunk: Buffer) => {
         chunks.push(chunk);
         size += chunk.byteLength;
@@ -144,17 +135,13 @@ function call(
   });
 }
 
-/**
- * What a listener that is not this home's hub answered. Kept and shown, because the alternative is telling a
- * developer that a stranger holds the port on no evidence — and the answer is the only evidence there is: a hub
- * that turned this client away logs it, and anything else on that port keeps no record of having been asked.
- */
+/** Retain unexpected response details for connection diagnostics. */
 export interface Saw {
   status: number;
   said: string;
 }
 
-/** Enough of an answer to recognise what gave it. One line, because this goes in a notification. */
+/** Bound the response excerpt to one notification line. */
 const SAID_LIMIT = 60;
 
 function saw(answer: Answer): Saw {
@@ -163,7 +150,7 @@ function saw(answer: Answer): Saw {
   return { status: answer.status, said: said.length > SAID_LIMIT ? `${said.slice(0, SAID_LIMIT)}\u2026` : said };
 }
 
-/** Asks whatever holds the port what it is: what it said it was, or how the asking came to nothing. */
+/** Probe the recorded listener and return its response or connection failure. */
 type Probed = HubIdentity | Unanswered | { notAHub: Saw };
 
 export async function probe(port: number, timeoutMs = PROBE_TIMEOUT_MS, nonce?: string): Promise<Probed> {
@@ -191,12 +178,7 @@ export interface LiveHub {
   identity: HubIdentity;
 }
 
-/**
- * The hub this home's record names, proven to be this developer's whatever protocol it speaks. Liveness is the probe
- * and never the file: a hub killed on Windows gets no chance to remove `hub.json`, so a stale record is the normal
- * state rather than an error. A listener that is not a hub, or is a hub for another home, is not one to send a
- * token to.
- */
+/** Authenticate the recorded hub regardless of protocol. Probe liveness because forced Windows exits leave stale records. Never send tokens to unverified listeners. */
 export async function recordedHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<LiveHub | null> {
   const found = await findHub(home, timeoutMs);
 
@@ -204,16 +186,11 @@ export async function recordedHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): P
     return found.hub;
   }
 
-  // A hub of another protocol is still this developer's hub, proven and running. It is the one a client may have to
-  // stop, and the one a starting hub must stand down against, so only the protocol check treats it as absent.
+  // An authenticated hub with another protocol still prevents duplicate startup and may require replacement.
   return found.miss.why === 'another-protocol' ? found.miss.hub : null;
 }
 
-/**
- * Why this home has no hub to talk to. Seven things come to the same nothing at a client, and a board that says the
- * wrong one of them sends the developer to a log that describes none of it — which is the whole of what there is to
- * go on, because the hub that was in the way keeps no record of having turned anyone away.
- */
+/** Classify discovery failures to provide accurate diagnostics and recovery steps. */
 export type HubMiss =
   | { why: 'no-record' }
   | { why: 'unreachable'; record: HubRecord }
@@ -225,11 +202,7 @@ export type HubMiss =
 
 export type Found = { hub: LiveHub } | { miss: HubMiss };
 
-/**
- * The hub this home's record names, proven to be this developer's, or the reason there is none. Liveness is the
- * probe and never the file: a hub killed on Windows gets no chance to remove `hub.json`, so a stale record is the
- * normal state rather than an error.
- */
+/** Return an authenticated hub or the discovery failure. Probe for liveness rather than trusting a potentially stale record. */
 export async function findHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<Found> {
   const record = readHubRecord(home);
 
@@ -240,8 +213,7 @@ export async function findHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promi
   const nonce = randomBytes(16).toString('base64url');
   let identity = await probe(record.port, timeoutMs, nonce);
 
-  // A hub that did not finish answering inside half a second is asked once more, with room: the deadline is spent
-  // on the client's own event loop, and a window that has just woken up or just activated is not a hub that is gone.
+  // Retry silent probes with more time; client startup or suspend can delay the event loop.
   if (identity === 'silent') {
     identity = await probe(record.port, SECOND_LOOK_MS, nonce);
   }
@@ -254,8 +226,7 @@ export async function findHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promi
     return { miss: { why: 'not-a-hub', record, saw: identity.notAHub } };
   }
 
-  // The fingerprint says which home; the proof says it is the hub that minted this record. A home path is guessable,
-  // so without the proof any local process could stand up a listener, be handed the token, and be believed.
+  // Verify token possession as well as the home fingerprint; a home path alone cannot authenticate a listener.
   if (identity.fingerprint !== fingerprintOf(home)) {
     return { miss: { why: 'another-home', record } };
   }
@@ -276,28 +247,21 @@ function proves(identity: HubIdentity, record: HubRecord, nonce: string): boolea
   return offered.length === wanted.length && timingSafeEqual(offered, wanted);
 }
 
-/**
- * Stops the hub this home has, whatever protocol it speaks: stopping one is the same route in every version, and a
- * hub a client cannot talk to is exactly the one it may need to replace.
- */
+/** Stop the authenticated hub regardless of protocol; shutdown uses the same route across versions. */
 export async function stopHub(home: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
   const held = await recordedHub(home, timeoutMs);
 
   return held !== null && stopThisHub(held, timeoutMs);
 }
 
-/**
- * Stops one particular hub. The record decides where the stop goes, never the file read again: between finding a hub
- * and standing it down, another client's replacement may already hold the record, and stopping that one would be a
- * client killing the hub it was about to connect to.
- */
+/** Stop the discovered instance without rereading hub.json, which may now identify another client's replacement. */
 export async function stopThisHub(hub: LiveHub, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
   const answer = await call(hub.record.port, 'POST', '/shutdown', hub.record.token, timeoutMs);
 
   return typeof answer !== 'string' && answer.status === 200;
 }
 
-/** Whether a client speaking this protocol can talk to that hub. Equal, because the number moves only on a break. */
+/** Require equal protocol versions; the version changes only for incompatible messages. */
 function protocolMatches(identity: HubIdentity): boolean {
   return identity.protocol === PROTOCOL;
 }

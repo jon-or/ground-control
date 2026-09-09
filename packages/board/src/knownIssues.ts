@@ -1,10 +1,7 @@
 import { z } from 'zod';
 import type { IssueCard } from './types.js';
 
-/**
- * What the board has read about an issue nobody assigned it. Either the issue itself, or a mark that the source
- * answered with nothing — a branch-derived number that names no issue must not be asked for again every poll.
- */
+/** Cached issue lookup, including missing issues so invalid branch-derived numbers are not queried every poll. */
 export type KnownIssue = { card: IssueCard; at: number } | { missing: true; at: number };
 
 /** Every issue looked up by number, keyed `<repositoryKey>#<number>`. */
@@ -14,21 +11,13 @@ export interface KnownIssues {
 
 export const EMPTY_KNOWN_ISSUES: KnownIssues = { entries: {} };
 
-/**
- * How long an entry outlives the last thing that referenced it. Long enough that finishing an issue, unassigning it
- * and coming back to the session a fortnight later still names the card; short enough that the file stays small.
- */
+/** Retention after the last session reference, allowing later session reopening without unbounded cache growth. */
 export const KNOWN_ISSUE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-/**
- * How long any reading stands before the board takes it again. Two cases, one window: a number that named nothing
- * when the branch was cut may have an issue filed against it since, and a card nothing has refreshed since the
- * developer was unassigned goes on naming a status the issue has long left. The stale one still answers meanwhile,
- * so nothing on screen blanks while it is re-read.
- */
+/** Lookup refresh interval for cached and missing issues. Continue displaying cached data during refresh. */
 export const READING_STANDS_MS = 6 * 60 * 60 * 1000;
 
-/** Whether a reading still stands, or has aged into one worth taking again. */
+/** Whether the cached lookup is still fresh. */
 export function knownIssueHolds(entry: KnownIssue | undefined, now: number): boolean {
   return entry !== undefined && now - entry.at < READING_STANDS_MS;
 }
@@ -46,17 +35,13 @@ const pullRequest = z.object({
   author: z.string().nullable(),
   isDraft: z.boolean(),
   reviewDecision: z.string().nullable(),
-  // Nullable rather than optional: a card an older build cached carries none of these, and reading them back as null
-  // costs that card one evidence comparison rather than making it unparseable.
+  // Default missing legacy fields to null so cached cards remain parseable.
   updatedAt: z.string().nullable().default(null),
   headOid: z.string().nullable().default(null),
   checksRed: z.boolean().nullable().default(null),
 });
 
-/**
- * The card as it is stored. Every optional field is optional here too: this file is written by one build and read by
- * the next, and a card that lost its status because a field was added is worse than a card the board reads again.
- */
+/** Preserve optional fields when parsing cards written by older builds. */
 const issueCard = z.object({
   number: z.number(),
   title: z.string(),
@@ -74,12 +59,7 @@ const issueCard = z.object({
   updatedAt: z.string(),
 });
 
-/**
- * Pins the schema to `IssueCard`, so a field added to the type and not to the schema fails the build rather than
- * reading back `undefined` on every cache hit. It also drops the optional keys zod parsed as absent, which under
- * `exactOptionalPropertyTypes` is the difference between a card without a repository and one whose repository is
- * the value `undefined`.
- */
+/** Check the schema against IssueCard and omit absent optional keys for exactOptionalPropertyTypes. */
 function pinned(parsed: z.infer<typeof issueCard>): IssueCard {
   const { repository, state, ...rest } = parsed;
 
@@ -97,10 +77,7 @@ const knownIssue = z.union([
 
 const knownIssues = z.object({ entries: z.record(z.string(), z.unknown()) });
 
-/**
- * The stored lookups, or none. Durable state a developer can hand-edit and an older build can have written in
- * another shape, so one unreadable entry costs that issue a fresh read rather than costing every other one.
- */
+/** Parse saved lookups, discarding invalid entries individually. */
 export function readKnownIssues(stored: unknown): KnownIssues {
   const outer = knownIssues.safeParse(stored);
 
@@ -121,10 +98,7 @@ export function readKnownIssues(stored: unknown): KnownIssues {
   return { entries };
 }
 
-/**
- * The lookups worth keeping: everything a session still names, plus everything read recently enough to save the next
- * one a round trip. Without this the file grows an entry for every issue the developer is ever assigned.
- */
+/** Keep referenced or recently used lookups to bound cache growth. */
 export function pruneKnownIssues(state: KnownIssues, referenced: ReadonlySet<string>, now: number): KnownIssues {
   const entries: Record<string, KnownIssue> = {};
 
@@ -137,10 +111,7 @@ export function pruneKnownIssues(state: KnownIssues, referenced: ReadonlySet<str
   return { entries };
 }
 
-/**
- * Whether a card read now says what the stored one said. Key order is not a difference: a card comes back through
- * `readKnownIssues` in schema order and out of a source in its own, so a plain stringify never matches.
- */
+/** Compare card values independent of key order, which differs between source reads and schema parsing. */
 export function sameKnownCard(stored: KnownIssue | undefined, card: IssueCard): boolean {
   return stored !== undefined && 'card' in stored && canonical(stored.card) === canonical(card);
 }
@@ -161,7 +132,7 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-/** The state with one issue's reading recorded, whether the source found it or answered with nothing. */
+/** Record an issue lookup, including a missing result. */
 export function withKnownIssue(state: KnownIssues, key: string, card: IssueCard | null, now: number): KnownIssues {
   return { entries: { ...state.entries, [key]: card === null ? { missing: true, at: now } : { card, at: now } } };
 }

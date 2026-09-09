@@ -29,8 +29,8 @@ describe('what this window can be shown about the hub (R40)', () => {
   });
 
   /**
-   * The whole path in one assertion: the command subscribes, the hub reads the tail of its own file, and the lines
-   * come back down the stream this window is already riding. Until the command runs, none of that happens at all.
+   * Verify the command subscribes, the hub reads its log tail, and the window receives it only after
+   * subscription.
    */
   it('reads nothing until it is asked, and then carries what the hub has written', async () => {
     const extension = await api();

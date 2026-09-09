@@ -10,7 +10,7 @@ import type { ReadFailure } from './types.js';
  */
 export const PROTOCOL = 1;
 
-/** Everything a board needs to render. The hub owns what is on it; it owns no work item's own state. */
+/** Board display state computed by the hub; source item state remains externally owned. */
 export interface Snapshot {
   lanes: Lane[];
   issues: {
@@ -22,29 +22,22 @@ export interface Snapshot {
     fetchedAt: string;
   } | null;
   sessions: { count: number; patternError: string | null; fetchedAt: string } | null;
-  /** Ids of the sessions this client can be asked to open. Another client's host has its own answer. */
+  /** Session IDs openable by this client host. */
   openable: string[];
-  /**
-   * The agents this client's host offers a new session for. Host-wide rather than per-card, because which agents
-   * have a way in is a fact of the host: every card with a checkout gets the same answer, and a card without one
-   * gets no start item at all. Empty for a client resident in nothing — a browser cannot start a session (R42).
-   */
+  /** Host-wide agent start capabilities. Empty for browser clients, which cannot start sessions (R42). */
   startable: StartableAgent[];
-  /** What the hub did about the activity signal, when there is something the developer has to be told (R25). */
+  /** Activity-hook installation notice, when needed (R25). */
   hooks: { notice: string } | null;
   failures: ReadFailure[];
-  /** Whether the last read of a source failed. A misconfigured host is worth saying, but it is not a stale board. */
+  /** Source-read failure state; host configuration errors do not imply stale source data. */
   stale: boolean;
-  /** What the hub cannot proceed without and no client has given it yet, seeded with whatever it could detect. */
+  /** Missing required settings, including detected identity suggestions. */
   needs: { logins: { detected: string[] } } | null;
-  /** When this snapshot was taken, for the staleness line a browser overlay needs (R25). */
+  /** Snapshot timestamp, not the last successful source-read time (R25). */
   fetchedAt: string;
 }
 
-/**
- * What a client says about itself when it connects. `hostId` is null for a client that is resident in nothing — a
- * browser overlay — and `residentRoutes` is what this client can perform in the application it lives in.
- */
+/** Client connection identity and resident operations. Browser clients have no hostId or resident routes. */
 export interface ClientHello {
   id: string;
   hostId: string | null;
@@ -54,42 +47,34 @@ export interface ClientHello {
   watching: boolean;
 }
 
-/** A connected board, as the hub and its transport both hold it. The hub keeps no transport, only what to call. */
+/** Connected client identity, independent of transport. */
 export interface Client {
   readonly id: string;
 }
 
 export type ClientMessage =
   | { type: 'hello'; hello: ClientHello }
-  // `acknowledge` asks for the activity install's outcome back as a notice. Set only where a developer changed the
-  // setting themselves: a client pushes its configuration on every connect, and those must pass in silence.
+  // Request an install-result notice for explicit setting changes; reconnect configuration stays silent.
   | { type: 'configure'; config: HubConfig; acknowledge?: boolean }
   | { type: 'watching'; watching: boolean }
   | { type: 'refresh' }
   | { type: 'move'; key: string; lane: LaneId }
-  // `extensionReady` rides on the open rather than on the hello: an editor extension activating is something that
-  // happens while a board is up, and a board that connected before it finished would plan every open without it.
-  // `handedOver` says the board raised this window and passed it the session, rather than a developer clicking a
-  // link. The hub plans it as it plans any other open, and refuses to send it on to a third window (M45).
+  // Read extensionReady per open request because activation can complete after hello. handedOver prevents routing a cross-window request onward (M45).
   | { type: 'open'; sessionId: string; extensionReady: boolean; handedOver?: boolean }
   // Paid classification: validate the card key and rate-limit repeated requests.
   | { type: 'retriage'; key: string }
   // Manual action request. Bypasses automatic enablement/history, retaining safety and concurrency checks.
   // Positive daily limits apply; zero disables automatic starts only (R32, R39).
   | { type: 'runAction'; key: string }
-  // Taking back a run in flight. Never a lane change and never a refusal of the card, only the session it started.
+  // Stop the card action session without changing its lane.
   | { type: 'stopAction'; key: string }
-  // A window on the card's own checkout, and no agent in it. The card and nothing else: the root is whatever the
-  // hub resolved for it, and the board window's own root is read off this client's hello.
+  // Open the hub-resolved checkout. The requesting root comes from client hello.
   | { type: 'openCheckout'; key: string }
-  // The directory the developer chose for a card nothing has run on. The path is theirs — it comes from the
-  // editor's own folder picker — and the hub refuses one that is not a checkout of that card's repository.
+  // Editor-selected absolute folder, validated by the hub. Browser clients cannot supply paths.
   | { type: 'setCheckout'; key: string; root: string }
-  // A new session for the card, in this client's own window. `extensionReady` rides on it for the reason `open`'s
-  // does, and the agent is named because a host may offer several and the developer picked one from the menu.
+  // Start the selected agent in this client window, checking current extension readiness.
   | { type: 'startSession'; key: string; agent: string; extensionReady: boolean }
-  // A viewer opening or closing. Nothing about the hub's log crosses to a client that has not sent this: until
-  // one does, the hub holds no subscriber, reads no file, and sends nothing.
+  // Subscribe to log reads and streaming, or unsubscribe. No reads occur without a subscriber.
   | { type: 'watchLog'; watching: boolean };
 
 export type HubMessage =
@@ -97,23 +82,20 @@ export type HubMessage =
   | { type: 'changed'; snapshot: Snapshot }
   | { type: 'perform'; route: OpenRoute }
   | { type: 'notice'; level: 'info' | 'warning' | 'error'; message: string; refusal?: OpenRefusal }
-  // Only ever to a client that asked. The first carries the tail of `hub.log`, so a viewer opened after a failure
-  // shows the failure; every one after it carries the single line that was just written.
+  // Send subscribed clients the log tail first, then individual new lines.
   | { type: 'log'; entries: LogEntry[] };
 
-/** What the webview parses. The snapshot flattened, because the board script reads its fields directly. */
+/** Flattened snapshot fields consumed by the webview. */
 export type SnapshotMessage = { type: 'board' } & Snapshot;
 
 /**
- * Everything an editor board's panel posts into its webview. Here rather than in the extension so both halves of
- * that contract are one type: the panel and the script are different languages in different processes, and a field
- * renamed on one side of a hand-written literal is silent — it renders a board with a dead control (`testing.md`).
+ * Typed panel-to-webview messages, shared by extension code and the JavaScript test harness to detect contract
+ * mismatches (testing.md).
  */
 export type BoardMessage =
   | { type: 'loading' }
-  // Whether the hub's log is arriving. The panel's to say, because the control's state cannot be read off the
-  // editor's output panel (`mechanics.md` M34) and a board reopened has to be told rather than remember.
+  // Report log subscription state from the panel; VS Code exposes no output-panel visibility event (M34).
   | { type: 'logs'; streaming: boolean }
-  // The standing Archived choice, which the extension holds: a webview's own state dies with the tab it was in.
+  // Persistent archive visibility from the extension, retained across webview closure.
   | { type: 'showArchived'; shown: boolean }
   | SnapshotMessage;

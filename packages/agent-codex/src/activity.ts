@@ -4,11 +4,8 @@ import { HOOK_SOURCE, activityDirOf, codexHooksPathOf, hookPathOf } from './hook
 import { readActivity } from './phase.js';
 
 /**
- * Codex's phase signal: a hook script writing one marker per session (`docs/mechanics.md` M40). It carries the
- * roster too, which Claude's does not — Codex has no command that lists its live sessions (M39).
- *
- * The environment is taken here because `CODEX_HOME` moves the file the entries go in, and a signal installed into
- * `~/.codex` on a machine that has moved it is one Codex never reads.
+ * Install hook markers for Codex activity and session discovery (M39, M40). Resolve CODEX_HOME so hooks are
+ * written where Codex reads them.
  */
 export function makeCodexActivity(env: NodeJS.ProcessEnv = {}): ActivitySignal {
   return {

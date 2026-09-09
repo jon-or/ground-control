@@ -8,23 +8,19 @@ export type Wanted = 'install' | 'remove';
 
 export interface ActivityState {
   wanted: Wanted;
-  /** `busy` is another process holding the install lock — not a state of any settings file, so nothing is claimed. */
+  /** busy means another process holds the install lock; no settings result is known. */
   plan: ActivityPlan['kind'] | 'busy';
-  /** How many entries this run actually added. Zero means nothing was installed, whatever else it did. */
+  /** Number of settings entries added by this run. */
   added: number;
   failure: ReadFailure | null;
 }
 
-/** How many backups of an agent's settings file are kept. Enough to undo a bad run, not enough to accumulate. */
+/** Maximum retained settings backups per agent. */
 export const BACKUPS_KEPT = 5;
 
-/**
- * The backups to delete for one agent, oldest first. Named for the agent and then the time they were taken, so the
- * names sort chronologically within an agent and two agents never compete for one retention. This list is handed to
- * `rmSync` in the developer's home, which is why it is a tested function rather than a slice expression in glue code.
- */
+/** Select excess backups for one agent, oldest first. Agent-prefixed timestamps keep ordering and retention independent. */
 export function backupsToDelete(names: readonly string[], agent: string): string[] {
-  // A backup taken before the name carried an agent is Claude's, because Claude was the only agent that took one.
+  // Unprefixed legacy backups belong to Claude.
   const legacy = agent === 'claude' ? /^settings-backup-\d/ : /^$/;
   const ours = names
     .filter((name) => name.endsWith('.json') && (name.startsWith(`settings-backup-${agent}-`) || legacy.test(name)))
@@ -33,40 +29,34 @@ export function backupsToDelete(names: readonly string[], agent: string): string
   return ours.slice(0, Math.max(0, ours.length - BACKUPS_KEPT));
 }
 
-/** How long an orphaned marker is kept. A session that never reported its end leaves one, and nothing else sweeps it. */
+/** Age limit for markers left without a session-end event. */
 export const MARKER_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Whether a marker is old enough to be an orphan rather than a live session's. Deletes files, so it is tested. */
+/** Identify markers eligible for age-based deletion. */
 export function markerIsOrphaned(mtimeMs: number, now: number): boolean {
   return now - mtimeMs > MARKER_MAX_AGE_MS;
 }
 
-/**
- * How long a temporary file is left alone. A writer retries its rename for about 200 ms while its `.tmp` sits on
- * disk, and a sweep inside that window takes the file out from under it and loses the event.
- */
+/** Leave temporary files beyond the approximately 200 ms rename-retry window to avoid deleting active writes. */
 export const TEMP_MAX_AGE_MS = 60_000;
 
-/** Whether a temporary file is a failed rename rather than a write in flight. Deletes files, so it is tested. */
+/** Identify temporary files old enough to remove after failed writes. */
 export function tempIsOrphaned(mtimeMs: number, now: number): boolean {
   return now - mtimeMs > TEMP_MAX_AGE_MS;
 }
 
-/**
- * What a run the board started writes its own output to, named `<agent>-dispatch-<id>.log`. The hub's directory is
- * the hub's to sweep, so the shape is named here rather than imported from whichever adapter wrote one.
- */
+/** Match adapter output files named <agent>-dispatch-<id>.log for hub cleanup. */
 export const DISPATCH_LOG = /^[a-z][a-z0-9-]*-dispatch-.+\.log(\.err)?$/;
 
-/** How long a run's own output is kept. Long enough to read after one went wrong, short enough not to accumulate. */
+/** Retention period for dispatch output. */
 export const DISPATCH_LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Whether a run's output has been there long enough to sweep. Deletes files, so it is a tested decision. */
+/** Identify dispatch logs eligible for age-based deletion. */
 export function dispatchLogIsStale(mtimeMs: number, now: number): boolean {
   return now - mtimeMs > DISPATCH_LOG_MAX_AGE_MS;
 }
 
-/** Retried like every other read of a settings file: an install a 30 ms wait would have completed must not fail. */
+/** Retry transient settings-file access failures during backup. */
 function backup(home: string, settings: string, agent: string): void {
   attempt(() => copyFileSync(settings, backupPathOf(home, new Date(), agent)));
 
@@ -77,7 +67,7 @@ function backup(home: string, settings: string, agent: string): void {
       rmSync(`${dir}/${name}`, { force: true });
     }
   } catch {
-    // Retention is housekeeping. Failing it must not fail the install the backup was taken for.
+    // Backup retention failure must not prevent installation.
   }
 }
 
@@ -97,7 +87,7 @@ function failed(wanted: Wanted, subject: string, home: string, error: unknown, a
   };
 }
 
-/** Empties an activity directory without removing it. Best effort per file: a live session's writer may be in it. */
+/** Remove marker files without deleting the directory; skip files held by writers. */
 function clearMarkers(dir: string): void {
   let names: string[] = [];
 
@@ -111,7 +101,7 @@ function clearMarkers(dir: string): void {
     try {
       rmSync(`${dir}/${name}`, { force: true });
     } catch {
-      // A writer holds it open. Nothing reads it, and the next removal or prune takes it.
+      // Retry locked files during the next removal or cleanup.
     }
   }
 }
@@ -145,9 +135,7 @@ export function syncActivity(
     mkdirSync(groundControlDirOf(home), { recursive: true });
     held = takeLock(lockPath);
 
-    // An uninstall runs once and is never retried, so it breaks a lock rather than leaving entries that name a
-    // writer nobody maintains firing forever (R34). Everything else defers: the holder's write is the one this
-    // would make, so nothing is claimed either way.
+    // Uninstall breaks the lock because it runs once (R34). Other operations defer to the current installer.
     if (!held && insist) {
       rmSync(lockPath, { force: true });
       held = takeLock(lockPath);
@@ -159,11 +147,9 @@ export function syncActivity(
 
     for (const { id, activity } of signals) {
       reached = id;
-      // The writer stays on disk through a removal: a session that already loaded the old settings goes on spawning
-      // it, and a missing script is a hook failure the developer sees in their own terminal.
+      // Retain the writer script after removal because existing sessions may still invoke their loaded hooks.
       if (wanted === 'install') {
-        // Retried: a directory another process is still holding open after a removal refuses this until that handle
-        // goes, and the window is short (`mechanics.md` M23).
+        // Retry while Windows releases open handles after directory removal (M23).
         attempt(() => mkdirSync(activity.watchDir(home), { recursive: true }));
 
         if (activity.writer && read(activity.writer.path(home)) !== activity.writer.source) {
@@ -193,9 +179,7 @@ export function syncActivity(
         plan = 'write';
       }
 
-      // The markers go and the directory stays. Removing the directory means recreating it on the next install,
-      // and a directory something still holds open after a delete cannot be recreated (`mechanics.md` M23); it also
-      // costs the watcher, which dies with the directory and takes up to a second to come back (R25).
+      // Keep the directory to preserve watchers and avoid Windows recreation failures with open handles (M23, R25).
       if (wanted === 'remove') {
         clearMarkers(activity.watchDir(home));
       }
@@ -218,8 +202,7 @@ export function syncActivity(
 export function pruneMarkers(agents: readonly AgentAdapter[], home: string, now: number = Date.now()): void {
   const dirs = new Set(agents.flatMap((agent) => (agent.activity ? [agent.activity.watchDir(home)] : [])));
 
-  // The board's own directory too, but only for a `.tmp` a failed rename left behind: nothing else on the machine
-  // sweeps one, and the files beside it are the hub's own and are not orphans to age out.
+  // Also remove stale .tmp files from the hub directory; other hub state files are excluded.
   for (const dir of [...dirs, groundControlDirOf(home)]) {
     const markers = dirs.has(dir);
 
@@ -228,7 +211,7 @@ export function pruneMarkers(agents: readonly AgentAdapter[], home: string, now:
     try {
       names = readdirSync(dir);
     } catch {
-      // Nothing to prune here, which is every machine before the first install.
+      // No directory exists before the first install.
       continue;
     }
 
@@ -245,16 +228,13 @@ export function pruneMarkers(agents: readonly AgentAdapter[], home: string, now:
           rmSync(path, { force: true });
         }
       } catch {
-        // One entry that went while this loop read it, or will not stat. The rest of the directory is still swept.
+        // Skip missing or unreadable entries and continue cleanup.
       }
     }
   }
 }
 
-/**
- * Takes every agent's signal away and removes the markers, without consulting a setting. This is what an uninstall
- * runs: it insists on the lock, because `vscode:uninstall` fires once and a deferral here is entries left forever.
- */
+/** Remove all agent hooks and markers regardless of settings. Uninstall cannot defer because vscode:uninstall runs once. */
 export function uninstallActivity(agents: readonly AgentAdapter[], home: string): ActivityState {
   return syncActivity(agents, 'remove', home, true);
 }
@@ -262,17 +242,13 @@ export function uninstallActivity(agents: readonly AgentAdapter[], home: string)
 export interface ActivityNoticeInput {
   plan: ActivityState['plan'];
   wanted: Wanted;
-  /** Listed sessions that started before the install and so cannot report a phase yet. */
+  /** Sessions started before installation cannot report phases yet. */
   unreported: number;
 }
 
-/**
- * The one sentence the board puts above the lanes, and only when it has something new to say: a run that changed
- * nothing announces nothing. It is an announcement, not a status — the caller shows it once (R25).
- */
+/** Return an installation notice only when entries changed. The caller displays it once (R25). */
 export function activityNotice({ plan, wanted, unreported }: ActivityNoticeInput): string | null {
-  // Only an actual write is news. A refusal is reported as a failure instead: saying "installed" beside the reason
-  // it could not be is the board contradicting itself on one screen (R24).
+  // Announce successful writes only; refusals are reported as failures (R24).
   if (plan !== 'write') {
     return null;
   }
@@ -290,10 +266,7 @@ export function activityNotice({ plan, wanted, unreported }: ActivityNoticeInput
   return 'Session activity hooks installed.';
 }
 
-/**
- * What to tell the developer who just turned the signal on or off. Unlike `activityNotice`, which announces only
- * news, this always says something: it answers an action, and an action that produced no change is worth saying so.
- */
+/** Acknowledge explicit activity setting changes, including those requiring no writes. */
 export function activityAcknowledgement(state: ActivityState): { level: 'info' | 'error'; message: string } {
   if (state.failure) {
     return { level: 'error', message: state.failure.message };

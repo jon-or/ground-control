@@ -3,23 +3,22 @@ import { statSync } from 'node:fs';
 import { delimiter } from 'node:path';
 import { normalize } from './paths.js';
 
-/** Why a call did not run. An adapter turns a reason into wording naming its own CLI and its own setting. */
+/** CLI failure classified for adapter-specific messages and remedies. */
 export type ExecFailure = {
   ok: false;
   reason: 'missing' | 'not-executable' | 'failed' | 'unparsable' | 'aborted';
   detail: string;
 };
 
-/** What a CLI printed, or why it did not print it. `unparsable` never reaches here — there is nothing to parse. */
+/** CLI text output or failure; text calls do not produce `unparsable`. */
 export type TextOutcome = { ok: true; text: string } | ExecFailure;
 
-/** The same, once the text has been read as one JSON document. */
+/** Parsed CLI JSON output or failure. */
 export type ExecOutcome = { ok: true; value: unknown } | ExecFailure;
 
 /**
- * How a call is run beyond its arguments. Every field is optional and the defaults are what a roster read has always
- * used, so a caller that wants none of it passes none. `stdin` is what keeps a long prompt off a command line
- * Windows caps at 32,767 characters (`docs/mechanics.md` M31), and `signal` is what lets a queued run be abandoned.
+ * Optional CLI execution settings. Use stdin for prompts exceeding the Windows command-line limit of 32,767
+ * characters (mechanics M31).
  */
 export interface ExecOptions {
   timeoutMs?: number;
@@ -32,15 +31,15 @@ export type ExecJson = (path: string, args: string[], options?: ExecOptions) => 
 
 export type ExecText = (path: string, args: string[], options?: ExecOptions) => Promise<TextOutcome>;
 
-/** A hung CLI would leave the board with no sessions and no explanation, which R24 forbids more than an error does. */
+/** Bound CLI reads so a hung process produces a failure (R24). */
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-/** Enough of the CLI's own output to diagnose from, and not enough to fill a webview. */
+/** Limit diagnostic output displayed in the board. */
 const DETAIL_LIMIT = 200;
 
 /**
- * Real executables first so a shim never shadows one, then the batch shims, then no extension at all — npm writes
- * both a `.cmd` and an extensionless shell script, and the script is the one Windows cannot run.
+ * Prefer executables over batch shims and extensionless scripts. npm creates both `.cmd` and shell shims; Windows
+ * cannot execute the shell script.
  */
 const CANDIDATES = process.platform === 'win32' ? ['.exe', '.com', '.cmd', '.bat', ''] : [''];
 
@@ -59,10 +58,7 @@ const isFile = (path: string): boolean => {
   }
 };
 
-/**
- * Where a bare command is looked for: the directories PATH names, and never the working directory. Probing the
- * working directory would both miss the real command and let an unrelated file there decide the verdict.
- */
+/** Search PATH only; a file in the working directory must not override the configured command. */
 function searchDirectories(): string[] {
   return (process.env['PATH'] ?? '')
     .split(delimiter)
@@ -70,7 +66,7 @@ function searchDirectories(): string[] {
     .map((directory) => normalize(directory).replace(/\/+$/, ''));
 }
 
-/** The file this path or bare name names, or null when nothing on disk answers to it. */
+/** Resolve an existing file from a path or command name. */
 export function resolveOnDisk(path: string): string | null {
   const extensions = hasExtension(path) ? [''] : CANDIDATES;
   const bases = isPathLike(path) ? [normalize(path)] : searchDirectories().map((dir) => `${dir}/${path}`);
@@ -90,9 +86,7 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return new Promise<TextOutcome>((resolve) => {
-    // A path Windows rejects outright raises before the callback, and a rejected promise here would surface as an
-    // unhandled failure rather than a board notice. `windowsHide` because the hub is detached and has no console of
-    // its own: without it every poll opens a command prompt on the developer's screen.
+    // Catch synchronous spawn errors as failures. Hide console windows when the detached hub spawns a CLI.
     try {
       const child = execFile(
         path,
@@ -100,8 +94,7 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
         { maxBuffer: 32 * 1024 * 1024, timeout, windowsHide: true, ...(options.cwd === undefined ? {} : { cwd: options.cwd }) },
         (err, stdout, stderr) => {
         if (err) {
-          // An abort and a timeout both arrive as a killed child, and they are different things to a caller: one is
-          // the board standing a run down, the other is a CLI that would not answer.
+          // Cancellation and timeout both kill the child; report them separately.
           if (options.signal?.aborted === true) {
             resolve({ ok: false, reason: 'aborted', detail: 'command cancelled before completion' });
 
@@ -131,16 +124,12 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
         },
       );
 
-      // Abandoning a run has to reach the process, not just the promise: a classifier the board has stood down would
-      // otherwise go on spending until it answered nobody (`docs/mechanics.md` M31 — a `-p` session is killable only
-      // by pid). `once`, so a settled run leaves no listener on a signal the caller may reuse.
+      // Kill the process on cancellation to stop model usage; print-mode sessions require PID termination (mechanics M31).
       options.signal?.addEventListener('abort', () => child.kill(), { once: true });
 
-      // The prompt is written rather than passed, because argv is capped and evidence is not (M31). A closed stdin
-      // is what tells a CLI reading from it that the input is complete.
+      // Send prompts through stdin to avoid command-line limits; end the stream to complete input (M31).
       if (options.stdin !== undefined) {
-        // A child that dies before draining a long prompt makes this an EPIPE, which is an unhandled 'error' event
-        // on the stream and takes the process with it. The callback above is what reports the failure.
+        // Handle EPIPE if the child exits before reading stdin. The exec callback reports the failure.
         child.stdin?.on('error', () => undefined);
         child.stdin?.end(options.stdin);
       }
@@ -151,9 +140,8 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
 }
 
 /**
- * Runs a CLI for whatever it prints. Never throws, and never through a shell: the path is developer configuration,
- * and a shell would let a crafted one run something else entirely — which on Windows also rewrites a leading `/` in
- * an argument into a filesystem path, silently turning a slash command into prose (`docs/mechanics.md` M33).
+ * Run a CLI without throwing or invoking a shell. Shells can execute configured path text and rewrite
+ * leading-slash arguments on Windows (mechanics M33).
  */
 export const runTextCli = async (path: string, args: string[], options: ExecOptions = {}): Promise<TextOutcome> => {
   const resolved = resolveOnDisk(path);
@@ -162,7 +150,7 @@ export const runTextCli = async (path: string, args: string[], options: ExecOpti
     return { ok: false, reason: 'not-executable', detail: `${resolved} is a batch shim, which cannot be run directly` };
   }
 
-  // Nothing is spawned for a run already stood down, so a queue drained on shutdown starts no process at all.
+  // Do not spawn cancelled requests.
   if (options.signal?.aborted === true) {
     return { ok: false, reason: 'aborted', detail: 'command cancelled before starting' };
   }
@@ -170,7 +158,7 @@ export const runTextCli = async (path: string, args: string[], options: ExecOpti
   return spawn(resolved ?? path, args, options, resolved !== null);
 };
 
-/** Runs a CLI that prints one JSON document and parses it. Every refusal is `runTextCli`'s, plus one of its own. */
+/** Run a CLI and parse one JSON document, adding `unparsable` to execution failures. */
 export const runJsonCli = async (path: string, args: string[], options: ExecOptions = {}): Promise<ExecOutcome> => {
   const outcome = await runTextCli(path, args, options);
 

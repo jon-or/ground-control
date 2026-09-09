@@ -12,16 +12,10 @@ import type {
 } from './types.js';
 import { issueResponse, searchResponse } from './types.js';
 
-/**
- * One page of the poll. Without it a blackholed network — a captive portal, a link that dropped mid-request — hangs
- * the read for as long as the hub runs, and every later refresh coalesces onto that one and never answers either.
- */
+/** Bound each page request so stalled networking cannot block subsequent refreshes. */
 const PAGE_TIMEOUT_MS = 30_000;
 
-/**
- * Repeated `assignee:` qualifiers OR in GitHub's issue search — verified against a live repo.
- * They AND in `projectV2.items(query:)`, so this trick does not survive a move to the project API.
- */
+/** Repeated assignee qualifiers use OR in issue search and AND in projectV2.items(query:), as verified against a live repository. */
 export function buildSearchQuery(cfg: GithubConfig, withProject: boolean): string {
   const parts = [`repo:${cfg.repo}`, 'is:issue', 'is:open', ...cfg.logins.map((l) => `assignee:${l}`)];
 
@@ -53,10 +47,7 @@ function selectCardAvatar(
   return assignee?.avatarUrl ? { login: assignee.login, url: assignee.avatarUrl, source: 'issue' } : null;
 }
 
-/**
- * The pull request the card speaks for: the most recently updated open one that would close the issue, or the most recently updated of any
- * state when none is open. An open one outranks a merged one, because a comment on something already landed must not mask work in flight.
- */
+/** Select the most recently updated open closing PR, or the most recently updated PR when none is open. */
 function selectPullRequest(node: Pick<SearchNode, 'pullRequests'>): CardPullRequest | null {
   const byRecency = [...(node.pullRequests?.nodes ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const latest = byRecency.find((pr) => pr.state === 'OPEN') ?? byRecency[0];
@@ -77,8 +68,7 @@ function selectPullRequest(node: Pick<SearchNode, 'pullRequests'>): CardPullRequ
     reviewDecision: latest.reviewDecision,
     updatedAt: latest.updatedAt,
     headOid: commit?.oid ?? null,
-    // Coarse on purpose: `derivedAction` reads only whether the build failed, so pending and passing are one state
-    // here and a card does not go stale for the length of every build.
+    // Only failures affect derivedAction; transitions between pending and passing do not invalidate triage.
     checksRed: rollup === null ? null : rollup === 'FAILURE' || rollup === 'ERROR',
   };
 }
@@ -105,10 +95,7 @@ function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
   };
 }
 
-/**
- * Pages the assigned-issue search and maps it to cards. Refuses to query with no logins: an unqualified
- * search returns the whole repo's open issues, which the board would then show as the developer's own.
- */
+/** Page assigned issues and map them to cards. Require logins to avoid fetching every open issue in the repository. */
 export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner): Promise<Result<AssignedIssues>> {
   if (cfg.logins.length === 0) {
     return {
@@ -167,8 +154,7 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
       seen.set(node.number, toCard(node, cfg));
     }
 
-    // The schema allows a null cursor alongside hasNextPage; without this the next request drops `after`
-    // and re-reads page one, burning the page budget while the Map hides the duplication.
+    // A null cursor would repeat page one even when hasNextPage is true.
     if (!hasNextPage || !cards.pageInfo.endCursor) {
       break;
     }
@@ -190,10 +176,7 @@ export async function fetchAssignedIssues(cfg: GithubConfig, runner?: GhRunner):
   };
 }
 
-/**
- * One issue by number, whatever its state and whoever it is assigned to. A repository or an issue GitHub does not
- * report is `null` with no error: a branch-derived number that matches nothing is a wrong guess, not a fault (R4).
- */
+/** Read an issue regardless of state or assignee. Missing repositories and issues return null without an error (R4). */
 export async function fetchIssue(
   cfg: GithubConfig,
   owner: string,

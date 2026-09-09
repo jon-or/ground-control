@@ -1,8 +1,7 @@
 // @ts-check
 /**
- * The MV3 worker: one native port to the bridge, one port per board tab, and the relay between them. Chrome stops a
- * worker that has been idle, so nothing here assumes it lives — the alarm reopens the native port, a content script
- * reconnecting registers its tab again, and the last snapshot survives in `chrome.storage.session`.
+ * Relay between one native bridge port and board tabs. Recover from worker shutdown through alarms, tab
+ * reconnects, and snapshots in chrome.storage.session.
  */
 import { makeLogSpool } from './state.js';
 
@@ -13,26 +12,21 @@ const KEEPALIVE = 'gc-keepalive';
 const boards = new Set();
 
 /**
- * The board tabs with the log sidebar open, and the lines to hand the next one that opens. Memory only, and never
- * `chrome.storage.session`: the hub's own file is the durable copy, a worker Chrome stopped is answered by the
- * reconnecting tab asking again, and a log is not something to leave lying about in browser storage. What it
- * decides — when the hub is asked for its log and when it is told to stop — is `makeLogSpool` in `state.js`.
+ * Keep log subscribers and history in memory through makeLogSpool. Reconnecting tabs restore subscriptions;
+ * durable hub logs remain in the hub file.
  */
 const spool = makeLogSpool();
 
 /** @type {chrome.runtime.Port | null} */
 let native = null;
 
-/** The last thing the hub said, replayed to a tab that opens while the worker already has it. */
+/** Replay the latest hub snapshot to newly connected tabs. */
 let last = null;
 
 /** Where every tab starts, and where the worker returns when the last board closes and it drops the native port. */
 const UNANSWERED = 'Waiting for the Ground Control hub.';
 
-/**
- * What the overlay's staleness line says now. One string rather than a message sent from each place that changes
- * it: a tab connects while the port is opening, so whichever of the two spoke last would otherwise be what it sees.
- */
+/** Keep one connection-status value so new tabs receive the current state during native-port startup. */
 let trouble = UNANSWERED;
 
 function troubled(message) {
@@ -70,9 +64,7 @@ function broadcast(message) {
 }
 
 function toNative(message) {
-  // Said as what actually happened, not as what was attempted: a developer opens the sidebar because the overlay
-  // has gone quiet, and a panel claiming the hub was told something while there was no port is the wrong answer to
-  // the one question it exists for.
+  // Log successful sends accurately; a missing port must not be reported as a delivered message.
   if (native === null) {
     say('warn', `cannot send ${message?.type}: hub port disconnected`, 'native');
 
@@ -104,20 +96,17 @@ function connectNative() {
   }
 
   native.onMessage.addListener((message) => {
-    // Cleared here rather than by the tab that receives the snapshot: what a tab is handed may be a replay from
-    // storage, which is a real reading and an old one. Only the port answering says the board is live (R24).
+    // Clear trouble only on a native-port response; a cached snapshot does not establish liveness (R24).
     if (trouble !== null) {
       troubled(null);
     }
 
-    // Only ever the sidebars, and only what they asked for. It never reaches `boards`: a tab with no log open is
-    // not sent the hub's lines, and this is the only message the two sets are treated differently for.
+    // Send hub log lines only to tabs with open log sidebars.
     if (message.type === 'log') {
       const entries = message.entries ?? [];
 
-      // The bridge's own lines are this browser's half and are kept whatever happens; the hub's are kept only while
-      // somebody is watching, because the unsubscribe is a round trip and what is still in flight when it lands
-      // would otherwise sit in the spool and come back beside a fresh tail.
+      // Always retain bridge logs. Retain hub logs only while subscribed, discarding lines still in transit
+      // after unsubscribe.
       spool.hold(spool.watching() ? entries : entries.filter((entry) => entry.source !== 'hub'));
       toWatchers(message);
 
@@ -137,23 +126,20 @@ function connectNative() {
     troubled('Disconnected from Ground Control. Enable the GitHub overlay from VS Code, or open the board there.');
   });
 
-  // A reopened port is a new bridge process and so a new client of the hub, which knows nothing about this browser.
-  // Restated here rather than where a tab connects, because the alarm reopens the port with no tab involved: what
-  // the hub would otherwise have is a client that never said it was watching and never asked for the log.
+  // Restore watching and log subscriptions whenever the native port reopens, including alarm-driven
+  // reconnects without a tab event.
   toNative({ type: 'watching', watching: boards.size > 0 });
 
   if (spool.watching()) {
-    // Said before the ask, because what comes back is the whole tail of the file and most of it is already on
-    // screen: a hundred lines repeating themselves with nothing between them reads as the hub looping.
+    // Announce repeated backfill before requesting the tail, which may duplicate displayed lines.
     say('info', 'resubscribing to hub logs; replaying recent entries', 'logs');
     toNative({ type: 'watchLog', watching: true });
   }
 }
 
 /**
- * One tab's sidebar opening or closing. The hub is told only on the first open and the last close, so it holds one
- * subscription per machine — telling it again would have it backfill, and every other sidebar would show the file's
- * tail a second time. A tab opening the second sidebar is handed what this worker already holds instead.
+ * Subscribe on the first sidebar open and unsubscribe on the last close. Additional sidebars receive the
+ * buffered history without another hub backfill.
  *
  * @param {chrome.runtime.Port} port
  * @param {boolean} open
@@ -161,8 +147,7 @@ function connectNative() {
 function watchLog(port, open) {
   const { tell, backlog } = spool.view(port, open);
 
-  // The spool hands back what this tab missed, and only on the transition. Sent before the two lines below, which
-  // it deliberately does not contain — those reach the tab live, once, rather than here and again a moment later.
+  // Send backlog before new subscription log lines so each line arrives once.
   if (backlog.length > 0) {
     try {
       port.postMessage({ type: 'log', entries: backlog });
@@ -219,16 +204,15 @@ chrome.runtime.onConnect.addListener((port) => {
     toNative(message);
   });
   port.onDisconnect.addListener(() => {
-    // Chrome closes the port of a page it moves into the back/forward cache and sets `lastError` on the way; reading
-    // it is what marks it read, and an unread one is logged to the worker's console as an unchecked error.
+    // Read lastError to acknowledge expected port closure when Chrome caches a page in back/forward history.
     void chrome.runtime.lastError;
 
     boards.delete(port);
     watchLog(port, false);
     say('debug', `board tab disconnected; ${boards.size} open`, 'tabs');
 
-    // No board tab is looking, so nothing on this machine needs polling. The hub keeps its own half-hour before it
-    // exits, so a tab reopened a minute later reaches the one that was already up (R35).
+    // Stop polling after the last board tab closes; the hub remains available during its 30-minute idle
+    // timeout (R35).
     if (boards.size === 0) {
       toNative({ type: 'watching', watching: false });
       native?.disconnect();
@@ -238,8 +222,8 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 
   connectNative();
-  // Only reached when the port was already open, and so was not restated above. A second tab arriving is not a
-  // change of state, but the first one after an idle worker woke without one is.
+  // Update watching on the first tab connection if the port was already open; additional tabs do not change
+  // it.
   toNative({ type: 'watching', watching: true });
   replay(port);
 });

@@ -3,7 +3,7 @@ import type { ExecFileException } from 'node:child_process';
 import type { Logger } from '@ground-control/core';
 import type { Failure, Result } from './types.js';
 
-/** What a call may bound beyond its arguments. Every call carries a deadline; one card's triage carries a signal too. */
+/** Optional timeout and cancellation for gh requests. */
 export interface GhOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -22,7 +22,7 @@ function classify(err: ExecFileException, stderr: string): Failure {
     };
   }
 
-  // `gh auth login` is the logged-out shape; `Bad credentials (HTTP 401)` is the expired-or-revoked-token shape.
+  // Recognize logged-out, expired-token, and revoked-token errors.
   if (/gh auth login|Bad credentials|HTTP 401|requires authentication/i.test(stderr)) {
     return {
       kind: 'not-authenticated',
@@ -31,8 +31,7 @@ function classify(err: ExecFileException, stderr: string): Failure {
     };
   }
 
-  // The machine cannot reach the network at all — asleep a moment ago, or on a captive portal. `gh` wraps its own
-  // connect failures; the rest are what Go's net stack and HTTP client print underneath, Windows `connectex` included.
+  // Recognize gh and Go network errors, including Windows connectex failures.
   if (
     /error connecting to|dial tcp|no such host|network is unreachable|unreachable network|connectex|i\/o timeout|TLS handshake timeout|context deadline exceeded|Client\.Timeout exceeded|connection (reset|refused)/i.test(
       stderr,
@@ -46,8 +45,7 @@ function classify(err: ExecFileException, stderr: string): Failure {
     };
   }
 
-  // Ridden out like a connection that failed outright: a read that ran out of time says nothing about what is wrong,
-  // and the deadline is short enough that hitting it is a slow network far more often than it is a broken query.
+  // Retry timeouts as transient failures; they do not establish a query error.
   if (err.killed === true) {
     return {
       kind: 'timed-out',
@@ -60,15 +58,11 @@ function classify(err: ExecFileException, stderr: string): Failure {
   return { kind: 'query-failed', message: stderr.trim() || err.message, remedy: 'Check the query and your network, then refresh.' };
 }
 
-/**
- * Runs `gh` and parses stdout as JSON. Never throws — every failure comes back classified. `windowsHide` because the
- * hub that calls this is detached and has no console: without it each poll opens a command prompt on screen.
- */
+/** Run gh and parse JSON, returning classified failures. windowsHide prevents a console window on each poll. */
 function spawnGh(ghPath: string): GhRunner {
   return (args, options = {}) =>
     new Promise<Result<unknown>>((resolve) => {
-      // A path the platform rejects outright raises before the callback, and a rejection here would surface as an
-      // unhandled failure rather than a board notice — or, for a caller that retries, as a loop with no backoff.
+      // execFile can throw before invoking its callback; return that as a classified failure too.
       try {
         const child = execFile(
           ghPath,
@@ -110,8 +104,7 @@ function spawnGh(ghPath: string): GhRunner {
           },
         );
 
-        // A read the board has abandoned has to stop costing something: a triage queue of two slots cannot afford
-        // one held by a `gh` nobody is waiting on any more.
+        // Cancel abandoned requests to release triage slots.
         options.signal?.addEventListener('abort', () => child.kill(), { once: true });
       } catch (err) {
         resolve({
@@ -140,10 +133,10 @@ export function makeGhRunner(ghPath: string, log?: Logger): GhRunner {
   return async (args, options) => {
     const startedAt = Date.now();
     const result = await run(args, options);
-    const what = args.slice(0, 2).join(' ');
-    const took = Date.now() - startedAt;
+    const command = args.slice(0, 2).join(' ');
+    const elapsedMs = Date.now() - startedAt;
 
-    log.debug(result.ok ? `${what} in ${took}ms` : `${what} failed after ${took}ms: ${result.error.kind}`, 'gh');
+    log.debug(result.ok ? `${command} in ${elapsedMs}ms` : `${command} failed after ${elapsedMs}ms: ${result.error.kind}`, 'gh');
 
     return result;
   };

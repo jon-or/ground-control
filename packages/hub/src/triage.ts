@@ -23,22 +23,18 @@ import type { TriageStore } from './triageStore.js';
 export interface TriageDeps {
   home: string;
   store: TriageStore;
-  /** What each reading cost and what it came to. A classification spends money, so it is never only a redraw. */
+  /** Log classification duration and outcome. */
   log: Logger;
-  /**
-   * Says, once per machine, that reading cards spends the developer's usage and sends card text to an API. The
-   * activity install — which writes a local file and costs nothing — already announces itself; a feature that
-   * spends money and leaves the machine, on by default, cannot say less (R25, R38).
-   */
+  /** Notify once per machine that triage uses paid resources and sends card text to an API (R25, R38). */
   announce(message: string): void;
   agents: readonly AgentAdapter[];
   sources: readonly WorkSource[];
   now(): number;
-  /** Called when a reading lands, so the board redraws. Never called synchronously from `consider`. */
+  /** Redraw when triage starts or completes; may re-enter consider. */
   changed(): void;
 }
 
-/** What one card's triage needs to know about the card. `key` is the same key lane placement uses. */
+/** Card context for triage, keyed like lane placement. */
 interface Due {
   key: string;
   card: IssueCard;
@@ -48,16 +44,10 @@ interface Due {
   model: string | null;
 }
 
-/**
- * How long the developer must wait before asking for the same card again. A manual re-read is the one message that
- * spends money, so it is rationed rather than taken on trust.
- */
+/** Minimum interval between manual triage requests for one card. */
 const RETRIAGE_COOLDOWN_MS = 30_000;
 
-/**
- * Reads what each card is asking for, a couple at a time. It owns nothing the snapshot owns: it never places a card,
- * never changes a lane, and its own sessions are filtered out of the roster before the board ever sees them.
- */
+/** Classify cards with bounded concurrency without changing lane placement. Exclude classification sessions from the roster. */
 export class TriageRunner {
   readonly #deps: TriageDeps;
   readonly #running = new Set<string>();
@@ -66,27 +56,24 @@ export class TriageRunner {
   readonly #asked = new Map<string, number>();
 
   #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 180_000, names: {} };
-  /** What a status means, which triage reads from the same map lane arrival does (R38). */
+  /** Use the same status mapping as lane assignment (R38). */
   #statusLanes: Readonly<Record<string, LaneId>> = {};
   #agentPaths = new Map<string, { path: string; model: string | null }>();
   #disposed = false;
   #considering = false;
-  /** Keys the runner stood down itself, so a deliberate abort is never charged to the card as a failure. */
+  /** Deliberately cancelled keys do not count as failed attempts. */
   readonly #stoodDown = new Set<string>();
 
   constructor(deps: TriageDeps) {
     this.#deps = deps;
   }
 
-  /** The cards being read right now, so the snapshot can say so. */
+  /** Card keys currently being classified. */
   running(): ReadonlySet<string> {
     return this.#running;
   }
 
-  /**
-   * Why readings could not be made. The snapshot deduplicates these: a card carries nothing when its reading failed,
-   * so without them a logged-out CLI would be a board where triage silently never happened (R25).
-   */
+  /** Expose triage failures for deduplicated display above the board (R25). */
   failures(): ReadFailure[] {
     return Object.values(this.#deps.store.read().failures).map((failure) => ({
       subject: 'triage',
@@ -96,16 +83,12 @@ export class TriageRunner {
     }));
   }
 
-  /**
-   * The sessions this runner started. Belt-and-braces: a classification is listed by `claude agents --json` in
-   * exactly the shape `neverPrompted` already drops (`docs/mechanics.md` M31), so the adapter filters it first. This
-   * is what still holds if a flag ever stops doing what it says.
-   */
+  /** Exclude this runner's sessions even if adapter filtering changes (M31). */
   sessionIds(): ReadonlySet<string> {
     return this.#sessions;
   }
 
-  /** Takes the settings the hub is running on. Turning triage off stands down what is already in flight. */
+  /** Apply settings and cancel pending work when disabled. */
   configure(
     settings: TriageSettings,
     agents: readonly { id: string; path: string; model?: string | undefined }[],
@@ -120,16 +103,9 @@ export class TriageRunner {
     }
   }
 
-  /**
-   * Starts reading whatever is due. Returns at once — a reading calls back when it lands. Cheap when nothing is due,
-   * which is every call but a few: it is a set difference over card keys.
-   *
-   * `watched` is what keeps an unwatched hub from spending. A window that has activated the extension stays
-   * connected with no board open (R35), so without this, opening the editor would read the whole board at nobody.
-   */
+  /** Start due classifications asynchronously, only while watched to avoid background usage (R35). */
   consider(lanes: readonly Lane[], sourcesRead: boolean, watched: boolean): void {
-    // Starting a reading redraws the board, and redrawing the board is what calls this — so without the guard the
-    // first start re-enters here before the second has claimed its slot, and the cap is exceeded by one every time.
+    // Guard against redraw re-entry before every new task has reserved its concurrency slot.
     if (this.#disposed || this.#considering) {
       return;
     }
@@ -172,7 +148,7 @@ export class TriageRunner {
     }
   }
 
-  /** The developer asking for one card again. Refused for a key no card holds, and rationed. */
+  /** Validate and rate-limit manual card triage requests. */
   retriage(lanes: readonly Lane[], key: string): ReadFailure | null {
     const due = this.#dueOf(lanes, key);
     const asked = this.#asked.get(key) ?? 0;
@@ -194,8 +170,7 @@ export class TriageRunner {
       return refusal('triage-running', 'Triage is already running for this card.');
     }
 
-    // The cap is the cap however the reading was asked for. The cooldown is per card, so without this a board of
-    // fifteen chips is fifteen clicks away from fifteen classifications at once.
+    // Apply concurrency limits to manual requests across all cards.
     if (this.#running.size >= this.#settings.concurrency) {
       return refusal('triage-busy', 'Concurrent triage limit reached. Try again shortly.');
     }
@@ -207,7 +182,7 @@ export class TriageRunner {
     this.#asked.set(key, now);
     this.#deps.store.write(forgetTriage(this.#deps.store.read(), key));
 
-    // Asked for by hand, so it runs whether or not a board is watching — the developer clicking is the watching.
+    // Manual requests run even when no board is watched.
     this.#start(due);
 
     return null;
@@ -218,11 +193,7 @@ export class TriageRunner {
     this.#standDown();
   }
 
-  /**
-   * Stops what is in flight. Each key is marked first, because an abort the developer asked for must not land on the
-   * card as a failure — charged an attempt, four flicks of the setting would silence a card for good. A timeout
-   * aborts the same controller and is not marked, so it is still charged, which is the whole point of the deadline.
-   */
+  /** Mark cancellations before aborting so they do not consume attempts. Timeout aborts remain failures. */
   #standDown(): void {
     for (const [key, controller] of this.#inFlight) {
       this.#stoodDown.add(key);
@@ -230,7 +201,7 @@ export class TriageRunner {
     }
   }
 
-  /** The card behind a key, with the agent and source that can read it, or null where anything is missing. */
+  /** Resolve the card, agent, and source, or return null if any is unavailable. */
   #dueOf(lanes: readonly Lane[], key: string): Due | null {
     const card = lanes.flatMap((lane) => lane.cards).find((c) => c.key === key)?.issue;
 
@@ -262,20 +233,17 @@ export class TriageRunner {
     this.#deps.log.info(`reading ${due.key} with ${due.agent.id}`, 'triage');
     this.#deps.changed();
 
-    // One budget over the read and the classification together. A hung `gh` and a hung classifier cost the same slot.
+    // Share one timeout across context retrieval and classification.
     const deadline = setTimeout(() => controller.abort(), this.#settings.timeoutMs);
 
     try {
-      // The seams are public and either may throw rather than classify. A throw that escaped would leave the card
-      // with neither an entry nor a failure — which reads as never having been tried, so the next broadcast starts
-      // it again with no backoff and no end. Caught here, it is charged and backed off like any other failure, and
-      // the record is written before the `finally` below broadcasts.
+      // Record adapter exceptions with retry backoff before broadcasting, or the next broadcast would retry immediately.
       const failure = await this.#read(due, sessionId, controller.signal).catch((error: unknown) => ({
         kind: 'triage-crashed',
         message: error instanceof Error ? error.message : String(error),
       }));
 
-      // A run the board stood down itself is not a card that could not be read. A timeout is, and reaches here.
+      // Ignore deliberate cancellation; timeout failures still count.
       if (this.#disposed || this.#stoodDown.has(due.key)) {
         this.#deps.log.debug(`${due.key}: triage cancelled`, 'triage');
 
@@ -305,7 +273,7 @@ export class TriageRunner {
     }
   }
 
-  /** One card read and classified, or the failure that stopped it. Writes the reading; never writes a lane. */
+  /** Read and classify a card, saving successful results and returning failures without changing lanes. */
   async #read(due: Due, sessionId: string, signal: AbortSignal): Promise<{ kind: string; message: string } | null> {
     const reading = await due.source.readContext!(due.card, signal);
 
@@ -313,8 +281,7 @@ export class TriageRunner {
       return reading.failure ?? { kind: 'context-empty', message: 'The card conversation could not be read.' };
     }
 
-    // Settled before the ask, not after it: a model told the action writes a sentence that agrees with the label,
-    // where one corrected afterwards leaves a card describing a problem it no longer has (R24).
+    // Resolve deterministic actions before classification so the generated detail agrees with the label (R24).
     const settled = settledAction(reading.context, this.#statusLanes);
 
     const answered = await due.agent.classify!({
@@ -324,7 +291,7 @@ export class TriageRunner {
       systemPrompt: TRIAGE_SYSTEM_PROMPT,
       prompt: buildTriagePrompt(reading.context, this.#deps.now(), this.#settings.names, settled),
       schema: triageJsonSchema(settled),
-      // A directory with no project of its own, so nothing of the developer's is discovered or loaded.
+      // Run outside project directories to avoid loading repository settings.
       cwd: triageCwd(this.#deps.home),
       timeoutMs: this.#settings.timeoutMs,
       signal,
@@ -364,17 +331,14 @@ function refusal(kind: string, message: string): ReadFailure {
   return { subject: 'triage', kind, message, remedy: 'Previous triage results are retained.' };
 }
 
-/**
- * Where a classification runs. The hub's own directory, created if absent: a `-p` session discovers a project from
- * its working directory, and one started in a checkout would load that repository's settings and instructions.
- */
+/** Run classification in the hub directory; a checkout cwd would load repository settings and instructions. */
 export function triageCwd(home: string): string {
   const dir = groundControlDirOf(home);
 
   try {
     mkdirSync(dir, { recursive: true });
   } catch {
-    // The hub writes here on every pass anyway; a directory it cannot make is a failure the classification reports.
+    // Let classification report directory-creation failures.
   }
 
   return dir;

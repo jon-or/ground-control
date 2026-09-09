@@ -63,7 +63,7 @@ describe('reading one rollout head', () => {
     expect(rolloutMetadata(meta({ session_id: 'someone-else' }), ID)).toBeNull();
   });
 
-  it('names a head cut short of its first record, which is the board bound rather than a file with no session', () => {
+  it('reports truncated session metadata', () => {
     expect(rolloutMetadata(meta().slice(0, 40), ID)).toBe('truncated');
   });
 
@@ -110,7 +110,7 @@ describe('the saved Codex sessions', () => {
     );
 
     expect(reading.sessions[0]?.repository).toBe('github.com/acme/moved');
-    // The branch stays the one the session ran on, which is the saved fact rather than the checkout now.
+    // Preserve the recorded branch even if the checkout branch changed.
     expect(reading.sessions[0]?.branch).toBe('15619-a-branch');
   });
 
@@ -157,7 +157,7 @@ describe('the saved Codex sessions', () => {
 
     expect(fromDirectory.sessions[0]?.issueNumber).toBe(204);
 
-    // The branch is the primary signal, so a disagreement is decided by it rather than by the directory name.
+    // Prefer the branch issue number when directory naming disagrees.
     const both = await makeHistoryReader()(
       saved({ files: { [PATH]: meta({ cwd: 'd:\\git\\204-elsewhere', git: { branch: '15619-a-branch' } }) } }),
     );
@@ -182,7 +182,7 @@ describe('the saved Codex sessions', () => {
     );
     const reading = await makeHistoryReader()(unusable);
 
-    // The branch is still the saved fact; only the number it would have been read for is gone.
+    // Preserve the saved branch even when no issue number can be extracted.
     expect(reading.sessions[0]?.branch).toBe('15619-a-branch');
     expect(reading.sessions[0]?.issueNumber).toBeNull();
   });
@@ -191,8 +191,7 @@ describe('the saved Codex sessions', () => {
     const long = `{"type":"session_meta","payload":{"session_id":"${ID}","cwd":"d:\\\\git\\\\x","instructions":"${'x'.repeat(300 * 1024)}"}}\n`;
     const reading = await makeHistoryReader()(saved({ files: { [PATH]: long } }));
 
-    // Not silence: a record too long for the bound is the board's own limit, and a session it dropped without a word
-    // would be a card that quietly lost its history.
+    // Report truncation instead of silently excluding a session from history.
     expect(reading.sessions).toEqual([]);
     expect(reading.failure?.kind).toBe('history-failed');
   });
@@ -227,7 +226,7 @@ describe('the saved Codex sessions', () => {
     expect(reading.failure?.kind).toBe('history-failed');
   });
 
-  it('reads the home CODEX_HOME names rather than the one beside it', async () => {
+  it('reads history under CODEX_HOME', async () => {
     const moved = 'd:/elsewhere/codex';
     const reading = await makeHistoryReader({ CODEX_HOME: moved })(
       machine({

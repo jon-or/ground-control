@@ -30,10 +30,7 @@ const session: Session = {
   details: { kind: 'interactive', name: 'cache-remediation', status: 'working', state: 'editing tests' },
 };
 
-/**
- * How long ago, one rung per unit and both sides of every threshold, as literal strings. `extensions/chrome-github-board/test/overlay.test.ts`
- * asserts this table verbatim: `ago` exists in both clients because neither can import `core` at runtime.
- */
+/** Test both sides of each duration threshold with the same literal table as the other client. */
 const AGO_ROWS: [string, number, string][] = [
   ['the moment it happened', 0, '0s'],
   ['a time in the future', -5_000, '0s'],
@@ -200,10 +197,7 @@ beforeEach(() => {
   document.getElementById('lanes')!.className = '';
 });
 
-/**
- * The archive toggle is an item in the board's own menu, so a test reaches it the way a developer does. Its label
- * carries the count, read off the trailing text node because the mark column ahead of it is part of `textContent`.
- */
+/** Read the archive toggle through the board menu, excluding the checkmark from its label. */
 const archiveItem = (): { label: string; checked: boolean } | null => {
   document.getElementById('board-menu')!.click();
 
@@ -259,7 +253,7 @@ describe('board webview', () => {
     expect(avatar.classList).not.toContain('has-image');
     expect(card.querySelector('.card-meta')?.contains(card.querySelector('.avatar'))).toBe(true);
     expect(getComputedStyle(card.querySelector('.title')!).overflowWrap).toBe('anywhere');
-    // What GitHub says the card is reads under the title; what the board says about it is set apart below.
+    // Group issue type, project status, and PR under the title.
     expect(card.querySelector('.badges.github')?.contains(card.querySelector('.status'))).toBe(true);
     expect(renderedSession.textContent).toContain('editing tests');
 
@@ -347,8 +341,7 @@ describe('board webview', () => {
     expect(number.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
     expect(number.getAttribute('draggable')).toBe('false');
     expect(pr.tagName).toBe('BUTTON');
-    // The number and its glyph are the chip's whole fact, so it says nothing further on hover. The state is not
-    // lost with it: the accessible name carries the word, which is what a reader gets in place of the colour.
+    // The accessible name includes PR state; no redundant hover text is needed.
     expect(tipOf(pr)).toBe('');
     expect(pr.getAttribute('aria-label')).toBe('Open pull request #19403, open, on GitHub');
     expect(pr.getAttribute('draggable')).toBe('false');
@@ -370,17 +363,14 @@ describe('board webview', () => {
     // The whole row is the control, as the overlay makes it: a hover then paints the row rather than the words.
     expect(row.tagName).toBe('BUTTON');
     expect(label.tagName).toBe('SPAN');
-    // Nothing on hover: the name is on the row already. What a reader needs beyond it — that this one opens — is
-    // the accessible name instead, since a hover repeating a row's own words is a hover to learn to ignore.
+    // The accessible name describes opening the session; the visible label needs no duplicate tooltip.
     expect(tipOf(row)).toBe('');
     expect(row.getAttribute('aria-label')).toBe('cache-remediation - open this session');
     expect(getComputedStyle(row).cursor).toBe('pointer');
-    // A button brings its own colour, and on a dark card the UA default is the wrong one. The name is a step above
-    // the marks around it, which stay at the description colour - the tone the overlay mixes to (`mechanics.md` M38).
+    // Override native button colors to match session text contrast across clients (mechanics M38).
     expect(getComputedStyle(label).color).toBe('var(--vscode-foreground)');
     expect(getComputedStyle(row).color).toBe('var(--vscode-descriptionForeground)');
-    // Without this, a few pixels of drift on the way to a click drags the card and the click never fires. The
-    // attribute, not the property: a button reads false either way, so only the attribute proves the line is there.
+    // Assert the draggable attribute: the property default alone would not prove explicit drag suppression.
     expect(row.getAttribute('draggable')).toBe('false');
 
     label.click();
@@ -389,9 +379,8 @@ describe('board webview', () => {
   });
 
   /**
-   * The only way into a run the board started: opening one as a tab resumes it, which the CLI refuses while the
-   * background process still holds the conversation (`mechanics.md` M33). So a detached run is reachable whether or
-   * not the agent's editor extension is, because a terminal is all `attach` needs.
+   * Detached runs attach through a terminal even when the agent editor extension is unavailable. Resuming them
+   * as tabs would create a second process that exits 1 (mechanics M33).
    */
   it('attaches to a detached run instead of opening it, and offers it even where nothing is openable', () => {
     const detached = { ...session, attachId: 'c5d0c58f', details: { kind: 'background', name: 'merge-upstream' } };
@@ -409,10 +398,7 @@ describe('board webview', () => {
     expect(api.postMessage).not.toHaveBeenCalledWith({ type: 'openSession', sessionId: 'session-1' });
   });
 
-  /**
-   * Two destinations and a row that has neither. Which one a click lands in is decided at the render, so it can be
-   * drawn: an attachable run goes to a terminal, and everything else to the editor.
-   */
+  /** Render terminal and editor destinations, plus noninteractive rows. */
   it('marks where each row click lands, and marks nothing on a row that cannot be clicked', () => {
     const detached = { ...session, attachId: 'c5d0c58f', details: { kind: 'background', name: 'merge-upstream' } };
 
@@ -555,8 +541,7 @@ describe('board webview', () => {
     expect(number.tagName).toBe('SPAN');
     expect(number.classList).not.toContain('link');
     expect(number.textContent).toBe('example-repo');
-    // The owner, not the whole key: the host is in it so two hosts' copies of one name compare unequal, and it
-    // tells the developer nothing about which checkout they are looking at.
+    // Display repository owner without the host prefix used for identity.
     expect(tipOf(number)).toBe('example-org/example-repo');
     expect(card.querySelector('.title')?.textContent).toBe('master');
     expect(labels).toEqual(['reading logs', 'drafting notes']);
@@ -618,10 +603,7 @@ describe('board webview', () => {
     expect(card.querySelector('.title')?.textContent).toBe('scratch');
   });
 
-  /**
-   * The repository beside the number, the way GitHub writes it on a card of its own — a board spanning repositories
-   * says which one each card came from. Named without its owner, as `checkoutName` names a session's.
-   */
+  /** Display repository beside issue number, matching GitHub and distinguishing cards across repositories. */
   it('writes the repository beside the issue number, without its owner', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
@@ -665,7 +647,7 @@ describe('board webview', () => {
     expect(mark).not.toBeNull();
     expect(mark.getAttribute('aria-label')).toBe('claude');
     expect(mark.getAttribute('data-agent')).toBe('claude');
-    // No `<title>` child: the browser draws its own tooltip from one, beside the row's (`docs/mechanics.md` M35).
+    // Use aria-label for the logo; an SVG title would add a duplicate native tooltip.
     expect(mark.querySelector('title')).toBeNull();
   });
 
@@ -683,7 +665,7 @@ describe('board webview', () => {
     expect(document.querySelector('.session .agent')?.textContent).toBe('');
   });
 
-  /** The two marks are drawn differently by their owners, and a monochrome one at Claude's orange would be wrong. */
+  /** Key logo fill by agent so the monochrome OpenAI logo does not inherit Claude brand orange. */
   it('gives the brand colour to the mark that has one, and the row tone to the one that does not', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
@@ -733,11 +715,7 @@ describe('board webview', () => {
     expect(document.querySelector('.empty')?.textContent).toBe('None of your assigned issues match the current card source.');
   });
 
-  /**
-   * The report the extension host reads to know the script ran at all. Asserted here rather than only in a real
-   * window, because it has to describe the finished screen: posted mid-render it reported an emptied notice list
-   * and the previous render's meta line, and passed in both places.
-   */
+  /** Assert the completed DOM report so a mid-render report cannot pass with old metadata and empty notices. */
   it('reports what it drew after the screen is finished, not during', () => {
     api.postMessage.mockClear();
     send(
@@ -841,10 +819,7 @@ describe('reported activity', () => {
     expect(names.map((style) => style.animationName)).toEqual(['gc-shimmer', '', '']);
   });
 
-  /**
-   * The card's edge carries R6, and so does the mark on the row it is about. No chip: a pill reading `Needs you`
-   * beside a card already edged yellow was the same claim twice.
-   */
+  /** Show attention on the card border and relevant session dot, without a duplicate attention chip (R6). */
   it('marks the card, not only the row, when an agent is blocked on the developer', () => {
     const card = sendCard([withPhase('idle'), withPhase('waiting', Date.now(), { sessionId: 's-2' })], 'blocked');
 
@@ -861,10 +836,7 @@ describe('reported activity', () => {
     expect(card.textContent).not.toContain('Your turn');
   });
 
-  /**
-   * A colour is not a fact that reaches everyone, and with the words gone the mark's own name is what carries it:
-   * a reader gets the phase per row, which is more than a card-level pill ever said about which session it meant.
-   */
+  /** Require an accessible phase name on each session dot. */
   it('leaves the phase on the mark a reader can hear, now that no words carry it', () => {
     const card = sendCard(
       [
@@ -888,10 +860,7 @@ describe('reported activity', () => {
     expect(card.querySelector('.badge.your-turn')).toBeNull();
   });
 
-  /**
-   * The phase and whether the agent still has the session open are what the row used to spend a word on. The word is
-   * not lost: it is the mark's own name, because a hue reaches only some readers.
-   */
+  /** Expose phase and liveness through the dot accessible name as well as color and fill. */
   it.each([
     ['running', false, 'running, open'],
     ['waiting', false, 'waiting for input, open'],
@@ -926,10 +895,7 @@ describe('reported activity', () => {
     expect(without!.disabled).toBe(true);
   });
 
-  /**
-   * A card holds several sessions, and the loudest of them is what the card is: `attentionOf` returns `blocked` where
-   * any live session waits, so the border is the most urgent. Only the row it is about is painted with it.
-   */
+  /** The card uses the highest-priority attention state; only the corresponding session row uses that color. */
   it('paints only the row the mark is about, and leaves the others on their own state', () => {
     const card = sendCard(
       [withPhase('idle', Date.now(), { sessionId: 's-idle' }), withPhase('waiting', Date.now(), { sessionId: 's-wait' })],
@@ -1018,10 +984,7 @@ describe('reported activity', () => {
     expect(tipOf(state)).not.toContain('working');
   });
 
-  /**
-   * A colour is the one thing on a row that cannot be read, so the mark is the one thing on it that earns a hover.
-   * The fill is the second half of what it means, and a saved row says what its own hollow mark is about.
-   */
+  /** Describe phase and liveness in dot tooltips, with matching literal expectations in both clients. */
   it.each([
     ['running', false, 'Turn in progress.'],
     ['waiting', false, 'Waiting for your input.'],
@@ -1039,10 +1002,7 @@ describe('reported activity', () => {
     expect(tipOf(card.querySelector('.dot'))).toBe('No activity reported.');
   });
 
-  /**
-   * The anchor does not move, so its age is a function of the clock: the text has to advance with no message from the
-   * extension host and no read of the machine behind it.
-   */
+  /** Duration must advance from the clock without another host message or machine read. */
   it('advances the duration on its own clock, with nothing arriving from the host', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-02T12:00:00Z'));
@@ -1069,10 +1029,7 @@ describe('reported activity', () => {
     expect(tickMs).toBe(1_000);
   });
 
-  /**
-   * The same table the overlay's suite asserts, against literal strings: `ago` exists in both clients because neither
-   * can import `core` at runtime, and a copy that drifts reads a duration in a unit the other board never shows.
-   */
+  /** Verify identical literal duration formatting in both clients, which cannot share runtime imports. */
   it.each(AGO_ROWS)('reads a duration of %s', (_rung, ms, expected) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-02T12:00:00Z'));
@@ -1129,10 +1086,8 @@ describe('reported activity', () => {
 });
 
 /**
- * What the tick is allowed to cost. The overlay's twin runs under a `MutationObserver` that answers a `childList`
- * record with a repaint of the whole board, so a duration advancing must write through the text node it already
- * has. This board has no such observer, but the same write is what stops a row relaying out once a second under a
- * label carrying a running animation — and the two copies are held to one rule.
+ * Update existing text nodes. childList mutations would trigger overlay scans; both clients preserve rows and
+ * running animations.
  */
 describe('what a second costs', () => {
   const AGE = '[data-gc-since]';
@@ -1214,10 +1169,7 @@ describe('what a second costs', () => {
     }
   });
 
-  /**
-   * One attribute for every duration, so one pass advances them all. A writer left on an old name would tick
-   * nothing and no other assertion here would notice — the count is what says every age is reached.
-   */
+  /** Assert the updated duration count so an obsolete attribute cannot silently exclude a duration type. */
   it('carries one age attribute and none of the three it replaced', () => {
     everyAge();
 
@@ -1594,10 +1546,8 @@ describe('lanes', () => {
 });
 
 /**
- * The ladder is duplicated into every board: `media/board.js` is a classic script and the Chrome overlay is plain
- * JavaScript, so neither can import `core`'s `sessionLabel`. This table is the same one asserted in
- * `packages/core/test/roster.test.ts` and in the overlay's suite, against literal strings rather than a computed
- * expectation — a copy that drifts fails here rather than quietly naming a session something else.
+ * Verify the same literal session-label precedence in core and both clients, which cannot import core at
+ * runtime.
  */
 describe('the session label ladder', () => {
   const rows: [string, Partial<Session>, string][] = [
@@ -1651,8 +1601,7 @@ describe('historical rows', () => {
     expect(tipOf(row.querySelector('.state'))).toContain('Last saved');
     expect(row.tagName).toBe('SPAN');
     expect(row.querySelector('button, a')).toBeNull();
-    // Not the age attribute, which every duration on the board now carries: what says this row reports no phase is
-    // the row carrying none and its mark saying so.
+    // Assert phase absence on the row and dot; the age attribute alone does not establish it.
     expect(row.dataset.phase).toBeUndefined();
     expect(row.querySelector<HTMLElement>('.dot')?.dataset['phase']).toBe('none');
     row.click(); expect(sent()).toEqual([]);
@@ -1664,9 +1613,7 @@ describe('historical rows', () => {
     expect(document.querySelector('.historical')).not.toBeNull();
   });
   /**
-   * R6 past the session's own process: a filled mark says the process is running, so a reading kept past it is drawn as an outline in the
-   * phase's own colour. The row carries the rendered phase rather than the recorded one, because `data-phase` also drives the running
-   * shimmer and the your-turn tone, and both are claims about a session that still has a process.
+   * Set retained phase on the row and unfilled dot. Map ended running sessions to idle (R6).
    */
   it.each([
     ['waiting', 'waiting', 'waiting for your input'],
@@ -1686,8 +1633,7 @@ describe('historical rows', () => {
     expect(row.querySelector<HTMLElement>('.dot')?.dataset['live']).toBe('false');
     expect(tipOf(row.querySelector('.dot'))).toContain(said);
     expect(tipOf(row.querySelector('.dot'))).toContain('PreToolUse');
-    // The reading's own event, so the duration is the age of what the mark claims rather than of the last transcript write — and the hover
-    // names that same moment, since a value and a tooltip disagreeing about one row is two of the board's claims about it (R24).
+    // Use retained event time for both duration and tooltip instead of transcript modification time (R24).
     expect(row.querySelector('.state')?.textContent).toBe('5m');
     expect(tipOf(row.querySelector('.state'))).toContain('Last seen');
     expect(tipOf(row.querySelector('.state'))).toContain(new Date(at).toLocaleString());
@@ -1729,7 +1675,7 @@ it('makes a historical title openable when the host offers it, including after a
   send(message({ lanes: lanes({ build: [pastCard] }), openable: ['past'] }));
   const button = document.querySelector<HTMLButtonElement>('button.historical')!;
   expect(button.querySelector('.session-label')?.textContent).toBe('Past attempt'); expect(button.draggable).toBe(false);
-  // A saved session has no process to attach to, so the editor is the only destination it has.
+  // Saved sessions must resume in the editor; there is no process to attach to.
   expect(button.querySelector('.destination')?.getAttribute('data-destination')).toBe('editor');
   button.click(); expect(sent()).toEqual([{ type: 'openSession', sessionId: 'past' }]);
   expect(tipOf(button)).toBe('');
@@ -1739,11 +1685,7 @@ it('makes a historical title openable when the host offers it, including after a
   expect(document.querySelector('button.historical')).toBeNull();
 });
 
-/**
- * The card reads in two halves, the way the browser overlay's does: what GitHub says about the issue, and then what
- * this board adds on top of it. A chip that drifts from one half to the other puts the board's own reading among
- * GitHub's facts, which is the confusion the split exists to end.
- */
+/** Keep GitHub issue details separate from the Ground Control footer, matching the overlay. */
 describe('what GitHub says, and what the board adds', () => {
   const triage: NonNullable<LanedCard['triage']> = { state: 'done', action: 'address-review', qualifier: 'followup', detail: 'Answer the naming notes.', at: Date.now(), stale: false };
   const waiting: Session = { ...session, activity: { phase: 'waiting', since: Date.now(), at: Date.now(), event: 'Notification' } };
@@ -1812,10 +1754,7 @@ describe('what GitHub says, and what the board adds', () => {
     expect(document.querySelectorAll('.card > .session')).toHaveLength(0);
   });
 
-  /**
-   * A reading and a run change nothing else about a card, so a card already on the board is only redrawn for them if
-   * the signature says so. Without that the footer stays empty for the whole time a card sits on a live board.
-   */
+  /** Include triage and action state in the card signature so their changes rebuild the footer. */
   it('fills in when a reading lands on a card already on the board', () => {
     const bare = { ...liveCard, sessions: [] };
 
@@ -1850,8 +1789,7 @@ describe("the card's own menu", () => {
   const menu = () => document.querySelector<HTMLElement>('.card-popover');
   const items = () => Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button'));
 
-  // Closed the way the board closes it, not by yanking the node: the document handlers a menu installs are
-  // released by `closeMenu`, and a test that left them installed would leak one pair per test.
+  // Close through closeMenu to remove document handlers between tests.
   afterEach(() => document.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
   it('hangs from a control on the card header, named for the card it acts on', () => {
@@ -1959,7 +1897,7 @@ describe("the card's own menu", () => {
   });
 
   // The menu is the last thing in the document, so a Tab it did not handle would land at the far end of the board.
-  it('closes on Tab, leaving the focus on the control the browser then tabs on from', () => {
+  it('closes on Tab and continues navigation from the control', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
     control()!.click();
 
@@ -1973,7 +1911,7 @@ describe("the card's own menu", () => {
     expect(tab.defaultPrevented).toBe(false);
   });
 
-  it('opens from the keyboard on either arrow, taking the end the arrow points at', () => {
+  it('opens at the first or last item with arrow keys', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
     control()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
@@ -2022,7 +1960,7 @@ describe("the card's own menu", () => {
   });
 
   // `cardEls` keeps the element of a card the archive toggle is hiding, so being on the board is not being on screen.
-  it('closes rather than re-anchoring to a card the archive toggle has taken off screen', () => {
+  it('closes menus when their archive card is hidden', () => {
     const archived = { ...liveCard, key: 'issue:404', lane: 'archived' as const };
 
     send(message({ lanes: lanes({ archived: [archived] }) }));
@@ -2037,7 +1975,7 @@ describe("the card's own menu", () => {
     expect(menu()).toBeNull();
   });
 
-  it('keeps naming its menu after a refresh has rebuilt the card under it', () => {
+  it('preserves the menu accessible name after card rebuild', () => {
     const running: Session = { ...session, activity: { phase: 'running', since: Date.now(), at: Date.now(), event: 'UserPromptSubmit' } };
 
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [running] }] }) }));
@@ -2059,7 +1997,7 @@ describe("the card's own menu", () => {
     expect(menu()).toBeNull();
   });
 
-  it('names the menu it opened, so the control points at the one on the document', () => {
+  it('updates aria-controls to the current menu', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
     control()!.click();
 
@@ -2080,16 +2018,14 @@ describe("the card's own menu", () => {
   /** A card the hub found no checkout for carries no such field at all, which is not the same as carrying undefined. */
   const { checkout: _resolved, ...noCheckout } = liveCard;
 
-  // A menu whose every item could only refuse is worse than no menu — the rule the session rows already follow.
-  // Ad-hoc work whose directory has gone is the card that reaches it: no checkout to open, and no issue to name a
-  // repository a picked folder could be checked against.
-  it('is absent on a card with nothing to offer — no checkout, and no issue to choose one for', () => {
+  // Omit menus without available actions, including ad-hoc cards whose checkout no longer exists.
+  it('omits menus with no available actions', () => {
     send(message({ lanes: lanes({ unstarted: [{ ...noCheckout, issue: null, issueNumber: null }] }) }));
 
     expect(control()).toBeNull();
   });
 
-  it('offers a folder to an issue card with no checkout, which is the one thing that would give it one', () => {
+  it('offers checkout selection for issues without a checkout', () => {
     send(message({ lanes: lanes({ unstarted: [{ ...noCheckout, sessions: [] }] }) }));
     control()!.click();
 
@@ -2112,9 +2048,8 @@ describe("the card's own menu", () => {
     ]);
   });
 
-  // M51: `chatgpt.newCodexPanel` takes no arguments, so the prompt is dropped — and the item says so rather than
-  // letting a developer with a configured prompt believe it reached the session.
-  it('says on the item itself which agent’s start cannot carry the prompt', () => {
+  // Codex new-panel commands accept no prompt; the menu must disclose this when a prompt is configured (M51).
+  it('labels agents that cannot accept a start prompt', () => {
     send(message({
       lanes: lanes({ build: [liveCard] }),
       startable: [{ agent: 'claude', takesPrompt: true }, { agent: 'codex', takesPrompt: false }],
@@ -2125,7 +2060,7 @@ describe("the card's own menu", () => {
     expect(tipOf(items()[3])).toContain('no way in that takes a prompt');
   });
 
-  it('sends the card and the agent the item was drawn for, and nothing about where it runs', () => {
+  it('sends only the selected card and agent', () => {
     send(message({ lanes: lanes({ build: [liveCard] }), startable: [{ agent: 'claude', takesPrompt: true }] }));
     control()!.click();
     items()[2]!.click();
@@ -2145,14 +2080,14 @@ describe("the card's own menu", () => {
   });
 
   // A browser board is resident in nothing, and a hub sends it an empty list — so the same card draws no start.
-  it('offers no start where the host named no agent, rather than guessing one', () => {
+  it('omits start actions without host capabilities', () => {
     send(message({ lanes: lanes({ build: [liveCard] }), startable: [] }));
     control()!.click();
 
     expect(items().map((item) => item.textContent)).toEqual(['View changes', 'Open in VS Code']);
   });
 
-  it('follows the card it belongs to when a refresh rebuilds it, and goes when the card does', () => {
+  it('reanchors menus on rebuild and closes them on card removal', () => {
     const running: Session = { ...session, activity: { phase: 'running', since: Date.now(), at: Date.now(), event: 'UserPromptSubmit' } };
     const working: LanedCard = { ...liveCard, sessions: [running] };
 
@@ -2174,7 +2109,7 @@ describe("the card's own menu", () => {
   });
 });
 
-describe('what a card was read to be waiting on (R38)', () => {
+describe('card triage (R38)', () => {
   const at = Date.UTC(2026, 8, 1, 19, 0, 0);
 
   /** The status moved at `moved`, which is a different time from `at` — a test must not pass on the wrong one. */
@@ -2186,7 +2121,7 @@ describe('what a card was read to be waiting on (R38)', () => {
     return document.querySelector<HTMLElement>('.badge.triage, .badge.triage-running, .badge.triage-failed');
   }
 
-  it('says a card is being read, and asks nothing of the developer while it does', () => {
+  it('shows triage progress without attention styling', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'running' })] }) }));
 
     expect(chip()?.textContent).toBe('Reading…');
@@ -2195,11 +2130,8 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(document.querySelector('.triage-again')).toBeNull();
   });
 
-  /**
-   * Two ages are in play and only one is on the chip: how long the card has held its status, which is what says
-   * whether a reading is still the card to pick up. When the board decided is in the tooltip with the sentence.
-   */
-  it('names the action, ages the status on the chip, and holds the sentence and the reading age on hover', () => {
+  /** Display status age on the chip and classification time in its tooltip. */
+  it('shows action and status age with classification details on hover', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-06T19:00:00Z'));
 
@@ -2286,7 +2218,7 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(chip()?.textContent).toBe('Merge upstream');
   });
 
-  it('marks a reading the card has moved under, rather than presenting it as current', () => {
+  it('marks stale classifications', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-06T19:00:00Z'));
 
@@ -2305,14 +2237,14 @@ describe('what a card was read to be waiting on (R38)', () => {
     }
   });
 
-  it('carries nothing at all on a card that has not been read', () => {
+  it('omits triage for unclassified cards', () => {
     send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
 
     expect(chip()).toBeNull();
     expect(document.querySelector('.triage-again')).toBeNull();
   });
 
-  it('gives a card it could not read somewhere to press, with no words about why', () => {
+  it('offers retry for failed triage', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 2, exhausted: false })] }) }));
 
     expect(chip()?.textContent).toBe('Not read');
@@ -2328,7 +2260,7 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(tipOf(chip())).toContain('Automatic retries stopped');
   });
 
-  it('never paints a reading in a colour R6 keeps for the two things that want the developer', () => {
+  it('keeps triage separate from attention colors', () => {
     send(
       message({
         lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'merge-upstream', qualifier: null, detail: 'Merge it.', at, stale: false })] }),
@@ -2356,11 +2288,8 @@ describe('what a card was read to be waiting on (R38)', () => {
     expect(Array.from(end.children).map((el) => el.className)).toEqual(['triage-age', 'triage-again']);
   });
 
-  /**
-   * Reading a card again spends the developer's usage, so it takes a press of its own: the chip carries a sentence
-   * worth clicking to see in full, and that click must not have been the one that started a read.
-   */
-  it('asks for the card to be read again from its own control, and from nowhere else on the chip', () => {
+  /** Keep the paid retriage action separate from opening the classification explanation. */
+  it('requests retriage only from its dedicated control', () => {
     send(
       message({
         lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'other', qualifier: null, detail: 'Unclear.', at, stale: false })] }),
@@ -2393,7 +2322,7 @@ describe('what a card was read to be waiting on (R38)', () => {
   });
 });
 
-describe('what the board can do about a card reading (R39)', () => {
+describe('card actions (R39)', () => {
   const at = Date.UTC(2026, 8, 1, 19, 0, 0);
 
   function acting(action: NonNullable<LanedCard['action']>): LanedCard {
@@ -2415,16 +2344,14 @@ describe('what the board can do about a card reading (R39)', () => {
     expect(sent()).toContainEqual({ type: 'runAction', key: 'issue:18953' });
   });
 
-  it('says a run is working and offers to take it back, rather than starting a second one', () => {
+  it('offers stop for a running action', () => {
     send(message({ lanes: lanes({ unstarted: [acting({ state: 'running', action: 'merge-upstream', since: at })] }) }));
 
     expect(chip()?.textContent).toBe('Working…');
     chip()?.click();
 
     expect(sent()).toContainEqual({ type: 'stopAction', key: 'issue:18953' });
-    // Work the board started is work in progress, which is the one thing a card is not asking the developer for —
-    // so the chip is none of R6's three channels. Asserted through the badge's own colour, which is what would
-    // change if it ever became one; the card's attention attribute is absent on this card either way.
+    // Keep dispatched-work styling neutral; it does not imply session attention.
     expect(chip()?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
   });
 
@@ -2444,7 +2371,7 @@ describe('what the board can do about a card reading (R39)', () => {
     });
   }
 
-  it('offers a finished run again, so a card the board stopped short on is one press from another try', () => {
+  it('offers retry for finished actions', () => {
     send(message({ lanes: lanes({ unstarted: [acting(outcomes[1]![0])] }) }));
 
     chip()?.click();
@@ -2453,7 +2380,7 @@ describe('what the board can do about a card reading (R39)', () => {
   });
 
   /** The remedy for a refusal is a setting or the card itself, so pressing again would only refuse again. */
-  it('says why the board will not act, and gives nothing to press', () => {
+  it('shows action refusals without a control', () => {
     send(
       message({
         lanes: lanes({
@@ -2467,7 +2394,7 @@ describe('what the board can do about a card reading (R39)', () => {
     expect(chip()?.tagName).toBe('SPAN');
   });
 
-  it('draws nothing at all on a card the board has no action for', () => {
+  it('omits absent card actions', () => {
     send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
 
     expect(chip()).toBeNull();
@@ -2480,11 +2407,7 @@ describe('what the board can do about a card reading (R39)', () => {
   });
 });
 
-/**
- * The parity table. `media/board.js` is a classic script and imports nothing from `packages/board`, so its copy of
- * the labels is pinned by asserting the same literals here that `packages/board`'s own suite asserts. A copy that
- * drifts labels a card one way in the editor and another in the browser (`docs/testing.md`).
- */
+/** Verify literal triage labels against packages/board and both clients, which cannot share runtime imports. */
 describe('triage labels read the same on every board', () => {
   const rows: [string, string | null, string][] = [
     ['develop', null, 'Develop'],
@@ -2535,10 +2458,10 @@ describe("the board's own menu", () => {
     send({ type: 'logs', streaming: false });
   });
 
-  // Closed the way the board closes it, so the document handlers a menu installs are released with it.
+  // Close through closeMenu to remove document handlers between tests.
   afterEach(() => document.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
-  it('holds what the board itself can be asked to do, the archive among them where there is one', () => {
+  it('lists board actions and the archive toggle when available', () => {
     control().click();
 
     expect(items().map((el) => el.textContent)).toEqual([
@@ -2614,7 +2537,7 @@ describe("the board's own menu", () => {
   });
 
   // Three items deep, a tooltip under the first one covers the two below it, and the menu opens with focus on it.
-  it('leaves the tooltip shut when a menu hands its first item the keyboard', () => {
+  it('suppresses tooltips on menu focus', () => {
     vi.useFakeTimers();
 
     try {
@@ -2644,21 +2567,13 @@ describe("the board's own menu", () => {
     expect(item('Refresh').querySelector('.menu-check')?.textContent).toBe('');
   });
 
-  /**
-   * The one signal that this script has run. A webview reloads on its own — a tab returning from the background, a
-   * renderer restored — and the panel is not told; without this the button would sit reading off while the window
-   * was streaming, and the developer's first click would stop the stream instead of starting it.
-   */
-  it('says it is ready, so the extension can tell it the state of the controls it owns', () => {
+  /** The ready message must restore controls after webview reloads, even without a visibility change. */
+  it('reports ready to restore extension-owned control state', () => {
     expect(onLoad).toContainEqual({ type: 'ready' });
   });
 });
 
-/**
- * The board draws its own tooltip rather than leaving `title` to the browser: the native one opens after about a
- * second, in the operating system's shape, and cannot be made to match the editor. GitHub's own geometry and
- * timing (`docs/mechanics.md` M35), so the two boards read the same — the parity table below is what pins that.
- */
+/** Verify shared tooltip geometry and timing measured from GitHub (mechanics M35). */
 describe('the tooltip', () => {
   const tip = () => document.getElementById('tip');
   const open = () => tip()?.getAttribute('data-open') ?? null;
@@ -2675,7 +2590,7 @@ describe('the tooltip', () => {
     vi.useRealTimers();
   });
 
-  it('draws nothing until a pointer has rested on something that says something', () => {
+  it('waits for the tooltip hover delay', () => {
     const avatarEl = document.querySelector('.avatar')!;
 
     hover(avatarEl);
@@ -2689,7 +2604,7 @@ describe('the tooltip', () => {
   });
 
   /** One node for the whole board: a render replaces every card, and a node per anchor would be built by the hundred. */
-  it('reuses one element however many things are hovered', () => {
+  it('reuses one tooltip element', () => {
     for (const el of Array.from(document.querySelectorAll('[data-gc-tip]'))) {
       hover(el);
       vi.advanceTimersByTime(120);
@@ -2699,7 +2614,7 @@ describe('the tooltip', () => {
   });
 
   /** A child would be part of `textContent`, and every label that reads its own would gain the tooltip's words. */
-  it('leaves the text of what it names alone', () => {
+  it('preserves anchor text', () => {
     const avatarEl = document.querySelector('.avatar')!;
 
     hover(avatarEl);
@@ -2745,10 +2660,10 @@ describe('the tooltip', () => {
   });
 
   /**
-   * The description is on the anchor and always there, not written as the tooltip opens: one written on `focusin`
-   * lands 120ms after focus was announced, and a reader never hears it. `title` had this for free.
+   * Set accessible descriptions before focus; adding them after the tooltip delay misses the focus
+   * announcement.
    */
-  it('describes what it names before anything is hovered at all', () => {
+  it('sets accessible descriptions before hover', () => {
     expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
     expect(document.querySelector('.session')!.getAttribute('aria-label')).toContain('open this session');
     // The state is the row's described half: what the board saw is the part not written on the row.
@@ -2771,15 +2686,15 @@ describe('the tooltip', () => {
     expect(document.querySelector('.avatar')!.hasAttribute('aria-description')).toBe(false);
   });
 
-  it('opens on focus, for a developer who never touches the pointer', () => {
+  it('opens tooltips on keyboard focus', () => {
     document.querySelector('.avatar')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     vi.advanceTimersByTime(120);
 
     expect(open()).toBe('true');
   });
 
-  /** `mouseout` fires as the pointer crosses an anchor's own children; closing there shuts and reopens it. */
-  it('stays open as the pointer crosses its anchor own children', () => {
+  /** Keep tooltips open when moving between children of their anchor. */
+  it('keeps tooltips open across anchor children', () => {
     // The reading is the chip that carries a tooltip and holds children of its own: an age, and a control.
     send(
       message({
@@ -2806,8 +2721,8 @@ describe('the tooltip', () => {
     expect(open()).toBe('true');
   });
 
-  /** A render inside the delay replaces what the pointer was over; a detached anchor measures zero at the origin. */
-  it('never opens against an anchor the board has replaced', () => {
+  /** Ignore anchors removed during the delay; their zero-sized bounds would place the tooltip in a corner. */
+  it('ignores removed tooltip anchors', () => {
     const avatarEl = document.querySelector('.avatar')!;
 
     hover(avatarEl);
@@ -2848,7 +2763,7 @@ describe('the tooltip', () => {
   });
 
   /** The rule the parity table names, applied — a stylesheet that stopped reaching the node would pass that table. */
-  it('draws it in the shape the parity table pins', () => {
+  it('matches shared tooltip geometry', () => {
     hover(document.querySelector('.avatar')!);
     vi.advanceTimersByTime(120);
 
@@ -2864,7 +2779,7 @@ describe('the tooltip', () => {
     expect(drawn.pointerEvents).toBe('none');
   });
 
-  it('is drawn nowhere until something is hovered', () => {
+  it('keeps the tooltip hidden before hover', () => {
     expect(getComputedStyle(tipElementForTest()).display).toBe('none');
   });
 
@@ -2877,8 +2792,8 @@ describe('the tooltip', () => {
   }
 
   /**
-   * Nothing may set `title`, in the attribute or as an SVG `<title>` child — the browser draws its own from either,
-   * beside ours. The card carries every branch that draws one, or the count holds for a board that drew none of them.
+   * Exercise all tooltip branches and assert that neither title attributes nor SVG title nodes add duplicate
+   * native tooltips.
    */
   it('sets no native tooltip anywhere on the board', () => {
     send(
@@ -2904,12 +2819,7 @@ describe('the tooltip', () => {
   });
 });
 
-/**
- * The parity table for the durations. Both boards write the same attribute and tick it the same way, and neither
- * can import the other, so each suite asserts the same rows: the element a kind of age is drawn on, the attribute
- * that marks it, and the literal the tick puts in it. A board that renamed the attribute on its own would leave
- * the other's tick selecting nothing, which is a board whose durations quietly stop.
- */
+/** Verify each duration element, timestamp attribute, and literal timer output in both clients. */
 describe('the age attribute both boards share', () => {
   const held = Date.UTC(2026, 8, 7, 12, 0, 0);
 

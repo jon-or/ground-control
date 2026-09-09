@@ -101,11 +101,7 @@ describe('what the board will act on', () => {
     });
   });
 
-  /**
-   * R39: the board derives no merge of its own, so the action is the one the card was read to need. Nothing here
-   * asks GitHub whether a merge is warranted — an already-current branch merges to a no-op, and a branch that will
-   * not merge is not the developer to fix.
-   */
+  /** The requested action supplies merge intent; eligibility does not derive a merge from branch state (R39). */
   it('plans the action it was given rather than deciding one from mergeability', () => {
     expect(plan()).toMatchObject({ plan: { action: 'merge-upstream' } });
     expect(plan({ checkState: 'FAILURE' })).toMatchObject({ plan: { action: 'merge-upstream' } });
@@ -167,10 +163,7 @@ describe('what evidence a run is authorised against', () => {
     expect(actionEvidence(context())).not.toBe(actionEvidence(context({ headOid: 'ffff' })));
   });
 
-  /**
-   * The base branch moves all day without this card changing, so authorising against anything but the branch own
-   * head would spend a run every time somebody else landed something.
-   */
+  /** Base-branch changes must not authorize another run against the same PR head. */
   it('does not move for anything else about the card', () => {
     expect(actionEvidence(context({ checkState: 'FAILURE' }, { title: 'renamed', status: '🔍 Dev Review' }))).toBe(
       actionEvidence(context()),
@@ -196,7 +189,7 @@ describe('whether an action is turned on', () => {
     expect(actionEnabled('merge-upstream', settings())).toBe(true);
   });
 
-  it('reports no prompt where one is only whitespace, so a blank setting is off rather than an empty run', () => {
+  it('treats whitespace-only prompts as missing', () => {
     expect(promptFor('merge-upstream', settings({ actions: { 'merge-upstream': { enabled: true, prompt: ' ' } } }))).toBe(null);
     expect(promptFor('merge-upstream', settings())).toBe('/or-merge {base} {branch} {issue} --single');
     expect(promptFor('merge-upstream', settings({ actions: {} }))).toBe(null);

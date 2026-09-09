@@ -71,7 +71,7 @@ describe('the argv a classification is run with', () => {
     }
   });
 
-  it('passes no --model where none is configured, rather than a blank one', () => {
+  it('omits --model when unconfigured', () => {
     expect(classifyArgs(input({ model: null }))).not.toContain('--model');
   });
 

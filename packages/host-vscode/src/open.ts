@@ -2,13 +2,10 @@ import { basename, dirKey, sessionLabel } from '@ground-control/core';
 import type { CheckoutRequest, HostWindow, OpenOutcome, OpenPlan, OpenRequest, OpenRoute, Session, StartRequest, StartableAgent } from '@ground-control/core';
 import type { AgentPlacement } from './placements.js';
 
-/**
- * How long after a session starts its surface may still be missing from VS Code's store, which is flushed on a 63 s
- * cycle rather than on change: younger than this, a session is not yet placeable rather than unplaceable (M21).
- */
+/** Allow 120 seconds for new sessions to appear in VS Code storage, which flushes every 63 seconds (M21). */
 export const SETTLING_MS = 120_000;
 
-/** Every route `planOpen` can return, which is the host's whole vocabulary for reaching a session. */
+/** Routes supported by the VS Code host. */
 export const VSCODE_ROUTES: readonly OpenRoute['route'][] = [
   'resume-here',
   'resume-elsewhere',
@@ -23,46 +20,40 @@ export const VSCODE_ROUTES: readonly OpenRoute['route'][] = [
 ];
 
 /**
- * Whether an open in this window landed. `executeCommand` resolves either way (`docs/mechanics.md` M8), so a new tab
- * is the evidence — except for a session already open here, which is revealed: that adds no tab but does focus one.
+ * `executeCommand` resolves even when no tab opens (M8). Confirm a new tab or an active agent panel; revealing
+ * an existing session adds no tab.
  */
 export function verifyOpen(before: number, after: number, agentPanelActive: boolean): OpenOutcome {
   return after > before || agentPanelActive ? 'opened' : 'no-tab';
 }
 
-/**
- * Whether `code` would reopen a root as the window it names. A window the developer never saved is backed by a
- * generated `workspace.json` under VS Code's own storage, which `code` opens as a file rather than as a workspace.
- */
+/** Unsaved windows use a generated `workspace.json`, which `code` opens as a file instead of a workspace. */
 function reopenable(root: string): boolean {
   return basename(root).toLowerCase() !== 'workspace.json';
 }
 
-/** A multi-root window's own name. A lock file lists the folders inside such a workspace and never the file itself. */
+/** Identify a saved multi-root workspace. Lock files list its folders, not its workspace file. */
 function workspaceFile(root: string): boolean {
   return root.toLowerCase().endsWith('.code-workspace');
 }
 
 /**
- * The path `code` is given for the window the join found. The record wins where it still describes that window, being
- * the only thing that names a multi-root one; a stale record would point `code` at a window the session is not in.
+ * Choose the target window path. Prefer a recorded workspace file or matching folder; ignore stale folder
+ * records.
  */
 function windowRoot(recorded: string | null, window: HostWindow): string | null {
   if (recorded !== null && (workspaceFile(recorded) || window.folders.some((f) => dirKey(f) === dirKey(recorded)))) {
     return recorded;
   }
 
-  // Only a window with exactly one folder can be named by it: a folder of a multi-root window opens a second window
-  // on that folder alone rather than raising the one already showing the session.
+  // A folder identifies only a single-folder window. Passing a multi-root folder to `code` opens a separate
+  // window.
   const [only, second] = window.folders;
 
   return only !== undefined && second === undefined ? only : null;
 }
 
-/**
- * Where to open a session, or why the board will not. The window holding it decides where it opens, and the surface
- * decides how: asking for a session the sidebar holds as a tab opens a second agent on it rather than the first.
- */
+/** Route by window and surface. Opening a sidebar session as a tab would start a duplicate agent. */
 export function planOpen(
   request: OpenRequest,
   placements: Readonly<Record<string, AgentPlacement>>,
@@ -70,9 +61,8 @@ export function planOpen(
 ): OpenPlan {
   const session = request.sessions.find((candidate) => candidate.sessionId === request.sessionId);
 
-  // Before anything about windows: a detached run is not openable here at all. Opening a session in an editor resumes
-  // it, and the CLI refuses that while the run's own process still holds the conversation, whether or not the run has
-  // finished its turn - the process it starts exits 1 (`docs/mechanics.md` M33).
+  // Reject detached runs before routing. Resuming while the background process exists exits 1, even after its
+  // turn finishes (M33).
   if (session?.attachId != null) {
     return {
       refusal: 'attach-only',
@@ -116,8 +106,7 @@ export function planOpen(
   }
 
   const held = request.surfaces.find((surface) => surface.sessionId === session.sessionId);
-  // A record `code` would not reopen as a window is no argument for one: a window the developer never saved is backed
-  // by a generated `workspace.json`, which `code` opens as a file.
+  // Exclude generated `workspace.json` paths, which `code` opens as files.
   const recorded = held !== undefined && reopenable(held.root) ? held.root : null;
   const root = request.window === null ? recorded : windowRoot(recorded, request.window);
 
@@ -142,8 +131,8 @@ export function planOpen(
 
   const here = request.workspaceRoot !== null && dirKey(root) === dirKey(request.workspaceRoot);
 
-  // `code` on a folder no window has open opens a new one, where the session is not, so the fire would land on a
-  // fresh agent. The join proves itself; a lock never names a `.code-workspace`, so that record answers for itself.
+  // Require an open window to avoid starting a duplicate agent. Saved multi-root records suffice because lock
+  // files do not identify workspace files.
   const live =
     here ||
     request.window !== null ||
@@ -164,9 +153,8 @@ export function planOpen(
     };
   }
 
-  // A hand-over is revealed by the window that received it, or refused there. The window that raised this one read
-  // the same records, so a plan that still says elsewhere is one that has been followed once already — and firing
-  // again is how two windows pass a session back and forth (M45).
+  // A receiving window must open locally or refuse. Forwarding again can send the session between two windows
+  // indefinitely (M45).
   if (!here && request.handedOver === true) {
     return {
       refusal: 'elsewhere-not-allowed',
@@ -174,8 +162,8 @@ export function planOpen(
     };
   }
 
-  // Which window holds it is known and which surface is not. An idempotent reveal is fired anyway — it names the
-  // session and re-activates whatever holds it (M44) — where a guess at Claude's runs a second agent on one (M21).
+  // Only idempotent reveal is safe when the window is known but its surface is not. Guessing for Claude can
+  // start a duplicate agent (M21, M44).
   if (!held) {
     if (!placement.idempotentReveal) {
       return here
@@ -198,32 +186,27 @@ export function planOpen(
 }
 
 /**
- * A session that started while an open was in flight. Revealing creates nothing, so anything new is evidence of a
- * miss: the URI follows the focused window, and a window that took focus first gets a fresh agent (M7).
+ * Find unexpected sessions created during an open. A reveal should create none; focus changes can send the URI
+ * to another window and start an agent (M7).
  */
 export function strayFrom(before: readonly Session[], after: readonly Session[], expectedSessionId?: string): Session | null {
-  const had = new Set(before.map((session) => session.sessionId));
+  const previousSessionIds = new Set(before.map((session) => session.sessionId));
 
-  return after.find((session) => session.sessionId !== expectedSessionId && !had.has(session.sessionId)) ?? null;
+  return after.find((session) => session.sessionId !== expectedSessionId && !previousSessionIds.has(session.sessionId)) ?? null;
 }
 
-/** A resume may create a process only after a complete read proves that nobody already holds this session. */
+/** Require a complete roster read before resuming to exclude active copies of the session. */
 export function resumeRefusal(sessionId: string, roster: readonly Session[] | null): string | null {
   if (roster === null) return 'Could not verify whether this session is active. Refresh the board and try again.';
   if (roster.some((s) => s.sessionId === sessionId && !s.finished)) return 'This session is already active. Refresh the board to open it.';
-  // A detached run stays on the roster after its turn, and its process goes on holding the conversation — which is
-  // what makes a resume exit 1 rather than continue it (M33). Finished is not gone.
+  // A background process may remain after its turn finishes. Resuming while it exists exits 1 (M33).
   if (roster.some((s) => s.sessionId === sessionId && s.attachId !== null)) return 'This is a background run. Attach to it from its board row.';
   return null;
 }
 
 /**
- * Where to open a card's checkout, or why the board will not. Nothing here reads a surface or a session: a
- * directory is reached by `code`, and no record inside a window says which folder it was opened on beyond the
- * folders it has.
- *
- * The reuse rule is `resume-elsewhere`'s, and it matters more here than it looks: `code` given a folder of a
- * multi-root window opens a second window on that folder alone rather than raising the one already showing it.
+ * Choose a checkout window using the same reuse rule as resume. Passing a folder from a multi-root workspace to
+ * `code` opens a separate window.
  */
 export function planCheckout(request: CheckoutRequest, mayOpenWindow: boolean): OpenPlan {
   const { key, root } = request;
@@ -274,10 +257,7 @@ export function planStart(request: StartRequest, placements: Readonly<Record<str
   return { route: 'start-session', key, agent, root, prompt: placement.startTakesPrompt ? prompt : null };
 }
 
-/**
- * The sessions the board offers to open. Every session of an agent placed in this host qualifies wherever it runs,
- * because which window holds it is read at the click rather than at the render.
- */
+/** Offer sessions supported by this host. Resolve their windows when clicked. */
 export function openableSessions(
   sessions: readonly Pick<Session, 'agent' | 'sessionId'>[],
   placements: Readonly<Record<string, AgentPlacement>>,
@@ -285,7 +265,7 @@ export function openableSessions(
   return sessions.filter((session) => session.agent in placements).map((session) => session.sessionId);
 }
 
-/** The agents with a way in, out of the table. A card offers a start for each; none of it depends on the card. */
+/** List agents with a start command; availability does not depend on the card. */
 export function startableAgents(placements: Readonly<Record<string, AgentPlacement>>): StartableAgent[] {
   return Object.entries(placements)
     .filter(([, placement]) => placement.start !== undefined)

@@ -89,7 +89,7 @@ Commands use typed arguments (`text`, `uri`, or `absent`) until they reach the e
 
 ### Work sources
 
-`WorkSource` owns configuration, ordinary item reads, and optional individual-card/context reads. GitHub uses `gh`; it reports source metadata and the accounts actually used for the read.
+`WorkSource` owns configuration, ordinary item reads, and optional individual-card/context reads. GitHub uses `gh`; it reports source metadata and the accounts used for the read.
 
 | Read result | Hub behavior |
 |---|---|
@@ -160,7 +160,7 @@ The hub's directory is `~/.claude/ground-control`, or the corresponding path und
 | `lanes.json` | Manual placements, archived set, acknowledged returns, departure timestamps |
 | `status.json` | Last observed activity by agent and session ID |
 | `triage.json` | Results, evidence, trigger, revision and retry state |
-| `actions.json` | Runs, reconsideration gates, authorization evidence and daily ledger |
+| `actions.json` | Runs, retry delays, authorization evidence and daily ledger |
 | `checkouts.json` | Explicit checkout picks by card |
 | `issues.json` | Cached issue metadata and confirmed missing issues |
 | `runs/` | Session-written action outcomes |
@@ -201,7 +201,7 @@ The card must already have a merge-upstream candidate; a manual request cannot c
 
 Concurrency counts tracked runs as well as dispatches in progress. Defaults are one concurrent run, ten dispatch attempts per rolling 24 hours, and 30 minutes for a dispatched session to appear on the roster. Configuration permits concurrency 1–4, daily limit 0–50, and appearance timeout 1 minute–4 hours. The appearance timeout does not limit the duration of a visible running session.
 
-Automatic attempts are bounded by head commit, outcome, and a 30-minute reconsideration gate. A recorded success blocks automatic repeats after its own push. Failed dispatches can retry and still count toward the daily ledger. Manual requests bypass automatic history but retain safety checks, concurrency limits, and positive daily limits. A zero daily limit disables automatic starts while allowing manual requests.
+Automatic attempts are bounded by head commit, outcome, and a 30-minute retry delay. A recorded success blocks automatic repeats after its own push. Failed dispatches can retry and still count toward the daily ledger. Manual requests bypass automatic history but retain safety checks, concurrency limits, and positive daily limits. A zero daily limit disables automatic starts while allowing manual requests.
 
 [ActionRunner](../packages/hub/src/actions.ts) writes run state and the ledger after dispatch returns. A write failure stops later dispatches but cannot undo an already started process. The daily check does not reserve capacity for pending dispatches, so concurrent requests can exceed the remaining daily allowance. A dispatch failure can also follow process creation when its ID is unreadable; `failed` is not proof that no process started. These are implementation limits, not durable admission guarantees.
 
@@ -310,7 +310,7 @@ The hub writes timestamped, leveled, optionally scoped logs. Persistent failures
 
 Read and stream `hub.log` only while subscribed. Opening sends a disk tail; drop a partial first line. VS Code uses a `LogOutputChannel` for its own messages and a plain output channel for already timestamped hub lines. Streaming state is explicit because VS Code exposes no output-channel visibility event.
 
-The browser combines browser and hub lines in one in-memory sidebar. Its worker aggregates subscribers: first viewer subscribes, last viewer unsubscribes; additional viewers receive the existing spool. Reconnects announce repeated backfill. Closing the last viewer drops hub history, since reopening requests a fresh tail. Outside click closes unless pinned. Creating the sidebar must precede the subscription response.
+The browser combines browser and hub lines in one in-memory sidebar. Its worker aggregates subscribers: first viewer subscribes, last viewer unsubscribes; additional viewers receive the buffered history. Reconnects announce repeated backfill. Closing the last viewer drops hub history, since reopening requests a fresh tail. Outside click closes unless pinned. Creating the sidebar must precede the subscription response.
 
 ## Data boundaries
 

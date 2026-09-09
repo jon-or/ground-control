@@ -31,7 +31,7 @@ import { captureLog, fakeClock, fakeSession, reportingAgent, tempHome } from './
 
 let home: string;
 let dispose: () => void;
-/** A real directory: a card carries no checkout unless its own reads back, and a run is dispatched into this. */
+/** Use a readable directory for checkout validation and dispatch. */
 let CHECKOUT: string;
 
 beforeEach(() => {
@@ -99,11 +99,11 @@ interface Control {
   clock: ReturnType<typeof fakeClock>;
   agent: ReturnType<typeof reportingAgent>;
   cards: IssueCard[];
-  /** The saved sessions on the card. What gives the board a checkout when nothing is running on it. */
+  /** Saved sessions provide checkouts when no session is running. */
   history: HistoricalSession[];
   /** What the fresh read answers. A test changes this to move the card under the runner. */
   pr: Partial<TriagePullRequest> | null;
-  /** What the classifier answers, which is the only thing that says a card is asking for a merge (R39). */
+  /** Classifier result requesting a merge (R39). */
   classified: { action: TriageAction; detail: string };
   /** Every context read the runner made, so a gate that should have stopped one is visible. */
   reads: number[];
@@ -131,16 +131,12 @@ interface Control {
   cardCheckout(): Snapshot['lanes'][number]['cards'][number]['checkout'];
 }
 
-/** A session on the card, which is what a dispatched run becomes and the directory the card's checkout is read from. */
+/** Live session and checkout used for dispatched-run tests. */
 function sessionOn(over: Partial<Session> = {}): Session {
   return fakeSession({ sessionId: 'a1b2c3d4-0000-4000-8000-000000000000', cwd: CHECKOUT, issueNumber: 17198, ...over });
 }
 
-/**
- * `sessions` is seeded before the hub is built rather than assigned afterwards. The hub reads the roster the moment
- * it takes a configuration, and that first read is a good one — so a session added after it would be a session the
- * board legitimately did not know about, which is a different thing from the one these tests are about.
- */
+/** Set sessions before constructing the hub because configuration immediately triggers the first roster read. */
 function harness(
   over: Partial<HubConfig['actions']> = {},
   cards: IssueCard[] = [issue()],
@@ -185,12 +181,7 @@ function harness(
         await Promise.resolve();
       }
     },
-    // Past the source floor and inside the action read gate, so an ordinary pass re-reads the world without making
-    // every card the board has answered for due again. A test that wants the gate to lapse advances `PAST_GATE`,
-    // which is the only way to tell a gate that holds from one that does not.
-    //
-    // The settle first is what makes a pass read what the test just set up: a read already in flight is what a
-    // second ask is handed, so without it the roster the board acts on is the one taken before the test spoke.
+    // Advance beyond source throttling but within the action retry interval; use PAST_GATE to expire it. Complete pending reads first so refresh observes the updated fixture.
     pass: async (advance = 400_000) => {
       await control.settle();
       control.clock.advance(advance);
@@ -235,8 +226,7 @@ function harness(
     readContext: async (card): Promise<ContextReading> => {
       control.reads.push(card.number);
 
-      // Only the runner's own read throws: triage shares this seam, and a card with no reading is a card the runner
-      // never considers, which would make the test about the wrong thing.
+      // Throw only on action context reads; triage must succeed to make the card eligible.
       if (control.readThrows && control.reads.length > 1) {
         throw new Error('the seam threw rather than answering');
       }
@@ -262,8 +252,7 @@ function harness(
     ...agent.adapter,
     // The reading is what asks for a merge, so it is the harness knob for a card the board may act on at all.
     classify: async () => ({ value: control.classified }),
-    // A card the developer has worked on here before. That saved session is the only thing that gives the board a
-    // checkout once nothing is running: a live one would refuse the card under R18, so the two never coincide.
+    // Saved session metadata supplies the checkout without the active session that would block dispatch.
     listHistory: async () => ({ sessions: control.history, failure: null }),
     dispatch: async (input: DispatchInput): Promise<DispatchResult> => {
       control.dispatched.push(input);
@@ -323,8 +312,7 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
       permissionMode: 'manual',
       concurrency: 1,
       dailyLimit: 10,
-      // Longer than the step a pass takes, so a run is not called lost purely because the test clock jumped past the
-      // gate. The test about a session that never appears sets its own.
+      // Keep the registration timeout beyond normal test clock advances; timeout tests override it.
       resultTimeoutMs: 14_400_000,
       actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge {base} {branch} {issue} --single' } },
       ...actions,
@@ -341,8 +329,8 @@ function watch(control: Control, watching = true): void {
 }
 
 describe('dispatching a card action', () => {
-  /** R18: never a second agent on one piece of work, and the card's own checkout is where the work happens. */
-  it('runs the configured prompt in the card own checkout, under the configured permission mode', async () => {
+  /** An active session prevents unattended dispatch into the same checkout. */
+  it('dispatches the configured prompt, checkout, and permission mode', async () => {
     const control = harness({}, [issue()], [sessionOn()]);
     watch(control);
     await control.pass();
@@ -362,18 +350,17 @@ describe('dispatching a card action', () => {
     });
   });
 
-  it('starts nothing at all when the action is turned off', async () => {
+  it('does not dispatch disabled actions', async () => {
     const control = harness({ actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge' } } });
     watch(control);
     await control.pass();
 
     expect(control.dispatched).toEqual([]);
-    // And it never even asked GitHub: a card the board will not act on costs no read of its own. The one read is
-    // triage's, which shares the seam.
+    // Only triage reads context; disabled actions make no additional request.
     expect(control.reads).toEqual([17198]);
   });
 
-  it('starts nothing while no board is watching, however much is due', async () => {
+  it('does not dispatch automatic actions while unwatched', async () => {
     const control = harness();
     watch(control, false);
     await control.pass();
@@ -381,11 +368,8 @@ describe('dispatching a card action', () => {
     expect(control.dispatched).toEqual([]);
   });
 
-  /**
-   * The roster and the sources are read independently, so a hub's first source read lands while the roster is still
-   * empty — and every card then looks like a card nothing is working on, which is the state R18 exists to refuse.
-   */
-  it('starts nothing on a roster it could not read', async () => {
+  /** Source reads can finish before the initial roster read. Do not treat that initial empty roster as proof of inactivity. */
+  it('does not dispatch after roster read failure', async () => {
     const control = harness({}, [issue()], [], {
       subject: 'claude',
       kind: 'agent-missing',
@@ -403,12 +387,8 @@ describe('dispatching a card action', () => {
     expect(control.dispatched).toHaveLength(1);
   });
 
-  /**
-   * The ceilings all live in one file: the run record saying a card is being worked on, the read gate, and the
-   * ledger the daily limit counts. A board that could not write it and carried on would have none of them, and the
-   * next broadcast would find the card due again with nothing spent — a dispatch loop bounded by nothing.
-   */
-  it('stops starting work when it cannot record what it has run, and says so', async () => {
+  /** The action store enforces concurrency, retries, and daily limits. Persistence failure must disable dispatch to prevent unrecorded repeat runs. */
+  it('disables dispatch and reports persistence failure', async () => {
     const control = harness();
     control.storeBroken = true;
     watch(control);
@@ -423,16 +403,16 @@ describe('dispatching a card action', () => {
 
     expect(control.dispatched).toEqual([]);
 
-    // And the developer's own press is refused too, with the reason rather than in silence.
+    // Persistence failure also blocks manual requests and reports its cause.
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
     await control.settle();
 
     expect(control.dispatched).toEqual([]);
-    expect(control.notices.some((notice) => notice.includes('could not record'))).toBe(true);
+    expect(control.notices.some((notice) => notice.includes('Could not save action state'))).toBe(true);
   });
 
   /** The same breaker, tripped by a file that goes unwritable after a run has already been started. */
-  it('stands down when the store fails under a run already in flight', async () => {
+  it('disables dispatch after a persistence failure during a run', async () => {
     const control = harness();
     watch(control);
     await control.pass();
@@ -448,7 +428,7 @@ describe('dispatching a card action', () => {
   });
 
   /** Turning an action on is the consent; the first run that actually starts is the moment worth naming (R32). */
-  it('says once that it has started work on the developer own code, and never again', async () => {
+  it('announces the first successful dispatch', async () => {
     const control = harness({}, [issue({ number: 17198 }), issue({ number: 17199 })]);
     watch(control);
     await control.pass();
@@ -464,8 +444,8 @@ describe('dispatching a card action', () => {
     expect(control.notices.filter((notice) => notice.includes('Started merge-upstream for'))).toHaveLength(1);
   });
 
-  /** A notice spent on a run that never happened is the one notice the developer ever gets, spent on nothing. */
-  it('says nothing when the dispatch did not start', async () => {
+  /** Failed dispatches must not consume the first-run notice. */
+  it('does not announce failed dispatches', async () => {
     const control = harness();
     control.dispatch = {
       failure: { subject: 'claude', kind: 'dispatch-missing', message: 'Claude Code was not found.', remedy: 'r' },
@@ -487,8 +467,7 @@ describe('dispatching a card action', () => {
     expect(control.dispatched).toHaveLength(1);
     expect(control.cardAction()).toMatchObject({ state: 'done' });
 
-    // Past the gate, so the card is due, read afresh, and refused on the evidence rather than never looked at. The
-    // second read is what proves it got that far: a card the gate stopped would have cost no read at all.
+    // Expire the retry interval and verify a fresh context read before checking evidence-based refusal.
     const before = control.reads.length;
     await control.pass(PAST_GATE);
 
@@ -502,11 +481,7 @@ describe('dispatching a card action', () => {
     expect(control.dispatched).toHaveLength(2);
   });
 
-  /**
-   * The loop the head commit alone would not catch: a merge that works pushes, and that push is what moves the head.
-   * So a landed run blocks the next one whatever the evidence says, or a base branch that keeps moving would have
-   * the board merging every time its gate lifted, for a request somebody made once.
-   */
+  /** A successful merge changes its own head commit. Completed runs must block automatic repeats even after that change. */
   it('never dispatches again once a run landed, however far the branch has moved since', async () => {
     const control = harness();
     watch(control);
@@ -518,7 +493,7 @@ describe('dispatching a card action', () => {
     expect(control.dispatched).toHaveLength(1);
     expect(control.cardAction()).toMatchObject({ outcome: 'landed' });
 
-    // The merge's own push, then two more gate windows on top of it.
+    // Simulate the merge push, then advance through two retry intervals.
     control.pr = { headOid: 'ffffffffffffffffffffffffffffffffffffffff' };
     await control.pass(PAST_GATE);
     control.pr = { headOid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' };
@@ -526,18 +501,15 @@ describe('dispatching a card action', () => {
 
     expect(control.dispatched).toHaveLength(1);
 
-    // The developer's own press is what asks again.
+    // Manual requests permit retry.
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
     await control.settle();
 
     expect(control.dispatched).toHaveLength(2);
   });
 
-  /**
-   * Deciding whether to act needs a fresh read of GitHub, so a card the board has just answered for must not be
-   * asked about again on the next loop. Built with the action on, so the runner really does the reading.
-   */
-  it('does not read the same card again until its gate lifts', async () => {
+  /** Enabled actions require fresh GitHub context, but repeated hub updates must respect the retry interval. */
+  it('waits for the retry interval before rereading', async () => {
     const control = harness();
     control.pr = { baseRefName: '17000-parent-feature' };
     watch(control);
@@ -555,7 +527,7 @@ describe('dispatching a card action', () => {
     expect(control.reads).toEqual([17198, 17198, 17198]);
   });
 
-  it('holds the daily ceiling', async () => {
+  it('enforces the daily dispatch limit', async () => {
     const control = harness({ dailyLimit: 0 });
     watch(control);
     await control.pass();
@@ -565,7 +537,7 @@ describe('dispatching a card action', () => {
 });
 
 describe('what the board refuses to act on', () => {
-  it('refuses a pull request based on anything but the default branch, and says so on the card', async () => {
+  it('reports refusal for PRs targeting non-default branches', async () => {
     const control = harness();
     control.pr = { baseRefName: '17000-parent-feature' };
     watch(control);
@@ -579,10 +551,7 @@ describe('what the board refuses to act on', () => {
   });
 
   /** Never guessed from a branch name — the rule R37's changes fold already holds the board to. */
-  /**
-   * R39: the board derives no merge, so a card carries one only because its reading asked for it. A client may post
-   * any key, which is why the action is established here and not only in the control the developer presses.
-   */
+  /** Require a requested merge on the server; a client can submit arbitrary card keys (R39). */
   it('refuses a card whose reading is not asking for a merge', async () => {
     const control = harness();
     control.classified = { action: 'fix-checks', detail: 'The build is red.' };
@@ -606,7 +575,7 @@ describe('what the board refuses to act on', () => {
     await control.pass();
 
     expect(control.dispatched).toEqual([]);
-    // One read, which is triage's. The action runner shares the seam and made none of its own.
+    // Only triage reads context; action validation makes no request.
     expect(control.reads).toEqual([17198]);
     expect(control.cardAction()).toEqual({
       state: 'refused',
@@ -615,19 +584,14 @@ describe('what the board refuses to act on', () => {
     });
   });
 
-  /**
-   * A folder the developer pointed at is authority for a window and for a session they are watching (R41, R42), and
-   * not for the board editing their code unwatched — which since master's default is `auto` would accept every
-   * prompt it met. So the runner narrows the card's checkout to one an agent has actually run in.
-   */
+  /** Manual checkout selection permits opening and manual starts (R41, R42). Unattended actions require a checkout from session history (R39). */
   it('refuses a card whose only checkout is a folder the developer picked, never having run there', async () => {
     const control = harness();
     control.history = [];
     watch(control);
     await control.pass();
 
-    // A real checkout of the card's own repository, which is what `setCheckout` stores and `checkoutFor` re-checks.
-    // Written after the first pass, because the key it is stored against is the card's and the card comes off that.
+    // Create a checkout matching the card repository after its key is available, for setCheckout and checkoutFor validation.
     const picked = join(home, 'picked-by-hand');
     mkdirSync(join(picked, '.git'), { recursive: true });
     writeFileSync(join(picked, '.git', 'config'), '[remote "origin"]\n url = https://github.com/example-org/example-repo.git');
@@ -647,7 +611,7 @@ describe('what the board refuses to act on', () => {
     });
   });
 
-  it('says an action with no prompt cannot run, rather than offering a control that could only refuse', async () => {
+  it('disables actions without configured prompts', async () => {
     const control = harness({ actions: {} });
     watch(control);
     await control.pass();
@@ -655,13 +619,13 @@ describe('what the board refuses to act on', () => {
     expect(control.cardAction()).toMatchObject({
       state: 'refused',
       action: 'merge-upstream',
-      reason: 'No prompt is set for merge-upstream. Set groundControl.actions to say what should run.',
+      reason: 'No prompt is set for merge-upstream. Set its prompt in groundControl.actions.',
     });
   });
 });
 
 describe('following a run to its end', () => {
-  it('says the card is working while the session is alive, and settles it once the session goes', async () => {
+  it('shows running state until the session ends', async () => {
     const control = harness();
     watch(control);
     await control.pass();
@@ -683,10 +647,7 @@ describe('following a run to its end', () => {
     });
   });
 
-  /**
-   * A `--bg` session does not leave the roster when its turn ends — it stays listed carrying the CLI's own end word
-   * (`mechanics.md` M33). A run waited on by presence alone would sit at Working for as long as the process lived.
-   */
+  /** Finished background sessions remain listed (M33). Outcome detection must use finished state, not presence alone. */
   it('settles a run whose session is still listed once the agent calls it finished', async () => {
     const control = harness();
     watch(control);
@@ -700,10 +661,7 @@ describe('following a run to its end', () => {
     expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
   });
 
-  /**
-   * The run is the verdict, and GitHub is not asked. The base branch moves within minutes of a merge, so a conflict
-   * somebody else landed afterwards would read as this run having failed, and a card nothing touched as fine.
-   */
+  /** Use the session report to resolve the run; later repository changes do not establish its outcome. */
   it('settles from what the run wrote, without reading the pull request again', async () => {
     const control = harness();
     watch(control);
@@ -719,14 +677,11 @@ describe('following a run to its end', () => {
       outcome: 'halted',
       detail: 'Low-confidence conflicts in Booking.cs.',
     });
-    // Triage reads on a pass of its own; what is asserted is that settling added none.
+    // Exclude independent triage reads when counting outcome checks.
     expect(control.reads.length).toBe(before);
   });
 
-  /**
-   * The report is the verdict, so the last run's copy of it must not be readable as this one's. A second run that
-   * says nothing over a first that pushed is the case: without the clear, the card would report a second landing.
-   */
+  /** Clear the previous report so a silent retry cannot reuse an earlier pushed result. */
   it('does not let the last run report stand as the next run outcome', async () => {
     const control = harness();
     watch(control);
@@ -744,12 +699,12 @@ describe('following a run to its end', () => {
 
     expect(control.cardAction()).toMatchObject({
       outcome: 'halted',
-      detail: 'The run ended without saying what it did.',
+      detail: 'The run ended without a readable result.',
     });
   });
 
   /** A directory where the report belongs is the shape of a path the board cannot clear: an ACL, a locked file. */
-  it('starts nothing when it could not clear the last run report, since that file is the verdict', async () => {
+  it('refuses dispatch when the previous report cannot be removed', async () => {
     const control = harness();
     mkdirSync(actionReportPathOf(home, 'issue:17198'), { recursive: true });
     watch(control);
@@ -762,7 +717,7 @@ describe('following a run to its end', () => {
     });
   });
 
-  it('reports a run that said nothing as a halt rather than a landing', async () => {
+  it('marks runs without readable results as halted', async () => {
     const control = harness();
     watch(control);
     await control.pass();
@@ -772,34 +727,30 @@ describe('following a run to its end', () => {
     expect(control.cardAction()).toMatchObject({
       state: 'done',
       outcome: 'halted',
-      detail: 'The run ended without saying what it did.',
+      detail: 'The run ended without a readable result.',
     });
   });
 
   /** `--bg` returns before its session registers, so a run with no session yet is open rather than lost (M33). */
-  it('leaves a dispatch whose session has not appeared open, and gives up once its budget is spent', async () => {
+  it('waits for session registration until the result timeout', async () => {
     const control = harness({ resultTimeoutMs: 60_000 });
     watch(control);
     await control.pass(10_000);
 
     expect(control.cardAction()).toMatchObject({ state: 'running' });
 
-    // The next pass is past the budget, and the session still is not there. Inside the gate, so what is asserted is
-    // the run being given up on rather than the card becoming due again.
+    // Exceed registration timeout but stay within the retry interval to isolate missing-session handling.
     await control.pass(100_000);
 
     expect(control.cardAction()).toMatchObject({
       state: 'done',
       outcome: 'failed',
-      detail: 'The session the board started never appeared on the machine.',
+      detail: 'The dispatched session was not found before the timeout.',
     });
   });
 
-  /**
-   * A dispatch that never started a session spent nothing and did nothing, so it is retried — but paced by the read
-   * gate rather than immediately, and never inside it (R21).
-   */
-  it('records a dispatch that could not be made, and tries again only once the gate lifts', async () => {
+  /** Retry failed starts after the context-read interval, never immediately (R21). */
+  it('records dispatch failures and delays retries', async () => {
     const control = harness();
     control.dispatch = {
       failure: { subject: 'claude', kind: 'dispatch-missing', message: 'Claude Code was not found.', remedy: 'r' },
@@ -866,12 +817,8 @@ describe('the developer asking by hand', () => {
     expect(control.notices).toContain('A card action is already running.');
   });
 
-  /**
-   * Every gate a hand-asked run reaches is reached after the click has returned, so without an answer the press is
-   * one that did nothing and said nothing (R25). And it must leave no stored refusal: that would close the read gate
-   * on the developer's own next attempt.
-   */
-  it('answers a hand-asked run that refused, and gates nothing by it', async () => {
+  /** Report asynchronous manual refusals without storing a refusal that would delay the next request (R25). */
+  it('reports manual refusals without applying retry gates', async () => {
     const control = harness({ actions: {} });
     control.pr = { baseRefName: '17000-parent-feature' };
     watch(control);
@@ -885,7 +832,7 @@ describe('the developer asking by hand', () => {
     );
     expect(control.dispatched).toEqual([]);
 
-    // Asked again straight away, it is read again rather than held off by a gate its own press closed.
+    // An immediate manual retry performs another read.
     const before = control.reads.length;
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
     await control.settle();
@@ -894,7 +841,7 @@ describe('the developer asking by hand', () => {
   });
 
   /** A throw that escaped would leave the card with no run and no refusal, which reads as never having been tried. */
-  it('records a seam that threw rather than answering, and does not start it again at once', async () => {
+  it('records adapter exceptions and delays retries', async () => {
     const control = harness();
     control.readThrows = true;
     watch(control);
@@ -921,10 +868,7 @@ describe('the developer asking by hand', () => {
     expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'stopped', detail: 'Stopped by you.' });
   });
 
-  /**
-   * A stop that failed leaves a real agent still working in the checkout, and a card reading "Stopped" over one is
-   * the board asserting a state it knows it did not reach (R24). It stays stoppable instead.
-   */
+  /** Keep failed stops running and stoppable; do not falsely report Stopped (R24). */
   it('does not claim a stop it did not achieve', async () => {
     const control = harness();
     control.stopFails = true;

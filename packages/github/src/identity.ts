@@ -1,7 +1,4 @@
-/**
- * Pulls every logged-in account out of `gh auth status`. `gh api user` would name only the active one,
- * and R28 exists because developers routinely hold a human and a bot account at once.
- */
+/** Read all accounts from gh auth status. gh api user returns only the active account (R28). */
 export function parseAuthStatusLogins(output: string): string[] {
   const logins = new Set<string>();
 

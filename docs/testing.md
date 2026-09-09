@@ -92,7 +92,7 @@ Hide console application spawns with `windowsHide: true`, including fixture scri
 
 ## Client parity and presentation
 
-Both boards duplicate some rendering helpers because they cannot load workspace TypeScript packages at runtime. Keep matching literal tables in their suites for `sessionLabel`, `ago`, `LANE_TITLES`, phase words/titles, duration titles, triage labels, tooltip geometry/timing, and session-link construction where shared. Include fallback precedence and Windows path cases. Test a core helper there too only when core actually owns one.
+Both boards duplicate some rendering helpers because they cannot load workspace TypeScript packages at runtime. Keep matching literal tables in their suites for `sessionLabel`, `ago`, `LANE_TITLES`, phase words/titles, duration titles, triage labels, tooltip geometry/timing, and session-link construction where shared. Include fallback precedence and Windows path cases. Test a core helper there too only when core defines one.
 
 Do not assert either board's stylesheet: colors, borders, weight, tint, font size, or CSS declarations. This prohibition includes regex and computed-style assertions. Inspect presentation visually. Computed style remains appropriate for behavioral effects on GitHub's own DOM, such as hiding the original assignee stack, and actual visibility/filter behavior; it must not become a way to pin decorative declarations.
 
@@ -108,7 +108,7 @@ Browser tests cover behavior depending on message/repaint ordering. Examples inc
 
 The profile seeds application-scoped settings with unavailable `gh` and agent executable names. A temporary home alone does not isolate GitHub credentials stored in `%APPDATA%`. No integration test should accidentally run the developer's authenticated CLI.
 
-The outer runner cleans up after VS Code exits, then removes its hub and temporary directories. Cleaning up the hub from a Mocha hook races the still-connected extension's reconnect. Later runs sweep abandoned test directories older than one hour.
+The outer runner cleans up after VS Code exits, then removes its hub and temporary directories. Cleaning up the hub from a Mocha hook races the still-connected extension's reconnect. Later runs remove abandoned test directories older than one hour.
 
 The extension exports three read-only accessors: `snapshot`, `drew`, and `logs`. Do not expose the client, panel, or action hooks merely for tests. Poll until state is available; an initially undefined snapshot is expected.
 
@@ -141,6 +141,6 @@ Respect production ordering in fakes:
 - Seed sessions before constructing a hub when testing its initial read.
 - To test a hub filter independently, provide an entry the adapter would not already have removed.
 
-## Troubleshooting the gate
+## Coverage failures
 
 One recorded Windows failure duplicated coverage entries under `d:/...` and `D:/...`, with one copy at 0%. Stale Vite caches caused that case. If tests pass but unrelated packages show this exact pattern, inspect the reports, remove only the repository's resolved `.vite` cache directories, and rerun. Do not assume every coverage-only failure has this cause or lower thresholds to bypass it.

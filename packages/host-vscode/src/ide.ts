@@ -3,22 +3,22 @@ import type { HostWindow } from '@ground-control/core';
 import type { AgentPlacement } from './placements.js';
 
 /**
- * One VS Code window, as it announces itself in the lock file an agent's extension writes per window. The only live
- * enumeration of windows on the machine — VS Code offers none — and undocumented, so **version-fragile** (M22).
+ * Window metadata from an agent extension's lock file. VS Code has no live window-list API; this undocumented
+ * format is version-fragile (M22).
  */
 export interface IdeWindow extends HostWindow {
   port: number;
 }
 
-/** A lock file as found on disk. The name carries the port; nothing else does. */
+/** Lock file content and filename, which contains its port. */
 export interface IdeLock {
   name: string;
   text: string | null;
 }
 
 /**
- * The windows the lock files claim. A closed window leaves its lock behind — two of seven were stale when measured —
- * so this is a list of candidates, and only a port that answers is a window (`docs/mechanics.md` M22).
+ * Read candidate windows from lock files. Closed windows leave stale files, so callers must check for a
+ * listening port (M22).
  */
 export function ideWindowsFrom(locks: readonly IdeLock[]): IdeWindow[] {
   const windows: IdeWindow[] = [];
@@ -48,21 +48,21 @@ export function ideWindowsFrom(locks: readonly IdeLock[]): IdeWindow[] {
   return windows;
 }
 
-/** One process and its parent, which is the whole of what the machine is asked for. */
+/** Process ancestry used to identify extension hosts. */
 export interface ProcessEntry {
   pid: number;
   parentPid: number;
 }
 
-/** A listening TCP port and the process holding it open, which is how a window's server is tied to its extension host. */
+/** TCP listener and owning process, used to identify a window's extension host. */
 export interface ListeningPort {
   port: number;
   owningPid: number;
 }
 
 /**
- * The listening sockets in `netstat -ano` output. The state column is localised and may be two words, so a listener is
- * recognised by its empty foreign address and the pid is read from the end of the row rather than by column.
+ * Parse `netstat -ano` listeners by their empty foreign address and final PID column. Avoid the localized state
+ * column, which can contain two words.
  */
 export function listeningFrom(output: string): ListeningPort[] {
   const found: ListeningPort[] = [];
@@ -86,15 +86,12 @@ export function listeningFrom(output: string): ListeningPort[] {
   return found;
 }
 
-/** Every executable a placed agent's session pid can belong to, which is all the process table is asked about. */
+/** Agent executable names to query in the process table. */
 export function processNames(placements: Readonly<Record<string, AgentPlacement>>): string[] {
   return Object.values(placements).map((placement) => placement.processName);
 }
 
-/**
- * The one question asked of the process table, over the executables a session's pid can belong to. `Get-CimInstance`
- * costs 650 ms, so the filter is the query's rather than a walk of every process on the machine.
- */
+/** Filter `Get-CimInstance` by agent executable names to avoid reading every process (650 ms measured). */
 export function processQuery(names: readonly string[]): string {
   const where = names.map((name) => `Name='${name}'`).join(' or ');
 
@@ -107,8 +104,8 @@ export function processQuery(names: readonly string[]): string {
 }
 
 /**
- * The process table as PowerShell reports it. Windows PowerShell 5.1 has no `-AsArray`, so a single row arrives as a
- * bare object rather than a one-element array and is taken as one either way.
+ * Normalize PowerShell process output to rows. Windows PowerShell 5.1 lacks `-AsArray` and may return a single
+ * object.
  */
 export function processesFrom(stdout: string): ProcessEntry[] {
   let rows: unknown;
@@ -126,10 +123,7 @@ export function processesFrom(stdout: string): ProcessEntry[] {
   });
 }
 
-/**
- * The window holding a session's own process: its parent is that window's extension host, which is the process
- * listening on the window's lock port (`docs/mechanics.md` M22), so the parent pid names the window exactly.
- */
+/** Match the session's parent PID to the extension host listening on a window lock port (M22). */
 export function windowForProcess(
   sessionPid: number | null,
   processes: readonly ProcessEntry[],
@@ -142,21 +136,20 @@ export function windowForProcess(
     return null;
   }
 
-  // Read lock to port to owner, never owner to port: an extension host also listens on debug inspector ports, and
-  // asking which port a pid holds would pick among them arbitrarily.
+  // Match lock ports to owners; an extension host may also listen on unrelated debug ports.
   const held = new Set(listening.filter((port) => port.owningPid === parent).map((port) => port.port));
 
   return windows.find((window) => held.has(window.port)) ?? null;
 }
 
-/** The windows still open. A closed one leaves its lock file behind, but nothing is listening on its port any more. */
+/** Keep windows whose lock ports are still listening. */
 export function liveWindows(windows: readonly IdeWindow[], listening: readonly ListeningPort[]): IdeWindow[] {
   const open = new Set(listening.map((entry) => entry.port));
 
   return windows.filter((window) => open.has(window.port));
 }
 
-/** Every folder some live window has open — what tells a surface still on screen from one recorded before a close. */
+/** Distinct normalized folders in live windows. */
 export function liveRootsOf(windows: readonly HostWindow[]): string[] {
   return [...new Set(windows.flatMap((window) => window.folders.map((folder) => dirKey(folder))))];
 }

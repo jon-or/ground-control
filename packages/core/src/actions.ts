@@ -12,7 +12,7 @@ export function isAutomatable(action: TriageAction): action is AutomatableAction
   return (AUTOMATABLE_ACTIONS as readonly string[]).includes(action);
 }
 
-/** What one action is allowed to do. Absent from the settings, or with an empty prompt, it is off (R32). */
+/** Action enablement and prompt. Missing settings or an empty prompt disable automatic runs (R32). */
 export interface ActionSetting {
   enabled: boolean;
   /**
@@ -41,7 +41,7 @@ export interface ActionSettings {
    * permitting manual requests. Pending dispatches are not reserved against this limit.
    */
   dailyLimit: number;
-  /** How long a dispatch whose session never appeared is left open before the board calls it lost. */
+  /** Timeout for a dispatched session to appear on the roster. */
   resultTimeoutMs: number;
   actions: Partial<Record<AutomatableAction, ActionSetting>>;
 }
@@ -54,7 +54,7 @@ export interface ActionSettings {
 export interface ActionRun {
   key: string;
   action: AutomatableAction;
-  /** The `ACTION_REVISION` this ran under. A run recorded by an older one no longer blocks a fresh dispatch. */
+  /** Action-rule revision; older runs do not block a new dispatch. */
   revision: number;
   evidence: string;
   /** Epoch milliseconds the dispatch was made. */
@@ -62,12 +62,12 @@ export interface ActionRun {
   /** Epoch milliseconds the board settled the outcome, or null while it is still open. */
   endedAt: number | null;
   agent: string;
-  /** The session the CLI minted, resolved from the roster by the short id it printed (`mechanics.md` M33). */
+  /** Session ID resolved from the dispatch ID against the roster (mechanics M33). */
   sessionId: string | null;
-  /** What the CLI printed as the session's short id, which is what the full one is resolved by, and what stops it. */
+  /** Dispatch ID used for roster matching and stopping: short for Claude, full thread ID for Codex. */
   shortId: string;
   outcome: ActionOutcome;
-  /** One sentence. What the run reported about itself, or what the board settled it as. */
+  /** One-sentence reported outcome or runner failure explanation. */
   detail: string;
 }
 
@@ -77,12 +77,12 @@ export interface ActionRun {
  */
 export type ActionOutcome = 'running' | 'landed' | 'halted' | 'failed' | 'stopped';
 
-/** Why the board did not act on a card, kept so the same answer is not re-derived on every pass. */
+/** Persisted action refusal for display and retry scheduling. */
 export interface ActionRefusalRecord {
   kind: string;
   message: string;
   at: number;
-  /** The `ACTION_REVISION` that refused. A reason a retired gate wrote is dropped rather than shown for good. */
+  /** Refusal rule revision; discard older revisions. */
   revision: number;
 }
 
@@ -92,7 +92,7 @@ export interface ActionRefusalRecord {
 export interface ActionReport {
   outcome: 'pushed' | 'halted';
   detail: string;
-  /** Where the run left a fuller account, for the developer to open. Display only. */
+  /** Optional report path for display. */
   auditPath?: string | undefined;
 }
 
@@ -105,7 +105,7 @@ export interface ActionState {
   refusals: Record<string, ActionRefusalRecord>;
   /** Epoch milliseconds before which the board does not read a card again for actions. */
   gates: Record<string, number>;
-  /** Epoch milliseconds of each dispatch inside the rolling day, oldest first. What the daily limit is counted on. */
+  /** Dispatch timestamps in the rolling day, oldest first, for daily-limit checks. */
   dispatches: number[];
 }
 

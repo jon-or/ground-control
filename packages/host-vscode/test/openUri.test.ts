@@ -6,10 +6,7 @@ import { attachFromUri, handOverUri, handedOver, sessionFromUri } from '../src/o
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
 
-/**
- * The one link the browser board writes, spelled out. The overlay hard-codes this string — it is plain JavaScript
- * Chrome loads as it stands — so the literal here is what holds the two halves together (`docs/testing.md`).
- */
+/** Use the browser overlay's literal URI to verify cross-client compatibility (docs/testing.md). */
 const LINK = `vscode://groundcontrol.ground-control/open?session=${SESSION}`;
 
 describe('the link the browser board writes', () => {
@@ -23,7 +20,7 @@ describe('the link the browser board writes', () => {
   });
 
   /** `Uri.parse` splits the authority off, so the handler sees the path and query the extension is addressed with. */
-  it('is taken by the handler, path and query as VS Code hands them over', () => {
+  it('parses the path and query supplied by VS Code', () => {
     const uri = new URL(LINK);
 
     expect(sessionFromUri(uri.pathname, uri.search.slice(1))).toBe(SESSION);
@@ -33,8 +30,7 @@ describe('the link the browser board writes', () => {
 describe('what the handler takes', () => {
   it('takes a session id from the open path', () => {
     expect(sessionFromUri('/open', `session=${SESSION}`)).toBe(SESSION);
-    // The path a detached run's row links to. Its own path, so a link cannot ask for a terminal on a session the
-    // board would have revealed instead, and the two are never confused for one another.
+    // Keep attach and open paths distinct to prevent invoking the wrong operation.
     expect(attachFromUri('/attach', `session=${SESSION}`)).toBe(SESSION);
     expect(attachFromUri('/attach', 'session=not-an-id')).toBeNull();
     expect(attachFromUri('/open', `session=${SESSION}`)).toBeNull();
@@ -42,8 +38,8 @@ describe('what the handler takes', () => {
   });
 
   /**
-   * Any page in the browser can navigate to this, so everything but one well-formed id is refused. An id that is
-   * merely well-formed still buys nothing: the hub resolves it against its own roster and refuses an unknown one.
+   * Browser pages can invoke this handler. Validate UUID syntax here; the hub separately rejects IDs absent
+   * from its roster.
    */
   it.each([
     ['a path the board never writes', '/seize', `session=${SESSION}`],
@@ -70,7 +66,7 @@ describe('what the handler takes', () => {
   });
 });
 
-describe('the URI the board hands a raised window', () => {
+describe('window handover URI', () => {
   it('names the session and marks the hand-over', () => {
     const uri = handOverUri('a1b2c3d4-0000-4000-8000-000000000000', 'codex');
 
@@ -78,11 +74,11 @@ describe('the URI the board hands a raised window', () => {
     expect(handedOver(uri.split('?')[1]!)).toBe('codex');
   });
 
-  it('reads a browser click as what it is, so it is planned rather than revealed blind', () => {
-    // Without this the two are indistinguishable, and a window would reveal a session it may not be holding.
+  it('plans browser opens without treating them as handovers', () => {
+    // Browser opens must be planned; only handovers can request local reveal.
     expect(handedOver('session=a1b2c3d4-0000-4000-8000-000000000000')).toBeNull();
     expect(handedOver('session=a1b2c3d4-0000-4000-8000-000000000000&hop=0&agent=codex')).toBeNull();
-    // A hand-over with no agent names nothing to reveal it with, so it is not one.
+    // A handover requires an agent to select its reveal command.
     expect(handedOver('hop=1')).toBeNull();
     expect(handedOver('hop=1&agent=NOT AN AGENT')).toBeNull();
     expect(handedOver('')).toBeNull();
@@ -94,9 +90,8 @@ describe('the URI the board hands a raised window', () => {
 });
 
 describe('the address the board answers on', () => {
-  it('is the extension id the manifest publishes, which is what VS Code routes on', () => {
-    // Two packages write this out: here, and the browser overlay's own copy. A rename that missed one would leave
-    // a link nothing answers, and nothing else compares them.
+  it('uses the extension ID declared in the manifest', () => {
+    // Check the literal against the manifest to catch extension-ID drift.
     const manifest = JSON.parse(
       readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'extensions', 'ground-control', 'package.json'), 'utf8'),
     ) as { publisher: string; name: string };

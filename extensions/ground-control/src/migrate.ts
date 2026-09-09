@@ -7,10 +7,7 @@ import { readBoardStatuses } from './config.js';
 /** The memento key a window without `lanes.json` wrote its placements to. */
 const MEMORY_KEY = 'groundControl.cardMemory';
 
-/**
- * Moves a window's stored placements to the machine's own record, once, so a developer upgrading keeps the lanes
- * they put their cards in. Cleared afterwards so nothing ever reads two memories (R8).
- */
+/** Migrate window placements to the shared file once, then clear the old storage (R8). */
 export function migrateLaneMemory(memento: vscode.Memento, home: string): void {
   const stored = memento.get<unknown>(MEMORY_KEY);
 
@@ -24,8 +21,7 @@ export function migrateLaneMemory(memento: vscode.Memento, home: string): void {
     return;
   }
 
-  // Only once the file holds them. Clearing on a write that failed — a read-only home, a full disk — loses every
-  // placement the developer ever made, silently and for good.
+  // Clear old placements only after a successful write to prevent data loss on disk or permission failures.
   if (makeLaneStore(home).write(readMemory(stored, readBoardStatuses()))) {
     void memento.update(MEMORY_KEY, undefined);
   }

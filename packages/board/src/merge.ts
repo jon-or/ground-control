@@ -3,7 +3,7 @@ import { retainedPhase } from './lanes.js';
 import type { HistoricalSession, RetainedActivity } from '@ground-control/core';
 import type { BoardCard, IssueCard, Session } from './types.js';
 
-/** Sessions bucketed by whatever they have in common, each bucket newest first. */
+/** Group sessions by key and sort each group newest first. */
 function groupSessions<K>(sessions: Session[], keyOf: (session: Session) => K): Map<K, Session[]> {
   const groups = new Map<K, Session[]>();
 
@@ -25,10 +25,7 @@ function groupSessions<K>(sessions: Session[], keyOf: (session: Session) => K): 
   return groups;
 }
 
-/**
- * What a session with no issue has in common with the others beside it. The repository and the branch, so a worktree
- * or a branch switch is a card of its own; the checkout directory where git names neither.
- */
+/** Group ad-hoc sessions by repository and branch, falling back to checkout directory. */
 function checkoutKey(session: Session): string {
   return session.repository !== null && session.branch !== null
     ? `${session.repository}#${session.branch}`
@@ -44,11 +41,11 @@ function observed(session: Session, retained: ReadonlyMap<string, RetainedActivi
     return session;
   }
 
-  const held = retained.get(`${session.agent}:${session.sessionId}`);
+  const retainedActivity = retained.get(`${session.agent}:${session.sessionId}`);
 
-  return held === undefined
+  return retainedActivity === undefined
     ? session
-    : { ...session, activity: { phase: retainedPhase(held), since: held.at, at: held.at, event: held.event } };
+    : { ...session, activity: { phase: retainedPhase(retainedActivity), since: retainedActivity.at, at: retainedActivity.at, event: retainedActivity.event } };
 }
 
 /**
@@ -74,7 +71,7 @@ export function mergeBoard(
     (session) => session.issueNumber as number,
   );
 
-  // A session naming no issue belongs to its checkout rather than to itself: that is what such work shares.
+  // Group unlinked sessions by checkout identity.
   const byCheckout = groupSessions(
     sessions.filter((session) => !known(session)),
     checkoutKey,
@@ -102,9 +99,9 @@ export function mergeBoard(
     const repo = repositoryKey(card.issue!.url);
     const last = newest.find((s) => s.issueNumber === card.issueNumber && s.repository !== null && s.repository === repo);
     if (last) {
-      const held = retained.get(`${last.agent}:${last.sessionId}`);
+      const retainedActivity = retained.get(`${last.agent}:${last.sessionId}`);
 
-      card.lastSession = held ? { ...last, retained: held } : last;
+      card.lastSession = retainedActivity ? { ...last, retained: retainedActivity } : last;
       card.sessions = [];
     }
   }

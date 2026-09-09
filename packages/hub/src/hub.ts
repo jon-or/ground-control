@@ -26,7 +26,7 @@ import type { Registries } from './registry.js';
 import { readLogTail } from './logger.js';
 import { logPathOf } from './paths.js';
 
-/** Injected whole, so a test drives the two cadences without waiting for them. */
+/** Inject the clock to test both polling intervals without waiting. */
 export interface HubClock {
   now(): number;
   setInterval(fn: () => void, ms: number): NodeJS.Timeout;
@@ -36,26 +36,26 @@ export interface HubClock {
 export interface HubDeps {
   clock: HubClock;
   watch(dir: string, onChange: (changes: readonly ActivityChange[]) => void): { dispose(): void };
-  /** The home every read outside a workspace is made under. Injected, so a test never touches the developer's own. */
+  /** Inject the home directory to isolate tests from developer files. */
   home: string;
   registries: Registries;
   lanes: LaneStore;
   marks: MarkStore;
-  /** What the board has read about each card, kept beside the placements and read the same way (R38). */
+  /** Persisted card triage (R38). */
   triage: TriageStore;
-  /** What the board has run on each card, kept the same way again (R39). */
+  /** Persisted card action runs (R39). */
   actions: ActionStore;
-  /** The issues the board has looked up by number, so a session outliving its assignment still names one (R9). */
+  /** Cached issue lookups for sessions that outlast assignment (R9). */
   issues: IssueStore;
-  /** The last phase each session was seen in, so closing its window does not take the card's mark with it (R6). */
+  /** Retained phases preserve card attention after a session closes (R6). */
   status: StatusStore;
-  /** The directory the developer picked for a card nothing has run on, kept the same way again. */
+  /** Persisted user-selected checkouts for cards without sessions. */
   checkouts: CheckoutStore;
-  /** The configuration a client last pushed. A hub starts on it, because the browser has none of its own to give. */
+  /** Persisted client settings, also used when Chrome starts the hub. */
   settings: SettingsStore;
-  /** What the hub says about itself. Written to `hub.log` whatever happens; streamed only to a client that asked. */
+  /** Write hub.log and stream entries to subscribed clients. */
   log: Logger;
-  /** The activity install, which is also the thing a test replaces to keep its hands off any settings file. */
+  /** Inject activity installation to isolate tests from agent settings. */
   syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string, enabled?: ReadonlySet<string>): ActivityState;
 }
 
@@ -63,67 +63,47 @@ interface Connected {
   hello: ClientHello;
   send(message: HubMessage): void;
   watching: boolean;
-  /** Undoes this client's log subscription. Null while no viewer of theirs is open, which is where every one starts. */
+  /** Log subscription cleanup, or null when unsubscribed. */
   unwatchLog: (() => void) | null;
 }
 
-/** One source that cannot be reached, held rather than reported until `OUTAGE_GRACE_MS` says otherwise. */
+/** Track a source outage during the grace period before reporting it. */
 interface Outage {
   since: number;
   retryAt: number;
   announced: boolean;
 }
 
-/** A refresh asked for again inside this is the same read. The button, not the timers, is what this is for. */
+/** Coalesce repeated manual refreshes within this interval. */
 const REFRESH_FLOOR_MS = 1000;
 
-/** Why a read was called for, which is the floor it is answered against. */
+/** Refresh reason determines its minimum interval. */
 type Reason = 'visible' | 'asked' | 'settings';
 
-/**
- * How stale a source reading may be before a board becoming visible is worth a network round trip. Without it a
- * developer moving between a board and their code reads GitHub once a second, which GitHub rate limits (R35).
- */
+/** Minimum source age for a visibility-triggered refresh; prevents repeated GitHub calls while switching views (R35). */
 const SOURCE_FLOOR_MS = 60_000;
 
-/**
- * How long a source may be unreachable before the board says so. Under it the board holds the read it already has:
- * a machine coming back from sleep fails one read and succeeds the next, and that is not a condition to act on (R25).
- */
+/** Retain cached data during brief outages before reporting them (R25). */
 const OUTAGE_GRACE_MS = 60_000;
 
-/**
- * What an unreachable source waits before the next try, taken from how long it has been unreachable rather than from
- * how many tries it has cost: a developer pressing refresh during an outage must not spend the ladder and leave the
- * board recovering later than if they had left it alone.
- */
+/** Base retries on outage duration so manual refreshes do not increase the retry delay. */
 function backoffMs(outageMs: number): number {
   return outageMs < 30_000 ? 5_000 : outageMs < 120_000 ? 15_000 : outageMs < 600_000 ? 60_000 : 120_000;
 }
 
-/** The cadence the outage retry and the suspend check share. Neither costs anything on the passes that find nothing. */
+/** Interval for outage retries and suspend detection. */
 const TICK_MS = 5_000;
 
-/**
- * How long one card's start of one agent holds off a second. Nothing reports a start's outcome back — the client
- * shows its own failure and the hub is never told — so this expires rather than being released, and it is sized to
- * the double-click and the second board it exists for rather than to how long a session takes to appear.
- */
+/** Suppress duplicate starts per card and agent until expiry. Clients do not report start completion. */
 const START_LEASE_MS = 10_000;
 
-/** The same, for one card's window. Sized to the `code` spawn, which is all `raise` waits for — it checks no focus. */
+/** Suppress duplicate checkout opens while the code process starts. */
 const OPEN_LEASE_MS = 3_000;
 
-/**
- * A tick this much later than it was due is a machine that was suspended, not a loop that ran slow: the poll timers
- * counted none of the sleep, so without this a laptop opened after an hour reads nothing for another five minutes.
- */
+/** Treat a delayed tick as resume from suspend and refresh immediately. */
 const WAKE_GAP_MS = 20_000;
 
-/**
- * Two settings that would be read with identically. Key order is not a difference: a source's entry is its own
- * shape, which `core` deliberately does not know, and a client may build it in any order it likes.
- */
+/** Compare JSON settings independent of object key order; source-specific shapes are opaque to core. */
 function same(before: unknown, after: unknown): boolean {
   return canonical(before) === canonical(after);
 }
@@ -194,12 +174,12 @@ export class Hub {
 
   #config: HubConfig;
   #configFailures: ReadFailure[] = [];
-  /** The source settings this configuration refused. A board with no source it can read is a board that is stale. */
+  /** Rejected source settings; no readable source means the board is stale. */
   #sourcesRefused: ReadFailure[] = [];
 
-  /** Each source keeps its last good read and its last failure, so one failing never blanks the other (R24). */
+  /** Retain each source's last successful read independently of other source failures (R24). */
   readonly #readings = new Map<string, SourceReading>();
-  /** Sources that cannot be reached: when each went, how many tries it has cost, and whether the board has said so. */
+  /** Track source outage start times, retry deadlines, and notification state. */
   readonly #outages = new Map<string, Outage>();
   #lastTickAt = 0;
   #sessions: SessionsSnapshot | undefined;
@@ -214,11 +194,11 @@ export class Hub {
   #sessionsInFlight: Promise<void> | undefined;
   #lastReadAt = 0;
   #lastSourceReadAt = 0;
-  /** The last read listed nothing and every agent failed, so an activity event has nothing to re-read. */
+  /** An empty roster with agent failures suppresses event-triggered retries. */
   #sessionsUnreadable = false;
-  /** Which agents the log last said were unreadable, by subject and kind. Never by message — see `#sayAboutSessions`. */
+  /** Last logged agent failures, keyed by subject and kind; see #logSessionRead. */
   #saidAboutSessions = '';
-  /** Null until a client has said whether it wants the signal at all. Nothing is written to an agent before that. */
+  /** Wait for explicit activity settings before writing to agents. */
   #activity: ActivityState | null = null;
   #configured = false;
   /** A stored configuration this hub would not run on. Shown until a client pushes one, which is what replaces it. */
@@ -232,15 +212,12 @@ export class Hub {
   constructor(deps: HubDeps) {
     this.#deps = deps;
 
-    // What a client last pushed, where there is one. Which repository work is tracked in cannot be guessed, so a
-    // hub started by the browser alone would otherwise be permanently unconfigured however long ago the developer
-    // set it — and the settings live in an editor that need not be open (R35, R36).
+    // Load saved settings so Chrome can start a configured hub without an editor open (R35, R36).
     const stored = deps.settings.read();
 
     this.#config = stored && 'config' in stored ? stored.config : defaultConfig(deps.registries, diskReaders(deps.home));
     this.#stored = stored && 'failure' in stored ? stored.failure : null;
-    // Applied here rather than as each client turns up: a second window connecting would otherwise overwrite what
-    // the board is saying about the first one's settings, while the hub is still running on the older ones.
+    // Apply stored settings once; new connections must not replace their validation results.
     this.#configFailures = this.#applyConfig();
     this.#triage = new TriageRunner({
       home: deps.home,
@@ -250,7 +227,7 @@ export class Hub {
       sources: deps.registries.sources,
       now: () => deps.clock.now(),
       changed: () => this.#broadcast(),
-      announce: (message) => this.#tellOnceAboutTriage(message),
+      announce: (message) => this.#notifyTriageOnce(message),
     });
     this.#triage.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes);
     this.#actions = new ActionRunner({
@@ -261,9 +238,8 @@ export class Hub {
       sources: deps.registries.sources,
       now: () => deps.clock.now(),
       changed: () => this.#broadcast(),
-      announce: (message) => this.#tellOnceAboutActions(message),
-      // Every client, because the runner does not know which one pressed and a board the developer is not looking at
-      // is a board that says nothing. One notice per refusal, which is what R25 asks of a condition stated once.
+      announce: (message) => this.#notifyActionsOnce(message),
+      // Broadcast manual action refusals because the runner does not identify the requesting client (R25).
       notify: (message) => {
         for (const client of this.#clients.values()) {
           client.send({ type: 'notice', level: 'info', message });
@@ -323,14 +299,12 @@ export class Hub {
       case 'configure': {
         const resynced = this.configure(message.config);
 
-        // Only where a developer changed the setting themselves. Every client pushes its configuration on connect,
-        // and a hub that answered each of those would pop a message on every board that opened (R34).
+        // Acknowledge explicit setting changes, not settings restated on every connection (R34).
         if (!message.acknowledge) {
           return;
         }
 
-        // A refusal returns nothing to acknowledge, and is the one answer the developer most needs: the change they
-        // just made did not happen, and the board it is named on may not be open (R34).
+        // Report rejected setting changes even when no board is open (R34).
         connected.send(
           resynced
             ? { type: 'notice', ...activityAcknowledgement(resynced) }
@@ -344,7 +318,7 @@ export class Hub {
         connected.watching = message.watching;
         this.#retime();
 
-        // A board coming back shows what is already known before the read it triggers lands.
+        // Show cached data immediately while refreshing.
         if (message.watching) {
           this.#sendTo(client.id, 'snapshot');
           void this.refresh();
@@ -373,7 +347,7 @@ export class Hub {
         return;
 
       case 'retriage': {
-        // The one message that spends money, so the key has to name a card on the board and the ask is rationed.
+        // Validate and rate-limit manual triage requests because classification uses paid resources.
         const refused = this.#triage.retriage(this.snapshot().lanes, message.key);
 
         if (refused) {
@@ -384,8 +358,7 @@ export class Hub {
       }
 
       case 'runAction': {
-        // The message that changes the developer's code. Every gate an automatic dispatch runs is run for this one
-        // too, against a fresh read — what the click replaces is the setting, never a safety check.
+        // Manual actions require fresh context and the same safety checks as automatic actions.
         const refused = this.#actions.runAction(this.snapshot().lanes, message.key);
 
         if (refused) {
@@ -421,11 +394,7 @@ export class Hub {
     }
   }
 
-  /**
-   * A new session on a card, in the window that asked. Nothing here is gated on what the board's own runs are gated
-   * on: R33 bounds work *the board* starts and says it enforces nothing on work the developer starts themselves, and
-   * R18's "already open somewhere" is a session id — a card holds several attempts (R3), so a second one is not that.
-   */
+  /** Start a user-requested session in the requesting window. Automatic action limits do not apply (R33); cards may have multiple sessions (R3). */
   #startSession(client: Connected, key: string, agent: string, extensionReady: boolean): void {
     const host = this.#hostFor(client.hello);
 
@@ -449,18 +418,14 @@ export class Hub {
       return;
     }
 
-    // An issue the developer is not assigned is on the board only because a session still names it, and it is
-    // archived and read-only there (R9) — the rule triage already follows. The menu leaves the item out; this is
-    // the same answer for a click made against a snapshot taken before they were unassigned.
+    // Unassigned issue cards are archived and read-only (R9). Recheck because the client snapshot may predate unassignment.
     if (card.unassigned === true) {
       client.send({ type: 'notice', level: 'warning', message: 'That issue is no longer assigned to you, so the board will not start work on it.' });
 
       return;
     }
 
-    // Held by the card and the agent, because the session it will create has no id until the agent mints one (M51)
-    // — so between the click and that session appearing there is nothing else to tell a second click apart by. Two
-    // agents on one card are two different starts, and neither blocks the other.
+    // Deduplicate starts by card and agent until a session ID exists (M51). Different agents may start independently.
     const now = this.#deps.clock.now();
     const startKey = `${key}:${agent}`;
 
@@ -479,7 +444,7 @@ export class Hub {
       key,
       agent,
       root,
-      // Empty is a bare session rather than no session, which is the difference from a card action (R39).
+      // An empty prompt still starts a manual session; automated actions require a prompt (R39).
       prompt: template.trim().length === 0 ? null : fillTemplate(template, newSessionValues(card, root)),
       workspaceRoot: client.hello.workspaceRoot,
       extensionReady,
@@ -492,9 +457,7 @@ export class Hub {
       return;
     }
 
-    // Every route follows this rule: a host that calls it resident is asking a client inside it to do it. Unlike
-    // `open`, there is no headless fallback to hand it to — a start is a command in a window, and M26 says a
-    // process outside one cannot fire it — so a host that did not call it resident can go no further.
+    // Session starts require a resident client; an external process cannot invoke window commands (M26).
     if (!host.residentRoutes.includes(plan.route) || !client.hello.residentRoutes.includes(plan.route)) {
       client.send({ type: 'notice', level: 'warning', message: 'Reload this editor to start a session from a card.' });
 
@@ -506,11 +469,7 @@ export class Hub {
     client.send({ type: 'perform', route: plan });
   }
 
-  /**
-   * The directory the developer chose for a card. Checked here rather than taken: the path is one the editor's own
-   * picker produced, but the card it is being stored against is the client's word, and a pick that does not belong
-   * to that card's repository would go on refusing at every later open with nothing to say about why.
-   */
+  /** Validate the selected checkout against the card repository before saving it, so invalid selections report their cause. */
   #setCheckout(client: Connected, key: string, root: string): void {
     const card = this.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
 
@@ -524,8 +483,7 @@ export class Hub {
     const wanted = card.issue === null ? null : repositoryKey(card.issue.url);
     const chosen = normalize(root);
 
-    // Relative here is not relative there: this resolves it against the hub's own working directory, and the
-    // editor that is later handed it has another. Absolute or nothing.
+    // Require absolute paths because the hub and editor have different working directories.
     if (!isAbsolute(chosen) || wanted === null || repositoryOf(chosen, readers.readText) !== wanted) {
       client.send({
         type: 'notice',
@@ -546,11 +504,7 @@ export class Hub {
     this.#broadcast();
   }
 
-  /**
-   * A client that can carry out this route: the one that asked, so a window opens where the developer clicked, and
-   * otherwise — the browser overlay, which can perform none — the board already on that root, else any of the
-   * host's. Host-scoped, because a route name is a string two hosts could both use and a plan belongs to one.
-   */
+  /** Select a client for this host: requester first, then one on the checkout, then any compatible client. */
   #residentFor(route: OpenRoute['route'], hostId: string, asked: Connected, root: string): Connected | undefined {
     if (asked.hello.residentRoutes.includes(route)) {
       return asked;
@@ -563,7 +517,7 @@ export class Hub {
     return able.find((candidate) => candidate.hello.workspaceRoot !== null && dirKey(candidate.hello.workspaceRoot) === dirKey(root)) ?? able[0];
   }
 
-  /** A window on a card's checkout, with no agent in it. Planned by the host, and performed by a client inside it. */
+  /** Open a checkout without starting an agent, using a host plan and resident client. */
   async #openCheckout(client: Connected, key: string): Promise<void> {
     const host = this.#hostFor(client.hello);
 
@@ -593,11 +547,9 @@ export class Hub {
       if (until <= now) this.#opening.delete(held);
     }
 
-    // A card whose window is on its way is not asked for again. `raise` waits up to 12s for focus, and the browser
-    // is a surface where a script can fire every card's item at once — thirty cards would be thirty `code` spawns.
+    // Suppress duplicate opens and limit browser-triggered code processes while focus requests are pending.
     if (this.#opening.has(key)) {
-      // Said to a developer who clicked twice, and not to a page that fired thirty: a notice per item would be
-      // thirty warnings for something they did not do.
+      // Notify duplicate clicks, but suppress per-card notices for rate-limited requests.
       if (client.hello.hostId !== null) {
         client.send({ type: 'notice', level: 'info', message: 'This window is already opening.' });
       }
@@ -627,14 +579,12 @@ export class Hub {
       return;
     }
 
-    // A host that calls a route resident is asking a client inside it to do it. This is the one such route a client
-    // that cannot perform it may ask for, so the performer is the asking board where it is an editor, else any (R41).
+    // Run resident routes in the requesting editor, or another connected editor for browser requests (R41).
     if (host.residentRoutes.includes(plan.route)) {
       const performer = this.#residentFor(plan.route, host.id, client, root);
 
       if (performer === undefined) {
-        // Which message is right turns on why there is no performer, not on who asked: an editor running a build
-        // that predates the route is told to reload whoever asked on its behalf.
+        // Report the missing capability, including when an outdated editor handles a browser request.
         const anyEditor = [...this.#clients.values()].some((candidate) => candidate.hello.hostId !== null);
 
         client.send({
@@ -660,11 +610,7 @@ export class Hub {
     await host.open?.(plan, readers);
   }
 
-  /**
-   * The windows the hub knows are open because a board in each is talking to it. Read alongside whatever the host
-   * enumerates, which for VS Code is the windows an agent has announced itself in — so a window with no agent
-   * running is invisible there, and `code --new-window` on a folder it already has would open a second one.
-   */
+  /** Include connected board windows. Host discovery may list only agent windows and miss an existing empty editor. */
   #boardWindows(): HostWindow[] {
     return [...this.#clients.values()].flatMap((candidate) =>
       candidate.hello.workspaceRoot === null ? [] : [{ folders: [candidate.hello.workspaceRoot] }],
@@ -673,16 +619,11 @@ export class Hub {
 
   // — configuration —
 
-  /**
-   * Takes a client's settings whole. Public because a host may push these without a board open — turning the signal
-   * off has to take effect then, or "turn this off to remove those entries" is a claim nothing honours (R34).
-   * Returns what the signal install observed, and null when this configuration did not touch it.
-   */
+  /** Apply client settings even without an open board so activity removal takes effect (R34). Return the installation result, or null if unchanged. */
   configure(raw: unknown): ActivityState | null {
     const parsed = parseHubConfig(raw);
 
-    // Refused whole, and the board says why. A client is not necessarily this editor, and one field of this becomes
-    // a process: taking half of a configuration would leave the hub polling with two clients' settings mixed.
+    // Reject the entire configuration to avoid mixing clients' settings, including executable paths.
     if ('failure' in parsed) {
       this.#configFailures = [parsed.failure];
       this.#deps.log.warn(`client settings rejected: ${parsed.failure.message}`, 'config');
@@ -698,7 +639,7 @@ export class Hub {
     if (same(before, parsed.config)) {
       this.#deps.log.debug('settings restated unchanged', 'config');
     } else {
-      // Written before `#applyConfig` moves the floor, so turning the log down still says why it went quiet.
+      // Log the setting change before applying a lower log level.
       this.#deps.log.info(`client updated settings; log level: ${parsed.config.logLevel}`, 'config');
     }
 
@@ -711,9 +652,7 @@ export class Hub {
     this.#configFailures = this.#applyConfig();
     this.#stored = null;
 
-    // Only a configuration nothing objected to. A host or a source refuses one the schema cannot — an unknown id,
-    // a repository with no owner — and remembering that would carry the mistake past the window that made it, to a
-    // hub the browser starts with no editor open to correct it.
+    // Persist only settings accepted by the schema and adapters, so later browser starts do not inherit rejected values.
     if (this.#configFailures.length === 0) {
       this.#deps.settings.write(parsed.config);
     }
@@ -721,12 +660,7 @@ export class Hub {
     const first = !this.#configured;
     this.#configured = true;
 
-    // The first configuration is what says whether the developer wants the signal at all, so the install waits for
-    // it: putting entries in an agent's settings on the hub's own default would write for a developer who turned
-    // them off, and then take them away again (R34).
-    // Forced, not lazy: `#ensureActivity` keeps a settled run, and a setting that changed is exactly the case
-    // where the settled run is the wrong one (R34).
-    // A named agent that was not named before has no signal in place yet, so the install runs for it too.
+    // Wait for explicit activity settings before installation (R34). Reinstall when settings or configured agents change, bypassing cached results.
     const agents = (config: HubConfig): string => config.agents.map((agent) => agent.id).sort().join(',');
     const changed =
       first ||
@@ -745,11 +679,9 @@ export class Hub {
       this.#retime(true);
     }
 
-    // Said before the read rather than left to it: the read has a floor, so a setting corrected within a second of
-    // being made wrong would leave every board showing the complaint until the next poll.
+    // Broadcast corrected settings immediately; refresh throttling could otherwise retain an obsolete error.
     this.#broadcast();
-    // Read now only where the settings a source reads with moved, so the cards on screen answer to them. Every
-    // client restates its configuration on connect, and reading for each of those is a read per board that opens.
+    // Refresh sources only when their settings change; every client restates settings on connection.
     const reason = same(before.sources, parsed.config.sources) ? 'visible' : 'settings';
     if (sessionsChanged) {
       void this.#refreshSources(reason);
@@ -761,7 +693,7 @@ export class Hub {
     return resynced;
   }
 
-  /** Hands each host and each source its own entry. Every id the registries do not carry is named here (R25). */
+  /** Configure each adapter and report unknown IDs (R25). */
   #applyConfig(): ReadFailure[] {
     this.#deps.log.setLevel(this.#config.logLevel);
     this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes);
@@ -769,14 +701,11 @@ export class Hub {
 
     const refused = configureSources(this.#deps.registries, this.#config.sources);
 
-    // A source this configuration does not name, and one whose settings it refused, both lose their last read here
-    // rather than at the next poll: with nothing watching there may not be one, and cards read for settings nobody
-    // is naming any more would sit on the board for as long as five minutes.
+    // Immediately clear cached cards for omitted or rejected sources, even when polling is inactive.
     for (const id of [...this.#readings.keys()]) {
       if (!Object.hasOwn(this.#config.sources, id) || refused.some((failure) => failure.subject === id)) {
         this.#readings.delete(id);
-        // Its outage with it: nothing reads that source again, so the retry it is waiting on would never come due,
-        // and the tick would spend a read on every surviving source every five seconds for the life of the hub.
+        // Clear the removed source's outage too, or it would keep triggering retries for the remaining sources.
         this.#outages.delete(id);
       }
     }
@@ -786,11 +715,7 @@ export class Hub {
     return [...configureHosts(this.#deps.registries, this.#config.hosts), ...refused];
   }
 
-  /**
-   * The signal as this hub last observed it, installing it if it has not been. A `busy` run observed another
-   * process's lock and settled nothing, so it is retried rather than kept: a lock a crash left behind would leave
-   * this hub reporting no phase for any session, with nothing on screen saying why (R25).
-   */
+  /** Cache completed activity installation results. Retry busy results because another process held the lock (R25). */
   #ensureActivity(): ActivityState | null {
     return this.#configured && (this.#activity === null || this.#activity.plan === 'busy')
       ? this.#installActivity()
@@ -798,9 +723,7 @@ export class Hub {
   }
 
   #installActivity(): ActivityState {
-    // An install reaches only the agents the configuration names — detected or set — so the board never writes into
-    // the settings of a CLI this machine does not have (R30). A removal reaches every one of them: it is the
-    // developer turning the hooks off, and leaving another agent's entries behind would leave a writer firing (R34).
+    // Install only for configured agents (R30). Remove hooks from all agents when disabled (R34).
     this.#activity = this.#config.installActivity
       ? this.#deps.syncActivity(
           this.#deps.registries,
@@ -835,7 +758,7 @@ export class Hub {
       client.send({ type: 'log', entries: backfill });
     }
 
-    // Installed before the line saying so, which is therefore the first live entry the viewer receives.
+    // Subscribe before logging so the viewer receives that entry.
     client.unwatchLog = this.#deps.log.watch((entry) => client.send({ type: 'log', entries: [entry] }));
     this.#deps.log.debug(`${client.hello.id} opened its log viewer`, 'clients');
   }
@@ -844,11 +767,7 @@ export class Hub {
     return [...this.#clients.values()].some((client) => client.watching);
   }
 
-  /**
-   * Timers exist only while something is watching. Left alone when nothing about them changed: a client that says
-   * what it already said — a browser worker Chrome restarted, a second board — would otherwise restart the clock
-   * the periodic read is counting on.
-   */
+  /** Poll only while watched. Preserve timers when settings are unchanged so reconnects do not postpone refreshes. */
   #retime(cadenceChanged = false): void {
     const wanted = !this.#disposed && this.#watched();
 
@@ -878,10 +797,7 @@ export class Hub {
     );
   }
 
-  /**
-   * The two things the poll cadences cannot answer for: a machine that was asleep between two of them, and a network
-   * that was not back yet when one of them ran.
-   */
+  /** Refresh after suspend and retry source outages between normal polls. */
   #tick(): void {
     const now = this.#deps.clock.now();
     const gap = now - this.#lastTickAt;
@@ -891,9 +807,7 @@ export class Hub {
 
     if (slept) {
       this.#deps.log.info(`polling gap: ${Math.round(gap / 1000)}s; refreshing all sources and sessions`, 'loop');
-      // The sleep is not part of the outage: a source that failed on the way down gets its minute over again, and
-      // its next try is now. One the board has already stated stays stated — `#riding` keys on that rather than on
-      // the clock, because a stall long enough to look like a suspend must not retract a notice that still holds.
+      // Restart outage grace periods after suspend and retry immediately. Keep previously reported outages visible.
       for (const outage of this.#outages.values()) {
         outage.since = now;
         outage.retryAt = now;
@@ -905,8 +819,7 @@ export class Hub {
       return;
     }
 
-    // Announced here rather than on the try that finds the source still down: that try may be two minutes out, and
-    // one that hangs never answers at all — which would leave a dimmed board saying nothing for as long as it hung.
+    // Report expired grace periods on the tick; pending or delayed requests could otherwise suppress the notice indefinitely.
     const overdue = [...this.#outages.values()].filter(
       (outage) => !outage.announced && now - outage.since >= OUTAGE_GRACE_MS,
     );
@@ -925,11 +838,7 @@ export class Hub {
     }
   }
 
-  /**
-   * One watcher per configured agent that offers a signal. Only the configured ones: an agent the board was not
-   * asked to read has no activity directory, and a watcher on a directory nothing creates retries once a second for
-   * the life of the hub. Re-armed when the configuration names a different set.
-   */
+  /** Watch only configured agents with activity signals. Recreate watchers when the configured agent set changes. */
   #armWatchers(): void {
     while (this.#watchers.length > 0) {
       this.#watchers.pop()?.dispose();
@@ -946,17 +855,14 @@ export class Hub {
     }
   }
 
-  /**
-   * The live roster, read now. The one way anything on this machine reads sessions: a client that spawned the CLI
-   * itself would be a second reader of the same machine, which is the thing this process exists to stop.
-   */
+  /** Read the shared live roster; clients must not spawn duplicate CLI readers. */
   async roster(): Promise<readonly Session[] | null> {
     await this.#refreshSessions(true);
 
     return this.#sessions && this.#sessions.failures.length === 0 ? this.#sessions.sessions : null;
   }
 
-  /** Reads both sources, each on the floor its own cost earns. */
+  /** Refresh work sources and sessions using their respective minimum intervals. */
   refresh(reason: Reason = 'visible'): Promise<void> {
     if (this.#disposed) {
       return Promise.resolve();
@@ -965,8 +871,7 @@ export class Hub {
     const now = this.#deps.clock.now();
     const reads = [this.#refreshSources(reason)];
 
-    // The session read spawns a CLI, so it keeps a floor of its own: a button pressed twice in a second is one
-    // roster read rather than two processes (mechanics M2).
+    // Throttle manual roster refreshes to avoid duplicate CLI processes (M2).
     if (now - this.#lastReadAt >= REFRESH_FLOOR_MS) {
       this.#lastReadAt = now;
       reads.push(this.#refreshSessions());
@@ -975,11 +880,7 @@ export class Hub {
     return Promise.all(reads).then(() => undefined);
   }
 
-  /**
-   * A source read is a network round trip, so a board that merely became visible gets the reading already taken
-   * unless it has gone stale. A read asked for waits only out the second that makes two asks one read, and settings
-   * that moved wait out nothing: the read in flight was issued with the ones they replaced, so one follows it.
-   */
+  /** Use cached sources for recent visibility changes. Throttle manual refreshes; changed settings require a new read after any in-flight request. */
   #refreshSources(reason: Reason = 'visible'): Promise<void> {
     if (this.#sourcesInFlight) {
       return reason === 'settings' ? this.#sourcesInFlight.then(() => this.#refreshSources(reason)) : this.#sourcesInFlight;
@@ -999,10 +900,7 @@ export class Hub {
     return this.#sourcesInFlight;
   }
 
-  /**
-   * `again` is for a change the read in flight cannot have seen: a session that ended after that read listed it
-   * would otherwise sit on the board until the next poll. A timer or a button coalesces, being a read of now.
-   */
+  /** Queue another roster read when an event postdates the current read. Timer and manual requests share the current read. */
   #refreshSessions(again = false): Promise<void> {
     if (this.#sessionsInFlight) {
       return again ? this.#sessionsInFlight.then(() => this.#refreshSessions()) : this.#sessionsInFlight;
@@ -1015,7 +913,7 @@ export class Hub {
     return this.#sessionsInFlight;
   }
 
-  /** Every source the configuration names, read together. A source it does not name costs no read at all. */
+  /** Read configured sources concurrently. */
   async #readSources(): Promise<void> {
     const sources = this.#deps.registries.sources.filter((source) =>
       Object.hasOwn(this.#config.sources, source.id),
@@ -1051,8 +949,7 @@ export class Hub {
     const reading = await source.read().catch(
       (error: unknown): SourceReading => ({
         items: null,
-        // A source is a seam anyone may implement, and one that throws must land on the board like one that failed
-        // — swallowed, it takes every other source's broadcast with it and says nothing anywhere the developer looks.
+        // Convert source exceptions to reported failures so other sources still update.
         failure: {
           subject: source.id,
           kind: 'source-failed',
@@ -1079,9 +976,7 @@ export class Hub {
       this.#outages.delete(source.id);
     }
 
-    // A failed read keeps what the source last returned, and says what went wrong beside it (R24). A source with
-    // nothing to say at all had its settings refused, and its cards go with them: they were read for a repository
-    // the developer is no longer asking about, under a board that already says the settings were refused.
+    // Retain cached cards after read failures (R24). Clear cards when rejected settings disable the source.
     const items = reading.items ?? (reading.failure ? held?.items ?? null : null);
 
     this.#readings.set(source.id, { ...reading, items });
@@ -1097,7 +992,7 @@ export class Hub {
     }
   }
 
-  /** What every source last read, as one board. A source that has read nothing contributes nothing, not an absence. */
+  /** Combine the last successful read from each source. */
   #items(): WorkItems | null {
     const read = [...this.#readings.values()].flatMap((reading) => reading.items ?? []);
 
@@ -1112,7 +1007,7 @@ export class Hub {
       totalAssigned: read.reduce((total, items) => total + items.totalAssigned, 0),
       notOnProject: read.reduce((total, items) => total + items.notOnProject, 0),
       truncated: read.some((items) => items.truncated),
-      // The oldest of them: the board is only as fresh as the source that has not been read since.
+      // Use the oldest source timestamp for board freshness.
       fetchedAt: read.map((items) => items.fetchedAt).sort()[0]!,
     };
   }
@@ -1122,8 +1017,7 @@ export class Hub {
     const config = { agents: this.#config.agents, branchIssuePattern: this.#config.branchIssuePattern };
     const current = () => !this.#disposed && same(config, { agents: this.#config.agents, branchIssuePattern: this.#config.branchIssuePattern });
 
-    // Off the click path on purpose: what an open needs costs the best part of a second cold and almost nothing
-    // once read, and none of it changes on the developer's click.
+    // Preload routing data to avoid its cold-read cost on clicks.
     for (const host of this.#deps.registries.hosts) {
       host.prime(readers);
     }
@@ -1140,11 +1034,7 @@ export class Hub {
       return;
     }
 
-    // Always a snapshot: one CLI being unreadable contributes a failure and no sessions, and must not discard the
-    // rest. The activity is re-read as it lands, because a poll that began before an event carries the older phase.
-    // The board's own classifications, taken off before anything downstream counts or merges them. The adapter
-    // already drops them — a classification is listed in exactly the shape `neverPrompted` refuses — so this is what
-    // still holds if a flag ever stops doing what it says (R2's carve-out, `docs/mechanics.md` M31).
+    // Preserve successful agent reads when another fails and refresh activity after polling. Exclude classification sessions even if adapter filtering changes (R2, M31).
     const ours = this.#triage.sessionIds();
 
     if (ours.size > 0) {
@@ -1156,7 +1046,7 @@ export class Hub {
     this.#sessions = { ...snapshot, sessions: snapshot.sessions.map((session) => this.#withActivity(session)) };
     this.#retain();
     this.#sessionsUnreadable = snapshot.sessions.length === 0 && snapshot.failures.length > 0;
-    this.#sayAboutSessions(snapshot.failures, snapshot.sessions.length, this.#deps.clock.now() - startedAt);
+    this.#logSessionRead(snapshot.failures, snapshot.sessions.length, this.#deps.clock.now() - startedAt);
     // Stable cards keep their rows while history refreshes. A just-ended attempt needs a fresh history read,
     // otherwise the older attempt would briefly appear in its place.
     this.#history = snapshot.failures.length > 0 ? [] : this.#history.filter((s) => !endedIssues.has(s.issueNumber));
@@ -1171,8 +1061,7 @@ export class Hub {
     if (!current()) return;
     this.#history = history.sessions;
     this.#historyFailures = history.failures;
-    // Only where both reads landed: a session in neither list is one whose transcript is gone, and an incomplete read of either says nothing
-    // about that. Held readings would otherwise be discarded on the one refresh that could not see the sessions they belong to.
+    // Prune retained phases only after complete live and history reads establish that sessions are absent.
     if (history.failures.length === 0) {
       this.#deps.status.write(pruned(this.#deps.status.read(), this.#sessions?.sessions ?? [], this.#history));
     }
@@ -1180,16 +1069,11 @@ export class Hub {
     this.#broadcast();
   }
 
-  /**
-   * One line per session read at `debug`, because the cadence is every thirty seconds and a line each at `info`
-   * would outwrite the log in a day. A failure is a `warn`, and only where the set of them has moved: an agent
-   * whose CLI is missing fails every read, and repeating that twice a minute buries everything else in the file.
-   */
-  #sayAboutSessions(failures: readonly ReadFailure[], listed: number, took: number): void {
+  /** Log reads at debug level. Warn only when the set of agent failures changes to avoid repeated poll warnings. */
+  #logSessionRead(failures: readonly ReadFailure[], listed: number, took: number): void {
     this.#deps.log.debug(`${listed} sessions in ${took}ms`, 'sessions');
 
-    // Keyed on subject and kind, never on the message: an agent adapter puts its CLI's own output in one, so a
-    // failure whose text moves between attempts would write a line every read — which is the flood this prevents.
+    // Deduplicate by subject and kind; adapter error text can vary between identical failures.
     const key = failures.map((failure) => `${failure.subject}/${failure.kind}`).join(' ');
 
     if (key === this.#saidAboutSessions) {
@@ -1198,7 +1082,7 @@ export class Hub {
 
     this.#saidAboutSessions = key;
 
-    // An empty set that was not empty before is a CLI that has come back, which is worth as much as its going.
+    // Log recovery when the previous failure set clears.
     if (key === '') {
       this.#deps.log.info('all agent reads recovered', 'sessions');
 
@@ -1214,13 +1098,9 @@ export class Hub {
 
   // — the activity signal —
 
-  /**
-   * An event on the signal. A session that ended, or one the hub has never listed, moved the list itself and only
-   * the CLI can report it; anything else is a phase on a session already up, which is a file read rather than a spawn.
-   */
+  /** Refresh the roster for ended or unknown sessions; known-session phase updates require only marker reads. */
   #onActivity(changes: readonly ActivityChange[]): void {
-    // Watched, not merely alive: a board that is closed pays the same CLI spawn for an event as one on screen, and
-    // there is nobody to show the result to (R35).
+    // Ignore activity while no board is visible to avoid unnecessary CLI reads (R35).
     if (this.#disposed || !this.#watched()) {
       return;
     }
@@ -1233,8 +1113,7 @@ export class Hub {
       'activity',
     );
 
-    // Not while the CLI is unreadable: it lists nothing, so every batch would be stale and spawn a read that fails
-    // again. The timer keeps retrying, which is the one place a read that may fail belongs.
+    // After an empty roster with agent failures, retry on the timer instead of every marker batch.
     if (stale && !this.#sessionsUnreadable) {
       void this.#refreshSessions(true);
 
@@ -1266,10 +1145,7 @@ export class Hub {
     return null;
   }
 
-  /**
-   * Records the phase of every live session, so the reading outlives the process that reported it. Written here rather than at the snapshot:
-   * the marker is deleted the moment a session ends cleanly, so the last read before it went is the only chance to keep the reading (R6).
-   */
+  /** Retain phases before session-end marker deletion, so closing a process does not clear attention (R6). */
   #retain(): void {
     this.#deps.status.write(retaining(this.#deps.status.read(), this.#sessions?.sessions ?? []));
   }
@@ -1288,16 +1164,12 @@ export class Hub {
     this.#broadcast();
   }
 
-  /**
-   * Where a session can be reached, and by whom. Every route the VS Code host plans is one only a client inside that
-   * application can perform, so the plan goes back to the client that asked for it rather than being carried out here.
-   */
+  /** Plan session routes in the host and send resident routes to the requesting client. */
   async #open(client: Connected, sessionId: string, extensionReady: boolean, handedOver = false): Promise<void> {
     const named = client.hello.hostId !== null && Object.hasOwn(this.#config.hosts, client.hello.hostId);
     const host = named ? this.#deps.registries.hosts.find((h) => h.id === client.hello.hostId) : undefined;
 
-    // Only a host this configuration names: one left out of it was handed no settings, and reaching into an editor
-    // on defaults nobody chose means reading another install's windows and bringing the wrong one forward.
+    // Use only configured hosts; defaults could select windows from another editor installation.
     if (host === undefined) {
       client.send({
         type: 'notice',
@@ -1380,8 +1252,7 @@ export class Hub {
       return;
     }
 
-    // Written down because an open is the board reaching into the developer's editor, and the log is where they
-    // look when a click did not land — which is exactly the case where nothing else says what was decided.
+    // Log the selected route to diagnose requests that fail to open the session.
     this.#deps.log.info(`${client.hello.id} opening ${sessionId} by ${plan.route}`, 'open');
 
     if (host.residentRoutes.includes(plan.route)) {
@@ -1408,11 +1279,7 @@ export class Hub {
     return this.#deps.lanes.read(this.#config.boardStatuses);
   }
 
-  /**
-   * One snapshot carries the whole board. A source that failed keeps its last good read in it and contributes a
-   * failure instead of an empty list — R24 forbids implying a read succeeded, and equally forbids erasing a board
-   * the developer can still read.
-   */
+  /** Build the board snapshot, retaining cached source data alongside read failures (R24). */
   snapshot(): Snapshot {
     const activity = this.#ensureActivity();
     const now = this.#deps.clock.now();
@@ -1429,7 +1296,7 @@ export class Hub {
     }
 
     for (const [id, reading] of this.#readings) {
-      if (reading.failure && !this.#riding(id, reading, now)) {
+      if (reading.failure && !this.#withinOutageGrace(id, reading, now)) {
         failures.push(reading.failure);
       }
     }
@@ -1452,17 +1319,13 @@ export class Hub {
       {
         boardStatuses: this.#config.boardStatuses,
         statusLanes: this.#config.statusLanes,
-        // Who the items were actually read for, which is not the setting the moment a developer changes it.
+        // Use the logins from the completed source read, which may predate changed settings.
         logins: items?.owners ?? [],
       },
       memory,
     );
 
-    // Attached after the lanes are settled, and none of them changes a lane: triage labels a card, a checkout says
-    // where it can be opened, and an action works on what a card holds. Placement stays the developer's alone (R8).
-    //
-    // The checkout goes on before the action decorates, because what the board may run on a card turns on having
-    // one — a card decorated first would be refused for a directory it is about to be given.
+    // Add triage, checkouts, then actions without changing lane placement (R8). Actions require checkout data first.
     const lanes = this.#actions.decorate(
       withCheckouts(
         withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now()),
@@ -1506,11 +1369,8 @@ export class Hub {
     };
   }
 
-  /**
-   * An unreachable source the board rides out rather than reports: the failure clears itself, it has not lasted a
-   * minute, and there is a read behind it still worth looking at. `stale` still says the board could not refresh.
-   */
-  #riding(id: string, reading: SourceReading, now: number): boolean {
+  /** Suppress transient failure notices during the grace period while cached data exists. The snapshot still reports stale data. */
+  #withinOutageGrace(id: string, reading: SourceReading, now: number): boolean {
     const outage = this.#outages.get(id);
 
     return (
@@ -1529,11 +1389,7 @@ export class Hub {
     return detected ? { logins: detected } : null;
   }
 
-  /**
-   * Writes back what a snapshot settled: where each card now sits, and what the install stamp now is. Separate from
-   * `snapshot`, which any caller may ask for — a read that rewrites the developer's lane placements under whatever
-   * configuration the hub happens to hold is a read nobody can make safely.
-   */
+  /** Persist computed board state separately from snapshot reads, which must not change saved lane placements. */
   #persist(lanes: Lane[]): void {
     const memory = this.#memory();
 
@@ -1554,10 +1410,7 @@ export class Hub {
     this.#installedAt = next.installedAt ?? 0;
   }
 
-  /**
-   * What this client has not already been told. Installing the signal is something that happened, not a condition,
-   * so it is said once per board — a second window has not read the first one's notice (R25).
-   */
+  /** Return installation notices not yet acknowledged by this client (R25). */
   #noticeFor(id: string): { notice: string } | null {
     if (this.#activity === null) {
       return null;
@@ -1584,12 +1437,7 @@ export class Hub {
     return { notice };
   }
 
-  /**
-   * The host whose answer this client gets about opening. Its own where it is resident in one. Where it is resident
-   * in nothing — a browser board — the one configured host answers instead: that board reaches an editor by asking
-   * the operating system for one rather than by being inside a window, so what it may open cannot depend on a
-   * window being open at the time (R14, R36). Its click arrives back here as that editor's own `open`.
-   */
+  /** Use the client's resident host, or the sole configured host for Chrome. Browser routes must not require an already open editor window (R14, R36). */
   #hostFor(hello: ClientHello): HostAdapter | undefined {
     if (hello.hostId !== null) {
       return this.#deps.registries.hosts.find((host) => host.id === hello.hostId);
@@ -1600,10 +1448,7 @@ export class Hub {
     return configured.length === 1 ? configured[0] : undefined;
   }
 
-  /**
-   * One snapshot, finished per client. What a board may open is its host's answer, and a notice is said once per
-   * board — a second window has not read the first one's (R14, R25).
-   */
+  /** Add host-specific opening capabilities and unacknowledged notices per client (R14, R25). */
   #sendTo(id: string, type: 'snapshot' | 'changed', base = this.snapshot()): void {
     const client = this.#clients.get(id);
 
@@ -1620,9 +1465,7 @@ export class Hub {
           base.lanes.flatMap((l) => l.cards).flatMap((c) => c.lastSession ?? []).filter((s) =>
             this.#deps.registries.agents.some((a) => a.id === s.agent && a.canResume !== undefined)),
         ) ?? [],
-        // Gated on this client being able to perform the route, not on its host offering one: `#hostFor` answers
-        // the single configured host for a client resident in nothing, so a browser board would otherwise be
-        // offered items that could only ever refuse (R42).
+        // Offer start actions only when this client can perform them; Chrome may resolve a host but cannot start sessions (R42).
         startable: client.hello.residentRoutes.includes('start-session')
           ? [...(this.#hostFor(client.hello)?.startable?.() ?? [])]
           : [],
@@ -1644,9 +1487,7 @@ export class Hub {
       this.#sendTo(id, 'changed', base);
     }
 
-    // After the send, never before. `consider` starts a reading synchronously and that start broadcasts a fresh
-    // snapshot saying so — sent from inside this call, it would be followed by `base`, which was taken before the
-    // reading began. Every client's last word would then be that nothing is being read, until the reading finished.
+    // Send this snapshot before consider can broadcast a newer triage state; reversing the order would display stale state.
     this.#triage.consider(base.lanes, this.#sourcesRead(), this.#watched());
     this.#actions.consider(
       base.lanes,
@@ -1657,11 +1498,8 @@ export class Hub {
     );
   }
 
-  /**
-   * Said once per machine, and held rather than sent: what a client is shown is assembled per client, and a notice
-   * pushed from inside a pass would race the snapshot that pass is about to send.
-   */
-  #tellOnceAboutTriage(message: string): void {
+  /** Queue the one-time triage notice for per-client snapshots to avoid racing the current broadcast. */
+  #notifyTriageOnce(message: string): void {
     if (this.#deps.marks.read().triageToldAt !== null) {
       return;
     }
@@ -1673,11 +1511,8 @@ export class Hub {
     }
   }
 
-  /**
-   * Said once per machine, the first time the board actually starts work on the developer's code. The setting is the
-   * consent; this is the moment it becomes an agent editing a checkout, and a warning is what R32's line deserves.
-   */
-  #tellOnceAboutActions(message: string): void {
+  /** Queue the one-time notice after the first action starts editing a checkout (R32). */
+  #notifyActionsOnce(message: string): void {
     if (this.#deps.marks.read().actionsToldAt !== null) {
       return;
     }
@@ -1720,7 +1555,7 @@ export class Hub {
   }
 }
 
-/** One entry per distinct condition. A cause that hit fifteen cards is one line above the lanes, not fifteen (R25). */
+/** Deduplicate conditions across cards for display above the lanes (R25). */
 function distinct(failures: readonly ReadFailure[]): ReadFailure[] {
   const seen = new Map<string, ReadFailure>();
 

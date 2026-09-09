@@ -100,9 +100,7 @@ describe('which cards are due', () => {
   });
 
   it('never reads an archived card, however many passes run over it', () => {
-    // The regression this whole design turns on. An archived card stays in every snapshot — the source query does
-    // not filter on status — so a rule that dropped its entry and read absence as due would spawn a classifier for
-    // every archived card on every broadcast, for as long as the hub ran.
+    // Archived cards remain in snapshots; retaining marked entries prevents repeated classification.
     const gone = lanesOf(card({ issue: issue({ status: '🚀 Released' }) }));
 
     expect(gone.find((lane) => lane.id === 'archived')?.cards).toHaveLength(1);
@@ -117,7 +115,7 @@ describe('which cards are due', () => {
     expect(held.entries['issue:17198']?.wasArchived).toBe(true);
   });
 
-  it('reads a card that went past the developer and came back, exactly once', () => {
+  it('classifies returned cards once', () => {
     const away = lanesOf(card({ issue: issue({ status: '🚀 Released' }) }));
     const back = lanesOf(card());
 
@@ -156,7 +154,7 @@ describe('which cards are due', () => {
     expect(dueForTriage(lanesOf(card()), failed, NONE, 61_000)).toEqual(['issue:17198']);
   });
 
-  it('gives up after four attempts rather than spawning forever against a broken CLI', () => {
+  it('stops automatic retries after the retry budget', () => {
     let failed = state();
 
     for (const expected of [60_000, 120_000, 300_000, 1_800_000]) {
@@ -192,7 +190,7 @@ describe('what a pass leaves behind', () => {
     expect(nextTriageState([], held, false).entries).toHaveProperty('issue:17198');
   });
 
-  it('gives a card that went past the developer a clean slate, attempts included', () => {
+  it('clears failures for archived cards so a return can retry', () => {
     const away = lanesOf(card({ issue: issue({ status: '🚀 Released' }) }));
     const failed = withTriageFailure(state(), 'issue:17198', { kind: 'classify-failed', message: 'no' }, 0);
 
@@ -225,7 +223,7 @@ describe('reading the stored state', () => {
     expect(Object.keys(read.failures)).toEqual(['issue:3']);
   });
 
-  it('defaults the fields that carry a sensible absence, within one revision', () => {
+  it('defaults optional fields within the current revision', () => {
     const read = readTriageState({
       entries: { 'issue:1': { revision: TRIAGE_REVISION, action: 'merge-upstream', detail: 'go', at: 1, agent: 'claude' } },
     });
@@ -234,8 +232,7 @@ describe('reading the stored state', () => {
   });
 
   it('drops an entry read under an older revision, which is what re-reads those cards', () => {
-    // The file outlives the build that wrote it, and a card is read once — so without this the board goes on showing
-    // sentences a fixed classifier would no longer write. Dropping the entry is what makes its card due again.
+    // Discard older triage revisions so stale explanations are classified again.
     const older = { action: 'develop', detail: 'Pick it up.', at: 1, agent: 'claude' };
     const read = readTriageState({
       entries: {
@@ -284,8 +281,7 @@ describe('the classifier answer', () => {
   });
 
   it('takes a merge from the model, because a merge is a request rather than a fact', () => {
-    // R39: nothing derives a merge, so the model reading somebody asking for one is the only channel there is.
-    // A fact still outranks it — `derivedAction` settles `fix-checks` before the model is asked at all.
+    // Merges require written requests. Failing-check facts are applied before model classification (R39).
     for (const action of ['merge-upstream', 'fix-checks'] as const) {
       expect(readTriageResult({ action, detail: 'go' }, null)).toEqual({ action, detail: 'go' });
       expect(offered()).toContain(action);
@@ -299,7 +295,7 @@ describe('the classifier answer', () => {
     expect(offered()).not.toContain('resolve-conflicts');
   });
 
-  it('cuts an over-long sentence at a word rather than discarding a good classification', () => {
+  it('truncates overlong explanations at a word boundary', () => {
     const long = `${'word '.repeat(60)}end`;
     const result = readTriageResult({ action: 'other', detail: long }, null);
 
@@ -352,10 +348,7 @@ describe('what the evidence settles before the model is asked', () => {
     expect(derivedAction(context({ checkState: 'ERROR' }))).toBe('fix-checks');
   });
 
-  /**
-   * The derived set is exactly one, and this is what would catch a second rule creeping back in: every state a
-   * pull request can be in, and the only label the facts ever settle is the failing check (R39).
-   */
+  /** Only failing checks derive an action from PR facts across these states (R39). */
   it('derives nothing but the failing check, over every state a pull request can be in', () => {
     const states: Partial<TriageContext['pullRequest']>[] = [];
 
@@ -371,10 +364,7 @@ describe('what the evidence settles before the model is asked', () => {
     expect([...new Set(states.map((state) => derivedAction(context(state))))]).toEqual([null]);
   });
 
-  /**
-   * R39: a branch going stale under a card is not an instruction to touch it, and one that will not merge is not the
-   * developer's to fix. An approved, green pull request used to read `land`; now the conversation decides.
-   */
+  /** Stale or conflicting branches alone do not authorize merges (R39). */
   it('says nothing about a green pull request, whatever else is true of it', () => {
     expect(derivedAction(context({ checkState: 'SUCCESS' }))).toBeNull();
     expect(derivedAction(context({ checkState: null }))).toBeNull();
@@ -396,8 +386,7 @@ describe('what the evidence settles before the model is asked', () => {
   });
 
   it('reads the action off the status, whatever the pull request says about itself', () => {
-    // The issue is where the team says what a card needs; the pull request is an artefact of doing it. A colleague's
-    // pull request moved to review is a card to review even where the branch beneath it will not merge.
+    // Review status can require reviewing a colleague PR even when it cannot merge.
     const lanes = { '🎁 Assigned': 'unstarted', '🔍 Dev Review': 'review' } as const;
 
     expect(statusAction('🔍 Dev Review', lanes)).toBe('review-others');
@@ -407,8 +396,7 @@ describe('what the evidence settles before the model is asked', () => {
   });
 
   it('never calls the developer own open pull request theirs to review, whatever the status says', () => {
-    // The one thing a status cannot say is whose review it is. Without this a card under a review status reads
-    // "Review their PR" about the developer's own branch, which is the guess R24 refuses.
+    // Review status alone cannot identify whose PR needs review.
     const lanes = { '🔍 Dev Review': 'review' } as const;
     const own = (over = {}) => ({ ...context(over), status: '🔍 Dev Review' });
 
@@ -431,14 +419,13 @@ describe('what the evidence settles before the model is asked', () => {
     expect(settledAction(context(), lanes)).toBeNull();
   });
 
-  it('reads a status named after something on Object, rather than calling a lane out of the prototype', () => {
+  it('ignores inherited status mappings', () => {
     expect(statusAction('toString', {})).toBeNull();
     expect(statusAction('constructor', {})).toBeNull();
   });
 
-  it('keeps the model sentence, because it was written knowing the action', () => {
-    // Nothing is overruled after the fact any more: the action is settled before the ask and the model is told it,
-    // so a card can no longer carry a label and a sentence describing different states (R24).
+  it('preserves the explanation for the settled action', () => {
+    // Pass deterministic actions before classification to keep labels and explanations consistent (R24).
     expect(resolveTriage('review-others', { action: 'develop', detail: 'Rich sent it over for review.' }, context())).toEqual({
       action: 'review-others',
       qualifier: 'initial',
@@ -453,7 +440,7 @@ describe('what the evidence settles before the model is asked', () => {
     });
   });
 
-  it('calls a review round initial until the developer has spoken on it', () => {
+  it('keeps review rounds initial until the developer responds', () => {
     const said = (author: string) => ({ author, authorName: null, authorAssociation: 'MEMBER', body: 'x', createdAt: '2026-01-01T00:00:00Z' });
 
     expect(qualifierOf('address-review', context())).toBe('initial');
@@ -474,8 +461,7 @@ describe('what the evidence settles before the model is asked', () => {
     const theirs = { author: 'dev-9' };
 
     expect(qualifierOf('review-others', context({ ...theirs, reviews: [] }))).toBe('initial');
-    // GitHub records the author's own inline replies as reviews, and a colleague's or a bot's round is not the
-    // developer's: an app reviews every pull request here before anybody has read it.
+    // Count developer replies and reviews only; colleague and bot reviews do not establish a prior round.
     expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('dev-9'), review('DEV-9')] }))).toBe('initial');
     expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('some-bot')] }))).toBe('initial');
     expect(qualifierOf('review-others', context({ ...theirs, reviews: [review('dev-2')] }))).toBe('initial');
@@ -497,11 +483,7 @@ describe('what the evidence settles before the model is asked', () => {
     expect(qualifierOf('qa-failure', context())).toBeNull();
   });
 
-  /**
-   * The parity table. Neither board can import this at runtime — one is a classic script, the other is plain
-   * JavaScript Chrome loads as it stands — so the same literals are asserted in each client's suite. A copy that
-   * drifts labels a card one way in the editor and another in the browser (`docs/testing.md`).
-   */
+  /** Match literal labels in both clients, which cannot import the TypeScript implementation at runtime (testing.md). */
   it.each(TRIAGE_LABEL_ROWS)('reads %s/%s as "%s" on every board', (action, qualifier, expected) => {
     expect(triageLabel(action, qualifier)).toBe(expected);
   });
@@ -518,10 +500,7 @@ describe('what a card carries', () => {
     expect(lane?.cards[0]?.triage).toEqual({ state: 'running' });
   });
 
-  /**
-   * The card keeps the key it was read under, so the reading is still on file. Rendering it would put a stale chip —
-   * and the action control that reads it — on an issue somebody else now owns.
-   */
+  /** Hide stored triage and its action controls after unassignment. */
   it('shows nothing on a card the developer is no longer assigned, however recently it was read', () => {
     const held = state({ entries: { 'issue:17198': entry({ action: 'merge-upstream' }) } });
     const [lane] = withTriage(lanesOf(card({ unassigned: true })), held, NONE, 1_000);
@@ -570,10 +549,7 @@ describe('what a card carries', () => {
     expect(evidenceOf(issue())).toBe(before);
   });
 
-  /**
-   * The three the issue's own `updatedAt` never reports: GitHub does not touch an issue when somebody comments on
-   * its pull request, pushes to it, or when a build goes red under it.
-   */
+  /** PR comments, pushes, and check failures need not change issue updatedAt. */
   it.each([
     ['a comment or a review on the pull request', { updatedAt: '2026-09-02T11:00:00Z' }],
     ['a push', { headOid: 'f9e8d7c' }],
@@ -589,15 +565,14 @@ describe('what a card carries', () => {
   });
 
   it('gives a card it could not read somewhere to press, and no words about why', () => {
-    // Without this the cards that most need reading again are the only ones with nothing to click, and the failure's
-    // own remedy names a control that does not exist. What went wrong is one line above the lanes (R25).
+    // Failed triage retains a retry control; show the failure once above the board (R25).
     const failed = withTriageFailure(state(), 'issue:17198', { kind: 'classify-failed', message: 'no' }, 0);
     const [lane] = withTriage(lanesOf(card()), failed, NONE, 1_000);
 
     expect(lane?.cards[0]?.triage).toEqual({ state: 'failed', attempts: 1, exhausted: false });
   });
 
-  it('says when it has stopped trying on its own, so the developer knows a click is the only way back', () => {
+  it('reports exhausted automatic retries', () => {
     let failed = state();
 
     for (let attempt = 0; attempt < 5; attempt++) {

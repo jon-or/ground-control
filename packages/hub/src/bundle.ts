@@ -1,11 +1,7 @@
-/**
- * The hub runs from one path on disk, whichever client put it there, so a native-messaging manifest or a saved
- * command line keeps working across an extension update. Which copy wins is decided here rather than by whoever
- * activated last: an older client must never replace a newer hub.
- */
+/** Use a stable hub path across extension updates. Newer versions replace older bundles, never the reverse. */
 const MARKER = '// ground-control-hub ';
 
-/** The version of a bundle already on disk, or null for a file this did not write. */
+/** Read the version stamp, or null for an unstamped bundle. */
 export function versionOf(text: string | null): string | null {
   if (text === null || !text.startsWith(MARKER)) {
     return null;
@@ -16,12 +12,12 @@ export function versionOf(text: string | null): string | null {
   return line.trim() === '' ? null : line.trim();
 }
 
-/** Stamps a bundle with the version that carried it, so the next client can compare without running it. */
+/** Stamp the bundle version for comparison without execution. */
 export function stamp(version: string, code: string): string {
   return `${MARKER}${version}\n${code}`;
 }
 
-/** Dotted numbers, compared as numbers. A part that is not a number sorts below every part that is. */
+/** Compare dotted numeric versions; nonnumeric parts sort below numeric parts. */
 export function compareVersions(left: string, right: string): number {
   const a = left.split('.');
   const b = right.split('.');
@@ -42,10 +38,7 @@ export function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-/**
- * Whether the bundle a client carries should replace the one on disk. Newer wins; an older one never writes. Equal
- * versions compare bytes, which is the development case — every build in a source tree carries the same version.
- */
+/** Replace older bundles. For equal versions, compare contents to support development builds. */
 export function shouldWrite(carried: string, onDisk: string | null): boolean {
   if (onDisk === null) {
     return true;
@@ -54,7 +47,7 @@ export function shouldWrite(carried: string, onDisk: string | null): boolean {
   const theirs = versionOf(onDisk);
   const ours = versionOf(carried);
 
-  // A file this did not stamp is not one to reason about by version: something else wrote it, and ours is known good.
+  // Replace unstamped files with the client's bundled hub.
   if (theirs === null || ours === null) {
     return carried !== onDisk;
   }

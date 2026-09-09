@@ -12,7 +12,7 @@ export type CheckoutMemory = Record<string, string>;
 
 export interface CheckoutStore {
   read(): CheckoutMemory;
-  /** Whether the file now holds this pick. A caller about to tell the developer it was stored has to know. */
+  /** Return whether the checkout selection was stored. */
   write(key: string, root: string): boolean;
 }
 
@@ -28,8 +28,7 @@ export function makeCheckoutStore(home: string): CheckoutStore {
       return {};
     }
 
-    // Hand-editable, as every other store here is: an unparsed read would throw on every render with no way back
-    // but deleting the file. A root that no longer belongs to its card is dropped later, by `checkoutFor`.
+    // Ignore invalid stored values. checkoutFor later rejects roots that no longer match their cards.
     try {
       const parsed = memory.safeParse(JSON.parse(text));
 
@@ -49,7 +48,7 @@ export function makeCheckoutStore(home: string): CheckoutStore {
 
         return true;
       } catch {
-        // A pick that could not be stored is one the developer makes again. Failing the render is worse.
+        // Return failed writes without interrupting rendering.
         return false;
       }
     },

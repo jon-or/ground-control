@@ -1,17 +1,14 @@
 import { closeSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 
-/**
- * How stale a lock has to be before it is another process's crash rather than its work in progress. One install is a
- * read, a compare and a rename, so a lock this old is not being held by anything alive.
- */
+/** Lock age after which installation may replace it as stale. */
 export const LOCK_STALE_MS = 60_000;
 
-/** Whether to take a lock, given the age of the one already there. A lock nobody clears would block installs forever. */
+/** Check whether an existing lock has expired. */
 export function lockIsStale(mtimeMs: number, now: number): boolean {
   return now - mtimeMs > LOCK_STALE_MS || mtimeMs > now + LOCK_STALE_MS;
 }
 
-/** Never throws: a file that cannot be read is one the caller has to cope with, not an error to propagate. */
+/** Return null for missing or unreadable files. */
 export function read(path: string): string | null {
   try {
     return readFileSync(path, 'utf8');
@@ -20,13 +17,10 @@ export function read(path: string): string | null {
   }
 }
 
-/**
- * The lock's own identity. Releasing must not unlink a lock that is no longer the one this process took: another
- * process whose turn came while this one was stalled would then be writing settings with nothing holding the door.
- */
+/** Verify lock ownership before release so a delayed process cannot remove another installer's lock. */
 const NONCE = `${process.pid}-${Math.random().toString(36).slice(2)}`;
 
-/** Takes the install lock, breaking one nothing alive is holding. False means another process is mid-install. */
+/** Acquire the install lock, replacing stale locks. Return false while another installer owns it. */
 export function takeLock(path: string, now: number = Date.now()): boolean {
   const take = (): boolean => {
     try {
@@ -37,8 +31,7 @@ export function takeLock(path: string, now: number = Date.now()): boolean {
       return false;
     }
 
-    // Exclusive create is not enough on its own: breaking a stale lock is a delete and a create, and two processes
-    // doing that at once both succeed. Whoever's nonce is in the file at the end is the one that holds it.
+    // Stale-lock deletion and creation can race; verify the stored nonce after acquiring.
     return read(path) === NONCE;
   };
 
@@ -65,20 +58,16 @@ export function releaseLock(path: string): void {
       rmSync(path, { force: true });
     }
   } catch {
-    // A lock that has already gone, or one another process now owns.
+    // The lock was removed or replaced by another process.
   }
 }
 
-/** A real sleep, not a spin: the lock being waited out is another process's, so this thread has nothing to do. */
+/** Block without spinning while another process releases a file. */
 function pause(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/**
- * Retried: on Windows a write to a path another process has momentarily open fails outright and succeeds a moment
- * later — measured on `~/.claude/settings.json`, which every live session reads. Synchronous, because 90 ms is the
- * whole budget and a torn settings file is not.
- */
+/** Retry transient Windows access failures synchronously within 90 ms, as measured on shared Claude settings. */
 export function attempt(action: () => void): void {
   for (let left = 3; ; left--) {
     try {
@@ -95,10 +84,7 @@ export function attempt(action: () => void): void {
   }
 }
 
-/**
- * For a file nothing else holds open: a partial one is never visible under the real name. Falls back to writing in
- * place, because a rename over a path something else has open fails on Windows where a write does not.
- */
+/** Write via a temporary file and rename. Fall back to in-place writes when Windows open handles prevent replacement. */
 export function writeAtomic(path: string, text: string): void {
   const temp = `${path}.${process.pid}.tmp`;
 
@@ -113,18 +99,12 @@ export function writeAtomic(path: string, text: string): void {
   }
 }
 
-/**
- * For a file live processes hold open, such as an agent's settings: a rename over it fails where a write does not,
- * and the backup taken beforehand is what makes truncating safe.
- */
+/** Write settings in place when open handles prevent rename. The caller backs up the file before truncation. */
 export function writeInPlace(path: string, text: string): void {
   attempt(() => writeFileSync(path, text));
 }
 
-/**
- * For a file rewritten on every render: a board that changed nothing must not churn a write, a rename and an unlink
- * several times a second on the thread the editor draws on.
- */
+/** Skip unchanged content to avoid repeated filesystem writes during rendering. */
 export function writeIfChanged(path: string, text: string): boolean {
   if (read(path) === text) {
     return false;

@@ -90,7 +90,7 @@ describe('the flags a dispatched session runs under', () => {
   });
 });
 
-describe('reading back the id the CLI minted', () => {
+describe('reading CLI-assigned session IDs', () => {
   it('takes the short id off the backgrounded line and not off the help lines', () => {
     expect(shortIdFrom(BACKGROUNDED)).toBe('46af2ac8');
   });
@@ -131,7 +131,7 @@ describe('dispatching', () => {
     expect(await makeClaudeDispatcher(run)(input())).toMatchObject({ failure: { kind: 'dispatch-not-executable' } });
   });
 
-  it('says so when the CLI started something and did not say what', async () => {
+  it('reports startup without a session ID', async () => {
     const { run } = runner({ ok: true, text: 'Starting background service…\n' });
     const outcome = await makeClaudeDispatcher(run)(input());
 
@@ -140,7 +140,7 @@ describe('dispatching', () => {
     expect('failure' in outcome && outcome.failure.remedy).toContain('agents');
   });
 
-  it('reports an ordinary failure as a run to try again rather than a setting to fix', async () => {
+  it('recommends retrying ordinary dispatch failures', async () => {
     const { run } = runner({ ok: false, reason: 'failed', detail: 'timed out after 60s' });
     const outcome = await makeClaudeDispatcher(run)(input());
 

@@ -19,17 +19,15 @@ export type TriageAction = (typeof TRIAGE_ACTIONS)[number];
 /** Whether a review round is the first or a later one. Read from the pull request's own history, never from the model. */
 export type TriageQualifier = 'initial' | 'followup';
 
-/** The classifier's whole answer. Two fields, because a third is a field nobody reads and a chance to be wrong. */
+/** Classifier action and explanation. */
 export interface TriageResult {
   action: TriageAction;
   detail: string;
 }
 
 /**
- * One card's triage, as it is stored. `wasArchived` is what makes a card that left and came back due again without
- * the entry ever being deleted while it sits archived — deleting it there would make absence the trigger for a card
- * that renders archived on every pass, which is a loop. `evidence` is what the card looked like when this was
- * decided, so a label that has since gone stale can say so rather than reading as current (R24).
+ * Persisted triage with evidence for freshness. Keep archived entries marked so returning cards become due once
+ * without repeated classification while archived.
  */
 export interface TriageEntry {
   action: TriageAction;
@@ -39,18 +37,15 @@ export interface TriageEntry {
   detail: string;
   /** Epoch milliseconds this was decided. */
   at: number;
-  /** Which agent adapter answered, so a board with two says whose reading it is showing. */
+  /** Agent adapter that produced this result. */
   agent: string;
   wasArchived: boolean;
   evidence: string;
-  /** What the card looked like on the one axis worth spending a model call over: when its status last moved. */
+  /** Status-change trigger recorded when classified. */
   trigger: string;
 }
 
-/**
- * A triage that did not produce an answer. Durable and counted, because every failure mode here — a logged-out CLI, a
- * rate limit, a timeout — fails again immediately, and a card with no entry is otherwise due on the very next pass.
- */
+/** Persisted classification failure and retry count, preventing immediate retries on every update. */
 export interface TriageFailure {
   kind: string;
   message: string;
@@ -86,10 +81,7 @@ export interface TriageComment {
   createdAt: string;
 }
 
-/**
- * Somebody the board names on a card, where nothing matches on them and they are only ever printed. The identifier
- * is carried all the same, because that is what a name override is keyed on.
- */
+/** Display identity; retain its ID for name overrides. */
 export interface TriageActor {
   /** Their login, or a team's slug. */
   login: string;
@@ -123,30 +115,22 @@ export interface TriagePullRequest {
   isDraft: boolean;
   author: string | null;
   authorName: string | null;
-  /**
-   * The branch this would merge into. What decides whether keeping the head current is one merge or a chain: a
-   * branch based on another feature branch needs its parent current first, and the board cannot verify that order
-   * (R39). Empty only on a recording made before it was selected.
-   */
+  /** PR base branch. Refuse unattended merges for stacked branches (R39). Empty in older recordings. */
   baseRefName: string;
-  /** The branch the work is on, which is what a dispatched merge is told to merge into. */
+  /** Head branch receiving the merge. */
   headRefName: string;
-  /** The head commit, and a run's whole evidence: one run per push, and never a second against the same commit. */
+  /** PR head commit used in dispatch evidence. */
   headOid: string;
   /** `SUCCESS`, `FAILURE`, `ERROR`, `PENDING`, or null where the repository runs no checks at all. */
   checkState: string | null;
   comments: TriageComment[];
   reviews: TriageReview[];
-  /** Who has been asked to review, which is the only thing that says a colleague's pull request wants the developer. */
+  /** Requested reviewers used to identify developer review responsibility. */
   reviewRequests: TriageActor[];
   threads: TriageThread[];
 }
 
-/**
- * One thing somebody did to a card's state: a status move, an assignment, or an unassignment. Carried as read,
- * because what a run of these means is the board's judgement and a work source's job is to report what happened.
- * A status move out of nothing is the card being added to the board rather than anybody moving it.
- */
+/** Recorded status or assignment event, interpreted by the board. An empty previous status denotes project addition. */
 export interface TriageStateEvent {
   at: string;
   actor: string | null;
@@ -163,7 +147,7 @@ export interface TriageContext {
   title: string;
   body: string;
   status: string | null;
-  /** Status moves and assignments, oldest first, on the project the board reads. What says when the card became this. */
+  /** Project status and assignment events, oldest first. */
   stateEvents: TriageStateEvent[];
   comments: TriageComment[];
   pullRequest: TriagePullRequest | null;
@@ -172,8 +156,8 @@ export interface TriageContext {
   /** `owner/name`, as the card's own URL carries it. What a dispatched run is told it is working in. */
   repository: string;
   /**
-   * The branch the repository merges into by default. Read rather than assumed: a pull request based on anything
-   * else is a chain the board refuses to automate (R39), and "master" is a convention, not a fact.
+   * Observed repository default branch. Other PR bases are treated as stacked branches and refused for automation
+   * (R39).
    */
   defaultBranch: string | null;
 }

@@ -22,15 +22,12 @@ function request(over: Partial<OpenRequest> = {}): OpenRequest {
 }
 
 describe('the vscode host adapter', () => {
-  it('names itself by the id the hosts setting carries', () => {
+  it('uses the configured host ID', () => {
     expect(makeVscodeHost().id).toBe(VSCODE_HOST_ID);
   });
 
-  /**
-   * The rule the split rests on: a route the hub can neither perform nor forward is a click that does nothing. Every
-   * route this host can plan fires a URI or a command, and both follow focus, so all of them are the client's.
-   */
-  it('offers every route it can plan as one a resident client must perform', () => {
+  /** Every planned route needs a resident client because URI and command execution depend on window focus. */
+  it('requires resident execution for every supported route', () => {
     const host = makeVscodeHost();
     const resident = new Set(host.residentRoutes);
 
@@ -39,7 +36,7 @@ describe('the vscode host adapter', () => {
     }
   });
 
-  it('performs nothing itself and hands nothing back, rather than claiming to', () => {
+  it('exposes neither headless open nor release', () => {
     const host = makeVscodeHost();
 
     expect(host.open).toBeUndefined();
@@ -59,7 +56,7 @@ describe('the vscode host adapter', () => {
     expect('refusal' in plan && plan.refusal).toBe('other-agent');
   });
 
-  /** A placement table with no row for the session's agent, so the refusal is the table's and not one id's. */
+  /** Verify refusals depend on configured placements, not a hard-coded agent ID. */
   it('plans against the placements it was built with', () => {
     const empty = makeVscodeHost({});
 
@@ -71,8 +68,8 @@ describe('the vscode host adapter', () => {
 });
 
 /**
- * The three that touch the machine are pass-throughs to the readers this package excludes from its floor by name.
- * What is worth proving is the wiring: that each reads under what `configure` accepted rather than under a default.
+ * Verify machine-reader wiring uses accepted settings instead of defaults. Reader implementations have separate
+ * coverage rules.
  */
 describe('what it reads the machine for', () => {
   const nowhere = { userDir: '/nowhere/User' };
@@ -117,7 +114,7 @@ describe('its configuration', () => {
     expect(host.settings()).toEqual({ userDir: 'd:/portable/User', mayOpenWindow: false });
   });
 
-  it('reads an absent entry as the defaults rather than as a refusal', () => {
+  it('uses defaults when configuration is absent', () => {
     const host = makeVscodeHost();
 
     expect(host.configure(undefined)).toBeNull();

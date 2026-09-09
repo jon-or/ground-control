@@ -8,11 +8,7 @@ import { LOG_FLOORS } from './log.js';
 import type { AgentConfig, ReadFailure } from './types.js';
 import type { LogFloor } from './log.js';
 
-/**
- * Everything the hub polls with. A client pushes one of these and the hub merges it over its own defaults, so a hub
- * a browser started alone still reads sensibly. Host and source entries are opaque here and are parsed by the
- * adapter that owns the id — `core` may not know what a host wants.
- */
+/** Shared hub configuration, merged over defaults. Host and source adapters validate their own entries. */
 export interface HubConfig {
   agents: AgentConfig[];
   /** Matches an issue number in a branch or directory name. The team's convention, so it ships as a default. */
@@ -24,7 +20,7 @@ export interface HubConfig {
   refreshIntervalMs: number;
   sessionIntervalMs: number;
   installActivity: boolean;
-  /** How much detail the hub writes about itself. Never whether it writes at all — see `LOG_FLOORS`. */
+  /** Log detail level; info diagnostics remain enabled (LOG_FLOORS). */
   logLevel: LogFloor;
   triage: TriageSettings;
   actions: ActionSettings;
@@ -39,25 +35,18 @@ export interface NewSessionSettings {
   prompt: string;
 }
 
-/** What card triage is allowed to cost. Every field bounds a spend, so a hand-edited one is floored rather than taken. */
+/** Triage enablement, concurrency, timeout, and display names. */
 export interface TriageSettings {
   enabled: boolean;
   /** How many cards are read and classified at once. Fetch and classification share the budget. */
   concurrency: number;
-  /** The whole of one card's triage — the source read and the classification together, not the classification alone. */
+  /** Combined source-read and classification timeout. */
   timeoutMs: number;
-  /**
-   * Who a login really is, by login, where GitHub's own answer is not the person: an agent account whose profile
-   * name is the agent's, or somebody whose profile carries no name at all. Overrides the profile name wherever the
-   * board prints somebody.
-   */
+  /** Display-name overrides by login. */
   names: Record<string, string>;
 }
 
-/**
- * A path the hub is willing to spawn: a bare command name, resolved against `PATH`, or a file that is there. Every
- * field of a pushed configuration that becomes a process is this, and a client is not necessarily this editor.
- */
+/** Configured command name or path, validated before process launch. */
 export const spawnable = z
   .string()
   .min(1)
@@ -65,22 +54,18 @@ export const spawnable = z
     message: 'must be a command name on PATH or a file that exists',
   });
 
-/**
- * The ids naming a registry's targets, out of whatever a settings file holds. A hand-edited one holds what was
- * typed: a bare string where a list belongs, or an entry that is not a name. Nothing here is a target, so nothing
- * here can be refused by name — an unreadable list is the shipped one, and a list is exactly what it names.
- */
+/** Read configured adapter IDs, filtering non-string entries. Use defaults when the outer value is not an array. */
 export function idsFrom(raw: unknown, fallback: readonly string[]): string[] {
   return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.trim().length > 0) : [...fallback];
 }
 
 const laneId = z.enum(LANE_ORDER as [LaneId, ...LaneId[]]);
 
-/** Floors, not defaults: a hand-edited settings file can ask for a zero-second poll, which is a spin. */
+/** Minimum polling intervals prevent repeated immediate reads. */
 const REFRESH_FLOOR_MS = 30_000;
 const SESSION_FLOOR_MS = 2_000;
 
-/** Ceilings as well as floors here, because every one of these bounds what the board may spend without being asked. */
+/** Bound automatic triage usage with timeout and concurrency limits. */
 const TRIAGE_TIMEOUT_FLOOR_MS = 10_000;
 const TRIAGE_TIMEOUT_CEILING_MS = 300_000;
 const TRIAGE_CONCURRENCY_CEILING = 8;
@@ -94,14 +79,13 @@ const triage = z.object({
     .number()
     .finite()
     .transform((ms) => Math.min(TRIAGE_TIMEOUT_CEILING_MS, Math.max(TRIAGE_TIMEOUT_FLOOR_MS, ms))),
-  // Whose name the board uses, where GitHub's answer is not the person. Written by an older build without it, or by
-  // hand as something other than a map of strings, it reads as none rather than costing the whole configuration.
+  // Invalid or missing display-name overrides default to an empty map.
   names: z.record(z.string(), z.string()).catch({}).default({}),
 });
 
 /**
- * What the board may do on its own, and it starts at nothing (R32). Every ceiling here bounds something a mistake
- * would spend repeatedly: sessions in flight, dispatches in a day, and how long one is waited on.
+ * Unattended action settings, disabled by default. Bound concurrency, daily attempts, and session appearance time
+ * (R32).
  */
 const ACTION_CONCURRENCY_CEILING = 4;
 const ACTION_DAILY_CEILING = 50;
@@ -145,8 +129,7 @@ const actions = z.object({
     .number()
     .finite()
     .transform((ms) => Math.min(ACTION_RESULT_TIMEOUT_CEILING_MS, Math.max(ACTION_RESULT_TIMEOUT_FLOOR_MS, ms))),
-  // An action the board does not automate is dropped rather than refused: a settings file written by a later build
-  // naming one this build has never heard of must not cost the developer their whole configuration.
+  // Unsupported actions invalidate the action map without rejecting the rest of the configuration.
   actions: z
     .record(z.enum(AUTOMATABLE_ACTIONS), actionSetting)
     .catch({})
@@ -155,7 +138,7 @@ const actions = z.object({
 
 export const DEFAULT_NEW_SESSION: NewSessionSettings = { prompt: '' };
 
-// No floor and no ceiling: this one spends nothing and starts nothing, so a hand-edited value is taken as typed.
+// Preserve prompt text as entered; it does not start work automatically.
 const newSession = z.object({ prompt: z.string().catch('').default('') });
 
 export const hubConfig = z.object({
@@ -168,17 +151,16 @@ export const hubConfig = z.object({
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
   installActivity: z.boolean(),
-  // Absent from a configuration written by a client that predates the hub saying what it is doing, and caught
-  // rather than refused the way `permissionMode` is: a level a later build names is not worth a dead board over.
+  // Default missing or unsupported log levels to info for cross-version compatibility.
   logLevel: z.enum(LOG_FLOORS).catch('info').default('info'),
   // Absent from a configuration written by a client that predates triage.
   triage: triage.default(DEFAULT_TRIAGE),
-  // Absent from one that predates the board acting at all, which reads as the board doing nothing on its own (R32).
+  // Older configurations default to no unattended actions (R32).
   actions: actions.default(DEFAULT_ACTIONS),
   newSession: newSession.default(DEFAULT_NEW_SESSION),
 });
 
-/** The configuration a client pushed, or a named failure the board shows above the lanes rather than a throw (R25). */
+/** Parse client configuration or return a classified failure for display (R25). */
 export function parseHubConfig(raw: unknown): { config: HubConfig } | { failure: ReadFailure } {
   const parsed = hubConfig.safeParse(raw);
 
@@ -192,8 +174,8 @@ export function parseHubConfig(raw: unknown): { config: HubConfig } | { failure:
     failure: {
       subject: 'config',
       kind: 'bad-config',
-      message: `The board's settings could not be read: ${first?.path.join('.') ?? 'configuration'} ${first?.message ?? 'is not valid'}.`,
-      remedy: 'Correct the setting, or remove it to fall back to the shipped default.',
+      message: `Could not read settings: ${first?.path.join('.') ?? 'configuration'} ${first?.message ?? 'is not valid'}.`,
+      remedy: 'Correct the setting or remove it to use the default.',
     },
   };
 }

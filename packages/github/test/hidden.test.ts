@@ -11,7 +11,7 @@ vi.mock('node:child_process', () => ({
 
 const { detectLogins, makeGhRunner } = await import('../src/index.js');
 
-/** The hub that runs these has no console of its own, so a spawn without this opens one on the developer's screen. */
+/** Hide child consoles because the detached hub has no console. */
 describe('what gh is spawned with', () => {
   it('runs a query without a console window', async () => {
     await makeGhRunner('gh')(['--version']);

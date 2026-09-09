@@ -1,7 +1,4 @@
-/**
- * The browser overlay's identity, fixed by the public key in its manifest. Chrome derives an unpacked extension's id
- * from that key, so the id a native-messaging host allows stays the same wherever the extension is loaded from.
- */
+/** Stable Chrome extension ID derived from the manifest public key, independent of installation path. */
 export const CHROME_EXTENSION_ID = 'jmokhilledjhchaflaabojnfojefmdnh';
 
 /** The name Chrome looks the native host up by, in the registry on Windows and in a profile directory elsewhere. */

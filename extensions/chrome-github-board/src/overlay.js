@@ -1,8 +1,7 @@
 // @ts-check
 /**
- * The overlay's whole DOM layer: a menu in the board's own filter bar, a toast for anything that went wrong, and a
- * footer inside each of the developer's cards. A pure function of a snapshot and a document, so it is reached under
- * jsdom against recorded board markup — nothing here touches `chrome`, which is the content script's half.
+ * Render board menus, notices, and card footers from snapshots. Chrome APIs remain in the content script; this
+ * module is tested with jsdom and recorded markup.
  */
 
 /**
@@ -27,7 +26,7 @@ export const VIEW_TABS = 'nav[aria-label="Select view"]';
 const MENU_ID = 'gc-menu';
 const LOG_ID = 'gc-log';
 const LOG_LINES_ID = 'gc-log-lines';
-const PERCH_ID = 'gc-perch';
+const MENU_FALLBACK_ID = 'gc-perch';
 const TOASTS_ID = 'gc-toasts';
 const STYLE_ID = 'gc-style';
 const BADGE_CLASS = 'gc-badge';
@@ -36,26 +35,24 @@ const HIDDEN_ATTR = 'data-gc-hidden';
 const ACTOR_CLASS = 'gc-actor';
 const TIP_ID = 'gc-tip';
 
-/** What an element says on hover, in place of `title`: the browser's own tooltip is slow, plain, and unstyleable. */
+/** Custom tooltip text. Geometry and timing match GitHub (mechanics M35); both client suites verify parity. */
 const TIP_ATTR = 'data-gc-tip';
 
-/** Written on the assignee figure the overlay has taken over, so a scan that no longer wants it can hand it back. */
+/** Mark replaced assignee figures so later scans can restore them. */
 const ACTOR_ATTR = 'data-gc-actor';
 
 /**
- * The moment an element's text is the age of. One attribute for every duration the overlay draws — a session's
- * state, a saved session's, the age of a card's status, the age of the reading itself — because all four are
- * `ago(now - x)`, and one pass advances them all. Copied on the editor board, pinned by the parity table.
+ * Store the timestamp for each displayed duration so one timer updates all ages. Both clients use the same
+ * attribute.
  */
 const AGE_ATTR = 'data-gc-since';
 
 /**
- * The board's address in VS Code, written by hand: this file is what Chrome loads, so it imports nothing. The same
- * string is built by `openSessionUri` in `@ground-control/host-vscode`, and both are asserted against the literal.
+ * Duplicate openSessionUri from @ground-control/host-vscode because Chrome loads this file without workspace
+ * imports. Tests verify the literal URI.
  */
 const OPEN_SESSION_URI = 'vscode://groundcontrol.ground-control/open?session=';
-// Where a detached run's row goes instead. The navigation is what hands VS Code the foreground; the extension then
-// attaches in a terminal, which is exactly what the same row does on the board.
+// Navigate to VS Code to attach in a terminal, matching the editor board.
 const ATTACH_SESSION_URI = 'vscode://groundcontrol.ground-control/attach?session=';
 
 /** Where the collapse is remembered. Page-origin storage, so it is per developer and per browser rather than per tab. */
@@ -76,9 +73,8 @@ export const LANE_TITLES = {
 const PHASE_WORDS = { running: 'running', waiting: 'waiting for input', idle: 'idle' };
 
 /**
- * What each triage action is called. A copy of `TRIAGE_LABELS` in `packages/board` — this extension imports nothing
- * from it — pinned by the parity table in both suites, because a copy that drifts labels one board differently from
- * the other (`docs/testing.md`).
+ * Copy TRIAGE_LABELS from packages/board because this script cannot import workspace packages. Both client
+ * suites verify parity (docs/testing.md).
  */
 /** @type {Record<string, string>} */
 const TRIAGE_LABELS = {
@@ -114,22 +110,19 @@ const PHASE_TITLES = {
 };
 
 /**
- * What the mark means, since a colour is the one thing on a row that cannot be read. Its fill is the second half.
+ * Accessible phase and liveness description.
  *
  * @param {string | undefined} phase
  * @param {boolean} live
  * @returns {string}
  */
 function dotTitle(phase, live) {
-  const what = PHASE_TITLES[phase ?? ''] ?? 'No activity reported.';
+  const phaseDescription = PHASE_TITLES[phase ?? ''] ?? 'No activity reported.';
 
-  return live ? what : `${what} The session has since ended.`;
+  return live ? phaseDescription : `${phaseDescription} The session has since ended.`;
 }
 
-/**
- * What the duration counts, and what the board last saw. Not the phase, which is the mark's at the other end of the
- * row: a hover on one repeating the other is two tooltips to learn to ignore.
- */
+/** Explain the duration; the dot tooltip describes phase separately. */
 /** @type {Record<string, string>} */
 const DURATION_TITLES = {
   running: 'Time in this turn, from its prompt when recorded.',
@@ -138,8 +131,8 @@ const DURATION_TITLES = {
 const DURATION_TITLE = 'Time since the phase was reported.';
 
 /**
- * Where a card's attention is written, so a scan that no longer finds one can take it off again. It is the card's
- * own element that carries it, and the CSS above paints both the card and the session row the attention is about.
+ * Mark card attention on the GitHub element so CSS can style its border and session dots. Remove the attribute
+ * when attention clears.
  */
 const ATTENTION_ATTR = 'data-gc-attention';
 
@@ -166,7 +159,7 @@ ${COLUMN} { margin-right: -1px !important;
   border: 1px solid var(--borderColor-default, #d0d7de); background: var(--bgColor-default, #ffffff);
   color: var(--fgColor-default, #1f2328); cursor: pointer; }
 .${BADGE_CLASS} button:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
-/* No box of its own: a row is a line of the card, and a border around each one turned the footer into a stack of chips. */
+/* Session rows share the card footer; omit individual borders. */
 .${BADGE_CLASS} .gc-session {
   display: flex; box-sizing: border-box; width: 100%; align-items: center; gap: 5px;
   font: inherit; font-size: 11px; line-height: 20px; padding: 0 6px 0 8px; border: 0; border-radius: 6px;
@@ -183,59 +176,53 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-dot[data-phase="waiting"] { --gc-dot: var(--fgColor-attention, #9a6700); }
 .${BADGE_CLASS} svg { flex: none; }
 .gc-agent { flex: none; }
-/* No apostrophe in any comment in this sheet: jsdom reads one as a string delimiter even inside a comment, and the
-   rules up to the next one are dropped, which shows up as a test asserting a colour that is silently absent. */
-/* Keyed by agent: the Claude mark carries a brand colour, and the OpenAI one ships black and white, so it takes the
-   tone the agent name would have had in text. */
+/*
+ * Avoid apostrophes in CSS comments: the measured jsdom parser treated them as string delimiters and dropped
+ * intervening rules.
+ */
+/* Use Claude brand orange and the row text color for the monochrome OpenAI logo. */
 .gc-agent-icon { fill: var(--fgColor-muted, #59636e); }
 .gc-agent-icon[data-agent="claude"] { fill: #d97757; }
-/* A step above the marks around it and a step below Primer's own body text: 55% of the pair lands on the tone the
-   editor board takes from --vscode-foreground, so one session row reads the same on either board (mechanics.md M38).
-   Shrink to fit rather than grow: the running gradient is 300% of this box, so a box wider than the words runs the
-   pass of light past them in a fraction of its 1.8s. The age pushes itself right instead. */
+/*
+ * The 55% blend matches editor session text (mechanics M38). Keep the name box fitted to text so the 300%
+ * gradient traverses it over the full 1.8s.
+ */
 .gc-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: color-mix(in srgb, var(--fgColor-default, #1f2328) 55%, var(--fgColor-muted, #59636e)); }
-/* A column wide enough for the value, so a second turning over does not relay out the row under the lit name
-   beside it — every value ago returns below 100 weeks is three characters or fewer, and a word sizes past it. */
+/* Reserve three characters for durations below 100 weeks to avoid row shifts during timer updates. */
 .gc-state { flex: none; margin-left: auto; white-space: nowrap; min-width: 3ch; text-align: right;
   font-variant-numeric: tabular-nums; }
 .gc-agent, .gc-state { color: var(--fgColor-muted, #59636e); }
-/* Where the click lands, in the slot the state holds and at its width, so the row does not move under the pointer -
-   a relayout re-derives the lit name's gradient. One of the two is drawn, never both. */
+/* Replace the duration with the destination icon at the same width to preserve row and gradient geometry. */
 .gc-destination { display: none; flex: none; margin-left: auto; min-width: 3ch; text-align: right; line-height: 0; }
 .gc-destination svg { width: 15px; height: 15px; vertical-align: -3px; }
 .gc-plate { fill: var(--fgColor-muted, #59636e); stroke: none; }
 .gc-ink { fill: none; stroke: var(--bgColor-default, #ffffff); stroke-width: 2.25; stroke-linecap: round;
   stroke-linejoin: round; }
-/* A run the board started rather than a session the developer is sitting in. Italic and nothing else: every colour
-   on this row is spoken for, and the name is the one part of it that is the work's own. */
+/* Identify board-dispatched runs with italic names; retain existing state colors. */
 .gc-session[data-detached] .gc-name { font-style: italic; }
 .gc-frame { fill: none; stroke: var(--fgColor-accent, #0969da); stroke-width: 2; stroke-linejoin: round; }
 a.gc-session:hover .gc-state, a.gc-session:focus-visible .gc-state { display: none; }
 a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination { display: inline-block; }
 .gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
   color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-severe-emphasis, #bc4c00); }
-/* R38. Not an attention channel: no fill and no outline, because every colour a card edge takes is spoken for -
-   the two that want the developer and the green of a working session. The reading is text; a stale one fades. */
+/* Keep triage styling neutral so it does not imply session attention (R38). Fade stale results. */
 .gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"] { color: var(--fgColor-muted, #59636e);
   background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
 .gc-mark[data-mark="triaging"] { animation: gc-triage-pulse 1.8s ease-in-out infinite; }
 .gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
-/* How long the card has held its status. The label's own colour and weight: part of the label, not an aside. */
+/* Style status age as part of the triage label. */
 .gc-triage-age { font-variant-numeric: tabular-nums; display: inline-block; min-width: 3ch; text-align: center; }
 @keyframes gc-triage-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
 }
-/* One colour per state, and the same one the mark on the row beneath it takes: Primer's foreground tokens rather
-   than its emphasis pair, which is a surface colour and read a shade off the words it was ringing. It is also what
-   puts each ring within a few percent of the chart colour the editor board takes for that state (mechanics.md M38). */
+/* Use Primer foreground tokens to match session dots and editor chart colors (mechanics M38). */
 ${CARD}[${ATTENTION_ATTR}] { outline: 1px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
   border-radius: 6px; }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--fgColor-accent, #0969da); }
 
-/* A session still working. The green the row mark takes for running, dashed and faded where a mark is solid: the
-   card asks for nothing, so it must not read as one of the two marks R6 draws, from across the board. */
+/* Distinguish running sessions with a faded, dashed green border, separate from attention states (R6). */
 ${CARD}[${ATTENTION_ATTR}="running"] { outline-style: dashed;
   outline-color: color-mix(in srgb, var(--fgColor-success, #1a7f37) 55%, transparent);
   animation: gc-working-edge 2.4s ease-in-out infinite; }
@@ -245,14 +232,14 @@ ${CARD}[${ATTENTION_ATTR}="running"] { outline-style: dashed;
 }
 
 /*
- * One highlight, one pass, left to right, over the session's own name rather than its row: a working session is lit,
- * not recoloured, because colour on a row is spent on the two things that want the developer. The image is three
- * times the name and never repeats, so the band leads in from off the left and leaves with nothing behind it.
+ * Animate a highlight across the running session name without changing state colors. A nonrepeating gradient
+ * three times the text width starts and ends outside it.
  */
 @keyframes gc-shimmer { from { background-position: 100% 0; } to { background-position: 0% 0; } }
-/* How far the pass of light travels from the name's own colour. It cannot be derived: the peak is the end of the
-   range the theme runs to, which is white in one and black in the other. GitHub says which on the document element —
-   an explicit choice as dark or light, and auto deferring to the operating system (mechanics.md M38). */
+/*
+ * Use white highlights in dark themes and black in light themes. Resolve GitHub auto mode through the OS
+ * preference (mechanics M38).
+ */
 .gc-session[data-phase="running"] .gc-name { --gc-peak: var(--fgColor-default, #1f2328); }
 [data-color-mode="dark"] .gc-session[data-phase="running"] .gc-name { --gc-peak: #ffffff; }
 [data-color-mode="light"] .gc-session[data-phase="running"] .gc-name { --gc-peak: #000000; }
@@ -273,31 +260,29 @@ ${CARD}[${ATTENTION_ATTR}="running"] { outline-style: dashed;
   animation-iteration-count: infinite; }
 
 /*
- * Scoped to the marked card, the way the editor board scopes its own: an idle row on a card asking nothing — one
- * parked in Done — must not be painted as if it were. The mark alone carries the row: no rule down its edge, no
- * recoloured words, no filled surface — a footer of rows carrying any of those read as a stack of boxes rather
- * than lines of the card.
+ * Scope row attention to the card state so suppressed attention in Done does not color idle rows. Apply the
+ * color only to the dot.
  */
 ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-dot {
   --gc-dot: var(--fgColor-attention, #9a6700); }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   --gc-dot: var(--fgColor-accent, #0969da); }
 
-/* Reduced motion must not mean less information: the running session stays marked, it just stops moving. */
+/* Keep the running indicator visible with animation disabled. */
 @media (prefers-reduced-motion: reduce) {
   .gc-session[data-phase="running"] .gc-name {
     background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
   ${CARD}[${ATTENTION_ATTR}="running"] { animation: none; }
 }
 
-/* The gradient is the one thing forced colours may not paint, and the name's own colour is transparent under it. */
+/* Restore text color when forced colors suppress the gradient. */
 @media (forced-colors: active) {
   .gc-session[data-phase="running"] .gc-name {
     background-image: none; color: CanvasText; animation-name: none; }
   ${CARD}[${ATTENTION_ATTR}] { outline-color: Highlight; }
-  /* Hue is what forced colours drop, so the dash is the whole of a working edge and Highlight is left to R6. */
+  /* Retain the dashed running border in forced colors; reserve Highlight for attention. */
   ${CARD}[${ATTENTION_ATTR}="running"] { outline-color: CanvasText; animation: none; }
-  /* The hue is what forced colours drop, so the fill is all that is left to tell an open session from an ended one. */
+  /* Use dot fill to distinguish live and ended sessions in forced colors. */
   .gc-dot { border-color: CanvasText; }
   .gc-dot[data-live="true"] { background: CanvasText; }
 }
@@ -316,11 +301,15 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
 .${POPOVER_CLASS} .gc-actions { display: flex; justify-content: flex-end; padding: 4px 12px 8px; }
 [${HIDDEN_ATTR}] { display: none !important; }
 
-/* The whole stack goes, its caption included: a screen reader left with "Assignees: …" would read the name the
-   swap exists to replace. Same size and shape as the avatar GitHub drew, so the card's header does not reflow. */
+/*
+ * Hide the entire assignee stack, including its accessible caption. Preserve avatar dimensions to prevent
+ * header reflow.
+ */
 figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
-/* The initials wait behind the avatar rather than in front of it: every scan builds this slot again, and a class
-   the image's own load event adds back would show them for a frame each time — measured, on a cached avatar. */
+/*
+ * Keep initials behind the image to prevent a one-frame flash during repeated scans, including with cached
+ * avatars.
+ */
 .${ACTOR_CLASS} { position: relative; display: grid; place-items: center; overflow: hidden;
   width: 20px; height: 20px; border-radius: 50%;
   font-size: 8px; font-weight: 600; line-height: 1; letter-spacing: 0.02em;
@@ -333,7 +322,7 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${MENU_ID} .gc-collapse { padding-left: 6px; padding-right: 6px; }
 #${MENU_ID} button[data-stale="true"]::after { content: ""; width: 6px; height: 6px; margin-left: 6px;
   border-radius: 50%; background: var(--bgColor-attention-emphasis, #bf8700); }
-#${PERCH_ID} { display: flex; justify-content: flex-end; margin: 8px 16px; }
+#${MENU_FALLBACK_ID} { display: flex; justify-content: flex-end; margin: 8px 16px; }
 /*
  * Tooltip geometry follows mechanics M35: 12px/1.625, 4px 8px padding, 6px radius, and 250px maximum width.
  * Disable pointer events to preserve hover on the anchor.
@@ -366,7 +355,7 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
   box-shadow: -2px 0 12px rgba(31, 35, 40, 0.12); }
 #${LOG_ID} header { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px;
   border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); }
-/* Pinned reads at a glance, off the panel's own edge: a tick in a row of ticks is not a state a developer scans. */
+/* Show pin state on the panel edge for visibility while reading logs. */
 #${LOG_ID}[data-pinned="true"] { border-left-color: var(--borderColor-accent-emphasis, #0969da); }
 #${LOG_ID} h2 { flex: 1; margin: 0; font-size: 12px; font-weight: 600; }
 #${LOG_ID} label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
@@ -404,25 +393,19 @@ let panelOpen = false;
  */
 let logOpen = false;
 
-/**
- * What the sidebar shows. Both sources by default, because telling a stuck board from a stuck hub is the point of
- * one stream; the line-per-message detail off by default, because a panel where every reading writes four lines is
- * one nothing is found in (R40).
- */
+/** Show browser and hub logs by default; hide per-message debug lines to keep failures readable (R40). */
 const LOG_SHOWS_BY_DEFAULT = { browser: true, hub: true, debug: false };
 const logShows = { ...LOG_SHOWS_BY_DEFAULT };
 
 /**
- * Whether a click off the sidebar leaves it alone. Off by default, because the panel covers the right of the board
- * and a developer who has gone back to the cards is no longer a viewer — pinned is for the case they are watching
- * the log *while* working, and are willing to keep the hub being read to do it.
+ * Pinning preserves the sidebar and hub subscription on outside clicks. Default to closing so the panel does
+ * not cover active cards.
  */
 let logPinned = false;
 
 /**
- * Whether the project's own header is folded away, cached from page storage on first read: the collapse is applied
- * on every scan, and a board that read storage a few times a second would be doing it for an answer that changes
- * when the developer clicks. Null until the first read.
+ * Cache header visibility from page storage; update on user changes and reapply on each scan. Null until first
+ * read.
  *
  * @type {boolean | null}
  */
@@ -436,8 +419,7 @@ const dismissed = new Set();
 let closer = null;
 
 /**
- * How long ago, as one number in the largest unit that fits, and never rounded up — the same rule the editor board
- * follows. Overstating is the one direction that matters: a session working steadily must not read older than it is.
+ * Use the largest elapsed-time unit and round down to avoid overstating age.
  *
  * @param {number} ms
  * @returns {string}
@@ -467,7 +449,7 @@ export function ago(ms) {
 }
 
 /**
- * The last segment of a path. Both separators, because an agent CLI reports the cwd in its platform's own shape.
+ * Accept both path separators because agents report platform-specific paths.
  *
  * @param {string} dir
  * @returns {string}
@@ -479,8 +461,7 @@ function basename(dir) {
 }
 
 /**
- * What a session calls itself. The same ladder as `core`'s `sessionLabel` and the editor board's, held together by
- * the parity table in this package's tests rather than by an import — this file is loaded by Chrome as it stands.
+ * Prefer title, CLI name, short ID, then checkout basename. Both client suites verify this precedence.
  *
  * @param {Session} session
  * @returns {string}
@@ -490,9 +471,7 @@ export function sessionLabel(session) {
 }
 
 /**
- * The session's own state, at the head of its row: the phase in the colour, and whether the agent still has the
- * session open in whether the ring is filled. The word is the mark's accessible name, because a colour is not a
- * fact that reaches everyone who reads this board.
+ * The dot color indicates phase and its fill indicates a live session. Its accessible name states both.
  *
  * @param {Document} doc
  * @param {string | undefined} phase
@@ -507,9 +486,9 @@ function sessionDot(doc, phase, live, title = dotTitle(phase, live)) {
   el.dataset.phase = phase ?? 'none';
   el.dataset.live = String(live);
   el.setAttribute('role', 'img');
-  // Named for a reader and described for a pointer: the colour is the one thing on the row that cannot be read.
+  // Expose the state through both an accessible name and a tooltip.
   el.setAttribute('aria-label', `${PHASE_WORDS[phase ?? ''] ?? 'no state reported'}, ${live ? 'open' : 'ended'}`);
-  tip(el, title);
+  setTooltip(el, title);
 
   return el;
 }
@@ -561,8 +540,7 @@ function setAge(el, text) {
 export function tickDurations(doc, now) {
   let moved = 0;
 
-  // Scoped to what the overlay itself drew rather than to the attribute alone: this runs over a page GitHub owns,
-  // and a bare attribute selector would rewrite the text of anything of theirs carrying the same name.
+  // Update only overlay elements; GitHub elements may use the same attribute name.
   for (const el of doc.querySelectorAll(`.${BADGE_CLASS} [${AGE_ATTR}], #${MENU_ID} [${AGE_ATTR}]`)) {
     const at = Number(el.getAttribute(AGE_ATTR));
 
@@ -577,9 +555,8 @@ export function tickDurations(doc, now) {
 const ISSUE_URL = /github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/;
 
 /**
- * The issue a project card is for: its repository and its number, from the link it carries. Null for a draft item,
- * which has no issue of its own. The repository is half the answer — a project board spans repositories, and two of
- * them numbering an issue 42 is ordinary rather than rare.
+ * Read repository and issue number from the card link. Draft items return null; repository is required to
+ * distinguish identical numbers across repositories.
  *
  * @param {Element} card
  * @returns {{ repo: string, number: number } | null}
@@ -630,26 +607,24 @@ function renderActor(doc, element, card) {
 
   slot.className = ACTOR_CLASS;
   slot.textContent = actor.login.slice(0, 2).toUpperCase();
-  tip(slot, `${actor.login} · pull request author`);
+  setTooltip(slot, `${actor.login} · pull request author`);
   slot.setAttribute('role', 'img');
-  nameFor(slot, `${actor.login}, pull request author`);
+  setAccessibleName(slot, `${actor.login}, pull request author`);
 
   const image = doc.createElement('img');
 
   image.src = actor.url;
   image.alt = '';
 
-  // An avatar that fails is hidden rather than removed, and the initials it uncovers are marked rather than added.
-  // The scan's own observer watches for nodes and is armed again by the time this fires, so taking the image out
-  // would schedule a scan that draws it again — a repaint loop.
+  // Hide failed images instead of removing them. Removal would trigger the childList observer and repeatedly
+  // recreate the failing image.
   image.addEventListener('error', () => {
     image.hidden = true;
     slot.dataset.avatar = 'failed';
   });
   slot.appendChild(image);
 
-  // Emptied of its caption, the figure is a boundary with no name left on it — measured as `figure ""` in Chrome's
-  // own tree — so it is taken out of the reading and the avatar inside it is what remains.
+  // Remove the empty figure from the accessibility tree; its replacement avatar supplies the accessible name.
   figure.setAttribute('role', 'presentation');
   figure.setAttribute(ACTOR_ATTR, actor.login);
   figure.appendChild(slot);
@@ -667,9 +642,8 @@ function refOfCard(card) {
 }
 
 /**
- * Every laned card the snapshot holds, indexed twice: by repository and number where the issue's URL says which
- * repository it is in, and by number alone where it does not. A card in the first index is never in the second, so
- * the fallback can never hand one repository's card to another repository's issue.
+ * Index cards by repository and number when available, otherwise by number only. Keep indexes disjoint to
+ * prevent cross-repository fallback matches.
  *
  * @param {Snapshot} snapshot
  * @returns {{ byRef: Map<string, LanedCard>, byNumber: Map<number, LanedCard> }}
@@ -714,23 +688,16 @@ function ensureStyle(doc) {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-/**
- * Claude's own mark, in Claude's own orange. Drawn as a node rather than fetched: an extension may load only images
- * it ships, and a node is also the one form this file can draw under jsdom. The path is the published logomark.
- */
+/** Embed the published Claude logo as SVG in brand orange, avoiding external image loads and supporting jsdom. */
 const CLAUDE_MARK =
   'm4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z';
 
-/**
- * OpenAI's own mark, verbatim from the ChatGPT extension's resources/blossom-black.svg. It ships black and white
- * rather than in a brand colour, so it is drawn at the row's own muted tone rather than at one of the two.
- */
+/** OpenAI logo from the ChatGPT extension resources/blossom-black.svg, using the row text color. */
 const OPENAI_MARK =
   'M13.795 23.856q-1.188 0-2.256-.448a6.1 6.1 0 0 1-1.9-1.247 5.8 5.8 0 0 1-1.875.306 5.8 5.8 0 0 1-2.944-.777 6.1 6.1 0 0 1-2.184-2.12q-.807-1.34-.808-2.99 0-.682.19-1.482a6.3 6.3 0 0 1-1.472-2.002 5.76 5.76 0 0 1 .024-4.85q.546-1.177 1.52-2.024a5.5 5.5 0 0 1 2.303-1.2A5.55 5.55 0 0 1 5.485 2.62 6.06 6.06 0 0 1 7.575.925 5.85 5.85 0 0 1 10.21.313q1.187 0 2.255.447a6.1 6.1 0 0 1 1.9 1.248 5.8 5.8 0 0 1 1.875-.306q1.59 0 2.944.776a5.9 5.9 0 0 1 2.16 2.12q.832 1.34.832 2.99 0 .682-.19 1.483a6.2 6.2 0 0 1 1.472 2.024q.522 1.13.522 2.378 0 1.272-.546 2.449a6.1 6.1 0 0 1-1.543 2.048 5.45 5.45 0 0 1-2.28 1.177 5.4 5.4 0 0 1-1.115 2.402 5.8 5.8 0 0 1-2.066 1.695 5.85 5.85 0 0 1-2.635.612M7.93 20.913q1.188 0 2.066-.495l4.463-2.542a.52.52 0 0 0 .238-.448v-2.024L8.95 18.676a.97.97 0 0 1-1.044 0L3.419 16.11a.7.7 0 0 1-.024.165v.282q0 1.201.57 2.213.594.99 1.639 1.554 1.044.59 2.326.589m.238-3.838q.143.07.26.07a.46.46 0 0 0 .238-.07l1.781-1.012-5.722-3.296q-.522-.306-.522-.918v-5.11a4.27 4.27 0 0 0-1.9 1.602 4.13 4.13 0 0 0-.712 2.354q0 1.155.594 2.213.593 1.06 1.543 1.601zm5.627 5.227q1.258 0 2.279-.565a4.25 4.25 0 0 0 1.614-1.554q.594-.99.594-2.213v-5.085q0-.283-.237-.424l-1.805-1.036v6.568q0 .613-.522.919l-4.487 2.566q1.163.825 2.564.824m.902-8.617v-3.202l-2.683-1.507-2.707 1.507v3.202l2.707 1.507zm-6.933-7.51q0-.612.522-.918l4.488-2.567a4.34 4.34 0 0 0-2.564-.824q-1.26 0-2.28.565a4.25 4.25 0 0 0-1.614 1.554q-.57.99-.57 2.213v5.062q0 .283.237.447l1.781 1.036zm12.061 11.253a4.13 4.13 0 0 0 1.876-1.6 4.2 4.2 0 0 0 .712-2.355q0-1.154-.593-2.213-.594-1.06-1.544-1.6l-4.44-2.543q-.142-.095-.26-.071a.46.46 0 0 0-.238.07l-1.78.99 5.745 3.319q.26.141.38.377a.9.9 0 0 1 .142.518zm-4.772-11.96q.522-.33 1.045 0l4.51 2.614v-.424q0-1.13-.57-2.142a4.1 4.1 0 0 0-1.59-1.648q-1.02-.613-2.374-.613-1.187 0-2.066.495L9.545 6.292a.52.52 0 0 0-.238.448v2.025z';
 
 /**
- * The mark each agent is drawn with. A CLI absent here keeps its name in text, because an unmarked row would read as
- * one of the agents that has a mark (R2).
+ * Agent logos, with text fallback for unknown agents so every session identifies its agent (R2).
  *
  * @type {Record<string, string>}
  */
@@ -752,11 +719,10 @@ export function agentIcon(doc, agent) {
   const mark = doc.createElementNS(SVG_NS, 'path');
 
   svg.setAttribute('class', 'gc-agent-icon');
-  // What the fill is keyed by: a mark with a brand colour of its own keeps it, and a monochrome one takes the row's.
+  // Preserve agent brand colors; use the row color for monochrome logos.
   svg.setAttribute('data-agent', agent);
   svg.setAttribute('viewBox', '0 0 24 24');
-  // 13, not the 11 the row's own type is set at: the editor board draws the same mark at 13.6px, and the two boards
-  // are read side by side. It is the one thing on the row that is a picture rather than words.
+  // Use 13px icons to match the editor board at 13.6px.
   svg.setAttribute('width', '13');
   svg.setAttribute('height', '13');
   svg.setAttribute('aria-hidden', 'true');
@@ -767,8 +733,7 @@ export function agentIcon(doc, agent) {
 }
 
 /**
- * A floating panel in GitHub's own shape. Unplaced: it is `place`d once it is in the document, because where it goes
- * depends on how wide it turned out.
+ * Create a GitHub-style panel; position after insertion so measurements include its rendered width.
  *
  * @param {Document} doc
  * @param {string} title
@@ -788,14 +753,12 @@ function popover(doc, title) {
   return panel;
 }
 
-/** What a panel keeps between itself and the edge it would otherwise run off. */
+/** Minimum panel distance from the viewport edge. */
 const MARGIN = 8;
 
 /**
- * Hangs a panel under what opened it: left edges aligned, shifted back only as far as the window makes necessary,
- * and flipped above the anchor rather than off the bottom. Measured after the panel is in the document — a guess at
- * its width puts a menu on a right-hand button hundreds of pixels from it. Read afresh on every scan, so the panel
- * follows a board that scrolled under it.
+ * Measure after insertion. Align left edges, clamp horizontally, and flip above if needed. Reposition on each
+ * scan.
  *
  * @param {HTMLElement} panel
  * @param {Element} anchor
@@ -803,24 +766,24 @@ const MARGIN = 8;
 function place(panel, anchor) {
   const view = panel.ownerDocument.defaultView;
   const rect = anchor.getBoundingClientRect();
-  const own = panel.getBoundingClientRect();
+  const panelBounds = panel.getBoundingClientRect();
   const right = view?.innerWidth ?? 0;
   const bottom = view?.innerHeight ?? 0;
 
   const below = rect.bottom + 4;
-  const overflows = below + own.height > bottom - MARGIN;
+  const overflows = below + panelBounds.height > bottom - MARGIN;
 
-  panel.style.top = `${overflows ? Math.max(MARGIN, rect.top - 4 - own.height) : below}px`;
-  panel.style.left = `${Math.max(MARGIN, Math.min(rect.left, right - own.width - MARGIN))}px`;
+  panel.style.top = `${overflows ? Math.max(MARGIN, rect.top - 4 - panelBounds.height) : below}px`;
+  panel.style.left = `${Math.max(MARGIN, Math.min(rect.left, right - panelBounds.width - MARGIN))}px`;
 }
 
-/** How long a pointer rests on something before its tooltip opens. GitHub's own, measured at 120ms. */
+/** Tooltip delay measured from GitHub: 120ms. */
 const TIP_DELAY = 120;
 
-/** What a tooltip keeps between itself and what it names. GitHub's own, measured at 4px. */
+/** Tooltip gap measured from GitHub: 4px. */
 const TIP_GAP = 4;
 
-/** And between itself and the edge it would otherwise run off. Its own, not the lane menu's `MARGIN`. */
+/** Tooltip viewport margin, independent of the menu margin. */
 const TIP_MARGIN = 8;
 
 /** @type {ReturnType<typeof setTimeout> | null} */
@@ -837,30 +800,29 @@ let tips = null;
  * @param {Element} el
  * @param {string} text
  */
-function tip(el, text) {
+function setTooltip(el, text) {
   el.setAttribute(TIP_ATTR, text);
 
-  // Not where the element is already named with these words — a reader would say them twice, once as the name and
-  // once as the description. Order-independent, because `nameFor` takes the description back off.
+  // Avoid duplicate accessible names and descriptions. `setAccessibleName` also removes descriptions, regardless of
+  // call order.
   if (!el.hasAttribute('aria-label')) {
     el.setAttribute('aria-description', text);
   }
 }
 
 /**
- * Names an element for a reader. Its tooltip then says what the name says, so it stops being the description too.
+ * Set the accessible name and remove the duplicate description.
  *
  * @param {Element} el
  * @param {string} text
  */
-function nameFor(el, text) {
+function setAccessibleName(el, text) {
   el.setAttribute('aria-label', text);
   el.removeAttribute('aria-description');
 }
 
 /**
- * Centred over what it names and pushed to the side that has room, the way GitHub places its own. Measured after
- * the text is in it: a tooltip's width is its words, and a guess at that centres it somewhere else entirely.
+ * Measure after setting text, then center the tooltip over its anchor within the viewport.
  *
  * @param {HTMLElement} panel
  * @param {Element} anchor
@@ -868,41 +830,37 @@ function nameFor(el, text) {
 function placeTip(panel, anchor) {
   const view = panel.ownerDocument.defaultView;
   const rect = anchor.getBoundingClientRect();
-  const own = panel.getBoundingClientRect();
-  const above = rect.top - TIP_GAP - own.height;
+  const panelBounds = panel.getBoundingClientRect();
+  const above = rect.top - TIP_GAP - panelBounds.height;
 
-  // Below where it will not fit above, and then held inside the window either way: a tooltip long enough to wrap,
-  // on an anchor near the bottom, is drawn off the edge by the flip that was meant to rescue it.
+  // Place below when necessary, then clamp to the viewport so wrapped text remains visible.
   const top = above < TIP_MARGIN ? rect.bottom + TIP_GAP : above;
 
-  panel.style.top = `${Math.max(TIP_MARGIN, Math.min(top, (view?.innerHeight ?? 0) - own.height - TIP_MARGIN))}px`;
+  panel.style.top = `${Math.max(TIP_MARGIN, Math.min(top, (view?.innerHeight ?? 0) - panelBounds.height - TIP_MARGIN))}px`;
   panel.style.left = `${Math.max(
     TIP_MARGIN,
-    Math.min(rect.left + rect.width / 2 - own.width / 2, (view?.innerWidth ?? 0) - own.width - TIP_MARGIN),
+    Math.min(rect.left + rect.width / 2 - panelBounds.width / 2, (view?.innerWidth ?? 0) - panelBounds.width - TIP_MARGIN),
   )}px`;
 }
 
 /**
- * One tooltip for the whole document, moved and re-worded rather than built per element. Every scan replaces every
- * card, so a node per anchor would be built and thrown away by the hundred; and the text lives in an attribute
- * rather than in a child, because a child is part of `textContent` and every label that reads its own would gain it.
+ * Reuse one tooltip. Store text on the anchor attribute to exclude it from label textContent.
  *
  * @param {Document} doc
  * @returns {HTMLElement}
  */
 function tipElement(doc) {
-  const held = doc.getElementById(TIP_ID);
+  const existingTooltip = doc.getElementById(TIP_ID);
 
-  if (held !== null) {
-    return /** @type {HTMLElement} */ (held);
+  if (existingTooltip !== null) {
+    return /** @type {HTMLElement} */ (existingTooltip);
   }
 
   const panel = doc.createElement('div');
 
   panel.id = TIP_ID;
   panel.setAttribute('role', 'tooltip');
-  // Its own text node, written through rather than replaced. `textContent` swaps the child, which is a `childList`
-  // record, and the scan's observer watches for exactly those — every hover would schedule a rebuild of the board.
+  // Update the existing text node to avoid childList mutations.
   panel.appendChild(doc.createTextNode(''));
   (doc.body ?? doc.documentElement).appendChild(panel);
 
@@ -916,8 +874,7 @@ function tipElement(doc) {
 function showTip(doc, anchor) {
   const text = anchor.getAttribute(TIP_ATTR);
 
-  // A scan inside the delay replaces the card the pointer was over, and an anchor off the page measures zero at the
-  // origin — the tooltip would open in the corner of the window, naming something no longer there.
+  // Ignore anchors removed during the delay; their zero-sized bounds would place the tooltip in a corner.
   if (text === null || text === '' || !anchor.isConnected) {
     return;
   }
@@ -948,8 +905,8 @@ function hideTip(doc) {
  * @param {Document} doc
  */
 function ensureTips(doc) {
-  // Built here rather than at the first hover: a scan runs with the observer disarmed, and appending this to the
-  // body at any other moment is a `childList` record that schedules the next scan (`mechanics.md` M27).
+  // Create the tooltip while the observer is paused; appending it during hover would trigger another scan
+  // (mechanics M27).
   tipElement(doc);
 
   if (tips?.doc === doc) {
@@ -970,8 +927,7 @@ function ensureTips(doc) {
 
     hideTip(doc);
 
-    // Held from the moment the pointer arrives rather than from when the tooltip opens, so a pointer that leaves
-    // inside the delay is one `hideTip` still recognises — otherwise it opens over something already left behind.
+    // Track the anchor during the delay so leaving it cancels the pending tooltip.
     tipAnchor = anchor;
 
     if (anchor !== null) {
@@ -984,8 +940,7 @@ function ensureTips(doc) {
     const going = /** @type {Element} */ (event.target)?.closest?.(`[${TIP_ATTR}]`) ?? null;
     const to = /** @type {Node | null} */ (/** @type {MouseEvent | FocusEvent} */ (event).relatedTarget ?? null);
 
-    // Not for a pointer crossing between an anchor's own children: `mouseout` fires on each of those, and closing
-    // there means the tooltip shuts and reopens as the pointer travels the width of what it is describing.
+    // Keep the tooltip open when the pointer moves between children of its anchor.
     if (going !== null && going === tipAnchor && !(to !== null && going.contains(to))) {
       hideTip(doc);
     }
@@ -998,10 +953,7 @@ function ensureTips(doc) {
     }
   };
 
-  // The tooltip is placed once, in viewport coordinates, so a board scrolling under it would leave it behind. Closed
-  // rather than followed: the pointer is still over the anchor, and the next move opens it where the anchor now is.
-  // A popover is fixed the same way and goes for the same reason — it would otherwise stand over another card, and
-  // no scan is coming to re-place it: the board is only scanned when something changes it.
+  // Close fixed-position tooltips and menus on scroll because their anchors move without triggering a scan.
   const scrolled = () => {
     hideTip(doc);
 
@@ -1023,10 +975,10 @@ function ensureTips(doc) {
   tips = { doc, over, out, key, scrolled };
 }
 
-/** How the scroll handler asks for the repaint its close needs, kept current by every scan. */
+/** Current repaint callback for closing menus on scroll. */
 let repaintNow = () => {};
 
-/** Takes the handlers and the tooltip itself back off, which is what leaving a board runs. */
+/** Remove tooltip handlers and DOM when leaving a board. */
 function removeTips() {
   if (tips === null) {
     return;
@@ -1078,8 +1030,7 @@ function item(doc, text, chosen, tick) {
 }
 
 /**
- * Closes whatever is open when the next click lands outside it. One handler, replaced on every render: an overlay
- * that added one per paint would hold hundreds by the time a developer chose a lane.
+ * Replace the outside-click handler on each render to avoid accumulating listeners.
  *
  * @param {Document} doc
  * @param {Element[]} keep
@@ -1109,14 +1060,12 @@ function closeOnOutsideClick(doc, keep, closed) {
 }
 
 /**
- * Where the menu goes: the board's own filter bar, so the button sits with GitHub's. A board whose bar this no
- * longer matches still gets one above the columns — losing the reading's age and the refresh silently is the one
- * outcome R25 rules out.
+ * Insert the menu in the filter bar, with a fallback above the columns if GitHub changes the bar markup (R25).
  *
  * @param {Document} doc
  * @returns {Element | null}
  */
-function perch(doc) {
+function menuHost(doc) {
   const bar = doc.querySelector(TOOLBAR);
 
   if (bar !== null) {
@@ -1129,17 +1078,16 @@ function perch(doc) {
     return null;
   }
 
-  const own = doc.getElementById(PERCH_ID) ?? doc.createElement('div');
+  const fallbackHost = doc.getElementById(MENU_FALLBACK_ID) ?? doc.createElement('div');
 
-  own.id = PERCH_ID;
-  region.parentElement.insertBefore(own, region);
+  fallbackHost.id = MENU_FALLBACK_ID;
+  region.parentElement.insertBefore(fallbackHost, region);
 
-  return own;
+  return fallbackHost;
 }
 
 /**
- * The button GitHub would have drawn: its classes are hashed per build, so they are copied off a button already in
- * the bar rather than written down. Nothing else here depends on them.
+ * Copy current filter-button classes because GitHub hashes them per build.
  *
  * @param {Document} doc
  * @param {Element} host
@@ -1161,8 +1109,7 @@ function nativeButton(doc, host) {
 const FILTER_ACTIONS = ['Save', 'Discard'];
 
 /**
- * The container GitHub puts those buttons in, which is a child of the bar rather than the bar itself — hiding the
- * buttons one at a time would leave the gap they sat in.
+ * Hide the unsaved-filter button container so its layout gap also disappears.
  *
  * @param {Document} doc
  * @returns {Element[]}
@@ -1191,7 +1138,7 @@ function filterActions(doc) {
 export function foldedRows(doc) {
   const region = doc.querySelector(BOARD_REGION);
 
-  // No board on the page yet: a climb with nothing to stop it would run to the page's own root and fold the site away.
+  // Stop if the board is absent; otherwise ancestor traversal could hide the page root.
   if (region === null) {
     return [];
   }
@@ -1215,8 +1162,7 @@ export function foldedRows(doc) {
 }
 
 /**
- * A browser told to block site data throws on the storage itself, not only on the write, and the overlay still has
- * a board to paint. An unreadable choice is the same as one never made.
+ * Blocked site data can throw on storage access. Treat unreadable preferences as unset so rendering continues.
  *
  * @param {Document} doc
  * @returns {boolean}
@@ -1248,8 +1194,7 @@ function setCollapsed(doc, wanted) {
 }
 
 /**
- * Folds the header away, or puts it back. Reapplied on every scan rather than once, because a view switch replaces
- * those rows along with the cards (`mechanics.md` M27) and the replacement arrives unhidden.
+ * Reapply header visibility on each scan because view switches replace header nodes (mechanics M27).
  *
  * @param {Document} doc
  */
@@ -1274,9 +1219,7 @@ const CHEVRONS = {
 };
 
 /**
- * The button beside Ground Control's, which folds the project's title and view tabs away to give the board the
- * height. The choice is remembered in page storage, so it holds across a reload and across every board the
- * developer opens rather than resetting each time the tab does.
+ * Toggle project title and view-tab visibility. Persist in page storage across reloads and project boards.
  *
  * @param {Document} doc
  * @param {Element} host
@@ -1301,10 +1244,10 @@ function collapseButton(doc, host, actions) {
   button.id = 'gc-collapse';
   button.appendChild(svg);
   button.setAttribute('aria-pressed', String(folded));
-  const says = folded ? 'Show the project header' : 'Hide the project header';
+  const label = folded ? 'Show the project header' : 'Hide the project header';
 
-  tip(button, says);
-  nameFor(button, says);
+  setTooltip(button, label);
+  setAccessibleName(button, label);
   button.addEventListener('click', (event) => {
     event.stopPropagation();
     event.preventDefault();
@@ -1316,9 +1259,7 @@ function collapseButton(doc, host, actions) {
 }
 
 /**
- * What R25 asks be said once rather than on every card, in the place a developer goes looking for it: how old the
- * reading is, what the install did, and the refresh. What went wrong is a toast instead — a failure a developer has
- * to open a menu to discover is one they never see.
+ * Show snapshot age, installation status, and refresh in the menu. Display failures as visible notices (R25).
  *
  * @param {Document} doc
  * @param {State} state
@@ -1327,7 +1268,7 @@ function collapseButton(doc, host, actions) {
  * @returns {HTMLElement | null}
  */
 export function renderMenu(doc, state, now, actions) {
-  const host = perch(doc);
+  const host = menuHost(doc);
 
   if (host === null) {
     doc.getElementById(MENU_ID)?.remove();
@@ -1337,8 +1278,8 @@ export function renderMenu(doc, state, now, actions) {
 
   const snapshot = state.snapshot;
   const held = doc.getElementById(MENU_ID);
-  // What the menu draws, less the reading's own age, which is a duration the tick advances where it stands. Kept
-  // rather than rebuilt so the item under the pointer survives a scan — a menu is opened and then read.
+  // Exclude age from the menu signature; the timer updates it in place. Preserve items under the pointer
+  // across scans.
   const sig = JSON.stringify([
     state.trouble !== null || (snapshot?.stale ?? false),
     panelOpen,
@@ -1352,8 +1293,7 @@ export function renderMenu(doc, state, now, actions) {
     const panel = held.querySelector(`.${POPOVER_CLASS}`);
     const read = held.querySelector(`.${POPOVER_CLASS} [${AGE_ATTR}]`);
 
-    // The newer reading onto the panel that was kept. The age is out of the signature because the tick advances
-    // it, and without this the panel counts on from the reading it was opened against — the one thing it is for.
+    // Update the retained panel timestamp so its age reflects the latest snapshot.
     if (read !== null && snapshot !== null) {
       age(read, Date.parse(snapshot.fetchedAt), now);
     }
@@ -1420,8 +1360,7 @@ export function renderMenu(doc, state, now, actions) {
 
   panel.appendChild(doc.createElement('hr'));
 
-  // The one item here that is not a fact about the board. It is in the menu rather than on the filter bar because a
-  // second button beside GitHub's own would cost the board width for something a developer opens rarely.
+  // Keep the infrequently used log action in the menu to conserve filter-bar width.
   panel.appendChild(
     item(doc, logOpen ? 'Hide log' : 'Show log', () => setLogOpen(doc, !logOpen, actions), logOpen ? '✓' : ''),
   );
@@ -1451,9 +1390,8 @@ export function renderMenu(doc, state, now, actions) {
 }
 
 /**
- * Everything the developer has to be told rather than shown: the hub unreachable, a source that failed, the answer
- * to something they just clicked. Reconciled rather than appended — a scan runs every few seconds, and a toast per
- * scan would bury the board it sits on.
+ * Reconcile connection errors, source failures, and action notices by key to avoid duplicate notices on each
+ * scan.
  *
  * @param {Document} doc
  * @param {State} state
@@ -1481,14 +1419,14 @@ export function renderToasts(doc, state) {
     });
   }
 
-  // The answer to something the developer just did, including an action the browser is not allowed to take.
+  // Display the latest action result, including browser permission refusals.
   if (state.notice !== null) {
     problems.push({ key: `notice:${state.notice}`, message: state.notice, remedy: null, tone: 'default' });
   }
 
   const live = new Set(problems.map((problem) => problem.key));
 
-  // A toast closed by hand stays closed while what it said is still true, and comes back if the trouble does.
+  // Keep dismissed notices hidden until the condition clears and recurs.
   for (const key of [...dismissed]) {
     if (!live.has(key)) {
       dismissed.delete(key);
@@ -1539,19 +1477,19 @@ function toast(doc, problem) {
   element.dataset.key = problem.key;
   element.dataset.tone = problem.tone;
 
-  const said = doc.createElement('div');
+  const message = doc.createElement('div');
 
-  said.textContent = problem.message;
+  message.textContent = problem.message;
 
   if (problem.remedy) {
     const remedy = doc.createElement('span');
 
     remedy.className = 'gc-remedy';
     remedy.textContent = problem.remedy;
-    said.appendChild(remedy);
+    message.appendChild(remedy);
   }
 
-  element.appendChild(said);
+  element.appendChild(message);
 
   const close = doc.createElement('button');
 
@@ -1606,8 +1544,8 @@ function laneMenu(doc, card, actions) {
     menu.appendChild(button);
   }
 
-  // The one verb the browser carries (R41): choosing the folder and starting a session in it are the editor's.
-  // Left out entirely on a card with no checkout, rather than drawn to refuse.
+  // Offer open-checkout only when a checkout exists. Folder selection and session starts require the editor
+  // (R41).
   if (card.checkout != null) {
     menu.appendChild(doc.createElement('hr'));
 
@@ -1645,8 +1583,8 @@ const DESTINATION_SHAPES = {
 };
 
 /**
- * The mark for one destination, in the slot the state holds. `aria-hidden`: the row's own accessible name already
- * says where the click goes, and a second announcement of one fact is one to learn to ignore.
+ * The destination icon replaces the duration on hover. Hide it from screen readers because the row already
+ * names the action.
  *
  * @param {Document} doc
  * @param {'terminal' | 'editor'} kind
@@ -1682,8 +1620,7 @@ function destinationMark(doc, kind) {
 }
 
 /**
- * What a row's click does, in the words a reader hears. A detached run is the one that does not go to the session:
- * the browser cannot open a terminal, so the click raises the board that can.
+ * Accessible session action name. Detached runs attach through a VS Code terminal.
  *
  * @param {boolean} reachable
  * @param {string | null} attachId
@@ -1698,9 +1635,7 @@ function destinationWords(reachable, attachId) {
 }
 
 /**
- * One session, as the developer reads it across a board: which agent reported it, what it calls itself, and the one
- * state the board will claim for it — its own observation where it has one, the reported state where it does not,
- * and nothing at all where there is neither (R24).
+ * Render agent, session name, and one state: prefer the board observation, then the reported state (R24).
  *
  * @param {Document} doc
  * @param {Session} session
@@ -1709,8 +1644,7 @@ function destinationWords(reachable, attachId) {
  * @returns {HTMLElement}
  */
 function sessionRow(doc, session, now, openable) {
-  // A detached run is reachable whatever the host offers: nothing an editor holds can open it, and the board it is
-  // attached from is always openable.
+  // Detached runs use the VS Code attach URI independently of editor session-open capabilities.
   const attachId = typeof session.attachId === 'string' ? session.attachId : null;
   const reachable = attachId !== null || openable.includes(session.sessionId);
   const row = doc.createElement(reachable ? 'a' : 'span');
@@ -1719,8 +1653,7 @@ function sessionRow(doc, session, now, openable) {
   row.dataset.phase = session.activity?.phase ?? 'none';
 
   if (reachable) {
-    // A real link, not a button: the navigation has to read as the developer's own gesture in the application they
-    // are looking at, which is the only thing that gives VS Code the foreground (`mechanics.md` M26, M29).
+    // Use link navigation as the browser user gesture for VS Code foreground activation (mechanics M26, M29).
     row.setAttribute('href', `${attachId === null ? OPEN_SESSION_URI : ATTACH_SESSION_URI}${encodeURIComponent(session.sessionId)}`);
     // A few pixels of drift on the way to a click would otherwise drag the card GitHub wraps around this.
     row.setAttribute('draggable', 'false');
@@ -1730,8 +1663,7 @@ function sessionRow(doc, session, now, openable) {
 
   const icon = agentIcon(doc, session.agent);
 
-  // R2: which agent reported a session is always said. A mark where there is one, the CLI's own name where there
-  // is not — an unnamed row would read as Claude's.
+  // Identify every agent by logo or text fallback (R2).
   if (icon === null) {
     const named = doc.createElement('span');
 
@@ -1766,29 +1698,28 @@ function sessionRow(doc, session, now, openable) {
     }
   }
 
-  // Nothing on the row: its words are on it already, and a hover repeating them is a hover to learn to ignore. What
-  // the board saw goes on the state instead, the way the editor board carries it — that is the part not on the row.
+  // Put activity details on the state tooltip; the row label already identifies the session.
   if (session.activity) {
-    tip(state, stateTitle(session.activity));
+    setTooltip(state, stateTitle(session.activity));
   }
 
   row.setAttribute('aria-label', `${name} — ${destinationWords(reachable, attachId)}.`);
 
-  // What the italic name is keyed by: a run the board started is not a session the developer is sitting in.
+  // Italic names identify board-dispatched runs.
   if (attachId !== null) {
     row.dataset.detached = 'true';
   }
 
   if (reachable) {
     const destination = destinationMark(doc, attachId === null ? 'editor' : 'terminal');
-    const goes = attachId === null ? 'Opens this session in VS Code.' : 'Attaches to this run in a terminal in VS Code.';
+    const destinationDescription = attachId === null ? 'Opens this session in VS Code.' : 'Attaches to this run in a terminal in VS Code.';
 
-    // The pointer takes the state's slot, so what the state had to say goes on the mark that stands there instead.
-    tip(destination, session.activity ? `${goes} ${stateTitle(session.activity)}` : goes);
+    // Copy the duration tooltip to the destination icon that replaces it on hover.
+    setTooltip(destination, session.activity ? `${destinationDescription} ${stateTitle(session.activity)}` : destinationDescription);
     row.appendChild(destination);
   }
-  // Only the propagation: the card underneath is GitHub's own button, and a click reaching it opens the issue
-  // instead. The navigation itself is the browser's to make, which is what gives VS Code the foreground.
+  // Stop propagation to prevent GitHub from opening the issue, but preserve link navigation for VS Code
+  // foreground activation.
   row.addEventListener('click', (event) => event.stopPropagation());
 
   return row;
@@ -1813,8 +1744,7 @@ function historyRow(doc, session, now, openable) {
   }
   row.className = 'gc-session gc-historical';
   const mark = retainedMark(session.retained);
-  // The phase colours the mark and nothing else on the row: `data-phase` also drives the running shimmer and the your-turn tone, and both
-  // are claims about a session with a process. An outline says the process is gone, which is the whole of what this row adds to the phase.
+  // Set the retained phase on the row and dot; retainedMark maps ended running sessions to idle.
   if (mark) row.dataset.phase = mark.phase;
   row.appendChild(sessionDot(doc, mark?.phase, false, mark ? mark.title : 'Last session on this card. No active sessions.'));
   const icon = agentIcon(doc, session.agent);
@@ -1830,20 +1760,18 @@ function historyRow(doc, session, now, openable) {
   name.textContent = session.title ?? basename(session.cwd);
   const state = doc.createElement('span');
   state.className = 'gc-state';
-  // The reading's own event where there is one, so the row's duration is the age of what the mark claims rather than of the last transcript
-  // write. Otherwise the value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
+  // Use retained activity time when available; otherwise use the last transcript timestamp.
   age(state, mark ? mark.at : session.updatedAt, now);
-  // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops. It names whichever
-  // moment the value counts from, so the hover and the number are never two claims about one row.
-  tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
+  // Put the exact timestamp on the duration tooltip, using the same time as the displayed age.
+  setTooltip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
   row.setAttribute('aria-label', `${name.textContent} — ${reachable ? 'resume this session in VS Code' : 'historical session'}.`);
   row.append(name, state);
 
-  // A saved session has no process, so there is nothing to attach to: resuming it in the editor is the only way back.
+  // Saved sessions must resume in the editor; there is no process to attach to.
   if (reachable) {
     const destination = destinationMark(doc, 'editor');
 
-    tip(destination, `Resumes this session in VS Code. ${mark ? mark.title : ''}`.trim());
+    setTooltip(destination, `Resumes this session in VS Code. ${mark ? mark.title : ''}`.trim());
     row.appendChild(destination);
   }
 
@@ -1852,8 +1780,8 @@ function historyRow(doc, session, now, openable) {
 }
 
 /**
- * What a reading kept past its own process draws: the phase to paint, the moment to count from, and what the mark means. The reasoning is on
- * the copy in `extensions/ground-control/media/board.js`; `retainedPhase` in `packages/board/src/lanes.ts` decides the card's own mark.
+ * Render retained activity with its timestamp and explanation. Map running to idle because the process ended.
+ * `retainedPhase` in packages/board/src/lanes.ts determines card attention from the same observation.
  *
  * @param {{ phase?: string, event?: unknown, at?: unknown } | undefined} retained
  * @returns {{ phase: string, at: number, title: string } | undefined}
@@ -1861,39 +1789,38 @@ function historyRow(doc, session, now, openable) {
 function retainedMark(retained) {
   if (!retained || typeof retained.at !== 'number' || typeof retained.event !== 'string') return undefined;
 
-  const said = `Last seen at the ${retained.event} hook.`;
+  const eventDescription = `Last seen at the ${retained.event} hook.`;
 
   if (retained.phase === 'waiting') {
-    return { phase: 'waiting', at: retained.at, title: `The session ended while waiting for your input. ${said}` };
+    return { phase: 'waiting', at: retained.at, title: `The session ended while waiting for your input. ${eventDescription}` };
   }
 
   if (retained.phase === 'running') {
-    return { phase: 'idle', at: retained.at, title: `The session ended before completing its turn. ${said}` };
+    return { phase: 'idle', at: retained.at, title: `The session ended before completing its turn. ${eventDescription}` };
   }
 
   if (retained.phase === 'idle') {
-    return { phase: 'idle', at: retained.at, title: `The session completed its turn, then ended. ${said}` };
+    return { phase: 'idle', at: retained.at, title: `The session completed its turn, then ended. ${eventDescription}` };
   }
 
   return undefined;
 }
 
 /**
- * What the row says on hover: what the board concluded, and the hook it concluded it from (R13).
+ * Describe the duration and last hook event.
  *
  * @param {{ phase: string, event: string | null }} activity
  * @returns {string}
  */
 function stateTitle(activity) {
-  const what = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
+  const durationDescription = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
 
-  return activity.event ? `${what} Last event: ${activity.event}.` : what;
+  return activity.event ? `${durationDescription} Last event: ${activity.event}.` : durationDescription;
 }
 
 /**
- * R6 and the working edge, on the project board's own card: the state goes onto GitHub's own element, which rings
- * the card so it reads from across a board, and the CSS paints the session row a mark is about. No word of its own —
- * the row already says `waiting for input` beside the session it means, and a card-level pill said the same without naming one.
+ * Set attention on the GitHub card for border and session-dot styling. Session rows already identify the
+ * affected session (R6).
  *
  * @param {Document} doc
  * @param {Element} element
@@ -1907,7 +1834,7 @@ function renderAttention(doc, element, head, card) {
     mark.className = 'gc-mark';
     mark.dataset.mark = 'returned';
     mark.textContent = 'Returned';
-    tip(mark, 'This card returned to you.');
+    setTooltip(mark, 'This card returned to you.');
     head.appendChild(mark);
   }
 
@@ -1981,8 +1908,7 @@ function renderBadge(doc, element, card, now, actions, openable) {
   (doc.body ?? doc.documentElement).appendChild(menu);
   place(menu, lane);
 
-  // The chip travels with its menu: a click on it is the developer closing what they opened, and an outside-click
-  // handler that took the chip for an outside click would close the menu and let the chip reopen it.
+  // Treat the menu control as inside the menu so its click closes it without reopening.
   return [menu, lane];
 }
 
@@ -2010,46 +1936,43 @@ function renderTriage(doc, head, card, now) {
 
   if (triage.state === 'running') {
     mark.textContent = 'Reading…';
-    tip(mark, 'Identifying the next action.');
+    setTooltip(mark, 'Identifying the next action.');
 
     return;
   }
 
-  // No control here and no words about the failure: reading a card again spends the developer's usage, and the
-  // browser bridge takes refresh, watching and move and nothing else (R38).
+  // Retriage consumes model usage and is editor-only; the browser bridge refuses it (R38).
   if (triage.state === 'failed') {
     mark.textContent = 'Not read';
-    tip(mark, 'Triage failed. Retry from the card in VS Code.');
+    setTooltip(mark, 'Triage failed. Retry from the card in VS Code.');
 
     return;
   }
 
   mark.textContent = triageText(triage);
   mark.dataset.stale = String(triage.stale);
-  tip(
+  setTooltip(
     mark,
     `${triage.detail} ${triage.stale ? `Read ${ago(now - triage.at)} ago; card details have changed.` : `Read ${ago(now - triage.at)} ago.`}`,
   );
 
-  // How long the card has held the status it is in — not when the board read it, which is in the tooltip with the
-  // sentence it produced. A reading is about a card in a state, and how long that state has held is what says
-  // whether it is still the card to pick up. Null off the project board, where GitHub records no move to date.
+  // Display status age; put classification time and explanation in the tooltip. Status age is null outside
+  // project boards because GitHub records no move timestamp.
   const moved = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
 
   if (Number.isFinite(moved)) {
-    const held = doc.createElement('span');
+    const ageLabel = doc.createElement('span');
 
-    held.className = 'gc-triage-age';
-    age(held, moved, now);
-    mark.append(' · ', held);
+    ageLabel.className = 'gc-triage-age';
+    age(ageLabel, moved, now);
+    mark.append(' · ', ageLabel);
   }
 }
 
 
 /**
- * How many lines the sidebar holds. The same number the worker's spool caps at, because what it is handed on the
- * way in is that spool: a smaller ceiling here would drop the oldest of a backlog on arrival. A copy rather than an
- * import, since this file imports nothing — held to the spool's by the parity test both suites run.
+ * Match the worker log buffer limit so an incoming backlog is retained. This file cannot import worker state;
+ * parity tests verify the limit.
  */
 export const LOG_LIMIT = 4000;
 
@@ -2080,7 +2003,7 @@ export function renderLog(doc, actions) {
   return panel;
 }
 
-/** Which dataset key each tick writes. Spelled out, because the attribute name is what the stylesheet reads. */
+/** Map filter controls to the dataset keys used by CSS. */
 const SHOWS = { browser: 'showsBrowser', hub: 'showsHub', debug: 'showsDebug' };
 
 /**
@@ -2100,8 +2023,7 @@ function buildLog(doc, actions) {
   title.textContent = 'Ground Control log';
   bar.appendChild(title);
 
-  // Applied to the panel rather than by rebuilding it: hiding a source has to be reversible, so the lines stay in
-  // the document and the stylesheet is what takes them off screen.
+  // Filter sources with CSS while retaining log nodes so filters can be reversed.
   for (const shown of /** @type {const} */ (['browser', 'hub', 'debug'])) {
     const label = doc.createElement('label');
     const box = doc.createElement('input');
@@ -2127,7 +2049,7 @@ function buildLog(doc, actions) {
     logPinned = pin.checked;
     panel.dataset.pinned = String(logPinned);
   });
-  tip(pinLabel, 'Keep the log open when clicking outside it.');
+  setTooltip(pinLabel, 'Keep the log open when clicking outside it.');
   pinLabel.append(pin, doc.createTextNode('pin'));
   bar.appendChild(pinLabel);
 
@@ -2183,8 +2105,7 @@ export function setLogOpen(doc, open, actions) {
 }
 
 /**
- * New lines, appended rather than rendered. Sticks to the bottom only when the developer already was there: one
- * that scrolled on every line would make reading back through a burst impossible.
+ * Append log lines. Autoscroll only when already at the bottom so reading earlier lines remains possible.
  *
  * @param {Document} doc
  * @param {readonly LogEntry[]} entries
@@ -2231,8 +2152,7 @@ function logLine(doc, entry) {
 
   const when = doc.createElement('span');
 
-  // The clock and not the date: every line in the panel is from the session the developer is sitting in, and the
-  // hub's own timestamps are what the tail carries, so a restart shows the gap without spelling out the day.
+  // Display time of day using the original hub timestamp, preserving restart gaps in the log.
   when.className = 'gc-when';
   when.textContent = `${entry.at.slice(11, 19)} `;
 
@@ -2247,10 +2167,8 @@ function logLine(doc, entry) {
 }
 
 /**
- * Everything the overlay put on the page, taken off it: what a soft navigation away from a board runs. The content
- * script is injected across github.com, because a board reached by clicking through the site is a soft navigation
- * and Chrome injects nothing for one — so leaving a board is something the overlay has to handle rather than a page
- * it never sees.
+ * Remove overlay DOM on navigation away from a board. The content script runs across github.com because Chrome
+ * does not reinject it on soft navigation.
  *
  * @param {Document} doc
  */
@@ -2269,12 +2187,11 @@ export function clear(doc) {
     row.removeAttribute(HIDDEN_ATTR);
   }
 
-  for (const id of [MENU_ID, PERCH_ID, TOASTS_ID, LOG_ID]) {
+  for (const id of [MENU_ID, MENU_FALLBACK_ID, TOASTS_ID, LOG_ID]) {
     doc.getElementById(id)?.remove();
   }
 
-  // The footers go, so every entry keyed on a card is a miss on the next scan; the map is emptied anyway, for the
-  // same reason the open menu is — what a board the overlay has left behind was carrying is not state to keep.
+  // Clear per-card state and open menus when leaving the board.
   drawn = new WeakMap();
 
   for (const element of doc.querySelectorAll(`.${BADGE_CLASS}, .${POPOVER_CLASS}, .${ACTOR_CLASS}`)) {
@@ -2304,18 +2221,17 @@ export function clear(doc) {
 let drawn = new WeakMap();
 
 /**
- * Everything a footer draws, except what the tick advances. `activity.since` and the event behind it are left out
- * on purpose — a session working steadily would otherwise be rebuilt on every hook — and carried onto the kept
- * footer by `syncActivity` instead.
+ * Exclude activity timestamps and events from the signature to preserve rows during steady activity;
+ * syncActivity updates them in place.
  *
  * @param {LanedCard} card
  * @param {readonly string[]} openable
  * @returns {string}
  */
-function footprint(card, openable) {
+function badgeSignature(card, openable) {
   return JSON.stringify([
-    // The key first: a card with no sessions, no reading and no avatar draws the same as another in the same lane,
-    // and GitHub recycles a card node between issues. Every handler in the footer is closed over this.
+    // Include the card key because GitHub recycles nodes between issues and footer handlers capture card
+    // identity.
     card.key,
     card.lane,
     card.returned,
@@ -2333,8 +2249,8 @@ function footprint(card, openable) {
           card.lastSession.title,
           card.lastSession.cwd,
           card.lastSession.updatedAt,
-          // In the signature rather than carried on by the tick: a retained reading is a fixed past observation, so it moves only when the
-          // session it belongs to does, and the row it draws has to be rebuilt when it does.
+          // Include retained activity in the signature: it is a fixed observation whose changes require a row
+          // rebuild.
           card.lastSession.retained?.phase ?? null,
           card.lastSession.retained?.at ?? null,
           openable.includes(card.lastSession.sessionId),
@@ -2356,9 +2272,8 @@ function footprint(card, openable) {
 }
 
 /**
- * Carries a newer observation onto a footer that was not rebuilt. The signature ignores `since` and the event, so
- * a session working steadily keeps its rows — and without this its next turn would be counted from the prompt of
- * the one before it, beside a tooltip naming a hook two events old (R24).
+ * Update timestamps and hook details on retained elements. They are excluded from the signature to prevent
+ * rebuilds during steady activity (R24).
  *
  * @param {Element} badge
  * @param {LanedCard} card
@@ -2372,15 +2287,14 @@ function syncActivity(badge, card, now) {
 
     if (state && session.activity) {
       age(state, session.activity.since, now);
-      tip(state, stateTitle(session.activity));
+      setTooltip(state, stateTitle(session.activity));
     }
   });
 }
 
 /**
- * Whether the footer this card is carrying is the one the snapshot would draw. The avatar is checked against the
- * figure rather than taken on trust: GitHub re-renders its own assignee stack, and a footer otherwise unchanged
- * would keep a slot that is no longer on the page.
+ * Retain the footer only if its content signature and avatar slot match. GitHub can replace the assignee
+ * figure independently.
  *
  * @param {Element} element
  * @param {LanedCard} card
@@ -2397,8 +2311,8 @@ function keptBadge(element, card, sig) {
 
   const actor = card.issue?.avatar;
 
-  // The slot, not the attribute: GitHub re-rendering the figure takes the author's avatar with it and leaves the
-  // attribute behind, and the rule that hides GitHub's own is keyed on the attribute — the area would stay blank.
+  // Check the avatar slot: GitHub can replace it while leaving the attribute that hides original assignees,
+  // producing a blank area.
   if (actor?.source === 'pull-request' && assigneeStackOf(element)?.querySelector(`.${ACTOR_CLASS}`) == null) {
     return null;
   }
@@ -2407,8 +2321,7 @@ function keptBadge(element, card, sig) {
 }
 
 /**
- * Paints the whole board. Returns what it drew: a selector GitHub changed under it looks exactly like a developer
- * with no cards on the board, and only the scanned count tells those two apart.
+ * Report scanned and matched card counts separately to diagnose card matching and selector failures.
  *
  * @param {Document} doc
  * @param {State} state
@@ -2421,9 +2334,8 @@ export function paint(doc, state, now, actions) {
   ensureTips(doc);
   repaintNow = actions.repaint;
 
-  // A lane menu is drawn fresh below by the card it belongs to, so the one from the last scan goes first — that
-  // card may not be on the page any more. Only those: they are what `renderBadge` hangs on the body, and the
-  // board's own panel is inside `#gc-menu`, which keeps it across a scan that changed nothing.
+  // Remove previous lane menus before rendering because their cards may have disappeared. Keep the unchanged
+  // board menu inside #gc-menu.
   for (const stale of doc.querySelectorAll(`body > .${POPOVER_CLASS}`)) {
     stale.remove();
   }
@@ -2441,8 +2353,7 @@ export function paint(doc, state, now, actions) {
   /** @type {Element[]} */
   const open = menu === null ? [] : [menu];
 
-  // The sidebar is dismissed by a click off it, like every other panel here. That also stops the hub being read,
-  // which is the point: a developer who has gone back to working the board is no longer a viewer (R40).
+  // Outside clicks close the sidebar and unsubscribe from hub logs (R40).
   if (log !== null) {
     open.push(log);
   }
@@ -2454,9 +2365,8 @@ export function paint(doc, state, now, actions) {
 
     const ref = issueRefOf(element);
     const card = ref === null ? undefined : index?.byRef.get(`${ref.repo}#${ref.number}`) ?? index?.byNumber.get(ref.number);
-    const sig = card === undefined ? null : footprint(card, openable);
-    // Never the card whose lane menu is open: the menu is swept above and only `renderBadge` draws one, so a kept
-    // footer is a card whose menu the developer opened and this scan took away.
+    const sig = card === undefined ? null : badgeSignature(card, openable);
+    // Rebuild the card with an open lane menu because renderBadge must recreate the menu removed above.
     const kept = card === undefined || sig === null || openMenu === card.key ? null : keptBadge(element, card, sig);
 
     if (kept === null) {
@@ -2464,8 +2374,8 @@ export function paint(doc, state, now, actions) {
         stale.remove();
       }
 
-      // GitHub's own figure, handed back before anything is decided: a card that has lost its pull request shows
-      // the assignees again without this scan knowing it ever had one. A bare `figure` carries no role to restore.
+      // Restore the original assignee figure before recalculating avatar replacement; a card may have lost
+      // its PR. Remove roles from bare figures.
       for (const figure of element.querySelectorAll(`[${ACTOR_ATTR}]`)) {
         figure.removeAttribute(ACTOR_ATTR);
         figure.removeAttribute('role');
@@ -2502,16 +2412,14 @@ export function paint(doc, state, now, actions) {
     badges += 1;
   }
 
-  // After the rebuild rather than before it: a card replaced by this scan is one the tooltip is still open over,
-  // and its rect is gone with it.
+  // Close tooltips after rebuilding so removed anchors are detected.
   if (tipAnchor !== null && !tipAnchor.isConnected) {
     hideTip(doc);
   }
 
   closeOnOutsideClick(doc, panelOpen || openMenu !== null || (logOpen && !logPinned) ? open : [], () => {
-    // Read after the handler has cleared the menu's own state, so one click off the board shuts everything the
-    // overlay had open — and the log's close is the one that reaches across to the hub. A pinned sidebar is left
-    // where it is, including when the click was really about a menu that was open over it.
+    // Read state after the menu handler runs so an outside click closes all unpinned panels and unsubscribes
+    // from logs.
     if (logOpen && !logPinned) {
       setLogOpen(doc, false, actions);
     }

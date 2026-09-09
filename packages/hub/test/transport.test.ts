@@ -147,12 +147,7 @@ async function until(what: () => boolean, why: string, within = 5000): Promise<v
   }
 }
 
-/**
- * Node reports every response chunk to a connected inspector as `dataLength: chunk.byteLength`. A `Buffer` has one;
- * a string does not — so a stream read with `setEncoding` makes the inspector throw once per chunk, and the event
- * stream never ends, which aborts the extension host holding it (`docs/mechanics.md` M28). Nothing this package
- * reads off a socket may be decoded by the stream itself.
- */
+/** Keep response chunks as Buffers for Node inspector byteLength reporting. Stream-level string decoding causes inspector failures (M28). */
 describe('how a client reads a socket', () => {
   it('never decodes a response stream, on the event stream or on a read', async () => {
     const { hub, server } = await serving();
@@ -183,7 +178,7 @@ describe('how a client reads a socket', () => {
 });
 
 describe('what a client does over the wire', () => {
-  it('opens a stream, says hello, and takes what the hub sends', async () => {
+  it('registers the stream and receives hub messages', async () => {
     const { hub, server } = await serving();
     const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
     const client = connecting('board-1', () => Promise.resolve(found as Ensured));
@@ -198,8 +193,8 @@ describe('what a client does over the wire', () => {
     expect(client.inbox[0]).toEqual({ type: 'changed', snapshot: SNAPSHOT });
   });
 
-  /** Only ever a read that happened: an empty list would be read by its caller as "nothing is running" (R24). */
-  it('reads the roster, and answers null rather than nothing when it cannot', async () => {
+  /** Return null on read failure; an empty array would falsely imply no active sessions (R24). */
+  it('returns the roster or null on read failure', async () => {
     const { server } = await serving();
     const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
     const client = connecting('board-1', () => Promise.resolve(found as Ensured));
@@ -212,11 +207,8 @@ describe('what a client does over the wire', () => {
     expect(await client.transport.roster()).toBeNull();
   });
 
-  /**
-   * A hub that goes away is what a developer does with `--stop`, and what the idle rule does on its own. The stream
-   * closing is the only signal, and it has to end in a reconnect rather than a board that quietly stops updating.
-   */
-  it('reconnects and says hello again when the hub goes away', async () => {
+  /** Reconnect after stream closure, including manual shutdown and idle exit. */
+  it('reconnects and registers after hub shutdown', async () => {
     const first = await serving();
     let current = first;
 
@@ -237,7 +229,7 @@ describe('what a client does over the wire', () => {
   });
 
   /** An outage is one message, not one per retry, and the developer is told when it clears. */
-  it('says trouble once and says it is over once', async () => {
+  it('reports each outage and recovery once', async () => {
     const client = connecting('board-1', () => Promise.resolve({ failed: 'nothing is answering yet' }));
 
     await until(() => client.trouble.length > 0, 'a client that cannot reach its hub said nothing');
@@ -246,10 +238,7 @@ describe('what a client does over the wire', () => {
     expect(client.trouble).toEqual(['nothing is answering yet']);
   });
 
-  /**
-   * The hub knows nothing of a client until its hello, so a stream whose hello was refused is not a connection. It
-   * has to be dropped: a transport that looked healthy would never drain what it queued and never try again.
-   */
+  /** Reconnect after failed hello; an unregistered stream cannot deliver queued actions. */
   it('treats a refused hello as a lost connection rather than a working one', async () => {
     const { hub, server } = await serving();
     const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
@@ -257,8 +246,7 @@ describe('what a client does over the wire', () => {
     let hellos = 0;
     let restated = 0;
 
-    // The server refuses a hello naming a client other than the stream it arrived on. Trying again is the tell: a
-    // transport that took the refusal for a connection would sit there, registered nowhere and never retrying.
+    // Use a mismatched client ID to reject hello and verify another connection attempt.
     const mismatched = new HubTransport('stream-id', {
       ensure: () => Promise.resolve(found as Ensured),
       hello: () => {
@@ -281,10 +269,7 @@ describe('what a client does over the wire', () => {
     expect(restated).toBe(0);
   });
 
-  /**
-   * A listener that accepts and never answers. Without an absolute deadline the promise never settles, and the route
-   * that was waiting on it is stuck for the life of the window — the board silently ignores that card from then on.
-   */
+  /** Use an absolute request deadline so a silent listener cannot block route handling indefinitely. */
   it('gives up on a hub that accepts and never answers', async () => {
     const silent = createServer(() => {
       // Deliberately no response: the socket stays open and the request is never completed.
@@ -347,10 +332,7 @@ describe('what a client does over the wire', () => {
     expect(client.trouble).toEqual(['nothing is answering yet', null]);
   });
 
-  /**
-   * A configuration is never queued: the client restates the current one after every hello, and a queued one is by
-   * then some earlier minute's settings, which replayed on top would undo the change the developer just made.
-   */
+  /** Restate current configuration after hello; replaying queued settings could overwrite newer values. */
   it('never queues a configuration to replay over the one it restates', async () => {
     const { hub, server } = await serving();
     let answer: Ensured = { failed: 'nothing is answering yet' };
@@ -368,12 +350,12 @@ describe('what a client does over the wire', () => {
     await until(() => hub.received.length > 0, 'never connected once the hub was there');
     await new Promise((done) => setTimeout(done, 100));
 
-    // The `watching` survived the outage; the settings of that minute did not, and `afterHello` is what replaces them.
+    // Replay watching but restate current settings through afterHello.
     expect(hub.received).toEqual([{ type: 'watching', watching: true }]);
     expect(client.restated).toBe(1);
   });
 
-  it('sends nothing more once it has been disposed', async () => {
+  it('stops sending after disposal', async () => {
     const { hub, server } = await serving();
     const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
     const client = connecting('board-1', () => Promise.resolve(found as Ensured));
@@ -405,8 +387,8 @@ describe('what a client does over the wire', () => {
   });
 });
 
-describe('what a client can write about its own connection (R40)', () => {
-  it('narrates the connection, what it sent, and what came back, without waiting for anyone to be watching', async () => {
+describe('client connection diagnostics (R40)', () => {
+  it('logs connection and message events while unwatched', async () => {
     const { hub, server } = await serving();
     const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
     const client = connecting('board-1', () => Promise.resolve(found as Ensured));
@@ -426,8 +408,8 @@ describe('what a client can write about its own connection (R40)', () => {
     expect(client.said).toContain('debug the hub sent snapshot');
   });
 
-  /** One line per hub line would double what this window writes about, and the entries reach a channel of their own. */
-  it('says nothing about a log message, which is the one kind the hub sends in bulk', async () => {
+  /** Exclude hub log frames from transport diagnostics to avoid duplicate log traffic. */
+  it('excludes log messages from transport diagnostics', async () => {
     const { hub, server } = await serving();
     const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
     const client = connecting('board-1', () => Promise.resolve(found as Ensured));
@@ -444,7 +426,7 @@ describe('what a client can write about its own connection (R40)', () => {
     expect(client.said.filter((line) => line.includes('log'))).toEqual([]);
   });
 
-  it('says why there is nothing to connect to, and when it will try again', async () => {
+  it('logs connection failure and retry delay', async () => {
     const client = connecting('board-1', () => Promise.resolve({ failed: 'the hub would not start' } as Ensured));
 
     await until(() => client.said.length >= 2, 'never gave up');
@@ -455,11 +437,7 @@ describe('what a client can write about its own connection (R40)', () => {
 });
 
 describe('what is never queued while the stream is down', () => {
-  /**
-   * `watchLog` is restated after every hello, the way a configuration is. Queued as well, it would arrive behind
-   * the restated one and have the hub re-read and re-send the whole tail of its log — which the viewer has by then
-   * already been shown, so the panel would carry a hundred lines twice.
-   */
+  /** Restate watchLog after hello without queueing it, or reconnect would duplicate log backfill. */
   it('drops a watchLog sent while the stream is down rather than replaying it behind the restate', async () => {
     const { hub, server } = await serving();
     const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
@@ -479,7 +457,7 @@ describe('what is never queued while the stream is down', () => {
     await until(() => hub.received.some((message) => message.type === 'refresh'), 'the queue never drained');
     await new Promise((done) => setTimeout(done, 150));
 
-    // The refresh was queued and delivered; the subscription was not, and re-sending it is the client's own job.
+    // Replay refresh; the client separately restates its log subscription.
     expect(hub.received.filter((message) => message.type === 'watchLog')).toEqual([]);
   });
 });

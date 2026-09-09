@@ -9,8 +9,8 @@ import { join } from 'node:path';
 const HOME_PREFIX = 'gc-vscode-home-';
 const PROFILE_PREFIX = 'gc-vscode-profile-';
 
-/** What earlier runs left. A crashed run's hub holds its home open, so the process goes before the directory does. */
-function sweep(olderThanMs = 60 * 60 * 1000) {
+/** Stop stale test hubs before removing their temporary directories; running hubs can keep directories open. */
+function removeStaleTestDirectories(olderThanMs = 60 * 60 * 1000) {
   for (const name of readdirSync(tmpdir())) {
     if (!name.startsWith(HOME_PREFIX) && !name.startsWith(PROFILE_PREFIX)) {
       continue;
@@ -38,16 +38,14 @@ function stopHubIn(home) {
   }
 }
 
-sweep();
+removeStaleTestDirectories();
 
 const home = mkdtempSync(join(tmpdir(), HOME_PREFIX));
 const profile = mkdtempSync(join(tmpdir(), PROFILE_PREFIX));
 
 /**
- * No network in tests. The board's only outbound calls are the two CLIs, so both are pointed at commands that are
- * not on any PATH: a bare name passes the spawn check and then fails to run, which is how an unconfigured machine
- * fails — offline, deterministic, and never against the developer's own GitHub token. Written to the profile rather
- * than the workspace because every setting the hub reads is application-scoped, which a workspace file cannot set.
+ * Use unavailable CLI commands to prevent network access and use of developer credentials, including GitHub
+ * credentials stored outside the isolated home.
  */
 mkdirSync(join(profile, 'User'), { recursive: true });
 writeFileSync(
@@ -80,7 +78,7 @@ child.on('exit', (code) => {
     try {
       rmSync(path, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
     } catch {
-      // Still held by something on its way out. The next run's sweep takes it.
+      // A process still has the directory open. A later run retries removal.
     }
   }
 

@@ -5,20 +5,13 @@ import type { KnownIssues } from '@ground-control/board';
 import { read, writeIfChanged } from './fs.js';
 import { issuesPathOf } from './paths.js';
 
-/**
- * The issues the board has looked up by number, as a file rather than as one hub's memory. This is what makes the
- * common case free: an issue read while it was assigned is still named on the card once it is not, with no round
- * trip and nothing for an offline board to be missing.
- */
+/** Cache issue lookups so cards retain metadata after unassignment without another network request. */
 export interface IssueStore {
   read(): KnownIssues;
   write(state: KnownIssues): boolean;
 }
 
-/**
- * Key order, fixed. A card reaches this file either straight from a source or back out of the parser, in two
- * different orders, and `writeIfChanged` compares text — so without this the file churns on alternating polls.
- */
+/** Sort keys before serialization so source/parser ordering differences do not trigger redundant writes. */
 function ordered(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(ordered);
@@ -62,7 +55,7 @@ export function makeIssueStore(home: string): IssueStore {
 
         return true;
       } catch {
-        // A lookup that could not be stored is one the board takes again. Failing the render is worse.
+        // A failed write permits another lookup without failing rendering.
         return false;
       }
     },

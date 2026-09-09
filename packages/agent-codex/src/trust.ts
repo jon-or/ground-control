@@ -4,8 +4,10 @@ import type { MachineReaders, ReadFailure } from '@ground-control/core';
 import { codexHomeOf, codexHooksPathOf, hookPathOf } from './hookScript.js';
 import { CODEX_AGENT_ID, CODEX_DISPLAY_NAME } from './ids.js';
 
-/** The hash Codex trusts is taken over its own representation of an entry, so the board never computes one: it asks
- * `hooks/list` for the hash and hands it straight back through `config/batchWrite` (`docs/mechanics.md` M41). */
+/**
+ * Read hashes from `hooks/list` and return them through `config/batchWrite`; only Codex computes hook hashes
+ * (M41).
+ */
 const TRUST_TABLE = /^\s*\[hooks\.state\.(?:'([^']*)'|"((?:[^"\\]|\\.)*)")\]\s*$/;
 const TRUSTED_HASH = /^\s*trusted_hash\s*=/;
 
@@ -13,21 +15,17 @@ export function codexConfigPathOf(home: string, env: NodeJS.ProcessEnv = {}): st
   return `${codexHomeOf(home, env)}/config.toml`;
 }
 
-/** One key, comparable across the two spellings of a Windows path: Codex writes the separators and case of the path
- * it resolved, which is not the one the board joined. */
+/** Normalize separators and case to compare Windows paths from Codex and the board. */
 function comparable(key: string): string {
   return normalize(key).toLowerCase();
 }
 
-/** `SessionStart` as Codex keys it. The event half of a trust key is snake case, the JSON half is Pascal (M41). */
+/** Convert JSON event names from PascalCase to snake_case trust keys (M41). */
 export function trustKeyEventOf(event: string): string {
   return event.replace(/(?<!^)([A-Z])/g, '_$1').toLowerCase();
 }
 
-/**
- * The trust keys that carry a `trusted_hash`. A table with no hash under it is an entry Codex is tracking without
- * trusting, which fires nothing — so the hash is the evidence rather than the table.
- */
+/** Read keys with a `trusted_hash`; a table without a hash does not authorize its hook. */
 export function trustedKeysFrom(text: string | null): Set<string> {
   const trusted = new Set<string>();
   let key: string | null = null;
@@ -38,12 +36,12 @@ export function trustedKeysFrom(text: string | null): Set<string> {
     if (table) {
       const raw = table[1] ?? table[2] ?? '';
 
-      // A basic string escapes its backslashes; a literal one does not. Both spell the same Windows path.
+      // TOML basic strings escape backslashes; literal strings do not.
       key = table[1] === undefined ? raw.replace(/\\\\/g, '\\') : raw;
       continue;
     }
 
-    // Any other table header ends ours, so a `trusted_hash` further down belongs to something else.
+    // Stop reading the current trust key at the next table header.
     if (/^\s*\[/.test(line)) {
       key = null;
       continue;
@@ -63,8 +61,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * The board's own installed entries, as the trust keys Codex would name them. Group and entry index come from where
- * the entry actually sits in the file, because a developer's own group for the same event shifts ours along.
+ * Derive trust keys from installed board hooks. Use actual group and entry indices because user hooks can
+ * precede them.
  */
 export function installedTrustKeys(hooksText: string | null, home: string, env: NodeJS.ProcessEnv = {}): string[] {
   const command = `node "${hookPathOf(home)}"`;
@@ -105,7 +103,7 @@ export function installedTrustKeys(hooksText: string | null, home: string, env: 
   return keys;
 }
 
-/** Which of the board's own entries Codex will run. Read from files, so asking costs no process. */
+/** Installed and untrusted board hooks, read from files without starting Codex. */
 export interface TrustState {
   installed: string[];
   untrusted: string[];
@@ -123,7 +121,7 @@ export function trustState(readers: MachineReaders, env: NodeJS.ProcessEnv = {})
   return { installed, untrusted: installed.filter((key) => !trusted.has(comparable(key))) };
 }
 
-/** What `hooks/list` reports, narrowed to the four fields a trust edit is built from. */
+/** `hooks/list` fields required for a trust edit. */
 const hooksList = z.object({
   data: z
     .array(
@@ -151,20 +149,15 @@ export interface TrustEdit {
 }
 
 /**
- * What to write, and how many of the board's own entries Codex reported at all. The count is what separates the two
- * ways an edit comes back null: every entry already trusted, and Codex reading a hooks file that is not the one the
- * board installed into — which looks like success and fixes nothing.
+ * Trust edit and matching board-hook count. A null edit with zero matches means no installed hooks were found;
+ * a positive count can indicate hooks are already trusted.
  */
 export interface TrustPlan {
   edit: TrustEdit | null;
   ours: number;
 }
 
-/**
- * The edit that trusts the board's own hooks, from what `hooks/list` reported. Only entries whose command is exactly
- * the writer this board installed: Codex reports every hook on the machine, and trusting one the developer wrote —
- * or one a plugin did — would be the board granting a command it has never seen the right to run.
- */
+/** Build trust edits only for commands matching the installed board hook. Leave user and plugin hooks unchanged. */
 export function trustEditFor(raw: unknown, home: string): TrustPlan {
   const parsed = hooksList.safeParse(raw);
 
@@ -205,8 +198,7 @@ export function trustFailure(state: TrustState, attempt: string | null): ReadFai
     return null;
   }
 
-  // Reported at any count, not only when none are trusted: Codex arms trust per entry, so a partly trusted install
-  // is the state where `SessionEnd` alone is inert and a finished session never leaves the board.
+  // Report partial trust failures too: an untrusted `SessionEnd` hook leaves finished sessions on the board.
   const some =
     state.untrusted.length < state.installed.length
       ? `${state.untrusted.length} of the board's ${state.installed.length} session hooks`

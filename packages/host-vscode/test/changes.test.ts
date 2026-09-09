@@ -25,26 +25,25 @@ describe('the repository a command will actually run against', () => {
     expect(repositoryRefusal(ROOT, ROOT)).toBeNull();
   });
 
-  it('accepts a drive letter cased the other way, which two readers of one path disagree on', () => {
+  it('compares drive letters case-insensitively', () => {
     expect(repositoryRefusal('d:/work/repo', 'D:\\work\\repo')).toBeNull();
   });
 
-  // The failure this exists for: VS Code hands back the window's only repository without prompting, so a worktree
-  // that failed to open would have the main clone diffed under its name.
+  // VS Code can fall back to the only open repository. Reject a main clone returned for a worktree request.
   it('refuses a different repository, naming both and what to do', () => {
     expect(repositoryRefusal(ROOT, 'd:/work/repo')).toBe(
       `VS Code selected d:/work/repo instead of ${ROOT}. Open ${ROOT} in a separate window and try again.`,
     );
   });
 
-  it('says what to try when the editor would not open the checkout at all', () => {
+  it('provides recovery steps for unavailable repositories', () => {
     expect(noRepository(ROOT)).toBe(
       `VS Code has no repository at ${ROOT}. Open that folder in a window, or check that Git is enabled for it.`,
     );
   });
 });
 
-describe('folding the commits, the index and the working tree into one editor', () => {
+describe('combining committed, staged, and working-tree changes', () => {
   it('refuses a checkout that matches what it forked from and has nothing uncommitted', () => {
     expect(changesPlan(request())).toEqual({
       refusal: 'no-changes',
@@ -52,7 +51,7 @@ describe('folding the commits, the index and the working tree into one editor', 
     });
   });
 
-  it('says which of the two ran out when there is no merge base', () => {
+  it('reports missing merge base with no uncommitted changes', () => {
     expect(changesPlan(request({ base: null }))).toEqual({
       refusal: 'no-changes',
       message: '#18941 Inbox badge: no uncommitted changes. Merge base unavailable.',
@@ -85,8 +84,7 @@ describe('folding the commits, the index and the working tree into one editor', 
     expect(rows(plan)).toEqual([`d:/work/old.ts@${BASE} -> d:/work/new.ts@disk`]);
   });
 
-  // The whole point of the fold: a file both committed and then edited again is one row spanning both, not two
-  // rows of half the story.
+  // A committed file with later edits must produce one combined row.
   it('collapses a file that was committed and then edited again into one row', () => {
     const plan = changesPlan(
       request({
@@ -131,7 +129,7 @@ describe('folding the commits, the index and the working tree into one editor', 
     expect(rows(plan)).toEqual([`d:/work/a.ts@${BASE} -> d:/work/a.ts@disk`]);
   });
 
-  it('matches a path two readers cased differently, keeping each side its own name', () => {
+  it('matches path casing variants while preserving display paths', () => {
     const plan = changesPlan(
       request({
         committed: [{ path: 'D:/Work/a.ts', kind: 'modified' }],
@@ -148,7 +146,7 @@ describe('folding the commits, the index and the working tree into one editor', 
     expect(rows(plan)).toEqual(['d:/work/a.ts@HEAD -> d:/work/a.ts@disk']);
   });
 
-  it('says in the title that a missing base means uncommitted work alone', () => {
+  it('labels HEAD fallback as uncommitted changes only', () => {
     const plan = changesPlan(request({ base: null, working: [{ path: 'd:/work/a.ts', kind: 'modified' }] }));
 
     expect(plan).toMatchObject({ title: '#18941 Inbox badge — uncommitted only, no merge base' });
@@ -160,7 +158,7 @@ describe('folding the commits, the index and the working tree into one editor', 
     expect(plan).toMatchObject({ title: '#18941 Inbox badge — since 3f2a91c' });
   });
 
-  it('orders rows by path, so one editor reads the same on two machines', () => {
+  it('sorts rows by path', () => {
     const plan = changesPlan(
       request({
         committed: [{ path: 'd:/work/z.ts', kind: 'modified' }, { path: 'd:/work/a.ts', kind: 'modified' }],
@@ -172,10 +170,7 @@ describe('folding the commits, the index and the working tree into one editor', 
   });
 });
 
-/**
- * The index holds one thing against HEAD and the working tree another against the index, and the two disagree
- * often. One status per path keeps whichever was read last, which is how a delete goes missing.
- */
+/** Staged and working-tree statuses can differ. Keeping only one per path can lose deletions. */
 describe('the index and the working tree, which say different things', () => {
   it('follows a staged edit that was then deleted on disk through to a deletion', () => {
     const plan = changesPlan(
@@ -221,8 +216,7 @@ describe('the index and the working tree, which say different things', () => {
     expect(rows(plan)).toEqual([`d:/work/a.ts@${BASE} -> d:/work/a.ts@disk`]);
   });
 
-  // A rename in a later stage has to meet the file it renamed, or the branch reads as having touched two files:
-  // one at a path that is no longer on disk, and one that never existed at the base.
+  // Later renames must update the existing row, not create separate original and destination rows.
   it('follows a committed file that was then renamed in the index', () => {
     const plan = changesPlan(
       request({
@@ -259,13 +253,12 @@ describe('the index and the working tree, which say different things', () => {
 });
 
 describe('a branch off a stale base', () => {
-  // The cap itself, not a relationship to a number derived from it: an expectation built out of `MAX_ROWS` holds
-  // for every value of `MAX_ROWS`, including one.
+  // Assert the fixed cap independently of MAX_ROWS so accidental constant changes fail.
   it('is capped at four hundred rows', () => {
     expect(MAX_ROWS).toBe(400);
   });
 
-  it('is truncated, and the title says how much it left out', () => {
+  it('reports truncation in the title', () => {
     const many = Array.from({ length: 410 }, (_, i) => ({
       path: `d:/work/${String(i).padStart(4, '0')}.ts`,
       kind: 'modified' as const,

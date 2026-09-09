@@ -1,10 +1,6 @@
-// This repo is going public, so recorded fixtures name no real checkout, branch, account or home directory. Applied
-// by `record.js` on every recording: a hand-scrub would be undone by the next one.
-//
-// Every structural property the tests turn on is preserved: which sessions share a checkout, which branches carry an
-// issue number, which are worktrees rather than clones, which project directories differ from their slug only by
-// case, and which sessions have no transcript. Only the names change. A synthetic path also cannot exist on the
-// machine running the tests, which is what proves the readers use the ones they are handed.
+// Anonymize each recording automatically. Preserve shared checkouts, issue numbers, worktree/clone
+// distinctions, slug casing, and missing transcripts. Synthetic paths must not exist on the test machine so
+// tests exercise injected readers.
 const {
   HOME,
   PROBLEMS,
@@ -21,10 +17,7 @@ const {
 
 const slugOf = (p) => p.split('\\').join('/').replace(/[^A-Za-z0-9]/g, '-');
 
-/**
- * A session title says outright what the work is, so a recording's titles are replaced wholesale. The two kinds stay
- * distinguishable — a manual title reads as one — because the precedence between them is what the tests turn on.
- */
+/** Replace title text while preserving manual and automatic title types for precedence tests. */
 function titlesFor(records, sessionId) {
   return records.map((record) =>
     record.type === 'custom-title'
@@ -55,10 +48,7 @@ function anonymiseAgents(sessions, map) {
   });
 }
 
-/**
- * `dir` keeps its relationship to the cwd's slug: where the real recording found a transcript in a directory whose
- * case differed, the synthetic one differs too, because that is the case-resolution rule's only witness.
- */
+/** Preserve case differences between recorded directories and cwd slugs for case-resolution tests. */
 function anonymiseTranscripts(recorded, map) {
   const entries = recorded.entries.map((entry) => {
     const replacement = map.get(entry.cwd);
@@ -98,8 +88,8 @@ function identifying({ active, all, reads, transcripts }) {
 }
 
 /**
- * Fails the recording rather than writing a fixture that still names something real. The tests cannot catch this —
- * they only ever see anonymised output, so an anonymiser that stopped scrubbing would leave them green.
+ * Reject original identifiers before writing. Tests see only scrubbed output and cannot detect an unsanitized
+ * recording.
  */
 function assertScrubbed(recording, written) {
   const json = JSON.stringify(written);
@@ -112,7 +102,7 @@ function assertScrubbed(recording, written) {
   assertNoAbsolutePaths(json, [HOME, REPO, 'd:/work', 'c:/users/dev']);
 }
 
-/** Every fixture rewritten together, so the four stay consistent with one another. */
+/** Rewrite related fixtures together to preserve consistency. */
 function anonymise({ active, all, reads, transcripts }) {
   const cwds = [...new Set([...active, ...all].map((s) => s.cwd))];
   const map = checkoutMap(cwds, reads);

@@ -1,5 +1,5 @@
-// This repo is public, so the recorded board carries no real issue, repository, project item or column name. Applied
-// by `record.cjs` on every recording: a hand-scrub would be undone by the next one.
+// Scrub issue, repository, project-item, and column names on every recording to keep public fixtures
+// anonymous.
 const { title } = require('../../../../tools/fixture-words.js');
 const { assertNoAbsolutePaths } = require('../../../../tools/fixture-scrub.js');
 
@@ -8,13 +8,12 @@ const REPO = 'example-org/example-repo';
 /** The issues the fixture carries. Fixed, because the tests name them, and the recorder maps real cards onto them. */
 const ISSUES = [4501, 4502, 4503];
 
-/** The two the recorder grafts an assignee stack onto. The third is left unassigned, which is a shape a board has. */
+/** Add recorded assignee stacks to two cards; leave the third unassigned. */
 const ASSIGNED = [4501, 4502];
 
 /**
- * Who the fixture's cards are assigned to, and the avatar the stack points at. A data URI rather than an
- * `avatars.githubusercontent.com` one of the right shape: a browser test loading this fixture fetches what the
- * markup points at, and `docs/testing.md` says no test leaves the machine. Nothing reads the `src`.
+ * Use synthetic assignees and data-URI avatars so rendering fixtures cannot request external images
+ * (docs/testing.md).
  */
 const ASSIGNEE = 'example-dev';
 const AVATAR = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
@@ -31,10 +30,7 @@ function titles() {
   return ISSUES.map((number) => title(number));
 }
 
-/**
- * The words the fixture is allowed to contain. Everything else that reads as prose is somebody's, and free text is
- * replaced wholesale rather than matched — no list of ids will ever cover an issue title or a label.
- */
+/** Allow only known synthetic prose; replace all other free text, including issue titles and labels. */
 const ALLOWED = new Set([
   ...COLUMNS,
   ...VIEWS,
@@ -57,9 +53,8 @@ const ALLOWED = new Set([
 const FREE_TEXT = /(?:aria-label|title|alt|placeholder|data-hovercard-url)="([^"]*)"|>([^<>{}]{4,})</g;
 
 /**
- * Everything the recorder replaced, asserted gone — and then the harder half `docs/testing.md` asks for: that
- * nothing of the shape being scrubbed survives at all, whether or not the recorder knew to look for it. A recording
- * carries names nobody enumerated, and the first loop can only ever find what the recorder already found.
+ * Assert removed values are absent, then check for unexpected sensitive patterns not explicitly captured by
+ * the recorder (docs/testing.md).
  */
 function assertScrubbed(html, recorded) {
   for (const value of recorded) {
@@ -87,10 +82,8 @@ function assertScrubbed(html, recorded) {
   }
 
   /*
-   * An asset the markup points at is a request the moment a browser renders the fixture, and `docs/testing.md` says
-   * no test leaves the machine. So the only absolute addresses allowed are the synthetic repository's issue links,
-   * which nothing fetches; everything a browser would load is a `data:` URI. Named per attribute rather than by
-   * host, because the leak is any host — an avatar is only the one that was there.
+   * Allow only synthetic issue-link URLs and data-URI assets. Validate each URL-bearing attribute to prevent
+   * network requests during rendering (docs/testing.md).
    */
   for (const [, attribute, url] of html.matchAll(/\b(src|srcset|href|poster|data-src)="(https?:[^"]*)"/g)) {
     if (!url.startsWith(`https://github.com/${REPO}/issues/`)) {

@@ -5,9 +5,8 @@ import type { IssueCard } from '../src/cards.js';
 import type { HistoricalSession, Session } from '../src/types.js';
 
 /**
- * Whole, not cast: a partial literal would go on compiling the day `Session` grows a field, and the pick reads
- * three of its timestamps. A moved `cwd` moves the checkout with it unless a row says otherwise, which is the
- * ordinary case — a session started below its checkout is the exception and names both.
+ * Use complete Session objects so type changes fail compilation. Default checkoutRoot to cwd unless a test
+ * supplies a subdirectory.
  */
 function session(over: Partial<Session> = {}): Session {
   const cwd = over.cwd ?? 'd:/work/repo.worktrees/18941-inbox-badge';
@@ -63,13 +62,12 @@ describe('which of a card’s directories its work is in', () => {
     expect(pick({ sessions: [], lastSession: historical })?.root).toBe('d:/work/repo.worktrees/18953-lane-divider');
   });
 
-  it('prefers a live session to a saved one, which a card carrying both would otherwise decide by luck', () => {
+  it('prefers live sessions over saved sessions', () => {
     expect(pick({ sessions: [session()], lastSession: historical })?.root).toBe('d:/work/repo.worktrees/18941-inbox-badge');
   });
 
   it('takes the most recently active rather than the most recently started', () => {
-    // The newer process is a session just opened in the main clone; the work is in the older worktree session,
-    // which has been writing its transcript. Picking by `startedAt` would answer with the clone.
+    // The older worktree session has newer transcript activity; startedAt alone would select the clone.
     const working = session({ sessionId: 'older', startedAt: 1_788_000_000_000, transcriptWrittenAt: 1_788_000_900_000 });
     const justOpened = session({ sessionId: 'newer', cwd: 'd:/work/repo', startedAt: 1_788_000_600_000 });
 
@@ -93,8 +91,7 @@ describe('which of a card’s directories its work is in', () => {
     });
   });
 
-  // Which of two directories was picked is invisible on the card, whose sessions are listed newest-started first.
-  // Saying so is what lets the editor name the one it took.
+  // Expose ambiguous checkouts so the editor can identify the selected directory.
   it('is not the only checkout where the sessions are spread over two, and says that', () => {
     const elsewhere = session({ sessionId: 'elsewhere', cwd: 'd:/work/repo' });
 
@@ -144,10 +141,7 @@ describe('which of a card’s directories its work is in', () => {
   });
 });
 
-/**
- * A checkout the board is willing to point an editor at. The two sources are worth telling apart because only one
- * of them is evidence the developer gave: a session ran there, or they said so. Nothing infers a third.
- */
+/** Checkout sources are recorded sessions or explicit folder selections. */
 describe('the checkout a card can be opened in', () => {
   const WORKTREE = 'd:/work/repo.worktrees/18941-inbox-badge';
   const PICKED = 'd:/work/repo.worktrees/19002-refund-window';
@@ -195,14 +189,12 @@ describe('the checkout a card can be opened in', () => {
     expect(checkoutFor({ sessions: [session(), elsewhere], issue: issue() }, undefined, machine([WORKTREE, 'd:/work/repo']))?.only).toBe(false);
   });
 
-  // M23: a deleted directory something still holds keeps its name and refuses everything, and `code <it>` would
-  // open a window on nothing. A saved session is where this bites — the transcript outlives the worktree.
+  // Reject deleted worktrees even when a saved transcript still names the path (M23).
   it('is nothing where the directory a session recorded has gone', () => {
     expect(checkoutFor({ sessions: [], lastSession: historical, issue: issue() }, undefined, machine([]))).toBeNull();
   });
 
-  // The deleted worktree is still held by a process, so its session goes on being reported and goes on ranking
-  // first. Collapsing to that one session would hide the second agent's perfectly good checkout.
+  // A deleted worktree must not hide another readable session checkout.
   it('passes over a session whose directory has gone, to one that is still there', () => {
     const held = session({ sessionId: 'held', transcriptWrittenAt: 1_788_009_000_000 });
     const working = session({ sessionId: 'working', cwd: 'd:/work/repo', checkoutRoot: 'd:/work/repo' });
@@ -214,8 +206,7 @@ describe('the checkout a card can be opened in', () => {
     });
   });
 
-  // `only` says whether the card's work is spread over more than one place, and a directory that is gone is not
-  // one of them — saying otherwise makes the editor name a checkout nobody can open to tell it from another.
+  // Count only readable directories when reporting checkout ambiguity.
   it('counts only the directories that are there when it says whether there is one', () => {
     const gone = session({ sessionId: 'gone', cwd: 'd:/work/deleted', checkoutRoot: 'd:/work/deleted' });
 
@@ -232,8 +223,7 @@ describe('the checkout a card can be opened in', () => {
     expect(checkoutFor({ sessions: [], issue: issue() }, PICKED, readers)).toEqual({ root: PICKED, source: 'remembered', only: true });
   });
 
-  // A session is where work is actually happening; a pick is where the developer expected it to. The first outranks
-  // the second, or a card whose agent moved to a worktree would keep opening the directory nobody is working in.
+  // Prefer recorded session directories over saved picks.
   it('prefers the session directory to the pick', () => {
     const readers = machine([WORKTREE, PICKED], originOf(PICKED, 'git@github.com:Org/Repo.git'));
 
@@ -244,8 +234,7 @@ describe('the checkout a card can be opened in', () => {
     expect(checkoutFor({ sessions: [], issue: issue() }, PICKED, machine([]))).toBeNull();
   });
 
-  // The worktree was deleted and its path reused for another repository's checkout. A stored path is not a claim
-  // that the directory is still the one that was picked.
+  // Revalidate saved paths because a deleted worktree path may be reused by another repository.
   it('drops a pick that no longer belongs to the card’s own repository', () => {
     const readers = machine([PICKED], originOf(PICKED, 'https://github.com/org/other-repo.git'));
 
@@ -256,16 +245,14 @@ describe('the checkout a card can be opened in', () => {
     expect(checkoutFor({ sessions: [], issue: issue() }, PICKED, machine([PICKED]))).toBeNull();
   });
 
-  // R4 work has no issue to match a repository against, so there is nothing a pick could be checked for. Such a
-  // card always carries a running session anyway, which is the source that answers it.
+  // Ad-hoc cards cannot validate a saved pick against an issue repository; use their session directory (R4).
   it('takes no pick on a card with no issue', () => {
     const readers = machine([PICKED], originOf(PICKED, 'git@github.com:Org/Repo.git'));
 
     expect(checkoutFor({ sessions: [], issue: null }, PICKED, readers)).toBeNull();
   });
 
-  // Ad-hoc work outside any checkout is still somewhere an editor can be pointed at, so the session branch asks
-  // whether the directory is there and not whether git knows it.
+  // Ad-hoc directories need to be readable, not Git checkouts.
   it('opens a session directory under no repository', () => {
     const loose = session({ cwd: 'd:/scratch', checkoutRoot: null });
 

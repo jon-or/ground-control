@@ -32,26 +32,20 @@ export function readConfig(): GithubConfig {
   };
 }
 
-/**
- * Everything this window's settings say, as the hub takes it. Pushed whole rather than field by field: the hub
- * merges one of these over its own defaults, and a client that sent half a configuration would leave the other half
- * at whatever the last client set.
- */
+/** Send the full configuration so omitted fields cannot retain values from a previous client. */
 export function readHubConfig(userDir: string): HubConfig {
   const cfg = vscode.workspace.getConfiguration(SECTION);
   const configured = cfg.get<Record<string, string>>('agents', {});
   const defaults = defaultConfig(makeRegistries(), diskReaders());
 
-  // R30: only the CLIs named here are read. An empty map means the defaults, so an adapter that ships enabled works
-  // without the developer editing settings, and one that ships off stays off until they name it.
+  // An empty agent map uses registry defaults; disabled adapters require explicit configuration (R30).
   const agents: AgentConfig[] =
     Object.keys(configured).length > 0
       ? Object.entries(configured).map(([id, path]) => ({ id, path }))
       : defaults.agents;
 
-  // The model a classification runs with is the agent's own word, so it rides on the agent rather than in the
-  // triage block — `core` names no adapter, and a Claude model id means nothing to a CLI that is not Claude, which
-  // is why it is stamped on that one agent rather than on every configured one.
+  // Set the Claude model on its agent configuration; core triage settings cannot contain adapter-specific
+  // model IDs.
   const model = cfg.get<string>('triage.model', '').trim();
 
   return {
@@ -85,9 +79,7 @@ export function readActions(): HubConfig['actions'] {
     return Number.isFinite(value) ? Number(value) : fallback;
   };
 
-  // Each key read on its own rather than as the object VS Code assembles at `actions.<action>` from the two: that
-  // object is a value-tree artefact of the dotted names, and the reader asking for what the schema declares is what
-  // keeps the two from drifting apart again.
+  // Read the declared flat settings keys directly instead of the synthesized actions.<action> object.
   const setting = (action: AutomatableAction): ActionSetting => {
     const prompt = cfg.get<unknown>(`actions.${action}.prompt`, '');
 
@@ -103,18 +95,14 @@ export function readActions(): HubConfig['actions'] {
     dailyLimit: number('actions.dailyLimit', 10),
     // Minutes in settings, milliseconds in the hub, the way every other interval here is.
     resultTimeoutMs: number('actions.resultMinutes', 30) * 60 * 1000,
-    // Only an action with something to run is carried. An entry with an empty prompt is the same as no entry, and
-    // sending one would have the board offer a control that can only refuse.
+    // Omit empty prompts so the board does not offer actions that can only refuse.
     actions: Object.fromEntries(
       AUTOMATABLE_ACTIONS.map((action) => [action, setting(action)] as const).filter(([, held]) => held.prompt !== ''),
     ),
   };
 }
 
-/**
- * R38's bounds. Flat keys rather than one object, because VS Code's settings UI renders an object of mixed types as
- * "Edit in settings.json", and R34 says anything a developer is expected to set is settable without editing a file.
- */
+/** Use flat keys so all triage limits are editable in the settings UI (R34, R38). */
 export function readTriage(): HubConfig['triage'] {
   const cfg = vscode.workspace.getConfiguration(SECTION);
   const number = (key: string, fallback: number): number => {
@@ -128,8 +116,8 @@ export function readTriage(): HubConfig['triage'] {
     concurrency: number('triage.concurrency', 2),
     // Seconds in settings, milliseconds in the hub, the way every other interval here is.
     timeoutMs: number('triage.timeoutSeconds', 180) * 1000,
-    // Anything that is not a string is dropped rather than pushed: this reaches a prompt, and the hub refuses a
-    // configuration it cannot parse whole, which would cost the developer triage entirely over one bad entry.
+    // Discard non-string names before sending configuration; one invalid entry would cause the hub to reject
+    // all triage settings.
     names: Object.fromEntries(
       Object.entries(cfg.get<Record<string, unknown>>('triage.names', {}) ?? {}).flatMap(([login, name]) =>
         typeof name === 'string' && name.trim() !== '' ? [[login, name.trim()] as const] : [],
@@ -157,36 +145,25 @@ export function sessionIntervalMs(): number {
   return intervalMs('sessionRefreshSeconds', 30, 2);
 }
 
-/**
- * R34: whether the board may put its activity hooks in the developer's own Claude Code settings. Off removes them —
- * skipping the install instead would leave the hooks the board already wrote running forever.
- */
+/** Disabling session hooks removes existing hooks; skipping installation would leave them active (R34). */
 export function installSessionHooks(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('installSessionHooks', true);
 }
 
-/**
- * R27: whether the board may bring another window forward. Off, a session held in another window is refused by name
- * rather than reached by moving the developer's focus.
- */
+/** Control cross-window opening; disabled requests return a named refusal without changing focus (R27). */
 export function mayOpenWindow(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('openWindowsForSessions', true);
 }
 
 /**
- * Where this VS Code keeps its state. `globalStorageUri` is `<user>/User/globalStorage/<extension>`, so the `User`
- * directory two levels above it is the one the running install writes to — assuming the default location would read
- * another install's windows on a portable or Insiders one.
+ * Derive User from globalStorageUri so portable and Insiders installs read their own state instead of the
+ * default install.
  */
 export function userDirOf(context: vscode.ExtensionContext): string {
   return dirname(dirname(context.globalStorageUri.fsPath));
 }
 
-/**
- * Which applications the board may reach into, and where it reads work from. Ids, not settings: an id the hub's
- * registries do not carry comes back named as a failure on the board, rather than as a target that quietly reaches
- * nothing. An entry this window has no settings for is still sent, so the hub is the one that names it (R25).
- */
+/** Send configured host and source IDs, including unknown ones, so the hub can report unsupported IDs (R25). */
 export function hostIds(): string[] {
   return idsFrom(vscode.workspace.getConfiguration(SECTION).get<unknown>('hosts'), [VSCODE_HOST_ID]);
 }
@@ -199,10 +176,7 @@ function vscodeSettings(userDir: string): Record<string, unknown> {
   return { userDir, mayOpenWindow: mayOpenWindow() };
 }
 
-/**
- * Global, because every setting the hub reads is application-scoped: one board's memory is shared by every window
- * (R9), so VS Code refuses a workspace override and writing to one would be a value nothing ever reads.
- */
+/** Write application-scoped settings globally; VS Code rejects workspace overrides for shared board state (R9). */
 export async function saveLogins(logins: string[]): Promise<void> {
   await vscode.workspace
     .getConfiguration(SECTION)

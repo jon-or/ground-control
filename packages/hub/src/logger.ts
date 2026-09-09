@@ -5,17 +5,14 @@ import { LOG_LIMIT_BYTES, openLog, rotateLog } from './log.js';
 import { logPathOf } from './paths.js';
 
 export interface LoggerDeps {
-  /** Where a formatted line goes. The file in production, an array in a test. */
+  /** Formatted log output: file in production, array in tests. */
   write(line: string): void;
   level?: LogFloor;
-  /** Injected so a test reads a fixed timestamp rather than whatever the run happened to take. */
+  /** Inject timestamps for deterministic tests. */
   now?(): string;
 }
 
-/**
- * Appends to `hub.log`, rotating on what this run has written rather than on a stat per line: one long-lived hub
- * outwrites its own limit many times over, and the file it leaves is the one a developer opens.
- */
+/** Append to hub.log and rotate by bytes written, avoiding a stat call per line. */
 export function fileSink(home: string): (line: string) => void {
   const path = logPathOf(home);
 
@@ -56,9 +53,7 @@ export function makeLogger(deps: LoggerDeps): Logger {
     const entry: LogEntry =
       scope === undefined ? { at, level, source: 'hub', message } : { at, level, source: 'hub', scope, message };
 
-    // Both guarded, because these calls sit inside the hub's own control flow now — between registering a client and
-    // sending it a snapshot, between writing a placement and broadcasting it. A sink or a stream that threw would
-    // leave the operation half done, and neither is worth a board for.
+    // Catch sink and subscriber errors so logging cannot interrupt hub operations.
     try {
       deps.write(formatLogLine(entry));
     } catch {
@@ -69,7 +64,7 @@ export function makeLogger(deps: LoggerDeps): Logger {
       try {
         watcher(entry);
       } catch {
-        // A client whose stream ended is not something the hub logs about — that would be the next line to throw.
+        // Ignore subscriber failures to avoid recursive logging errors.
       }
     }
   }
@@ -93,17 +88,10 @@ export function makeLogger(deps: LoggerDeps): Logger {
   };
 }
 
-/**
- * How much of `hub.log` a viewer is shown when it opens. Enough to carry the start of the hub that is running plus
- * the end of the one before it, which is the pair a developer chasing a restart needs.
- */
+/** Maximum log tail shown when a viewer opens, including output from previous hub processes. */
 export const BACKFILL_BYTES = 64 * 1024;
 
-/**
- * The tail of `hub.log` as entries, which is what a viewer is shown the moment it opens. Read on demand and held
- * nowhere: the file is written whatever happens, so there is no reason for the hub to keep a buffer against the
- * chance that somebody looks. It also means a viewer opened after a restart sees the last hub's dying words.
- */
+/** Read log entries on demand from disk, including previous hub output, without an in-memory buffer. */
 export function readLogTail(readTail: ReadTail, path: string, bytes = BACKFILL_BYTES): LogEntry[] {
   const text = readTail(path, bytes);
 
@@ -113,8 +101,7 @@ export function readLogTail(readTail: ReadTail, path: string, bytes = BACKFILL_B
 
   const lines = text.split('\n');
 
-  // A file larger than the window opens the read mid-line, so the first one is a fragment of an entry rather than
-  // an entry. Dropped rather than shown, because what it would show is half a sentence with no timestamp.
+  // Drop the first partial line when the tail starts mid-entry.
   if (text.length >= bytes && lines.length > 1) {
     lines.shift();
   }

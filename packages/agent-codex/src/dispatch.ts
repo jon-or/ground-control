@@ -2,16 +2,15 @@ import type { DispatchInput, DispatchResult, ReadFailure } from '@ground-control
 import { CODEX_AGENT_ID, CODEX_DISPLAY_NAME } from './ids.js';
 
 /**
- * A process the board started and left running. Injected, because a dispatch is the one thing this adapter does that
- * is neither a file read nor a short-lived command: `codex exec` runs for as long as the work does, and the board
- * has to answer as soon as the thread exists rather than when the work is finished.
+ * Injected detached process handle. Return when the thread ID is available; codex exec continues until its work
+ * finishes.
  */
 export interface StartedProcess {
   /** Resolves with the first line of stdout that satisfies `wanted`, or null when the process ended without one. */
   firstLine(wanted: (line: string) => boolean): Promise<string | null>;
-  /** The process id, so a stop has something to signal. */
+  /** Process ID used to stop the run. */
   pid: number | null;
-  /** Why it could not be started at all. Null once it is running. */
+  /** Startup error, or null when running. */
   failure: { reason: string; detail: string } | null;
 }
 
@@ -28,7 +27,7 @@ export type StartProcess = (
  */
 export function sandboxArgs(permissionMode: string): string[] | null {
   switch (permissionMode) {
-    // Read-only with nothing to ask about: a session that can look and answer, which is what a plan is.
+    // Plan mode permits reads without approval prompts.
     case 'plan':
       return ['--sandbox', 'read-only', '-c', 'approval_policy="never"'];
 
@@ -73,7 +72,7 @@ export function dispatchArgs(input: DispatchInput, sandbox: readonly string[]): 
 const threadStarted = /"type"\s*:\s*"thread\.started"/;
 const threadId = /"thread_id"\s*:\s*"([A-Za-z0-9-]+)"/;
 
-/** The id out of the `thread.started` line `--json` prints first. Null for a line that is not it. */
+/** Read the ID from the initial thread.started JSON record; return null for other lines. */
 export function threadIdFrom(line: string): string | null {
   return threadStarted.test(line) ? (threadId.exec(line)?.[1] ?? null) : null;
 }
@@ -83,11 +82,8 @@ function failure(kind: string, message: string, remedy: string): ReadFailure {
 }
 
 /**
- * Starts one piece of work in a checkout and answers with the thread id Codex minted, which it prints before the
- * work begins. Never throws: a dispatch that did not start is a named failure (R24).
- *
- * The run is headless, and it is on the board because its hooks write a marker like any other session (M40) — a
- * process editing the developer's code with nothing on screen saying so is what R2 exists to prevent.
+ * Start detached work and return the Codex-assigned thread ID, or a classified failure (R24). Hooks supply
+ * board activity markers for the headless run (R2, M40).
  */
 export function makeCodexDispatcher(start: StartProcess, remember: (threadId: string, pid: number | null) => void = () => {}) {
   return async function dispatch(input: DispatchInput): Promise<DispatchResult> {

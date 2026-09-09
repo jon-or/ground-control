@@ -12,7 +12,7 @@ import { trustFailure, trustState } from './trust.js';
 import type { TrustState } from './trust.js';
 import type { PidAlive } from './roster.js';
 
-/** Signal 0 tests for a process without touching it. `EPERM` is a process this user may not signal, which is alive. */
+/** Check process existence with signal 0. EPERM also indicates an existing process. */
 export const pidAliveOnMachine: PidAlive = (pid) => {
   try {
     process.kill(pid, 0);
@@ -23,17 +23,17 @@ export const pidAliveOnMachine: PidAlive = (pid) => {
   }
 };
 
-/** What the adapter needs of the machine beyond its files. Injected whole, so the package stays testable. */
+/** Injected process and environment dependencies. */
 export interface CodexMachine {
-  /** Whether a process is still running, which is the roster's only liveness evidence. */
+  /** Process liveness check for roster entries. */
   alive: PidAlive;
-  /** Where Codex keeps its home, and what a dispatched run inherits. */
+  /** Environment used for Codex storage and dispatched runs. */
   env: NodeJS.ProcessEnv;
-  /** Starts a run and leaves it going. Absent where the board may not start work at all. */
+  /** Start detached work; absent when dispatch is unavailable. */
   start?: StartProcess;
   /** End an adapter-started process. Supplied together with start for card actions (R39). */
   kill?: (pid: number) => boolean;
-  /** Asks Codex to trust the hooks the board installed. Absent where nothing may spawn, which leaves them untrusted. */
+  /** Trust installed board hooks; absent when process spawning is unavailable. */
   trust?: TrustHooks;
 }
 
@@ -46,23 +46,20 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
   const { alive, env, start, kill, trust } = machine;
   const history = makeHistoryReader(env);
 
-  // Which set of untrusted keys the board has already asked Codex about, and what came of it. Keyed by the set so a
-  // reinstall that changes a command — which re-arms trust — is asked again, and a Codex that keeps refusing is not.
+  // Cache trust attempts by untrusted key set. Retry when changed commands require trust, but do not repeat a
+  // failed attempt for unchanged keys.
   const asked = new Map<string, TrustAttempt>();
 
-  // Only the runs the board started. Filled by the dispatch itself, so a run whose hooks are not installed or not
-  // trusted is still stoppable (M41), and never by a roster read — the roster sees every session on the machine,
-  // including the developer's own, and a stop must not be able to reach one of those.
+  // Authorize stops only for adapter dispatches, including runs without working hooks (M41). Roster reads must
+  // not authorize stopping user-started sessions.
   const dispatched = new Map<string, number | null>();
 
   // Roster PIDs can fill a missing dispatch PID, but cannot authorize stopping an unrecorded dispatch.
   const observed = new Map<string, number>();
 
   /**
-   * Starts one attempt to have Codex trust the entries in `state`, and reports what a previous attempt on the same
-   * entries came to. Never awaited: the exchange spawns a process, and a roster read that waited on one would hold
-   * up every other agent's sessions. So the read that starts it says nothing, and the next one — 30 s later, by
-   * which time the markers are being written — has the answer.
+   * Start hook trust asynchronously and return any prior result for the same keys. Roster reads must not wait
+   * for the subprocess; later polls receive the result.
    */
   function askAbout(state: TrustState, path: string, home: string): TrustAttempt {
     if (state.untrusted.length === 0 || !trust) {
@@ -72,7 +69,7 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
     const signature = state.untrusted.join('\n');
 
     if (!asked.has(signature)) {
-      // Recorded before the exchange finishes, so a second read while one is in flight does not start another.
+      // Record the pending attempt before another roster read can start a duplicate.
       asked.set(signature, null);
       void trust(path, home).then(
         (attempt) => asked.set(signature, attempt),
@@ -87,8 +84,7 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
     id: CODEX_AGENT_ID,
     displayName: CODEX_DISPLAY_NAME,
     defaultPath: 'codex',
-    // R30: Codex's own home is the evidence it is installed, and a roster read needs nothing else — `listSessions`
-    // ignores the path, so a detected agent works with no setting and a machine without Codex is never polled.
+    // Detect Codex by its home directory. Roster reads do not require a configured executable path (R30).
     enabledByDefault: (readers) => readers.listDir(codexHomeOf(readers.home, env)) !== null,
     activity: makeCodexActivity(env),
     listHistory: history,
@@ -99,21 +95,19 @@ export function makeCodexAdapter(machine: CodexMachine = { alive: pidAliveOnMach
         }
       : {}),
 
-    // A thread is addressed by its id alone — the reveal opened one whose recorded directory was somewhere else
-    // entirely (M44) — so what settles a resume is whether Codex still holds the rollout, not where it ran.
+    // Resume requires an existing rollout; thread IDs are independent of their original checkout directory
+    // (M44).
     canResume: (session, deps) => rolloutExists(session.sessionId, deps, env),
 
     listSessions(path: string, deps: MachineDeps): Promise<AgentReading> {
       const roster = readRoster(deps, alive, env);
       const state = trustState(deps, env);
 
-      // A marker the board cannot read first: that is a fault in what the hook wrote, where untrusted entries wrote
-      // nothing at all. Trust is asked about only once the roster has no fault of its own to report.
+      // Report invalid markers before trust failures; untrusted hooks produce no markers.
       const reading: AgentReading =
         roster.failure === null ? { ...roster, failure: trustFailure(state, askAbout(state, path, deps.home)) } : roster;
 
-      // Refreshed rather than replaced: a read that finds nothing — the signal turned off, the directory not there
-      // yet — must not strip the stop control from a run that is still going.
+      // Merge roster PIDs without removing dispatches when markers are absent, preserving stop access.
       for (const session of reading.sessions) {
         if (session.pid !== null) {
           observed.set(session.sessionId, session.pid);

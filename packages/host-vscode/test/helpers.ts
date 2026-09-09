@@ -10,8 +10,8 @@ export function fixture(name: string): unknown {
 }
 
 /**
- * Whole, not cast: a partial literal would go on compiling the day `Session` grows a field, and every decision here
- * is about where a session is held rather than what it carries, so a built row is as good as a recorded one.
+ * Construct complete typed sessions so new required fields fail typechecking. Placement tests do not require
+ * recorded session content.
  */
 export function session(over: Partial<Session> = {}): Session {
   return {

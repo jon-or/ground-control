@@ -4,16 +4,13 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { PROTOCOL } from '@ground-control/core';
 import type { Client, ClientHello, ClientMessage, HubMessage, Logger, Session, Snapshot } from '@ground-control/core';
 
-/**
- * What the server needs of the hub, and nothing more. Narrow so the server's own tests drive a fake: whether a
- * request is refused has nothing to do with what the loop would have answered.
- */
+/** Minimal hub contract for routing and isolated server tests. */
 export interface ServableHub {
   connect(hello: ClientHello, send: (message: HubMessage) => void): Client;
   disconnect(client: Client): void;
   receive(client: Client, message: ClientMessage): void;
   snapshot(): Snapshot;
-  /** A fresh read of the sessions on this machine. The resident half polls it while it carries out an open route. */
+  /** Read current sessions while the client completes an open route. */
   roster(): Promise<readonly Session[] | null>;
 }
 
@@ -24,65 +21,51 @@ export interface ServerClock {
 
 export interface HubServerDeps {
   hub: ServableHub;
-  /** Identifies which hub this is: a client that finds a listener on the recorded port asks before it sends a token. */
+  /** Identify the listener before clients send authentication tokens. */
   fingerprint: string;
   clock?: ServerClock;
-  /** Called by `POST /shutdown`. Windows has no signal that reaches a console-less process, so this is the stop. */
+  /** POST /shutdown stops a console-less Windows hub, which cannot receive console signals. */
   onShutdown(): void;
-  /**
-   * Where a refused request is recorded. A client that is turned away sees only a status, and the three refusals
-   * before any route read as "this is not a hub" from there — so if the hub does not write them down, a board that
-   * cannot reach the hub it can see leaves no evidence anywhere on the machine.
-   */
+  /** Log refusal details; clients receive only an HTTP status. */
   log: Logger;
 }
 
 export interface HubServer {
   readonly port: number;
   readonly token: string;
-  /** How many clients have said hello over a stream that is still open. Zero is what the idle rule waits on. */
+  /** Number of registered clients with open streams; zero permits idle shutdown. */
   clients(): number;
-  /** When the last client went away, or null while one is connected. Observed, not sampled, so nothing is missed. */
+  /** Record the last disconnect time, or null while connected, without polling. */
   emptySince(): number | null;
   close(): Promise<void>;
 }
 
-/**
- * Proves a listener holds the token without disclosing it. The fingerprint says which home a hub is for, and a home
- * path is guessable, so on its own it lets any local process impersonate a hub the developer's own record points at.
- */
+/** Prove token possession without disclosure. A home fingerprint alone is guessable and cannot authenticate the hub. */
 export function proofOf(token: string, nonce: string): string {
   return createHmac('sha256', token).update(nonce).digest('base64url');
 }
 
-/** A body larger than this is not a `ClientMessage` from any client of ours. */
+/** Maximum accepted client message size. */
 export const BODY_LIMIT_BYTES = 64 * 1024;
 
-/** Enough streams for every window a developer has open, and a bound on what one confused client can hold. */
+/** Bound concurrent streams per hub. */
 export const MAX_EVENT_STREAMS = 8;
 
-/** A comment line down each stream, so a proxy or a client's own idle timeout never mistakes quiet for dead. */
+/** Send SSE comment heartbeats to prevent idle connection timeouts. */
 export const HEARTBEAT_MS = 20_000;
 
-/**
- * What a minute of refusals may write. Any page the developer visits can make the hub refuse it — a `fetch` at the
- * loopback port is refused for its `Origin`, needing no preflight — and each refusal is a synchronous append on the
- * hub's own event loop. Without a bound, a page in a background tab is both an unbounded file and a slow board.
- */
+/** Bound refusal logs per minute. Pages can send loopback requests, so unlimited synchronous logging could fill the disk and delay the hub. */
 export const REFUSALS_PER_MINUTE = 20;
 const REFUSAL_WINDOW_MS = 60_000;
 
-/** Enough of a target or a header to recognise it. The rest is whoever sent it choosing what the log looks like. */
+/** Bound untrusted request target and header values in logs. */
 const REFUSAL_DETAIL_LIMIT = 120;
 
 function clipped(text: string): string {
   return text.length > REFUSAL_DETAIL_LIMIT ? `${text.slice(0, REFUSAL_DETAIL_LIMIT)}…` : text;
 }
 
-/**
- * Both bound the arrival of a request, not the life of a response, so an event stream held open for hours is not
- * theirs to close: a `GET /events` is complete the moment its headers land.
- */
+/** Bound request arrival, not response lifetime; completed GET /events requests may keep streaming. */
 const HEADERS_TIMEOUT_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -100,7 +83,7 @@ function newToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
-/** Constant time, after a length check, because comparing lengths first is the only part that may short-circuit. */
+/** Use constant-time comparison after verifying equal lengths. */
 function tokenMatches(offered: string, token: string): boolean {
   const a = Buffer.from(offered);
   const b = Buffer.from(token);
@@ -130,15 +113,12 @@ function refuse(response: ServerResponse, status: number, message: string): void
   send(response, status, { error: message });
 }
 
-/** A declared length over the cap, refused before a byte is read. Every client of ours declares one. */
+/** Reject oversized declared bodies before reading them. */
 function declaresTooMuch(request: IncomingMessage): boolean {
   return Number(request.headers['content-length'] ?? 0) > BODY_LIMIT_BYTES;
 }
 
-/**
- * Null means the body ran past the cap without declaring it, and the connection has been dropped. Refusing in a
- * response would mean reading to the end first, which is the cost the cap exists to avoid.
- */
+/** Null means an undeclared body exceeded the cap and its connection was dropped without reading the remainder. */
 function readBody(request: IncomingMessage): Promise<string | null> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
@@ -161,17 +141,13 @@ function readBody(request: IncomingMessage): Promise<string | null> {
   });
 }
 
-/**
- * The hub over loopback HTTP: the snapshot and the actions as requests, changes as Server-Sent Events. Every route
- * but `GET /hub` carries a bearer token, and no request carrying an `Origin` is answered at all — a web page can
- * reach loopback, and `configure` carries paths the hub will spawn. The browser board is reached through the bridge.
- */
+/** Serve loopback HTTP and SSE. Require bearer tokens except for GET /hub. Reject Origin headers because configure contains executable paths; Chrome uses the native bridge. */
 export function createHubServer(deps: HubServerDeps): { server: Server; listen(): Promise<HubServer> } {
   const clock = deps.clock ?? REAL_CLOCK;
   const token = newToken();
   const streams = new Map<string, Stream>();
 
-  /** The refusals written this minute, and when that minute began. Whoever is refused does not get to fill a disk. */
+  /** Track refusal count and interval to enforce the log limit. */
   let refusals = 0;
   let refusedSince = 0;
 
@@ -181,7 +157,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
 
   let empty: number | null = Date.now();
 
-  /** Observed on every change rather than sampled, so a board that opens and closes between two ticks is not missed. */
+  /** Track every connection change so brief connections are not missed between ticks. */
   function count(): void {
     const connected = [...streams.values()].filter((stream) => stream.client !== null).length;
 
@@ -189,8 +165,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
   }
 
   function push(stream: Stream, event: string, data: unknown): void {
-    // A hub holding a send callback for a stream that has already ended would take the process down: a write after
-    // `end` raises on the response, and an unhandled raise there is fatal.
+    // Stop sending after stream closure; unhandled writes after end can terminate the process.
     if (stream.response.writableEnded) {
       return;
     }
@@ -216,8 +191,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
   }
 
   function openStream(id: string, request: IncomingMessage, response: ServerResponse): void {
-    // A client replacing its own stream is not a ninth: a board whose connection dropped would otherwise be refused
-    // by the streams already counted, including its own.
+    // Replacing an existing client stream does not consume an additional slot.
     if (!streams.has(id) && streams.size >= MAX_EVENT_STREAMS) {
       refuse(response, 503, 'Too many event streams are open.');
 
@@ -281,11 +255,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
     send(response, 200, { ok: true });
   }
 
-  /**
-   * Refused, and written down. The answer stays what it was — a client is told no more than that it was turned away
-   * — while the log carries the header that decided it, which is the only copy of that fact anywhere. What the
-   * refused party chose is clipped and rationed: it is the one thing here that a web page gets to put in a file.
-   */
+  /** Log refusal details without disclosing them to the requester. Clip and rate-limit untrusted values. */
   function turnAway(
     request: IncomingMessage,
     response: ServerResponse,
@@ -312,7 +282,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
   }
 
   async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    // Anything a browser sends carries this, and nothing the hub answers is for a browser.
+    // Reject direct browser requests; the overlay uses the native bridge.
     if (request.headers.origin !== undefined) {
       turnAway(
         request,
@@ -327,8 +297,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
 
     const target = request.url ?? '/';
 
-    // An absolute-form target is a proxy request; the `Host` check below reads the header, which such a request may
-    // set to anything.
+    // Reject proxy-form targets, which can provide an unrelated Host header.
     if (!target.startsWith('/')) {
       turnAway(request, response, 400, 'Unsupported request target.');
 
@@ -376,8 +345,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
       return;
     }
 
-    // A read, not an action, because the client that asks is carrying out a route rather than changing anything —
-    // and it asks repeatedly while it waits for a session to land, which no event stream can answer.
+    // Read the current roster during route execution; clients may poll while waiting for a session to appear.
     if (path === '/roster' && request.method === 'GET') {
       send(response, 200, { sessions: await deps.hub.roster() });
 
@@ -411,7 +379,7 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
     }
 
     if (declaresTooMuch(request)) {
-      // Closed rather than kept alive: the body is never read, so the connection cannot carry another request.
+      // Close the connection because an unread body prevents reuse.
       response.setHeader('Connection', 'close');
       refuse(response, 413, 'That body is larger than this hub accepts.');
 

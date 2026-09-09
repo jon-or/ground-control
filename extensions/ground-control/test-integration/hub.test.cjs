@@ -58,10 +58,7 @@ async function until(what, why, within = 30_000) {
 const api = () => vscode.extensions.getExtension('groundcontrol.ground-control').activate();
 
 describe('the hub as its own process', () => {
-  /**
-   * R35: the board's tracking runs in a background process this window starts. Everything below is what no unit test
-   * can see — that a real extension host spawns a real process, and that the two speak over a real socket.
-   */
+  /** Verify the real extension host spawns a separate hub and communicates over its socket (R35). */
   it('is started by the extension, and is not the extension host', async () => {
     await api();
 
@@ -100,10 +97,7 @@ describe('the hub as its own process', () => {
     assert.ok(Array.isArray(seen.lanes), 'the snapshot had no lanes');
   });
 
-  /**
-   * A hub killed under a live board has to come back, and the restart budget must not be what stops it — the budget
-   * counts hubs that never start, and this one had already started.
-   */
+  /** Verify an established hub restarts after termination; startup-failure limits must not prevent recovery. */
   it('is started again when a running one is stopped under a live board', async () => {
     const before = await until(() => record(), 'no hub is running');
 

@@ -64,7 +64,7 @@ async function contextOf(name: string, over: Partial<IssueCard> = {}, cfg = conf
 }
 
 describe('reading a card context', () => {
-  it('asks about the pull request the card is showing, and says when there is none', async () => {
+  it('requests the displayed PR and omits absent PRs', async () => {
     const withPr = runnerOf(fixture('context-review'));
     await fetchCardContext(config(), card(), withPr, new AbortController().signal);
 
@@ -79,7 +79,7 @@ describe('reading a card context', () => {
     expect(withoutPr.calls[0]).toContain('withPr=false');
   });
 
-  it('reads the repository from the card own URL rather than from the configured one', async () => {
+  it('uses the repository from the card URL', async () => {
     const run = runnerOf(fixture('context-review'));
     await fetchCardContext(
       config({ repo: 'example-org/other-repo' }),
@@ -121,8 +121,7 @@ describe('reading a card context', () => {
   });
 
   it('reads a bot as having no name, and no relationship to the repository, rather than as an error', async () => {
-    // A bot is not a `User`, so GitHub answers the profile fragment with nothing at all and the login has to stand
-    // in. Every automated reviewer on a real pull request is one of these.
+    // Bots do not resolve the User profile fragment; fall back to login.
     const bots = await contextOf('context-bots', { number: 19131, pullRequest: { ...card().pullRequest!, number: 19143 } });
     const commented = bots.pullRequest!.comments;
 
@@ -134,12 +133,12 @@ describe('reading a card context', () => {
     expect(bots.comments.some((c) => c.authorName !== null)).toBe(true);
   });
 
-  it('keeps both ends of a long body and says what came out of the middle', async () => {
+  it('retains both ends of long bodies with an omission count', async () => {
     const context = await contextOf('context-review');
     const recorded = (fixture('context-review') as { data: { repository: { issue: { body: string } } } }).data.repository
       .issue.body;
 
-    // The recorder pads this one fixture past the limit, because no real body on the board happened to be long enough.
+    // Use the recorder-generated long body to exercise clipping.
     expect(recorded.length).toBeGreaterThan(6_000);
     expect(context.body.startsWith(recorded.slice(0, 200))).toBe(true);
     expect(context.body.endsWith(recorded.slice(-200))).toBe(true);
@@ -216,7 +215,7 @@ describe('reading a card context', () => {
 });
 
 describe('refusing a context it cannot read', () => {
-  it('names a gh failure rather than throwing, and keeps its own subject', async () => {
+  it('returns gh failures with the GitHub source ID', async () => {
     const reading = await fetchCardContext(
       config(),
       card(),
@@ -257,8 +256,7 @@ describe('refusing a context it cannot read', () => {
 
 describe('the state changes on a card', () => {
   it('reads the status moves and assignments the board asked for, oldest first', async () => {
-    // Recorded from a real hand-over: the status moved and the mover took themselves off it eight seconds later,
-    // and somebody else put the developer on it two and a half hours after that (`docs/mechanics.md` M32).
+    // Recorded status change, actor unassignment eight seconds later, and developer assignment 2.5 hours later (M32).
     const events = (await contextOf('context-handover', { number: 19192, pullRequest: null })).stateEvents;
 
     expect(events.map((e) => [e.at, e.actor, e.status?.to ?? null, e.assigned, e.unassigned])).toEqual([
@@ -279,12 +277,12 @@ describe('the state changes on a card', () => {
       from: '⚒️ Dev',
       to: '\u{1F50D} Dev Review',
     });
-    // The card being added to the project, which is GitHub's own write and the one move nobody made.
+    // Project additions have an empty previous status.
     expect(events[0]?.status).toEqual({ from: '', to: '\u{1F195} New' });
   });
 
-  it('ignores a status move on a project that is not the board’s own', async () => {
-    // An issue sits on as many projects as anybody adds it to, and another team's column names say nothing here.
+  it('ignores status changes from other projects', async () => {
+    // Ignore status changes from other projects.
     const elsewhere = await contextOf('context-handover', { number: 19192, pullRequest: null }, config({ projectNumber: 99 }));
 
     expect(elsewhere.stateEvents.filter((e) => e.status !== null)).toEqual([]);
@@ -292,9 +290,7 @@ describe('the state changes on a card', () => {
   });
 
   it('drops a status cleared rather than reading it as a move to nowhere', async () => {
-    // Derived: an item whose Status is emptied answers a null `status`, which the live API will not produce on
-    // demand. An empty destination would print an arrow pointing at nothing, and the empty `from` already means
-    // something else — the card being added to the board.
+    // Derive null status for a cleared field; the API cannot produce it on demand. Ignore empty destinations because empty from already means project addition.
     const cleared = structuredClone(fixture('context-handover')) as {
       data: { repository: { issue: { timelineItems: { nodes: { __typename: string; status?: string | null }[] } } } };
     };
@@ -317,9 +313,7 @@ describe('the state changes on a card', () => {
   });
 
   it('reads a card recorded before the timeline was asked for as having no state changes', async () => {
-    // Derived rather than recorded: every fixture is recorded against the document the board sends today, and that
-    // document asks for the timeline. A recording made before it did is a shape the live API will not produce on
-    // demand, and it is the one this default exists for.
+    // Derive a legacy response without timeline fields; current queries always request them.
     const older = structuredClone(fixture('context-no-pr')) as {
       data: { repository: { issue: Record<string, unknown> } };
     };
@@ -361,7 +355,7 @@ describe('the helpers the reader is built from', () => {
     expect(clipped.endsWith('Finally: please split this in two.')).toBe(true);
   });
 
-  it('says how much of the middle it took out, so nothing reads as the whole of what was written', () => {
+  it('reports the omitted character count', () => {
     const body = `head ${'x '.repeat(500)}tail`;
     const clipped = clip(body, 100);
     const [before, rest] = clipped.split(`\n[…`);

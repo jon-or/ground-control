@@ -6,7 +6,7 @@ import { HOME, machine } from './helpers.js';
 const NOW = Date.now();
 const THREAD = '01a07d5a-b5bd-7762-8ef8-4202ce964f31';
 const STARTED = `{"type":"thread.started","thread_id":"${THREAD}"}`;
-/** A run whose thread is the one the marker below names, so a stop can fall back to what the roster observed. */
+/** Match the dispatch thread to the marker for roster PID fallback tests. */
 const STARTED_FOR_MARKER = '{"type":"thread.started","thread_id":"thread-1"}';
 
 function dispatchInput() {
@@ -45,7 +45,7 @@ describe('the Codex adapter', () => {
     expect(makeCodexAdapter({ alive: () => true, env: {} })).toMatchObject({ id: 'codex', displayName: 'Codex', defaultPath: 'codex' });
   });
 
-  /** R30: detected, so an installed Codex needs no setting and a machine without one is never polled. */
+  /** Enable installed Codex without configuration; skip absent installations (R30). */
   it('is on where Codex keeps a home, and off where it does not', () => {
     const adapter = makeCodexAdapter({ alive: () => true, env: {} });
 
@@ -53,14 +53,14 @@ describe('the Codex adapter', () => {
     expect(adapter.enabledByDefault(machine({}))).toBe(false);
   });
 
-  it('looks where CODEX_HOME points, which is where Codex itself would keep it', () => {
+  it('detects Codex through CODEX_HOME', () => {
     const adapter = makeCodexAdapter({ alive: () => true, env: { CODEX_HOME: 'D:/elsewhere/codex' } });
 
     expect(adapter.enabledByDefault(machine({ dirs: { 'D:/elsewhere/codex': [] } }))).toBe(true);
     expect(adapter.enabledByDefault(machine({ dirs: { [`${HOME}/.codex`]: ['config.toml'] } }))).toBe(false);
   });
 
-  /** The markers are the whole roster, so untrusted hooks are an empty Codex with no reason given (R25, M41). */
+  /** Report untrusted hooks because they prevent marker-based discovery (R25, M41). */
   function withOurHook(): Record<string, string> {
     return {
       [codexHooksPathOf(HOME)]: JSON.stringify({
@@ -69,7 +69,7 @@ describe('the Codex adapter', () => {
     };
   }
 
-  it('asks Codex to trust its hooks once, and says nothing on the read that asked', async () => {
+  it('starts one trust attempt and suppresses pending failures', async () => {
     const calls: string[] = [];
     const adapter = makeCodexAdapter({ alive: () => true, env: {}, trust: (path) => (calls.push(path), Promise.resolve(null)) });
     const deps = machine({ dirs: { [activityDirOf(HOME)]: [] }, files: withOurHook() });
@@ -87,7 +87,7 @@ describe('the Codex adapter', () => {
     const deps = machine({ dirs: { [activityDirOf(HOME)]: [] }, files: withOurHook() });
 
     await adapter.listSessions('codex', deps);
-    // The attempt settles a microtask after the read that started it, which is what the next poll would find.
+    // Allow the asynchronous trust attempt to finish before the next poll.
     await Promise.resolve();
     const after = await adapter.listSessions('codex', deps);
 
@@ -112,11 +112,11 @@ describe('the Codex adapter', () => {
     expect((await adapter.listSessions('codex', deps)).failure?.message).toContain('could not be read');
   });
 
-  it('offers no classification, which is the one thing it cannot yet do', () => {
+  it('exposes no classification capability', () => {
     expect(makeCodexAdapter({ alive: () => true, env: {} }).classify).toBeUndefined();
   });
 
-  it('says a saved thread can be opened while Codex still holds its rollout', () => {
+  it('allows resume while the rollout exists', () => {
     const adapter = makeCodexAdapter({ alive: () => true, env: {} });
     const held = { agent: 'codex', sessionId: '01a072f9-c43a-73e2-a4fd-3a63e73ad152' } as never;
     const rollout = 'rollout-2026-09-05T15-09-26-01a072f9-c43a-73e2-a4fd-3a63e73ad152.jsonl';
@@ -131,7 +131,7 @@ describe('the Codex adapter', () => {
     });
 
     expect(adapter.canResume!(held, deps)).toBe(true);
-    // The saved checkout is not the question: a thread is opened by its id, wherever it once ran (M44).
+    // Resume by thread ID independently of its original checkout (M44).
     expect(adapter.canResume!(held, machine({}))).toBe(false);
   });
 
@@ -161,7 +161,7 @@ describe('the Codex adapter', () => {
     const dispatched = await adapter.dispatch!(dispatchInput());
 
     expect(dispatched).toEqual({ shortId: THREAD });
-    // No roster read has happened, and none is needed: the board spawned this one and knows its process.
+    // The spawn PID permits stopping before any roster read.
     expect(await adapter.stopDispatch!('codex', THREAD)).toBeNull();
     expect(signalled).toEqual([4242]);
   });
@@ -186,7 +186,7 @@ describe('the Codex adapter', () => {
     expect(signalled).toEqual([]);
   });
 
-  it('falls back to the process the markers report, which is what a restarted hub has', async () => {
+  it('uses roster PIDs when the dispatch PID is missing', async () => {
     const signalled: number[] = [];
     const adapter = makeCodexAdapter({
       alive: () => true,
@@ -205,7 +205,7 @@ describe('the Codex adapter', () => {
     expect(signalled).toEqual([4242]);
   });
 
-  it('says nothing answered rather than reporting a run stopped', async () => {
+  it('reports failure when no process was stopped', async () => {
     const adapter = makeCodexAdapter({
       alive: () => true,
       env: {},

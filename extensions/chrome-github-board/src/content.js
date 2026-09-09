@@ -1,8 +1,7 @@
 // @ts-check
 /**
- * The half of the overlay that talks to Chrome. It holds the last thing the worker sent and repaints whenever the
- * board changes under it — a project board is React, and a view switch replaces every card node (`mechanics.md` M27).
- * Every decision it makes is in `state.js`; what is here is the port, the observer, and when to try again.
+ * Connect to Chrome, observe board mutations, and schedule rendering. State decisions remain in state.js;
+ * GitHub view switches replace card nodes (mechanics M27).
  */
 (() => {
   const url = chrome.runtime.getURL('src/');
@@ -47,10 +46,7 @@
     }
   }
 
-  /**
-   * Coalesced to one frame, and the observer is off while painting: the badges are DOM changes of our own, and an
-   * observer left armed would see them and schedule the next scan forever.
-   */
+  /** Coalesce renders to one frame and pause the observer during writes to prevent mutation loops. */
   function schedule() {
     if (scheduled || overlay === null) {
       return;
@@ -67,8 +63,7 @@
         } else {
           overlay.clear(document);
 
-          // The sidebar went with the board, so the hub stops being read: a tab on some other page of github.com is
-          // not a viewer, and nothing about the hub's log crosses to one (R40).
+          // Unsubscribe from hub logs when leaving the board (R40).
           if (watchingLog) {
             actions.watchLog(false);
           }

@@ -19,7 +19,7 @@ afterEach(() => dispose());
 const STATUSES = ['🎁 Assigned', '⚒️ Dev'];
 
 describe('the lane store', () => {
-  it('reads an empty memory on a machine that has never had a board open', () => {
+  it('returns empty lane state for a missing file', () => {
     expect(makeLaneStore(home).read(STATUSES)).toEqual({ ...EMPTY_MEMORY, statuses: STATUSES });
   });
 
@@ -39,7 +39,7 @@ describe('the lane store', () => {
     expect(makeLaneStore(home).read(STATUSES).placements).toEqual({ 'issue:1': 'done' });
   });
 
-  it('reads an empty memory from a file the developer has broken, rather than throwing on every render', () => {
+  it('returns empty lane state for invalid JSON', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(lanesPathOf(home), '{ not json');
 
@@ -66,7 +66,7 @@ describe('the lane store', () => {
       statuses: ['⚒️ Dev'],
     });
 
-    // The date stays and reads as seen: forgetting when a card went away would un-end a reading that departure had ended (R6).
+    // Preserve departure timestamps while clearing returned attention; otherwise old activity could become valid again (R6).
     expect(makeLaneStore(home).read(STATUSES)).toEqual({
       ...EMPTY_MEMORY,
       pastMyHandsAt: { 'issue:1': 1_000 },
@@ -77,7 +77,7 @@ describe('the lane store', () => {
 });
 
 describe('the marks', () => {
-  it('reads nothing on a machine where the activity signal has never been installed', () => {
+  it('returns empty marks before hook installation', () => {
     expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null });
   });
 
@@ -88,14 +88,14 @@ describe('the marks', () => {
     expect(store.read()).toEqual({ installedAt: 42, announcedAt: { 'board-1': 42 }, triageToldAt: 7, actionsToldAt: null });
   });
 
-  it('reads nothing from a file it cannot parse', () => {
+  it('returns empty marks for invalid JSON', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(marksPathOf(home), 'not json');
 
     expect(makeMarkStore(home).read()).toEqual({ installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null });
   });
 
-  it('reads nothing from a file whose shape it does not recognise', () => {
+  it('returns empty marks for invalid shapes', () => {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(marksPathOf(home), '{"installedAt":"yesterday"}');
 
@@ -110,11 +110,8 @@ describe('afterInstall', () => {
     expect(afterInstall(held, 'install', 3, 1000)).toEqual({ installedAt: 1000, announcedAt: {}, triageToldAt: null, actionsToldAt: null });
   });
 
-  /**
-   * Stamping a run that added nothing would have the board claim every session listed before this moment cannot
-   * report, of sessions that report on their next event.
-   */
-  it('starts nothing on a run that added none', () => {
+  /** Do not change install timestamps when no entries were added; existing reporting sessions must not appear pre-install. */
+  it('preserves installation time when no entries were added', () => {
     expect(afterInstall(held, 'install', 0, 1000)).toEqual(held);
   });
 
@@ -124,10 +121,9 @@ describe('afterInstall', () => {
     expect(afterInstall(stamped, 'install', 3, 1000)).toEqual(stamped);
   });
 
-  /** So putting the hooks back says so again, rather than being old news from the install before it. */
-  it('clears the stamp and every announcement on a removal, and nothing else', () => {
-    // Putting the hooks back is not a second occasion to be told what reading a card costs.
-    // Nor is it a second occasion to be told that the board has started work on the developer's own code.
+  /** Reinstallation must produce a new installation notice. */
+  it('clears installation acknowledgments on removal and preserves usage notices', () => {
+    // Preserve triage and action notices across hook reinstallation.
     expect(afterInstall({ installedAt: 500, announcedAt: { 'board-1': 500 }, triageToldAt: 7, actionsToldAt: 9 }, 'remove', 0, 1000)).toEqual({
       installedAt: null,
       announcedAt: {},
@@ -140,7 +136,7 @@ describe('afterInstall', () => {
 describe('announce', () => {
   const installed = { installedAt: 500, announcedAt: {}, triageToldAt: null, actionsToldAt: null };
 
-  it('says it once to a client that has not heard it', () => {
+  it('announces installation once per client', () => {
     const first = announce(installed, 'board-1');
 
     expect(first.say).toBe(true);
@@ -148,17 +144,17 @@ describe('announce', () => {
   });
 
   /** A developer opening a second board has not read the first board's notice (R25). */
-  it('says it to a second client too', () => {
+  it('announces installation to a second client', () => {
     const first = announce(installed, 'board-1');
 
     expect(announce(first.next, 'board-2').say).toBe(true);
   });
 
-  it('says nothing where nothing has been installed', () => {
+  it('does not announce before installation', () => {
     expect(announce({ installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null }, 'board-1').say).toBe(false);
   });
 
-  it('says it again after the hooks are removed and put back', () => {
+  it('announces reinstallation', () => {
     const told = announce(installed, 'board-1').next;
     const again = afterInstall(afterInstall(told, 'remove', 0, 900), 'install', 3, 1000);
 

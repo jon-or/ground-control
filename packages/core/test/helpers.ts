@@ -9,10 +9,7 @@ export function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(here, 'fixtures', `${name}.json`), 'utf8'));
 }
 
-/**
- * Deliberately not the machine's own home: a reader ignoring its injected home would land on the real directory
- * and pass. Nothing exists here, so only a reader using what it was handed finds anything.
- */
+/** Use a nonexistent home so tests cannot pass by reading the real filesystem. */
 export const HOME = '/nowhere/home';
 
 /** The recorded git reads, keyed by forward-slash path. An unrecorded path reads as absent, which is the truth. */

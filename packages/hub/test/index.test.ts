@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as api from '../src/index.js';
 
 describe('the package public surface', () => {
-  it('exposes what a client and the daemon consume, and nothing test-only', () => {
+  it('exports the client and daemon API without test helpers', () => {
     expect(Object.keys(api).sort()).toEqual([
       'ActionRunner',
       'BACKFILL_BYTES',

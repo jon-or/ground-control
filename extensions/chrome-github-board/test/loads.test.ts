@@ -7,19 +7,13 @@ import { chromium } from 'playwright';
 import type { BrowserContext } from 'playwright';
 
 /**
- * What jsdom cannot answer: whether Chrome loads this directory at all, whether the content script's matches fire on
- * a project board, whether the worker starts, and whether the overlay module the content script imports is actually
- * reachable as a web-accessible resource. Every one of those is a manifest mistake that leaves no error anywhere a
- * unit test looks.
+ * Verify Chrome loads the extension, matches project-board URLs, starts the worker, and exposes the overlay
+ * module. These require the real browser runtime.
  */
 const EXTENSION = join(__dirname, '..');
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
 
-/**
- * The recorded board, served in place of GitHub's. It has to be answered at a `github.com` URL rather than a
- * `file://` one, because a content script's `matches` are the page's URL — off github.com nothing runs at all — and
- * the fulfilment is local, so the no-network rule holds.
- */
+/** Serve the fixture at a github.com URL to exercise content-script matches without external requests. */
 const BOARD_URL = 'https://github.com/orgs/example-org/projects/3/views/1';
 
 /** Every other page on the site the content script is injected across, and must leave alone. */
@@ -312,7 +306,7 @@ describe('the overlay as Chrome loads it', () => {
    *
    * Last in the file: it takes the extension every test above is loaded against away with it.
    */
-  it('tells a tab orphaned by an extension reload to reload itself', async () => {
+  it('requests page reload after extension context invalidation', async () => {
     const page = await context.newPage();
 
     await page.goto(BOARD_URL);

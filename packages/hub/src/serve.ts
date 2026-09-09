@@ -16,10 +16,7 @@ import type { HubServer } from './server.js';
 import { watchDir } from './watch.js';
 import type { Logger } from '@ground-control/core';
 
-/**
- * What a process VS Code starts must not inherit. `VSCODE_IPC_HOOK` names the window that started a hub to every CLI
- * that hub spawns (`mechanics.md` M26), and `VSCODE_NLS_CONFIG` and `VSCODE_CODE_CACHE_PATH` name its build (M49).
- */
+/** Remove VS Code window/build environment variables so child CLIs do not target the originating window or build (M26, M49). */
 export function sanitizeEnvironment(env: NodeJS.ProcessEnv = process.env): string[] {
   const removed = Object.keys(env).filter(
     (key) => key.startsWith('ELECTRON_') || key.startsWith('VSCODE_') || key === 'NODE_OPTIONS',
@@ -32,11 +29,7 @@ export function sanitizeEnvironment(env: NodeJS.ProcessEnv = process.env): strin
   return removed;
 }
 
-/**
- * The environment a hub, a bridge, or the editor's own CLI is started in. Sanitized, and then `ELECTRON_RUN_AS_NODE`
- * put back: the interpreter may be VS Code's own executable, which runs as node only when told to and otherwise opens
- * an editor. Plain node ignores the variable, so one environment serves all three and no caller knows which it holds.
- */
+/** Sanitize child environments, then set ELECTRON_RUN_AS_NODE so a VS Code executable acts as Node. Plain Node ignores it. */
 export function spawnEnvironment(env: NodeJS.ProcessEnv = { ...process.env }): NodeJS.ProcessEnv {
   sanitizeEnvironment(env);
   env['ELECTRON_RUN_AS_NODE'] = '1';
@@ -44,23 +37,23 @@ export function spawnEnvironment(env: NodeJS.ProcessEnv = { ...process.env }): N
   return env;
 }
 
-/** A hub reading the given home, wired to the real machine. The same object whether it is served or held in process. */
+/** Construct a hub with real machine dependencies for the given home. */
 export function makeHub(log: Logger, home: string = homedir()): Hub {
   return new Hub(
     realHubDeps(makeRegistries(log, home), makeLaneStore(home), makeMarkStore(home), makeSettingsStore(home), home, watchDir, log),
   );
 }
 
-/** Half an hour with nobody connected. The next board open starts one again in about a second (R35). */
+/** Exit after 30 minutes without clients; opening a board starts a new hub (R35). */
 export const IDLE_EXIT_MS = 30 * 60 * 1000;
 
 export interface ServeOptions {
   home?: string;
   version: string;
   idleMs?: number;
-  /** Where the hub's own lines go. Defaults to `hub.log`, appended, rotated once at startup. */
+  /** Default log: hub.log, appended and rotated at startup. */
   log?: Logger;
-  /** How the process ends. Injected so a test drives the idle rule without ending the runner. */
+  /** Inject process exit to test idle shutdown. */
   exit?: (code: number) => void;
 }
 
@@ -68,29 +61,22 @@ export interface Served {
   port: number;
   token: string;
   hub: Hub;
-  /** The hub's own logger, so an entry point reports a crash where the rest of the hub's story is. */
+  /** Shared logger for entry-point errors. */
   log: Logger;
   stop(reason: string): Promise<void>;
 }
 
-/** Either this process is now the hub, or another one already is and this one has nothing to do. */
+/** Report whether this process started the hub or found an existing one. */
 export type ServeResult = { served: Served } | { existing: LiveHub };
 
-/**
- * Why this process is not the hub, left where a client's failure message reads it: a spawn that stood down and a
- * spawn that died are the same silence to whoever asked for it, and only one of them means a hub is running.
- */
-function standDown(home: string, port: number): void {
+/** Record duplicate-instance startup refusal for client diagnostics. */
+function recordDuplicateHub(home: string, port: number): void {
   const reason = `a hub was already serving this home on port ${port}`;
 
   writeAtomic(exitPathOf(home), JSON.stringify({ code: 0, at: new Date().toISOString(), reason }, null, 2));
 }
 
-/**
- * Claims this home for this process. Exclusive create rather than a plain write: two hubs racing each other both
- * bind — `listen(0)` cannot collide, so binding decides nothing — and the second overwriting the first would leave
- * two live hubs polling, both rewriting `lanes.json` whole.
- */
+/** Exclusively create hub.json after binding. Ephemeral ports do not prevent two hubs from starting for the same home. */
 function claimRecord(home: string, text: string): boolean {
   try {
     const fd = openSync(hubJsonPathOf(home), 'wx');
@@ -104,11 +90,7 @@ function claimRecord(home: string, text: string): boolean {
   }
 }
 
-/**
- * Starts the hub for a home, unless one is already answering for it. Two things decide that, in order: a probe of
- * the recorded port before binding, and an exclusive create of `hub.json` after. A record whose port answers as
- * nothing is a hub that was killed, which is the normal state on Windows (`mechanics.md` M25) and is taken over.
- */
+/** Probe for an existing hub, then bind and exclusively create hub.json. Replace records only when their hub no longer answers (M25). */
 export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   const home = options.home ?? homedir();
   const exit = options.exit ?? ((code: number) => process.exit(code));
@@ -118,13 +100,12 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   mkdirSync(groundControlDirOf(home), { recursive: true });
 
   const log = options.log ?? makeLogger({ write: fileSink(home) });
-  // Any hub, not just one this build can talk to: two of them polling one home both rewrite `lanes.json` whole.
-  // Which protocol wins is a client's decision, made before it spawns anything, by stopping the one it displaces.
+  // Respect authenticated hubs with any protocol to prevent duplicate writers. Clients decide whether to replace incompatible hubs.
   const already = await recordedHub(home);
 
   if (already) {
     log.info(`hub already running for this home on port ${already.record.port}`);
-    standDown(home, already.record.port);
+    recordDuplicateHub(home, already.record.port);
 
     return { existing: already };
   }
@@ -137,7 +118,7 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   let stopping: Promise<void> | undefined;
   let idle: NodeJS.Timeout | undefined;
 
-  /** Only if the record still describes this process: an orphan must never delete the record of the hub that won. */
+  /** Remove the record only if it still belongs to this process. */
   const unclaim = (): void => {
     if (readHubRecord(home)?.pid === process.pid) {
       rmSync(hubJsonPathOf(home), { force: true });
@@ -171,11 +152,11 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
 
     const reason = `could not listen on 127.0.0.1: ${String(error)}`;
 
-    // Written here too, or a client whose spawn never came up quotes the reason the last hub stopped for.
+    // Record startup failure so clients do not report an earlier hub's exit reason.
     log.error(reason);
     writeAtomic(exitPathOf(home), JSON.stringify({ code: 1, at: new Date().toISOString(), reason }, null, 2));
 
-    // Nothing to retry on port 0: a failure here is the loopback interface, not a port someone else took.
+    // Port zero cannot conflict; binding failure indicates a loopback problem.
     throw new Error(`The hub ${reason}`);
   }
 
@@ -205,19 +186,18 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
       }
 
       log.info(`another hub started for this home on port ${other.record.port}; exiting`);
-      standDown(home, other.record.port);
+      recordDuplicateHub(home, other.record.port);
 
       return { existing: other };
     }
 
-    // The record names a hub that is not answering, which is what a killed one leaves behind.
+    // Replace the record for an unresponsive hub.
     rmSync(hubJsonPathOf(home), { force: true });
   }
 
   rmSync(exitPathOf(home), { force: true });
 
-  // Best effort only: a process killed on Windows runs nothing (`mechanics.md` M25), which is why every client's
-  // liveness check is the probe rather than this file.
+  // Forced Windows termination skips cleanup (M25); clients must probe for liveness instead of trusting this file.
   process.on('exit', unclaim);
 
   idle = setInterval(() => {

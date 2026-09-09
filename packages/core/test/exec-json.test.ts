@@ -119,7 +119,7 @@ describe('runJsonCli', () => {
     expect(outcome).toEqual({ ok: true, value: 'the whole prompt' });
   });
 
-  it('starts nothing for a run already stood down', async () => {
+  it('does not start cancelled commands', async () => {
     const outcome = await runJsonCli(process.execPath, ['-e', 'process.stdout.write("[]")'], {
       signal: AbortSignal.abort(),
     });
@@ -127,7 +127,7 @@ describe('runJsonCli', () => {
     expect(outcome).toEqual({ ok: false, reason: 'aborted', detail: 'command cancelled before starting' });
   });
 
-  it('tells a run it stood down from one that would not answer', async () => {
+  it('distinguishes cancellation from timeout', async () => {
     const controller = new AbortController();
     const outcome = runJsonCli(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
       timeoutMs: 60_000,
@@ -202,8 +202,7 @@ describe('runJsonCli', () => {
   });
 
   it('does not let a crafted path reach a shell', async () => {
-    // The path is developer configuration. Through a shell this wrote PWNED.cmd and PWNED.bat; the only thing
-    // that matters is that nothing runs and nothing is created.
+    // Configured paths must not execute shell syntax or create the marker files.
     const outcome = await runJsonCli(`nosuch" & echo owned> "${join(scratch, 'PWNED')}`, []);
 
     expect(outcome.ok).toBe(false);

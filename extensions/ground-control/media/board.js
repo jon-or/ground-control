@@ -7,19 +7,14 @@ const noticesEl = document.getElementById('notices');
 
 const boardMenuEl = document.getElementById('board-menu');
 
-/**
- * What an element says on hover, in place of the browser's own tooltip: `title` opens after about a second, in the
- * operating system's shape rather than the editor's. The geometry and the timing are GitHub's own, measured off a
- * live board (`docs/mechanics.md` M35) and copied here, because this script imports nothing — pinned by the parity
- * table in both suites, since a tooltip that behaves differently on one board is the drift that table exists for.
- */
+/** Custom tooltip text. Geometry and timing match GitHub (mechanics M35); both client suites verify parity. */
 const TIP_ATTR = 'data-gc-tip';
 
-/** How long a pointer rests on something before its tooltip opens, and how far the tooltip sits from it. */
+/** Tooltip delay and anchor gap. */
 const TIP_DELAY = 120;
 const TIP_GAP = 4;
 
-/** What a tooltip keeps between itself and the edge it would otherwise run off. */
+/** Minimum tooltip distance from the viewport edge. */
 const TIP_MARGIN = 8;
 
 /** @type {ReturnType<typeof setTimeout> | null} */
@@ -28,52 +23,46 @@ let tipTimer = null;
 let tipAnchor = null;
 
 /**
- * What an element says on hover, and what a reader is told about it. `aria-description` rather than a description
- * written while the tooltip shows: that one arrives after focus has already been announced, and a reader in browse
- * mode never reaches a tooltip on something it cannot focus. Chromium exposes it exactly as it exposed `title`,
- * which is what both boards run in.
+ * Set the accessible description before focus so screen readers announce it, including in browse mode. Both
+ * clients use Chromium.
  *
  * @param {Element} el
  * @param {string} text
  */
-function tip(el, text) {
+function setTooltip(el, text) {
   el.setAttribute(TIP_ATTR, text);
 
-  // Not where the element is already named with these words — a reader would say them twice, once as the name and
-  // once as the description. Order-independent, because `nameFor` takes the description back off.
+  // Avoid duplicate accessible names and descriptions. `setAccessibleName` also removes descriptions, regardless of
+  // call order.
   if (!el.hasAttribute('aria-label')) {
     el.setAttribute('aria-description', text);
   }
 }
 
 /**
- * Names an element for a reader. Its tooltip then says what the name says, so it stops being the description too.
+ * Set the accessible name and remove the duplicate description.
  *
  * @param {Element} el
  * @param {string} text
  */
-function nameFor(el, text) {
+function setAccessibleName(el, text) {
   el.setAttribute('aria-label', text);
   el.removeAttribute('aria-description');
 }
 
-/**
- * One tooltip for the whole board, moved and re-worded rather than built per element. The text lives in an
- * attribute rather than in a child, because a child is part of `textContent` and every label that reads its own
- * would gain it.
- */
+/** Reuse one tooltip. Store text on the anchor attribute to exclude it from label textContent. */
 function tipElement() {
-  const held = document.getElementById('tip');
+  const existingTooltip = document.getElementById('tip');
 
-  if (held !== null) {
-    return held;
+  if (existingTooltip !== null) {
+    return existingTooltip;
   }
 
   const panel = document.createElement('div');
 
   panel.id = 'tip';
   panel.setAttribute('role', 'tooltip');
-  // Its own text node, written through rather than replaced, so opening one adds and removes no nodes at all.
+  // Update the existing text node to avoid childList mutations.
   panel.appendChild(document.createTextNode(''));
   document.body.appendChild(panel);
 
@@ -81,25 +70,23 @@ function tipElement() {
 }
 
 /**
- * Centred over what it names and pushed to the side that has room. Measured after the text is in it: a tooltip's
- * width is its words, and a guess at that centres it somewhere else entirely.
+ * Measure after setting text, then center the tooltip over its anchor within the viewport.
  *
  * @param {HTMLElement} panel
  * @param {Element} anchor
  */
 function placeTip(panel, anchor) {
   const rect = anchor.getBoundingClientRect();
-  const own = panel.getBoundingClientRect();
-  const above = rect.top - TIP_GAP - own.height;
+  const panelBounds = panel.getBoundingClientRect();
+  const above = rect.top - TIP_GAP - panelBounds.height;
 
-  // Below where it will not fit above, and then held inside the window either way: a tooltip long enough to wrap,
-  // on an anchor near the bottom, is drawn off the edge by the flip that was meant to rescue it.
+  // Place below when necessary, then clamp to the viewport so wrapped text remains visible.
   const top = above < TIP_MARGIN ? rect.bottom + TIP_GAP : above;
 
-  panel.style.top = `${Math.max(TIP_MARGIN, Math.min(top, window.innerHeight - own.height - TIP_MARGIN))}px`;
+  panel.style.top = `${Math.max(TIP_MARGIN, Math.min(top, window.innerHeight - panelBounds.height - TIP_MARGIN))}px`;
   panel.style.left = `${Math.max(
     TIP_MARGIN,
-    Math.min(rect.left + rect.width / 2 - own.width / 2, window.innerWidth - own.width - TIP_MARGIN),
+    Math.min(rect.left + rect.width / 2 - panelBounds.width / 2, window.innerWidth - panelBounds.width - TIP_MARGIN),
   )}px`;
 }
 
@@ -107,8 +94,7 @@ function placeTip(panel, anchor) {
 function showTip(anchor) {
   const text = anchor.getAttribute(TIP_ATTR);
 
-  // A render inside the delay replaces what the pointer was over, and an anchor off the page measures zero at the
-  // origin — the tooltip would open in the corner of the window, naming something no longer there.
+  // Ignore anchors removed during the delay; their zero-sized bounds would place the tooltip in a corner.
   if (text === null || text === '' || !anchor.isConnected) {
     return;
   }
@@ -132,17 +118,14 @@ function hideTip() {
 }
 
 /**
- * On the document rather than on each element: a render replaces cards wholesale, and listeners bound to the
- * elements themselves would be re-bound every time. `mouseover` rather than `mouseenter` for the same reason — only
- * the first of the two carries far enough up to be delegated.
+ * Delegate to the document so replaced cards need no new listeners. mouseover bubbles; mouseenter does not.
  *
  * @param {Event} event
  */
 function tipOver(event) {
   const anchor = /** @type {Element} */ (event.target)?.closest?.(`[${TIP_ATTR}]`) ?? null;
 
-  // A menu hands the keyboard to an item as it opens, and a tooltip below that item covers the items under it. So
-  // a hint inside a menu is the pointer's alone: the label is what a keyboard reads, and the item is the target.
+  // Suppress focus tooltips inside menus to avoid covering other items; item labels remain accessible.
   if (event.type === 'focusin' && anchor?.closest('.card-popover') !== null) {
     return;
   }
@@ -153,8 +136,7 @@ function tipOver(event) {
 
   hideTip();
 
-  // Held from the moment the pointer arrives rather than from when the tooltip opens, so a pointer that leaves
-  // inside the delay is one `hideTip` still recognises — otherwise it opens over something already left behind.
+  // Track the anchor during the delay so leaving it cancels the pending tooltip.
   tipAnchor = anchor;
 
   if (anchor !== null) {
@@ -164,12 +146,11 @@ function tipOver(event) {
 
 /** @param {Event} event */
 function tipOut(event) {
-  const going = /** @type {Element} */ (event.target)?.closest?.(`[${TIP_ATTR}]`) ?? null;
-  const to = /** @type {Node | null} */ (event.relatedTarget ?? null);
+  const previousAnchor = /** @type {Element} */ (event.target)?.closest?.(`[${TIP_ATTR}]`) ?? null;
+  const nextTarget = /** @type {Node | null} */ (event.relatedTarget ?? null);
 
-  // Not for a pointer crossing between an anchor's own children: `mouseout` fires on each of those, and closing
-  // there means the tooltip shuts and reopens as the pointer travels the width of what it is describing.
-  if (going !== null && going === tipAnchor && !(to !== null && going.contains(to))) {
+  // Keep the tooltip open when the pointer moves between children of its anchor.
+  if (previousAnchor !== null && previousAnchor === tipAnchor && !(nextTarget !== null && previousAnchor.contains(nextTarget))) {
     hideTip();
   }
 }
@@ -182,27 +163,17 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') hideTip();
 }, true);
 
-// Placed once, in viewport coordinates, so a lane scrolling under it would leave it behind. Closed rather than
-// followed: the pointer is still over the anchor, and the next move opens it where the anchor now is.
+// Close on scroll because viewport positioning does not follow the anchor.
 document.addEventListener('scroll', hideTip, true);
 
-/**
- * Whether the hub's log is being streamed into the Output panel. Nothing else carries it - the Output panel gives no
- * sign of which channel is subscribed, and the hub is read only while this says on. Read when the menu is opened.
- */
+/** Track the hub log subscription for the menu; the Output panel does not expose it. */
 let streamingLogs = false;
 
-/**
- * Whether the archived lane is drawn, and how many cards are in it. The count decides whether the toggle is offered
- * at all: an archive nothing has reached is a control that could only ever show an empty column.
- */
+/** Archive visibility and count. Offer the toggle only when the archive contains cards. */
 let showArchived = false;
 let archivedCount = 0;
 
-/**
- * What the board itself can be asked to do. A toggle among these is checked rather than acted on, and its own words
- * say what choosing it will do.
- */
+/** Build board actions with current toggle states. */
 function boardActions() {
   const actions = [];
 
@@ -213,7 +184,7 @@ function boardActions() {
       checked: showArchived,
       run: () => {
         showArchived = !showArchived;
-        // The extension keeps it: this webview's state goes with the tab, and the choice outlives the tab.
+        // Persist in the extension so the preference survives closing the tab.
         vscode.postMessage({ type: 'setShowArchived', shown: showArchived });
 
         if (board) {
@@ -254,12 +225,12 @@ function boardActions() {
 
 function paintLogs(streaming) {
   streamingLogs = streaming;
-  // The state is inside a menu that is shut almost all of the time, so the control it hangs from carries a mark too.
+  // Show the log subscription state even when the menu is closed.
   boardMenuEl.classList.toggle('on', streaming);
-  tip(boardMenuEl, streaming ? 'Board actions. The hub log is streaming into Output.' : 'Board actions');
+  setTooltip(boardMenuEl, streaming ? 'Board actions. The hub log is streaming into Output.' : 'Board actions');
 }
 
-// A key no card can have: every card's is its kind and a colon, so the board's own menu can never be taken for one.
+// Card keys contain a kind and colon, so this menu key cannot collide with them.
 const BOARD_MENU_KEY = 'board';
 
 /** The last board the extension sent, kept so the archive toggle can re-render without a refresh. */
@@ -302,22 +273,18 @@ function notice(text, remedy, isError) {
   noticesEl.appendChild(el);
 }
 
-/** The last segment of a path. Both separators, because an agent CLI reports the cwd in its platform's own shape. */
+/** Accept both path separators because agents report platform-specific paths. */
 function basename(dir) {
   const parts = dir.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? dir;
 }
 
-/** What a session calls itself. `name` is the CLI's own and often derived from the directory — the weakest of the three. */
+/** Prefer title, CLI name, short ID, then checkout basename. Both client suites verify this precedence. */
 function sessionLabel(session) {
   return session.title ?? session.details.name ?? session.details.shortId ?? basename(session.cwd);
 }
 
-/**
- * Whether the card has a directory the board can be pointed at. The hub decides which one and whether it is still
- * there (`checkoutFor`), so the webview reads its answer rather than deriving a second one from the sessions —
- * this file is a classic script and can import nothing, and a second condition is a second thing to be wrong.
- */
+/** Use the checkout selected and validated by the hub (`checkoutFor`); do not derive another from sessions. */
 function hasCheckout(boardCard) {
   return boardCard.checkout != null;
 }
@@ -328,7 +295,7 @@ let openable = new Set();
 /** The agents this window can start a session for, host-wide: `[{ agent, takesPrompt }]`, empty until a snapshot. */
 let startable = [];
 
-/** An agent id as a menu item says it. The board has no display names for agents, and the id is what everything else prints. */
+/** Display the agent ID consistently; agents have no separate display names. */
 function agentTitle(agent) {
   return agent.charAt(0).toUpperCase() + agent.slice(1);
 }
@@ -338,13 +305,11 @@ const SVG = 'http://www.w3.org/2000/svg';
 const CLAUDE_MARK =
   'M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z';
 
-// OpenAI's own mark, verbatim from the ChatGPT extension's resources/blossom-black.svg. It ships black and white
-// rather than in a brand colour, so the board draws it at the row's own tone rather than at one of the two.
+// OpenAI logo from the ChatGPT extension resources/blossom-black.svg, using the row text color.
 const OPENAI_MARK =
   'M13.795 23.856q-1.188 0-2.256-.448a6.1 6.1 0 0 1-1.9-1.247 5.8 5.8 0 0 1-1.875.306 5.8 5.8 0 0 1-2.944-.777 6.1 6.1 0 0 1-2.184-2.12q-.807-1.34-.808-2.99 0-.682.19-1.482a6.3 6.3 0 0 1-1.472-2.002 5.76 5.76 0 0 1 .024-4.85q.546-1.177 1.52-2.024a5.5 5.5 0 0 1 2.303-1.2A5.55 5.55 0 0 1 5.485 2.62 6.06 6.06 0 0 1 7.575.925 5.85 5.85 0 0 1 10.21.313q1.187 0 2.255.447a6.1 6.1 0 0 1 1.9 1.248 5.8 5.8 0 0 1 1.875-.306q1.59 0 2.944.776a5.9 5.9 0 0 1 2.16 2.12q.832 1.34.832 2.99 0 .682-.19 1.483a6.2 6.2 0 0 1 1.472 2.024q.522 1.13.522 2.378 0 1.272-.546 2.449a6.1 6.1 0 0 1-1.543 2.048 5.45 5.45 0 0 1-2.28 1.177 5.4 5.4 0 0 1-1.115 2.402 5.8 5.8 0 0 1-2.066 1.695 5.85 5.85 0 0 1-2.635.612M7.93 20.913q1.188 0 2.066-.495l4.463-2.542a.52.52 0 0 0 .238-.448v-2.024L8.95 18.676a.97.97 0 0 1-1.044 0L3.419 16.11a.7.7 0 0 1-.024.165v.282q0 1.201.57 2.213.594.99 1.639 1.554 1.044.59 2.326.589m.238-3.838q.143.07.26.07a.46.46 0 0 0 .238-.07l1.781-1.012-5.722-3.296q-.522-.306-.522-.918v-5.11a4.27 4.27 0 0 0-1.9 1.602 4.13 4.13 0 0 0-.712 2.354q0 1.155.594 2.213.593 1.06 1.543 1.601zm5.627 5.227q1.258 0 2.279-.565a4.25 4.25 0 0 0 1.614-1.554q.594-.99.594-2.213v-5.085q0-.283-.237-.424l-1.805-1.036v6.568q0 .613-.522.919l-4.487 2.566q1.163.825 2.564.824m.902-8.617v-3.202l-2.683-1.507-2.707 1.507v3.202l2.707 1.507zm-6.933-7.51q0-.612.522-.918l4.488-2.567a4.34 4.34 0 0 0-2.564-.824q-1.26 0-2.28.565a4.25 4.25 0 0 0-1.614 1.554q-.57.99-.57 2.213v5.062q0 .283.237.447l1.781 1.036zm12.061 11.253a4.13 4.13 0 0 0 1.876-1.6 4.2 4.2 0 0 0 .712-2.355q0-1.154-.593-2.213-.594-1.06-1.544-1.6l-4.44-2.543q-.142-.095-.26-.071a.46.46 0 0 0-.238.07l-1.78.99 5.745 3.319q.26.141.38.377a.9.9 0 0 1 .142.518zm-4.772-11.96q.522-.33 1.045 0l4.51 2.614v-.424q0-1.13-.57-2.142a4.1 4.1 0 0 0-1.59-1.648q-1.02-.613-2.374-.613-1.187 0-2.066.495L9.545 6.292a.52.52 0 0 0-.238.448v2.025z';
 
-/** The mark each agent is drawn with. A CLI absent here keeps its name in text - R2 says the board says which agent
- * reported a session, and an unmarked row would read as the one that has a mark. */
+/** Agent logos, with text fallback for unknown agents so every session identifies its agent (R2). */
 const AGENT_MARKS = { claude: CLAUDE_MARK, codex: OPENAI_MARK };
 
 /**
@@ -365,8 +330,8 @@ const DESTINATION_SHAPES = {
 };
 
 /**
- * The mark for one destination, in the slot the state holds. `aria-hidden`: the row's own accessible name already
- * says where the click goes, and a second announcement of the same fact is one to learn to ignore.
+ * The destination icon replaces the duration on hover. Hide it from screen readers because the row already
+ * names the action.
  */
 function destinationMark(kind) {
   const held = document.createElement('span');
@@ -405,7 +370,7 @@ function agentMark(agent) {
 
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('class', 'agent agent-mark');
-  // What the fill is keyed by: a mark with a brand colour of its own keeps it, and a monochrome one takes the row's.
+  // Preserve agent brand colors; use the row color for monochrome logos.
   svg.setAttribute('data-agent', agent);
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('role', 'img');
@@ -415,18 +380,13 @@ function agentMark(agent) {
   path.setAttribute('d', drawn);
   path.setAttribute('fill-rule', 'nonzero');
 
-  // No `<title>` child: an SVG one draws the browser's own tooltip exactly as the attribute does, and on a row that
-  // carries a tooltip already it draws a second one beside it. `aria-label` above is what names the mark.
+  // Use aria-label for the logo; an SVG title would add a duplicate native tooltip.
   svg.appendChild(path);
 
   return svg;
 }
 
-/**
- * The session's own state, at the head of its row: the phase in the colour, and whether the agent still has the
- * session open in whether the ring is filled. The word is the mark's accessible name, because a colour is not a
- * fact that reaches everyone who reads this board.
- */
+/** The dot color indicates phase and its fill indicates a live session. Its accessible name states both. */
 function sessionDot(phase, live, title = dotTitle(phase, live)) {
   const el = document.createElement('span');
 
@@ -434,9 +394,9 @@ function sessionDot(phase, live, title = dotTitle(phase, live)) {
   el.dataset.phase = phase ?? 'none';
   el.dataset.live = String(live);
   el.setAttribute('role', 'img');
-  // Named for a reader and described for a pointer: the colour is the one thing on the row that cannot be read.
-  nameFor(el, `${PHASE_WORDS[phase] ?? 'no state reported'}, ${live ? 'open' : 'ended'}`);
-  tip(el, title);
+  // Expose the state through both an accessible name and a tooltip.
+  setAccessibleName(el, `${PHASE_WORDS[phase] ?? 'no state reported'}, ${live ? 'open' : 'ended'}`);
+  setTooltip(el, title);
 
   return el;
 }
@@ -446,8 +406,8 @@ function sessionDot(phase, live, title = dotTitle(phase, live)) {
  * and available for card dragging.
  */
 function sessionLine(session) {
-  // A detached run is always reachable: `attach` needs a terminal rather than the agent's editor extension, and it
-  // is the only way into a session no window holds - opening one as a tab starts a second process that exits 1.
+  // Attach in a terminal without requiring an agent editor extension. Opening a tab would resume a second
+  // process, which exits 1.
   const attachId = typeof session.attachId === 'string' ? session.attachId : null;
   const reachable = attachId !== null || openable.has(session.sessionId);
   const el = document.createElement(reachable ? 'button' : 'span');
@@ -462,12 +422,11 @@ function sessionLine(session) {
   label.className = 'session-label';
   label.textContent = name;
 
-  // No tooltip on the row: its words are on it, and a hover that repeats them is a hover to learn to ignore. What
-  // the row does not say — what the board saw, and when — stays on the state at the other end of it.
+  // Keep activity details on the state tooltip; the row label already identifies the session.
   if (reachable) {
     el.type = 'button';
-    nameFor(el, attachId === null ? `${name} - open this session` : `${name} - attach to this run in a terminal`);
-    // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
+    setAccessibleName(el, attachId === null ? `${name} - open this session` : `${name} - attach to this run in a terminal`);
+    // Prevent session clicks from starting a card drag.
     el.draggable = false;
     el.addEventListener('click', () =>
       vscode.postMessage(
@@ -480,7 +439,7 @@ function sessionLine(session) {
 
   el.append(sessionDot(session.activity?.phase, !session.finished), agent, label);
 
-  // What the italic name is keyed by: a run the board started is not a session the developer is sitting in.
+  // Italic names identify board-dispatched runs.
   if (attachId !== null) {
     el.dataset.detached = 'true';
   }
@@ -492,15 +451,14 @@ function sessionLine(session) {
   }
 
   const state = document.createElement('span');
-  const said = activity ? stateTitle(activity) : null;
+  const activityDescription = activity ? stateTitle(activity) : null;
 
   state.className = 'state';
 
-  // One state per row, never two. The board's own observation where it has one, the adapter's reading of what the
-  // CLI said where it does not - a row reading "idle" beside a shimmering label is two claims disagreeing (R24).
+  // Prefer the board observation, then the adapter state, so the label and animation agree (R24).
   if (activity) {
     age(state, activity.since);
-    tip(state, said);
+    setTooltip(state, activityDescription);
     el.appendChild(state);
   } else {
     const reported = session.details.state ?? session.details.status;
@@ -511,13 +469,12 @@ function sessionLine(session) {
     }
   }
 
-  // The pointer takes the state's slot, so what the state had to say goes on the mark that stands there instead -
-  // otherwise the one row carrying a reading is the one row whose reading cannot be read.
+  // Copy the duration tooltip to the destination icon that replaces it on hover.
   if (reachable) {
     const destination = destinationMark(attachId === null ? 'editor' : 'terminal');
-    const goes = attachId === null ? 'Opens this session in the editor.' : 'Attaches to this run in a terminal.';
+    const destinationDescription = attachId === null ? 'Opens this session in the editor.' : 'Attaches to this run in a terminal.';
 
-    tip(destination, said === null ? goes : `${goes} ${said}`);
+    setTooltip(destination, activityDescription === null ? destinationDescription : `${destinationDescription} ${activityDescription}`);
     el.appendChild(destination);
   }
 
@@ -525,26 +482,24 @@ function sessionLine(session) {
 }
 
 /**
- * What a reading kept past its own process draws: the phase to paint, the moment to count from, and what the mark means. Undefined where the
- * saved session carries no usable reading, and `running` is never one of the three — the process is gone, so the work stopped mid-turn, which
- * is the developer's move: `idle`'s answer, in `idle`'s colour, and with no shimmer. `retainedPhase` in `packages/board/src/lanes.ts` decides
- * the card's own mark from the same reading.
+ * Render retained activity with its timestamp and explanation. Map running to idle because the process ended.
+ * `retainedPhase` in packages/board/src/lanes.ts determines card attention from the same observation.
  */
 function retainedMark(retained) {
   if (!retained || typeof retained.at !== 'number' || typeof retained.event !== 'string') return undefined;
 
-  const said = `Last seen at the ${retained.event} hook.`;
+  const eventDescription = `Last seen at the ${retained.event} hook.`;
 
   if (retained.phase === 'waiting') {
-    return { phase: 'waiting', at: retained.at, title: `The session ended while waiting for your input. ${said}` };
+    return { phase: 'waiting', at: retained.at, title: `The session ended while waiting for your input. ${eventDescription}` };
   }
 
   if (retained.phase === 'running') {
-    return { phase: 'idle', at: retained.at, title: `The session ended before completing its turn. ${said}` };
+    return { phase: 'idle', at: retained.at, title: `The session ended before completing its turn. ${eventDescription}` };
   }
 
   if (retained.phase === 'idle') {
-    return { phase: 'idle', at: retained.at, title: `The session completed its turn, then ended. ${said}` };
+    return { phase: 'idle', at: retained.at, title: `The session completed its turn, then ended. ${eventDescription}` };
   }
 
   return undefined;
@@ -569,19 +524,16 @@ function historyLine(session) {
   const mark = retainedMark(session.retained);
   const state = document.createElement('span');
   state.className = 'state';
-  // The reading's own event where there is one, so the row's duration is the age of what the mark claims rather than of the last transcript
-  // write. Otherwise the value alone, and no words about what it is: a row is one line, and what it says is said by its hollow mark.
+  // Use retained activity time when available; otherwise use the last transcript timestamp.
   age(state, mark ? mark.at : session.updatedAt);
-  // On the age rather than the row, as a live row's is: the exact moment is the one thing the rounded value drops. It names whichever
-  // moment the value counts from, so the hover and the number are never two claims about one row.
-  tip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
+  // Put the exact timestamp on the duration tooltip, using the same time as the displayed age.
+  setTooltip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
 
   if (reachable) {
-    nameFor(el, `${label.textContent} - resume this session`);
+    setAccessibleName(el, `${label.textContent} - resume this session`);
   }
 
-  // The phase colours the mark and nothing else on the row: `data-phase` also drives the running shimmer and the your-turn tone, and both
-  // are claims about a session with a process. An outline says the process is gone, which is the whole of what this row adds to the phase.
+  // Apply the retained phase to the row and dot; retainedMark maps running to idle after process exit.
   if (mark) el.dataset.phase = mark.phase;
 
   el.append(
@@ -591,11 +543,11 @@ function historyLine(session) {
     state,
   );
 
-  // A saved session has no process, so there is nothing to attach to: resuming it in the editor is the only way back.
+  // Saved sessions must resume in the editor; there is no process to attach to.
   if (reachable) {
     const destination = destinationMark('editor');
 
-    tip(destination, `Resumes this session in the editor. ${mark ? mark.title : ''}`.trim());
+    setTooltip(destination, `Resumes this session in the editor. ${mark ? mark.title : ''}`.trim());
     el.appendChild(destination);
   }
   return el;
@@ -609,27 +561,21 @@ const PHASE_TITLES = {
   idle: 'Last reported state: turn complete.',
 };
 
-/** What the mark means, since a colour is the one thing on a row that cannot be read. Its fill is the second half. */
+/** Accessible phase and liveness description. */
 function dotTitle(phase, live) {
-  const what = PHASE_TITLES[phase] ?? 'No activity reported.';
+  const phaseDescription = PHASE_TITLES[phase] ?? 'No activity reported.';
 
-  return live ? what : `${what} The session has since ended.`;
+  return live ? phaseDescription : `${phaseDescription} The session has since ended.`;
 }
 
-/**
- * What the duration counts, and what the board last saw. Not the phase, which is the mark's at the other end of the
- * row: a hover on one repeating the other is two tooltips to learn to ignore.
- */
+/** Explain the duration; the dot tooltip describes phase separately. */
 const DURATION_TITLES = {
   running: 'Time in this turn, from its prompt when recorded.',
 };
 
 const DURATION_TITLE = 'Time since the phase was reported.';
 
-/**
- * How long ago, as one number in the largest unit that fits, and never rounded up. Overstating is the one direction
- * that matters: a session working steadily must not read older than it is, because that is what a stuck one looks like.
- */
+/** Use the largest elapsed-time unit and round down to avoid overstating age. */
 function ago(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
 
@@ -654,16 +600,16 @@ function ago(ms) {
   return days < 7 ? `${days}d` : `${Math.floor(days / 7)}w`;
 }
 
-/** What the row says on hover: what the board concluded, and the hook event it concluded it from. */
+/** Describe the duration and last hook event. */
 function stateTitle(activity) {
-  const what = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
+  const durationDescription = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
 
-  return activity.event ? `${what} Last event: ${activity.event}.` : what;
+  return activity.event ? `${durationDescription} Last event: ${activity.event}.` : durationDescription;
 }
 
 /**
- * The moment an element's text is the age of. One attribute for every duration on the board — a session's state, a
- * saved session's, the age of a card's status — because all three are `ago(now - x)` and one pass advances them all.
+ * Store the timestamp for each displayed duration so one timer updates all ages. Both clients use the same
+ * attribute.
  */
 const AGE_ATTR = 'data-gc-since';
 
@@ -674,9 +620,8 @@ function age(el, at) {
 }
 
 /**
- * Writes an age into the text node already there rather than over the element's children. `textContent` replaces
- * the node, which is a `childList` record and a relayout of the row - once a second, under the shimmering label
- * beside it. Writing `nodeValue` is a `characterData` record, which nothing on either board watches for.
+ * Update nodeValue in place. Replacing textContent would trigger childList observers and rebuild rows; neither
+ * client observes characterData.
  *
  * @param {Element} el
  * @param {string} text
@@ -695,10 +640,7 @@ function setAge(el, text) {
   }
 }
 
-/**
- * Advances every rendered duration where it stands. A rebuild would cost the lane's scroll and the keyboard focus,
- * and the phase itself only changes when a hook fires - so the text is rewritten and the elements are left alone.
- */
+/** Update duration text without rebuilding elements, preserving scroll position and keyboard focus. */
 function tickDurations() {
   for (const el of document.querySelectorAll(`[${AGE_ATTR}]`)) {
     const at = Number(el.getAttribute(AGE_ATTR));
@@ -710,8 +652,8 @@ function tickDurations() {
 }
 
 /**
- * Carries a newer observation onto a card that was not rebuilt. `signature` ignores the timestamps on purpose, so a session working steadily
- * keeps its element - and its next turn would otherwise be counted from the prompt of the one before it.
+ * Update timestamps and hook details on retained elements. They are excluded from the signature to prevent
+ * rebuilds during steady activity (R24).
  */
 function syncActivity(el, boardCard) {
   const by = new Map(boardCard.sessions.map((session) => [session.sessionId, session.activity]));
@@ -722,9 +664,8 @@ function syncActivity(el, boardCard) {
 
     if (state) {
       age(state, activity.since);
-      // The event too, not only the time: a tooltip naming what the board saw two events ago beside a duration
-      // that just refreshed is two of the board's own claims about one session disagreeing (R24).
-      tip(state, stateTitle(activity));
+      // Update the tooltip event with the timestamp so both describe the current observation (R24).
+      setTooltip(state, stateTitle(activity));
     }
   }
 }
@@ -735,13 +676,8 @@ function statusLabel(status) {
 }
 
 /**
- * GitHub names a colour rather than giving one, so the board maps its eight names onto the editor's chart palette —
- * the theme's own colours, which stay legible in light and dark where GitHub's hexes would not.
- */
-/**
- * What each triage action is called. A copy of `TRIAGE_LABELS` in `packages/board`, because this script is a classic
- * script and imports nothing — pinned by the parity table in both suites, since a copy that drifts labels one board
- * differently from the other (`docs/testing.md`).
+ * Copy TRIAGE_LABELS from packages/board because this script cannot import workspace packages. Both client
+ * suites verify parity (docs/testing.md).
  */
 const TRIAGE_LABELS = {
   develop: 'Develop',
@@ -755,13 +691,14 @@ const TRIAGE_LABELS = {
   other: 'Other',
 };
 
-/** The one place a triage label is spelled, so both boards read a card the same way. */
+/** Format triage labels consistently across clients. */
 function triageText(triage) {
   const label = TRIAGE_LABELS[triage.action] ?? triage.action;
 
   return triage.qualifier ? `${label} · ${triage.qualifier}` : label;
 }
 
+/** Map GitHub color names to theme chart colors for legibility in light and dark themes. */
 const BADGE_COLORS = {
   RED: 'red',
   ORANGE: 'orange',
@@ -776,7 +713,7 @@ const BADGE_COLORS = {
 /** A pull request's own state colours, matching what GitHub paints them. */
 const PR_COLORS = { OPEN: 'GREEN', MERGED: 'PURPLE', CLOSED: 'RED' };
 
-/** What a finished run reads as. `landed` is the run's own signal that it pushed; nothing else claims it (R23). */
+/** `landed` is a session-reported push, not independently verified completion (R39). */
 const ACTION_OUTCOMES = {
   landed: { text: 'Merged', color: 'GREEN' },
   halted: { text: 'Stopped short', color: 'ORANGE' },
@@ -785,16 +722,15 @@ const ACTION_OUTCOMES = {
 };
 
 /**
- * The control for a card action (R39). Four states, and only two of them do anything: a card the board can act on
- * offers to run it, and one it is running offers to take it back. A refusal is a chip with no click, because the
- * remedy is a setting or the card itself rather than pressing again.
+ * Render action states (R39): run, stop, refusal, or result. Refusals have no click handler because they
+ * require a configuration or card change.
  */
 function actionChip(action, key) {
   const label = TRIAGE_LABELS[action.action] ?? action.action;
 
   if (action.state === 'running') {
-    // R39: explain interruption before stopping. A merge stopped mid-way leaves the working tree
-    // part-merged, which is the developer's to finish or throw away.
+    // Explain before stopping: an interrupted merge may leave conflicts for the developer to resolve or abort
+    // (R39).
     const chip = badge(
       'action-running',
       'Working…',
@@ -837,16 +773,13 @@ function badge(kind, text, color, title, onOpen) {
   }
 
   if (title) {
-    tip(el, title);
+    setTooltip(el, title);
   }
 
   return el;
 }
 
-/**
- * What this card can be asked to do beyond its own chips. An item that could only ever refuse is worse than none —
- * the rule the session rows already follow — so a card with nothing to offer draws no control at all.
- */
+/** Offer available card actions; omit the menu when none can run. */
 function cardActions(boardCard) {
   const actions = [];
 
@@ -863,8 +796,7 @@ function cardActions(boardCard) {
       run: () => vscode.postMessage({ type: 'openCheckout', key: boardCard.key }),
     });
 
-    // One item per agent this host has a way into, and none on a card that is not the developer's: an issue they
-    // are unassigned from is archived and read-only, which is the rule triage already follows.
+    // Offer one start action per available agent. Archived issues are read-only.
     for (const { agent, takesPrompt } of boardCard.unassigned === true ? [] : startable) {
       actions.push({
         label: `Start ${agentTitle(agent)} session`,
@@ -876,8 +808,8 @@ function cardActions(boardCard) {
     }
   }
 
-  // Only an issue names a repository a chosen folder can be checked against, so ad-hoc work is never asked. And a
-  // checkout an agent has actually run in outranks any pick, so offering one there is an item that changes nothing.
+  // Offer checkout selection only for issues without a session-derived checkout, which takes precedence over
+  // manual selection.
   const picked = boardCard.checkout == null || boardCard.checkout.source === 'remembered';
 
   if (boardCard.issue != null && picked) {
@@ -897,18 +829,17 @@ let openMenu = null;
 const MENU_MARGIN = 8;
 
 /**
- * Hangs the menu under the control that opened it, right edges aligned and measured after it is on the document — a
- * guess at its width puts a menu on a right-hand lane hundreds of pixels from it. Flipped above rather than off the
- * bottom, and read afresh on every draw so it follows a card the board moved under it.
+ * Measure the menu after insertion. Align right edges, flip above if needed, and reposition after card
+ * redraws.
  */
 function place(menu, anchor) {
   const rect = anchor.getBoundingClientRect();
-  const own = menu.getBoundingClientRect();
+  const menuBounds = menu.getBoundingClientRect();
   const below = rect.bottom + 4;
-  const overflows = below + own.height > window.innerHeight - MENU_MARGIN;
+  const overflows = below + menuBounds.height > window.innerHeight - MENU_MARGIN;
 
-  menu.style.top = `${overflows ? Math.max(MENU_MARGIN, rect.top - 4 - own.height) : below}px`;
-  menu.style.left = `${Math.max(MENU_MARGIN, Math.min(rect.right - own.width, window.innerWidth - own.width - MENU_MARGIN))}px`;
+  menu.style.top = `${overflows ? Math.max(MENU_MARGIN, rect.top - 4 - menuBounds.height) : below}px`;
+  menu.style.left = `${Math.max(MENU_MARGIN, Math.min(rect.right - menuBounds.width, window.innerWidth - menuBounds.width - MENU_MARGIN))}px`;
 }
 
 /** Takes the open menu off the document. The focus goes back to the control whenever the keyboard is what closed it. */
@@ -931,8 +862,8 @@ function closeMenu(refocus) {
 }
 
 /**
- * What closes a menu from outside itself, installed while one is open and torn down with it. Every handler reads
- * `openMenu` rather than closing over what opened them, because a draw can re-anchor a menu to a rebuilt card.
+ * Install outside-close handlers while a menu is open. Read openMenu each time because redraws can replace its
+ * anchor.
  */
 function watchMenu() {
   const away = (event) => {
@@ -977,7 +908,7 @@ function showMenu(key, name, actions, anchor, from = 'first') {
   for (const action of actions) {
     const item = document.createElement('button');
     item.type = 'button';
-    // A checked item is a state the menu is about to change rather than an action, and the two read differently.
+    // Use checkbox semantics for toggle actions.
     item.setAttribute('role', action.checked === undefined ? 'menuitem' : 'menuitemcheckbox');
 
     if (action.checked !== undefined) {
@@ -986,17 +917,17 @@ function showMenu(key, name, actions, anchor, from = 'first') {
 
     const check = document.createElement('span');
 
-    // Drawn on every item, checkable or not, so one item carrying a mark does not indent the labels beside it.
+    // Reserve checkmark space on every item to align labels.
     check.className = 'menu-check';
     check.setAttribute('aria-hidden', 'true');
     check.textContent = action.checked ? '✓' : '';
     item.appendChild(check);
     item.append(action.label);
-    // The label names the item, so the tooltip is what it does rather than a second copy of the name.
-    tip(item, action.hint);
+    // Describe the action in the tooltip without repeating the label.
+    setTooltip(item, action.hint);
     item.addEventListener('click', (event) => {
       event.stopPropagation();
-      // Back to the control, not to the top of the document: an action the host refuses must leave the keyboard here.
+      // Restore focus to the menu control even if the host refuses the action.
       closeMenu(true);
       action.run();
     });
@@ -1006,8 +937,8 @@ function showMenu(key, name, actions, anchor, from = 'first') {
   menu.addEventListener('keydown', (event) => {
     const items = Array.from(menu.querySelectorAll('button'));
 
-    // Not preventing the default: the focus is on the control by the time the browser acts on it, so Tab leaves for
-    // whatever follows the card rather than for the end of the board, which is where this menu sits in the document.
+    // Restore control focus before the default Tab action so navigation follows the card, not the appended
+    // menu.
     if (event.key === 'Tab') {
       closeMenu(true);
 
@@ -1040,8 +971,8 @@ function showMenu(key, name, actions, anchor, from = 'first') {
 
   const items = menu.querySelectorAll('button');
 
-  // Focused before the watch is armed: a menu that lands partly off screen scrolls the document to bring its item
-  // into view, and a scroll watch already armed would read that as the board moving and close what it just opened.
+  // Focus before watching scroll events: focusing an offscreen item can scroll the document and prematurely
+  // close the menu.
   items[from === 'last' ? items.length - 1 : 0]?.focus();
 
   openMenu = { key, menu, anchor, unwatch: watchMenu() };
@@ -1066,9 +997,8 @@ function menuMark() {
 }
 
 /**
- * The behaviour every overflow control shares: a second click on the one already open closes it rather than drawing
- * a second, and either arrow opens it with the keyboard already on an item. The items are fetched at the moment of
- * opening, because a toggle among them carries the state it had then.
+ * Toggle on repeated click; open and focus an item on arrow keys. Read actions when opening so toggle states
+ * are current.
  */
 function wireMenuControl(el, key, name, actions) {
   el.setAttribute('aria-haspopup', 'menu');
@@ -1101,10 +1031,10 @@ function cardMenuControl(boardCard) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'card-menu';
-  // The glyph says nothing on its own, so the pointer gets a tooltip; the name is what carries which card it is about.
-  tip(el, 'More actions');
-  nameFor(el, `More actions for ${cardName(boardCard)}`);
-  // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
+  // Name the control for accessibility and describe the icon action on hover.
+  setTooltip(el, 'More actions');
+  setAccessibleName(el, `More actions for ${cardName(boardCard)}`);
+  // Disable dragging on this control.
   el.draggable = false;
   wireMenuControl(el, boardCard.key, `Actions for ${cardName(boardCard)}`, () => cardActions(boardCard));
 
@@ -1112,8 +1042,8 @@ function cardMenuControl(boardCard) {
 }
 
 /**
- * What a card with no issue is called: the repository and the branch its sessions share. Every session on such a
- * card is in one checkout, so the first speaks for all of them. Both fall back to the directory where git is silent.
+ * Name ad-hoc cards by repository and branch. All sessions share one checkout; fall back to directory names
+ * when Git metadata is absent.
  */
 function checkoutName(boardCard) {
   const session = boardCard.sessions[0];
@@ -1122,18 +1052,15 @@ function checkoutName(boardCard) {
 
   return {
     repository: parts[parts.length - 1] ?? dir,
-    // Without the key's host, which is in it so two hosts' copies of one name compare unequal and says nothing about
-    // which checkout this is. The owner does, where two of one name are checked out at once.
+    // Omit the host from display names while retaining the repository owner to distinguish same-named
+    // repositories.
     owner: parts.length === 0 ? dir : parts.slice(1).join('/'),
     branch: session.branch,
     directory: dir,
   };
 }
 
-/**
- * The card in one phrase, for a control that is read rather than looked at. The title alone is enough on a card that
- * carries an issue; on a checkout it is a branch, which names no repository, and two `master` cards would read alike.
- */
+/** Name issue controls by title and checkout controls by repository plus branch, since branch names can repeat. */
 function cardName(boardCard) {
   if (boardCard.issue) {
     return cardTitle(boardCard);
@@ -1144,10 +1071,7 @@ function cardName(boardCard) {
   return checkout.branch === null ? checkout.directory : `${checkout.repository} ${checkout.branch}`;
 }
 
-/**
- * A menu open while the board redrew. A card whose element was rebuilt hands the menu its new control; a card that
- * left the board takes its menu with it, rather than leaving one hanging off an element no longer on the page.
- */
+/** Re-anchor the open menu after a card rebuild; close it when its card leaves the board. */
 function followMenu() {
   if (openMenu === null) {
     return;
@@ -1156,8 +1080,8 @@ function followMenu() {
   if (!openMenu.anchor.isConnected) {
     const anchor = cardEls.get(openMenu.key)?.el.querySelector('.card-menu');
 
-    // The element itself, never the roster: `cardEls` keeps the card an archived lane is holding off screen, and a
-    // menu re-anchored to one measures a zero rect and parks itself in the corner of the board.
+    // Check DOM connection, not the card cache: archived cards can be cached offscreen and return zero-sized
+    // bounds.
     if (!anchor?.isConnected) {
       closeMenu(false);
 
@@ -1184,8 +1108,8 @@ function cardTitle(boardCard) {
 }
 
 /**
- * An issue's repository as the card draws it: the name without its owner, which is how GitHub writes it on a card of
- * its own. Absent on a snapshot an older hub cached, and the card then carries the number alone rather than a blank.
+ * Display repository name without owner, matching GitHub. Older cached snapshots may omit it; fall back to
+ * issue number.
  */
 function repoName(issue) {
   const full = issue.repository;
@@ -1257,9 +1181,9 @@ function avatar(actor, pool) {
 
   const role = actor.source === 'pull-request' ? 'pull request author' : 'issue assignee';
 
-  tip(el, `${actor.login} · ${role}`);
+  setTooltip(el, `${actor.login} · ${role}`);
   el.setAttribute('role', 'img');
-  nameFor(el, `${actor.login}, ${role}`);
+  setAccessibleName(el, `${actor.login}, ${role}`);
 
   return el;
 }
@@ -1278,18 +1202,17 @@ function card(boardCard, avatarPool, placeable) {
   if (boardCard.issueNumber === null) {
     const checkout = checkoutName(boardCard);
 
-    // The repository stands where an issue card carries its number. Under no branch the card is a bare directory,
-    // which the title already names, so the count of what is running there is the more useful word.
+    // Display repository in the issue-number position. For a directory with no branch, show the session
+    // count; the title already names the directory.
     if (checkout.branch === null) {
       number.textContent = boardCard.sessions.length === 1 ? 'session' : 'sessions';
     } else {
       number.className = 'number checkout';
       number.textContent = checkout.repository;
-      tip(number, checkout.owner);
+      setTooltip(number, checkout.owner);
     }
   } else {
-    // The repository beside the number, as GitHub writes it on its own card: two boards' cards for one issue read alike,
-    // and a board spanning repositories says which one a card is from.
+    // Display repository beside issue number, matching GitHub and distinguishing cards across repositories.
     const repo = repoName(issue);
 
     number.textContent = repo === null ? `#${boardCard.issueNumber}` : `${repo} #${boardCard.issueNumber}`;
@@ -1297,13 +1220,12 @@ function card(boardCard, avatarPool, placeable) {
 
   if (issue) {
     const repo = repoName(issue);
-    const said = repo === null ? `issue #${issue.number}` : `issue ${repo} #${issue.number}`;
+    const issueLabel = repo === null ? `issue #${issue.number}` : `issue ${repo} #${issue.number}`;
 
     number.type = 'button';
-    // No tooltip: the number and its repository are the whole fact, and opening the issue is what a link on a card
-    // does. The button's text says neither, so a reader still gets the action as the accessible name.
-    nameFor(number, `Open ${said} on GitHub`);
-    // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
+    // The visible label identifies the issue; the accessible name adds the open action.
+    setAccessibleName(number, `Open ${issueLabel} on GitHub`);
+    // Disable dragging on this control.
     number.draggable = false;
     number.addEventListener('click', () => vscode.postMessage({ type: 'openIssue', number: issue.number }));
   }
@@ -1315,14 +1237,13 @@ function card(boardCard, avatarPool, placeable) {
     avatarSlot.appendChild(avatar(issue.avatar, avatarPool));
   }
 
-  // What GitHub says the card is, under its title: the type, the stage the team put it in, and its pull request.
+  // Group issue type, project status, and PR under the title.
   const badges = document.createElement('span');
   badges.className = 'badges github';
   badges.setAttribute('role', 'group');
   badges.setAttribute('aria-label', 'GitHub labels');
 
-  // What this board adds on top of that, set apart in the card's own footer so the two are never read as one row.
-  // Named as well as painted: a tint and a rule split them for the eye and for nothing else.
+  // Give the Ground Control footer its own accessible group name.
   const marks = document.createElement('span');
   marks.className = 'badges marks';
   marks.setAttribute('role', 'group');
@@ -1359,21 +1280,19 @@ function card(boardCard, avatarPool, placeable) {
   el.appendChild(open);
   el.appendChild(badges);
 
-  // The board's own reading of the card, its sessions, and the controls it will grow — set apart from GitHub's facts
-  // above it. Drawn on every card, including one with nothing in it yet, so a lane of cards has one silhouette.
+  // Render a footer on every card for consistent layout, including cards with no sessions or triage yet.
   const foot = document.createElement('div');
   foot.className = 'card-foot';
   foot.appendChild(marks);
   el.appendChild(foot);
 
   if (issue?.type) {
-    // No tooltip on any of the three below: the chip is the whole fact, and a hover repeating it is a hover to learn
-    // to ignore. What the pull-request chip's colour says about its state stays in its own accessible name.
+    // Avoid repeating badge labels on hover; expose PR state in the accessible name.
     badges.appendChild(badge('type', issue.type, issue.typeColor, null));
   }
 
   if (issue?.status) {
-    // The board's own status word without its emoji: the badge is the marker, so the emoji would say it twice.
+    // Remove the project status emoji; the badge already marks status.
     badges.appendChild(badge('status', statusLabel(issue.status), issue.statusColor, null));
   }
 
@@ -1385,7 +1304,7 @@ function card(boardCard, avatarPool, placeable) {
       null,
       () => vscode.postMessage({ type: 'openPullRequest', number: issue.number }),
     );
-    nameFor(
+    setAccessibleName(
       pr,
       `Open pull request #${issue.pullRequest.number}, ${issue.pullRequest.state.toLowerCase()}, on GitHub`,
     );
@@ -1401,11 +1320,11 @@ function card(boardCard, avatarPool, placeable) {
 
   if (boardCard.returned) {
     const mark = badge('returned', 'Returned', 'ORANGE');
-    tip(mark, 'This card returned to you.');
+    setTooltip(mark, 'This card returned to you.');
     marks.appendChild(mark);
   }
 
-  // R38. Deliberately none of R6's three channels: a card being read, or one that has been, is asking for nothing.
+  // Keep triage separate from attention styling (R38).
   const triage = boardCard.triage;
 
   const readAgain = () => vscode.postMessage({ type: 'retriage', key: boardCard.key });
@@ -1413,8 +1332,7 @@ function card(boardCard, avatarPool, placeable) {
   if (triage?.state === 'running') {
     marks.appendChild(badge('triage-running', 'Reading…', 'GRAY', 'Identifying the next action.'));
   } else if (triage?.state === 'failed') {
-    // No words about what went wrong: that is one line above the lanes (R25). What this is, is somewhere to click,
-    // without which the cards that most need reading again are the only ones with nothing to press.
+    // Report failures once above the lanes (R25), with a retry control on the affected card.
     marks.appendChild(
       badge(
         'triage-failed',
@@ -1427,9 +1345,7 @@ function card(boardCard, avatarPool, placeable) {
       ),
     );
   } else if (triage?.state === 'done') {
-    // GRAY rather than a colour: YELLOW and BLUE are R6's two marks and GREEN is a working session, so none is free.
-    // The sentence the reading produced is the chip's tooltip rather than a line of the card: it is a paragraph of
-    // prose on every card that has one, and a lane of them was more of the footer than the cards themselves.
+    // Use neutral triage styling and put the full explanation in its tooltip to keep cards compact.
     const read = triage.stale
       ? `Read ${ago(Date.now() - triage.at)} ago; card details have changed.`
       : `Read ${ago(Date.now() - triage.at)} ago.`;
@@ -1437,38 +1353,34 @@ function card(boardCard, avatarPool, placeable) {
 
     chip.dataset.stale = String(triage.stale);
 
-    // The age and the control stand in one another's place at the end of the chip: the reading is what a lane is
-    // scanned for, and a button per card is a row of controls waiting to be used rather than a list to read.
+    // Alternate status age and refresh in the same slot to preserve chip width.
     const end = document.createElement('span');
 
     end.className = 'triage-end';
 
-    // How long the card has held the status it is in — not when the board read it, which is in the tooltip with the
-    // sentence it produced. A reading is about a card in a state, and how long that state has held is what says
-    // whether it is still the card to pick up: a review handed over an hour ago and one sitting a week read alike
-    // otherwise. Null off the project board, where GitHub records no move to date.
+    // Display status age; put classification time and explanation in the tooltip. Status age is null outside
+    // project boards because GitHub records no move timestamp.
     const moved = issue?.statusChangedAt ? Date.parse(issue.statusChangedAt) : NaN;
 
     if (Number.isFinite(moved)) {
-      const held = document.createElement('span');
+      const ageLabel = document.createElement('span');
 
-      held.className = 'triage-age';
-      age(held, moved);
-      end.appendChild(held);
+      ageLabel.className = 'triage-age';
+      age(ageLabel, moved);
+      end.appendChild(ageLabel);
       // Only where there is an age to separate: a card off the project board carries the control and nothing before it.
       chip.append(' · ');
     }
 
-    // The control, not the chip: reading a card again spends the developer's usage, so it takes a press of its own
-    // rather than being what happens to anyone who clicked the words to see them in full.
+    // Keep paid retriage separate from opening the explanation.
     const again = document.createElement('button');
 
     again.type = 'button';
     again.className = 'triage-again';
     again.draggable = false;
     again.appendChild(syncMark());
-    nameFor(again, 'Read this card again');
-    tip(again, 'Read this card again.');
+    setAccessibleName(again, 'Read this card again');
+    setTooltip(again, 'Read this card again.');
     again.addEventListener('click', (event) => {
       event.stopPropagation();
       readAgain();
@@ -1478,8 +1390,7 @@ function card(boardCard, avatarPool, placeable) {
     marks.appendChild(chip);
   }
 
-  // R39. Beside the reading it acts on, and never one of R6's channels: work the board started is work in progress,
-  // which is the one thing a card is not asking the developer for.
+  // Place action state beside triage with neutral styling; dispatched work does not imply attention (R39).
   const action = boardCard.action;
 
   if (action) {
@@ -1614,8 +1525,7 @@ function signature(boardCard) {
     startable.length,
     boardCard.lastSession,
     boardCard.lastSession ? openable.has(boardCard.lastSession.sessionId) : false,
-    // The phase, not the activity: `since` moves at every turn, and including it would rebuild the card each time -
-    // losing the scroll, the avatars and the focus this whole mechanism exists to keep.
+    // Exclude `since`: it changes each turn and would rebuild cards, losing scroll position, avatars, and focus.
     boardCard.sessions.map((s) => [
       s.agent,
       s.sessionId,
@@ -1666,7 +1576,7 @@ function cardFor(boardCard, placeable) {
   return el;
 }
 
-/** Walks `nodes` into `parent` in order, moving what is already there rather than replacing the lot. */
+/** Reorder existing nodes and remove obsolete children. */
 function reconcile(parent, nodes) {
   let at = parent.firstElementChild;
 
@@ -1719,9 +1629,7 @@ function countCards(lanes) {
 }
 
 /**
- * What this webview put on screen, told to the extension after every render. Nothing else can see it: a script the
- * content policy or a bundling mistake stopped from running leaves the board on its loading line forever, and the
- * extension has no other way to know (R25).
+ * Report rendered DOM after each draw so the extension can detect blocked or failed webview scripts (R25).
  */
 function render(payload) {
   draw(payload);
@@ -1731,8 +1639,7 @@ function render(payload) {
     hideTip();
   }
 
-  // Every field is read off the document, never off the payload: a report that echoed what it was given would
-  // hold just as well for a board that drew nothing at all.
+  // Read counts and text from the DOM so the report confirms rendering.
   vscode.postMessage({
     type: 'drew',
     lanes: lanesEl.querySelectorAll('.lane').length,
@@ -1910,11 +1817,10 @@ function isCurrentPayload(payload) {
 }
 
 /*
- * The board's own overflow control, wired once: the header is in the document from the start, so unlike a card's
- * this one is never rebuilt. Wired here rather than beside `boardActions` because the glyph needs `SVG`, which a
- * `const` declared further down the file does not hoist to there.
+ * Bind the persistent board menu after SVG initialization; const declarations are unavailable before
+ * initialization.
  */
-nameFor(boardMenuEl, 'Board actions');
+setAccessibleName(boardMenuEl, 'Board actions');
 wireMenuControl(boardMenuEl, BOARD_MENU_KEY, 'Board actions', boardActions);
 paintLogs(false);
 
@@ -1925,6 +1831,5 @@ if (isCurrentPayload(restored?.payload)) {
   render(restored.payload);
 }
 
-// Last, and once per run of this script. The extension answers with the state of the controls it owns - a webview
-// reloads on its own (a tab returning from the background, a renderer restored) and nothing else tells it that.
+// Send ready after startup so the extension restores control state after webview reloads.
 vscode.postMessage({ type: 'ready' });

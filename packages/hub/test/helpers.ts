@@ -20,13 +20,7 @@ import type {
 import type { LogEntry, LogFloor, Logger } from '@ground-control/core';
 import { makeLogger } from '../src/logger.js';
 
-/**
- * A logger a test reads back, collected through `watch` — the same subscription a board opening a viewer makes.
- *
- * The floor here is only the floor until a `Hub` is built over it: its constructor applies the stored
- * configuration, whose `logLevel` is `info` by default. A test that wants the hub's `debug` lines configures
- * the hub for them rather than passing a floor here.
- */
+/** Collect entries through watch. Hub construction applies stored logLevel, so tests requiring debug entries must configure it on the hub. */
 export function captureLog(level: LogFloor = 'debug'): { log: Logger; entries: LogEntry[]; messages: string[] } {
   const entries: LogEntry[] = [];
   const messages: string[] = [];
@@ -40,10 +34,7 @@ export function captureLog(level: LogFloor = 'debug'): { log: Logger; entries: L
   return { log, entries, messages };
 }
 
-/**
- * A home of the hub's own, never the developer's. Every module here writes into `~/.claude/ground-control`, and a
- * test that reached the real one would delete a running board's lane placements.
- */
+/** Use isolated homes so tests cannot overwrite the developer's shared hub state. */
 export function tempHome(): { home: string; dispose: () => void } {
   const home = mkdtempSync(join(tmpdir(), 'gc-hub-'));
 
@@ -55,10 +46,7 @@ export interface FakeSignal extends ActivitySignal {
   planned: { settingsText: string | null; wanted: 'install' | 'remove' }[];
 }
 
-/**
- * An activity signal with no agent behind it. The install is generic — it does the file system and the lock, and
- * every decision is the adapter's — so a fake is what proves that rather than Claude's own hook merge.
- */
+/** Fake adapter plans isolate generic installation, filesystem, and lock behavior from agent-specific merging. */
 export function fakeSignal(
   plan: ActivityPlan | ((wanted: 'install' | 'remove') => ActivityPlan),
   id = 'fake',
@@ -72,8 +60,7 @@ export function fakeSignal(
 
       return typeof plan === 'function' ? plan(wanted) : plan;
     },
-    // Named for the agent: two signals in one run must not share a settings file, or a test cannot tell an install
-    // of its own from an install of the other agent's.
+    // Use separate settings files so multi-agent tests distinguish each installation.
     settingsPath: (home) => `${home}/.${id}/settings.json`,
     watchDir: (home) => `${home}/.claude/ground-control/activity-${id}`,
     read: () => null,
@@ -81,10 +68,7 @@ export function fakeSignal(
   };
 }
 
-/**
- * Readers that find nothing, for the defaults an agent detector is asked about. A test that wants an agent detected
- * names the directory it looks for.
- */
+/** Default to empty filesystem readers; detection tests provide the required directories. */
 export function fakeReaders(dirs: Record<string, string[]> = {}, home = '/home/dev'): MachineReaders {
   return {
     readText: () => null,
@@ -123,7 +107,7 @@ export interface FakeAgentControl {
   phases: Map<string, SessionActivity>;
 }
 
-/** An agent whose roster and phases a test sets directly, so nothing here spawns anything or reads a real marker. */
+/** Inject roster and phase results without spawning CLIs or reading real markers. */
 export function reportingAgent(id = 'fake'): FakeAgentControl {
   const control: FakeAgentControl = {
     calls: 0,
@@ -195,7 +179,7 @@ export interface FakeHostControl {
   startsPlanned: StartRequest[];
   /** The agents this host offers a start for, which is what a client's snapshot carries. */
   startableAgents: StartableAgent[];
-  /** Routes this host would rather the client performed. Empty makes every route the hub's own to carry out. */
+  /** Routes performed by a resident client; an empty list lets the hub perform them. */
   resident: OpenRoute['route'][];
   performed: OpenRoute[];
   primed: number;

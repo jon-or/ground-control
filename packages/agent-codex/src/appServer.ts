@@ -4,13 +4,10 @@ import { trustExchange } from './exchange.js';
 import type { TrustAttempt } from './exchange.js';
 import { codexHomeOf } from './hookScript.js';
 
-/** Asks Codex to trust the hooks the board installed under `home`. Never throws; every failure is its own sentence. */
+/** Trust the installed board hooks. Return an error message on failure; never throw. */
 export type TrustHooks = (codexPath: string, home: string) => Promise<TrustAttempt>;
 
-/**
- * How long the whole exchange may take. `codex app-server` starts, answers three requests and is killed — measured
- * at about a second, so this is the budget for a Codex that has stopped answering rather than a normal one.
- */
+/** Timeout for app-server startup and the three trust requests, normally completed in about one second. */
 const TIMEOUT_MS = 20_000;
 
 /**
@@ -31,22 +28,21 @@ export function makeTrustOnMachine(env: NodeJS.ProcessEnv = process.env): TrustH
       let child: ReturnType<typeof spawn>;
 
       try {
-        // Codex's own home, not the board's: the caller passes the home every other read is made under, and the
-        // hooks file this exchange is about is the one `codexHomeOf` resolves — `~/.codex`, or `$CODEX_HOME`.
+        // Use the resolved Codex home for both hook reads and app-server: ~/.codex or CODEX_HOME.
         child = spawn(resolved, ['app-server'], {
           env: { ...env, CODEX_HOME: codexHomeOf(home, env) },
           stdio: ['pipe', 'pipe', 'ignore'],
           windowsHide: true,
         });
       } catch (error) {
-        // `spawn` throws synchronously for a shim Node will not run, which a resolved path can still be.
+        // A resolved shim path can still cause spawn to throw synchronously.
         resolve((error as Error).message);
 
         return;
       }
 
       let settled = false;
-      let held = '';
+      let partialLine = '';
 
       const answer = (attempt: TrustAttempt): void => {
         if (!settled) {
@@ -63,14 +59,14 @@ export function makeTrustOnMachine(env: NodeJS.ProcessEnv = process.env): TrustH
       };
 
       child.on('error', (error) => answer(error.message));
-      // A server that exits before answering leaves nothing to wait for, and the timeout would cost the full budget.
+      // Fail immediately if the server exits before replying.
       child.on('exit', () => answer('Codex stopped before it answered'));
 
       child.stdout?.setEncoding('utf8');
       child.stdout?.on('data', (chunk: string) => {
-        const lines = (held + chunk).split('\n');
-        // The last element is whatever Codex has written since its last newline, which is not a message yet.
-        held = lines.pop() ?? '';
+        const lines = (partialLine + chunk).split('\n');
+        // Retain the incomplete final line for the next chunk.
+        partialLine = lines.pop() ?? '';
 
         for (const line of lines) {
           if (line.trim().length === 0) {
@@ -82,7 +78,7 @@ export function makeTrustOnMachine(env: NodeJS.ProcessEnv = process.env): TrustH
           try {
             reply = JSON.parse(line);
           } catch {
-            // Codex writes notifications of its own that no request asked for; a line this cannot read is not ours.
+            // Ignore non-JSON output; trustExchange filters unrelated JSON messages.
             continue;
           }
 

@@ -5,23 +5,16 @@ import type { ChangedPath, DiffSide } from '@ground-control/host-vscode';
 import { GitStatus, gitApi, gitUri } from './gitApi.js';
 import type { GitChange, GitRepository } from './gitApi.js';
 
-/**
- * Where a branch is taken to have forked from, tried in order. `origin/HEAD` is the remote's own answer and is set
- * by a clone; the two names are what a repository without it is almost always using.
- */
+/** Try origin/HEAD, then common default branches, when finding the branch base. */
 const BASE_REFS = ['origin/HEAD', 'origin/main', 'origin/master'];
 
-/**
- * A conflicted file is work in progress and belongs in the editor, so every conflict state reads as a modification
- * rather than being dropped. Only an ignored file is left out — it is not what the branch did.
- */
+/** Treat conflicts as modifications so they appear in the diff. Exclude ignored files. */
 function kindOf(status: number): ChangedPath['kind'] | null {
   switch (status) {
     case GitStatus.INDEX_ADDED:
     case GitStatus.UNTRACKED:
     case GitStatus.INTENT_TO_ADD:
-    // A copy is a new file. Following it back to its source would put the source on the left and claim the branch
-    // changed a file it never touched.
+    // Treat copies as additions; the source file still exists unchanged.
     case GitStatus.INDEX_COPIED:
     case GitStatus.BOTH_ADDED:
     case GitStatus.ADDED_BY_US:
@@ -76,8 +69,8 @@ async function mergeBase(repository: GitRepository): Promise<string | null> {
         return base;
       }
     } catch {
-      // A ref this repository does not have. `getBranchBase` would answer in one call, but it writes
-      // `branch.<name>.vscode-merge-base` into the checkout's config, and looking at work must not change it.
+      // Try the next ref. Avoid getBranchBase because it writes branch.<name>.vscode-merge-base to checkout
+      // config.
     }
   }
 
@@ -93,9 +86,8 @@ function sideUri(side: DiffSide | null): vscode.Uri | undefined {
 }
 
 /**
- * The card action, as a command. Not contributed, so it is not in the palette — it takes a checkout, a name and the
- * card it came from, which only the board has. It is a command rather than a call because `test-integration/`
- * reaches the extension host no other way, and what this rides on can only be settled inside a real one.
+ * Register an internal command for the board and real-host tests. It requires card context, so it is not in
+ * the command palette.
  */
 export const OPEN_CHANGES = 'groundControl.openChanges';
 
@@ -136,9 +128,7 @@ async function open(cwd: string, label: string, key: string): Promise<void> {
 
   const root = vscode.Uri.file(checkout.root);
 
-  // A worktree is rarely in the window's own folder, so it is opened as a repository first — which leaves it in the
-  // Source Control view. The command takes a path rather than a URI: it is registered without repository
-  // resolution and passes its argument through raw.
+  // Open the worktree repository in Source Control first. The Git command takes a raw path, not a URI.
   await vscode.commands.executeCommand('git.openRepository', root.fsPath);
 
   const repository = api.getRepository(root);
@@ -157,8 +147,8 @@ async function open(cwd: string, label: string, key: string): Promise<void> {
     return;
   }
 
-  // A repository VS Code has just opened has not read its own status yet, and its resource groups are empty until
-  // it has — measured, and it is the uncommitted half of the editor that would silently go missing (M30).
+  // Wait for Git status before reading resource groups; newly opened repositories initially omit uncommitted
+  // changes (M30).
   await repository.status();
 
   const base = await mergeBase(repository);
@@ -169,9 +159,8 @@ async function open(cwd: string, label: string, key: string): Promise<void> {
     base,
     committed,
     staged: changedPaths(state.indexChanges),
-    // Under the default `git.untrackedChanges` the untracked group is empty and its files are in the working tree
-    // group; under `separate` it is the only place they appear. Under `hidden` there are none and the editor is
-    // short by them — the setting says not to show them, and the board does not overrule it.
+    // Read both working-tree and untracked groups to support default and separate git.untrackedChanges modes.
+    // Respect hidden mode.
     working: changedPaths([...state.workingTreeChanges, ...state.untrackedChanges]),
   });
 

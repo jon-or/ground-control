@@ -44,7 +44,7 @@ describe('one line as hub.log holds it', () => {
     expect(parseLogLines([formatLogLine(written)])).toEqual([written]);
   });
 
-  // The hub's own messages are full of colons, and an unbracketed scope would swallow the first word of half of them.
+  // Bracketed scopes preserve colons in messages.
   it('does not read a colon in the message as a scope', () => {
     const [read] = parseLogLines([`${AT} info stopping: a client asked it to stop`]);
 
@@ -92,8 +92,7 @@ describe('the lines the logger did not write', () => {
 });
 
 describe('lines that came from somewhere else', () => {
-  // The hub's own sink writes \n, but the same file receives the process's stdout and stderr through another
-  // descriptor, and a Windows child writes CRLF down it.
+  // Accept LF from the hub logger and CRLF from Windows child output.
   it('reads a line back the same whether it ends with LF or CRLF', () => {
     expect(parseLogLines([`${AT} info [github] read 14 cards in 812ms\r`])).toEqual([
       { at: AT, level: 'info', source: 'hub', scope: 'github', message: 'read 14 cards in 812ms' },
@@ -106,8 +105,7 @@ describe('lines that came from somewhere else', () => {
     expect(read?.message).toBe('Ground Control hub listening on 127.0.0.1:51844');
   });
 
-  // Several hub messages carry a CLI's own output, and third-party text opens with a bracket often enough to matter.
-  // A scope is one lowercase word, so a shouted tag is left in the message where it belongs.
+  // Keep bracketed third-party messages intact; only lowercase words qualify as scopes.
   it('does not tear a bracketed tag off a message and call it a scope', () => {
     const written = entry({ message: '[ERROR] the CLI said no' });
 

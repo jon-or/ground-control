@@ -35,8 +35,7 @@ describe('projectSlug', () => {
 
 describe('transcriptCandidates', () => {
   it('offers the exact-case directory before any other casing', () => {
-    // No directory on this machine exists in two casings at once, so the collision is derived here rather than
-    // recorded: the exact slug must be tried first even when a variant is listed ahead of it.
+    // Derive a casing collision to verify the exact slug precedes an earlier-listed variant.
     const entry = found.find((e) => e.dir === projectSlug(e.cwd))!;
     const slug = projectSlug(entry.cwd);
     const variant = slug.toUpperCase() === slug ? slug.toLowerCase() : slug.toUpperCase();
@@ -49,8 +48,7 @@ describe('transcriptCandidates', () => {
   });
 
   it('keeps looking past a directory that does not hold the transcript', () => {
-    // The decoy has to be the exact-case slug: candidates put that first, so anything else is never reached on the
-    // first pass and the loop would end there. Only the variant answers, which is the second candidate.
+    // Make the exact-case slug unreadable to exercise fallback to the second candidate.
     const entry = found[0]!;
     const slug = projectSlug(entry.cwd);
     const variant = slug.toUpperCase();
@@ -67,9 +65,8 @@ describe('transcriptCandidates', () => {
     });
   });
 
-  it('offers a directory whose case differs from the slug, which is where the CLI puts some transcripts', () => {
-    // Where the recording carries such a session it is checked directly. It does not always: whether a live session
-    // sits under a differently-cased directory is the machine's state, so the variant is derived when it does not.
+  it('includes project directories with alternate casing', () => {
+    // Use a recorded casing variant when available; otherwise derive one.
     if (caseOnly.length > 0) {
       for (const entry of caseOnly) {
         const candidates = transcriptCandidates(transcripts.home, entry.cwd, entry.sessionId, listRecordedDirs);
@@ -119,7 +116,7 @@ const titled = transcripts.entries.filter((e) => e.titles.length > 0);
 const line = (record: object): string => JSON.stringify(record);
 
 describe('titleFrom', () => {
-  it('reads each recorded transcript own title out of the tail it would be handed', () => {
+  it('reads recorded titles from reconstructed tails', () => {
     expect(titled.length).toBeGreaterThan(0);
 
     for (const entry of titled) {
@@ -144,8 +141,7 @@ describe('titleFrom', () => {
   });
 
   it('reads no title when the window is shorter than the distance to the record', () => {
-    // A transcript whose title sits beyond the window is the machine's state to provide, not a shape to arrange, so
-    // the window is narrowed instead. The recording carried one on 2026-09-02 at 2.2 MB from the end.
+    // Narrow the read limit to test inaccessible titles. A recorded title was 2.2 MB from EOF on 2026-09-02.
     const entry = titled[0]!;
     const path = `${projectsRoot(transcripts.home)}/${entry.dir}/${entry.sessionId}.jsonl`;
     const clipped = readRecordedTails(path, 200)!;
@@ -155,9 +151,9 @@ describe('titleFrom', () => {
     expect(titleFrom(readRecordedTails(path, TITLE_TAIL_BYTES)!, entry.sessionId)).toBe(expectedTitle(entry));
   });
 
-  it('lets the title the developer set outrank the one the agent went on writing', () => {
-    // No live session on this machine had a manual title to record, so the pairing is derived from a recorded
-    // automatic one. The order is the one measured: the CLI keeps writing its own title after a manual one is set.
+  it('prefers manual titles over later automatic titles', () => {
+    // Derive a manual title from an automatic-title recording, preserving the measured order of later automatic
+    // writes.
     const automatic = titled[0]!.titles[0]!;
     const manual = { type: 'custom-title', customTitle: 'the name I gave it', sessionId: automatic.sessionId };
     const tail = [line(automatic), line(manual), line(automatic)].join('\n');
@@ -165,20 +161,20 @@ describe('titleFrom', () => {
     expect(titleFrom(tail, automatic.sessionId)).toBe('the name I gave it');
   });
 
-  it('takes the last of a kind, so a retitled session reads as its current title', () => {
+  it('uses the latest title of each type', () => {
     const first = titled[0]!.titles[0]!;
     const later = { ...first, aiTitle: 'what it is doing now' };
 
     expect(titleFrom([line(first), line(later)].join('\n'), first.sessionId)).toBe('what it is doing now');
   });
 
-  it('ignores a record belonging to another session, which a forked transcript carries', () => {
+  it('ignores other sessions in forked transcripts', () => {
     const record = titled[0]!.titles[0]!;
 
     expect(titleFrom(line(record), 'a-different-session')).toBeNull();
   });
 
-  it('ignores a blank title rather than showing a card with no name', () => {
+  it('ignores blank titles', () => {
     const record = { type: 'ai-title', aiTitle: '   ', sessionId: 'session-1' };
 
     expect(titleFrom(line(record), 'session-1')).toBeNull();
@@ -191,7 +187,7 @@ describe('titleFrom', () => {
     expect(titleFrom([fragment, line(record)].join('\n'), record.sessionId)).toBe(expectedTitle(titled[0]!));
   });
 
-  it('reads nothing out of a tail that carries no title record', () => {
+  it('returns no title when the tail has no title record', () => {
     expect(titleFrom('{"type":"user","message":{"role":"user"}}', 'session-1')).toBeNull();
     expect(titleFrom('', 'session-1')).toBeNull();
   });

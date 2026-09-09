@@ -22,8 +22,7 @@ function startHub(bundle: string, home: string): void {
 
     child.unref();
   } finally {
-    // The child has its own duplicate by now. Keeping this one costs a descriptor per start, which a hub that
-    // will not stay up spends until the extension host runs out of them.
+    // Close the parent descriptor after spawn; repeated startup failures would otherwise leak descriptors.
     closeSync(log);
   }
 }

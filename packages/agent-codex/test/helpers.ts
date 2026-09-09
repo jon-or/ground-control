@@ -29,10 +29,7 @@ export interface HookPayload {
   reason?: string;
 }
 
-/**
- * The fields every recorded payload carries whatever its event. A cast is not a check: a recording missing one reads
- * `undefined` where the type promised a value, and nothing fails until something reads it.
- */
+/** Validate required fields at runtime; type casts cannot detect incomplete recordings. */
 const ALWAYS = {
   session_id: true,
   transcript_path: true,
@@ -40,7 +37,7 @@ const ALWAYS = {
   hook_event_name: true,
 } satisfies Partial<Record<keyof HookPayload, true>>;
 
-/** The seven events one session fires, in order. A recording that lost one must fail the run, not shrink quietly. */
+/** Require all seven recorded events in capture order. */
 export const payloads = ((): HookPayload[] => {
   const read = fixture('hook-payloads') as HookPayload[];
 
@@ -74,8 +71,8 @@ export interface FakeMachine {
 }
 
 /**
- * A machine made of literals. Every reader is the disk contract: a file that is not in `files` reads as null, and a
- * directory that is not in `dirs` lists as null — which is how a test says "absent" rather than "empty".
+ * Injected file and directory maps return null for absent paths, preserving the distinction from empty
+ * directories.
  */
 export function machine(machine: Partial<FakeMachine>, pattern: RegExp | null = /^(\d+)-/): MachineDeps {
   const files = machine.files ?? {};
@@ -86,7 +83,7 @@ export function machine(machine: Partial<FakeMachine>, pattern: RegExp | null = 
   const listDir: ListDir = (path) => dirs[path] ?? null;
   const mtime: StatMtime = (path) => mtimes[path] ?? (files[path] === undefined ? null : 1_000);
   const readHead: ReadTail = (path, bytes) => (files[path] === undefined ? null : files[path]!.slice(0, bytes));
-  // From the end, because a fake that answers a tail with a head lies to the first reader that asks for one.
+  // Honor tail-read semantics in the fake reader.
   const readTail: ReadTail = (path, bytes) => (files[path] === undefined ? null : files[path]!.slice(-bytes));
 
   return { readText, listDir, mtime, readTail, readHead, home: HOME, pattern };

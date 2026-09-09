@@ -1,10 +1,5 @@
-// Writes `hook-payloads.json` from a capture, scrubbed. README.md carries the capture itself, which is interactive:
-// a Codex hook payload only exists inside a session, and Codex will not run a hook it has not been told to trust.
-//
-//   node record.js <captured.ndjson>
-//
-// The capture is one JSON payload per line, in the order Codex fired them — the file a probe hook appends its stdin
-// to. Scrubbing runs here rather than by hand, because a hand-scrub is undone by the next recording.
+// Write scrubbed hook-payloads.json with node record.js <captured.ndjson>. Supply one raw payload per line in
+// capture order. README.md describes capture and hook trust setup.
 const { readFileSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { anonymise } = require('./anonymise.js');

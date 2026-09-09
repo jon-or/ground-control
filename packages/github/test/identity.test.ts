@@ -26,7 +26,7 @@ describe('parseAuthStatusLogins', () => {
     expect(parseAuthStatusLogins(twoAccounts)).toEqual(['dev-1-bot', 'dev-1']);
   });
 
-  it('returns nothing when gh is logged out', () => {
+  it('returns no logins when gh is logged out', () => {
     expect(parseAuthStatusLogins('You are not logged into any GitHub hosts.')).toEqual([]);
   });
 

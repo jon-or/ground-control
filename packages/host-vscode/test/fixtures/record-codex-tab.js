@@ -1,7 +1,5 @@
-// Records one VS Code window holding a revealed Codex thread: `node test/fixtures/record-codex-tab.js`.
-// A Codex tab carries its thread in the editor's own resource rather than in webview state, so this is the only
-// record of where a Codex session can be reached. Build the package first: the keys come from its placement table.
-// Read the diff before committing — a fixture is evidence.
+// Record a revealed Codex thread with node test/fixtures/record-codex-tab.js. Build first to load placement
+// keys. Review the recorded diff before committing.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -13,15 +11,12 @@ const OUT = path.join(__dirname, 'codex-tab.json');
 const EDITOR_KEY = 'memento/workbench.parts.editor';
 const CODEX = PLACEMENTS.codex;
 
-/**
- * Codex's own view-container state, which is the whole of what its sidebar records: it names no thread whatever it
- * is showing, which is why the placement table gives Codex no sidebar keys. Recorded so that stays checkable.
- */
+/** Record Codex sidebar state to verify that it contains no thread ID (M44). */
 const SIDEBAR_KEY = 'workbench.view.extension.codexSecondaryViewContainer.state';
 
-/** Windows-shaped, as this records Windows paths: a POSIX home inside a recorded `fsPath` is incoherent. */
+/** Use a synthetic Windows home to preserve recorded path syntax. */
 const HOME = 'C:/Users/dev';
-/** What every recorded tab title becomes. Codex titles a fresh tab with the thread id, but a title is free text. */
+/** Replace all free-text tab titles with this synthetic value. */
 const TITLE = 'recorded session';
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const SYNTHETIC_THREAD = '00000000-0000-4000-8000-000000000031';
@@ -58,10 +53,7 @@ function read(dir) {
   return { editor, sidebar: values.get(SIDEBAR_KEY) ?? null, workspaceJson };
 }
 
-/**
- * Walks the stored state, which is JSON nested inside JSON strings to whatever depth the editor was serialised at,
- * and applies `visit` to every object it finds. Re-encodes each layer, so a rewritten value survives back up.
- */
+/** Visit objects through nested JSON strings, re-encoding each layer after edits. */
 function deep(node, visit) {
   if (typeof node === 'string') {
     let parsed;
@@ -88,13 +80,10 @@ function titlesIn(stored) {
   return found;
 }
 
-/**
- * How a path can be spelled in the stored JSON. A tab's own state is a JSON string inside the memento's JSON, so one
- * Windows separator is written there as four backslashes — a two-deep pass leaves the path naming a real checkout.
- */
+/** Include nested JSON escaping: a Windows separator can occupy four backslashes inside serialized tab state. */
 const STYLES = ['forward', 1, 2, 4, 8, 'uri', 'lower', 'upper'];
 
-/** One path in one of those styles. A rewrite pairs the two sides style for style, so no mixed separators survive. */
+/** Preserve each path encoding style when substituting synthetic paths. */
 function spell(value, style) {
   const forward = value.split('\\').join('/');
 
@@ -121,9 +110,8 @@ function rootOf(workspaceJson) {
 }
 
 /**
- * One synthetic name per real one, applied to the stored text rather than to a parsed tree: the nesting — JSON
- * inside a JSON string inside a row — is exactly what the reader has to cope with, so it is preserved byte for byte
- * and only the names change. The thread is the first id in the resource; the second is the webview's own origin.
+ * Replace identifiers in stored text while preserving nested JSON encoding. The resource's first ID is the
+ * thread; the second is the webview origin.
  */
 function anonymise(store) {
   const root = rootOf(store.workspaceJson);
@@ -140,12 +128,11 @@ function anonymise(store) {
     ...(root === null ? [] : [[root, REPO]]),
     [thread, SYNTHETIC_THREAD],
     ...ids.map((id, index) => [id, index === 0 ? SYNTHETIC_ORIGIN : `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`]),
-    // Last, and on its own: the account name also turns up outside any path the recording knows about.
+    // Replace the account name outside known paths too.
     [os.userInfo().username, 'dev'],
   ];
 
-  // Case-insensitively: one recording carried the same home under both `C:\Users\…` and `c:\Users\…`, and an
-  // exact-case pass leaves the second one naming a real person.
+  // Match paths case-insensitively to replace alternate drive-letter and directory casing.
   const rewrite = (text) => {
     if (text === null) return null;
 
@@ -176,9 +163,8 @@ function anonymise(store) {
 }
 
 /**
- * Fails the recording rather than writing a fixture that still names something real. Three checks, because each
- * alone is escapable: the values known to identify this machine must be gone; every absolute path left must be one
- * of ours; and every title must be the synthetic one, because a title is free text no list of names would match.
+ * Reject recordings containing original identifiers, absolute paths outside synthetic prefixes, or nonsynthetic
+ * titles. Each check covers data the others may miss.
  */
 function assertScrubbed(identifying, written) {
   const json = JSON.stringify(written);
@@ -202,7 +188,7 @@ const found = fs
   .readdirSync(root)
   .map((dir) => read(path.join(root, dir)))
   .filter((store) => store !== null)
-  // The smallest such window, which is the one whose whole memento stays readable in a diff.
+  // Choose the smallest qualifying window to limit fixture size.
   .sort((a, b) => a.editor.length - b.editor.length);
 
 if (found.length === 0) {

@@ -26,7 +26,7 @@ function refusal(raw: unknown): string {
 }
 
 describe('the GitHub entry in a pushed configuration', () => {
-  /** A hub the browser started alone has only these, so what they are is what it reads with. */
+  /** Default settings used before a browser-started hub receives client configuration. */
   it('fills in everything but the repository', () => {
     expect(accepted({ repo: 'example-org/example-repo' })).toEqual({
       ghPath: 'gh',
@@ -58,8 +58,8 @@ describe('the GitHub entry in a pushed configuration', () => {
     expect(refusal({ ghPath: 'gh' })).toContain('repo');
   });
 
-  /** A hub the browser started alone has been told nothing. That is not a developer who broke their settings. */
-  it('says an entry nobody has filled in has not been filled in', () => {
+  /** Treat absent browser-startup configuration as missing settings. */
+  it('reports missing configuration', () => {
     expect(refusal({})).toBe('No GitHub repository is configured.');
     expect(refusal(undefined)).toBe('No GitHub repository is configured.');
   });
@@ -81,7 +81,7 @@ describe('the GitHub entry in a pushed configuration', () => {
     expect(refusal({ repo: 'o/r', cardSource: 'everything' })).toContain('cardSource');
   });
 
-  /** Strict: a key nothing reads is a setting the developer believes is doing something. */
+  /** Reject unknown keys rather than accepting ineffective settings. */
   it('refuses a key it does not know', () => {
     expect(refusal({ repo: 'o/r', ghToken: 'secret' })).toContain('ghToken');
   });
@@ -139,7 +139,7 @@ describe('the GitHub work source', () => {
   });
 
   /** Reading with the settings from before the refused ones is reading with settings nobody set. */
-  it('reads nothing at all once its configuration has been refused', async () => {
+  it('disables reads after rejected configuration', async () => {
     const { source: github, asked } = source();
 
     github.configure({ repo: 'example-org/example-repo', logins: ['dev-1'] });
@@ -151,7 +151,7 @@ describe('the GitHub work source', () => {
     expect(reading).toEqual({ items: null, failure: null, needs: null });
   });
 
-  it('says nothing before it has been configured at all', async () => {
+  it('returns no data before configuration', async () => {
     const { source: github, asked } = source();
 
     expect(await github.read()).toEqual({ items: null, failure: null, needs: null });
@@ -188,10 +188,7 @@ describe('the GitHub work source', () => {
   });
 });
 
-/**
- * `makeRegistries` builds one of these with nothing injected, so what it falls back to is what the product runs.
- * A CLI name nothing on this machine carries is how both defaults are reached without a network or a real `gh`.
- */
+/** Exercise default dependencies with a nonexistent CLI name to prevent real gh or network access. */
 describe('the GitHub work source as it ships', () => {
   const ABSENT_CLI = 'gh-not-on-any-path';
 
@@ -210,10 +207,8 @@ describe('the GitHub work source as it ships', () => {
 });
 
 describe('a board nobody has named a repository for', () => {
-  it('says which setting is missing, rather than failing its schema', () => {
-    // The shipped default: an editor sends every setting it has, and this is the one that decides whether the
-    // source can read anything. A schema failure here would name zod and offer a remedy that cannot work — the
-    // setting is already absent, so removing it changes nothing.
+  it('reports the missing setting', () => {
+    // Report blank default repository settings directly; removing an already absent value cannot fix it.
     const outcome = readGithubConfig({ ghPath: 'gh', repo: '', logins: [], projectNumber: 3, cardSource: 'project', maxPages: 5 });
 
     expect('failure' in outcome && outcome.failure).toMatchObject({ kind: 'bad-config' });
@@ -236,7 +231,7 @@ describe('one issue read by number', () => {
     return source;
   }
 
-  it('reads its own repository, whatever case the checkout spelled it in', async () => {
+  it('matches the configured repository case-insensitively', async () => {
     const asked: string[] = [];
     const source = sourceWith(async (_config, owner, name, number) => {
       asked.push(`${owner}/${name}#${number}`);
@@ -251,7 +246,7 @@ describe('one issue read by number', () => {
     expect(asked).toEqual(['example-org/example-repo#42']);
   });
 
-  /** A number read off a branch in some other checkout. Answering it would put a plausible, wrong card on the board. */
+  /** Do not resolve issue numbers against another checkout's repository. */
   it('refuses a repository that is not the one it is configured for, without spending a read', async () => {
     const asked: string[] = [];
     const source = sourceWith(async (_config, owner, name, number) => {
@@ -260,26 +255,25 @@ describe('one issue read by number', () => {
       return { ok: true, value: null };
     });
 
-    // Null, not an empty reading: "not mine to answer" written down as "there is no such issue" leaves the board
-    // saying a card does not exist for as long as it remembers the answer.
+    // Return null for unserved repositories so the caller cannot cache the issue as missing.
     expect(await source.readCard!('github.com/other-org/other-repo', 42, NEVER)).toBeNull();
     expect(await source.readCard!('example.ghe.com/example-org/example-repo', 42, NEVER)).toBeNull();
     expect(asked).toEqual([]);
   });
 
-  it('reads nothing at all with settings it refused', async () => {
+  it('skips card lookups with rejected settings', async () => {
     const source = sourceWith(async () => ({ ok: true, value: { number: 1 } as never }), { repo: '' });
 
     expect(await source.readCard!('github.com/example-org/example-repo', 42, NEVER)).toBeNull();
   });
 
-  it('serves a number it read and found nothing for, which is an answer rather than a refusal', async () => {
+  it('returns a successful null result for a missing issue', async () => {
     const source = sourceWith(async () => ({ ok: true, value: null }));
 
     expect(await source.readCard!('github.com/example-org/example-repo', 99999, NEVER)).toEqual({ card: null, failure: null });
   });
 
-  it('names the source on a failure, so the board says which read could not be made', async () => {
+  it('identifies the source in lookup failures', async () => {
     const source = sourceWith(async () => ({ ok: false, error: { kind: 'offline', message: 'no network', remedy: 'try later' } }));
 
     expect(await source.readCard!('github.com/example-org/example-repo', 42, NEVER)).toEqual({

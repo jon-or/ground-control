@@ -49,12 +49,12 @@ function lastExit(home: string): string {
   }
 }
 
-function tellThem(home: string, what: string): string {
+function withExitDetails(home: string, what: string): string {
   return `${what} ${lastExit(home)} Log: ${logPathOf(home)}.`;
 }
 
 /** Read the port recorded by a duplicate-instance startup refusal. */
-function standingPort(home: string): string | null {
+function duplicateHubPort(home: string): string | null {
   const text = read(exitPathOf(home));
   const found = text === null ? null : /already serving this home on port (\d+)/.exec(text);
 
@@ -62,8 +62,8 @@ function standingPort(home: string): string | null {
 }
 
 /** Include a recorded duplicate-instance refusal in the connection error. */
-function alsoRunning(home: string): string {
-  const port = standingPort(home);
+function duplicateHubDetails(home: string): string {
+  const port = duplicateHubPort(home);
 
   return port === null
     ? ''
@@ -71,31 +71,30 @@ function alsoRunning(home: string): string {
 }
 
 /** Describe the final discovery failure and available recovery steps. Report a PID only when identity was verified. */
-function whatIsThere(home: string, miss: HubMiss): string {
+function discoveryFailure(home: string, miss: HubMiss): string {
   if (miss.why === 'no-record') {
-    return tellThem(home, 'The hub started but did not respond.');
+    return withExitDetails(home, 'The hub started but did not respond.');
   }
 
-  // The port comes from the record in every case; the pid only where the listener proved it wrote that record.
-  // Anywhere else the record describes a hub that is gone, and its pid may have been handed to something else.
+  // Report a PID only for an authenticated listener; an old record may reference a reused PID.
   const held = miss.why === 'another-protocol' ? miss.hub.record : miss.record;
   const stop = `Stop that process and open the board again.`;
 
   switch (miss.why) {
     case 'unreachable':
-      return tellThem(home, 'Could not connect to the recorded hub.');
+      return withExitDetails(home, 'Could not connect to the recorded hub.');
 
     case 'silent':
-      return `The process on recorded hub port ${held.port} did not respond. ${stop}${alsoRunning(home)}`;
+      return `The process on recorded hub port ${held.port} did not respond. ${stop}${duplicateHubDetails(home)}`;
 
     case 'not-a-hub':
-      return `Port ${held.port} answered, but not as Ground Control (HTTP ${miss.saw.status}${miss.saw.said === '' ? '' : `: ${miss.saw.said}`}), and ${hubJsonPathOf(home)} still names it. Stop that process, or delete that file, and open the board again.${alsoRunning(home)}`;
+      return `Port ${held.port} answered, but not as Ground Control (HTTP ${miss.saw.status}${miss.saw.said === '' ? '' : `: ${miss.saw.said}`}), and ${hubJsonPathOf(home)} still names it. Stop that process, or delete that file, and open the board again.${duplicateHubDetails(home)}`;
 
     case 'another-home':
-      return `The hub on port ${held.port} is tracking a different home, and this board cannot use it. ${stop}${alsoRunning(home)}`;
+      return `The hub on port ${held.port} is tracking a different home, and this board cannot use it. ${stop}${duplicateHubDetails(home)}`;
 
     case 'unproven':
-      return `Could not verify the authentication token for the hub on port ${held.port}. ${stop}${alsoRunning(home)}`;
+      return `Could not verify the authentication token for the hub on port ${held.port}. ${stop}${duplicateHubDetails(home)}`;
 
     case 'another-protocol':
       return `Another hub version is running (pid ${held.pid}, port ${held.port}) and did not stop. ${stop}`;
@@ -134,22 +133,21 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
         return { hub: found.hub };
       }
 
-      // Refused, or already gone — another client's replacement may hold the home by now, and that one is the hub
-      // to use. Only if nothing answers is the one just found still the best this client has.
+      // Another client may have replaced the hub. Recheck discovery before falling back to the current connection.
       if (!(await deps.stop(found.hub))) {
         const again = await deps.look(deps.home);
 
         return { hub: 'hub' in again ? again.hub : found.hub };
       }
     } else {
-      const mismatch = await outOfStep(deps, found.miss);
+      const mismatch = await resolveProtocolMismatch(deps, found.miss);
 
       if (mismatch) {
         return mismatch;
       }
 
       if (!mayStart(now)) {
-        return { failed: tellThem(deps.home, 'The hub repeatedly exited after starting.') };
+        return { failed: withExitDetails(deps.home, 'The hub repeatedly exited after starting.') };
       }
     }
 
@@ -161,8 +159,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
       return { failed: `Could not start the hub: ${String(error)}` };
     }
 
-    // Bounded by the clock rather than by the sleeps it adds up: each look can spend its own deadline, and a port
-    // held by something that never answers would otherwise stretch a five-second wait into minutes.
+    // Include probe duration in the startup deadline; summing sleeps could extend it by minutes.
     for (const until = deps.now() + START_TIMEOUT_MS; deps.now() < until; ) {
       await deps.sleep(START_POLL_MS);
 
@@ -186,7 +183,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
       return { hub: last.hub };
     }
 
-    return { failed: whatIsThere(deps.home, last.miss) };
+    return { failed: discoveryFailure(deps.home, last.miss) };
   }
 
   return () => {
@@ -199,7 +196,7 @@ export function makeEnsure(deps: EnsureDeps): () => Promise<Ensured> {
 }
 
 /** Replace an authenticated older-protocol hub. Refuse to replace a newer-protocol hub. */
-async function outOfStep(deps: EnsureDeps, miss: HubMiss): Promise<Ensured | null> {
+async function resolveProtocolMismatch(deps: EnsureDeps, miss: HubMiss): Promise<Ensured | null> {
   if (miss.why !== 'another-protocol') {
     return null;
   }
@@ -223,7 +220,7 @@ export function bundleIsNewer(home: string): boolean {
   return written !== null && bound !== null && bound < written;
 }
 
-/** Null for a file that is not there, and for one this process may not stat: neither says a hub is out of date. */
+/** Return null for missing or unreadable files; neither establishes bundle freshness. */
 function mtimeOf(path: string): number | null {
   try {
     return statSync(path).mtimeMs;

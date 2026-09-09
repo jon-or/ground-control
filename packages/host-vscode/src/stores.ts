@@ -5,14 +5,13 @@ import type { AgentPlacement } from './placements.js';
 import type { WindowStore } from './surface.js';
 
 /**
- * Loaded on demand, not at import. `node:sqlite` is still experimental, and this module is reached from the board's
- * own module graph — a top-level import that threw would cost the whole board rather than one refused click.
+ * Load experimental `node:sqlite` on demand so an import failure disables window discovery without preventing
+ * board startup.
  */
 let sqlite: typeof import('node:sqlite') | null = null;
 
 async function loadSqlite(): Promise<typeof import('node:sqlite') | null> {
-  // Retried rather than remembered as absent: caching one failed import would leave every session for the rest of
-  // the session reporting that no window is showing it, which is a false explanation rather than a missing read.
+  // Retry failed imports so a temporary failure does not disable discovery until restart.
   sqlite ??= await import('node:sqlite').catch(() => null);
 
   return sqlite;
@@ -21,8 +20,8 @@ async function loadSqlite(): Promise<typeof import('node:sqlite') | null> {
 const EDITOR_KEY = 'memento/workbench.parts.editor';
 
 /**
- * The `User` directory of the default VS Code install on this platform. The extension derives its own from its
- * storage path instead, which is where a portable or Insiders install differs; this is for a reader with no extension.
+ * Default VS Code user directory. The extension supplies its actual storage path for portable and Insiders
+ * installs.
  */
 export function defaultUserDir(): string {
   if (process.platform === 'win32') {
@@ -64,7 +63,7 @@ function readOne(
   const values = new Map<string, string>();
 
   try {
-    // The window that owns it holds it open, so it is copied and read from the copy rather than opened in place.
+    // Read a copy because VS Code holds the original database open.
     copyFileSync(database, scratch);
 
     const open = new DatabaseSync(scratch, { readOnly: true });
@@ -92,15 +91,12 @@ function readOne(
   };
 }
 
-/**
- * What was read last, keyed by directory. Re-read only when the database has been written since, which leaves one
- * `stat` per window in the steady state — most belong to windows closed weeks ago that will never change again.
- */
-const seen = new Map<string, { updatedAt: number; store: WindowStore }>();
+/** Cache stores by directory and mtime, requiring only a stat for unchanged databases. */
+const storeCache = new Map<string, { updatedAt: number; store: WindowStore }>();
 
 /**
- * Every VS Code window's persisted state (`docs/mechanics.md` M21), with the sidebar memento of every placed agent.
- * `userDir` is the running install's own `User` directory, which is where a portable or Insiders install differs.
+ * Read persisted window state and agent sidebar mementos (M21). Use the running installation's `User` directory
+ * for portable and Insiders support.
  */
 export async function readWindowStores(
   userDir: string,
@@ -114,8 +110,7 @@ export async function readWindowStores(
   }
 
   const root = join(userDir, 'workspaceStorage');
-  // Named for this process: the board runs in every window, and a shared scratch file has them overwriting each
-  // other's copy mid-read, which attributes one window's tabs to another window's root.
+  // Use a separate copy per process to prevent windows from overwriting each other's reads.
   const scratch = join(tmpdir(), `ground-control-window-store-${process.pid}.vscdb`);
 
   let dirs: string[];
@@ -140,25 +135,25 @@ export async function readWindowStores(
     }
 
     present.add(dir);
-    const cached = seen.get(dir);
+    const cached = storeCache.get(dir);
     const store = cached?.updatedAt === updatedAt ? cached.store : readOne(dir, scratch, sidebarKeys, loaded.DatabaseSync);
 
     if (store !== null) {
-      seen.set(dir, { updatedAt, store });
+      storeCache.set(dir, { updatedAt, store });
       stores.push(store);
     }
   }
 
-  for (const dir of seen.keys()) {
+  for (const dir of storeCache.keys()) {
     if (!present.has(dir)) {
-      seen.delete(dir);
+      storeCache.delete(dir);
     }
   }
 
   try {
     rmSync(scratch, { force: true });
   } catch {
-    /* the next read overwrites it anyway */
+    /* The next read overwrites the scratch file. */
   }
 
   return stores;

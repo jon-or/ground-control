@@ -1,5 +1,5 @@
-// Re-records every fixture in this directory from the live machine: `node test/fixtures/record.js`.
-// Run it when a CLI's output shape changes. Read the diff before committing — a fixture is evidence.
+// Record live roster and transcript fixtures with node test/fixtures/record.js after CLI format changes. Review
+// the diff before committing.
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -21,8 +21,8 @@ const claude = (args) => JSON.parse(execFileSync('claude', args, { encoding: 'ut
 const active = claude(['agents', '--json']);
 const all = claude(['agents', '--all', '--json']);
 
-// One `.git` and one `HEAD` per distinct checkout the live sessions are running in, plus the worktree gitdirs they
-// point at. A null value is a real read failure — a plain `.git` is a directory, so reading it as text fails.
+// Read .git and HEAD for each session checkout, including worktree gitdirs. A clone's .git directory returns
+// null from a text read.
 const reads = {};
 
 const record = (p) => {
@@ -42,18 +42,15 @@ for (const cwd of new Set(active.map((s) => s.cwd))) {
   record(path.join(gitdir ? path.resolve(cwd, gitdir) : dotGit, 'HEAD'));
 }
 
-// Everything below is written through `anonymise.js`: this repo is public, and a recording names real checkouts,
-// branches and a home directory. See README.md for what the anonymiser preserves.
+// Apply anonymise.js to every recording; see README.md for preserved structure.
 const dirs = fs.readdirSync(projectsRoot);
 
-// The same window the reader uses (`TITLE_TAIL_BYTES` in src/claude.ts). A test holds the two to each
-// other, so a recording made with a different window fails rather than quietly disagreeing with the reader.
+// Use the reader's TITLE_TAIL_BYTES limit; tests check recorder and reader agreement.
 const TITLE_TAIL_BYTES = 64 * 1024;
 
 /**
- * The title records in a transcript's last 64 kB bytes, in order, and how far from the end the last one of the
- * whole file sits. Only the records are kept: the conversation bytes around them name real work and cannot be
- * anonymised, so the test's fake rebuilds a tail from these.
+ * Record ordered title records from the final 64 kB and the last title's distance from EOF. Exclude
+ * conversation text; tests reconstruct synthetic tails.
  */
 function titlesIn(file) {
   const data = fs.readFileSync(file);

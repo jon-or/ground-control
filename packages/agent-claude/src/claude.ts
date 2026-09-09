@@ -36,15 +36,15 @@ const agentEntry = z.object({
   name: z.string().optional(),
   status: z.string().optional(),
   state: z.string().optional(),
-  /** Present only while the session is waiting, and names what for — `permission prompt` on the runs measured. */
+  /** Wait reason, observed as permission prompt. */
   waitingFor: z.string().optional(),
 });
 
 export type AgentEntry = z.infer<typeof agentEntry>;
 
 /**
- * A cwd's project-slug directory under ~/.claude/projects: every character that is not a letter or digit becomes
- * `-`, runs not collapsed. Measured with a probe directory; `docs/mechanics.md` M3 carries the evidence.
+ * Encode the cwd as a project slug by replacing each nonalphanumeric character with a hyphen, without
+ * collapsing repeats (M3).
  */
 export function projectSlug(cwd: string): string {
   return cwd.replace(/[^A-Za-z0-9]/g, '-');
@@ -60,15 +60,14 @@ interface TranscriptDeps {
 }
 
 /**
- * How much of a transcript's end is read to find its title — twice the measured worst in-reach case, which is the
- * margin a turn's writes can grow by before the title leaves the window. `docs/mechanics.md` M3b carries the
- * measurement and why no window catches every session. Exported so a fixture recording uses the same one.
+ * Transcript tail limit: twice the largest measured distance to an accessible title. Some sessions still have
+ * no title within this limit (M3b). Exported for fixture recording.
  */
 export const TITLE_TAIL_BYTES = 64 * 1024;
 
 /**
- * Every directory that could hold this session, exact case first: a project directory's case is fixed by whichever
- * path first created it, and the CLI reports one checkout under either drive-letter case (`docs/mechanics.md` M3).
+ * Try exact-case project slugs first, then case variants. The CLI can report drive-letter casing different from
+ * the directory created earlier (M3).
  */
 export function transcriptCandidates(home: string, cwd: string, sessionId: string, listDir: ListDir): string[] {
   const root = projectsRoot(home);
@@ -88,7 +87,7 @@ export function transcriptCandidates(home: string, cwd: string, sessionId: strin
 
 export interface Transcript {
   path: string;
-  /** Epoch milliseconds. Never liveness: a live session's transcript can be hours old, or absent entirely. */
+  /** Transcript mtime in epoch milliseconds; old or absent transcripts do not establish liveness. */
   writtenAt: number;
 }
 
@@ -118,16 +117,15 @@ const titleRecord = z.object({
 });
 
 /**
- * The session's title from the end of its transcript. A title the developer set outranks whatever came last, because
- * the CLI goes on writing its own after one is set (`docs/mechanics.md` M3b); a tail short of that record reads as
- * automatic.
+ * Prefer the latest manual title within the tail, then the latest automatic title. Claude continues writing
+ * automatic titles after a manual rename (M3b).
  */
 export function titleFrom(tail: string, sessionId: string): string | null {
   let automatic: string | null = null;
   let manual: string | null = null;
 
   for (const line of tail.split('\n')) {
-    // A conversation line rarely holds the word, and parsing 64 kB of one per session per refresh is the cost avoided.
+    // Skip JSON parsing for lines without title fields.
     if (!line.includes('title')) {
       continue;
     }
@@ -137,7 +135,7 @@ export function titleFrom(tail: string, sessionId: string): string | null {
     try {
       record = titleRecord.safeParse(JSON.parse(line));
     } catch {
-      // The first line of a tail is a fragment of whatever the read cut through.
+      // The tail may start with an incomplete JSON record.
       continue;
     }
 
@@ -168,10 +166,8 @@ function failure(kind: FailureKind, message: string, remedy: string): ReadFailur
 const PATH_SETTING = `the "${CLAUDE_AGENT_ID}" entry in groundControl.agents`;
 
 /**
- * The words only Claude reports. `id` is its short id, given to `--bg` sessions and not to interactive ones; `kind`
- * and `status` are the `--bg` shape. `state` is the board's reading of it rather than the raw word, because the raw
- * one misreports what a run is doing — see `reportedState`. Undefined ones are left out, so a reader can tell
- * absent from empty.
+ * Agent-specific details: short background ID, kind, status, and normalized state. Omit undefined fields to
+ * preserve absence.
  */
 function detailsOf(entry: AgentEntry): Record<string, string> {
   const details: Record<string, string> = { kind: entry.kind };
@@ -192,10 +188,8 @@ function detailsOf(entry: AgentEntry): Record<string, string> {
 }
 
 /**
- * What a session is doing, in the words the board already uses for a phase. The CLI's vocabulary is a fourth set for
- * the same three states — `blocked` is a session whose own state is `needs_reply` or `needs_approval`
- * (`docs/mechanics.md` M33), which is what the board calls waiting. A word this does not know is carried through
- * rather than guessed at, and what a waiting session is waiting for outranks the tempo.
+ * Normalize CLI states to board phases; preserve unknown values. needs_reply and needs_approval mean waiting
+ * (M33), with the wait reason taking precedence over tempo.
  */
 export function reportedState(entry: AgentEntry): string | undefined {
   if (entry.waitingFor !== undefined) {
@@ -215,7 +209,7 @@ export function reportedState(entry: AgentEntry): string | undefined {
   }
 }
 
-/** The states the CLI reports for a background session that has stopped. Anything else is a session still in play. */
+/** CLI terminal states for background sessions. */
 const FINISHED_STATES = new Set(['done', 'stopped']);
 
 function toSession(entry: AgentEntry, deps: MachineDeps): Session {
@@ -235,20 +229,17 @@ function toSession(entry: AgentEntry, deps: MachineDeps): Session {
     issueNumber: link.issueNumber,
     transcriptWrittenAt: transcript?.writtenAt ?? null,
     activity: readActivity(deps.home, entry.sessionId, deps.readText),
-    // `status: "idle"` is not this: an interactive session is idle whenever nobody is typing, and an exited one is
-    // never listed at all, so only the CLI's own end word counts (R24).
+    // Idle is not terminal for interactive sessions. Only explicit CLI terminal states mark completion (R24).
     finished: entry.state !== undefined && FINISHED_STATES.has(entry.state),
-    // Only a live `--bg` session has one, and only a `--bg` session needs one: nothing an editor window holds is
-    // reached this way, and `claude attach` answers `No job matching` for one that has ended (M33).
+    // Only live background sessions support attach; ended sessions return No job matching (M33).
     attachId: entry.kind === 'background' && !FINISHED_STATES.has(entry.state ?? '') ? (entry.id ?? null) : null,
     details: detailsOf(entry),
   };
 }
 
 /**
- * A session that has never been prompted — an editor tab opened and left alone. The CLI creates the transcript at the
- * first user turn, not at process start (`docs/mechanics.md` M3), the one hook that fires before a turn claims no phase,
- * and a background session reports its own status: three independent signals, all silent only for work that never began.
+ * Identify unprompted editor sessions by absent transcript, activity phase, and background status. Claude
+ * creates transcripts at the first user turn (M3).
  */
 export function neverPrompted(session: Session, entry: AgentEntry): boolean {
   return (
@@ -259,17 +250,14 @@ export function neverPrompted(session: Session, entry: AgentEntry): boolean {
   );
 }
 
-/**
- * The transport is the adapter's own, so a test supplies a recorded one without the interface knowing. Two of them,
- * because a roster read parses JSON and a dispatch reads what `--bg` prints, which is prose (`mechanics.md` M33).
- */
+/** Inject separate transports for JSON roster reads and text --bg output (M33). */
 export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText = runTextCli): AgentAdapter {
   return {
     id: CLAUDE_AGENT_ID,
     displayName: CLAUDE_DISPLAY_NAME,
     defaultPath: 'claude',
-    // Not detected, unlike Codex: the board keeps its own home under `~/.claude`, so that directory existing is no
-    // evidence at all, and a board that polled no agent would have nothing to show.
+    // The board creates ~/.claude itself, so that directory cannot establish Claude installation. Keep Claude
+    // enabled by default.
     enabledByDefault: () => true,
     activity: claudeActivity,
     classify: makeClaudeClassifier(run),
@@ -278,10 +266,7 @@ export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText 
     listHistory: makeHistoryReader(),
     canResume: (session, deps) => deps.listDir(session.cwd) !== null && findTranscript(deps.home, session.cwd, session.sessionId, deps) !== null,
 
-    /**
-     * `--all` is deliberately not passed: it also returns exited background sessions, and R2 asks for the active
-     * ones while R9 says finished work leaves the board.
-     */
+    /** Omit --all to exclude exited background sessions (R2, R9). */
     async listSessions(path: string, deps: MachineDeps): Promise<AgentReading> {
       const outcome = await run(path, ['agents', '--json']);
 

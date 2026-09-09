@@ -1,6 +1,6 @@
 import type { ActionPlan } from './plan.js';
 
-/** What a dispatched session is told, and where it may report back. Its keys are the whole roster `fillTemplate` fills. */
+/** Supported action prompt placeholders, including the result-file path. */
 export type PromptValues = {
   issue: string;
   repo: string;
@@ -23,10 +23,7 @@ export function promptValues(plan: ActionPlan, resultPath: string): PromptValues
   };
 }
 
-/**
- * What the session is called, which is how the developer tells a run the board started from one they started
- * themselves. The issue number is in it because a board of ten cards is ten names in the same list.
- */
+/** Display name identifying the board-started action and issue. */
 export function dispatchName(plan: ActionPlan): string {
   return `ground-control · ${plan.action} · #${plan.issueNumber}`;
 }

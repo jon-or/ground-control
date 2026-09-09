@@ -16,8 +16,8 @@ import { startBridge } from './bridgeMain.js';
 import { VERSION } from './version.js';
 
 /**
- * The hub as its own process. Every decision below this line is in `@ground-control/hub`; this reads the arguments,
- * picks a mode, and reports what happened on the way out.
+ * Hub entry point: parse arguments, select a mode, and report its result. Business logic belongs in
+ * `@ground-control/hub`.
  */
 function flag(argv: readonly string[], name: string): string | null {
   const match = argv.find((argument) => argument === `--${name}` || argument.startsWith(`--${name}=`));
@@ -40,8 +40,8 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
-  // Chrome starts this mode through the wrapper the registration wrote, and closes stdin when the last board tab
-  // goes. It holds the loop open itself, so nothing here reports on the way out.
+  // Chrome starts the registered wrapper and closes stdin when the last board tab closes. The bridge keeps the
+  // event loop open.
   if (flag(argv, 'native-messaging') !== null) {
     startBridge(home);
 
@@ -72,12 +72,12 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
-  // A short one is how a test drives the idle rule, and how a developer checks it without waiting half an hour.
+  // Allow short idle intervals for tests and manual checks.
   const idle = Number(flag(argv, 'idle-ms'));
   const result = await serveHub({
     home,
     version: VERSION,
-    // Positive, not merely present: `NaN` reaches the idle rule as a comparison that is never true and a 1 ms timer.
+    // Reject nonpositive values and NaN, which would prevent idle shutdown and create a 1 ms timer.
     ...(idle > 0 ? { idleMs: idle } : {}),
   });
 
@@ -89,22 +89,22 @@ async function main(argv: readonly string[]): Promise<number> {
 
   process.stdout.write(`Ground Control hub listening on 127.0.0.1:${result.served.port}.\n`);
 
-  // Neither reaches a process without a console on Windows (mechanics M25); they are here for a foreground run.
+  // These signals support foreground runs; Windows processes without a console do not receive them (M25).
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => void result.served.stop(`received ${signal}`).then(() => process.exit(0)));
   }
 
-  crashesInto = result.served.log;
+  errorLog = result.served.log;
 
   return -1;
 }
 
-/** Set once the hub is serving, so a crash lands in `hub.log` beside the rest of its story rather than only on stderr. */
-let crashesInto: Logger = makeLogger({ write: () => {} });
+/** Use the hub logger after startup so crashes are recorded in `hub.log` as well as stderr. */
+let errorLog: Logger = makeLogger({ write: () => {} });
 
-function report(what: string, error: unknown): void {
-  crashesInto.error(`${what}: ${String(error)}`);
-  process.stderr.write(`${what}: ${String(error)}\n`);
+function report(context: string, error: unknown): void {
+  errorLog.error(`${context}: ${String(error)}`);
+  process.stderr.write(`${context}: ${String(error)}\n`);
 }
 
 process.on('uncaughtException', (error) => {
@@ -112,21 +112,21 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-// Reported and survived rather than fatal: a rejected write under a Windows file lock is not a reason to take a
-// developer's tracking down, and an exit here skips `stop()`, so it would leave a stale reason behind as well.
+// Log rejected promises without exiting. Windows file locks can reject writes; exiting would also skip `stop()`
+// cleanup.
 process.on('unhandledRejection', (error) => report('unhandledRejection', error));
 
-// Not top-level await: this file is bundled to CommonJS to be carried inside a client, which has no such thing.
+// The client bundles this entry point as CommonJS, which does not support top-level await.
 void main(process.argv.slice(2))
   .then((code) => {
-    // -1 means the caller is holding the loop open — the server, or the bridge. Anything else has finished.
+    // -1 keeps the server or bridge running. Other codes indicate completion.
     if (code >= 0) {
       process.exit(code);
     }
   })
   .catch((error: unknown) => {
-    // Non-zero, and said on stderr: a mode that threw and exited 0 reads to its caller as a mode that worked, and
-    // the caller here is a menu item telling the developer their browser can now reach the board (R34).
+    // Report command failures on stderr and exit nonzero so clients do not report a successful installation
+    // (R34).
     report('Hub command failed', error);
     process.exit(1);
   });

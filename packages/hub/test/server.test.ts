@@ -56,7 +56,7 @@ function fakeHub() {
   };
 }
 
-/** A clock whose heartbeat only ticks when a test says so, and which records the cadence it was asked for. */
+/** Inject heartbeat ticks and record the requested interval. */
 function fakeClock(): ServerClock & { beat(): void; cadence: number } {
   let fn: (() => void) | undefined;
 
@@ -77,7 +77,7 @@ function fakeClock(): ServerClock & { beat(): void; cadence: number } {
   return clock;
 }
 
-/** Waits for a thing to become true rather than for a duration, so nothing here turns red on a loaded machine. */
+/** Wait for a condition instead of relying on timing under load. */
 async function until(what: () => boolean, within = 2000): Promise<void> {
   const deadline = Date.now() + within;
 
@@ -215,7 +215,7 @@ async function serving(clock?: ServerClock) {
 }
 
 describe('what the hub answers over loopback', () => {
-  it('says what it is without a token, and says nothing else', async () => {
+  it('serves identity without a token or additional data', async () => {
     const { server } = await serving();
 
     const answer = await call(server, { path: '/hub', token: null });
@@ -226,11 +226,8 @@ describe('what the hub answers over loopback', () => {
     expect(answer.headers['cache-control']).toBe('no-store');
   });
 
-  /**
-   * The one read that is not the snapshot: the resident half polls it while it carries out an open route, and a
-   * roster served without a token would tell any local process every cwd and branch on the machine.
-   */
-  it('hands the roster to a client with the token, and to nobody without one', async () => {
+  /** Require authentication for roster reads, which expose checkout and branch data. */
+  it('authenticates roster requests', async () => {
     const { hub, server } = await serving();
 
     hub.listing.push({
@@ -261,7 +258,7 @@ describe('what the hub answers over loopback', () => {
     expect((await call(server, { path: '/roster', method: 'DELETE' })).status).toBe(405);
   });
 
-  it('hands the snapshot to a client with the token', async () => {
+  it('serves snapshots to authenticated clients', async () => {
     const { server } = await serving();
 
     const answer = await call(server, { path: '/snapshot' });
@@ -282,7 +279,7 @@ describe('what the hub answers over loopback', () => {
 
 describe('what the hub refuses outright', () => {
   /** A page on any site can reach loopback, and `configure` carries paths the hub will spawn. */
-  it('answers nothing that carries an Origin, token or not', async () => {
+  it('rejects Origin headers regardless of token', async () => {
     const { server } = await serving();
 
     const withToken = await call(server, { path: '/snapshot', headers: { Origin: 'https://github.com' } });
@@ -293,7 +290,7 @@ describe('what the hub refuses outright', () => {
     expect(identity.body).not.toContain('ground-control');
   });
 
-  it('answers only on its own loopback address', async () => {
+  it('accepts only the bound loopback address', async () => {
     const { server } = await serving();
 
     const answer = await call(server, { path: '/snapshot', headers: { Host: 'evil.example.com' } });
@@ -338,7 +335,7 @@ describe('what the hub refuses outright', () => {
     expect(answer.headers.connection).toBe('close');
   });
 
-  /** A chunked body declares nothing, so the cap is the read itself and the connection is what goes. */
+  /** Enforce the byte limit during chunked-body reads and close oversized connections. */
   it('drops a body that runs past the cap without declaring it', async () => {
     const { server, hub } = await serving();
 
@@ -368,7 +365,7 @@ describe('what the hub refuses outright', () => {
     expect(hub.received).toEqual([]);
   });
 
-  /** A proxy-style target carries its own host, and the `Host` check below it would read whatever it declared. */
+  /** Reject proxy-form targets independently of the Host header. */
   it('refuses a request target that is not a path', async () => {
     const { server } = await serving();
 
@@ -415,7 +412,7 @@ describe('what the hub refuses outright', () => {
 
     expect(answer.status).toBe(503);
 
-    // One of the eight reconnecting is not a ninth, and must not be turned away by its own open stream.
+    // Replacing a client stream must not consume another slot.
     const again = await stream(server, 'client-0');
 
     await until(() => again.frames.length > 0);
@@ -431,7 +428,7 @@ describe('what the hub refuses outright', () => {
 });
 
 describe('a client on the wire', () => {
-  it('connects with a hello over its own stream, and gets what the hub sends it', async () => {
+  it('registers clients on their stream and sends hub messages', async () => {
     const { server, hub } = await serving();
 
     const events = await stream(server, 'board-1');
@@ -445,7 +442,7 @@ describe('a client on the wire', () => {
     expect(JSON.parse((await frame).split('data: ')[1] ?? '{}')).toEqual({ type: 'changed', snapshot: SNAPSHOT });
   });
 
-  it('refuses an action from a client that has not said hello, and a hello for another client', async () => {
+  it('rejects unregistered actions and mismatched hello IDs', async () => {
     const { server, hub } = await serving();
 
     expect((await post(server, '/actions?client=board-1', { type: 'refresh' })).status).toBe(409);
@@ -468,8 +465,8 @@ describe('a client on the wire', () => {
     expect(server.clients()).toBe(1);
   });
 
-  /** A window that closed is a client the hub must stop counting, or nothing is ever idle (R35). */
-  it('disconnects a client whose stream goes away', async () => {
+  /** Stop counting disconnected clients so idle shutdown can run (R35). */
+  it('disconnects clients when their stream closes', async () => {
     const { server, hub } = await serving();
 
     const events = await stream(server, 'board-1');
@@ -485,7 +482,7 @@ describe('a client on the wire', () => {
     expect(server.emptySince()).not.toBeNull();
   });
 
-  it('sends the snapshot down the stream the hub hands it to', async () => {
+  it('delivers snapshots through the registered stream', async () => {
     const { server, hub } = await serving();
 
     const events = await stream(server, 'board-1');
@@ -533,7 +530,7 @@ describe('a client on the wire', () => {
     expect(first.frames).toEqual([': open']);
   });
 
-  /** A board saying hello twice has changed what it is, not reconnected: what that means is the hub's to decide. */
+  /** Pass repeated hello updates to the hub without treating them as reconnects. */
   it('forwards a second hello rather than connecting twice', async () => {
     const { server, hub } = await serving();
 
@@ -554,13 +551,9 @@ describe('a client on the wire', () => {
   });
 });
 
-/**
- * A refused client is told a status and nothing more, and the three refusals that come before any route look from
- * there exactly like a port something else has taken. The hub is the only thing that can say what it objected to,
- * so a board that cannot reach the hub it can see leaves evidence in one place rather than none.
- */
+/** Return only status to rejected clients; record detailed refusal diagnostics in the hub log. */
 describe('what a refusal leaves behind', () => {
-  it('writes down the Origin it turned away, and says nothing of it in the answer', async () => {
+  it('logs rejected Origins without disclosing them in responses', async () => {
     const { server, logged } = await serving();
 
     const answer = await call(server, { path: '/hub', token: null, headers: { Origin: 'https://github.com' } });
@@ -579,7 +572,7 @@ describe('what a refusal leaves behind', () => {
     expect(logged).toEqual([`refused GET /hub: a Host of evil.example, not 127.0.0.1:${server.port}`]);
   });
 
-  /** A proxy-form target: the only refusal whose reason is the message itself, because the target is already logged. */
+  /** The proxy target is already logged, so the reason need not repeat it. */
   it('writes down a target it will not read', async () => {
     const { server, logged } = await serving();
 
@@ -589,12 +582,8 @@ describe('what a refusal leaves behind', () => {
     expect(logged).toEqual(['refused GET http://somewhere.else/hub: Unsupported request target.']);
   });
 
-  /**
-   * Any page the developer visits can make the hub refuse it, so what a refusal writes is rationed and clipped.
-   * Unbounded, a background tab is a file that grows without limit and a synchronous write per request on the
-   * hub's own loop.
-   */
-  it('stops writing them down once a minute has had its fill, and says so once', async () => {
+  /** Bound untrusted refusal text and log frequency to limit file growth and synchronous writes. */
+  it('limits refusal logs per minute and reports suppression once', async () => {
     const { server, logged } = await serving();
 
     for (let n = 0; n < REFUSALS_PER_MINUTE + 4; n++) {
@@ -619,7 +608,7 @@ describe('what a refusal leaves behind', () => {
   });
 
   /** A request that was answered is not a refusal, and a log that carried those would bury the ones that matter. */
-  it('writes down nothing for a request it answers', async () => {
+  it('does not log accepted requests as refusals', async () => {
     const { server, logged } = await serving();
 
     await call(server, { path: '/hub', token: null });

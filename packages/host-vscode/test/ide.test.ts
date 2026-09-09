@@ -32,13 +32,13 @@ describe('ideWindowsFrom', () => {
     expect(ideWindowsFrom([lock(11201, ['d:\\git\\orez'])])).toEqual([{ port: 11201, folders: ['d:\\git\\orez'] }]);
   });
 
-  it('keeps every folder of a multi-root window, which announces them one by one', () => {
+  it('preserves every folder in a multi-root window', () => {
     const folders = ['d:\\git\\tier3', 'd:\\git\\orez.wiki', 'd:\\git\\orez'];
 
     expect(ideWindowsFrom([lock(49241, folders)])[0]?.folders).toEqual(folders);
   });
 
-  it('keeps a window with no folder open, which is still a window', () => {
+  it('preserves windows without open folders', () => {
     expect(ideWindowsFrom([lock(22365, [])])).toEqual([{ port: 22365, folders: [] }]);
   });
 
@@ -76,15 +76,14 @@ describe('liveRootsOf', () => {
     expect(liveRootsOf(windows)).toEqual(['d:/git/orez']);
   });
 
-  it('names nothing when no window is open, which is what refuses a stale surface', () => {
+  it('returns no roots when no windows are open', () => {
     expect(liveRootsOf([])).toEqual([]);
   });
 });
 
 /**
- * One window's worth of the real shape: a session process under its window's extension host, that host listening on
- * the window's own lock port, and — the trap — on a debug inspector port as well. The window every test below expects
- * is deliberately not the first, so returning whichever came to hand fails.
+ * Include a session parent listening on both a lock port and a debug port. Place the expected window second to
+ * reject arbitrary first-match selection.
  */
 const WINDOWS = ideWindowsFrom([lock(24477, ['d:\\git\\tier3']), lock(18634, ['d:\\git\\orez'])]);
 const PROCESSES = [
@@ -112,16 +111,16 @@ describe('windowForProcess', () => {
     expect(windowForProcess(24320, PROCESSES, LISTENING, WINDOWS)?.folders).toEqual(['d:\\git\\orez']);
   });
 
-  it('names no window for a session whose parent is not one, which is a terminal or a shared agent host', () => {
+  it('returns no window for sessions outside extension hosts', () => {
     expect(windowForProcess(40040, PROCESSES, LISTENING, WINDOWS)).toBeNull();
   });
 
-  it('names no window for a process nothing reported, rather than guessing at one', () => {
+  it('returns no window for unknown processes', () => {
     expect(windowForProcess(99999, PROCESSES, LISTENING, WINDOWS)).toBeNull();
     expect(windowForProcess(null, PROCESSES, LISTENING, WINDOWS)).toBeNull();
   });
 
-  it('names no window when the machine would not answer, so routing falls back rather than refusing', () => {
+  it('allows routing fallback after process lookup failure', () => {
     expect(windowForProcess(24320, [], [], WINDOWS)).toBeNull();
   });
 });
@@ -137,7 +136,7 @@ describe('liveWindows', () => {
     expect(liveWindows([...WINDOWS, ...stale], LISTENING).map((window) => window.port)).not.toContain(22365);
   });
 
-  it('drops every window when nothing could be read, which refuses rather than aiming blind', () => {
+  it('returns no windows when listener lookup fails', () => {
     expect(liveWindows(WINDOWS, [])).toEqual([]);
   });
 });
@@ -168,23 +167,20 @@ describe('listeningFrom', () => {
     expect(listeningFrom(NETSTAT)).toContainEqual({ port: 18634, owningPid: 70332 });
   });
 
-  it('reads an IPv6 listener, whose address carries colons of its own', () => {
+  it('parses IPv6 listeners', () => {
     expect(listeningFrom(NETSTAT)).toContainEqual({ port: 80, owningPid: 4 });
   });
 
-  /**
-   * The pid is taken from the end of the row rather than by column, because a state written in two words shifts it —
-   * reading the fifth field would leave every window on such a machine looking closed.
-   */
+  /** Read the final field because localized states can contain multiple words. */
   it('reads the owning pid where the state is more than one word', () => {
     expect(listeningFrom(NETSTAT_IT)).toEqual([{ port: 18634, owningPid: 70332 }]);
   });
 
-  it('leaves out an established connection, which is not something listening', () => {
+  it('excludes established connections', () => {
     expect(listeningFrom(NETSTAT).some((entry) => entry.port === 443)).toBe(false);
   });
 
-  /** A foreign address of its own, so the protocol is the only thing that can leave this row out. */
+  /** This UDP row also has a foreign address; exclude it by protocol. */
   it('leaves out UDP, which holds no port a window could be reached on', () => {
     const udp = '  UDP    0.0.0.0:500            0.0.0.0:0              LISTENING       3168';
 
@@ -205,10 +201,7 @@ describe('processQuery', () => {
     expect(query.match(/Get-CimInstance/g)).toHaveLength(1);
   });
 
-  /**
-   * The table is read to join a session's pid to a window, so an agent left out of the question is an agent whose
-   * sessions are never found in one — which is the whole of what a refusal for a running Codex thread was.
-   */
+  /** Query every configured agent executable so process ancestry can locate each agent's windows. */
   it('asks about every placed agent, not only the first one placed', () => {
     expect(processNames(PLACEMENTS)).toEqual(['claude.exe', 'codex.exe']);
   });
@@ -235,7 +228,7 @@ describe('processesFrom', () => {
     expect(processesFrom('Get-CimInstance : Access denied')).toEqual([]);
   });
 
-  it('drops a row missing either half of the link, keeping the rows that carry both', () => {
+  it('excludes rows without both process and parent IDs', () => {
     const stdout = '[{"ProcessId":24320},{"ParentProcessId":9172},{"ProcessId":1,"ParentProcessId":2}]';
 
     expect(processesFrom(stdout)).toEqual([{ pid: 1, parentPid: 2 }]);

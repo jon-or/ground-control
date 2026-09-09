@@ -10,16 +10,10 @@ export type StatMtime = (path: string) => number | null;
 /** Directory entry names, or null when the path is not a readable directory. */
 export type ListDir = (path: string) => string[] | null;
 
-/**
- * The last `bytes` bytes of a file as text, or null when it cannot be read. A transcript runs to megabytes and the
- * board re-reads it every 30 s, so a reader takes the end of one rather than the whole.
- */
+/** Read the last bytes of a file as text, or null on failure. Bounds recurring reads of large transcripts. */
 export type ReadTail = (path: string, bytes: number) => string | null;
 
-/**
- * The machine as an adapter reads it, injected so every package stays headless and testable. Notably absent: any way
- * of talking to a CLI. How an adapter reaches its own CLI is its own business, so two adapters can diverge freely.
- */
+/** Injected filesystem and clock readers. Each adapter handles its own CLI transport. */
 export interface MachineReaders {
   readText: ReadText;
   mtime: StatMtime;
@@ -61,7 +55,7 @@ export const listDirFromDisk: ListDir = (path) => {
   }
 };
 
-/** One positional read of a file's end. A whole-file read of a multi-megabyte transcript is what this replaces. */
+/** Read a bounded tail without loading the full transcript. */
 function readSlice(path: string, bytes: number, tail: boolean): string | null {
   let file: number | null = null;
 
@@ -94,7 +88,7 @@ function readSlice(path: string, bytes: number, tail: boolean): string | null {
 export const readTailFromDisk: ReadTail = (path, bytes) => readSlice(path, bytes, true);
 export const readHeadFromDisk: ReadTail = (path, bytes) => readSlice(path, bytes, false);
 
-/** The real machine, which is what every caller outside a test hands an adapter. */
+/** Production filesystem and clock readers. */
 export function diskReaders(home: string = homedir()): MachineReaders {
   return { readText: readTextFromDisk, mtime: mtimeFromDisk, listDir: listDirFromDisk, readTail: readTailFromDisk, readHead: readHeadFromDisk, home };
 }

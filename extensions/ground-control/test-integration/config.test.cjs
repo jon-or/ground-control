@@ -65,13 +65,9 @@ describe('what this window pushes to the hub', () => {
     await settings().update('actions.merge-upstream.prompt', undefined, vscode.ConfigurationTarget.Global);
   });
 
-  /**
-   * The settings this window reads have to arrive shaped the way the hub takes them. Every field of the `vscode`
-   * host's own settings was once handed over as a host id, and the board said it could not reach into "userDir".
-   */
+  /** Verify the host configuration structure reaches the hub without treating setting fields as host IDs. */
   it('is taken whole, with nothing in it read as a target the board cannot reach', async () => {
-    // A snapshot that proves this window's settings arrived, not merely the first one to turn up: the hub carries
-    // no repository of its own, so anything but a refusal of the GitHub settings is a read made with this window's.
+    // Wait for evidence that the window configuration reached the hub, not merely its first snapshot.
     const { failures } = await untilSnapshot(
       (s) => s.failures.some((f) => f.subject === 'github' && f.kind !== 'bad-config'),
       'no snapshot carrying this window\'s settings ever arrived',
@@ -84,10 +80,7 @@ describe('what this window pushes to the hub', () => {
     );
   });
 
-  /**
-   * The two id lists are the whole of how a target is added or removed, so a typo in one has to arrive at the hub
-   * as something the developer can read — a host that quietly reaches nothing looks like a board that is broken.
-   */
+  /** Unknown host and source IDs must produce named failures in hub state. */
   it('carries an editor id the board does not know through to the lanes', async () => {
     await settings().update('hosts', ['not-an-editor'], vscode.ConfigurationTarget.Global);
 
@@ -121,9 +114,8 @@ describe('what this window pushes to the hub', () => {
   });
 
   /**
-   * R34's "without a reload": the configuration listener is the one path a change takes to the hub, and it has to
-   * carry a setting being put back as well as a setting being made wrong. Only the second direction proves the
-   * listener is still live after the first — a listener that fired once and died passes half of this.
+   * Verify configuration changes and restoration without reload; both directions establish that the listener
+   * remains active (R34).
    */
   it('reaches the hub when a setting changes, and again when it is changed back', async () => {
     const named = (s) => s.failures.some((f) => f.kind === 'bad-config' && f.message.includes('agents'));
@@ -136,9 +128,8 @@ describe('what this window pushes to the hub', () => {
   });
 
   /**
-   * R34 for the one setting a developer has to write by hand. `update` refuses a key the schema does not declare,
-   * so this fails the moment the pair stops being two flat settings the settings editor can render — which is the
-   * whole of what makes them editable anywhere but settings.json (`docs/mechanics.md` M50).
+   * Update the declared flat action keys through VS Code; undeclared or nested replacements must fail (R34,
+   * mechanics M50).
    */
   it('carries the merge-upstream action from the two keys the settings editor writes', async () => {
     const prompt = '/or-merge {base} {branch} {issue} --single';
@@ -162,20 +153,15 @@ describe('what this window pushes to the hub', () => {
   });
 });
 
-/**
- * What a card needs before it can be given a session (R42). Both halves cross the `vscode` boundary and so are
- * reachable nowhere else: `readHubConfig` reads the setting out of the workspace configuration, and `startable`
- * is the host adapter's own answer, finished per client and read back off this window's snapshot.
- */
+/** Verify session-start settings and per-client capabilities across the real VS Code boundary (R42). */
 describe('what this window is told about starting a session on a card', () => {
   afterEach(async () => {
     await settings().update('newSession.prompt', undefined, vscode.ConfigurationTarget.Global);
   });
 
   /**
-   * Read back out of the hub's own `config.json`, which is the only place the prompt is observable: it reaches a
-   * session rather than a snapshot, and this run has no cards to start one on. A value the schema stripped or the
-   * window never sent reads as the shipped empty string.
+   * Read persisted hub configuration because the start prompt is absent from snapshots and this fixture has no
+   * cards.
    */
   it('carries the new-session prompt to the hub with its placeholders intact', async () => {
     const PROMPT = 'Work on #{issue} in {checkout}.';
@@ -186,9 +172,8 @@ describe('what this window is told about starting a session on a card', () => {
   });
 
   /**
-   * What only a real host settles: that this window's hello declares `start-session` among the routes it can
-   * perform, and that the hub answers it from the real `vscode` adapter. Which agents the table holds, and in what
-   * order, is pinned in `packages/host-vscode`.
+   * Verify the window announces start-session and receives capabilities from the real host adapter. Package
+   * tests cover agent ordering.
    */
   it('is offered a start for the agent it places, rather than the empty list a browser gets', async () => {
     const { startable } = await untilSnapshot(

@@ -12,13 +12,10 @@ import { boardLog } from './logging.js';
 
 export const VIEW_TYPE = 'groundControl.board';
 
-/**
- * Where the Archived toggle is kept. The webview's own state dies with the tab, and the choice is the developer's
- * standing one - a board opened tomorrow draws the lane it was left drawing.
- */
+/** Persist archive visibility beyond the lifetime of the webview tab. */
 export const SHOW_ARCHIVED_KEY = 'groundControl.showArchived';
 
-/** Long enough for a first render on a cold extension host, short enough that nobody sits looking at nothing. */
+/** Allow a cold extension host to render before reporting script-start failure. */
 const BLANK_AFTER_MS = 10_000;
 
 /** What the webview drew, which is the only report that its script ran at all. */
@@ -31,8 +28,7 @@ export interface Drawn {
 
 type Inbound =
   | ({ type: 'drew' } & Drawn)
-  // Posted once per run of the board script. The only signal a webview has reloaded: the panel is not told, no
-  // visibility changes, and the button would otherwise sit reading off while this window was streaming.
+  // The ready message detects webview reloads that do not change panel visibility; resend control state.
   | { type: 'ready' }
   | { type: 'refresh' }
   | { type: 'openIssue'; number: number }
@@ -53,11 +49,7 @@ type Inbound =
   | { type: 'setShowArchived'; shown: boolean };
 
 
-/**
- * What the editor tab is called, so two open at once are told apart: the issue where there is one, the checkout's
- * own directory where there is not. A card whose sessions are spread over more than one checkout names the one
- * that was picked, because which of them the diff came from is otherwise invisible.
- */
+/** Name diff tabs by issue or checkout directory. Include the selected directory when sessions span checkouts. */
 function cardLabel(card: { issueNumber: number | null; issue: { title: string } | null }, checkout: CardCheckout): string {
   const named =
     card.issueNumber === null
@@ -74,8 +66,8 @@ function nonce(): string {
 }
 
 /**
- * The board, as a client. It renders what the hub sends, forwards what the developer does, and carries out the
- * routes only something inside this window can perform. Every decision about what is on the board is the hub's.
+ * Render hub state, forward user actions, and execute operations requiring this VS Code window. Board
+ * decisions remain in the hub.
  */
 export class BoardPanel {
   static current: BoardPanel | undefined;
@@ -143,8 +135,7 @@ export class BoardPanel {
 
     this.#panel.onDidChangeViewState(
       () => {
-        // The event also fires when the tab merely gains or loses focus. Only a change of visibility is acted on:
-        // telling the hub twice per focus toggle would restart its timers and its periodic read would never fire.
+        // Ignore focus-only events; resetting hub timers on each focus change would prevent periodic reads.
         if (this.#panel.visible === this.#visible) {
           return;
         }
@@ -179,8 +170,7 @@ export class BoardPanel {
 
     const known = this.#client.snapshot;
 
-    // What the window already knows, before the read this board's arrival triggers lands. A board opened second in
-    // a long-running window would sit on its loading line for a whole refresh interval otherwise.
+    // Render the cached snapshot immediately while the initial refresh is pending.
     if (known) {
       this.#render(known);
     }
@@ -269,8 +259,7 @@ export class BoardPanel {
 
         return;
 
-      // The agent's own extension, not Claude's: a start fires that agent's command, so it is that extension the
-      // window has to have. Read on the click for the reason `openSession`'s is.
+      // Check the selected agent extension on click because it may activate while the board is open.
       case 'startSession':
         void agentExtensionReady(msg.agent).then((extensionReady) =>
           this.#tell({ type: 'startSession', key: msg.key, agent: msg.agent, extensionReady }),
@@ -289,8 +278,7 @@ export class BoardPanel {
 
         return;
 
-      // Scoped to this extension's own settings: the board's are spread over a dozen keys under one prefix, and a
-      // developer landing in the whole settings tree has to find them.
+      // Filter settings to the Ground Control prefix.
       case 'openSettings':
         void vscode.commands.executeCommand('workbench.action.openSettings', '@ext:groundcontrol.ground-control');
 
@@ -303,7 +291,7 @@ export class BoardPanel {
     }
   }
 
-  /** What the webview last reported drawing. A board that never draws leaves this null, which is the only tell. */
+  /** Last rendered-DOM report; null until the webview reports. */
   get drew(): Drawn | null {
     return this.#drew;
   }
@@ -341,7 +329,7 @@ export class BoardPanel {
     this.#tell({ type: 'open', sessionId, extensionReady });
   }
 
-  /** The row's own door into a run, which `attachTo` owns so a click in the browser does exactly the same thing. */
+  /** Share attachTo with the browser URI handler. */
   #attach(sessionId: string): void {
     const session = sessionOf(this.#last, sessionId);
 
@@ -370,11 +358,7 @@ export class BoardPanel {
     await vscode.commands.executeCommand(OPEN_CHANGES, checkout.root, cardLabel(card, checkout), key);
   }
 
-  /**
-   * The folder the developer says this card's work happens in. Picked here rather than typed anywhere: a path is
-   * the one thing no board may name on its own, and the hub refuses one that is not a checkout of the card's
-   * repository — so the picker supplies the gesture and the hub supplies the check.
-   */
+  /** Let the developer select a checkout; the hub validates that it belongs to the issue repository. */
   async #chooseCheckout(key: string): Promise<void> {
     const card = this.#last?.lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
 
@@ -421,12 +405,12 @@ export class BoardPanel {
   }
 
   /**
-   * The one question the hub cannot ask, because it has no screen. Asked once per board, in place, seeded with
-   * whatever the CLI already knew (R26, R28); the answer is a setting, which reaches the hub as a configuration.
+   * Prompt once per board for GitHub identities, prefilled from CLI accounts. Save the answer in hub
+   * configuration (R26, R28).
    */
   async #askForLogins(snapshot: Snapshot): Promise<void> {
-    // Armed by the hub no longer needing them, never by the answer itself: a broadcast can carry a `needs` older
-    // than the answer, and re-arming on the answer reopens the box on a developer who has just filled it in (R26).
+    // Allow another prompt only after the hub clears its identity request; an older needs broadcast may
+    // arrive after the answer (R26).
     if (snapshot.needs === null) {
       this.#promptDismissed = false;
 
@@ -498,8 +482,8 @@ export class BoardPanel {
       BoardPanel.current = undefined;
     }
 
-    // The connection outlives the board: this window stays a client so a setting still reaches the hub with no
-    // board open (R34). What ends with the board is the watching, and so the polling (R35).
+    // Keep the window connected for settings updates (R34); closing the board stops watching and polling
+    // (R35).
     this.#client.watching(false);
 
     while (this.#disposables.length > 0) {

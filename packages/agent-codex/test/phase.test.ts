@@ -46,7 +46,7 @@ describe('the phase a Codex event reports', () => {
     }
   });
 
-  it('reads a permission request as waiting, which is the gate a card is parked on', () => {
+  it('maps permission requests to waiting', () => {
     expect(phaseOf(marker({ event: 'PermissionRequest' }))).toBe('waiting');
   });
 
@@ -65,7 +65,7 @@ describe('the phase a Codex event reports', () => {
     expect(activityOf(marker())).toEqual({ phase: 'running', since: NOW - 30_000, at: NOW, event: 'PostToolUse' });
   });
 
-  it('counts from the event itself when the turn stamp is later than the event, which is a clock step', () => {
+  it('uses event time when turn time is in the future', () => {
     expect(activityOf(marker({ turnAt: NOW + 10_000 }))?.since).toBe(NOW);
   });
 
@@ -89,7 +89,7 @@ describe('reading a marker off the machine', () => {
     expect(readActivity(HOME, 'thread-1', withMarker(marker()).readText, NOW)?.phase).toBe('running');
   });
 
-  it('refuses a marker that disagrees with its own file name, which a fork produces', () => {
+  it('rejects markers whose IDs differ from their filenames', () => {
     expect(readMarker(HOME, 'thread-1', withMarker(marker({ sessionId: 'thread-2' })).readText, NOW)).toBeNull();
   });
 

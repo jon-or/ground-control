@@ -21,9 +21,8 @@ function said(at: string, author = 'dev-3'): TriageComment {
 }
 
 /**
- * The real shape of a hand-over, recorded from `ownerrez/orez` #19192 (`docs/mechanics.md` M32). One person moved the
- * status and took themselves off it eight seconds later; somebody else put the developer on it two and a half hours
- * after that. Every comment on the card predates all of it.
+ * Recorded status and assignment sequence from ownerrez/orez #19192 (mechanics M32): unassignment after eight
+ * seconds, reassignment by another actor 2.5 hours later. All comments predate it.
  */
 const HANDOVER: TriageStateEvent[] = [
   moved('2026-08-24T20:41:34Z', 'dev-4', '', '🆕 New'),
@@ -35,8 +34,7 @@ const HANDOVER: TriageStateEvent[] = [
 
 describe('collapsing what happened to a card', () => {
   it('reads one act spread over several mutations as one act', () => {
-    // A hand-over is three writes seconds apart. Read singly the last is a bare assignment, which says the least of
-    // the three and would be the one every rule keyed on the latest event saw.
+    // Group adjacent mutations so the latest assignment retains its related status change.
     const changes = collapseStateChanges([
       assigned('2026-09-04T17:46:29Z', 'dev-5', 'dev-1'),
       unassigned('2026-09-04T17:46:32Z', 'dev-5', 'dev-6'),
@@ -55,7 +53,7 @@ describe('collapsing what happened to a card', () => {
     });
   });
 
-  it('keeps two people apart even inside the minute, since the later one is what the card now waits on', () => {
+  it('keeps different actors in separate state changes', () => {
     const changes = collapseStateChanges([
       moved('2026-09-04T13:53:36Z', 'dev-3', '⚒️ Dev', '🔍 Dev Review'),
       assigned('2026-09-04T13:53:44Z', 'dev-5', 'dev-1'),
@@ -75,8 +73,7 @@ describe('collapsing what happened to a card', () => {
   });
 
   it('never chains one unnamed actor to another, since nobody is not somebody', () => {
-    // GitHub names no actor on a deleted account. Two such events inside the minute are as likely two people as one,
-    // and merging them would file a status move under a stranger's assignment on no evidence (R24).
+    // Unknown actors may be different people; do not group their events (R24).
     const nobody = (at: string, status: { from: string; to: string } | null, login: string | null) => ({
       at,
       actor: null,
@@ -94,8 +91,7 @@ describe('collapsing what happened to a card', () => {
   });
 
   it('reads the events in time order, whatever order they arrived in', () => {
-    // GitHub's timeline is ascending in practice, and that is a convention rather than a guarantee. Position decides
-    // which act is the instruction, so a response out of order would date the card's own instruction wrong.
+    // Sort events explicitly; response order is not guaranteed.
     const changes = collapseStateChanges([
       assigned('2026-09-04T12:00:00Z', 'dev-5', 'dev-1'),
       moved('2026-09-04T09:00:00Z', 'dev-3', '🎁 Assigned', '⚒️ Dev'),
@@ -110,8 +106,7 @@ describe('collapsing what happened to a card', () => {
   });
 
   it('drops the card being added to the project, which is nobody moving it', () => {
-    // GitHub writes that one itself, and it is matched on the empty previous status rather than on the automation
-    // login: the login is a repository setting, and a fixture scrubs it to a name no rule could know.
+    // Detect project addition by empty previous status, independent of the configurable automation login.
     const changes = collapseStateChanges([moved('2026-08-24T20:41:34Z', 'dev-4', '', '🆕 New')]);
 
     expect(changes).toEqual([]);
@@ -130,8 +125,7 @@ describe('collapsing what happened to a card', () => {
 
 describe('what the card was last told to be', () => {
   it('carries the status move even where a later act only moved people', () => {
-    // #19192 exactly: without this the instruction is a bare assignment, and the card cannot say what it was moved
-    // to — which is the half of the pair that names the work.
+    // Retain the preceding status transition when the latest event is a separate assignment.
     const instruction = foldInstruction(collapseStateChanges(HANDOVER), ME);
 
     expect(instruction).toEqual({
@@ -164,8 +158,7 @@ describe('what the card was last told to be', () => {
 
 describe('which comments are still open', () => {
   it('puts everything said before the hand-over behind it', () => {
-    // The failure this exists to stop: a question asked, answered by a rewritten issue body and a move to the next
-    // status, and read off the thread as still waiting on an answer.
+    // A later state instruction supersedes earlier questions even without a thread reply.
     const instruction = foldInstruction(collapseStateChanges(HANDOVER), ME);
 
     expect(liveComments([said('2026-09-03T14:43:28Z'), said('2026-09-03T15:27:10Z'), said('2026-09-04T13:38:50Z')], instruction)).toEqual([]);
@@ -179,8 +172,7 @@ describe('which comments are still open', () => {
   });
 
   it('keeps a comment written during the hand-over live, since it is part of the instruction', () => {
-    // People say what they are handing over and then move the card, seconds apart. Cutting at the end of the act
-    // would file that sentence as answered by the act it belongs to, and the prompt would say nothing was said.
+    // Comments between grouped events belong to the instruction, so use its first timestamp.
     const changes = collapseStateChanges([
       assigned('2026-09-04T17:46:29Z', 'dev-5', 'dev-1'),
       moved('2026-09-04T17:46:35Z', 'dev-5', '⚒️ Dev', '🔍 Dev Review'),

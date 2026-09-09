@@ -1,9 +1,8 @@
 import * as vscode from 'vscode';
 
 /**
- * The parts of the built-in Git extension's API (`vscode.git`, version 1) this board calls. Declared here rather
- * than vendored whole: the shipped extension carries no `.d.ts`, so every field below is one measured against
- * `resources/app/extensions/git/dist/main.js` on 2026-09-05 and named in `docs/mechanics.md` M30.
+ * Declare the used subset of vscode.git API version 1. Its extension ships no declarations; these fields were
+ * checked against resources/app/extensions/git/dist/main.js on 2026-09-05 (mechanics M30).
  */
 export const GIT_EXTENSION_ID = 'vscode.git';
 
@@ -75,8 +74,8 @@ export async function gitApi(): Promise<GitApi | null> {
 }
 
 /**
- * A path at a revision, as the Git extension's own content provider reads it. The query is the whole address; the
- * path carries the file only so the editor has a name and a language to show.
+ * Encode the revision and file in the Git content-provider query. The URI path supplies the editor name and
+ * language.
  */
 export function gitUri(path: string, ref: string): vscode.Uri {
   const file = vscode.Uri.file(path);

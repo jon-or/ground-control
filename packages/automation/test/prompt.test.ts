@@ -16,19 +16,15 @@ const PLAN: ActionPlan = {
 
 const VALUES = promptValues(PLAN, 'C:/Users/dev/.claude/ground-control/runs/issue-17198.json');
 
-describe('the prompt the board hands a run', () => {
-  it('fills every placeholder from the board own read', () => {
+describe('dispatch prompt values', () => {
+  it('fills prompts from action context', () => {
     expect(fillTemplate('/or-merge {base} {branch} {issue} --single', VALUES)).toBe(
       '/or-merge master 17198-channel-mapping 17198 --single',
     );
   });
 
-  /**
-   * Every name the board fills, written out rather than derived, so one removed from the list fails here instead of
-   * the test quietly agreeing with itself. What this cannot pin is the settings description in the extension's own
-   * manifest, which is prose in another package — that pairing is held by a reader, not by a runner.
-   */
-  it('fills every placeholder it publishes, and the list is what it says it is', () => {
+  /** Assert explicit placeholder names independently; review matching settings documentation separately. */
+  it('defines and fills every supported placeholder', () => {
     expect(Object.keys(VALUES)).toEqual(['issue', 'repo', 'pr', 'branch', 'base', 'checkout', 'resultPath']);
     expect(fillTemplate('{issue} {repo} {pr} {branch} {base} {checkout} {resultPath}', VALUES)).toBe(
       '17198 example-org/example-repo 4021 17198-channel-mapping master ' +
@@ -50,7 +46,7 @@ describe('the prompt the board hands a run', () => {
     expect(fillTemplate('/or-merge', VALUES)).toBe('/or-merge');
   });
 
-  it('hands the run a path of its own to report at', () => {
+  it('supplies the result-file path', () => {
     expect(VALUES.resultPath).toBe('C:/Users/dev/.claude/ground-control/runs/issue-17198.json');
   });
 });

@@ -1,24 +1,17 @@
-// Records the triage context fixtures from real cards and scrubs them in the same pass — a hand-scrub is undone by
-// the next run, and the tests only ever see scrubbed output so they cannot catch a lapse (`docs/testing.md`).
+// Record and scrub triage fixtures using CARD_CONTEXT_QUERY (docs/testing.md).
 //
-//   GC_SELF_LOGINS=<your gh logins> GC_CONTEXT_REPO=owner/name \
-//     node test/fixtures/record-context.js <issue>:<pr> <issue> …
+// GC_SELF_LOGINS=<logins> GC_CONTEXT_REPO=owner/name \
+//   node test/fixtures/record-context.js <issue>:<pr> <issue> ...
 //
-// Each argument names a card. `<issue>:<pr>` records one with its pull request; a bare `<issue>` records one without;
-// `-` leaves that file alone. The files are named by what they demonstrate, not by the issue, so re-recording against
-// different cards keeps the names the tests use. Pass no arguments to re-scrub what is already on disk.
-//
-//   context-review    the developer's own pull request under review, with a long issue body the clip has to cut
-//   context-fresh     a pull request with nothing on it yet, which is what the mergeability cases are derived from
-//   context-no-pr     an issue with no pull request linked
-//   context-bots      a colleague's pull request, commented on by bots
-//   context-handover  a card handed over with no comment on it — the status moved, and somebody else assigned it later
+// Arguments map to NAMES in order. Use issue:pr for linked PRs, issue alone otherwise,
+// and - to preserve a fixture. With no arguments, re-scrub existing files.
+// See README.md for fixture scenarios.
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { anonymiseContext, assertContextScrubbed, loginMap } = require('./anonymise-context.js');
 
-/** The file each recorded card becomes, in the order they are given on the command line. */
+/** Fixture names in command-line argument order. */
 const NAMES = ['context-review.json', 'context-fresh.json', 'context-no-pr.json', 'context-bots.json', 'context-handover.json'];
 
 function query() {
@@ -62,7 +55,7 @@ function main() {
     throw new Error(`this recorder names ${NAMES.length} fixtures; add a name before recording more`);
   }
 
-  // A `-` in a slot keeps that fixture as it is, so one card can be re-recorded without disturbing the rest.
+  // Preserve fixtures whose argument is -.
   const chosen = cards.length > 0 ? NAMES.slice(0, cards.length).filter((_, i) => cards[i] !== '-') : [];
   const files = cards.length > 0 ? chosen : NAMES.filter((n) => fs.existsSync(path.join(__dirname, n)));
   const wanted = cards.filter((card) => card !== '-');
@@ -75,7 +68,7 @@ function main() {
     cards.length > 0 ? record(repo, wanted[i]) : JSON.parse(fs.readFileSync(path.join(__dirname, name), 'utf8')),
   );
 
-  // One long body, so a fixture exercises clipping without anybody writing two kilobytes of prose by hand.
+  // Generate one body beyond the clipping limit.
   const written = recorded.map((response, i) =>
     anonymiseContext(structuredClone(response), logins, { longBody: files[i] === NAMES[0] }),
   );

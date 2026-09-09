@@ -19,10 +19,7 @@ type RecordedCard = Omit<IssueCard, 'pullRequest'> & {
     | null;
 };
 
-/**
- * A cast is not a check: it would hand every test `undefined` where the type promised a value, and a lane and the card's
- * evidence now read these. So each is filled where the recording holds nothing, and a pull request is nobody's until a test says whose it is.
- */
+/** Supply missing legacy issue fields explicitly. Tests needing PR ownership must specify it. */
 function completed(cards: RecordedCard[]): IssueCard[] {
   return cards.map((card) => ({
     ...card,
@@ -42,8 +39,8 @@ function completed(cards: RecordedCard[]): IssueCard[] {
 export const issues = completed(fixture('issues') as RecordedCard[]);
 
 /**
- * Every field a recorded session must carry, because a cast is not a check — a row missing one reads `undefined` where the type promised
- * `string | null`. `satisfies` fails the typecheck when `Session` grows a field; the assertion below fails the run until it is re-recorded.
+ * Check recorded rows against every Session field. satisfies detects type additions; row assertions detect stale
+ * recordings.
  */
 const SESSION_KEYS = {
   agent: true,
@@ -83,10 +80,7 @@ export const linkedOnBoard = sessions.filter((s) => s.issueNumber !== null && on
 export const linkedOffBoard = sessions.filter((s) => s.issueNumber !== null && !onBoard.has(s.issueNumber));
 export const unlinked = sessions.filter((s) => s.issueNumber === null);
 
-/**
- * The issues behind the recorded off-board sessions, as the hub's lookup would hand them to `mergeBoard`. Built here
- * rather than recorded: the issue fixture is the assigned search, which by definition never returns one of these.
- */
+/** Construct unassigned issue lookup results separately; the assigned-issue recording cannot contain them. */
 export const offBoardIssues = new Map<number, IssueCard>(
   linkedOffBoard.map((session) => [
     session.issueNumber!,

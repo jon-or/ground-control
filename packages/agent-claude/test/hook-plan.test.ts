@@ -14,10 +14,7 @@ import { HOME } from './helpers.js';
 
 const HOOK = hookPathOf(HOME);
 
-/**
- * The shape a developer's own settings file is in when the board first reads it: hand-curated keys around a hook
- * suite of their own. Ours must land beside that suite without moving or rewriting any of it.
- */
+/** Existing user settings and hooks that installation must preserve. */
 const EXISTING = {
   env: { GIT_AUTHOR_NAME: 'Someone' },
   permissions: { allow: ['mcp__thing__query'], deny: ['Skill(deep-research)'], defaultMode: 'auto' },
@@ -87,8 +84,7 @@ describe('installing', () => {
   it('filters the events that carry a query string and leaves the others unmatched', () => {
     const hooks = written(install(text(EXISTING))).hooks as Record<string, { matcher?: string }[]>;
 
-    // Pipe, never comma: on any event outside the five tool events the CLI falls back to `new RegExp(matcher)`, and
-    // a pattern full of commas matches no single value — a hook that never fires rather than one that fires too often.
+    // Use pipe alternation; non-tool event matchers parse commas literally.
     expect(ours(hooks.PreToolUse)).toEqual([expect.objectContaining({ matcher: 'AskUserQuestion|ExitPlanMode' })]);
     expect(ours(hooks.Notification)).toEqual([
       expect.objectContaining({
@@ -129,7 +125,7 @@ describe('installing', () => {
     expect(install(text({ theme: 'dark' }))).toMatchObject({ kind: 'write', added: EVENTS.length });
   });
 
-  // The steady state, and what makes two windows opening a board at once a non-event: the second one writes nothing.
+  // Repeated installation must not rewrite unchanged settings.
   it('writes nothing the second time', () => {
     const first = install(text(EXISTING));
 
@@ -159,8 +155,8 @@ describe('installing', () => {
     ]);
   });
 
-  // An event dropped from the wanted set would otherwise keep an entry of ours wired forever, unnoticed.
-  it('sweeps its own entry out of an event it no longer wants', () => {
+  // Remove installed hooks for events no longer requested.
+  it('removes board hooks from obsolete events', () => {
     const stale = structuredClone(EXISTING) as typeof EXISTING & { hooks: Record<string, unknown[]> };
     stale.hooks.PostToolUse = [{ hooks: [{ type: 'command', command: 'node', args: [HOOK], async: true, timeout: 5 }] }];
 
@@ -203,7 +199,7 @@ describe('refusing', () => {
     expect((plan as { remedy: string }).remedy).toBeTruthy();
   });
 
-  it('names each refusal differently, so the board can say which one it hit', () => {
+  it('distinguishes configuration refusal reasons', () => {
     const reasons = [
       install('{ "hooks": }'),
       install('["hooks"]'),
@@ -232,11 +228,11 @@ describe('removing', () => {
     expect(result.permissions).toEqual(EXISTING.permissions);
   });
 
-  it('writes nothing when there is nothing of its own to remove', () => {
+  it('skips writes when no board hooks exist', () => {
     expect(remove(text(EXISTING))).toEqual({ kind: 'up-to-date' });
   });
 
-  it('drops the hooks key entirely when its own entries were all it held', () => {
+  it('removes the hooks key after removing all entries', () => {
     const installed = (install(text({ theme: 'dark' })) as { text: string }).text;
 
     expect(written(remove(installed))).toEqual({ theme: 'dark' });
@@ -246,10 +242,7 @@ describe('removing', () => {
 describe('what it must not disturb', () => {
   const ourEntry = { type: 'command', command: 'node', args: [HOOK], async: true, timeout: 5 };
 
-  /**
-   * A group is a matcher and a list of entries; a developer can put a hook of their own in the same group as ours.
-   * Filtering the group would take theirs with it, which is the board quietly changing what it did not write.
-   */
+  /** Remove board entries individually to preserve user hooks in the same group. */
   it("keeps a hook of the developer's own that shares a group with one of ours", () => {
     const shared = {
       hooks: { Stop: [{ hooks: [ourEntry, { type: 'command', command: 'my-own-notifier.sh' }] }] },
@@ -260,7 +253,7 @@ describe('what it must not disturb', () => {
     expect(hooks.Stop).toEqual([{ hooks: [{ type: 'command', command: 'my-own-notifier.sh' }] }]);
   });
 
-  it('keeps it on an install too, and adds its own entry beside it', () => {
+  it('preserves user hooks while installing board entries', () => {
     const shared = {
       hooks: { Stop: [{ hooks: [ourEntry, { type: 'command', command: 'my-own-notifier.sh' }] }] },
     };
@@ -272,10 +265,10 @@ describe('what it must not disturb', () => {
   });
 
   /**
-   * The CLI is free to reorder keys or normalise a field in. A serialised comparison would rewrite the developer's settings on every board
-   * open, and five backups later the pre-install one — the only one that matters — would be gone.
+   * Ignore JSON key order during comparison to avoid repeated rewrites that would expire useful pre-install
+   * backups.
    */
-  it('writes nothing when its own entry comes back with the keys in another order', () => {
+  it('ignores key order when comparing installed hooks', () => {
     const reordered = {
       hooks: {
         Stop: [{ hooks: [{ command: 'node', timeout: 5, args: [HOOK], type: 'command', async: true }] }],
@@ -287,7 +280,7 @@ describe('what it must not disturb', () => {
       hooks: Record<string, unknown>;
     };
 
-    // Its own Stop entry was left exactly as it found it, keys and all.
+    // Preserve the existing Stop entry, including key order.
     expect((installed.hooks.Stop as { hooks: unknown[] }[])[0]?.hooks[0]).toEqual({
       command: 'node',
       timeout: 5,
@@ -297,7 +290,7 @@ describe('what it must not disturb', () => {
     });
   });
 
-  it('rewrites its own entry when a field it sets has actually changed', () => {
+  it('rewrites board entries with changed fields', () => {
     const stale = { hooks: { Stop: [{ hooks: [{ ...ourEntry, async: false }] }] } };
 
     expect(install(text(stale))).toMatchObject({ kind: 'write' });
@@ -325,8 +318,8 @@ describe('what it must not disturb', () => {
     expect((install(text(EXISTING)) as { text: string }).text).not.toContain('\r');
   });
 
-  /** A removal that refuses over an event it would never touch leaves the board's own entries installed. */
-  it('removes its own entries even where an unrelated event holds something it cannot read', () => {
+  /** Unrelated malformed events must not block removal of board hooks. */
+  it('removes board hooks despite unrelated malformed events', () => {
     const odd = { hooks: { Stop: [{ hooks: [ourEntry] }], PostToolUse: {} } };
     const plan = remove(text(odd));
 
@@ -342,13 +335,13 @@ describe('what it must not disturb', () => {
 describe('the decisions that delete files', () => {
   const now = 1_788_000_000_000;
 
-  it('takes a lock nobody has cleared, and leaves a fresh one alone', () => {
+  it('expires stale locks and preserves fresh locks', () => {
     expect(lockIsStale(now - LOCK_STALE_MS - 1, now)).toBe(true);
     expect(lockIsStale(now - 1_000, now)).toBe(false);
     expect(lockIsStale(now, now)).toBe(false);
   });
 
-  // A lock stamped in the future is a clock the board cannot reason about, and would otherwise never expire.
+  // Far-future lock timestamps must expire after clock changes.
   it('takes a lock stamped in the future', () => {
     expect(lockIsStale(now + LOCK_STALE_MS + 1, now)).toBe(true);
   });
@@ -364,8 +357,8 @@ describe('the decisions that delete files', () => {
     expect(backupsToDelete([])).toEqual([]);
   });
 
-  // The refusal that matters: this list is handed to rmSync in the developer's home.
-  it('never names a file that is not one of its own backups', () => {
+  // Only selected backup files may reach rmSync.
+  it('selects only settings backups for deletion', () => {
     const names = [
       'settings.json',
       'hook.mjs',
@@ -377,7 +370,7 @@ describe('the decisions that delete files', () => {
     expect(backupsToDelete(names)).toEqual(['settings-backup-2026-09-00.json']);
   });
 
-  it('reads a marker older than the window as an orphan, and a newer one as a live session own', () => {
+  it('expires markers beyond the retention limit', () => {
     expect(markerIsOrphaned(now - MARKER_MAX_AGE_MS - 1, now)).toBe(true);
     expect(markerIsOrphaned(now - MARKER_MAX_AGE_MS + 1, now)).toBe(false);
     expect(markerIsOrphaned(now, now)).toBe(false);

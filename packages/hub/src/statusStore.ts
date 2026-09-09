@@ -5,7 +5,7 @@ import type { HistoricalSession, RetainedActivity, Session } from '@ground-contr
 import { read, writeIfChanged } from './fs.js';
 import { statusPathOf } from './paths.js';
 
-/** How a session is addressed here: two CLIs can mint the same id, and the roster already tells them apart this way. */
+/** Key sessions by agent and ID to avoid collisions between CLIs. */
 export function statusKeyOf(session: Pick<Session, 'agent' | 'sessionId'>): string {
   return `${session.agent}:${session.sessionId}`;
 }
@@ -18,11 +18,7 @@ const entry = z.object({
 
 const stored = z.object({ entries: z.record(z.string(), entry).default({}) });
 
-/**
- * The last phase the board saw each session in, kept past the session's own process. The roster is the only thing
- * that proves a session is alive, and the marker it read the phase from is deleted the moment the session ends
- * cleanly — so without this the card loses an unanswered question as soon as its window closes (R6).
- */
+/** Retain phases after session exit because clean shutdown deletes markers. The roster alone establishes liveness (R6). */
 export interface StatusStore {
   read(): Map<string, RetainedActivity>;
   write(entries: ReadonlyMap<string, RetainedActivity>): void;
@@ -53,7 +49,7 @@ export function makeStatusStore(home: string): StatusStore {
         mkdirSync(groundControlDirOf(home), { recursive: true });
         writeIfChanged(path, `${JSON.stringify({ entries: Object.fromEntries(entries) }, null, 2)}\n`);
       } catch {
-        // A reading that could not be stored costs one card its mark once its window closes. Failing the render is worse.
+        // A failed write may lose retained attention after session exit without failing rendering.
       }
     },
   };
@@ -73,8 +69,7 @@ export function retaining(
   for (const session of sessions) {
     const activity = session.activity;
 
-    // The agent's own word that the session ended takes the reading away rather than merely declining to write one: R6 claims no mark for a
-    // finished session, and a phase recorded while it was live would put the mark back the moment the CLI stopped listing it.
+    // Remove observations for explicitly finished sessions so they cannot restore attention after leaving the roster (R6).
     if (session.finished) {
       next.delete(statusKeyOf(session));
 
@@ -97,10 +92,7 @@ export function retaining(
   return next;
 }
 
-/**
- * The readings left after both the roster and the history have been read cleanly. A session in neither is one whose
- * transcript is gone, so nothing will ever show its reading again and the entry is what would grow without bound.
- */
+/** After complete roster and history reads, remove observations absent from both to bound retained state. */
 export function pruned(
   held: ReadonlyMap<string, RetainedActivity>,
   sessions: readonly Session[],

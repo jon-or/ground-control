@@ -2,7 +2,7 @@
   "name": "@ground-control/github",
   "version": "0.0.0",
   "private": true,
-  "description": "GitHub reads for ground-control, via the gh CLI. Must not import vscode.",
+  "description": "GitHub issue and PR reads through gh. No vscode imports.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {

@@ -1,5 +1,5 @@
 #!/bin/sh
-# The tree is good because a runner said so. See docs/testing.md.
+# Verify staged changes beyond Markdown and text files. See docs/testing.md.
 if git diff --cached --name-only --diff-filter=ACMR | grep -qvE '\.(md|txt)$'; then
   npm run verify || {
     echo ""

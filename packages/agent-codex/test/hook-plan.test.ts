@@ -4,11 +4,7 @@ import { hookPathOf } from '../src/hookScript.js';
 import { phaseOf } from '../src/phase.js';
 import { HOME } from './helpers.js';
 
-/**
- * Every event the board installs, and the phase each one claims. Asserted whole rather than sampled: an event
- * dropped from the install is a phase the board silently stops seeing, and one installed but unmapped is a spawn
- * per event that buys nothing. Measured in `docs/mechanics.md` M40.
- */
+/** Assert the complete measured event and phase mapping to catch omitted hooks or unsupported additions (M40). */
 const WANTED = [
   ['SessionStart', null],
   ['UserPromptSubmit', 'running'],
@@ -111,7 +107,7 @@ describe('installing the Codex hook entries', () => {
   });
 
   it('leaves a hook of the developer that only mentions the writer alone', () => {
-    // A substring test would take this one: it wraps the same writer with arguments of theirs, and is not ours.
+    // Preserve user wrappers with additional arguments; substring matching would remove them.
     const theirs = { hooks: { Stop: [{ hooks: [{ type: 'command', command: `${COMMAND} --mine` }] }] } };
     const file = written(install(JSON.stringify(theirs)));
 
@@ -184,7 +180,7 @@ describe('taking the Codex hook entries out', () => {
     expect(remove('{"hooks":{}}')).toEqual({ kind: 'up-to-date' });
   });
 
-  /** R30: an agent nobody enabled must not have a hooks file created for it by a removal. */
+  /** Uninstall must not create configuration for an agent that was never enabled (R30). */
   it('creates nothing when there is no file at all', () => {
     expect(remove(null)).toEqual({ kind: 'up-to-date' });
   });

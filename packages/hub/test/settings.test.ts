@@ -22,7 +22,7 @@ function home(): string {
   return made.home;
 }
 
-/** The developer's own settings, as an editor window pushes them. */
+/** Representative client-pushed settings. */
 function configured() {
   return {
     ...defaultConfig(makeRegistries(), fakeReaders()),
@@ -32,7 +32,7 @@ function configured() {
 }
 
 describe('the configuration the hub was last given', () => {
-  it('is nothing at all before a client has pushed one', () => {
+  it('returns null before settings are stored', () => {
     expect(makeSettingsStore(home()).read()).toBeNull();
   });
 
@@ -51,17 +51,14 @@ describe('the configuration the hub was last given', () => {
 
     makeSettingsStore(where).write(configured());
 
-    // Windows carries the directory's own permissions rather than the file's, so there is nothing here to assert.
+    // Windows inherits directory permissions; assert file mode only on other platforms.
     if (process.platform !== 'win32') {
       expect(statSync(configPathOf(where)).mode & 0o777).toBe(0o600);
     }
   });
 
-  /**
-   * A configuration that cannot be stored is one the next editor window pushes again. Refusing the settings the
-   * developer just made because a write failed is the worse of the two.
-   */
-  it('says nothing and keeps what it had when the file cannot be written', () => {
+  /** Keep accepted settings active after persistence failure so clients can retry saving later. */
+  it('does not throw when settings cannot be written', () => {
     const where = home();
     const store = makeSettingsStore(where);
 
@@ -74,10 +71,7 @@ describe('the configuration the hub was last given', () => {
     expect(store.read()).toBeNull();
   });
 
-  /**
-   * Parsed on the way back in, never trusted for having been written here. One field of a configuration becomes a
-   * process the hub spawns, and this file sits in a directory any process running as the developer can write.
-   */
+  /** Validate stored settings before use, including executable paths; other processes can modify the file. */
   it('is refused when the file names something the hub would spawn', () => {
     const where = home();
     const store = makeSettingsStore(where);

@@ -5,16 +5,13 @@ import { homedir } from 'node:os';
 import { groundControlDirOf, resolveOnDisk } from '@ground-control/core';
 import type { StartProcess, StartedProcess } from './dispatch.js';
 
-/** How often the log a dispatched run writes is read while waiting for it to name its thread. */
+/** Poll interval while waiting for thread.started output. */
 const POLL_MS = 100;
 
 /** Node refuses to spawn a batch file without a shell, and a shell would parse the configured path. */
 const BATCH = /\.(cmd|bat)$/i;
 
-/**
- * Where a dispatched run's own output goes, so the board can read what it printed after the hub let go of it. The
- * `<agent>-dispatch-<id>.log` shape is what the hub's own sweep ages out of that directory.
- */
+/** Persist dispatch output after hub exit. The hub expires files matching <agent>-dispatch-<id>.log. */
 export function dispatchLogPathOf(home: string, id: string): string {
   return `${groundControlDirOf(home)}/codex-dispatch-${id}.log`;
 }
@@ -44,8 +41,7 @@ export function makeMachineStarter(home: string = homedir(), id: () => string = 
       );
     }
 
-    // One name per run, not one per millisecond: two dispatches resolving in the same tick shared a clock-keyed
-    // file, and each then read the other's `thread.started` — so each card recorded the other's thread.
+    // Use unique run IDs; timestamp-only names can collide and associate cards with the wrong threads.
     const log = dispatchLogPathOf(home, id());
     let out: number;
     let err: number;
@@ -53,8 +49,7 @@ export function makeMachineStarter(home: string = homedir(), id: () => string = 
     try {
       mkdirSync(groundControlDirOf(home), { recursive: true });
       out = openSync(log, 'a');
-      // Its own descriptor: two writers appending to one file tear a line, and a torn `thread.started` reads as a
-      // run that never named its thread. Codex's stderr is noisy by design (`docs/mechanics.md` M13).
+      // Separate stdout and stderr to prevent interleaved writes corrupting thread.started records (M13).
       err = openSync(`${log}.err`, 'a');
     } catch (error) {
       return Promise.resolve(failed('failed', `could not open ${log}: ${(error as Error).message}`));
@@ -79,8 +74,8 @@ export function makeMachineStarter(home: string = homedir(), id: () => string = 
           windowsHide: true,
         });
 
-        // A failed spawn reports twice: no pid here, and an `error` event on the next tick. Unhandled on a child,
-        // that event is an uncaught exception, and the hub answers one of those by exiting.
+        // Failed spawn also emits an error event. Handle it to prevent an uncaught exception from terminating
+        // the hub.
         child.on('error', (error) => answer(failed('failed', error.message)));
 
         if (child.pid === undefined) {
@@ -93,7 +88,7 @@ export function makeMachineStarter(home: string = homedir(), id: () => string = 
           ended = true;
         });
 
-        // The board is not this run's parent for the rest of its life: it answers the card and lets go.
+        // Allow the hub to exit without waiting for the child.
         child.unref();
 
         answer({
@@ -102,7 +97,7 @@ export function makeMachineStarter(home: string = homedir(), id: () => string = 
           firstLine: (wanted) => waitForLine(log, wanted, options, () => ended),
         });
       } catch (error) {
-        // `spawn` throws synchronously for a shim Node will not run, which a resolved path can still be.
+        // A resolved shim path can still cause spawn to throw synchronously.
         answer(failed('not-executable', (error as Error).message));
       }
     });
@@ -110,9 +105,8 @@ export function makeMachineStarter(home: string = homedir(), id: () => string = 
 }
 
 /**
- * The first line of the run's log that the caller recognises, or null once the run has ended, its budget has gone,
- * or its signal has. Read forward from where the last poll stopped: the failure path otherwise re-reads a growing
- * transcript every tenth of a second for the whole budget.
+ * Read the first matching log line, or null on exit, timeout, or cancellation. Continue from the previous
+ * offset to avoid rereading growing logs on each poll.
  */
 async function waitForLine(
   log: string,
@@ -122,7 +116,7 @@ async function waitForLine(
 ): Promise<string | null> {
   const until = Date.now() + options.timeoutMs;
   let read = 0;
-  let held = '';
+  let partialLine = '';
 
   for (;;) {
     let size: number;
@@ -140,14 +134,14 @@ async function waitForLine(
         const buffer = Buffer.alloc(size - read);
         const got = readSync(file, buffer, 0, buffer.length, read);
         read += got;
-        held += buffer.subarray(0, got).toString('utf8');
+        partialLine += buffer.subarray(0, got).toString('utf8');
       } finally {
         closeSync(file);
       }
 
-      const lines = held.split('\n');
-      // The last element is whatever the run has written since its last newline, which is not a line yet.
-      held = lines.pop() ?? '';
+      const lines = partialLine.split('\n');
+      // Retain the incomplete final line for the next poll.
+      partialLine = lines.pop() ?? '';
 
       const found = lines.find((line) => wanted(line));
 
@@ -156,7 +150,7 @@ async function waitForLine(
       }
     }
 
-    // Checked after the read, so a run that printed and exited in one tick still has its output read.
+    // Read output before checking exit so fast processes still return their final records.
     if (hasEnded() || options.signal.aborted || Date.now() >= until) {
       return null;
     }
@@ -166,9 +160,8 @@ async function waitForLine(
 }
 
 /**
- * Ends a dispatched run and the tools it started. `process.kill` reaches one process, so on Windows a run stopped
- * mid-tool left its shell child finishing the work while the board said it had stopped — `taskkill /T` is what
- * takes the tree. False when nothing was there to end, which a stop must not report as a stop.
+ * Terminate the dispatched process and its children. Windows requires taskkill /T; process.kill alone can leave
+ * tools running. Return false if no process was stopped.
  */
 export function killOnMachine(pid: number): boolean {
   if (process.platform === 'win32') {
@@ -185,7 +178,7 @@ export function killOnMachine(pid: number): boolean {
   }
 
   try {
-    // The group the detached child leads, so the tools it started go with it.
+    // Signal the detached process group, including child tools.
     process.kill(-pid);
 
     return true;

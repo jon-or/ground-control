@@ -36,7 +36,7 @@ describe('the trust exchange', () => {
     expect(sent(trustExchange(HOME).take({ id: 1, result: {} })).method).toBe('hooks/list');
   });
 
-  it('hands the hash Codex reported straight back, upserted so trust already there survives', () => {
+  it('upserts reported hashes while preserving existing trust', () => {
     const exchange = trustExchange(HOME);
     exchange.take({ id: 1, result: {} });
 
@@ -54,23 +54,22 @@ describe('the trust exchange', () => {
     });
   });
 
-  it('is done once the write is acknowledged', () => {
+  it('completes after the write acknowledgment', () => {
     expect(trustExchange(HOME).take({ id: 3, result: { status: 'ok' } })).toEqual({ answer: null });
   });
 
-  it('is done with nothing to write when Codex already trusts every entry', () => {
+  it('completes without writing when all hooks are trusted', () => {
     expect(trustExchange(HOME).take(listing([hook('trusted')]))).toEqual({ answer: null });
   });
 
-  /** The defect this exists for: a Codex pointed at the wrong home answers with no hooks of ours, and calling that
-   * success left the board reporting a working install that trusted nothing. */
-  it('refuses to call it success when Codex reported none of the board own hooks', () => {
+  /** A wrong Codex home can report no board hooks; this must not count as successful trust. */
+  it('fails when no board hooks are reported', () => {
     const step = trustExchange(HOME).take(listing([hook('untrusted', 'powershell mine.ps1')]));
 
     expect(step).toEqual({ answer: "Codex reported none of the board's own hooks" });
   });
 
-  it('says the same of a listing with no hooks in it at all', () => {
+  it('fails when the hook listing is empty', () => {
     expect(trustExchange(HOME).take(listing([]))).toEqual({ answer: "Codex reported none of the board's own hooks" });
   });
 
@@ -79,8 +78,8 @@ describe('the trust exchange', () => {
     expect(trustExchange(HOME).take({ id: 3, error: {} })).toEqual({ answer: 'Codex refused the request' });
   });
 
-  /** Codex sends notifications of its own throughout, and a reply to an id this never asked under is one of those. */
-  it('ignores anything that is not a reply to one of its own three requests', () => {
+  /** Ignore replies and notifications unrelated to trust request IDs. */
+  it('ignores replies outside the trust request IDs', () => {
     expect(trustExchange(HOME).take({ method: 'thread/started', params: {} })).toBeNull();
     expect(trustExchange(HOME).take({ id: 99, result: {} })).toBeNull();
   });

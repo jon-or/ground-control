@@ -6,10 +6,7 @@ export interface HistoryReading {
   failure: ReadFailure | null;
 }
 
-/**
- * Sessions and a failure are not exclusive: a CLI listing ten sessions and one entry the board cannot read reports
- * both, so one malformed entry costs one card instead of every card (R2).
- */
+/** Return valid sessions alongside failures for malformed entries (R2). */
 export interface AgentReading {
   sessions: Session[];
   failure: ReadFailure | null;
@@ -33,53 +30,45 @@ export interface ActivityChange {
   sessionId: string;
 }
 
-/**
- * The phase signal an agent offers, where it offers one. Claude's is a hook script writing a marker per session;
- * another CLI may offer a status file, a socket, or nothing, and an adapter with none produces sessions with no phase.
- */
+/** Optional agent activity signal. Without one, sessions have no observed phase. */
 export interface ActivitySignal {
-  /** What to write to put the signal in place, or take it away. Pure: the caller does the file system. */
+  /** Pure installation/removal plan; the caller performs filesystem writes. */
   plan(input: ActivityPlanInput): ActivityPlan;
-  /** The agent's own settings file, which `plan` rewrites and the caller backs up first. */
+  /** Agent settings updated by plan; the caller backs up the file first. */
   settingsPath(home: string): string;
-  /** The directory whose changes mean a phase may have moved. Created on install and removed on uninstall. */
+  /** Activity marker directory, created on install and retained on removal. */
   watchDir(home: string): string;
-  /** The last phase reported for a session, or null to claim nothing. */
+  /** Last observed phase, or null when unavailable. */
   read(home: string, sessionId: string, readText: ReadText, now?: number): SessionActivity | null;
   /**
-   * A file the agent has to be able to spawn, and its exact contents. Written when the bytes differ and left behind
-   * on removal: a session that already read the old settings goes on spawning it, and a deleted script makes each of
-   * them report a failure on every event. Absent where the signal needs no file of its own.
+   * Optional activity writer. Update changed bytes and retain the file after hook removal for sessions using
+   * cached settings.
    */
   readonly writer?: { path(home: string): string; source: string };
 }
 
-/**
- * One bounded question put to an agent, answered as JSON and nothing else. The session it runs in must not become a
- * session the board shows — the adapter owns how, and Claude's flags are measured in `docs/mechanics.md` M31.
- */
+/** Isolated JSON classification. Adapters must keep classifier sessions off the board (mechanics M31). */
 export interface ClassifyInput {
   /** The CLI, from the same configuration the roster read spawns. */
   path: string;
-  /** Minted by the caller, so it can recognise its own run without waiting to be told what it started. */
+  /** Caller-supplied classification ID. */
   sessionId: string;
   model: string | null;
   systemPrompt: string;
   prompt: string;
   schema: unknown;
-  /** A directory with no project of its own, so nothing of the developer's is discovered or loaded. */
+  /** Isolated directory that prevents loading developer project settings. */
   cwd: string;
   timeoutMs: number;
   signal: AbortSignal;
 }
 
-/** Never throws: a classification that failed is a named failure, the same as a roster read that did (R24). */
+/** Return classified failures instead of throwing (R24). */
 export type ClassifyResult = { value: unknown } | { failure: ReadFailure };
 
 /**
- * One piece of work handed to an agent to carry out, in the developer's own checkout. Unlike a classification this
- * is meant to be seen: it writes a transcript, loads the developer's settings, and becomes a session on the card
- * (R2). The caller cannot name the session — `--bg` mints its own id (`docs/mechanics.md` M33).
+ * Agent work in the developer checkout, using developer settings and visible session history (R2). The agent
+ * assigns the session ID (mechanics M33).
  */
 export interface DispatchInput {
   /** The CLI, from the same configuration the roster read spawns. */
@@ -88,9 +77,9 @@ export interface DispatchInput {
   prompt: string;
   /** Requested display name. Adapter support varies; Claude uses it and Codex currently ignores it. */
   name: string;
-  /** The checkout the work happens in, read from a session the card already carries and never from a branch name. */
+  /** Recorded session checkout; never inferred from a branch name. */
   cwd: string;
-  /** What the session may do without asking. Passed explicitly, because a bare `--bg` runs under `auto` (M33). */
+  /** Explicit dispatch permission mode; bare Claude --bg defaults to auto (M33). */
   permissionMode: string;
   model: string | null;
   timeoutMs: number;
@@ -103,10 +92,7 @@ export interface DispatchInput {
  */
 export type DispatchResult = { shortId: string } | { failure: ReadFailure };
 
-/**
- * One agent CLI the board reads live sessions from. An adapter owns its transport, its response shape, where its
- * transcripts live, and the wording of its failures, and returns finished `Session` rows.
- */
+/** Agent-specific session transport, parsing, history, and failure messages. */
 export interface AgentAdapter {
   readonly id: string;
   readonly displayName: string;
@@ -116,7 +102,7 @@ export interface AgentAdapter {
    * fixed default; it does not guarantee that the executable is installed.
    */
   enabledByDefault(readers: MachineReaders): boolean;
-  /** Lists every live session this CLI reports. Never throws — a failure comes back classified. */
+  /** List live sessions, returning classified failures instead of throwing. */
   listSessions(path: string, deps: MachineDeps): Promise<AgentReading>;
   /** Saved metadata only. The caller establishes absence from the live roster independently. */
   listHistory?(deps: MachineDeps): Promise<HistoryReading>;
@@ -132,7 +118,7 @@ export interface AgentAdapter {
    * stopping their runs. Automated takeover is a separate future requirement (R15).
    */
   dispatch?(input: DispatchInput): Promise<DispatchResult>;
-  /** Stops a session this adapter started, by the short id the dispatch returned. Absent where the CLI cannot. */
+  /** Stop a session started by this adapter using its dispatch ID. */
   stopDispatch?(path: string, shortId: string): Promise<ReadFailure | null>;
   readonly activity?: ActivitySignal;
 }

@@ -5,13 +5,13 @@ import { read, writeIfChanged } from './fs.js';
 import { marksPathOf } from './paths.js';
 
 const marks = z.object({
-  /** When the activity signal was last actually installed, or absent where it is not installed. */
+  /** Last installation timestamp, or null when uninstalled. */
   installedAt: z.number().nullable().default(null),
-  /** The install each client has already been told about, so a second board still sees the notice once (R25). */
+  /** Last installation announced to each client (R25). */
   announcedAt: z.record(z.string(), z.number()).default({}),
-  /** Whether this machine has been told that reading cards spends usage and sends text to an API (R38). */
+  /** Whether triage usage and API disclosure was shown (R38). */
   triageToldAt: z.number().nullable().default(null),
-  /** Whether this machine has been told that the board has started work on the developer's own code (R39). */
+  /** Whether the first automatic action notice was shown (R39). */
   actionsToldAt: z.number().nullable().default(null),
 });
 
@@ -19,10 +19,7 @@ export type Marks = z.infer<typeof marks>;
 
 const EMPTY: Marks = { installedAt: null, announcedAt: {}, triageToldAt: null, actionsToldAt: null };
 
-/**
- * What the hub has already done and already said. Machine-wide for the install, per client for the announcement:
- * installing is one act, but a developer opening a second board has not read the first board's notice.
- */
+/** Persist installation state per machine and announcement state per client. */
 export interface MarkStore {
   read(): Marks;
   write(next: Marks): void;
@@ -53,20 +50,15 @@ export function makeMarkStore(home: string): MarkStore {
         mkdirSync(groundControlDirOf(home), { recursive: true });
         writeIfChanged(path, `${JSON.stringify(next, null, 2)}\n`);
       } catch {
-        // A mark that could not be stored costs one repeated notice, not a render.
+        // A failed write may repeat a notice without failing rendering.
       }
     },
   };
 }
 
-/**
- * The install stamp after a run. Only a run that actually added entries starts the clock: stamping one that added
- * nothing would have the board claim every session listed before this moment cannot report, of sessions that report
- * on their next event. A removal clears it, so putting the hooks back says so again.
- */
+/** Update the timestamp only when entries were added, so reporting sessions are not counted as pre-install. Clear it on removal. */
 export function afterInstall(held: Marks, wanted: 'install' | 'remove', added: number, now: number): Marks {
-  // The triage notice is not the install's to clear: putting the hooks back is not a second time to be told what
-  // reading a card costs.
+  // Preserve the triage disclosure when reinstalling activity hooks.
   if (wanted === 'remove') {
     return { ...held, installedAt: null, announcedAt: {} };
   }
@@ -78,7 +70,7 @@ export function afterInstall(held: Marks, wanted: 'install' | 'remove', added: n
   return { ...held, installedAt: now };
 }
 
-/** Whether this client has yet to be told about the install the marks record, and the marks after telling it. */
+/** Check whether this client needs the install notice and record its acknowledgment. */
 export function announce(held: Marks, client: string): { say: boolean; next: Marks } {
   if (held.installedAt === null || held.announcedAt[client] === held.installedAt) {
     return { say: false, next: held };

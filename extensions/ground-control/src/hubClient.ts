@@ -7,9 +7,8 @@ import { host } from './registry.js';
 import { boardRoot, perform, refuse } from './resident.js';
 
 /**
- * This window's one client. It holds the connection, the configuration it has pushed, and whether a board is
- * watching — all of which outlive any board, because turning the signal off has to take effect with no board open
- * (R34) and because a window that opened a board once keeps the hub up for the browser overlay (R35).
+ * Keep one client per extension host so configuration works after the board closes (R34) and the hub remains
+ * available to browser clients (R35).
  */
 export class HubClient {
   /** One per extension host, and the stream and the hello must name the same one or the hub refuses the hello. */
@@ -27,16 +26,15 @@ export class HubClient {
   constructor(home: string, bundle: string) {
     const ensure = makeHubProcess(home, bundle);
 
-    // Stable per extension host, not per board: the install notice is said once per client, and a fresh id on
-    // every reopen would say it again and leave a mark nothing ever clears (R25).
+    // Keep the client ID stable across board reopenings to avoid repeating installation notices and retaining
+    // unused IDs (R25).
     this.#transport = new HubTransport(this.#id, {
       ensure,
       hello: () => this.#hello(),
-      // A hub this window just started knows nothing about it, and so does one that restarted under a reconnect.
+      // Resend client settings and subscriptions after connecting; the hub may have restarted.
       afterHello: () => this.#restate(),
       onMessage: (message) => this.#onMessage(message),
-      // Levelled by the transport, not flattened to one: the channel's own filter starts at the editor's log level,
-      // so a connection story written at debug would be a pane that says nothing to whoever opens it after a stall.
+      // Preserve transport log levels so connection failures remain visible at the editor default level.
       log: (level, message) => boardLog()[level](message),
       onTrouble: (message) => {
         if (message === null) {
@@ -85,8 +83,8 @@ export class HubClient {
   }
 
   /**
-   * The settings this window holds, pushed whole. `acknowledge` asks for the activity install's outcome back, and is
-   * set only where a developer changed the setting themselves — a push on connect passes in silence.
+   * Send the complete settings. Request an installation acknowledgement only for user changes, not initial
+   * connection.
    */
   configure(config: HubConfig, acknowledge = false): void {
     this.#config = config;
@@ -127,11 +125,8 @@ export class HubClient {
       this.#transport.send({ type: 'configure', config: this.#config });
     }
 
-    // A hub that restarted under the reconnect holds no subscriber for this window, so a viewer left open would go
-    // quiet for good. What comes back is the whole tail of the file, most of which the channel has already shown —
-    // said out loud, because a hundred lines repeating themselves with nothing between reads as the hub looping.
-    // Only where something did precede it: a subscribe made while the stream was down was never sent, so its first
-    // hello is the channel's first content rather than a repeat of anything.
+    // Resubscribe after hub restart. Announce repeated backfill only if the channel already received content;
+    // a subscription requested while disconnected has no prior tail.
     if (this.#watchingLog) {
       if (this.#hubLines > 0) {
         hubLog().appendLine('--- reconnected; replaying recent hub logs ---');
@@ -149,8 +144,7 @@ export class HubClient {
     this.#watchingLog = watching;
     this.#transport.send({ type: 'watchLog', watching });
 
-    // The channel keeps whatever it already holds, so the line is what tells a developer that the lines above it
-    // are the last there will be. Nothing else marks it: an unsubscribed channel and a quiet hub look the same.
+    // Mark the end of streaming explicitly so retained output cannot be mistaken for a quiet subscription.
     if (!watching) {
       hubLog().appendLine('--- hub log streaming stopped ---');
     }
@@ -170,16 +164,14 @@ export class HubClient {
 
         return;
 
-      // The routes only something inside this window can carry out. Handled here rather than on the board, because
-      // the board that asked may be gone by the time the plan comes back.
+      // Handle resident routes on the client because the requesting board may close before the response.
       case 'perform':
         void perform(message.route, () => this.roster());
 
         return;
 
       case 'log':
-        // Dropped once this window has stopped reading: the unsubscribe is a round trip, and whatever was already
-        // in the stream would otherwise land underneath the line saying nothing more is coming.
+        // Discard lines arriving after unsubscribe so they do not appear below the stopped message.
         if (!this.#watchingLog) {
           return;
         }

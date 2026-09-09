@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import { saveLogins, splitLogins } from './config.js';
 
 /**
- * Asks once, in place, seeded with what the hub already detected (R26, R28). Returns the logins the developer
- * confirmed, or an empty list if they dismissed the box — the board then explains itself rather than querying.
+ * Prefill GitHub identities from detected accounts (R26, R28). Return confirmed logins, or an empty list on
+ * cancellation.
  */
 export async function promptForLogins(detected: readonly string[]): Promise<string[]> {
   const answer = await vscode.window.showInputBox({

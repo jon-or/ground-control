@@ -5,7 +5,7 @@ import type { MachineDeps, MachineReaders } from '../src/machine.js';
 import type { Session, SessionsConfig } from '../src/types.js';
 import { HOME, gitReads } from './helpers.js';
 
-/** Whole, not cast: a partial literal would go on compiling the day `Session` grows a field. */
+/** Use complete Session objects so type changes fail compilation. */
 const SESSION: Session = {
   agent: 'fake',
   sessionId: 'a1b2c3d4-0000-4000-8000-000000000000',
@@ -72,7 +72,7 @@ describe('fetchSessions', () => {
     expect(fake.calls[0]?.path).toBe('fake-cli');
   });
 
-  it('hands the adapter the readers it was given and the compiled pattern', async () => {
+  it('passes injected readers and the compiled pattern to adapters', async () => {
     const fake = adapter('fake');
     await fetchSessions(config(), [fake], readers);
 
@@ -93,7 +93,7 @@ describe('fetchSessions', () => {
     expect(Date.parse(snapshot.fetchedAt)).toBeLessThanOrEqual(Date.now());
   });
 
-  it('says why nothing linked when the pattern is unusable, and hands the adapter no pattern', async () => {
+  it('reports invalid linking patterns and passes null to adapters', async () => {
     const fake = adapter('fake');
     const snapshot = await fetchSessions(config({ branchIssuePattern: '^(\\d+' }), [fake], readers);
 
@@ -158,7 +158,7 @@ describe('fetchSessions', () => {
 });
 
 
-describe('history fan-out', () => {
+describe('concurrent history reads', () => {
   it('keeps an absent capability empty and catches a history reader failure independently of liveness', async () => {
     expect(await fetchSessionHistory(config(), [adapter('fake')], readers)).toEqual({ sessions: [], failures: [] });
     const fake = adapter('fake');

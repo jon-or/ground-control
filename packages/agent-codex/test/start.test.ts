@@ -26,7 +26,7 @@ const options = () => ({ cwd: process.cwd(), timeoutMs: 15_000, signal: new Abor
 
 describe('starting a run and letting go of it', () => {
   it('reads the thread id out of what the run printed, and answers with its process', async () => {
-    // A real child process: the whole point of this layer is the spawn, so a fake here would test nothing.
+    // Use a real child to verify process spawning.
     const start = makeMachineStarter(home, () => 'run-1');
     const running = await start(process.execPath, ['-e', `console.log(${JSON.stringify(STARTED)})`], options());
 
@@ -35,8 +35,8 @@ describe('starting a run and letting go of it', () => {
     expect(await running.firstLine(started)).toBe(STARTED);
   });
 
-  it('writes the run own output to a file, so nothing is lost when the board lets go', () => {
-    // A pipe nobody drains blocks the child at about 64 kB, which would stall the work with no sign of why.
+  it('persists dispatch output in a file', () => {
+    // An undrained pipe can block the child after about 64 kB.
     expect(readFileSync(dispatchLogPathOf(home, 'run-1'), 'utf8')).toContain('thread.started');
   });
 
@@ -51,7 +51,7 @@ describe('starting a run and letting go of it', () => {
     expect(await running.firstLine(started)).toBeNull();
   });
 
-  it('gives up on the signal rather than spending the whole budget', async () => {
+  it('cancels the output wait on abort', async () => {
     const controller = new AbortController();
     const start = makeMachineStarter(home, () => 'run-3');
     const running = await start(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], {
@@ -78,7 +78,7 @@ describe('starting a run and letting go of it', () => {
     expect(existsSync(dispatchLogPathOf(home, 'run-4'))).toBe(false);
   });
 
-  it('keeps each run log under the board own directory, named for when it started', () => {
+  it('stores dispatch logs by run ID in the board directory', () => {
     const logs = readdirSync(groundControlDirOf(home)).filter((name) => name.startsWith('codex-dispatch-'));
 
     expect(logs).toContain('codex-dispatch-run-1.log');
@@ -92,10 +92,7 @@ describe('ending a run', () => {
     expect(killOnMachine(0x7ffffffe)).toBe(false);
   });
 
-  /**
-   * A dispatched run spawns its tools as children, and `process.kill` reaches only the one process — a run stopped
-   * mid-tool left its shell finishing the work while the board reported it stopped. So the tree is what must go.
-   */
+  /** Verify termination includes child tools, which process.kill alone would leave running. */
   it('ends the run and the tool it had started, not just the process the board holds', async () => {
     const alive = (pid: number): boolean => {
       try {
@@ -112,8 +109,7 @@ describe('ending a run', () => {
     const claimed = join(home, 'tool.pid');
 
     writeFileSync(grandchild, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(claimed)}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
-    // `windowsHide` on both: a vitest worker under the extension host has no console, so a console child without it
-    // gets one of its own — which Windows Terminal paints as a window on the developer's screen for the test's length.
+    // Hide both console processes so tests do not open Windows Terminal windows.
     writeFileSync(
       child,
       `import { spawn } from 'node:child_process';\nspawn(process.execPath, [${JSON.stringify(grandchild)}], { stdio: 'ignore', windowsHide: true });\nsetInterval(() => {}, 1000);\n`,
@@ -144,9 +140,8 @@ describe('ending a run', () => {
 });
 
 describe('the ways a run cannot be started', () => {
-  it('refuses a batch shim by name rather than throwing, which spawn does for one', async () => {
-    // `resolveOnDisk` will hand back a `.cmd` where one is on PATH, and Node refuses to spawn it without a shell —
-    // synchronously, which would break the dispatcher's promise never to throw.
+  it('reports unsupported batch shims without throwing', async () => {
+    // Resolved .cmd shims still throw from spawn without a shell; dispatch must classify the error.
     const shim = join(home, 'codex.cmd');
     writeFileSync(shim, '@echo off\r\n');
     const running = await makeMachineStarter(home, () => 'shim')(shim, [], options());
@@ -155,9 +150,8 @@ describe('the ways a run cannot be started', () => {
     expect(running.failure).toMatchObject({ reason: 'not-executable' });
   });
 
-  it('names a spawn that failed after it was asked for, rather than letting the hub take it', async () => {
-    // A failed spawn reports twice: no pid, and an `error` event a tick later. Unhandled on a child, that event is
-    // an uncaught exception, and the hub answers one of those by exiting — so a torn-down worktree took it down.
+  it('reports asynchronous spawn errors', async () => {
+    // Handle both the missing PID and subsequent child error event without terminating the hub.
     const running = await makeMachineStarter(home, () => 'gone')(process.execPath, ['-e', ''], {
       ...options(),
       cwd: join(home, 'no-such-directory-at-all'),
@@ -168,7 +162,7 @@ describe('the ways a run cannot be started', () => {
     expect(await running.firstLine(started)).toBeNull();
   });
 
-  it('stops waiting as soon as the run has gone, rather than spending its whole budget', async () => {
+  it('stops waiting when the process exits', async () => {
     const at = Date.now();
     const running = await makeMachineStarter(home, () => 'quick')(process.execPath, ['-e', 'console.log("nope")'], {
       ...options(),
@@ -176,12 +170,12 @@ describe('the ways a run cannot be started', () => {
     });
 
     expect(await running.firstLine(started)).toBeNull();
-    // Without watching for the exit this waited out the full budget, which is 30 s on a real dispatch.
+    // Exit must end the wait before the full dispatch timeout.
     expect(Date.now() - at).toBeLessThan(10_000);
   });
 
-  it('keeps the run own noise out of the line it reads', () => {
-    // Codex's stderr is noisy by design (M13), and two writers appending to one file tear a line.
+  it('separates stderr from parsed stdout', () => {
+    // Separate output files prevent stderr writes from corrupting stdout JSON (M13).
     expect(existsSync(`${dispatchLogPathOf(home, 'run-1')}.err`)).toBe(true);
   });
 });

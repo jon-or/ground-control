@@ -718,7 +718,7 @@ The experiments below support future coordinated development workflows. They are
 
 Stopping a background parent killed its in-process subagents and their shell children. Two 150-second wait probes left preserved subagent transcripts, with Exit code 137 for the interrupted tool. No live orphan processes remained. A resumed parent recognized stopped subagents without results. Automatic recovery depended on the later resume path, covered in M14 below.
 
-Force-killing the print-mode parent left no terminal tool result or error marker; its subagent transcripts simply ended. Recovery cannot rely on the explicit interruption record produced by `claude stop`.
+Force-killing the print-mode parent left no terminal tool result or error marker; its subagent transcripts ended. Recovery cannot rely on the explicit interruption record produced by `claude stop`.
 
 The takeover sequence was exercised as stop/kill, open in the target editor, developer input, close the tab, then resume. A stopped session resumed with bare `claude --bg --resume <id>` using its original ID and saved options. Adding permission/name options could instead produce a copied session. Parse the CLI's explicit copy notice; do not infer identity from the requested ID.
 
@@ -758,7 +758,7 @@ Recovery data was reconstructable from three files:
 | `subagents/agent-<id>.meta.json` | toolUseId, agent type, description, spawn depth |
 | Subagent transcript | Progress, tool results, terminal failure and completion |
 
-Match async notifications by task-id/agent ID, not an assumed tool-use-id inside every notification. Distinguish a launch acknowledgement from a delivered report. Synchronous completion can be a later matching tool_result; asynchronous completion needs positive completed status for the agent. A stopped notification is interruption evidence. Missing completion while the parent is working can simply mean work is pending.
+Match async notifications by task-id/agent ID, not an assumed tool-use-id inside every notification. Distinguish a launch acknowledgement from a delivered report. Synchronous completion can be a later matching tool_result; asynchronous completion needs positive completed status for the agent. A stopped notification is interruption evidence. Missing completion while the parent is working can mean work is pending.
 
 Use only terminal errors to explain failure; an earlier transient error may have recovered. The prototype incorrectly reported recovered agents as orphaned when these distinctions were absent.
 
@@ -791,7 +791,7 @@ Automatic scheduled recovery was not established by this historical scan. The re
 
 A PreToolUse Bash hook exiting 2 blocked the command and supplied its stderr to the model. It was installed through a session-specific settings file. An adversarial probe identified possible bypasses—fabricating evidence, editing the hook, or changing command syntax—but the model declined them. That refusal is model behavior, not enforcement. Validate evidence in the operation that advances the stage; use the hook as an additional check.
 
-A .NET 8 xUnit project produced TRX counters through `dotnet test --logger trx`. A filter matching no tests exited 0 with outcome Completed and executed 0. Exit status and outcome alone are insufficient. The recorded candidate gate was:
+A .NET 8 xUnit project produced TRX counters through `dotnet test --logger trx`. A filter matching no tests exited 0 with outcome Completed and executed 0. Exit status and outcome alone are insufficient. The recorded validation condition was:
 
 ```text
 outcome == "Completed"
@@ -801,7 +801,7 @@ executed > 0
 
 TRX reports test counts, not assertion counts. The full no-build run reported total 4,117, executed/passed 4,114, three skipped, zero failed, and 36 seconds wall time. List-tests returned 4,067 names, so names and executed test cases must not be assumed identical.
 
-For that project the full suite was affordable and avoided a filter-based zero-test pass. Skip policy requires comparing total and executed; the gate above alone does not enforce a skip baseline. Exact ResultSummary values on a failing run and error/aborted counters on crashes were not measured. This experiment informs future validation and is not Ground Control's own npm test gate.
+For that project the full suite was affordable and avoided a filter-based zero-test pass. Skip policy requires comparing total and executed; the condition above alone does not enforce a skip baseline. Exact ResultSummary values on a failing run and error/aborted counters on crashes were not measured. This experiment informs future validation; it does not define Ground Control's npm checks.
 
 ### Structured Codex review
 

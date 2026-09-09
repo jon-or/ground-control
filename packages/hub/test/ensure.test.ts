@@ -25,10 +25,7 @@ const LIVE = {
 /** A second hub, so a stop can be told from a stop of the one the client had actually found. */
 const OTHER = { ...LIVE, record: { ...LIVE.record, port: 5678, token: 'another' } } as LiveHub;
 
-/**
- * Time is stepped by the waiting itself: `sleep` is what advances the clock, so a test drives the whole five-second
- * wait in no time at all and the budget windows are exact rather than approximate.
- */
+/** Advance the fake clock through sleep calls to test exact startup and restart limits. */
 function harness(over: Partial<EnsureDeps> = {}) {
   const shape = {
     starts: 0,
@@ -36,12 +33,12 @@ function harness(over: Partial<EnsureDeps> = {}) {
     asked: 0,
     answers: null as LiveHub | null,
     answersAfter: 0,
-    /** A hub of another protocol: running, this developer's, and not one this client can speak to. */
+    /** Authenticated hub with an incompatible protocol. */
     other: null as LiveHub | null,
     stops: 0,
-    /** Which hub each stop was aimed at, so a stop of whatever the record names now is not mistaken for a hit. */
+    /** Record shutdown targets to detect accidental replacement shutdown. */
     stopped: [] as number[],
-    /** What answers once a hub has been started, so a restart is a different hub from the one stood down. */
+    /** Return a distinct hub after replacement starts. */
     startsWith: null as LiveHub | null,
     /** Whether the bundle on disk was written after the running hub bound, and what a look finds when none does. */
     bundleIsNewer: false,
@@ -90,7 +87,7 @@ function harness(over: Partial<EnsureDeps> = {}) {
 }
 
 describe('getting a hub to talk to', () => {
-  it('uses the one already answering, and starts nothing', async () => {
+  it('reuses an existing hub without starting another', async () => {
     const { shape, ensure } = harness();
 
     shape.answers = LIVE;
@@ -103,7 +100,7 @@ describe('getting a hub to talk to', () => {
     const { shape, ensure } = harness();
 
     shape.answers = LIVE;
-    // Not on the first ask: a hub is spawned and then binds, so an answer that was there all along proves nothing.
+    // Make the hub appear only after startup to test discovery polling.
     shape.answersAfter = 3;
 
     expect(await ensure()).toEqual({ hub: LIVE });
@@ -124,8 +121,8 @@ describe('getting a hub to talk to', () => {
     expect(shape.now).toBe(5000);
   });
 
-  /** No file at all is what a killed hub leaves, and it is the one thing worth saying about a hub that will not start. */
-  it('says a hub left no reason when there is no record of one', async () => {
+  /** Report missing exit diagnostics when no exit record exists. */
+  it('reports a missing exit reason', async () => {
     const { ensure } = harness();
     const answer = await ensure();
 
@@ -161,11 +158,8 @@ describe('getting a hub to talk to', () => {
     expect('failed' in answer && answer.failed).toContain('repeatedly exited');
   });
 
-  /**
-   * A hub of another protocol is running. Newer wins, the same rule the bundle on disk follows, so this client stops
-   * it and starts its own — without this it would spawn a hub that stands down, five seconds at a time, forever.
-   */
-  it('stops a hub of an older protocol and starts its own', async () => {
+  /** Stop an older-protocol hub before starting its replacement to avoid repeated duplicate-instance refusals. */
+  it('replaces older-protocol hubs', async () => {
     const { shape, ensure } = harness();
 
     shape.other = { ...LIVE, identity: { ...LIVE.identity, protocol: PROTOCOL - 1 } };
@@ -177,8 +171,8 @@ describe('getting a hub to talk to', () => {
     expect(shape.starts).toBe(1);
   });
 
-  /** The other direction has nothing to start: the bundle on disk is the newer hub's, so a spawn stands down. */
-  it('says so and starts nothing when the hub running is newer than this client', async () => {
+  /** Do not start an older bundle while a newer-protocol hub is running. */
+  it('refuses startup while a newer-protocol hub is running', async () => {
     const { shape, ensure } = harness();
 
     shape.other = { ...LIVE, identity: { ...LIVE.identity, protocol: PROTOCOL + 1 } };
@@ -191,7 +185,7 @@ describe('getting a hub to talk to', () => {
   });
 
   /** Killing a working hub is a thing developers do, and waiting a minute for the board to come back is not it. */
-  it('starts one again the moment a hub that was working goes away', async () => {
+  it('restarts after a previously connected hub exits', async () => {
     const { shape, ensure } = harness();
 
     shape.answers = LIVE;
@@ -200,7 +194,7 @@ describe('getting a hub to talk to', () => {
     expect(await ensure()).toEqual({ hub: LIVE });
     expect(shape.starts).toBe(1);
 
-    // Killed: the next two asks answer nothing, which is what the board sees a second after a hub is stopped.
+    // Simulate failed probes immediately after stopping the hub.
     shape.answersAfter = shape.asked + 2;
     shape.now += 1000;
 
@@ -235,12 +229,9 @@ describe('getting a hub to talk to', () => {
     expect(both[0]).toBe(both[1]);
   });
 
-  /**
-   * The wait is five seconds of waiting, not fifty sleeps of a tenth. A look can spend its own deadline twice over
-   * against a port held by something that never answers, and counting the sleeps would stretch this into minutes.
-   */
+  /** Count probe duration toward the startup deadline instead of counting only sleep intervals. */
   it('gives the start five seconds of the clock however long each look takes', async () => {
-    // Each look spends its own deadline twice, the way a port held by something that never answers makes it.
+    // Simulate both silent-probe timeouts during each discovery call.
     const { shape, ensure } = harness({
       look: () => {
         shape.asked += 1;
@@ -267,13 +258,9 @@ describe('getting a hub to talk to', () => {
   });
 });
 
-/**
- * The hub runs from a file on disk, and an extension that carries a newer one replaces that file — but the hub that
- * is already up goes on running the copy it started with. Nothing else would ever stand it down, so a fix shipped in
- * an update would reach a machine only when the developer stopped the process by hand (R35).
- */
+/** Replace the running process when its bundle is updated so installed fixes take effect (R35). */
 describe('a hub still running an older copy of itself', () => {
-  it('is stood down, and the newer one started in its place', async () => {
+  it('replaces the running hub with a newer bundle', async () => {
     const { shape, ensure } = harness();
     const fresh = { ...LIVE, record: { ...LIVE.record, port: 9999 } } as LiveHub;
 
@@ -282,18 +269,18 @@ describe('a hub still running an older copy of itself', () => {
     shape.startsWith = fresh;
 
     expect(await ensure()).toEqual({ hub: fresh });
-    // The hub that was found, by its own record — never whatever the record names by the time the stop goes out.
+    // Stop the discovered hub, not a later replacement in the record.
     expect(shape.stopped).toEqual([LIVE.record.port]);
     expect(shape.starts).toBe(1);
   });
 
-  /** A stop with no start left behind it would leave the board with nothing, which is worse than an older hub. */
+  /** Keep the existing hub when the restart limit would prevent a replacement. */
   it('is left running once this client has spent its starts', async () => {
     const { shape, ensure } = harness();
 
     shape.bundleIsNewer = true;
 
-    // Two starts that answered nothing, which is what spends the budget. Only then does the older hub turn up.
+    // Exhaust the restart limit before discovering the older hub.
     await ensure();
     shape.now += 61_000;
     await ensure();
@@ -305,8 +292,8 @@ describe('a hub still running an older copy of itself', () => {
     expect(shape.stops).toBe(0);
   });
 
-  /** A stop that hit nothing is a hub another client has already replaced, and the replacement is the one to use. */
-  it('takes the hub answering now when its own stop found nothing to stop', async () => {
+  /** Use a replacement hub discovered after the stop request fails. */
+  it('rechecks discovery after a failed stop request', async () => {
     const { shape, ensure } = harness({
       stop: () => {
         shape.answers = OTHER;
@@ -323,18 +310,11 @@ describe('a hub still running an older copy of itself', () => {
   });
 });
 
-/**
- * The spawned hub stands down when something is already serving the home, and says so only in its own log. To the
- * client that spawned it that is indistinguishable from a hub that died on startup, and the developer is sent to a
- * log describing neither.
- */
+/** Distinguish duplicate-instance refusal from startup failure using the recorded exit reason. */
 describe('something serving this home that will not take this client', () => {
   const held = { ...LIVE.record, port: 4321, pid: 6789 };
 
-  /**
-   * Every one of these is a process that is up and did not become this client's hub. The remedy is the same for all
-   * of them — end it — and which one it was is the whole of what a developer has to go on.
-   */
+  /** Verify diagnostics for running listeners that cannot serve this client. */
   const misses: [string, Found, string][] = [
     ['a hub holding a token this client cannot prove', { miss: { why: 'unproven', record: held } }, 'Could not verify'],
     ['a listener that will not answer', { miss: { why: 'silent', record: held } }, 'did not respond'],
@@ -346,11 +326,7 @@ describe('something serving this home that will not take this client', () => {
     ['a hub tracking another home', { miss: { why: 'another-home', record: held } }, 'different home'],
   ];
 
-  /**
-   * The port is the record's in every case. The pid is not: only a listener that proved it holds the token wrote
-   * the record being read, and naming a pid from any other miss points at a hub that is gone — or, once the number
-   * has been handed out again, at something else entirely.
-   */
+  /** Report the recorded port for all failures, but report a PID only after authenticating the listener. */
   it.each(misses)('names %s by the port it holds, and never by a pid', async (_what, look, said) => {
     const { shape, ensure } = harness();
 
@@ -364,11 +340,8 @@ describe('something serving this home that will not take this client', () => {
     expect('failed' in answer && answer.failed).not.toContain('The hub started but did not respond');
   });
 
-  /**
-   * Saying a stranger holds the port is a claim about someone else's process. What the port answered is the only
-   * evidence for it, and without that a developer has nothing to tell a proxy from a dev server from a stale record.
-   */
-  it('says what the port answered, rather than only that it was not the hub', async () => {
+  /** Include the unexpected response to distinguish another service from a stale record. */
+  it('includes unexpected listener response details', async () => {
     const { shape, ensure } = harness();
 
     shape.miss = { miss: { why: 'not-a-hub', record: held, saw: { status: 502, said: 'Proxy Error' } } };
@@ -379,11 +352,8 @@ describe('something serving this home that will not take this client', () => {
     expect('failed' in answer && answer.failed).toContain('Proxy Error');
   });
 
-  /**
-   * The spawn stands down when a hub is already serving, and says so in `hub-exit.json`. Without that sentence the
-   * message tells a developer to go stop a stranger while their own hub is up and only this window cannot see it.
-   */
-  it('says a hub is running when the one it started stood down for it', async () => {
+  /** Include duplicate-instance refusal from hub-exit.json when another hub is already running. */
+  it('reports a duplicate-instance startup refusal', async () => {
     const { shape, ensure } = harness();
 
     mkdirSync(dirname(exitPathOf(home)), { recursive: true });
@@ -400,7 +370,7 @@ describe('something serving this home that will not take this client', () => {
   });
 
   /** The one listener that proved it wrote the record, so the one whose pid is the process to stop. */
-  it('names a hub of another version by its pid as well, because that one proved the record is its own', async () => {
+  it('includes the authenticated incompatible hub PID', async () => {
     const { shape, ensure } = harness();
 
     shape.miss = { miss: { why: 'another-protocol', hub: { ...LIVE, record: held } } };
@@ -411,11 +381,8 @@ describe('something serving this home that will not take this client', () => {
     expect('failed' in answer && answer.failed).toContain('pid 6789');
   });
 
-  /**
-   * Nothing holds the port the record names, which is a hub that died rather than one in the way. The port it left
-   * is not one a new hub would take — every hub binds whatever is free — so the failure does not name it.
-   */
-  it('reports an unreachable hub when nothing holds the recorded port', async () => {
+  /** An unreachable stale port does not block binding a new ephemeral port; omit that port from recovery instructions. */
+  it('reports an unreachable recorded hub', async () => {
     const { shape, ensure } = harness();
 
     shape.miss = { miss: { why: 'unreachable', record: held } };
@@ -437,11 +404,8 @@ describe('something serving this home that will not take this client', () => {
     expect(await ensure()).toEqual({ hub: LIVE });
   });
 
-  /**
-   * The one way this rule leaves a board worse off than leaving the old hub alone: the hub it had is stopped and the
-   * copy that replaced it does not run. Nothing else on the machine says so, so the failure has to.
-   */
-  it('is not what is said when the hub this client stopped never came back', async () => {
+  /** Report failure when the replacement cannot start after the old hub stops. */
+  it('distinguishes failed replacement from duplicate-instance refusal', async () => {
     let up: Found = { hub: LIVE };
     let stops = 0;
 
@@ -465,11 +429,7 @@ describe('something serving this home that will not take this client', () => {
   });
 });
 
-/**
- * The one comparison that decides whether a working hub is stopped. Both times are file times from the same
- * filesystem — the bundle against the record its hub wrote as it bound — so a machine whose clock disagrees with the
- * one its files are stamped by cannot make every hub look out of date and churn one forever.
- */
+/** Compare bundle and record mtimes from the same filesystem so clock differences cannot trigger repeated replacement. */
 describe('whether the hub on disk is newer than the hub that is running', () => {
   function write(path: string, at: number): void {
     mkdirSync(dirname(path), { recursive: true });
@@ -493,7 +453,7 @@ describe('whether the hub on disk is newer than the hub that is running', () => 
     expect(bundleIsNewer(home)).toBe(false);
   });
 
-  /** A client carrying no bundle of its own has nothing better to offer, so it displaces nothing. */
+  /** Keep the running hub when the client has no replacement bundle. */
   it('is false when there is no bundle on disk', () => {
     write(hubJsonPathOf(home), NOON);
 

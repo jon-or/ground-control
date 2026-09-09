@@ -13,10 +13,7 @@ async function unwrap(...args: Parameters<typeof fetchAssignedIssues>) {
 }
 
 describe('fetchAssignedIssues', () => {
-  /**
-   * Every page carries a deadline. Without one a blackholed network hangs the poll for the life of the hub, and each
-   * later refresh coalesces onto that read rather than starting one of its own — so the board never comes back.
-   */
+  /** Bound every page request so stalled networking cannot block subsequent refreshes. */
   it('bounds every page it asks for', async () => {
     const runner = runnerOf(fixture('project-mode'));
     await unwrap(config(), runner);
@@ -63,8 +60,7 @@ describe('fetchAssignedIssues', () => {
   });
 
   it('carries when the status last moved, which is what makes a card due to be read again', async () => {
-    // Derived rather than recorded: every search fixture on disk predates the selection, and re-recording one would
-    // rewrite fifteen nodes to prove one field. The shape is `ProjectV2ItemFieldSingleSelectValue.updatedAt`.
+    // Derive ProjectV2ItemFieldSingleSelectValue.updatedAt because existing search fixtures predate its selection.
     const stamped = structuredClone(fixture('project-mode')) as {
       data: { cards: { nodes: { number: number; projectItems: { nodes: { fieldValueByName: { updatedAt?: string } | null }[] } }[] } };
     };
@@ -79,7 +75,7 @@ describe('fetchAssignedIssues', () => {
     const value = await unwrap(config(), runnerOf(stamped));
 
     expect(value.cards.find((c) => c.number === 18953)?.statusChangedAt).toBe('2026-09-04T13:53:36Z');
-    // Every other card keeps the null its own recording carries, so one stamped item cannot stand in for the board.
+    // Keep other fixture timestamps null to verify per-card mapping.
     expect(value.cards.filter((c) => c.statusChangedAt !== null)).toHaveLength(1);
   });
 
@@ -112,8 +108,8 @@ describe('fetchAssignedIssues', () => {
     });
   });
 
-  /** The board reads all three to decide which lane a card arrives in, and a card holds no lane at all without the author. */
-  it('names who opened the pull request, whether it is a draft, and what its review said', async () => {
+  /** Author, draft state, and review decision determine arrival lanes. */
+  it('reads PR author, draft state, and review decision', async () => {
     const response = structuredClone(fixture('avatars')) as {
       data: { cards: { nodes: Array<{ number: number; pullRequests: { nodes: Array<Record<string, unknown>> } }> } };
     };
@@ -148,7 +144,7 @@ describe('fetchAssignedIssues', () => {
     expect(value.cards.find((card) => card.number === 19400)?.pullRequest?.number).toBe(19500);
   });
 
-  it('carries GitHub own colour for the type and the status', async () => {
+  it('preserves GitHub type and status colors', async () => {
     const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(fixture('avatars')));
     const review = value.cards.find((card) => card.number === 19400);
 
@@ -180,7 +176,7 @@ describe('fetchAssignedIssues', () => {
     expect(older).toBeDefined();
     expect(review).toBeDefined();
 
-    // Both pull requests are recorded; the older one is given the assignee as its author, so only the sort can decide.
+    // Use two recorded PRs with different authors so recency determines the selected avatar.
     review!.pullRequests.nodes.push({ ...older!.pullRequests.nodes[0]!, author: review!.assignees.nodes[0]! });
 
     expect(older!.pullRequests.nodes[0]!.updatedAt < review!.pullRequests.nodes[0]!.updatedAt).toBe(true);
@@ -314,7 +310,7 @@ describe('fetchAssignedIssues', () => {
     expect(value.truncated).toBe(true);
   });
 
-  it('finds every card in issueSearch mode and reports nothing excluded', async () => {
+  it('returns issueSearch results without project exclusions', async () => {
     const runner = runnerOf(fixture('project-mode'));
     const value = await unwrap(config({ cardSource: 'issueSearch' }), runner);
 
@@ -336,7 +332,7 @@ describe('fetchAssignedIssues', () => {
     expect(value.truncated).toBe(true);
   });
 
-  it('reports nothing excluded when the filter matched everything', async () => {
+  it('reports zero exclusions when the filter matches all issues', async () => {
     const value = await unwrap(config(), runnerOf(fixture('project-mode')));
 
     expect(value.notOnProject).toBe(0);
@@ -358,7 +354,7 @@ describe('fetchAssignedIssues', () => {
     expect(value.matched).toBe(1753);
   });
 
-  it('does not report truncation when the last page said there was no next', async () => {
+  it('reports no truncation when the final page has no successor', async () => {
     const value = await unwrap(config(), runnerOf(fixture('project-mode')));
 
     expect(value.truncated).toBe(false);
@@ -371,7 +367,7 @@ describe('fetchAssignedIssues', () => {
     expect(value.cards).toHaveLength(3);
   });
 
-  it('stops at maxPages rather than paging forever', async () => {
+  it('limits pagination to maxPages', async () => {
     const page = fixture('paged-page1');
     const runner = runnerOf(page, page, page);
     await unwrap(config({ maxPages: 3 }), runner);
@@ -462,7 +458,7 @@ describe('fetchIssue', () => {
     expect(runner.bounds[0]?.timeoutMs).toBeGreaterThan(0);
   });
 
-  // A branch-derived number that matches nothing. Not an error — the board unlinks the session rather than saying so.
+  // Missing branch-derived issues leave sessions unlinked without an error.
   it('answers with no card where GitHub reports no such issue', async () => {
     const result = await fetchIssue(config(), 'example-org', 'example-repo', 99999, runnerOf({ data: { repository: { issue: null } } }));
 

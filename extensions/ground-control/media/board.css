@@ -1,15 +1,14 @@
 :root {
   color-scheme: light dark;
   --gc-radius: 6px;
-  /* A fifth of the way to black: Dark Modern's own chart green is 9:1 against the card and read as a lit pill. */
+  /* Reduce green by 20%; the unmodified Dark Modern chart color has 9:1 contrast against cards. */
   --gc-working: color-mix(in srgb, var(--vscode-charts-green) 80%, black);
   --gc-gutter: 1.25rem;
   /* 1.62:1 against a Dark Modern card and 1.42:1 in Light Modern, against GitHub's own 1.76 and 1.43. */
   --gc-edge: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
   /*
-   * The lane is recessed. The page and the card are the same tone and never touch: the only surface either of them
-   * meets is this one, which is what separates two surfaces the theme is free to paint identically. 1.07:1 against
-   * the page here, where GitHub's own board is 1.06:1.
+   * Separate same-colored cards and page with a darker lane background: contrast 1.07:1, compared with GitHub
+   * at 1.06:1.
    */
   --gc-lane: color-mix(in srgb, black 3%, var(--vscode-editor-background));
 }
@@ -33,9 +32,8 @@ body {
 }
 
 /*
- * The same recess costs a much larger step on a dark ground - 3% of `#ffffff` is eight levels and 3% of `#1f1f1f`
- * is one - so the depth is set per theme kind. The class is VS Code's own, put on the webview body by its preload
- * (`mechanics.md` M36). 1.10:1 against the page, where GitHub's own board is 1.09:1.
+ * Use a stronger mix for dark backgrounds: 3% changes white by eight levels but #1f1f1f by one. VS Code
+ * supplies the theme class (mechanics M36). Contrast is 1.10:1 versus GitHub at 1.09:1.
  */
 body.vscode-dark {
   --gc-lane: color-mix(in srgb, black 30%, var(--vscode-editor-background));
@@ -76,7 +74,7 @@ h1 {
   color: var(--vscode-list-warningForeground, var(--vscode-descriptionForeground));
 }
 
-/* The board's own overflow menu. Always drawn, unlike a card's: nothing reveals it and it is the only way in. */
+/* Keep the board menu visible because it is the only access to board actions. */
 #board-menu {
   flex: none;
   position: relative;
@@ -102,7 +100,7 @@ h1 {
   outline-offset: 2px;
 }
 
-/* What a closed menu cannot say: the hub log is being read. The dot is the mark the overlay's own control carries. */
+/* Show hub log subscription state while the menu is closed, matching the overlay. */
 #board-menu.on::after {
   content: '';
   position: absolute;
@@ -189,7 +187,7 @@ main.stale {
 /* Every lane runs the full height of the panel, so the column below the last card is still a drop target. */
 .lane {
   flex: none;
-  /* GitHub's own column, at a 16px root: 350px (`mechanics.md` M27), which lands this board's card within 2px of one of theirs. */
+  /* Match GitHub columns at 350px with a 16px root (mechanics M27), within 2px of its card width. */
   width: 21.875rem;
   min-height: 0;
   display: flex;
@@ -200,7 +198,7 @@ main.stale {
 }
 
 /* Only the cards scroll. The lane's own heading stays put, so the count is readable at any depth. */
-/* The side gutters are here rather than on .lane, so the scrollbar rides the lane's edge instead of the card's. */
+/* Put gutters on lane-cards so the scrollbar aligns with the lane edge. */
 .lane-cards {
   flex: 1;
   min-height: 0;
@@ -213,7 +211,7 @@ main.stale {
   scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
 }
 
-/* The editor's own slider rather than the platform's: a native bar per lane reads as seven bars, not one board. */
+/* Use editor scrollbar styling consistently across lanes. */
 .lane-cards::-webkit-scrollbar {
   width: 8px;
 }
@@ -285,7 +283,7 @@ main.stale {
   opacity: 0.5;
 }
 
-/* An empty Done or Icebox is noise, but it has to come back as a drop target the moment a card is picked up. */
+/* Hide empty Done and Icebox lanes until dragging requires their drop targets. */
 .lane-idle {
   display: none;
 }
@@ -296,10 +294,7 @@ main.dragging .lane-idle {
 
 /* Cards ------------------------------------------------------------------- */
 
-/*
- * A lane is too narrow for one row, so the card reads down: what GitHub says the card is - its number, its title and
- * its labels - and then, set apart below, everything this board adds on top of that.
- */
+/* Stack issue details above the separate session footer to fit narrow lanes. */
 .card {
   flex: none;
   display: flex;
@@ -313,17 +308,14 @@ main.dragging .lane-idle {
   border-radius: var(--gc-radius);
 }
 
-/*
- * `:hover` is matched too, and declared here rather than left to source order — the ring must not disappear at the
- * moment it is pointed at. It is the same tint either way: what a card is asking for does not change under a pointer.
- */
+/* Preserve attention borders and tint on hover. */
 .card[data-attention='blocked'],
 .card[data-attention='blocked']:hover {
   border-color: var(--vscode-charts-yellow);
   background: color-mix(in srgb, var(--vscode-charts-yellow) 7%, var(--vscode-editor-background));
 }
 
-/* A finished turn is the developer's move too, but it is not an agent stuck on them - so it is marked, and marked more quietly. */
+/* Use a quieter indicator for completed turns than for blocked sessions. */
 .card[data-attention='your-turn'],
 .card[data-attention='your-turn']:hover {
   border-color: var(--vscode-charts-blue);
@@ -331,13 +323,13 @@ main.dragging .lane-idle {
 }
 
 /*
- * A session is still working on this card. The green the row's own mark takes for `running`, so the card's edge and that mark are one colour -
- * but dashed and unfilled where a mark is solid over a tint, because a card that is working asks for nothing and must not read as R6.
+ * Use the running dot color for the card border, with dashes and no fill to distinguish it from attention
+ * states (R6).
  */
 .card[data-attention='running'],
 .card[data-attention='running']:hover {
   border-style: dashed;
-  /* Where the edge rests between the two ends of its pulse, and all of it where the developer has asked for no motion. */
+  /* Use this border color between pulse frames and with reduced motion. */
   border-color: color-mix(in srgb, var(--gc-working) 55%, transparent);
   animation: gc-working-edge 2.4s ease-in-out infinite;
 }
@@ -367,9 +359,8 @@ main.dragging .lane-idle {
 }
 
 /*
- * Everything this board adds on top of GitHub's own facts, set apart the way the browser overlay sets it apart: a
- * tint over whatever the card is painted, so it holds against a hover and against an attention colour alike. It
- * reaches the card's three edges by cancelling the padding on those three sides.
+ * Tint the session footer over card hover and attention colors. Cancel padding to align with all three card
+ * edges.
  */
 .card-foot {
   display: flex;
@@ -385,10 +376,7 @@ main.dragging .lane-idle {
   border-radius: 0 0 calc(var(--gc-radius) - 1px) calc(var(--gc-radius) - 1px);
 }
 
-/*
- * GitHub reveals its own on hover. This one is revealed by the keyboard too: it stays in the tab order whether or
- * not it can be seen, and a control the focus reaches invisibly is one nobody can use.
- */
+/* Reveal the menu on both hover and keyboard focus; keep it in the tab order. */
 .card-menu {
   flex: none;
   display: grid;
@@ -415,7 +403,7 @@ main.dragging .lane-idle {
   opacity: 1;
 }
 
-/* Nothing hovers on a touch screen, so a control revealed by hover alone is one that never appears there at all. */
+/* Keep hover controls visible on touch screens. */
 @media (hover: none), (pointer: coarse) {
   .card-menu {
     opacity: 1;
@@ -491,10 +479,7 @@ main.dragging .lane-idle {
   cursor: default;
 }
 
-/*
- * The one thing on a card that opens the issue, and until now the only control on it with no affordance of its own.
- * On the title rather than the button, which is the full width of the card and would rule the whitespace beside it.
- */
+/* Underline title text as the issue-open affordance, excluding the full-width button whitespace. */
 .card-open:hover:not(:disabled) .title {
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -563,10 +548,10 @@ main.dragging .lane-idle {
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  /* The row is the 24px click target, and it owns the height so a row with nothing to click does not sit lower. */
+  /* Set the 24px height on the row so interactive and plain session labels align. */
   min-height: 1.5rem;
   min-width: 0;
-  /* Out to the sides and back in, so the surface a hover paints runs wider than the words without moving them. */
+  /* Extend the hover background without shifting text. */
   margin-inline: -0.35rem;
   padding-inline: 0.35rem;
   color: var(--vscode-descriptionForeground);
@@ -608,10 +593,7 @@ main.dragging .lane-idle {
   --gc-dot: var(--vscode-charts-yellow);
 }
 
-/*
- * Keyed by agent, because the two marks are drawn differently by their owners: Claude's carries its brand colour, and
- * OpenAI's ships black and white, so it takes the row's own description tone in both themes rather than one of them.
- */
+/* Use Claude brand orange and the muted row color for the monochrome OpenAI logo. */
 .agent-mark {
   width: 0.85rem;
   height: 0.85rem;
@@ -623,9 +605,8 @@ main.dragging .lane-idle {
 }
 
 /*
- * The name is the row's own subject and reads a step above the marks around it, which stay at the description
- * colour. `--vscode-foreground` is the editor's own body text: muted against white without being the grey the
- * duration beside it is. The browser overlay lands on the same tone out of Primer's pair (`mechanics.md` M38).
+ * Use editor foreground for the name and description foreground for surrounding details. The overlay matches
+ * this contrast (mechanics M38).
  */
 .session-label {
   min-width: 0;
@@ -635,9 +616,7 @@ main.dragging .lane-idle {
   color: var(--vscode-foreground);
 }
 
-/*
- * Reset for the row that is a control. Its own font size again after `font`, which would otherwise take the card's.
- */
+/* Restore row font size after the font shorthand reset. */
 button.session {
   font: inherit;
   font-size: 0.78rem;
@@ -647,11 +626,7 @@ button.session {
   cursor: pointer;
 }
 
-/*
- * A surface under the whole row rather than a decoration on its words, which is what the browser overlay paints on
- * the same row. It is also the only treatment available here: the words are already spoken for — a phase colour
- * claims their colour, and a running name is a gradient clipped to them — where a surface takes nothing from either.
- */
+/* Apply hover to the row background, preserving state colors and the running text gradient. */
 button.session:hover {
   background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
 }
@@ -661,11 +636,7 @@ button.session:focus-visible {
   outline-offset: 1px;
 }
 
-/*
- * A column wide enough for the value, so a second turning over does not relay out the row. The label beside it is
- * `background-clip: text` under a running animation, and a relayout re-derives that gradient once a second.
- * Every value `ago` returns below 100 weeks is three characters or fewer; a longer word sizes past the floor.
- */
+/* Reserve three characters for durations below 100 weeks to avoid row shifts during timer updates. */
 .state {
   flex: none;
   margin-left: auto;
@@ -675,10 +646,7 @@ button.session:focus-visible {
   white-space: nowrap;
 }
 
-/*
- * Where the click lands, in the slot the state was in and at the same width, so the row's geometry does not move
- * under the pointer - a relayout re-derives the running label's gradient. One or the other is drawn, never both.
- */
+/* Replace the duration with the destination icon at the same width to preserve row and gradient geometry. */
 .destination {
   display: none;
   flex: none;
@@ -694,10 +662,7 @@ button.session:focus-visible {
   vertical-align: -3px;
 }
 
-/*
- * Solid against outline, and one tinted: at this size two line drawings of a rectangle read as the same mark, so the
- * terminal is a block with its prompt knocked out in the card's own colour and the editor is a frame in the link tone.
- */
+/* Distinguish terminal and editor icons at small sizes with a filled terminal and an outlined editor. */
 .destination .plate {
   fill: var(--vscode-descriptionForeground);
   stroke: none;
@@ -711,8 +676,7 @@ button.session:focus-visible {
   stroke-linejoin: round;
 }
 
-/* A run the board started rather than a session the developer is sitting in. Italic and nothing else: the row's
-   colours are all spoken for, and the name is the one part of it that is the work's own. */
+/* Identify board-dispatched runs with italic names; retain existing state colors. */
 .session[data-detached] > .session-label {
   font-style: italic;
 }
@@ -735,8 +699,8 @@ button.session:focus-visible > .destination {
 }
 
 /*
- * One highlight, one pass, left to right. The image is three times the label and never repeats, so the band leads in from off the left and
- * leaves off the right with nothing behind it — a repeating background tiles, which is what puts a second band on screen behind the first.
+ * Animate a highlight across the running session name without changing state colors. A nonrepeating gradient
+ * three times the text width starts and ends outside it.
  */
 @keyframes gc-shimmer {
   from {
@@ -749,9 +713,7 @@ button.session:focus-visible > .destination {
 }
 
 /*
- * How far the pass of light travels from the name's own colour. It cannot be derived: the peak is the end of the
- * range the theme runs to, and that is white in one and black in the other, so it is set off VS Code's own theme-kind
- * body class (`mechanics.md` M36). Flat where no class was stamped, which is legible rather than invisible.
+ * Use white highlights in dark themes and black in light themes, using the VS Code theme class (mechanics M36).
  */
 .session[data-phase='running'] .session-label {
   --gc-peak: var(--vscode-foreground);
@@ -768,8 +730,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 }
 
 .session[data-phase='running'] .session-label {
-  /* Monochrome: the session's own name, lit rather than recoloured. A chart colour would read as a category. The
-     trough sits 45% of the way to the row's own muted colour, which is what gives the pass of light somewhere to travel from. */
+  /* Keep running text monochrome. Blend its base 45% toward muted text to create highlight contrast. */
   background-image: linear-gradient(
     95deg,
     color-mix(in srgb, var(--vscode-foreground) 55%, var(--vscode-descriptionForeground)) 43%,
@@ -788,20 +749,20 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   animation-iteration-count: infinite;
 }
 
-/*
- * The mark alone carries a marked row: the words keep the weight and colour every other row has. Recolouring them
- * as well as the card's edge and the mark read as three claims about one session.
- */
+/* Apply session attention color only to the dot; preserve normal text styling. */
 .card[data-attention='blocked'] .session[data-phase='waiting'] .dot {
   --gc-dot: var(--vscode-charts-yellow);
 }
 
-/* Scoped to the marked card: an idle row on a card asking nothing - one parked in Done - must not be painted as if it were. */
+/*
+ * Scope row attention to the card state so suppressed attention in Done does not color idle rows. Apply the
+ * color only to the dot.
+ */
 .card[data-attention='your-turn'] .session[data-phase='idle'] .dot {
   --gc-dot: var(--vscode-charts-blue);
 }
 
-/* Reduced motion must not mean less information: the running session stays marked, it just stops moving. */
+/* Keep the running indicator visible with animation disabled. */
 @media (prefers-reduced-motion: reduce) {
   .card[data-attention='running'],
   .card[data-attention='running']:hover {
@@ -815,10 +776,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   }
 }
 
-/*
- * Under forced colours the gradient is the one thing that may not paint, and the label's own colour is transparent -
- * so the name would vanish. The phase is text in the row beside it either way, but the name has to be readable.
- */
+/* Restore readable text when forced colors suppress the gradient and leave its text transparent. */
 @media (forced-colors: active) {
   .session[data-phase='running'] .session-label {
     background-image: none;
@@ -838,7 +796,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
     color: ButtonText;
   }
 
-  /* The hue is the one thing forced colours drop, so the fill is what is left to tell an open session from an ended one. */
+  /* Retain dot fill to distinguish live and ended sessions in forced colors. */
   .dot {
     border-color: CanvasText;
   }
@@ -847,12 +805,12 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
     background: CanvasText;
   }
 
-  /* The one sign that the hub log is being read, so it takes a forced colour rather than being dropped with the theme's. */
+  /* Preserve the log subscription indicator in forced colors. */
   #board-menu.on::after {
     background: Highlight;
   }
 
-  /* Both halves of the pair are forced, so the selected item would otherwise paint exactly like an unselected one. */
+  /* Use forced-color selection styling to distinguish selected items. */
   .card-popover button:hover,
   .card-popover button:focus {
     color: HighlightText;
@@ -873,7 +831,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
     border-color: Highlight;
   }
 
-  /* Hue is what forced colours drop, so the dash is the whole of a working edge and Highlight is left to R6's two marks. */
+  /* Retain the dashed running border in forced colors; reserve Highlight for attention. */
   .card[data-attention='running'],
   .card[data-attention='running']:hover {
     border-color: CanvasText;
@@ -881,10 +839,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   }
 }
 
-/*
- * The issue number and the pull-request chip open their own page on GitHub, so both carry a link's affordance.
- * Declared before either, so the button reset here does not clobber the font and padding each sets for itself.
- */
+/* Give issue and PR links a shared button reset before their individual font and padding rules. */
 .link {
   display: inline-flex;
   align-items: center;
@@ -908,7 +863,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   color: var(--vscode-descriptionForeground);
 }
 
-/* A repository name, unlike an issue number, has no bound — left to push, it would carry the badges off the card. */
+/* Constrain repository names to keep badges within the card. */
 .number.checkout {
   flex: 0 1 auto;
   min-width: 0;
@@ -938,15 +893,14 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   gap: 0.25rem;
 }
 
-/* No row where there is nothing to put in it: the card's own gap would otherwise leave a blank line behind. */
+/* Hide empty rows to avoid extra card gaps. */
 .badges:empty {
   display: none;
 }
 
 /*
- * GitHub's own label, measured on a live card (`mechanics.md` M37): 20px tall, 8px of side padding, the colour at
- * full strength on 18% of it, edged with 30%. The height is set by the line box rather than left to the font's
- * metrics, so a chip that is a button does not stand taller than one that is a span.
+ * Match measured GitHub labels: 20px height, 8px side padding, 18% background and 30% border opacity
+ * (mechanics M37). Set line height so buttons and spans align.
  */
 .badge {
   display: inline-flex;
@@ -991,14 +945,14 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
 }
 
-/* A reading is a sentence about the card, so it is set as words rather than as a mark: the chip's own weight is 400. */
+/* Use normal font weight for triage text. */
 .badge.triage,
 .badge.triage-running,
 .badge.triage-failed {
   font-weight: 400;
 }
 
-/* Without `triage-running`: it is the one of these that is a state rather than a button, with nothing to press. */
+/* Exclude triage-running from button styling because it is noninteractive. */
 .badge.pull-request:hover,
 .badge.triage:hover,
 .badge.triage-failed:hover {
@@ -1010,15 +964,11 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 .pr-mark {
   width: 0.72rem;
   height: 0.72rem;
-  /* The state's own colour, and the one thing on the chip that carries it - `currentColor` would take the grey. */
+  /* Use the PR state color for its icon instead of the muted currentColor. */
   fill: var(--gc-badge, currentColor);
 }
 
-/*
- * A title wraps rather than truncating: a card is read once and its whole subject has to be on it. Inline, because
- * the button around it is the width of the card and a block title would carry its underline across the empty half
- * of the last line. The button remains the target; what the underline marks is the words.
- */
+/* Wrap the full title. Keep it inline so its underline follows text instead of spanning the full-width button. */
 .title {
   font-size: 0.875rem;
   font-weight: 600;
@@ -1037,10 +987,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   border-radius: var(--gc-radius);
 }
 
-/*
- * What the card was read to be waiting on (R38). Deliberately none of R6's channels — no border on the card, no
- * attention colour, no set-apart name — because a card being read, or one that has been read, is asking for nothing.
- */
+/* Keep triage neutral: classification does not imply session attention (R38). */
 .badge.triage-running {
   animation: triage-pulse 1.8s ease-in-out infinite;
 }
@@ -1055,7 +1002,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   }
 }
 
-/* How long the card has held its status. The label's own colour and weight: it is a part of the label, not an aside. */
+/* Style status age as part of the triage label. */
 .triage-age {
   min-width: 3ch;
   text-align: center;
@@ -1090,14 +1037,13 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   border: 0;
   border-radius: 50%;
   cursor: pointer;
-  /* Not opacity: the two share a cell, and a control nobody can see must not be one the pointer can still press. */
+  /* Hide the inactive grid control completely so it cannot receive pointer events. */
   visibility: hidden;
 }
 
 /*
- * Hover is scoped to the chip, not the card: a pointer crossing a lane must not swap the age for a control on every
- * card it passes. `:focus-within` stays on the card, which is itself focusable — so a keyboard reaches the card, the
- * control becomes visible, and the next tab lands on it. Hidden means out of the tab order until then.
+ * Reveal refresh on chip hover or card focus. This avoids changes while passing over cards and makes the
+ * control reachable by keyboard.
  */
 .badge.triage:hover .triage-again,
 .card:focus-within .triage-again {
@@ -1109,7 +1055,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   visibility: hidden;
 }
 
-/* Nothing hovers on a touch screen, so the two sit side by side there rather than one of them never appearing. */
+/* Show age and refresh side by side on touch screens. */
 @media (hover: none), (pointer: coarse) {
   .triage-end {
     display: inline-flex;
@@ -1141,7 +1087,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   fill: currentColor;
 }
 
-/* A reading is only as good as the card it was made against, so one the card has moved under says so by fading. */
+/* Fade classifications made from older card content. */
 .badge.triage[data-stale='true'] {
   opacity: 0.6;
   border-style: dashed;
@@ -1159,12 +1105,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   border-style: dashed;
 }
 
-/*
- * The board's own tooltip, in place of the browser's: `title` opens after about a second, in the operating system's
- * shape rather than the editor's. Geometry is GitHub's own, measured off a live board (`docs/mechanics.md` M35) so
- * the two boards read the same; the colours are the editor's hover widget, because a tooltip that ignored the
- * user's theme would be the one thing on this board that did.
- */
+/* Match GitHub tooltip geometry (mechanics M35) with editor hover-widget colors. */
 #tip {
   position: fixed;
   z-index: 300;

@@ -3,17 +3,20 @@ import type { ActivityChange, ActivityPhase, ReadText, Session, SessionActivity 
 import { FUTURE_TOLERANCE_MS, HOOK_MARKER_VERSION, markerPathOf } from './hookScript.js';
 
 /**
- * What the hook wrote. Every field is a transcription of the payload, so an unfamiliar value reaches `phaseOf`
- * rather than being rejected here — an event the board does not recognise must cost no phase, not a whole session.
+ * Validate hook marker structure while allowing unfamiliar event values. Unsupported events have no phase; they
+ * do not invalidate the session.
  */
 const activityMarker = z.object({
-  // Pinned, not read: two extension versions share one `~/.claude`, so a marker whose fields were redefined must read
-  // as no phase rather than be consumed as this one. An added field is defaulted instead, which costs no session its phase.
+  // Reject incompatible marker versions because extension versions share one home. Default additive fields when
+  // compatibility permits.
   v: z.literal(HOOK_MARKER_VERSION),
   sessionId: z.string(),
   event: z.string().nullable(),
   at: z.number(),
-  /** When the stretch of work in flight began: its prompt, or its first event where it resumed without one. Absent from an older marker. */
+  /**
+   * Turn start: the prompt timestamp, or the first event after resuming without a prompt. Defaults to null for
+   * older markers.
+   */
   turnAt: z.number().nullable().default(null),
   notificationType: z.string().nullable(),
   source: z.string().nullable(),
@@ -24,19 +27,13 @@ const activityMarker = z.object({
 
 export type ActivityMarker = z.infer<typeof activityMarker>;
 
-/** Blocking human gates. A session sitting on one is parked on a decision, which is what R6 exists to surface. */
+/** Tools that wait for a user decision (R6). */
 const WAITING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
-/**
- * `Notification` is not "the agent needs you": the same event carries `agent_completed` and `idle_prompt`, so
- * mapping it wholesale would paint a finished session as needing attention (`docs/mechanics.md` M20).
- */
+/** `Notification` also reports completion and idle events; only these types require user input (M20). */
 const WAITING_NOTIFICATIONS = new Set(['permission_prompt', 'worker_permission_prompt', 'agent_needs_input']);
 
-/**
- * The phase a marker reports, or null to claim nothing. Null is the honest floor and what makes an event the board
- * has never seen safe: the card renders without a phase rather than guessing one (R24).
- */
+/** Return the reported phase, or null for unsupported events (R24). */
 export function phaseOf(marker: ActivityMarker): ActivityPhase | null {
   switch (marker.event) {
     case 'UserPromptSubmit':
@@ -44,8 +41,8 @@ export function phaseOf(marker: ActivityMarker): ActivityPhase | null {
     case 'PermissionDenied':
       return 'running';
 
-    // Compaction fires mid-turn on a session that is working, so blanking its phase would take a running card back to
-    // nothing. Every other source — startup, resume, clear, fork — says a session exists, not what it is doing.
+    // Compaction occurs during a running turn. Other SessionStart sources report existence without an activity
+    // phase.
     case 'SessionStart':
       return marker.source === 'compact' ? 'running' : null;
 
@@ -63,7 +60,7 @@ export function phaseOf(marker: ActivityMarker): ActivityPhase | null {
 
       return marker.notificationType === 'agent_completed' ? 'idle' : null;
 
-    // Background work still in flight is a paused session, not a finished one.
+    // Pending background tasks keep the phase running after Stop.
     case 'Stop':
       return marker.backgroundTasks > 0 ? 'running' : 'idle';
 
@@ -73,16 +70,16 @@ export function phaseOf(marker: ActivityMarker): ActivityPhase | null {
 }
 
 /**
- * What the card's duration counts from. A running session counts the stretch of work it is in — the prompt that began it, not the last
- * heartbeat, which lands on every tool batch and would hold the number at zero. A stamp later than its own event is a clock step.
+ * Measure running duration from the turn start, not each tool event. Ignore turn timestamps later than the
+ * event to handle clock changes.
  */
 function sinceOf(phase: ActivityPhase, marker: ActivityMarker): number {
   return phase === 'running' && marker.turnAt !== null && marker.turnAt <= marker.at ? marker.turnAt : marker.at;
 }
 
 /**
- * The session's last reported activity, or null when it has no marker, an unreadable one, or one that claims nothing.
- * Never liveness: the CLI's session list is what proves a session is alive (`docs/mechanics.md` M2).
+ * Read the last activity, or null for missing, invalid, or unsupported markers. Only the CLI session list
+ * establishes liveness (M2).
  */
 export function readActivity(
   home: string,
@@ -104,15 +101,14 @@ export function readActivity(
     return null;
   }
 
-  // A forked transcript reuses records under a new id, so a marker that disagrees with its own file name is not this
-  // session's (`docs/mechanics.md` M10).
+  // Forks reuse transcript records; reject markers whose session ID differs from their filename (M10).
   if (!marker.success || marker.data.sessionId !== sessionId || marker.data.at > now + FUTURE_TOLERANCE_MS) {
     return null;
   }
 
   const phase = phaseOf(marker.data);
 
-  // A null event reaches `phaseOf`'s default arm, so a phase at all proves the event was named.
+  // `phaseOf` returns null for a null event, so a known phase implies a named event.
   return phase === null
     ? null
     : { phase, since: sinceOf(phase, marker.data), at: marker.data.at, event: marker.data.event as string };

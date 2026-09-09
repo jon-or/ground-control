@@ -24,12 +24,12 @@ describe('what the hub writes about itself', () => {
     expect(written).toEqual([`${AT} info [github] read 14 cards in 812ms`]);
   });
 
-  it('starts at info, so nothing has to configure a hub for it to say anything', () => {
+  it('defaults to info logging', () => {
     expect(logging().log.level()).toBe('info');
   });
 
   // The refusal, and the reason the level exists at all.
-  it('writes nothing at all for a line under the floor', () => {
+  it('filters entries below the threshold', () => {
     const { log, written } = logging();
 
     log.debug('47 sessions in 180ms', 'sessions');
@@ -49,8 +49,7 @@ describe('what the hub writes about itself', () => {
     expect(log.level()).toBe('info');
   });
 
-  // The reason `LOG_FLOORS` is not `LOG_LEVELS`: a client that could floor the hub at `warn` would silence the
-  // line saying it came up, and a developer whose hub will not start is sent to this very file to find out why.
+  // Do not allow warn-only thresholds that suppress startup diagnostics.
   it.each(LOG_FLOORS)('still writes what happened at a floor of %s, whatever a client asked for', (floor) => {
     const { log, written } = logging(floor);
 
@@ -67,7 +66,7 @@ describe('what the hub writes about itself', () => {
 });
 
 describe('who is listening', () => {
-  it('hands a watcher the entry rather than the line, level and scope intact', () => {
+  it('sends structured entries to subscribers', () => {
     const { log } = logging();
     const seen: LogEntry[] = [];
 
@@ -79,7 +78,7 @@ describe('who is listening', () => {
     ]);
   });
 
-  // A viewer that closed must stop costing the hub anything, which is the whole of "read nothing until it opens".
+  // Remove the viewer subscription when it closes.
   it('stops delivering once the watcher is undone', () => {
     const { log } = logging();
     const seen: LogEntry[] = [];
@@ -116,8 +115,8 @@ describe('who is listening', () => {
     expect(written).toHaveLength(1);
   });
 
-  // A client whose stream has gone must not take the hub's own record down with it.
-  it('still writes the file, and still tells the other watcher, when one of them throws', () => {
+  // Subscriber failure must not prevent file logging.
+  it('isolates subscriber failures from file output and other subscribers', () => {
     const { log, written } = logging();
     const survivor: string[] = [];
 
@@ -148,7 +147,7 @@ describe('the file it appends to', () => {
     }
   });
 
-  // Rotated on what this run has written, never on a stat per line: one hub outwrites its own limit many times over.
+  // Rotate by bytes written so long-running hubs respect log limits without per-line stat calls.
   it('moves the file aside once this run has written the limit, and keeps writing', () => {
     const { home, dispose } = tempHome();
 
@@ -193,11 +192,11 @@ describe('the tail a viewer opens on', () => {
   });
 
   // A hub that has never written one, or a home that is not there. Neither is an error a viewer should be shown.
-  it('is empty for a log that is not there', () => {
+  it('returns no entries for a missing log', () => {
     expect(tailOf(null)).toEqual([]);
   });
 
-  it('is empty for a log with nothing in it', () => {
+  it('returns no entries for an empty log', () => {
     expect(tailOf('', 1000)).toEqual([]);
   });
 });

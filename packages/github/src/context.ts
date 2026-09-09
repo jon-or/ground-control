@@ -11,17 +11,14 @@ import { CARD_CONTEXT_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
 import type { GithubConfig } from './types.js';
 
-/** Duplicated from `source.ts` rather than imported: the two would import each other, and this is one string. */
+/** Duplicated to avoid a circular import with source.ts. */
 const GITHUB_SOURCE_ID = 'github';
 
-/**
- * How much of each body reaches the prompt, in characters — UTF-16 code units, so a body of CJK or emoji is longer
- * on the wire than it is here. Anything longer keeps its first and last thousand and says what came out between.
- */
+/** Body limits use UTF-16 code units, not wire bytes. Longer bodies retain both ends. */
 const BODY_LIMIT = 2_000;
 const COMMENT_LIMIT = 2_000;
 
-/** A hung `gh` would hold a triage slot for as long as the hub runs, and the card would claim to be triaging forever. */
+/** Limit how long a gh request can occupy a triage slot. */
 const CONTEXT_TIMEOUT_MS = 20_000;
 
 const actor = z.object({ login: z.string(), name: z.string().nullable().default(null) }).nullable();
@@ -33,16 +30,13 @@ const comment = z.object({
   author: actor,
 });
 
-/**
- * One timeline entry the board asked for. Every field but the type is optional because three event types share the
- * shape, and an unrecognised one is dropped rather than refused — a new type on the timeline is not a bad response.
- */
+/** Timeline event fields vary by type. Ignore unknown event types. */
 const timelineItem = z.object({
   __typename: z.string(),
   createdAt: z.string().optional(),
   actor: actor.optional(),
   assignee: z.object({ login: z.string().optional() }).nullable().optional(),
-  // Nullable as well as optional: GitHub declares both `String`, and a cleared status answers null rather than absent.
+  // GitHub returns null for a cleared status.
   previousStatus: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
   project: z.object({ number: z.number() }).nullable().optional(),
@@ -52,8 +46,7 @@ const contextResponse = z.object({
   data: z.object({
     repository: z
       .object({
-        // Defaulted: a context fixture recorded before it was selected must stay readable, and a repository whose
-        // default branch cannot be read refuses every action rather than assuming one (R39).
+        // Older fixtures omit this field. An unknown default branch blocks actions (R39).
         defaultBranchRef: z.object({ name: z.string() }).nullable().default(null),
         issue: z
           .object({
@@ -61,7 +54,7 @@ const contextResponse = z.object({
             title: z.string(),
             body: z.string().nullable(),
             comments: z.object({ nodes: z.array(comment) }),
-            // Defaulted: the context fixtures recorded before the timeline was selected must stay readable.
+            // Older fixtures omit timeline events.
             timelineItems: z.object({ nodes: z.array(timelineItem) }).default({ nodes: [] }),
           })
           .nullable(),
@@ -73,8 +66,7 @@ const contextResponse = z.object({
             state: z.string(),
             isDraft: z.boolean(),
             author: actor,
-            // Defaulted for the same reason `defaultBranchRef` is. An empty base or head refuses every action: the
-            // board will not merge a branch it could not name.
+            // Older fixtures omit branch names. Empty names block actions.
             baseRefName: z.string().default(''),
             headRefName: z.string().default(''),
             commits: z.object({
@@ -117,27 +109,24 @@ const contextResponse = z.object({
   }),
 });
 
-/**
- * How the kept characters are split when a body is too long. Evenly, because a comment's opening frames what it is
- * about and its last line is usually what it asks for — either end alone loses half of why the board is reading it.
- */
+/** Retain equal portions from the start and end to preserve context and final requests. */
 const HEAD_SHARE = 0.5;
 
-/** How far from a cut a word boundary has to be to be worth backing up to, rather than cutting mid-token. */
-const WORD_REACH = 200;
+/** Maximum distance to adjust a cut to a word boundary. */
+const WORD_BOUNDARY_DISTANCE = 200;
 
-/** The last word boundary at or before `at`, or `at` where the text has none near enough to be worth taking. */
-function backTo(text: string, at: number): number {
+/** Previous nearby word boundary, or the original cut position. */
+function previousWordBoundary(text: string, at: number): number {
   const space = text.lastIndexOf(' ', at);
 
-  return space > 0 && space > at - WORD_REACH ? space : at;
+  return space > 0 && space > at - WORD_BOUNDARY_DISTANCE ? space : at;
 }
 
-/** The next word boundary at or after `at`, or `at` where there is none near enough. */
-function forwardTo(text: string, at: number): number {
+/** Next nearby word boundary, or the original cut position. */
+function nextWordBoundary(text: string, at: number): number {
   const space = text.indexOf(' ', at);
 
-  return space > 0 && space < at + WORD_REACH ? space + 1 : at;
+  return space > 0 && space < at + WORD_BOUNDARY_DISTANCE ? space + 1 : at;
 }
 
 /**
@@ -152,8 +141,8 @@ export function clip(text: string | null, limit: number): string {
     return trimmed;
   }
 
-  const head = trimmed.slice(0, backTo(trimmed, Math.ceil(limit * HEAD_SHARE))).trimEnd();
-  const tail = trimmed.slice(forwardTo(trimmed, trimmed.length - (limit - head.length))).trimStart();
+  const head = trimmed.slice(0, previousWordBoundary(trimmed, Math.ceil(limit * HEAD_SHARE))).trimEnd();
+  const tail = trimmed.slice(nextWordBoundary(trimmed, trimmed.length - (limit - head.length))).trimStart();
 
   return `${head}
 […${trimmed.length - head.length - tail.length} characters omitted…]
@@ -170,11 +159,7 @@ function commentsOf(nodes: z.infer<typeof comment>[], limit = COMMENT_LIMIT): Tr
   }));
 }
 
-/**
- * The status moves and assignments on one project, oldest first. Anything the board cannot place is dropped: an
- * event on another project the issue also sits on, one GitHub gave no time, and any type added to the timeline
- * since. What a run of these means is the board's to decide — this only reports what happened.
- */
+/** Read status changes and assignments in timeline order. Skip other projects, undated events, and unknown types. */
 function stateEventsOf(nodes: z.infer<typeof timelineItem>[], projectNumber: number): TriageStateEvent[] {
   const events: TriageStateEvent[] = [];
 
@@ -185,8 +170,7 @@ function stateEventsOf(nodes: z.infer<typeof timelineItem>[], projectNumber: num
 
     const at = { at: node.createdAt, actor: node.actor?.login ?? null, actorName: node.actor?.name ?? null };
 
-    // A move with no destination is a status cleared, which names no work — and an empty `from` already means the
-    // card being added to the board, so the same sentinel cannot stand for both.
+    // Ignore cleared statuses. Empty from already denotes a card added to the project.
     if (node.__typename === 'ProjectV2ItemStatusChangedEvent' && node.project?.number === projectNumber && node.status) {
       events.push({ ...at, status: { from: node.previousStatus ?? '', to: node.status }, assigned: null, unassigned: null });
     }
@@ -203,7 +187,7 @@ function stateEventsOf(nodes: z.infer<typeof timelineItem>[], projectNumber: num
   return events;
 }
 
-/** The owner and name a card's own URL carries, so a board reading two repositories asks each about its own cards. */
+/** Read the repository from the card URL, independent of the configured repository. */
 export function repositoryOfUrl(url: string): { owner: string; name: string } | null {
   const match = /^https?:\/\/[^/]+\/([^/]+)\/([^/]+)\//.exec(url);
 
@@ -226,7 +210,7 @@ function pullRequestOf(raw: NonNullable<z.infer<typeof contextResponse>['data'][
     baseRefName: raw.baseRefName,
     headRefName: raw.headRefName,
     headOid: raw.commits.nodes[0]?.commit.oid ?? '',
-    // Null where the repository runs no checks at all, which is not the same as checks that have not passed.
+    // Null means no reported checks, not failed checks.
     checkState: raw.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
     comments: commentsOf(raw.comments.nodes),
     reviews: raw.reviews.nodes.map((review) => ({
@@ -249,11 +233,7 @@ function pullRequestOf(raw: NonNullable<z.infer<typeof contextResponse>['data'][
   };
 }
 
-/**
- * Everything one card's triage reads, in one round trip. The pull request asked for is the one the card is already
- * showing — a second answer to "which pull request is this card about" would let the facts describe one thing while
- * the chip names another.
- */
+/** Fetch triage context in one request, using the PR already displayed on the card. */
 export async function fetchCardContext(
   config: GithubConfig,
   card: IssueCard,

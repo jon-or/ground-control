@@ -1,5 +1,5 @@
 {
-  // js-debug asks a debuggee it launches to mirror network events. Narrows the exposure only: any connected
-  // inspector frontend enables the same reporting, and what made it fatal is fixed in the streams (`docs/mechanics.md` §28).
+  // Disable js-debug network reporting. Other inspector clients can still enable it; stream handling must remain
+  // compatible with inspector reporting (docs/mechanics.md M28).
   "debug.javascript.enableNetworkView": false
 }

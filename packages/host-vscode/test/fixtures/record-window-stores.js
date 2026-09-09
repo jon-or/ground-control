@@ -1,7 +1,5 @@
-// Records VS Code's own per-window state: `node test/fixtures/record-window-stores.js`.
-// Every open window writes which Claude session each of its editor tabs and its sidebar is showing; that is the only
-// record of where a session can be reached. Build the package first: the keys come from its placement table.
-// Read the diff before committing — a fixture is evidence.
+// Record VS Code window state with node test/fixtures/record-window-stores.js. Build first to load placement
+// keys. Review the recorded diff before committing.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -15,11 +13,11 @@ const CLAUDE = PLACEMENTS.claude;
 const SIDEBAR_KEYS = CLAUDE.sidebarKeys;
 const KEYS = [EDITOR_KEY, ...SIDEBAR_KEYS];
 
-/** Windows-shaped, unlike the roster fixtures': this records Windows paths, and a POSIX home inside one is incoherent. */
+/** Use a synthetic Windows home to preserve recorded path syntax. */
 const HOME = 'C:/Users/dev';
-/** Enough windows to carry every shape the reader meets, and few enough that the fixture stays readable. */
+/** Limit recording size while retaining the window layouts under test. */
 const KEEP = 8;
-/** What every recorded tab title becomes. A title is the developer's own words about the work they are doing. */
+/** Replace all free-text tab titles with this synthetic value. */
 const TITLE = 'recorded session';
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 
@@ -60,10 +58,7 @@ function read(dir) {
   };
 }
 
-/**
- * Drops every editor that is not a Claude tab, keeping the grid that holds them. The nesting is what the reader walks,
- * and an untouched `gettingStartedInput` stays so the walk is still proved to step over an editor that is not ours.
- */
+/** Preserve the nested grid with Claude tabs and one gettingStartedInput to test ignoring unrelated editors. */
 function trimEditor(editor) {
   if (editor === null) return null;
 
@@ -88,10 +83,7 @@ function trimEditor(editor) {
   return JSON.stringify(parsed);
 }
 
-/**
- * Walks the stored state, which is JSON nested inside JSON strings to whatever depth the editor was serialised at,
- * and applies `visit` to every object it finds. Re-encodes each layer, so a rewritten value survives back up.
- */
+/** Visit objects through nested JSON strings, re-encoding each layer after edits. */
 function deep(node, visit) {
   if (typeof node === 'string') {
     let parsed;
@@ -106,7 +98,7 @@ function deep(node, visit) {
   return visit(Object.fromEntries(Object.entries(node).map(([key, value]) => [key, deep(value, visit)])));
 }
 
-/** The one free-text field a window's state carries. Nothing the reader walks depends on what a tab is called. */
+/** Replace titles independently of session parsing. */
 function scrubTitles(stored) {
   return deep(stored, (node) => (typeof node.title === 'string' ? { ...node, title: TITLE } : node));
 }
@@ -140,11 +132,7 @@ function spellings(value) {
   ];
 }
 
-/**
- * One synthetic checkout per real one and one synthetic id per real session, applied to the stored text rather than to
- * a parsed tree: the nesting — JSON inside a JSON string inside a row — is exactly what the reader has to cope with,
- * so it is preserved byte for byte and only the names change.
- */
+/** Replace checkout paths and session IDs in stored text, preserving nested JSON encoding for parser tests. */
 function anonymise(stores) {
   const roots = [...new Set(stores.map((store) => rootOf(store.workspaceJson)).filter((root) => root !== null))];
   const ids = [...new Set(stores.flatMap((store) => `${store.editor ?? ''}${store.sidebar ?? ''}`.match(UUID) ?? []))];
@@ -153,12 +141,11 @@ function anonymise(stores) {
     [os.homedir(), HOME],
     ...roots.map((root, index) => [root, syntheticRoot(root, index)]),
     ...ids.map((id, index) => [id, syntheticId(index)]),
-    // Last, and on its own: the account name also turns up outside any path the recording knows about.
+    // Replace the account name outside known paths too.
     [os.userInfo().username, 'dev'],
   ];
 
-  // Case-insensitively: one recording carried the same home under both `C:\Users\…` and `c:\Users\…`, and an
-  // exact-case pass leaves the second one naming a real person.
+  // Match paths case-insensitively to replace alternate drive-letter and directory casing.
   const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const rewrite = (text) => {
@@ -179,8 +166,7 @@ function anonymise(stores) {
     workspaceJson: rewrite(store.workspaceJson),
     editor: rewrite(scrubTitles(trimEditor(store.editor))),
     sidebar: rewrite(scrubTitles(store.sidebar)),
-    // Fixed offsets, ordered as recorded: the reader believes the most recently written window, and a real mtime
-    // would make that ordering drift with the machine rather than with the fixture.
+    // Preserve recorded mtime order using fixed offsets so window precedence is stable.
     updatedAt: 1_700_000_000_000 + index * 60_000,
   }));
 
@@ -211,10 +197,8 @@ const syntheticId = (index) => `00000000-0000-4000-8000-${String(index).padStart
 const SYNTHETIC = [HOME, REPO, 'd:/work'];
 
 /**
- * Fails the recording rather than writing a fixture that still names something real. Three checks, because each alone
- * is escapable: the values known to identify this machine must be gone; every absolute path left must be one of ours,
- * which catches a checkout no window is rooted at; and every title must be the synthetic one, because a title is free
- * text that no list of paths or ids would ever match.
+ * Reject recordings containing original identifiers, absolute paths outside synthetic prefixes, or nonsynthetic
+ * titles. Each check covers data the others may miss.
  */
 function assertScrubbed(identifying, written) {
   const json = JSON.stringify(written);
@@ -240,7 +224,7 @@ const stores = fs
   .readdirSync(root)
   .map((dir) => read(path.join(root, dir)))
   .filter((store) => store !== null)
-  // Only windows that have shown a Claude session: the rest are the same shape with nothing in them to find.
+  // Record only windows containing Claude session state.
   .filter((store) => `${store.editor ?? ''}${store.sidebar ?? ''}`.includes('sessionID'))
   .sort((a, b) => b.updatedAt - a.updatedAt)
   .slice(0, KEEP)

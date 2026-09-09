@@ -3,7 +3,10 @@ import { basename, isAbsolute, join, normalize, parent } from './paths.js';
 import { repositoryOf } from './repository.js';
 
 export interface Link {
-  /** The checkout the session runs in, which is not its own directory when it was started below one. Null outside a checkout. */
+  /**
+   * The checkout the session runs in, which is not its own directory when it was started below one. Null outside a
+   * checkout.
+   */
   checkoutRoot: string | null;
   branch: string | null;
   /** Canonical remote identity (host/owner/repository), or null when the checkout cannot establish it. */
@@ -11,10 +14,7 @@ export interface Link {
   issueNumber: number | null;
 }
 
-/**
- * A worktree's `.git` is a file holding `gitdir: <path>`, so the pointer is followed once. A plain clone's `.git`
- * is a directory, whose text read fails — HEAD is what proves a checkout either way.
- */
+/** Follow a worktree gitdir pointer once. For ordinary clones, read HEAD directly from the .git directory. */
 function headAt(dir: string, read: ReadText): { branch: string | null } | null {
   const dotGit = join(dir, '.git');
   const pointer = read(dotGit);
@@ -30,8 +30,8 @@ function headAt(dir: string, read: ReadText): { branch: string | null } | null {
 }
 
 /**
- * The checkout a session runs in, searched upward: a session started in a subdirectory would otherwise lose its
- * branch and have the subdirectory's name mistaken for the work's. A detached HEAD is a checkout with no branch.
+ * Search parent directories for the checkout so sessions in subdirectories retain branch identity. Detached HEAD
+ * has no branch.
  */
 export function findCheckout(cwd: string, read: ReadText): { root: string; branch: string | null } | null {
   let dir: string | null = normalize(cwd);
@@ -61,10 +61,7 @@ export interface CompiledPattern {
   error: string | null;
 }
 
-/**
- * A pattern with no capturing group would match every branch and link none of them, with nothing to show the
- * developer — so it is refused up front alongside a pattern that is not a regex at all (R25).
- */
+/** Reject invalid regexes and patterns without a capture group; linking requires the captured issue number (R25). */
 export function compilePattern(source: string): CompiledPattern {
   let pattern: RegExp;
 
@@ -84,10 +81,7 @@ export function compilePattern(source: string): CompiledPattern {
   return { pattern, error: null };
 }
 
-/**
- * The branch is the primary signal because it is the team's stated convention and the only one that works for a
- * developer who switches branches in a single clone. The checkout's own directory name covers a detached HEAD.
- */
+/** Prefer the branch-name convention; fall back to the checkout directory for detached HEAD. */
 export function linkOf(cwd: string, read: ReadText, pattern: RegExp | null): Link {
   const checkout = findCheckout(cwd, read);
   const branch = checkout?.branch ?? null;

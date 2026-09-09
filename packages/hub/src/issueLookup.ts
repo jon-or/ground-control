@@ -5,36 +5,32 @@ import type { IssueStore } from './issueStore.js';
 
 export interface IssueLookupDeps {
   store: IssueStore;
-  /** The configured sources, asked in order. Only one that implements `readCard` can answer at all. */
+  /** Configured sources, queried in order when they support readCard. */
   sources(): readonly WorkSource[];
   log: Logger;
   now(): number;
-  /** A reading landed, so whatever is on screen is now a card short of the truth. */
+  /** Redraw after a lookup completes. */
   changed(): void;
 }
 
-/** How many issues the board reads at once. A stale board is a handful of these, and not one of them is urgent. */
+/** Maximum concurrent issue lookups. */
 const CONCURRENCY = 3;
 
-/** How long a key whose read failed is left alone. The session poll comes round twice a minute; an outage does not lift that fast. */
+/** Delay failed lookups across session polls during outages. */
 const RETRY_AFTER_FAILURE_MS = 5 * 60 * 1000;
 
-/** A session's issue, as this store keys it. Null where the session's checkout names no repository to key it under. */
+/** Build the repository-scoped issue key, or null if the repository is unknown. */
 function keyOf(session: Session): string | null {
   return session.repository !== null && session.issueNumber !== null
     ? knownIssueKey(session.repository, session.issueNumber)
     : null;
 }
 
-/**
- * The titles for issues a session names but the developer is not assigned — an issue they finished and handed on,
- * with the session still open on it. Reads the store first and the source only for what is not in it, which makes
- * the ordinary case free: the board saw the issue while it was assigned and wrote it down then.
- */
+/** Resolve session-linked issues absent from assigned results. Prefer stored cards to avoid repeat requests after unassignment. */
 export class IssueLookup {
   readonly #deps: IssueLookupDeps;
   readonly #inFlight = new Set<string>();
-  /** When a key whose read failed may be tried again. In memory: an outage is not a thing to remember across restarts. */
+  /** In-memory retry deadlines for failed lookups. */
   readonly #retryAt = new Map<string, number>();
   readonly #aborts = new Set<AbortController>();
   #disposed = false;
@@ -43,11 +39,7 @@ export class IssueLookup {
     this.#deps = deps;
   }
 
-  /**
-   * What `mergeBoard` takes: the issue behind each session-named number the assigned read did not return. A number
-   * with no reading yet is absent, and the session it came from keeps its checkout card until one lands (R4). A
-   * reading that is due to be taken again still answers, so no card is blanked while it is being refreshed.
-   */
+  /** Supply cached issues for session-linked numbers absent from assigned results. Missing entries retain checkout cards; expired entries remain visible during refresh (R4). */
   known(sessions: readonly Session[], assigned: ReadonlySet<number>): Map<number, IssueCard> {
     const entries = this.#deps.store.read().entries;
     const found = new Map<number, IssueCard>();
@@ -70,10 +62,7 @@ export class IssueLookup {
     return found;
   }
 
-  /**
-   * Records the issues a source just reported as assigned, and starts a read for every session-named number whose
-   * reading is missing or due to be taken again. Returns at once; a reading calls `changed` when it lands.
-   */
+  /** Cache assigned issues and asynchronously refresh missing or expired session-linked issues. Call changed on completion. */
   consider(cards: readonly IssueCard[], sessions: readonly Session[], assigned: ReadonlySet<number>): void {
     if (this.#disposed) {
       return;
@@ -84,8 +73,7 @@ export class IssueLookup {
     const referenced = new Set<string>();
     let entries = state.entries;
 
-    // Every assigned card, written down while it still is one. This is what makes the unassignment itself cost
-    // nothing: by the time the search stops returning the issue, its title is already on disk.
+    // Cache assigned cards before unassignment so their metadata remains available without a lookup.
     for (const card of cards) {
       const repository = repositoryKey(card.url);
 
@@ -96,7 +84,7 @@ export class IssueLookup {
       const key = knownIssueKey(repository, card.number);
       referenced.add(key);
 
-      // Only a card that actually changed, so a poll that read the same board again does not churn the file.
+      // Write only changed cards to avoid redundant disk writes on each poll.
       if (!sameKnownCard(entries[key], card)) {
         entries = withKnownIssue({ entries }, key, card, now).entries;
       }
@@ -121,8 +109,7 @@ export class IssueLookup {
 
     this.#deps.store.write(pruneKnownIssues({ entries }, referenced, now));
 
-    // A board of a dozen stale sessions must not put a dozen `gh` processes up at once. The rest come round on the
-    // next pass, and nothing on screen is waiting on any one of them.
+    // Bound concurrent gh processes; remaining lookups wait for the next pass.
     for (const key of [...wanted].slice(0, CONCURRENCY)) {
       void this.#read(key);
     }
@@ -167,7 +154,7 @@ export class IssueLookup {
 
         served = true;
 
-        // Every source that serves it is asked: one being unreachable is not the others having nothing to say.
+        // Try all serving sources even if an earlier source fails.
         if (reading.failure) {
           this.#deps.log.debug(`issue ${key} could not be read: ${reading.failure.message}`, 'issues');
           continue;
@@ -179,8 +166,7 @@ export class IssueLookup {
         return;
       }
 
-      // Served and answered by nobody is every source that serves it having failed. Nothing serving it at all is a
-      // repository this machine's sources do not cover, which spawns nothing and so is asked again for free.
+      // Delay retries when serving sources fail. Unserved repositories incur no CLI request and may be checked again immediately.
       if (served) {
         this.#retryAt.set(key, this.#deps.now() + RETRY_AFTER_FAILURE_MS);
       }

@@ -21,7 +21,7 @@ afterEach(() => {
 const dir = (): string => `${home}/activity`;
 const marker = (id: string): string => `${dir()}/${id}.json`;
 
-/** A real watcher over a real directory: `fs.watch` is the mechanism under test, so nothing here is faked. */
+/** Use a real directory and fs.watch because watcher behavior is under test. */
 function watching(): { batches: ActivityChange[][]; next: () => Promise<ActivityChange[]> } {
   const batches: ActivityChange[][] = [];
   const waiting: ((changes: ActivityChange[]) => void)[] = [];
@@ -82,11 +82,8 @@ describe('watchDir', () => {
     expect(await arrived).toEqual([{ kind: 'deleted', sessionId: 'a' }]);
   });
 
-  /**
-   * `deleted` is the kind that costs a CLI read, so the one that must never be lost is a delete that stands — and it
-   * must survive a turn boundary writing other markers at the same moment, which is when a session usually ends.
-   */
-  it('reports a delete that stands even while other markers are being written', async () => {
+  /** Preserve final deletions amid concurrent marker writes so session ends trigger roster refresh. */
+  it('preserves deletions during concurrent marker writes', async () => {
     mkdirSync(dir(), { recursive: true });
     writeFileSync(marker('ending'), '{}');
     writeFileSync(marker('working'), '{}');
@@ -105,12 +102,7 @@ describe('watchDir', () => {
     expect(changes.find((c) => c.sessionId === 'fresh')?.kind).toBe('created');
   });
 
-  /**
-   * The marker is written temp-then-rename, so a phase update can reach the watcher as a file that went away and
-   * came back. It reads as `changed`, and that is right rather than merely cheap: the name is a session id, so
-   * something wrote that session's marker, which means the session is alive and its card belongs on the board. A
-   * session that ended and started afresh carries a new id, which `rosterIsStale` catches as an unlisted session.
-   */
+  /** Treat temporary-file replacement as changed while the session ID remains. A restarted session has a new ID and triggers roster discovery. */
   it('reads a marker that is written again before the listing as changed, not as a session that ended', async () => {
     mkdirSync(dir(), { recursive: true });
     writeFileSync(marker('a'), '{}');
@@ -124,11 +116,7 @@ describe('watchDir', () => {
     expect(await arrived).toEqual([{ kind: 'changed', sessionId: 'a' }]);
   });
 
-  /**
-   * A session that ends just after a tool completes writes its marker and unlinks it inside one batch. `deleted` is
-   * the only kind `rosterIsStale` acts on, so it has to win wherever it lands — keeping the first kind seen would
-   * report the create and leave the ended session on the board until the next poll.
-   */
+  /** Preserve deletion after a write in the same batch so ended sessions do not remain until the next poll. */
   it('reports a marker created and then removed inside one batch as deleted', async () => {
     mkdirSync(dir(), { recursive: true });
 
@@ -136,8 +124,7 @@ describe('watchDir', () => {
     const arrived = watcher.next();
 
     writeFileSync(marker('brief'), '{}');
-    // Long enough for the create to reach the watcher while the file is still there, and well inside the batch:
-    // removing it in the same breath is delivered as one event that already sees it gone, which proves nothing.
+    // Let the watcher observe creation before deleting within the same batch.
     await new Promise((resolve) => setTimeout(resolve, 40));
     rmSync(marker('brief'));
 
@@ -171,17 +158,14 @@ describe('watchDir', () => {
     expect(watcher.batches).toEqual([]);
   });
 
-  /**
-   * The directory is created by the install and removed when the hooks are turned off, so a watcher armed before
-   * either would otherwise be deaf for the life of the process. `fs.watch` throws outright on a missing path.
-   */
+  /** Retry registration when the directory is missing or removed; fs.watch rejects missing paths. */
   it('delivers the first event after a directory that did not exist is created', async () => {
     const watcher = watching();
 
     mkdirSync(dir(), { recursive: true });
     const arrived = watcher.next();
 
-    // The watcher looks for the directory on its own timer, so the first write may land before it is armed.
+    // Retry the first write if it precedes watcher registration.
     const write = setInterval(() => writeFileSync(marker('a'), '{}'), 200);
 
     try {
@@ -191,7 +175,7 @@ describe('watchDir', () => {
     }
   }, 10_000);
 
-  it('reports nothing more once it is disposed', async () => {
+  it('stops reporting after disposal', async () => {
     mkdirSync(dir(), { recursive: true });
     const watcher = watching();
 

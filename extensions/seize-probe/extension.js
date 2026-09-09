@@ -4,8 +4,7 @@ const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 
-// Window-scoped seize probe. Each VS Code window runs its own extension host, so this file's
-// executeCommand always acts on THIS window — that is the property under test.
+// Probe window-local executeCommand behavior; each VS Code window has its own extension host.
 
 const ROOT = path.join(os.homedir(), '.factory');
 const INBOX = path.join(ROOT, 'inbox');
@@ -52,7 +51,7 @@ function writeSeized(map) {
   fs.writeFileSync(SEIZED, JSON.stringify(map, null, 2));
 }
 
-// Tab labels are the only handle a close event gives us, so the seize records label -> session.
+// Record tab label to session mappings for close events; this prototype does not establish stable identity.
 function trackSeized(label, sessionId, dir, autoHandback) {
   const map = readSeized();
   map[label] = { sessionId, folder: dir, autoHandback: autoHandback !== false, seizedAt: new Date().toISOString() };
@@ -80,8 +79,8 @@ function runClaude(args, cwd) {
   });
 }
 
-// Resume in the background under the ORIGINAL id. "started a copy as X" means the session was still
-// held — stop the copy and retry rather than leaving two agents on one worktree.
+// Retry background resume under the original ID. If the CLI starts a copy, stop it before retrying to avoid
+// concurrent agents in one worktree.
 async function handBack(sessionId, dir, prompt) {
   for (let attempt = 1; attempt <= HANDBACK_ATTEMPTS; attempt++) {
     const { out } = await runClaude(['--bg', '--resume', sessionId, JSON.stringify(prompt || 'Continue.')], dir);
@@ -131,8 +130,7 @@ async function handle(file, dir) {
 
   try {
     if (action === 'release') {
-      // A tab holds the session open, and an open session cannot be handed back — a resume forks
-      // instead. Releasing closes the tab so `claude --bg --resume` wakes the original.
+      // Close the tab before background resume; an active editor session would cause the CLI to start a copy.
       const match = cmd.title ? claudeTabs().filter((t) => t.label === cmd.title) : claudeTabs();
       await vscode.window.tabGroups.close(match, false);
     } else {
@@ -187,7 +185,7 @@ function activate(context) {
   watcher.onDidChange(fire);
   context.subscriptions.push(watcher);
 
-  // FileSystemWatcher only covers paths inside the workspace on some setups; poll as the backstop.
+  // Poll as a fallback because some FileSystemWatcher configurations cover only workspace paths.
   const timer = setInterval(() => { if (fs.existsSync(file)) { fire(); } }, 1000);
   context.subscriptions.push({ dispose: () => clearInterval(timer) });
 

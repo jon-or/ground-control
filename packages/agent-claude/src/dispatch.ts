@@ -22,10 +22,8 @@ export function dispatchArgs(input: DispatchInput): string[] {
 }
 
 /**
- * The id out of what `--bg` printed. The line is `backgrounded · <short> · <name>`, with the middle field the first
- * eight characters of the session UUID; the surrounding help lines and the `Starting background service…` on stderr
- * are not it. Null where the CLI printed something this does not recognise, which is a dispatch that may well have
- * started a session the board then cannot track — so it is reported rather than guessed at.
+ * Read the eight-character session UUID prefix from `backgrounded · <short> · <name>`. Ignore help text and
+ * return null for unrecognized output; the session may have started without a trackable ID.
  */
 export function shortIdFrom(stdout: string): string | null {
   for (const line of stdout.split(/\r?\n/)) {
@@ -44,11 +42,8 @@ function failure(kind: string, message: string, remedy: string): ReadFailure {
 }
 
 /**
- * Starts one piece of work in a checkout and answers with the id the CLI minted. Never throws: a dispatch that did
- * not start is a named failure, the same as a roster read that did not answer (R24).
- *
- * `--bg` returns as soon as the session is backgrounded, so what this waits for is the handful of milliseconds the
- * CLI takes to print — not the work. The timeout is a ceiling on a CLI that will not answer at all.
+ * Start background work and return its CLI-assigned ID, or a failure (R24). `--bg` returns after startup; the
+ * timeout limits the CLI response wait, not the work duration.
  */
 export function makeClaudeDispatcher(runText: ExecText) {
   return async function dispatch(input: DispatchInput): Promise<DispatchResult> {
@@ -84,8 +79,8 @@ export function makeClaudeDispatcher(runText: ExecText) {
 }
 
 /**
- * Stops a session this adapter started. `claude stop` and never `claude rm`: `rm` deletes the session "and its
- * worktree when that is safe", and the checkout a run works in holds the developer's own code (M33).
+ * Stop adapter-started sessions with `claude stop`. Avoid `claude rm`, which can delete the session worktree
+ * containing user code (M33).
  */
 export function makeClaudeStopper(runText: ExecText) {
   return async function stopDispatch(path: string, shortId: string): Promise<ReadFailure | null> {
@@ -101,5 +96,5 @@ export function makeClaudeStopper(runText: ExecText) {
   };
 }
 
-/** A stop is one short command against a running CLI; a longer budget here would only hide one that has hung. */
+/** Limit the wait for an unresponsive stop command. */
 const STOP_TIMEOUT_MS = 15_000;

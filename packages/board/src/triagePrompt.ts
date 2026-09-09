@@ -3,117 +3,95 @@ import { TRIAGE_LABELS } from './triage.js';
 import { collapseStateChanges, foldInstruction, liveComments } from './stateChanges.js';
 import type { TriageInstruction, TriageStateChange } from './stateChanges.js';
 
-/** Who a login really is, where GitHub's own answer is not the person. Keyed by login, matched however it is cased. */
+/** Display-name overrides by login. */
 export type NameOverrides = Readonly<Record<string, string>>;
 
 /**
- * What the classifier is told it is doing. Short on purpose: the whole system prompt and every tool definition cost
- * 55× the evidence itself (`docs/mechanics.md` M31), so this replaces the CLI's own rather than appending to it.
- *
- * It covers both asks, because a card whose action the evidence already settled is sent to the same session with the
- * same system prompt and asked only for the sentence — one prompt, and the schema is what enforces which.
+ * Replace the CLI system prompt to reduce classification cost (mechanics M31). Both schemas share this prompt; the
+ * schema determines whether an action is requested.
  */
-export const TRIAGE_SYSTEM_PROMPT = `Classify what one software work item is waiting on, and write one sentence about it for the developer whose board
-it is. Everything here is addressed to that developer as "you" — the evidence below, and the sentence alike.
+export const TRIAGE_SYSTEM_PROMPT = `Classify the developer's next action from the issue, recent activity, and linked pull request.
+Address the developer as "you". Write one sentence under 160 characters, plus an action when requested.
 
-The evidence is an issue, its recent activity, and the pull request that would close it, if there is one.
-Answer with one sentence, under 160 characters, and with an action where you are asked for one.
+Describe the status and who needs to act. Use the supplied names and identify the pull request.
+Do not summarise the change, review comments, or causes, or name files, classes, or commits.
+For example: "Sent back to you for re-review".
 
-The sentence is logistics, not engineering: where the card stands and whose move it is. Call people by the name
-the evidence gives them, and name the pull request. Do not summarise the change, the review comments or the cause,
-and do not name a file, a class or a commit. Write "Sent back to you for re-review", not "Chris fixed x and y and
-declined z because …".
+Do not give counts in digits or words: comments and threads are partial. Write "Mayur has some questions",
+never "Mayur asked five questions".
 
-Count nothing, in digits or in words. Only the most recent few comments and threads are shown, so every total is a
-guess. Write "Mayur has some questions", never "Mayur asked five questions".
+Activity is listed oldest first. Lines marked ► are status or assignment changes. Treat the latest change as
+the current instruction, even without a comment: status determines the work; assignment determines who acts.
+Earlier comments are background, even if their threads have no reply. Only comments since that change remain open.
 
-The activity is one list, oldest last. A line marked ► is a state change: somebody moved the card's status, or
-handed it to somebody. The status says what the card needs; whoever it is assigned to says who does it. So a state
-change is an instruction even where nobody wrote a word beside it, and the last one is the current word on the card.
-Everything said before it has been answered by it — a question closed by a rewritten issue body and a move to the
-next status leaves no reply on the thread. Read those comments for context and never for what to do next. Only what
-was said after the last state change is still open.
-
-Where you are asked for an action, choose it for what you must do NEXT.
-Where more than one fits, take the first that applies:
+When asked for an action, take the first that applies:
 1. merge-upstream: somebody has asked you to merge or rebase the base branch into yours
 2. fix-checks: a build, a test run or a check on your pull request is failing
 3. qa-failure: a tester has reported it does not work
 4. qa-question: a tester has asked something about how it is meant to behave
-5. dev-question: somebody has asked you a question the work cannot go on without
+5. dev-question: somebody has asked you a question that blocks further work
 6. address-review: your own pull request has review comments to answer
-7. review-others: a pull request that is not yours is waiting on your review
-8. develop: the work itself is next, whether or not it has been started
-9. other: the evidence points somewhere none of these names
+7. review-others: somebody else's pull request needs your review
+8. develop: development work is next, whether started or unstarted
+9. other: none of the preceding actions applies
 
-A status naming review means a review is pending; "Opened by" says whose job that is. A pull request somebody else
-opened is yours to review even when it cannot merge yet. Your own pull request, waiting on a reviewer or blocked
-until something else lands, is somebody else's queue: answer other and say in the sentence what the card waits for.
+Review status means a review is pending. Use "Opened by" to identify whose review it is.
+Review somebody else's pull request even when it cannot merge yet. For your own PR awaiting a reviewer or a
+dependency, answer other and explain what it awaits.
 
-Reading the evidence:
-- Only the most recent few comments and review threads are shown, never all of them.
-- A status naming UAT or QA means a tester is involved — they are separate teams and both answer as qa. Each comment
-  says how its author relates to the repository: somebody outside the team reporting how it behaves is qa; a
-  colleague asking how it should work is a dev question.
-- Your own words are marked "you". A question you asked that somebody has since answered is now yours to act on.
-- The first two are reported, not observed. Take the most recent word: a stale branch or a failing build somebody
-  has since said is fixed is not what the card is waiting on. A branch that will not merge is not yours to fix.
+UAT or QA status means a tester is involved; classify both teams as qa. Use author associations to distinguish outside
+testers reporting behavior from colleagues asking development questions.
+Your comments are marked "you". When someone answers your question, you need to act on the answer.
+Merge requests and failing checks are reported evidence. Prefer the latest report; do not classify a problem
+as pending after someone reports it fixed. A branch that will not merge is not yours to fix.
 
-An issue assigned to you with no discussion and no pull request is develop, not other. Pick other only when
-none of the eight above fits.
+An assigned issue with no discussion or pull request is develop, not other. Use other only if no listed action fits.
+Do not speculate about unsupported causes.`;
 
-Do not speculate about causes you have no evidence for.`;
+/** Explicit placeholder for missing text. */
+const NO_TEXT = '(none)';
 
-/** How a body reads in the prompt when there is none. Blank would read as a comment somebody left empty. */
-const NOTHING = '(none)';
-
-/** Runs of whitespace, so a profile name is split on whatever separates its parts. */
+/** Profile-name word separator. */
 const SPACES = /\s+/;
 
-/** Whether a login is one of the developer's own. Matched however it is cased, the way the lane rules match. */
-function own(login: string | null, logins: readonly string[]): boolean {
-  return login !== null && logins.some((mine) => mine.toLowerCase() === login.toLowerCase());
+/** Match developer logins case-insensitively. */
+function isDeveloperLogin(login: string | null, logins: readonly string[]): boolean {
+  return login !== null && logins.some((developerLogin) => developerLogin.toLowerCase() === login.toLowerCase());
 }
 
-/**
- * What somebody is called on a card: their first name, which is how a colleague is referred to in the sentence that
- * comes back. An override outranks the profile name — an agent account's profile names the agent rather than whoever
- * drives it — and the login stands in where there is neither, which is what a bot has.
- */
+/** Use the first word of the name override, profile name, or login, in that order. */
 export function nameOf(login: string | null, profile: string | null, names: NameOverrides): string {
   const override = login === null ? undefined : names[login] ?? names[login.toLowerCase()];
-  const shown = (override ?? profile ?? login ?? '').trim();
+  const displayName = (override ?? profile ?? login ?? '').trim();
 
-  return shown === '' ? 'someone' : shown.split(SPACES)[0]!;
+  return displayName === '' ? 'someone' : displayName.split(SPACES)[0]!;
 }
 
-function who(comment: TriageComment, logins: readonly string[], names: NameOverrides): string {
-  // `NONE` is GitHub's word for somebody with no relationship to the repository, and rendered raw it reads as an
-  // error rather than as the fact it is — which is the fact that most often separates a tester from a colleague.
+function commentAuthor(comment: TriageComment, logins: readonly string[], names: NameOverrides): string {
+  // Explain GitHub NONE association so the classifier can distinguish outside testers from colleagues.
   const association =
     comment.authorAssociation === null || comment.authorAssociation === 'NONE'
       ? ', not a member of the repository'
       : `, ${comment.authorAssociation.toLowerCase()}`;
 
-  // The developer is "you", because the sentence is written to them. Which words are their own is also what tells a
-  // question they asked from a question they were asked, and decides between two of the actions on its own.
-  const author = own(comment.author, logins) ? 'you' : nameOf(comment.author, comment.authorName, names);
+  // Identify developer comments as "you" to distinguish asked from received questions.
+  const author = isDeveloperLogin(comment.author, logins) ? 'you' : nameOf(comment.author, comment.authorName, names);
 
   return `${author}${association}`;
 }
 
 function comments(list: readonly TriageComment[], logins: readonly string[], names: NameOverrides): string {
   return list.length === 0
-    ? NOTHING
-    : list.map((comment) => `- ${who(comment, logins, names)} on ${comment.createdAt}:\n  ${comment.body}`).join('\n');
+    ? NO_TEXT
+    : list.map((comment) => `- ${commentAuthor(comment, logins, names)} on ${comment.createdAt}:\n  ${comment.body}`).join('\n');
 }
 
-/** Somebody who moved a card, as the chronology names them. The developer is "you" here as everywhere else. */
+/** Format the state-change actor, using "you" for the developer. */
 function actorOf(change: { actor: string | null; actorName: string | null }, logins: readonly string[], names: NameOverrides): string {
-  return own(change.actor, logins) ? 'you' : nameOf(change.actor, change.actorName, names);
+  return isDeveloperLogin(change.actor, logins) ? 'you' : nameOf(change.actor, change.actorName, names);
 }
 
-/** One act on the card's state, in a line. Marked, so the model can tell an instruction from something somebody said. */
+/** Marked state-change summary for distinguishing instructions from comments. */
 function stateLine(change: TriageStateChange, logins: readonly string[], names: NameOverrides): string {
   const parts: string[] = [];
 
@@ -121,37 +99,33 @@ function stateLine(change: TriageStateChange, logins: readonly string[], names: 
     parts.push(change.from === null || change.from === '' ? `set the status to ${change.to}` : `moved the status ${change.from} → ${change.to}`);
   }
 
-  const handed = change.assigned.map((login) => (own(login, logins) ? 'you' : nameOf(login, null, names)));
+  const assignees = change.assigned.map((login) => (isDeveloperLogin(login, logins) ? 'you' : nameOf(login, null, names)));
 
-  if (handed.length > 0) {
-    parts.push(`handed it to ${handed.join(' and ')}`);
+  if (assignees.length > 0) {
+    parts.push(`assigned to ${assignees.join(' and ')}`);
   }
 
-  const off = change.unassigned.filter((login) => !change.assigned.includes(login));
+  const unassigned = change.unassigned.filter((login) => !change.assigned.includes(login));
 
-  if (off.length > 0) {
-    parts.push(`took ${off.map((login) => (own(login, logins) ? 'you' : nameOf(login, null, names))).join(' and ')} off it`);
+  if (unassigned.length > 0) {
+    parts.push(`unassigned ${unassigned.map((login) => (isDeveloperLogin(login, logins) ? 'you' : nameOf(login, null, names))).join(' and ')}`);
   }
 
   return `► ${actorOf(change, logins, names)} on ${change.at}: ${parts.join(', ') || 'changed its state'}`;
 }
 
-/** The header a card leads with: what it was last told to be, and by whom. */
+/** Summarize the latest state instruction and actor. */
 function instructionLine(instruction: TriageInstruction, status: string | null, logins: readonly string[], names: NameOverrides): string {
   const actor = actorOf(instruction, logins, names);
-  const now = status ?? NOTHING;
-  const moved = instruction.from === null || instruction.from === '' ? `The status is ${now}` : `moving it ${instruction.from} → ${now}`;
+  const currentStatus = status ?? NO_TEXT;
+  const moved = instruction.from === null || instruction.from === '' ? `status ${currentStatus}` : `status ${instruction.from} → ${currentStatus}`;
 
   return instruction.handedOver
-    ? `${actor} handed this to you on ${instruction.at}, ${moved}.`
+    ? `${actor} assigned this to you on ${instruction.at}, ${moved}.`
     : `${actor} last changed its state on ${instruction.at}, ${moved}.`;
 }
 
-/**
- * One card's evidence, as the classifier sees it. A pure function of the context so the whole prompt is assertable —
- * what reaches the model is the thing most worth being able to read back when a label comes out wrong. `settled` is
- * the action the evidence already decided, which the model is told rather than asked for.
- */
+/** Build the classifier input from recorded context. A settled action requests only its explanation. */
 export function buildTriagePrompt(
   context: TriageContext,
   now: number,
@@ -160,12 +134,12 @@ export function buildTriagePrompt(
 ): string {
   const changes = collapseStateChanges(context.stateEvents);
   const instruction = foldInstruction(changes, context.logins);
-  const live = liveComments(context.comments, instruction);
+  const currentComments = liveComments(context.comments, instruction);
 
   const activity = [
     ...context.comments.map((comment) => ({
       at: comment.createdAt,
-      line: `- ${who(comment, context.logins, names)} on ${comment.createdAt}:\n  ${comment.body}`,
+      line: `- ${commentAuthor(comment, context.logins, names)} on ${comment.createdAt}:\n  ${comment.body}`,
     })),
     ...changes.map((change) => ({ at: change.at, line: stateLine(change, context.logins, names) })),
   ]
@@ -173,28 +147,28 @@ export function buildTriagePrompt(
     .map((entry) => entry.line);
 
   const lines = [
-    // Every entry carries an ISO timestamp and three of the actions turn on recency, which a model has no clock for.
+    // Include the current date for interpreting timestamped evidence.
     `Today is ${new Date(now).toISOString().slice(0, 10)}.`,
     '',
     `ISSUE #${context.issueNumber}: ${context.title}`,
-    `Board status: ${context.status ?? NOTHING}`,
+    `Board status: ${context.status ?? NO_TEXT}`,
   ];
 
   if (instruction !== null) {
     lines.push(
       instructionLine(instruction, context.status, context.logins, names),
-      live.length === 0
-        ? 'Nothing has been said on the issue since. Every comment below is background.'
-        : 'Only what was said after that is still open.',
+      currentComments.length === 0
+        ? 'No issue comments since this change. Earlier comments are background.'
+        : 'Only comments since this change remain open.',
     );
   }
 
   lines.push(
     '',
-    context.body || NOTHING,
+    context.body || NO_TEXT,
     '',
     'Recent activity — comments and state changes, oldest first:',
-    activity.length === 0 ? NOTHING : activity.join('\n'),
+    activity.length === 0 ? NO_TEXT : activity.join('\n'),
   );
 
   const pr = context.pullRequest;
@@ -210,19 +184,19 @@ export function buildTriagePrompt(
   lines.push(
     '',
     `PULL REQUEST #${pr.number}: ${pr.title}`,
-    `Opened by: ${own(pr.author, context.logins) ? 'you' : nameOf(pr.author, pr.authorName, names)}`,
+    `Opened by: ${isDeveloperLogin(pr.author, context.logins) ? 'you' : nameOf(pr.author, pr.authorName, names)}`,
     `State: ${pr.state}${pr.isDraft ? ' (draft)' : ''}`,
-    `Reviewers asked for: ${pr.reviewRequests.map((r) => shown(r.login, r.name, context.logins, names)).join(', ') || NOTHING}`,
-    `Reviews submitted: ${pr.reviews.map((r) => `${shown(r.author, r.authorName, context.logins, names)} ${r.state}`).join('; ') || NOTHING}`,
+    `Requested reviewers: ${pr.reviewRequests.map((r) => displayName(r.login, r.name, context.logins, names)).join(', ') || NO_TEXT}`,
+    `Reviews submitted: ${pr.reviews.map((r) => `${displayName(r.author, r.authorName, context.logins, names)} ${r.state}`).join('; ') || NO_TEXT}`,
     '',
-    pr.body || NOTHING,
+    pr.body || NO_TEXT,
     '',
     'Recent pull request comments (the most recent few, oldest first):',
     comments(pr.comments, context.logins, names),
     '',
     'Unresolved review threads (the most recent few):',
     unresolved.length === 0
-      ? NOTHING
+      ? NO_TEXT
       : // Numbered because joined flat, three threads read as one thread with three comments: whether a reviewer is
         // still waiting on one thing or on several is what separates a loose end from a round that has to be worked.
         unresolved
@@ -233,19 +207,19 @@ export function buildTriagePrompt(
   return finish(lines, settled);
 }
 
-/** The ask, last, so it is the final thing the model reads before it answers. */
+/** Place the response instruction after the evidence. */
 function finish(lines: string[], settled: TriageAction | null): string {
   lines.push(
     '',
     settled === null
       ? 'Answer with the action and the sentence.'
-      : `The action is already decided: ${settled} — ${TRIAGE_LABELS[settled]}. Write only the sentence, and write it as though that is what the card says.`,
+      : `The action is already decided: ${settled} — ${TRIAGE_LABELS[settled]}. Write one sentence explaining that action.`,
   );
 
   return lines.join('\n');
 }
 
-/** Somebody on a pull request line: the developer as "you", anybody else by name. */
-function shown(login: string | null, profile: string | null, logins: readonly string[], names: NameOverrides): string {
-  return own(login, logins) ? 'you' : nameOf(login, profile, names);
+/** Format PR identities, using "you" for the developer. */
+function displayName(login: string | null, profile: string | null, logins: readonly string[], names: NameOverrides): string {
+  return isDeveloperLogin(login, logins) ? 'you' : nameOf(login, profile, names);
 }

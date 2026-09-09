@@ -4,10 +4,7 @@ import { ASSIGNED_ISSUES_QUERY, CARD_CONTEXT_QUERY } from '../src/queries.js';
 import { config } from './helpers.js';
 
 describe('ASSIGNED_ISSUES_QUERY', () => {
-  /**
-   * On the pull request itself, not merely somewhere in the document: the parser defaults all three, so a query that asked for them in the
-   * wrong place would still parse and map every card as a non-draft nobody opened — and a card holds no lane at all without the author.
-   */
+  /** Assert author, draft, and review fields within the PR selection; parser defaults could hide a misplaced query field. */
   it('asks the pull request for what a lane and a card evidence string are read from', () => {
     const selection = /closedByPullRequestsReferences\(first:5\)\{ nodes\{([\s\S]*?)\n  \}\}/.exec(ASSIGNED_ISSUES_QUERY)?.[1];
 
@@ -18,10 +15,7 @@ describe('ASSIGNED_ISSUES_QUERY', () => {
     }
   });
 
-  /**
-   * GraphQL bills the nodes asked for, not the nodes returned, so the `commits` selection above costs 8 points at
-   * `first:5` and 103 at `first:100` (`docs/mechanics.md` M48). `selectPullRequest` returns one.
-   */
+  /** GraphQL cost depends on requested nodes: this commits selection costs 8 points at first:5 and 103 at first:100 (M48). Only one PR is displayed. */
   it('asks for five closing pull requests, not a hundred', () => {
     expect(ASSIGNED_ISSUES_QUERY).toContain('closedByPullRequestsReferences(first:5)');
     expect(ASSIGNED_ISSUES_QUERY).not.toContain('closedByPullRequestsReferences(first:100)');
@@ -29,10 +23,7 @@ describe('ASSIGNED_ISSUES_QUERY', () => {
 });
 
 describe('CARD_CONTEXT_QUERY', () => {
-  /**
-   * R39: a merge is something somebody asks for, and a run's success is the run's own signal. Nothing on this board
-   * reads GitHub's mergeability, so asking for it would be a field fetched on every card read with no consumer.
-   */
+  /** Do not fetch unused mergeability; merge requests come from instructions and action outcomes from session reports (R39). */
   it('asks for no mergeability', () => {
     expect(CARD_CONTEXT_QUERY).not.toContain('mergeable');
     expect(CARD_CONTEXT_QUERY).not.toContain('mergeStateStatus');

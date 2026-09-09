@@ -7,12 +7,10 @@ import { NATIVE_HOST_NAME } from '@ground-control/core';
 const src = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 
 /**
- * The board's identity is written out four times — the extension id in two places, and the native host name in two —
- * because this directory has no build step and cannot import what `core` declares. Nothing else compares them, so a
- * rename that missed one of these copies would leave `npm run verify` green and the overlay silently unable to
- * connect: `connectNative` on an unregistered host does not throw, it just closes.
+ * Verify duplicated extension and native-host IDs because this unbundled client cannot import core. An
+ * unregistered connectNative host closes the port without throwing.
  */
-describe('the identity the browser side hard-codes', () => {
+describe('browser integration identifiers', () => {
   const read = (file: string): string => readFileSync(join(src, file), 'utf8');
 
   it('asks for the native host by the name the extension registers', () => {

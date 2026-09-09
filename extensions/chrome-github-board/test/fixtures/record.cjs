@@ -1,6 +1,5 @@
-// Records the GitHub project board markup the overlay paints onto. Run: `npm run record --workspace
-// @ground-control/chrome-github-board`. The source is a public board, so this needs no login and no token; the
-// scrub still runs, because the board is somebody's real work.
+// Record public GitHub board markup with npm run record --workspace @ground-control/chrome-github-board. No
+// login is needed; scrub all recorded data.
 const { writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { chromium } = require('playwright');
@@ -10,9 +9,8 @@ const { ASSIGNED, ASSIGNEE, AVATAR, COLUMNS, ISSUES, PROJECT, REPO, VIEWS, asser
 const SOURCE = 'https://github.com/orgs/github/projects/4247/views/21';
 
 /**
- * Where the assignee stack comes from. Nobody is assigned on the roadmap board, and the stack is the node the
- * overlay's swap takes over — so it is recorded from a public board that has one and grafted into the slot GitHub
- * leaves empty. First board that yields one wins; a public board's assignees are its own team's and do change.
+ * Record an assignee stack from the first available public board and insert it into the roadmap fixture, which
+ * has no assignees.
  */
 const ASSIGNEE_SOURCES = [
   'https://github.com/orgs/nodejs/projects/14',
@@ -51,8 +49,8 @@ async function recordAssigneeStack(browser) {
       await page.close();
 
       if (found) {
-        // The avatar goes by pattern, not by the value read back: `getAttribute` decodes the `&amp;` the serialised
-        // markup carries, so the two never match and a replace by value leaves the real one in place.
+        // Match avatar URLs by pattern because getAttribute decodes ampersands that remain escaped in
+        // serialized HTML.
         const html = found.html
           .split(found.login)
           .join(ASSIGNEE)
@@ -80,8 +78,8 @@ async function main() {
   await page.goto(SOURCE, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-board-card-id]');
 
-  // Typing into the filter is what makes GitHub draw the Save and Discard the collapse folds away. An anonymous
-  // visitor gets Discard alone — Save needs write access to the board, and no public recording will ever show one.
+  // Type a filter to reveal unsaved-filter controls. Anonymous recording exposes Discard; Save requires write
+  // access.
   const filter = page.locator('[role="region"][aria-label="View filters"] input').first();
 
   await filter.click();
@@ -94,8 +92,8 @@ async function main() {
       const clone = region.cloneNode(true);
       const recorded = [];
 
-      // Two columns is enough to prove the overlay walks all of them, and an empty one is the shape a fresh board
-      // has. Trimming is by removing whole nodes: nothing kept is rewritten except the values being scrubbed.
+      // Keep two columns, including one empty column, to test traversal. Trim whole nodes and rewrite only
+      // scrubbed values.
       const kept = [...clone.querySelectorAll('[data-board-column]')];
       const empty = kept.find((column) => column.querySelectorAll('[data-board-card-id]').length === 0);
       const full = kept.find((column) => column.querySelectorAll('[data-board-card-id]').length >= issues.length);
@@ -163,8 +161,8 @@ async function main() {
         // Labels are free text too, and nothing here reads them. Removed whole rather than rewritten.
         card.querySelector('ul[aria-label="Fields"]')?.remove();
 
-        // The assignee slot: GitHub's own, the last child of the header row the title sits in, and empty on this
-        // board because nobody is assigned. One card is left unassigned, which is the case the overlay must not act on.
+        // Insert the recorded stack in the existing empty header slot. Leave one card unassigned to test the
+        // no-replacement case.
         if (assigned.includes(number)) {
           const slot = card.querySelector('[id^="board-card-header-title"]').parentElement.parentElement.lastElementChild;
 
@@ -172,14 +170,13 @@ async function main() {
             throw new Error('The assignee slot is no longer the empty last child of the card header.');
           }
 
-          // The stack carries a tooltip and the `aria-labelledby` pointing at it, so a second graft would repeat the id.
+          // Avoid inserting a second copy of the tooltip ID referenced by aria-labelledby.
           slot.innerHTML = assigneeStack.split(tooltipId).join(`_r_a${number}_`);
         }
       }
 
-      // The filter bar, trimmed to the View button and the unsaved-filter actions: the overlay hangs its own
-      // button beside the first and folds the second away, and the filter input between them is the developer's
-      // own words.
+      // Keep the View button and unsaved-filter actions for menu insertion and collapse tests. Remove free
+      // text from the filter input.
       const bar = document.querySelector('[role="region"][aria-label="View filters"]').cloneNode(true);
       const wanted = ['View', 'Discard'].map((word) =>
         [...bar.querySelectorAll('button')].find((button) => button.textContent.trim() === word),
@@ -191,8 +188,7 @@ async function main() {
         }
       }
 
-      // The two rows the overlay's collapse folds away: the project's title bar, trimmed to the title itself
-      // because the rest of it is the team's own faces, and the row of view tabs, trimmed to two.
+      // Keep the project title and two view tabs for collapse tests; remove unrelated profile images.
       const nav = document.querySelector('[role="navigation"][aria-label="Project"]').cloneNode(true);
 
       for (const child of [...nav.children].slice(1)) {
@@ -212,8 +208,7 @@ async function main() {
 
       tabRow = tabRow.cloneNode(true);
 
-      // Each tab carries a menu button and a tooltip that repeat the view's name, and the row ends in a new-view
-      // button. Nothing here reads any of them, so they go whole rather than being rewritten.
+      // Remove unused view menus, duplicate tooltips, and the new-view button as whole nodes.
       for (const extra of tabRow.querySelectorAll('button, [data-component="Tooltip"]')) {
         extra.remove();
       }
@@ -274,8 +269,8 @@ async function main() {
 
   await browser.close();
 
-  // Nesting as the page serves it: the project's title bar is a sibling of the view root, and the tab row is the
-  // view root's first child. The overlay's collapse climbs that shape, so a flattened fixture would prove nothing.
+  // Preserve recorded nesting: title bar beside the view root, with tabs as its first child. Collapse
+  // behavior depends on these ancestor relationships.
   let nav = captured.nav;
 
   let html = `${captured.views}<div class="Board-module__boardContainer">${captured.bar}${captured.html}</div>`;

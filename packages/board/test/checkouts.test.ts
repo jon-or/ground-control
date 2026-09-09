@@ -80,8 +80,7 @@ describe('the checkout each card carries', () => {
     expect(drawn[0]!.cards[1]!.checkout).toBeUndefined();
   });
 
-  // Fifteen cards in one clone would otherwise walk the same `.git`, `commondir` and `config` fifteen times for an
-  // answer that cannot differ inside one snapshot.
+  // Cards sharing a checkout should reuse filesystem reads within a snapshot.
   it('reads one directory once however many cards resolve to it', () => {
     const readers = counting([PICKED], { [`${PICKED}/.git/config`]: CONFIG });
     const second = card({ key: 'issue:19003', issueNumber: 19003, issue: { ...issue, number: 19003 } });
@@ -91,7 +90,7 @@ describe('the checkout each card carries', () => {
     expect(readers.reads.filter((path) => path === `${PICKED}/.git/config`)).toHaveLength(1);
   });
 
-  it('leaves the lane and its order alone, since where a card can be opened is not what stage it is at', () => {
+  it('preserves lane assignment and card order', () => {
     const readers = counting([ROOT], { [`${ROOT}/.git/config`]: CONFIG });
     const before = lanes([card({ issue }), card({ key: 'issue:2', issueNumber: 2 })]);
     const after = withCheckouts(before, {}, readers);

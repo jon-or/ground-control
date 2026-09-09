@@ -8,11 +8,7 @@ import { fixture } from './helpers.js';
 const CLAUDE = PLACEMENTS['claude']!;
 const CODEX = PLACEMENTS['codex']!;
 
-/**
- * Every field a recorded window store must carry, because a cast is not a check — a row missing one reads `undefined`
- * where the type promised `string | null`. `satisfies` fails the typecheck when `WindowStore` grows a field; the
- * assertion below fails the run until the fixture is re-recorded.
- */
+/** Check recorded fields at runtime and use satisfies to catch WindowStore additions during typechecking. */
 const STORE_KEYS = {
   workspaceJson: true,
   editor: true,
@@ -34,7 +30,7 @@ function surfaceOf(sessionId: string, found: SessionSurface[]): SessionSurface |
   return found.find((surface) => surface.sessionId === sessionId);
 }
 
-/** The recorded window whose sidebar and one of whose tabs hold the same session — the case the rules are for. */
+/** Recorded session present in both the sidebar and a tab. */
 const BOTH = stores.find(
   (store) => sidebarSession(store.sidebar, CLAUDE.session) !== null && tabSessions(store.editor, CLAUDE).includes(sidebarSession(store.sidebar, CLAUDE.session)!),
 )!;
@@ -57,11 +53,11 @@ describe('rootFrom', () => {
     expect(rootFrom('{"folder":"file:///d%3A/git/orez"}')).toBe('d:/git/orez');
   });
 
-  it('reads a multi-root window\u2019s workspace file, which is what `code` is given for it', () => {
+  it('reads a multi-root workspace path', () => {
     expect(rootFrom('{"workspace":"file:///d%3A/git/team.code-workspace"}')).toBe('d:/git/team.code-workspace');
   });
 
-  it('keeps a POSIX root, where the leading slash is the path rather than a drive prefix', () => {
+  it('preserves the leading slash in POSIX paths', () => {
     expect(rootFrom('{"folder":"file:///home/dev/repo"}')).toBe('/home/dev/repo');
   });
 
@@ -72,22 +68,22 @@ describe('rootFrom', () => {
     expect(rootFrom(null)).toBeNull();
   });
 
-  it('reads nothing from a URI it cannot decode rather than a mangled path', () => {
+  it('rejects undecodable URIs', () => {
     expect(rootFrom('{"folder":"file:///d%3A/git/%E0%A4%A"}')).toBeNull();
   });
 
   /** Both slashes belong to the path on a share: dropping one leaves `code` a relative path into the current drive. */
-  it('keeps the authority of a network share, which is part of the path', () => {
+  it('preserves network-share authorities', () => {
     expect(rootFrom('{"folder":"file://server/share/proj"}')).toBe('//server/share/proj');
   });
 
-  it('reads nothing from a URI with no path at all, rather than an empty root', () => {
+  it('rejects URIs without paths', () => {
     expect(rootFrom('{"folder":"file://"}')).toBeNull();
   });
 });
 
 describe('sidebarSession', () => {
-  it('reads the session out of the webview state, which is JSON inside a JSON string', () => {
+  it('reads session IDs from nested webview JSON', () => {
     const stored = '{"webviewState":"{\\"isFullEditor\\":false,\\"sessionID\\":\\"abc-123\\"}"}';
 
     expect(sidebarSession(stored, CLAUDE.session)).toBe('abc-123');
@@ -102,7 +98,7 @@ describe('sidebarSession', () => {
 });
 
 describe('tabSessions', () => {
-  /** Written out rather than selected by the same call: a predicate that picks the row cannot then check it. */
+  /** Select the expected row independently of the function under test. */
   it('finds every Claude tab in a recorded window, in the order the grid holds them', () => {
     expect(tabSessions(stores[3]!.editor, CLAUDE)).toEqual([
       '00000000-0000-4000-8000-000000000014',
@@ -110,10 +106,7 @@ describe('tabSessions', () => {
     ]);
   });
 
-  /**
-   * Counted, not merely non-empty: `[].every(...)` is `true`, so a reader that gave up at the first foreign editor
-   * would satisfy the shape this test is named for.
-   */
+  /** Assert the count because every() passes for empty output. */
   it('steps over an editor that is not ours and keeps reading past it', () => {
     const withOthers = stores[5]!;
 
@@ -125,8 +118,8 @@ describe('tabSessions', () => {
   });
 
   /**
-   * Another extension's webview may record a `sessionID` of its own, and taking it for a Claude tab would fire the
-   * reveal command at an id the Claude extension has never heard of — which resumes a transcript as a second agent.
+   * Exclude other webviews even if they contain sessionID; revealing those IDs through Claude could start
+   * duplicate agents.
    */
   it('takes only a Claude webview’s session, never another extension’s of the same shape', () => {
     const webview = (providedId: string, id: string) =>
@@ -143,7 +136,7 @@ describe('tabSessions', () => {
     expect(tabSessions(unbound, CLAUDE)).toEqual([]);
   });
 
-  it('walks a split grid rather than the first group only', () => {
+  it('reads every group in a split editor grid', () => {
     const tab = (id: string) =>
       `{"id":"webviewInput","value":"{\\"providedId\\":\\"claudeVSCodePanel\\",\\"state\\":\\"{\\\\\\"sessionID\\\\\\":\\\\\\"${id}\\\\\\"}\\"}"}`;
     const split = `{"root":{"type":"branch","data":[{"type":"leaf","data":{"editors":[${tab('one')}]}},{"type":"branch","data":[{"type":"leaf","data":{"editors":[${tab('two')}]}}]}]}}`;
@@ -170,8 +163,8 @@ describe('surfacesFrom', () => {
     }
   });
 
-  /** The rule that decides whether a fire is safe: a tab can be revealed by id, and the sidebar cannot. */
-  it('calls a session in both a tab and the sidebar of one window a tab', () => {
+  /** Only tabs support reveal by session ID. */
+  it('prefers a tab over a sidebar in the same window', () => {
     const shared = sidebarSession(BOTH.sidebar, CLAUDE.session)!;
 
     expect(surfaceOf(shared, surfacesFrom([BOTH], PLACEMENTS))?.surface).toBe('tab');
@@ -183,7 +176,7 @@ describe('surfacesFrom', () => {
     expect(surfaceOf(shared, surfacesFrom([...stores].reverse(), PLACEMENTS))?.surface).toBe('tab');
   });
 
-  it('believes the window that wrote most recently, not the one read last', () => {
+  it('prefers the newest window record regardless of read order', () => {
     const [older, newer] = [
       { ...BOTH, workspaceJson: '{"folder":"file:///d%3A/old"}', updatedAt: 1 },
       { ...BOTH, editor: null, workspaceJson: '{"folder":"file:///d%3A/new"}', updatedAt: 2 },
@@ -212,7 +205,7 @@ describe('surfacesFrom', () => {
     expect(surfaceOf(shared, surfacesFrom([...pair].reverse(), PLACEMENTS))?.root).toBe(first);
   });
 
-  it('drops a window it has no root for rather than placing its sessions nowhere', () => {
+  it('excludes windows without roots', () => {
     const rootless: WindowStore = { ...BOTH, workspaceJson: null };
 
     expect(surfacesFrom([rootless], PLACEMENTS)).toEqual([]);
@@ -223,7 +216,7 @@ describe('surfacesFrom', () => {
 
     const kept = surfacesFrom(stores, PLACEMENTS);
 
-    // Pinned, because two empty lists are equal: a reader that dropped every window would satisfy the comparison.
+    // Assert nonempty output so dropping every window cannot satisfy equality.
     expect(kept.length).toBeGreaterThan(0);
     expect(surfacesFrom([broken, ...stores], PLACEMENTS)).toEqual(kept);
   });
@@ -232,7 +225,7 @@ describe('surfacesFrom', () => {
 describe('a Codex tab, whose resource is the session', () => {
   const recorded = fixture('codex-tab') as { thread: string; editor: string; sidebar: string };
 
-  it('reads the thread out of the tab own URI', () => {
+  it('reads thread identity from the tab resource URI', () => {
     expect(tabSessions(recorded.editor, CODEX)).toEqual([recorded.thread]);
   });
 
@@ -259,10 +252,7 @@ describe('a Codex tab, whose resource is the session', () => {
     expect(tabSessions(recorded.editor.split(recorded.thread).join('a/b'), CODEX)).toEqual([]);
   });
 
-  /**
-   * The first editor group of a recorded grid, which is where a spliced tab has to land to be found. The nesting is
-   * whatever depth the window was serialised at, so it is searched for rather than indexed into.
-   */
+  /** Find the first editor group recursively before inserting a test tab; recorded nesting depth varies. */
   function firstGroup(parsed: unknown): { editors: { id: string; value: string }[] } {
     const stack: unknown[] = [parsed];
 
@@ -287,10 +277,10 @@ describe('a Codex tab, whose resource is the session', () => {
   }
 
   /**
-   * One window can hold a tab of each agent, and no machine here had both at once to record — so the two recordings
-   * are spliced into one grid. Each placement must find only its own session, and both must name the same window.
+   * Derive a mixed-agent window by combining two recordings. Verify each placement identifies its session in
+   * the same window.
    */
-  it('is read alongside a Claude tab in the same window, each found by its own placement', () => {
+  it('identifies Codex and Claude tabs in the same window', () => {
     const window = stores.find((store) => tabSessions(store.editor, CLAUDE).length > 0)!;
     const claudeSession = tabSessions(window.editor, CLAUDE)[0]!;
     const grid = JSON.parse(window.editor!) as unknown;

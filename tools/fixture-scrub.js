@@ -1,6 +1,4 @@
-// The synthetic checkout vocabulary the fixture anonymisers share. This repo is public, so no recorded fixture
-// names a real checkout, branch, or home directory; one module keeps the same real path reading the same across
-// packages, and one assertion catches an absolute path any of them let through.
+// Shared synthetic checkout names and path checks keep fixture anonymization consistent across packages.
 const HOME = '/home/dev';
 const REPO = 'd:/work/repo';
 const WORKTREES = 'd:/work/repo.worktrees';
@@ -29,12 +27,12 @@ const PROBLEMS = [
   'reads across the tenant boundary',
 ];
 
-/** Branch names every repository has. They name nobody, and a synthetic clone legitimately reuses one. */
+/** Common branch names that do not identify a repository or user. */
 const UNIVERSAL = new Set(['main', 'master', 'trunk', 'develop']);
 
 const norm = (p) => p.split('\\').join('/');
 
-/** Stable per seed, so the same issue yields the same name on every recording and the diff stays readable. */
+/** Choose deterministically so repeated recordings produce stable diffs. */
 function pick(list, seed, salt) {
   let hash = salt;
 
@@ -52,9 +50,8 @@ function branchFor(number) {
 }
 
 /**
- * One synthetic checkout per real one, keeping its shape: a per-issue worktree, a worktree on a named branch with no
- * issue number, or a plain clone. `reads` is the recorded `.git` text per checkout; a string there is a worktree
- * pointer. Returns cwd → `{ cwd, branch, worktree }`.
+ * Map real checkouts to synthetic paths, branches, and worktree flags. Preserve issue-linked worktrees, named
+ * worktrees, and clones; string .git reads identify worktree pointers.
  */
 function checkoutMap(cwds, reads) {
   const map = new Map();
@@ -104,7 +101,7 @@ function gitReadsFor(map) {
       continue;
     }
 
-    // A plain clone's `.git` is a directory, so reading it as text fails — that null is how the two are told apart.
+    // A clone has a .git directory, so a text read returns null.
     reads[`${cwd}/.git`] = null;
     reads[`${cwd}/.git/HEAD`] = `ref: refs/heads/${branch}\n`;
   }
@@ -112,7 +109,7 @@ function gitReadsFor(map) {
   return reads;
 }
 
-/** The checkout paths and branch names a set of git reads carries, which is what a scrub must have replaced. */
+/** Collect checkout paths and branch names that anonymization must replace. */
 function identifyingReads(reads) {
   const branches = Object.values(reads).flatMap((value) => {
     if (typeof value !== 'string') {
@@ -128,10 +125,8 @@ function identifyingReads(reads) {
 }
 
 /**
- * Throws when an absolute path outside the synthetic prefixes survived. Separators are flattened first, because
- * how deeply a path was escaped varies with how deeply it was nested; the synthetic prefixes are struck out; and
- * whatever drive-rooted or home-rooted path is left got through. `file://` flattens to look like a drive, so a
- * letter preceded by another letter is not one.
+ * Reject absolute paths outside synthetic prefixes after normalizing escaped separators. Exclude letters
+ * preceded by letters so file:// is not mistaken for a drive path.
  */
 function assertNoAbsolutePaths(text, prefixes) {
   let rest = text.split('\\').join('/').replace(/\/+/g, '/').toLowerCase();

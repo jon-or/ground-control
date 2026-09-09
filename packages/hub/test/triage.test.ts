@@ -87,10 +87,7 @@ interface Control {
   sourceFailed: boolean;
   snapshot(): Snapshot;
   settle(): Promise<void>;
-  /**
-   * A refresh that genuinely re-reads: the clock moves past the source floor first. The default clears every backoff
-   * too, so a test about a backoff passes the smallest step that re-reads and nothing more.
-   */
+  /** Advance beyond source throttling. Default steps also expire backoff; backoff tests use the minimum refresh step. */
   pass(advance?: number): Promise<void>;
   /** How many classifications were running at once, at the most. */
   peak(): number;
@@ -122,7 +119,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
         await Promise.resolve();
       }
     },
-    // Both reads keep a floor of their own, so a second refresh on a still clock is not a second read.
+    // Advance time between refreshes to satisfy source and session throttling.
     pass: async (advance = 400_000) => {
       control.clock.advance(advance);
       await control.hub.refresh('asked');
@@ -175,10 +172,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
       peak = Math.max(peak, live);
 
       try {
-        // Held open by every classification, not just the first: what a cap has to be measured against is how many
-        // are in flight together, and a fake that lets all but one through would measure nothing. It answers an
-        // abort, because the real runner kills the process and the outcome comes back — a fake that ignored the
-        // signal would hold a slot no production run ever holds.
+        // Keep every classification pending to measure peak concurrency. Resolve on abort to match real process cancellation.
         if (control.hold !== null) {
           await new Promise<void>((resolve) => {
             input.signal.addEventListener('abort', () => resolve(), { once: true });
@@ -269,8 +263,7 @@ describe('reading a card that arrives', () => {
   });
 
   it('reads a card again once its status has moved, which is somebody saying what it now needs', async () => {
-    // The one change worth paying to re-read. A comment moves the card's `updatedAt` and settles nothing; a status
-    // move is the team's word on what the work is (R38).
+    // Status changes trigger triage; comment updates alone do not (R38).
     const control = harness();
     watch(control.hub);
     await control.hub.refresh('asked');
@@ -284,7 +277,7 @@ describe('reading a card that arrives', () => {
     expect(control.contexts).toEqual([17198, 17198]);
   });
 
-  it('does not read a card again for a comment, which costs the developer usage and settles nothing', async () => {
+  it('does not retriage on comments alone', async () => {
     const control = harness();
     watch(control.hub);
     await control.hub.refresh('asked');
@@ -298,7 +291,7 @@ describe('reading a card that arrives', () => {
     expect(triageOf(control.snapshot())).toMatchObject({ state: 'done', stale: true });
   });
 
-  it('tells the model the action where the status settled one, and takes it whatever the model says', async () => {
+  it('preserves the status-derived action in the prompt and result', async () => {
     const control = harness(
       {},
       [issue({ status: '🔍 Dev Review' })],
@@ -328,7 +321,7 @@ describe('reading a card that arrives', () => {
     expect(control.classified[0]?.schema).toHaveProperty('properties.action');
   });
 
-  it('classifies with the configured model, in the hub own directory, and never in a checkout', async () => {
+  it('uses the configured model and isolated hub directory', async () => {
     const control = harness();
     watch(control.hub);
     await control.hub.refresh('asked');
@@ -340,7 +333,7 @@ describe('reading a card that arrives', () => {
     expect(control.classified[0]?.prompt).toContain('ISSUE #17198');
   });
 
-  it('carries the configured names into the prompt, so a card calls an agent account by whoever drives it', () => {
+  it('applies configured display names to the prompt', () => {
     const control = harness();
     control.hub.configure(hubConfig({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: { buildfriday: 'Chris' } }));
     watch(control.hub);
@@ -351,7 +344,7 @@ describe('reading a card that arrives', () => {
     });
   });
 
-  it('says a card is being read while it is', async () => {
+  it('shows triage in progress', async () => {
     const control = harness();
     control.hold = () => undefined;
     watch(control.hub);
@@ -361,9 +354,8 @@ describe('reading a card that arrives', () => {
     expect(triageOf(control.snapshot())).toEqual({ state: 'running' });
   });
 
-  it('reads nothing while no board is watching, however often the hub broadcasts', async () => {
-    // R35: a window that has activated the extension stays connected with no board open, and without this gate
-    // opening the editor would read the whole board at nobody.
+  it('skips automatic triage while unwatched', async () => {
+    // Connected editors without visible boards must not trigger classification (R35).
     const control = harness();
     watch(control.hub, false);
     await control.hub.refresh('asked');
@@ -373,7 +365,7 @@ describe('reading a card that arrives', () => {
     expect(triageOf(control.snapshot())).toBeUndefined();
   });
 
-  it('reads nothing while triage is turned off', async () => {
+  it('skips triage when disabled', async () => {
     const control = harness();
     watch(control.hub);
     control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 60_000, names: {} }));
@@ -396,7 +388,7 @@ describe('reading a card that arrives', () => {
     expect(control.classified).toHaveLength(2);
   });
 
-  it('reads nothing for work with no issue of its own', async () => {
+  it('skips cards without issues', async () => {
     const control = harness({}, []);
     control.agent.sessions = [fakeSession({ sessionId: 'a', cwd: 'd:/work/repo', issueNumber: null })];
     watch(control.hub);
@@ -453,9 +445,8 @@ describe('when a reading cannot be made', () => {
     expect(triageOf(control.snapshot())).toMatchObject({ state: 'failed' });
   });
 
-  it('offers the merge to the model, since a merge is a request and nothing derives one', () => {
-    // R39: the board reads no mergeability, so the words somebody wrote are the only channel there is. An action
-    // the build does not have is refused by the same enum, which is what keeps a stale answer off a card.
+  it('leaves merge classification to the model', () => {
+    // Merges require written requests. Reject unsupported action labels through the response enum (R39).
     const offered = (triageJsonSchema(null) as { properties: { action: { enum: string[] } } }).properties.action.enum;
 
     expect(offered).toContain('merge-upstream');
@@ -464,10 +455,9 @@ describe('when a reading cannot be made', () => {
   });
 });
 
-describe('when a seam throws rather than classifying', () => {
-  it('charges the card a failure and backs off, rather than reading it again on every pass', async () => {
-    // A rejection would otherwise leave neither an entry nor a failure, which reads as never having been tried — so
-    // the very next broadcast starts it again, with no backoff and no end.
+describe('adapter exceptions', () => {
+  it('records adapter failures and applies retry backoff', async () => {
+    // Record exceptions as failures with backoff to prevent immediate retries.
     const control = harness();
     control.contextThrows = true;
     watch(control.hub);
@@ -482,7 +472,7 @@ describe('when a seam throws rather than classifying', () => {
   });
 });
 
-describe('standing readings down', () => {
+describe('classification cancellation', () => {
   it('does not charge a card for a reading the developer turned off', async () => {
     const control = harness();
     control.hold = () => undefined;
@@ -495,16 +485,15 @@ describe('standing readings down', () => {
     control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 120_000, names: {} }));
     await control.settle();
 
-    // Charged, four flicks of the setting would silence a card for good, and the board would say it had failed.
+    // Do not count settings-triggered cancellations toward the retry limit.
     expect(triageOf(control.snapshot())).toBeUndefined();
     expect(control.snapshot().failures.filter((f) => f.subject === 'triage')).toEqual([]);
   });
 });
 
 describe('telling the developer what it is about to spend', () => {
-  it('says so once, before the first card is read, and never again', async () => {
-    // The activity install announces itself, and it writes a local file and costs nothing. A feature that spends the
-    // developer's usage and sends their colleagues' words to an API, on by default, cannot say less (R25, R38).
+  it('announces triage usage once before the first read', async () => {
+    // Disclose that default-enabled triage uses paid resources and sends card text to an API (R25, R38).
     const told: string[] = [];
     const control = harness({}, [issue({ number: 1 }), issue({ number: 2 })]);
     control.hub.connect(
@@ -527,7 +516,7 @@ describe('telling the developer what it is about to spend', () => {
     expect(told).toHaveLength(1);
   });
 
-  it('says nothing on a board where there is nothing to read', async () => {
+  it('does not announce triage when no cards are due', async () => {
     const told: string[] = [];
     const control = harness({}, []);
     control.hub.connect(
@@ -555,7 +544,7 @@ describe('what triage must never do', () => {
     expect(triageOf(control.snapshot())).toBeDefined();
   });
 
-  it('keeps its own classification off the roster, even when the adapter reports it', async () => {
+  it('excludes classification sessions even if reported by the adapter', async () => {
     const control = harness();
     control.hold = () => undefined;
     watch(control.hub);
@@ -564,8 +553,7 @@ describe('what triage must never do', () => {
 
     const mine = control.classified[0]!.sessionId;
 
-    // Given a status, so the adapter's own `neverPrompted` would not drop it first — otherwise this assertion holds
-    // with the hub's filter deleted, which is a test that cannot fail.
+    // Supply status so adapter filtering cannot hide a missing hub classification-session filter.
     control.agent.sessions = [
       fakeSession({ sessionId: mine, cwd: 'd:/work/repo', details: { status: 'busy' } }),
       fakeSession({ sessionId: 'a-real-session', cwd: 'd:/work/repo', details: { status: 'busy' } }),
@@ -602,8 +590,7 @@ describe('asking for a card again', () => {
   });
 
   it('refuses when the board is already reading as many cards as it may', async () => {
-    // The cooldown is per card, so without a cap here a board of fifteen chips is fifteen clicks away from fifteen
-    // classifications at once, whatever the setting says.
+    // Enforce global concurrency across manual requests; per-card cooldown alone is insufficient.
     const told: string[] = [];
     const control = harness({}, [issue({ number: 1 }), issue({ number: 2 }), issue({ number: 3 })]);
     const client = control.hub.connect(
@@ -657,7 +644,7 @@ describe('a card that leaves and comes back', () => {
 
     expect(control.contexts).toEqual([17198]);
 
-    // Past the developer's hands: the status is outside the board set, so the card archives.
+    // Use a status outside active membership to archive the card.
     control.cards = [issue({ status: '🚀 Released' })];
 
     for (let n = 0; n < 3; n++) {

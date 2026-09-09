@@ -3,9 +3,8 @@ import type { BridgeMessage, BridgeStreams } from '@ground-control/hub';
 import { startHub } from './machine.js';
 
 /**
- * Chrome's own stdio. Held as an interface so the relay itself is driven by a test without a pair of pipes. `close`
- * and `error` end it as `end` does: a browser that died rather than closed the port leaves an orphan otherwise, one
- * that goes on retrying its transport and holding a client registration nothing will ever read.
+ * Adapt Chrome stdio for the testable relay. End on close or error as well as end, so a browser crash stops
+ * reconnects and releases the client registration.
  */
 function chromeStreams(): BridgeStreams {
   return {
@@ -20,8 +19,8 @@ function chromeStreams(): BridgeStreams {
 }
 
 /**
- * The bridge Chrome starts for the overlay: one client of the hub, relaying both ways. It holds nothing — no
- * configuration to push and no route to perform — so what it adds over the VS Code client is the framing alone.
+ * Relay messages between Chrome and the hub using native-messaging framing. The bridge supplies no
+ * configuration or routes.
  */
 export function startBridge(home: string): void {
   const id = `chrome-${process.pid}`;
@@ -35,18 +34,15 @@ export function startBridge(home: string): void {
     ensure: makeEnsure(realEnsureDeps(home, () => startHub(home))),
     hello: () => bridgeHello(id, watching),
     onMessage: (message) => toChrome(message),
-    // This process is the browser board's client, and its log has nowhere else to go — so its own story is relayed
-    // rather than written, from `info` up. The line per message is left out: each one costs a frame across Chrome's
-    // port, and on this side the frames themselves are what it would be describing (R40).
+    // Relay bridge logs at info level and above to Chrome. Exclude per-message debug logs to avoid extra frames
+    // describing the same traffic (R40).
     log: (level, message) => {
       if (level !== 'debug') {
         toChrome({ type: 'log', entries: [{ at: new Date().toISOString(), level, source: 'browser', scope: 'bridge', message }] });
       }
     },
-    // No configuration — the browser pushes none, and a hub this bridge just started runs on its own defaults until
-    // a VS Code window connects with the developer's. What does have to be said again is the log: the hello carries
-    // whether a board is watching, and a hub restarted under the reconnect holds no log subscriber for this client,
-    // so a sidebar left open in Chrome would go quiet for good (R40).
+    // Restore the log subscription after reconnect; hello restores only board watching. The browser supplies no
+    // configuration, so a new hub uses defaults until VS Code connects (R40).
     afterHello: () => {
       if (watchingLog) {
         transport.send({ type: 'watchLog', watching: true });

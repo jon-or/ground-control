@@ -85,7 +85,7 @@ describe('the roster the markers make', () => {
     expect(session?.details).toEqual({ model: 'gpt-6-astra', permissionMode: 'default' });
   });
 
-  it('leaves out a session whose process is gone, which is the marker a kill left behind', () => {
+  it('excludes markers for terminated processes', () => {
     const reading = readRoster(board(), DEAD, {}, NOW);
 
     expect(reading.sessions).toEqual([]);
@@ -111,7 +111,7 @@ describe('the roster the markers make', () => {
     expect(readRoster(board(), ALIVE, {}, NOW).sessions[0]?.title).toBeNull();
   });
 
-  it('says nothing at all before the hook has been installed', () => {
+  it('returns no sessions before hook installation', () => {
     expect(readRoster(machine({}), ALIVE, {}, NOW)).toEqual({ sessions: [], failure: null });
   });
 
@@ -127,7 +127,7 @@ describe('the roster the markers make', () => {
     expect(reading.failure).toBeNull();
   });
 
-  it('names the markers it could not read rather than dropping them in silence', () => {
+  it('reports unreadable markers', () => {
     const reading = readRoster(
       board({
         dirs: { [activityDirOf(HOME)]: ['thread-1.json', 'thread-2.json'] },
@@ -158,7 +158,7 @@ describe('the roster the markers make', () => {
     expect(reading.failure?.message).toContain('could not be read');
   });
 
-  it('says it cannot prove a session is running when its marker carries no pid', () => {
+  it('reports missing marker PIDs', () => {
     const reading = readRoster(
       board({ files: checkout({ [markerPathOf(HOME, 'thread-1')]: markerText({ pid: null }) }) }),
       ALIVE,
@@ -182,7 +182,7 @@ describe('the roster the markers make', () => {
   });
 });
 
-describe('what the roster says when several markers are wrong', () => {
+describe('multiple invalid markers', () => {
     it('counts them, and names the unreadable ones before the unprovable', () => {
       const reading = readRoster(
         board({
@@ -203,7 +203,7 @@ describe('what the roster says when several markers are wrong', () => {
       expect(reading.failure?.message).toContain('2 Codex session markers');
     });
 
-    it('says how many sessions it cannot prove are running, in the plural', () => {
+    it('pluralizes counts of sessions with unknown liveness', () => {
       const reading = readRoster(
         board({
           dirs: { [activityDirOf(HOME)]: ['thread-1.json', 'thread-2.json'] },
@@ -240,7 +240,7 @@ describe('the thread names index', () => {
     expect(threadNamesFrom(JSON.stringify({ thread_name: 'no id here' }))).toEqual(new Map());
   });
 
-  it('reads the index CODEX_HOME names rather than the one beside it', () => {
+  it('reads the session index under CODEX_HOME', () => {
     expect(sessionIndexPathOf(HOME, { CODEX_HOME: 'd:/elsewhere/codex' })).toBe('d:/elsewhere/codex/session_index.jsonl');
     expect(sessionIndexPathOf(HOME)).toBe(`${HOME}/.codex/session_index.jsonl`);
   });

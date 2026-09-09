@@ -43,10 +43,10 @@ const ISSUES: AssignedIssues = {
   sourceQuery: 'assignee:dev-1',
 };
 
-/** What the GitHub source is given to read with, so a test drives a failed read without a network or a CLI. */
+/** Inject GitHub responses without network requests or CLI processes. */
 type Fetch = (config: GithubConfig) => Promise<Result<AssignedIssues>>;
 
-/** One issue as a source reports it. `author` opens a pull request on it, which is what lanes a card to review. */
+/** Source issue fixture; author determines PR ownership for lane inference. */
 function card(number: number, author: string | null = null): IssueCard {
   return {
     number,
@@ -79,27 +79,27 @@ function card(number: number, author: string | null = null): IssueCard {
 
 interface Harness {
   hub: Hub;
-  /** Whether a watcher is armed. A batch delivered to nothing is indistinguishable from one nothing acted on. */
+  /** Assert watcher registration before testing delivered events. */
   watching: boolean;
   agent: FakeAgentControl;
   host: FakeHostControl;
   clock: ReturnType<typeof fakeClock>;
-  /** Every message the hub sent, per client id, so a test can prove who was told and who was not. */
+  /** Messages grouped by client ID for delivery assertions. */
   sent: Map<string, HubMessage[]>;
-  /** Each marker batch the hub is handed, as the watcher would deliver it. */
+  /** Injected watcher callback for each marker batch. */
   signal(changes: { kind: 'created' | 'changed' | 'deleted'; sessionId: string }[]): void;
   issueReads: number;
-  /** What each install run was asked to do, in order. */
+  /** Activity installation requests in call order. */
   installs: ('install' | 'remove')[];
-  /** Which agent ids each install was asked to reach, or null where it was asked to reach every one. */
+  /** Agent IDs requested for installation, or null for all agents. */
   installedFor: (readonly string[] | null)[];
-  /** What the install reports next, or null for a run that changed nothing. */
+  /** Next installation result, or null when unchanged. */
   activity: ActivityState | null;
   detected: string[];
   config(over?: Partial<HubConfig>): HubConfig;
-  /** Every configuration the hub decided to remember. A refused one must never reach it. */
+  /** Persisted configurations; rejected settings must not appear. */
   wrote: HubConfig[];
-  /** What the hub said about itself, message only. A line it never wrote is a decision nothing recorded. */
+  /** Recorded log messages for diagnostic assertions. */
   logged: string[];
 }
 
@@ -121,8 +121,7 @@ function harness(
   const detected = ['detected-dev'];
   let onChange: ((changes: { kind: 'created' | 'changed' | 'deleted'; sessionId: string }[]) => void) | undefined;
 
-  // The shipped source, reading through an injected fetch: what the hub does with a configuration, a refusal, and
-  // the accounts it has none of is the source's own answer, and a fake here would be a second implementation of it.
+  // Use the real source with injected reads to test configuration, refusals, and account detection without duplicating its logic.
   const github = makeGithubSource({
     fetch: (config) => {
       counts.issues += 1;
@@ -130,7 +129,7 @@ function harness(
       return extra.fetch ? extra.fetch(config) : Promise.resolve({ ok: true, value: ISSUES });
     },
     detectLogins: async () => detected,
-    // Injected always: without it a session naming a number nothing assigned spawns `gh` from inside a unit test.
+    // Inject issue lookups so session-only references cannot spawn gh in tests.
     readCard: extra.readCard ?? (async () => ({ ok: true, value: null })),
   });
 
@@ -192,16 +191,14 @@ function harness(
     actions: makeActionStore(home),
     issues: makeIssueStore(home),
     status: makeStatusStore(home),
-    // A hub built over a store that already holds a configuration is the browser-started case: nobody is here to
-    // push one, and the developer set theirs in an editor that is not open.
+    // Preload stored configuration to model browser startup without an editor connection.
     settings: {
       read: () => (extra.remembered ? { config: shape.config(extra.remembered) } : (extra.stored ?? null)),
       write: (config) => {
         shape.wrote.push(config);
       },
     },
-    // Never the real one: it writes an agent's settings file, and none of these tests is about that. What it was
-    // asked for is recorded, because "turn this off and the entries go" is a claim only the argument proves.
+    // Fake installation to avoid settings writes; record arguments to verify removal requests.
     syncActivity: (_registries, wanted, _home, enabled) => {
       shape.installs.push(wanted);
       shape.installedFor.push(enabled === undefined ? null : [...enabled].sort());
@@ -234,10 +231,10 @@ function connect(h: Harness, who: ClientHello = hello()) {
   return { client: h.hub.connect(who, (message) => inbox.push(message)), inbox };
 }
 
-/** Lets every promise the hub has in flight settle. Nothing here sleeps: the fakes resolve immediately. */
+/** Complete pending promises; injected reads resolve without timers. */
 const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
-/** The last snapshot a client was sent, insisted on rather than guarded: a message of another type is the finding. */
+/** Require the final client message to be a snapshot before reading it. */
 function latest(inbox: HubMessage[]): Snapshot {
   const last = inbox.at(-1);
 
@@ -249,7 +246,7 @@ function latest(inbox: HubMessage[]): Snapshot {
 }
 
 describe('what the hub polls', () => {
-  it('reads nothing until a client is watching, and stops when the last one looks away', async () => {
+  it('polls only while a client is watching', async () => {
     const h = harness();
 
     expect(h.clock.cadences()).toEqual([]);
@@ -261,8 +258,7 @@ describe('what the hub polls', () => {
     h.hub.receive(client, { type: 'watching', watching: true });
     await settle();
 
-    // Written out, not read back from the same defaults the hub used: the shipped cadences are 30 s and 5 minutes,
-    // over the fixed 5 s tick that watches for a suspend and for a source that has come back.
+    // Assert literal polling intervals: 30-second sessions, five-minute sources, and a five-second maintenance tick.
     expect(h.clock.cadences()).toEqual([5_000, 30_000, 300_000]);
 
     h.hub.receive(client, { type: 'watching', watching: false });
@@ -281,8 +277,8 @@ describe('what the hub polls', () => {
     expect(h.clock.cadences()).toEqual([]);
   });
 
-  /** Two sources, two costs: a network round trip and a CLI spawn do not belong on one timer (mechanics M2). */
-  it('polls the two sources on their own cadences', async () => {
+  /** Use separate timers for network sources and local CLI reads (M2). */
+  it('uses separate source and session polling intervals', async () => {
     const h = harness();
     const { client } = connect(h);
 
@@ -313,11 +309,11 @@ describe('what the hub polls', () => {
     });
     await settle();
 
-    // The two a client configured, plus the tick, which is the hub's own and takes no setting.
+    // Expect configured source/session timers plus the fixed maintenance tick.
     expect(h.clock.cadences()).toEqual([5_000, 5_000, 60_000]);
   });
 
-  /** The button is a read of whatever is there now, so pressing it twice is one read, not two CLI spawns. */
+  /** Coalesce repeated refresh clicks into one roster read. */
   it('ignores a refresh asked for again within the second', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -339,8 +335,8 @@ describe('what the hub polls', () => {
     expect(h.agent.calls).toBe(after + 1);
   });
 
-  /** R35: a board becomes visible on every tab switch, and a source read is a network round trip GitHub rate limits. */
-  it('shows a board that comes back inside the minute the cards it already read', async () => {
+  /** Throttle visibility-triggered network reads during tab switches (R35). */
+  it('reuses cached cards when shown again within one minute', async () => {
     const h = harness();
     const { client } = connect(h);
 
@@ -354,7 +350,7 @@ describe('what the hub polls', () => {
     h.hub.receive(client, { type: 'watching', watching: true });
     await settle();
 
-    // The sessions are read all the same: that one is a local CLI spawn, and it is what says a session ended.
+    // Still refresh the local session roster to detect ended sessions.
     expect(h.issueReads).toBe(before.issues);
     expect(h.agent.calls).toBe(before.sessions + 1);
 
@@ -381,8 +377,7 @@ describe('what the hub polls', () => {
 
     expect(h.issueReads).toBe(before + 1);
 
-    // Restated rather than changed, which is what every board that opens does, and must not cost a read. The second
-    // says the same thing in another order, which is a client building its own source entry, not a setting that moved.
+    // Equivalent settings, including reordered keys, must not trigger new reads on connection.
     h.clock.advance(1_001);
     h.hub.receive(client, { type: 'configure', config: h.config() });
     await settle();
@@ -408,7 +403,7 @@ describe('what the hub polls', () => {
     expect(h.issueReads).toBe(before + 2);
   });
 
-  /** The board's arrival takes the session read's second. A press behind it is the developer asking, not that read. */
+  /** A manual refresh following visibility must use the manual source interval. */
   it('reads the sources for a button press behind a board that just became visible', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -432,8 +427,8 @@ describe('what the hub polls', () => {
     expect(h.issueReads).toBe(before + 1);
   });
 
-  /** The read in flight went out with the settings these replaced, so folding this into it would answer the old ones. */
-  it('reads again for a source whose settings moved under a read already in flight', async () => {
+  /** Changed settings require a new read after the current request completes. */
+  it('rereads after settings change during an active request', async () => {
     const waiting: (() => void)[] = [];
     const repos: string[] = [];
     const h = harness(
@@ -459,7 +454,7 @@ describe('what the hub polls', () => {
     });
     await settle();
 
-    // Queued, not folded in: the read in flight is still the only one that has gone out.
+    // Confirm the replacement read remains queued while the old read is pending.
     expect(repos).toHaveLength(1);
 
     waiting.shift()?.();
@@ -471,8 +466,8 @@ describe('what the hub polls', () => {
     await settle();
   });
 
-  /** A rebuilt timer starts its count again, so a board toggled faster than the cadence would never reach a poll. */
-  it('leaves the timers alone for a client that says nothing new', () => {
+  /** Preserve timers on visibility updates so repeated toggles cannot postpone polling indefinitely. */
+  it('preserves timers when client state is unchanged', () => {
     const h = harness();
     const { client } = connect(h);
     const armed = h.clock.handles();
@@ -530,7 +525,7 @@ describe('what an activity event costs', () => {
     expect(h.agent.calls).toBe(spawns + 1);
   });
 
-  /** The CLI lists nothing and fails, so every batch would be stale and spawn a read that fails again. */
+  /** Suppress event-triggered retries when all roster reads fail. */
   it('does not ask an unreadable CLI again on every marker', async () => {
     const h = harness();
     h.agent.failure = { subject: 'fake', kind: 'cli-missing', message: 'no CLI', remedy: 'install it' };
@@ -541,7 +536,7 @@ describe('what an activity event costs', () => {
 
     const spawns = h.agent.calls;
 
-    // Proved to have read at all: a count that never moves is the same number as a watcher that was never armed.
+    // Verify the read count changes so an unregistered watcher cannot pass.
     expect(spawns).toBe(1);
 
     h.signal([{ kind: 'deleted', sessionId: 'whatever' }]);
@@ -552,7 +547,7 @@ describe('what an activity event costs', () => {
   });
 });
 
-describe('what the snapshot says', () => {
+describe('snapshot state', () => {
   it('keeps the last good read of a source that has since failed, and names the failure', async () => {
     let ok = true;
     const h = harness(
@@ -580,7 +575,7 @@ describe('what the snapshot says', () => {
     expect(latest(inbox).failures.map((f) => f.kind)).toContain('query-failed');
   });
 
-  /** The hub has no screen, so it says what it needs and what it could detect, and a client puts the question. */
+  /** Return missing settings and detected accounts for client selection. */
   it('asks for the logins it has none of, and stops once it has some', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
@@ -611,7 +606,7 @@ describe('what the snapshot says', () => {
     expect(h.issueReads).toBe(0);
   });
 
-  /** The registry is reached by id: a source the developer has not named costs no read, and neither does a typo. */
+  /** Read only configured, registered sources. */
   it('reads the sources the configuration names, and only those', async () => {
     const reads: string[] = [];
     const other: WorkSource = {
@@ -645,8 +640,8 @@ describe('what the snapshot says', () => {
     expect(h.issueReads).toBe(1);
   });
 
-  /** A repository the developer stopped tracking keeping its cards on the board is the board naming work as theirs. */
-  it('drops what a source read, and what it was complaining about, once the configuration stops naming it', async () => {
+  /** Remove cards for sources no longer configured. */
+  it('clears removed-source data and failures', async () => {
     let ok = true;
     const h = harness(
       {},
@@ -681,10 +676,7 @@ describe('what the snapshot says', () => {
     expect(latest(inbox).stale).toBe(false);
   });
 
-  /**
-   * One board out of several sources: the counts add up, the age is the source that has not been read since, and
-   * the lane rules read the accounts the sources were read for rather than the accounts a setting names.
-   */
+  /** Combine source counts, use the oldest read timestamp, and infer ownership from each read's logins. */
   it('merges what every source read, and is as old as the oldest of them', async () => {
     const other: WorkSource = {
       id: 'other-source',
@@ -692,7 +684,7 @@ describe('what the snapshot says', () => {
       configure: () => null,
       read: async () => ({
         items: {
-          // Its pull request is by the account this source read for, which is what puts the card in review.
+          // Use the source-read account to identify the PR as the developer's.
           cards: [card(4521, 'dev-2')],
           owners: ['dev-2'],
           matched: 2,
@@ -730,17 +722,14 @@ describe('what the snapshot says', () => {
     const { issues, lanes } = h.hub.snapshot();
 
     expect(issues).toMatchObject({ count: 2, matched: 7, totalAssigned: 9, notOnProject: 3, truncated: true });
-    // ISSUES was read four hours later, and the board is as old as the source that has not been read since.
+    // The combined board timestamp must use the older source read.
     expect(issues?.fetchedAt).toBe('2026-09-03T08:00:00Z');
     expect(lanes.find((lane) => lane.cards.some((c) => c.issueNumber === 4521))?.id).toBe('review');
   });
 
-  /**
-   * The whole of what a developer sees after finishing an issue: the assigned read stops returning it, the session
-   * they left open is still there, and the card has to keep its title rather than becoming a bare number (R9).
-   */
-  it('names an issue nobody assigned any more, and archives the card once nothing is running on it', async () => {
-    // The card's own URL is what keys the remembered issue, and it has to key the same repository the session names.
+  /** Retain issue metadata after unassignment while a session still references it (R9). */
+  it('retains unassigned issue metadata and archives after sessions end', async () => {
+    // Use the same repository key for the stored issue and session.
     const worked = { ...card(18941), url: 'https://github.com/example-org/example-repo/issues/18941' };
     let assigned = [worked];
     const h = harness(
@@ -795,7 +784,7 @@ describe('what the snapshot says', () => {
     expect(found?.lane).toBe('archived');
   });
 
-  it('leaves a session on a checkout card while nothing can name the number its branch carries', async () => {
+  it('keeps checkout cards until issue lookup succeeds', async () => {
     const h = harness({}, { readCard: async () => ({ ok: true, value: null }) });
 
     h.agent.sessions = [fakeSession()];
@@ -811,7 +800,7 @@ describe('what the snapshot says', () => {
     expect(cards.find((c) => c.sessions.length > 0)?.issueNumber).toBeNull();
   });
 
-  /** Cards read for a repository whose settings the developer has since broken are not cards they can act on. */
+  /** Clear cards when the source configuration becomes invalid. */
   it('takes down what a source read once its settings are refused', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
@@ -821,7 +810,7 @@ describe('what the snapshot says', () => {
 
     expect(latest(inbox).issues).not.toBeNull();
 
-    // No clock advance: inside the refresh floor there is no read to take them down, so what does is the refusal.
+    // Without advancing time, configuration refusal must clear cards before another read.
     h.hub.receive(client, { type: 'configure', config: h.config({ sources: { github: { repo: '' } } }) });
     await settle();
 
@@ -829,10 +818,7 @@ describe('what the snapshot says', () => {
     expect(latest(inbox).failures.map((f) => f.kind)).toContain('bad-config');
   });
 
-  /**
-   * A board with no source it can read is stale, whether the read failed or the settings for it were refused. The
-   * dimming is what says the cards on screen are not what the world says now (R24, R25).
-   */
+  /** No readable source means stale data, whether caused by failed reads or rejected settings (R24, R25). */
   it('calls the board stale while a source it cannot read is configured', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
@@ -849,7 +835,7 @@ describe('what the snapshot says', () => {
     expect(latest(inbox).stale).toBe(true);
   });
 
-  /** A second window opening must not take down what the board is telling the developer about the first one. */
+  /** New connections must preserve existing configuration errors. */
   it('leaves a refused configuration named when another client connects', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -859,14 +845,14 @@ describe('what the snapshot says', () => {
 
     const refusal = () => h.hub.snapshot().failures.map((f) => f.message);
 
-    expect(refusal()).toContainEqual(expect.stringContaining("The board's settings could not be read"));
+    expect(refusal()).toContainEqual(expect.stringContaining("Could not read settings:"));
 
     connect(h, hello({ id: 'board-2' }));
 
-    expect(refusal()).toContainEqual(expect.stringContaining("The board's settings could not be read"));
+    expect(refusal()).toContainEqual(expect.stringContaining("Could not read settings:"));
   });
 
-  /** A source is a seam anyone may implement. One that throws must land like one that failed, not take the pass. */
+  /** Convert source exceptions to failures without aborting other source updates. */
   it('names a source that threw, and reads the others anyway', async () => {
     const boom: WorkSource = {
       id: 'other-source',
@@ -891,10 +877,7 @@ describe('what the snapshot says', () => {
     expect(latest(inbox).issues).not.toBeNull();
   });
 
-  /**
-   * A host left out of the configuration was handed no settings of its own. Reaching into an editor on defaults
-   * nobody chose reads another install's windows and brings the wrong one forward (R27, R34).
-   */
+  /** Do not use an unconfigured host's defaults to select editor windows (R27, R34). */
   it('will not open a session for a host the configuration does not name', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
@@ -910,11 +893,7 @@ describe('what the snapshot says', () => {
     expect(notices.at(-1)).toMatchObject({ message: expect.stringContaining('not running inside an application') });
   });
 
-  /**
-   * The developer's settings live in an editor that need not be open, and which repository work is tracked in
-   * cannot be guessed — so a hub the browser started would report itself unconfigured however long ago they set it
-   * (R35, R36). It starts on the last configuration a client gave it instead.
-   */
+  /** Load saved settings for browser-started hubs without an editor open (R35, R36). */
   it('starts on the configuration a client last gave it, with no client here to give one', async () => {
     const h = harness({}, { remembered: {} });
     const { client, inbox } = connect(h);
@@ -927,8 +906,8 @@ describe('what the snapshot says', () => {
     expect(h.issueReads).toBe(1);
   });
 
-  /** A refused configuration is one no hub should start on: remembering it would carry the mistake across restarts. */
-  it('remembers the configuration it accepted, and remembers nothing it refused', async () => {
+  /** Never persist rejected configuration across restarts. */
+  it('persists accepted configurations only', async () => {
     const h = harness();
     const { client } = connect(h);
 
@@ -943,12 +922,8 @@ describe('what the snapshot says', () => {
     expect(h.wrote).toHaveLength(1);
   });
 
-  /**
-   * The schema is not the only thing that refuses a configuration: a source or a host refuses ids and shapes it
-   * treats as opaque. Remembering one of those would carry the mistake past the window that made it, to a hub the
-   * browser starts with no editor open to correct it.
-   */
-  it('remembers nothing a source or a host refused, however well-formed', async () => {
+  /** Persist only settings accepted by both schema and adapters, including browser-started hub configuration. */
+  it('does not persist adapter-rejected configurations', async () => {
     const h = harness();
     const { client } = connect(h);
 
@@ -963,10 +938,7 @@ describe('what the snapshot says', () => {
     expect(h.wrote).toEqual([]);
   });
 
-  /**
-   * A stored configuration this hub will not run on is said out loud. Falling back to defaults in silence is how a
-   * board comes to report itself unconfigured with the developer's own settings sitting on disk (R25).
-   */
+  /** Report invalid stored settings instead of silently using defaults (R25). */
   it('names a stored configuration it would not start on, until a client pushes one', async () => {
     const failure = {
       subject: 'config',
@@ -1008,10 +980,7 @@ describe('what the snapshot says', () => {
     expect(latest(inbox).failures.map((f) => f.kind)).toContain('unknown-host');
   });
 
-  /**
-   * A board that says "could not refresh" over cards it read a second ago is telling the developer something false.
-   * Only a failed read is stale; a settings problem is worth stating and is a different thing (R25).
-   */
+  /** Host configuration errors must not mark successful source reads stale (R25). */
   it('calls the board stale only when a read of a source failed', async () => {
     let ok = true;
     const h = harness(
@@ -1045,7 +1014,7 @@ describe('what the snapshot says', () => {
     expect(h.hub.snapshot().stale).toBe(true);
   });
 
-  /** The agent's own read failing is the other half of it: a roster nobody could read is a board out of date. */
+  /** A failed roster read also marks the board stale. */
   it('calls the board stale when the agent could not be read', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -1063,11 +1032,7 @@ describe('what the snapshot says', () => {
     expect(h.hub.snapshot().stale).toBe(true);
   });
 
-  /**
-   * Openable is a host's answer. A board resident in one gets its own; a browser board gets the configured host's,
-   * because it reaches an editor by asking the operating system for one rather than by being inside a window — so
-   * what it may open cannot depend on a window happening to be open (R14, R36).
-   */
+  /** Use resident-host opening capabilities for editors and the configured host for Chrome, even without an open editor window (R14, R36). */
   it('offers a session to a client in a host and to a browser board alike', async () => {
     const h = harness();
     h.agent.sessions = [fakeSession()];
@@ -1082,8 +1047,8 @@ describe('what the snapshot says', () => {
     expect(latest(browser.inbox).openable).toEqual([fakeSession().sessionId]);
   });
 
-  /** The same gate `#open` gives a resident client: a host the configuration does not name answers for nobody. */
-  it('offers a browser board nothing while the configuration names no host', async () => {
+  /** Unconfigured hosts provide no opening capabilities. */
+  it('offers no browser routes without a configured host', async () => {
     const h = harness();
     h.agent.sessions = [fakeSession()];
 
@@ -1097,12 +1062,9 @@ describe('what the snapshot says', () => {
   });
 });
 
-/**
- * A laptop that was asleep is the common way a board goes wrong: both readings are as old as the sleep was, and the
- * first read after the lid opens runs before the network is back. Neither is a condition the developer has to act on.
- */
-describe('what the hub does when the network goes and comes back', () => {
-  // Written out rather than imported, so a change to either in the hub fails a test instead of following it.
+/** Refresh after suspend and tolerate temporary network failure during resume. */
+describe('network outage and recovery', () => {
+  // Use literal thresholds so implementation changes can fail the test.
   const TICK_MS = 5_000;
   const OUTAGE_GRACE_MS = 60_000;
 
@@ -1113,10 +1075,7 @@ describe('what the hub does when the network goes and comes back', () => {
     transient: true,
   };
 
-  /**
-   * A board that has read once, whose GitHub can be taken away and given back. Reads are asked for rather than
-   * fired off the poll cadence: firing it moves the clock five minutes, which is a suspend as far as the tick knows.
-   */
+  /** Start from cached data and manually trigger source failures/recovery; normal five-minute polling would also simulate suspend. */
   async function reading() {
     let reachable = true;
     const h = harness({}, { fetch: async () => (reachable ? { ok: true, value: ISSUES } : { ok: false, error: OFFLINE }) });
@@ -1130,7 +1089,7 @@ describe('what the hub does when the network goes and comes back', () => {
       inbox,
       cut: () => (reachable = false),
       restore: () => (reachable = true),
-      /** A read now, past the second that would coalesce it with the one before. */
+      /** Advance beyond refresh coalescing before requesting another read. */
       reread: async () => {
         h.clock.advance(2_000);
         h.hub.receive(client, { type: 'refresh' });
@@ -1145,7 +1104,7 @@ describe('what the hub does when the network goes and comes back', () => {
     cut();
     await reread();
 
-    // Said quietly in the meta line, not as a red notice: the board is a minute out of date and fixing itself.
+    // During the grace period, mark cached data stale without an error notice.
     expect(latest(inbox).stale).toBe(true);
     expect(latest(inbox).failures).toEqual([]);
     expect(latest(inbox).issues).not.toBeNull();
@@ -1159,7 +1118,7 @@ describe('what the hub does when the network goes and comes back', () => {
 
     const failed = h.issueReads;
 
-    // Every tick for the first thirty seconds, which is where a machine coming back from sleep is answered.
+    // Retry on every tick during the first 30 seconds of an outage.
     for (let tick = 1; tick <= 6; tick++) {
       h.clock.fire(TICK_MS);
       await settle();
@@ -1167,7 +1126,7 @@ describe('what the hub does when the network goes and comes back', () => {
       expect(h.issueReads).toBe(failed + tick);
     }
 
-    // Half a minute down is no longer a blip, so the gap widens to fifteen seconds: two ticks spend nothing.
+    // After 30 seconds, widen retry intervals to 15 seconds.
     h.clock.fire(TICK_MS);
     await settle();
     h.clock.fire(TICK_MS);
@@ -1181,7 +1140,7 @@ describe('what the hub does when the network goes and comes back', () => {
     expect(h.issueReads).toBe(failed + 7);
   });
 
-  it('says so once the outage outlasts the grace, without waiting for the next try', async () => {
+  it('reports an outage when its grace period expires before retry', async () => {
     const { h, inbox, cut, reread } = await reading();
 
     cut();
@@ -1195,7 +1154,7 @@ describe('what the hub does when the network goes and comes back', () => {
     const offline = latest(inbox).failures.find((failure) => failure.kind === 'offline');
 
     expect(offline?.subject).toBe(GITHUB_SOURCE_ID);
-    // Still the board it last read, under the notice: R24 forbids erasing what the developer can still act on.
+    // Retain cached cards after reporting the outage (R24).
     expect(latest(inbox).issues).not.toBeNull();
   });
 
@@ -1219,10 +1178,7 @@ describe('what the hub does when the network goes and comes back', () => {
     expect(latest(inbox).stale).toBe(false);
   });
 
-  /**
-   * The sleep itself. A timer that counted none of it leaves both readings as old as the sleep was, so the tick that
-   * finds the gap reads now rather than letting the board show an hour-old roster until the next cadence comes round.
-   */
+  /** A suspend gap triggers immediate refresh of both sources and sessions. */
   it('reads both sources on the first tick after a suspend, whatever the cadences were counting', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -1249,8 +1205,7 @@ describe('what the hub does when the network goes and comes back', () => {
 
     const before = { issues: h.issueReads, sessions: h.agent.calls };
 
-    // Twenty seconds late is a loop under load. Twenty-five is a machine that was off — the threshold, pinned from
-    // both sides, because a test that only tries an hour would pass on any threshold at all.
+    // Check both sides of suspend detection: 20 seconds late is below the threshold, 25 seconds is above it.
     h.clock.advance(20_000);
     h.clock.fire(TICK_MS);
     await settle();
@@ -1265,7 +1220,7 @@ describe('what the hub does when the network goes and comes back', () => {
     expect(h.issueReads).toBe(before.issues + 1);
   });
 
-  /** R24: a board with nothing behind it must say why it is empty, not ride out an outage in silence. */
+  /** Report an outage immediately when no cached data exists (R24). */
   it('states an unreachable source at once where it has no read to hold', async () => {
     const h = harness({}, { fetch: async () => ({ ok: false, error: OFFLINE }) });
     const { client, inbox } = connect(h);
@@ -1277,8 +1232,8 @@ describe('what the hub does when the network goes and comes back', () => {
     expect(latest(inbox).failures.map((failure) => failure.kind)).toContain('offline');
   });
 
-  /** A notice restated every five seconds is the noise R25 says to state once. */
-  it('says an outage once, however long it holds', async () => {
+  /** Report each outage once (R25). */
+  it('reports each outage once', async () => {
     const { h, inbox, cut, reread } = await reading();
 
     cut();
@@ -1291,7 +1246,7 @@ describe('what the hub does when the network goes and comes back', () => {
 
     expect(latest(inbox).failures.map((failure) => failure.kind)).toContain('offline');
 
-    // Past the grace the retries widen to fifteen seconds, so most of these ticks find nothing at all to do.
+    // Most maintenance ticks should skip reads during the 15-second retry interval.
     const said = inbox.length;
 
     for (let elapsed = 0; elapsed < 20_000; elapsed += TICK_MS) {
@@ -1299,15 +1254,12 @@ describe('what the hub does when the network goes and comes back', () => {
       await settle();
     }
 
-    // One read came due in that window. Nothing else broadcast, because nothing else had anything new to say.
+    // Expect one due read and no broadcasts for unchanged state.
     expect(inbox.length - said).toBe(1);
   });
 
-  /**
-   * The developer's own asking must not cost the recovery: the ladder is stepped by how long the source has been
-   * unreachable, so four presses of refresh leave the next automatic try exactly where one press would have.
-   */
-  it('does not spend the backoff on reads the developer asked for', async () => {
+  /** Base automatic retry delay on outage duration so manual refreshes do not postpone recovery. */
+  it('preserves automatic retry timing after manual refresh', async () => {
     const { h, cut, restore, reread } = await reading();
 
     cut();
@@ -1325,10 +1277,7 @@ describe('what the hub does when the network goes and comes back', () => {
     expect(h.issueReads).toBe(failed + 1);
   });
 
-  /**
-   * The retry a dropped source is waiting on never comes due, because nothing reads it again. Left behind, it makes
-   * the tick spend a read on every surviving source every five seconds for the life of the hub.
-   */
+  /** Clear outage state for removed sources so they cannot trigger repeated reads of remaining sources. */
   it('forgets an outage for a source the configuration stops naming', async () => {
     const { h, cut, reread } = await reading();
     const { client, inbox } = connect(h, hello({ id: 'board-2' }));
@@ -1346,18 +1295,13 @@ describe('what the hub does when the network goes and comes back', () => {
       await settle();
     }
 
-    // Nothing reads that source again, so its retry never comes due and every tick would spend one — a read of each
-    // surviving source, and a write of the lane store, five seconds apart for the life of the hub.
+    // Clear removed-source retry state to avoid repeated reads and lane-store writes.
     expect(inbox.length).toBe(settled);
   });
 
-  /**
-   * A read with no deadline can hang for as long as the network blackholes it, and the tick coalesces onto it. The
-   * board would otherwise sit dimmed and silent for the whole of that, because only a finished read broadcasts.
-   */
-  it('says so on the grace even while the read that would have said it is still hanging', async () => {
-    // A board with a read behind it, an outage the grace is riding out, and then a read that never answers: the
-    // source poll carries no deadline, so a blackholed network hangs it and every tick coalesces onto that one.
+  /** Report expired outage grace during pending reads; waiting for completion could hide the error indefinitely. */
+  it('reports an expired outage grace period during a pending read', async () => {
+    // Simulate a hanging source after cached data and an initial transient failure.
     const answers = ['read', 'offline'];
     const h = harness({}, {
       fetch: () => {
@@ -1390,11 +1334,8 @@ describe('what the hub does when the network goes and comes back', () => {
     expect(latest(inbox).issues).not.toBeNull();
   });
 
-  /**
-   * A stall long enough to look like a suspend must not retract a notice the board has already given, because the
-   * condition behind it has not changed. A suspend still gives an outage nobody has been told about its minute back.
-   */
-  it('keeps an outage it has already stated across a suspend, and gives an unstated one its minute again', async () => {
+  /** Keep reported outages visible after suspend detection; restart grace only for unreported outages. */
+  it('preserves reported outages and resets unreported grace after suspend', async () => {
     const { h, inbox, cut, reread } = await reading();
 
     cut();
@@ -1420,7 +1361,7 @@ describe('what the hub does when the network goes and comes back', () => {
     cut();
     await reread();
 
-    // Most of the grace spent, then the machine sleeps: the minute starts again rather than expiring on the way up.
+    // Reset an unreported outage's grace period after suspend.
     for (let elapsed = 0; elapsed < 50_000; elapsed += TICK_MS) {
       h.clock.fire(TICK_MS);
       await settle();
@@ -1452,7 +1393,7 @@ describe('what the hub does when the network goes and comes back', () => {
 });
 
 describe('what the developer does', () => {
-  it('writes a moved card to the machine record and tells every board', async () => {
+  it('persists lane moves and broadcasts them', async () => {
     const h = harness();
     const first = connect(h, hello({ id: 'first' }));
     const second = connect(h, hello({ id: 'second' }));
@@ -1512,7 +1453,7 @@ describe('what the developer does', () => {
     expect(notice?.type === 'notice' && notice.message).toContain('not allowed');
   });
 
-  it('tells a board resident in no host that it cannot open anything', async () => {
+  it('refuses opening without an available host', async () => {
     const h = harness();
     const { client, inbox } = connect(h, hello({ hostId: null }));
 
@@ -1540,11 +1481,8 @@ describe('what the developer does', () => {
 });
 
 describe('the activity signal', () => {
-  /** Nothing is written to an agent's settings on the hub's own default, before a client has said what it wants. */
-  /**
-   * A developer who makes a setting wrong and puts it back does both inside the refresh floor, and what they see is
-   * the broadcast rather than the read that the floor swallowed.
-   */
+  /** Do not install activity hooks before client configuration. */
+  /** Broadcast corrected settings immediately, even within the refresh interval. */
   it('shows a setting put back, even when the read it asked for was inside the floor', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
@@ -1559,18 +1497,14 @@ describe('the activity signal', () => {
 
     expect(named()).toBe(true);
 
-    // No clock movement at all, so the read this triggers is refused by the floor and the broadcast is all there is.
+    // Keep the clock unchanged so only the configuration broadcast can update the client.
     h.hub.receive(client, { type: 'configure', config: h.config() });
     await settle();
 
     expect(named()).toBe(false);
   });
 
-  /**
-   * The message a developer gets back for turning the signal off. It rides on the configure that carried the change,
-   * because a client pushes its whole configuration on every connect and a hub that answered each of those would
-   * pop a message on every board that opened (R34).
-   */
+  /** Acknowledge explicit activity setting changes, not settings restated on every connection (R34). */
   it('answers a configure the developer asked to be told about, and only that one', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
@@ -1589,8 +1523,8 @@ describe('the activity signal', () => {
     ]);
   });
 
-  /** A run that changed nothing still answers: it answers an action, and "nothing to do" is the answer. */
-  it('says the signal was already where the developer put it, whichever way that is', async () => {
+  /** Acknowledge explicit changes even when no write is needed. */
+  it('acknowledges unchanged activity settings', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
 
@@ -1634,7 +1568,7 @@ describe('the activity signal', () => {
     ]);
   });
 
-  it('installs nothing until a client has configured it', async () => {
+  it('waits for client configuration before installing activity hooks', async () => {
     const h = harness();
 
     expect(h.installs).toEqual([]);
@@ -1649,10 +1583,7 @@ describe('the activity signal', () => {
     expect(h.installs).toEqual(['install']);
   });
 
-  /**
-   * R30: the install reaches the agents the configuration names and no others, so the board never writes into the
-   * settings of a CLI it was not asked to read. Only the argument proves it — the fake writes no file.
-   */
+  /** Assert configured agent IDs directly; the fake installer writes no files (R30). */
   it('installs for the agents the configuration names, and reaches every one only to remove', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -1666,16 +1597,11 @@ describe('the activity signal', () => {
     h.hub.receive(client, { type: 'configure', config: h.config({ installActivity: false }) });
     await settle();
 
-    // A removal is the developer turning the hooks off, so it carries no ids: leaving another agent's entries in
-    // place would leave a writer nobody maintains firing (R34).
+    // Remove hooks from every registered agent when disabled (R34).
     expect(h.installedFor).toEqual([['fake'], null]);
   });
 
-  /**
-   * The marker watcher is what turns a hook's write into a phase on a card, and it is armed per agent. An agent the
-   * configuration does not name is not read at all, so watching its directory would report sessions of a CLI the
-   * board was told to leave alone; and the watchers are re-armed on a change, or naming it again would arm nothing.
-   */
+  /** Watch only configured agents and recreate watchers when the agent set changes. */
   it('watches the marker directory only while the configuration names the agent', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -1691,7 +1617,7 @@ describe('the activity signal', () => {
     await settle();
 
     expect(h.watching).toBe(true);
-    // And the watcher that came back is a live one: a re-arm that only disposed would leave this reaching nothing.
+    // Deliver an event after reconfiguration to verify the replacement watcher is active.
     h.signal([{ kind: 'created', sessionId: 'thread-1' }]);
   });
 
@@ -1709,12 +1635,12 @@ describe('the activity signal', () => {
     });
     await settle();
 
-    // A named agent that was not named before has no signal in place yet, so the settled run is the wrong one.
+    // Install hooks for newly configured agents instead of reusing the earlier result.
     expect(h.installedFor).toEqual([['fake'], ['fake', 'other']]);
   });
 
-  /** R34: turning it off takes the entries away, whether or not a board is open to see it happen. */
-  it('takes the signal away when the setting says so, and puts it back when it changes again', async () => {
+  /** Disabling hooks removes entries even without an open board (R34). */
+  it('removes and reinstalls hooks when the setting changes', async () => {
     const h = harness();
     const { client } = connect(h);
 
@@ -1734,10 +1660,7 @@ describe('the activity signal', () => {
     expect(h.installs).toEqual(['install', 'remove', 'install']);
   });
 
-  /**
-   * A `busy` run observed another process's lock and settled nothing. Keeping it would leave this hub reporting no
-   * phase for any session for the life of the process, with nothing on screen saying why (R25).
-   */
+  /** Retry busy installation results; they establish no installed state (R25). */
   it('tries again after a run that observed another process holding the lock', async () => {
     const h = harness();
     h.activity = { wanted: 'install', plan: 'busy', added: 0, failure: null };
@@ -1754,7 +1677,7 @@ describe('the activity signal', () => {
 
     expect(h.installs).toHaveLength(tries + 1);
 
-    // And a run that settled is kept: the retry is for the lock, not a re-install on every snapshot.
+    // Cache completed installation results instead of reinstalling on every snapshot.
     h.activity = { wanted: 'install', plan: 'write', added: 2, failure: null };
     h.hub.snapshot();
     const settled = h.installs.length;
@@ -1779,8 +1702,8 @@ describe('the activity signal', () => {
     expect(latest(inbox).failures.map((f) => f.kind)).toContain('activity-refused');
   });
 
-  /** R25: an install is announced once per board, and a second window has not read the first one's notice. */
-  it('announces an install to each board once, and to a second board of its own', async () => {
+  /** Announce each installation once per client (R25). */
+  it('announces installations once per client', async () => {
     const h = harness();
     h.activity = { wanted: 'install', plan: 'write', added: 2, failure: null };
 
@@ -1805,8 +1728,8 @@ describe('the activity signal', () => {
 });
 
 describe('what it does not do', () => {
-  /** A board that is closed pays the same CLI spawn for an event as one on screen, with nobody to show it to. */
-  it('reads nothing on an activity event once no board is watching', async () => {
+  /** Ignore activity events while no board is visible to avoid unused CLI reads. */
+  it('ignores activity events while unwatched', async () => {
     const h = harness();
     const { client } = connect(h);
 
@@ -1839,7 +1762,7 @@ describe('what it does not do', () => {
     expect(h.clock.cadences()).toEqual([]);
     expect(h.watching).toBe(false);
 
-    // Nothing reaches a client it let go, and a read that lands afterwards writes nothing back.
+    // Do not send or persist late results after disposal.
     h.clock.advance(2000);
     await h.hub.refresh();
     await settle();
@@ -1848,10 +1771,7 @@ describe('what it does not do', () => {
     expect(inbox).toHaveLength(messages);
   });
 
-  /**
-   * A change the read in flight cannot have seen: a session that ended after that read listed it would otherwise
-   * sit on the board until the next poll.
-   */
+  /** Queue a fresh roster read for events occurring after the current read began. */
   it('reads again for a session that ended while it was reading', async () => {
     const h = harness();
     const ended = fakeSession();
@@ -1863,7 +1783,7 @@ describe('what it does not do', () => {
 
     expect(latest(inbox).sessions?.count).toBe(1);
 
-    // A read that finishes only when the test lets it, so the marker lands while one is genuinely in flight.
+    // Hold the roster promise pending while delivering the marker event.
     let release: (() => void) | undefined;
     h.agent.holding = new Promise<void>((resolve) => (release = resolve));
 
@@ -1883,8 +1803,8 @@ describe('what it does not do', () => {
   });
 });
 
-describe('what it hands the host', () => {
-  it('builds the open request from the roster, the client and its own clock', async () => {
+describe('host requests', () => {
+  it('builds open requests from the roster, client, and clock', async () => {
     const h = harness();
     const session = fakeSession();
     h.agent.sessions = [session];
@@ -1920,7 +1840,7 @@ describe('what it hands the host', () => {
     expect(h.agent.paths).toEqual(['claude']);
   });
 
-  it('stamps the snapshot from its own clock, so a stale board can say how old it is', () => {
+  it('timestamps snapshots with the hub clock', () => {
     const h = harness();
 
     expect(h.hub.snapshot().fetchedAt).toBe(new Date(1_788_000_000_000).toISOString());
@@ -1928,7 +1848,7 @@ describe('what it hands the host', () => {
 });
 
 describe('a client changing its mind', () => {
-  /** A window that opens a folder, or a board that goes to the background, says so again rather than reconnecting. */
+  /** Restate workspace and visibility changes without reconnecting. */
   it('takes a second hello, and re-times on the watching it carries', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -1951,7 +1871,7 @@ describe('a client changing its mind', () => {
     expect(h.host.planned[0]?.workspaceRoot).toBe('d:/checkouts/other');
   });
 
-  it('tells a board that connects after a bad setting what is wrong with it', async () => {
+  it('reports existing configuration errors to new clients', async () => {
     const h = harness();
     const first = connect(h, hello({ id: 'first' }));
 
@@ -1963,7 +1883,7 @@ describe('a client changing its mind', () => {
     expect(latest(second.inbox).failures.map((f) => f.kind)).toContain('unknown-host');
   });
 
-  it('refuses a configuration it cannot read, and goes on polling with the one it had', async () => {
+  it('rejects invalid configuration and retains prior settings', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
 
@@ -2007,11 +1927,8 @@ describe('historical fallback publication', () => {
     expect(shown().lastSession?.sessionId).toBe('past'); expect(historyCalls).toBe(reads + 1);
     h.hub.dispose();
   });
-  /**
-   * R6 through the whole path a closing window takes: the CLI stops listing the session and the hook deletes the marker it read the phase
-   * from, so the last read before it went is the only chance to keep the reading. Both are dropped here, which is what a clean exit does.
-   */
-  it('keeps the phase of a session whose window closed, and drops it once the card has been past the developer hands', async () => {
+  /** Simulate clean session exit by removing roster and marker entries; retained activity must survive both (R6). */
+  it('retains phases after session exit until the card leaves active work', async () => {
     const h = setup();
     h.agent.adapter.listHistory = async () => ({ sessions: [past], failure: null });
     h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42 })];
@@ -2030,7 +1947,7 @@ describe('historical fallback publication', () => {
     expect(shown().lastSession?.retained).toEqual({ phase: 'waiting', event: 'Notification', at: 400 });
     expect(shown().attention).toBe('blocked');
 
-    // A departure dated after the reading, which is the one thing that ends it. `nextMemory` is what dates one; this is that date on disk.
+    // Use a stored archive timestamp later than the retained activity to invalidate it.
     const store = makeLaneStore(home);
 
     store.write({ ...store.read(h.config().boardStatuses), pastMyHandsAt: { 'issue:42': 900 } });
@@ -2210,7 +2127,7 @@ describe('what the hub writes down about itself', () => {
     expect(h.logged).toContain('issue:18941 moved to review');
   });
 
-  it('says why it refused a configuration, in the words the board is given', async () => {
+  it('logs configuration refusal details', async () => {
     const h = harness();
     const { inbox } = connect(h);
 
@@ -2222,7 +2139,7 @@ describe('what the hub writes down about itself', () => {
     expect(h.logged).toContain(`client settings rejected: ${refusal!.message}`);
   });
 
-  // Every board that opens restates its settings, and a hub that wrote a line for each would say nothing else.
+  // Log unchanged settings only at debug level.
   it('writes a line for the settings that changed and not for the ones restated after them', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -2237,7 +2154,7 @@ describe('what the hub writes down about itself', () => {
     expect(h.logged.filter((line) => line === 'settings restated unchanged')).toHaveLength(1);
   });
 
-  // An agent whose CLI is missing fails every read. Twice a minute, forever, would bury everything else in the file.
+  // Deduplicate recurring agent-read failures in logs.
   it('names a broken agent once rather than on every session read', async () => {
     const h = harness();
 
@@ -2255,7 +2172,7 @@ describe('what the hub writes down about itself', () => {
     expect(h.logged.filter((line) => line === 'fake: no CLI')).toHaveLength(1);
   });
 
-  it('says an agent is readable again once it comes back, and not before', async () => {
+  it('logs recovery only after a successful agent read', async () => {
     const h = harness();
 
     const { client } = connect(h);
@@ -2274,7 +2191,7 @@ describe('what the hub writes down about itself', () => {
     expect(h.logged).toContain('all agent reads recovered');
   });
 
-  // The per-item detail. It is off by default, and turning it on is a setting a client pushes like any other.
+  // Enable debug diagnostics through client configuration.
   it('holds back the per-read detail until a client asks for debug', async () => {
     const h = harness();
     const { client } = connect(h);
@@ -2283,14 +2200,14 @@ describe('what the hub writes down about itself', () => {
     h.hub.receive(client, { type: 'configure', config: h.config() });
     await settle();
 
-    // The read happened; its line is what is missing, which is the only way this can prove the floor.
+    // Verify a read occurred before asserting its debug entry was filtered.
     expect(h.agent.calls).toBeGreaterThan(before);
     expect(h.logged.some((line) => line.endsWith('sessions in 0ms'))).toBe(false);
 
     h.hub.receive(client, { type: 'configure', config: h.config({ logLevel: 'debug' }) });
     await settle();
 
-    // A configuration that moved only the level asks for no read the floor would allow, so the cadence supplies one.
+    // Advance the poll timer because a log-level-only change does not trigger a read.
     h.clock.fire(h.config().sessionIntervalMs);
     await settle();
 
@@ -2301,7 +2218,7 @@ describe('what the hub writes down about itself', () => {
 describe('a client that opened a log viewer', () => {
   const LINE = '2026-09-06T19:01:24.114Z info listening on 127.0.0.1:51844';
 
-  /** A hub.log an earlier run left behind. The directory is the hub's own to create, and it has not run yet. */
+  /** Create prior-process log output before starting the hub. */
   function seedLog(text: string): void {
     mkdirSync(groundControlDirOf(home), { recursive: true });
     writeFileSync(logPathOf(home), text);
@@ -2311,8 +2228,8 @@ describe('a client that opened a log viewer', () => {
     return inbox.flatMap((message) => (message.type === 'log' ? message.entries : []));
   }
 
-  // The whole of "read nothing until the viewer is open": the hub has plenty to say by now and says none of it here.
-  it('is sent nothing about the log until it asks, however much the hub has written', async () => {
+  // No log data is sent before subscription, even when entries exist.
+  it('streams logs only to subscribed clients', async () => {
     const h = harness();
     const { inbox } = connect(h);
 
@@ -2322,7 +2239,7 @@ describe('a client that opened a log viewer', () => {
     expect(logged(inbox)).toEqual([]);
   });
 
-  it('is handed the tail of hub.log the moment it asks', () => {
+  it('sends the log tail on subscription', () => {
     seedLog(`${LINE}\n`);
 
     const h = harness();
@@ -2335,8 +2252,8 @@ describe('a client that opened a log viewer', () => {
     ]);
   });
 
-  // The backfill comes off disk, so it carries the hub before this one — which is the case a restart leaves behind.
-  it('is handed lines an earlier hub wrote, not only this one', () => {
+  // Include prior-process log entries from disk in backfill.
+  it('includes prior-process log entries', () => {
     seedLog(`2026-09-05T08:00:00.000Z error could not listen on 127.0.0.1\n`);
 
     const h = harness();
@@ -2357,7 +2274,7 @@ describe('a client that opened a log viewer', () => {
     expect(logged(inbox).map((entry) => entry.message)).toContain('issue:18941 moved to review');
   });
 
-  it('is sent nothing more once it closes the viewer', () => {
+  it('stops streaming logs after unsubscribe', () => {
     const h = harness();
     const { client, inbox } = connect(h);
 
@@ -2368,8 +2285,8 @@ describe('a client that opened a log viewer', () => {
     expect(logged(inbox).map((entry) => entry.message)).not.toContain('issue:18941 moved to review');
   });
 
-  // A stream that went away must take its subscription with it, or the hub writes into a response that has ended.
-  it('stops being sent lines when its stream goes', () => {
+  // Remove log subscriptions on disconnect to avoid writes to closed streams.
+  it('stops log streaming on disconnect', () => {
     const h = harness();
     const { client, inbox } = connect(h);
 
@@ -2395,8 +2312,7 @@ describe('a client that opened a log viewer', () => {
     expect(logged(other.inbox)).toEqual([]);
   });
 
-  // Reading the log is not a board on screen. Turning the loop on for one would spend a CLI spawn every thirty
-  // seconds for a window nobody is looking at (R35).
+  // Log subscriptions alone must not enable board polling (R35).
   it('does not start the poll loop', () => {
     const h = harness();
     const { client } = connect(h, hello({ watching: false }));
@@ -2407,12 +2323,9 @@ describe('a client that opened a log viewer', () => {
   });
 });
 
-/**
- * A window on a card's checkout, and no agent in it. The root is never the client's to name: it is whatever the
- * hub resolved for that card, which is what makes the same message safe from a browser overlay.
- */
+/** Open the hub-resolved checkout without an agent. Chrome provides a card key, never a path. */
 describe('opening a card in an editor', () => {
-  /** A real directory, because a root is offered only where it reads back — a deleted one refuses everything (M23). */
+  /** Use a readable directory because deleted paths are not offered (M23). */
   function checkoutDir(name = 'project-1'): string {
     const root = join(home, name);
     mkdirSync(root, { recursive: true });
@@ -2455,7 +2368,7 @@ describe('opening a card in an editor', () => {
 
     const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]?.key;
 
-    // Named, so this cannot pass by falling down the same branch a card that was never built would take.
+    // Verify the card exists before testing its missing checkout.
     expect(key).toBeDefined();
 
     h.hub.receive(client, { type: 'openCheckout', key: key! });
@@ -2465,7 +2378,7 @@ describe('opening a card in an editor', () => {
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ refusal: 'no-checkout' });
   });
 
-  it('passes on the host’s own refusal rather than reaching for a window anyway', async () => {
+  it('returns host refusal without opening a window', async () => {
     const root = checkoutDir();
     const { h, client, inbox } = await boardWith(root);
     const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
@@ -2478,9 +2391,8 @@ describe('opening a card in an editor', () => {
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ refusal: 'already-here' });
   });
 
-  // A client that has not reloaded since the route was added would be sent something it cannot carry out, and the
-  // click would land nowhere with nothing said.
-  it('tells a client that cannot perform the route to reload, rather than sending it', async () => {
+  // Report missing route support to clients running older builds.
+  it('requests reload when the client lacks route support', async () => {
     const root = checkoutDir();
     const { h, client, inbox } = await boardWith(root, ['reveal-here']);
 
@@ -2495,10 +2407,7 @@ describe('opening a card in an editor', () => {
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('Reload') });
   });
 
-  /**
-   * The one route a client that cannot perform it may ask for. It names a directory rather than a session, so any
-   * editor client carries it out identically — which is what lets the overlay ask (R41).
-   */
+  /** Chrome may request checkout opening through a connected editor client (R41). */
   it('has an editor client open the window when the browser overlay is the one that asked', async () => {
     const root = checkoutDir();
     const { h, inbox } = await boardWith(root);
@@ -2510,22 +2419,17 @@ describe('opening a card in an editor', () => {
     h.hub.receive(overlay.client, { type: 'openCheckout', key });
     await settle();
 
-    // The editor performs it; the browser that asked is sent nothing to perform, having no way to.
+    // Route the operation to the editor, not the requesting browser.
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
     expect(inbox.filter((m) => m.type === 'perform').at(-1)).toMatchObject({ route: { key, root } });
     expect(overlay.inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
 
-    // The plan is the hub's, built from the card. A browser names no workspace root, so nothing about where the
-    // overlay is looking reaches the planner.
+    // Build the plan from hub card state; Chrome supplies no workspace root.
     expect(h.host.checkoutsPlanned.at(-1)).toMatchObject({ key, root, workspaceRoot: null });
   });
 
-  /**
-   * The window a board is open in is a window the hub knows about directly. The host enumerates only the windows an
-   * agent has announced itself in, so one running no agent is invisible there — and `code --new-window` on a folder
-   * it already holds opens a second window on it, re-running that folder's tasks.
-   */
-  it('counts a connected board’s own window, so a checkout with one open is raised rather than opened twice', async () => {
+  /** Include connected board windows absent from agent discovery to avoid duplicate windows and repeated workspace tasks. */
+  it('uses connected board windows to avoid duplicate checkout windows', async () => {
     const root = checkoutDir();
     const { h } = await boardWith(root);
     const onRoot = connect(h, hello({ id: 'board-on-root', workspaceRoot: root, residentRoutes: ['reveal-here', 'open-checkout'] }));
@@ -2537,12 +2441,11 @@ describe('opening a card in an editor', () => {
     await settle();
 
     expect(h.host.checkoutsPlanned.at(-1)?.liveWindows).toContainEqual({ folders: [root] });
-    // And it is that window's own board that performs it, rather than whichever one connected first.
+    // Choose the board on the checkout instead of the first connected client.
     expect(onRoot.inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
   });
 
-  // One card's window at a time. A script on the page the overlay paints into could otherwise fire every card's
-  // item at once, and each is a `code` spawn on a folder VS Code trusts.
+  // Limit browser-triggered opens to avoid multiple simultaneous code processes.
   it('drops a second ask for one card while its window is on its way', async () => {
     const root = checkoutDir();
     const { h, client, inbox } = await boardWith(root);
@@ -2564,9 +2467,8 @@ describe('opening a card in an editor', () => {
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(2);
   });
 
-  // A window opens where the developer clicked. Taking the first connected client instead would open it from
-  // whichever window happened to connect first, which on three open windows is arbitrary.
-  it('has the editor board that asked perform its own open, rather than another window’s', async () => {
+  // Prefer the requesting editor client over connection order.
+  it('routes checkout opening to the requesting editor', async () => {
     const root = checkoutDir();
     const { h, inbox } = await boardWith(root);
     const second = connect(h, hello({ id: 'board-2', residentRoutes: ['reveal-here', 'open-checkout'] }));
@@ -2581,9 +2483,8 @@ describe('opening a card in an editor', () => {
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
   });
 
-  // Which message is right turns on why there is no performer, not on who asked: an editor board running a build
-  // that predates the route is told to reload, whoever asked on its behalf.
-  it('tells the overlay to reload an editor that is running but cannot perform the route', async () => {
+  // Report the missing performer capability regardless of whether Chrome or an editor requested it.
+  it('requests editor reload when a connected editor lacks route support', async () => {
     const root = checkoutDir();
     const { h } = await boardWith(root, ['reveal-here']);
     const overlay = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
@@ -2599,9 +2500,8 @@ describe('opening a card in an editor', () => {
     });
   });
 
-  // A headless hub can open a window but cannot bring one forward (M26), so this is honest rather than a silent
-  // nothing — and it names the remedy, which is opening the board in an editor at all.
-  it('tells the overlay no editor is running rather than opening a window it cannot raise', async () => {
+  // Without a resident client, report how to open a board before requesting focus (M26).
+  it('reports no connected editor for focus requests', async () => {
     const h = harness();
     const overlay = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
     const root = checkoutDir();
@@ -2624,10 +2524,7 @@ describe('opening a card in an editor', () => {
   });
 });
 
-/**
- * A new session on a card. Nothing the board's own runs are gated on gates this: R33 bounds what the board starts,
- * and a developer starting a second attempt on a card is R3, not R18's "already open somewhere".
- */
+/** Manual starts permit multiple attempts and bypass unattended-action limits (R3, R33). */
 describe('starting a session on a card', () => {
   async function boardWith(residentRoutes = ['reveal-here', 'start-session']) {
     const root = join(home, 'project-1');
@@ -2657,17 +2554,12 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
   });
 
-  /**
-   * An issue the developer was unassigned from stays on the board while a session still names it, archived and
-   * read-only (R9). The menu leaves the item out; this is the same answer for a click made against a snapshot
-   * taken before they were unassigned.
-   */
+  /** Recheck assignment on the server because an old snapshot may offer starts for a now read-only card (R9). */
   it('refuses a start on a card the developer is no longer assigned', async () => {
     const root = join(home, 'project-1');
     mkdirSync(root, { recursive: true });
 
-    // The session names an issue the assigned read did not return, and the store knows that issue — which is
-    // exactly what `IssueLookup` reads to name a card the developer has been unassigned from.
+    // Resolve an unassigned issue from cached metadata when the assigned search omits it.
     makeIssueStore(home).write({
       entries: { 'github.com/example-org/example-repo#18941': { card: card(18941), at: Date.now() } },
     });
@@ -2682,7 +2574,7 @@ describe('starting a session on a card', () => {
 
     const unassigned = h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.unassigned === true);
 
-    // Named, so this cannot pass by the card never having been built as unassigned in the first place.
+    // Verify the card is marked unassigned before testing refusal.
     expect(unassigned).toBeDefined();
 
     const key = unassigned!.key;
@@ -2713,7 +2605,7 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ refusal: 'no-checkout' });
   });
 
-  it('passes on the host’s own refusal rather than starting anything', async () => {
+  it('returns host refusal without starting a session', async () => {
     const { h, client, inbox, key } = await boardWith();
 
     h.host.startPlan = { refusal: 'checkout-elsewhere', message: 'Open that checkout first.' };
@@ -2724,7 +2616,7 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ refusal: 'checkout-elsewhere' });
   });
 
-  it('tells a client that cannot perform the route to reload, rather than sending it', async () => {
+  it('requests reload when the client lacks route support', async () => {
     const { h, client, inbox, key } = await boardWith(['reveal-here']);
 
     h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
@@ -2734,8 +2626,7 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('Reload') });
   });
 
-  // Two boards, or two clicks: no session exists between the click and the agent minting one (M51), so the card is
-  // the only thing there is to tell a second from the first by.
+  // Deduplicate starts before the agent supplies a session ID (M51).
   it('holds one card’s start against a second while the first is in flight', async () => {
     const { h, client, inbox, key } = await boardWith();
 
@@ -2748,8 +2639,7 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('already being started') });
   });
 
-  // Both items sit in the same menu. Holding by the card alone would make starting Claude swallow the click that
-  // starts Codex, which is nothing R42 asks for.
+  // Deduplicate by card and agent so starting Claude does not block Codex (R42).
   it('does not let one agent’s start hold off the other’s on the same card', async () => {
     const { h, client, inbox, key, root } = await boardWith();
 
@@ -2763,8 +2653,7 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(2);
   });
 
-  // Nothing reports a start's outcome back, so the lease expires rather than being released — which is why it is
-  // sized to the double-click it exists for rather than to how long a session takes to appear.
+  // Expire duplicate-start suppression because clients do not report completion.
   it('lets the same card and agent be started again once the lease has run out', async () => {
     const { h, client, inbox, key } = await boardWith();
 
@@ -2777,7 +2666,7 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(2);
   });
 
-  // Every route follows this rule, and a start has no headless fallback to be handed to instead (M26).
+  // Manual starts require a resident client; no headless fallback exists (M26).
   it('refuses a route the host itself does not call resident, rather than sending it', async () => {
     const { h, client, inbox, key } = await boardWith();
 
@@ -2789,12 +2678,8 @@ describe('starting a session on a card', () => {
     expect(h.host.performed).toEqual([]);
   });
 
-  /**
-   * The prompt is the hub's to build: the card's facts are its own, and a client naming one would be a client
-   * naming what an agent is told to do. This card is a session with no issue on the board (R4), so `{issue}` fills
-   * empty rather than with a number read off the branch — what a card with one gets is `newSessionValues`' own test.
-   */
-  it('fills the configured prompt from the card and hands the result to the host', async () => {
+  /** Build prompts from hub card state. Ad-hoc cards have no issue, so {issue} stays empty rather than using an unlinked branch number (R4). */
+  it('passes the expanded card prompt to the host', async () => {
     const { h, client, key, root } = await boardWith();
 
     h.hub.configure({ ...h.config(), newSession: { prompt: 'Work on #{issue} in {checkout}. Not {nonsense}.' } });
@@ -2804,8 +2689,7 @@ describe('starting a session on a card', () => {
     expect(h.host.startsPlanned.at(-1)?.prompt).toBe(`Work on # in ${root}. Not {nonsense}.`);
   });
 
-  // R39's rule is the card action's, not this one's: nothing here runs unattended, so an unset prompt is a bare
-  // session rather than a refusal.
+  // Manual starts accept empty prompts; unattended actions require one (R39).
   it('starts a bare session where no prompt is configured', async () => {
     const { h, client, key } = await boardWith();
 
@@ -2827,10 +2711,7 @@ describe('starting a session on a card', () => {
     });
   });
 
-  /**
-   * The bridge gives a browser client `hostId: null`, and `#hostFor` answers the single configured host for one —
-   * so reading the host alone would offer the overlay items that could only ever refuse (R42).
-   */
+  /** Chrome has no resident routes even when host resolution succeeds; do not offer session starts (R42). */
   it('offers no start to a client that cannot perform the route, which is every browser board', async () => {
     const h = harness();
     const { client, inbox } = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
@@ -2838,7 +2719,7 @@ describe('starting a session on a card', () => {
     h.hub.receive(client, { type: 'refresh' });
     await settle();
 
-    // Named, so this cannot pass by the client having been sent no snapshot at all.
+    // Require a received snapshot before checking absent capabilities.
     const snapshots = inbox.filter((m) => m.type === 'snapshot' || m.type === 'changed');
 
     expect(snapshots.length).toBeGreaterThan(0);
@@ -2846,9 +2727,9 @@ describe('starting a session on a card', () => {
   });
 });
 
-/** The folder the developer chose. Checked against the card's own repository before it is stored, never taken. */
+/** Validate selected folders against the card repository before storing. */
 describe('choosing a card’s folder', () => {
-  /** A real repository URL, because the pick is checked by comparing it against the folder's own origin remote. */
+  /** Use a repository URL matching the selected folder's origin remote. */
   const PICKABLE: IssueCard = { ...card(19002), url: 'https://github.com/example-org/example-repo/issues/19002' };
 
   it('refuses a folder that is not a checkout of that card’s repository', async () => {
@@ -2886,7 +2767,7 @@ describe('choosing a card’s folder', () => {
     h.hub.receive(client, { type: 'setCheckout', key, root: picked });
     await settle();
 
-    // Stored as the board spells every other path, so a pick and a session's own cwd compare as one directory.
+    // Normalize selected paths consistently with session cwd paths.
     const stored = picked.replace(/\\/g, '/');
 
     expect(makeCheckoutStore(home).read()[key]).toBe(stored);
@@ -2898,8 +2779,7 @@ describe('choosing a card’s folder', () => {
     expect(inbox.filter((m) => m.type === 'changed').length).toBeGreaterThan(0);
   });
 
-  // A relative path resolves against the hub's own working directory here and against the editor's there, so the
-  // two would disagree about which folder was meant.
+  // Reject relative paths because hub and editor working directories differ.
   it('refuses a folder that is not named absolutely', async () => {
     const h = harness({}, { fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [PICKABLE], matched: 1, totalAssigned: 1 } }) });
     const { client } = connect(h);

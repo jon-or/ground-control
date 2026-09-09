@@ -17,14 +17,11 @@ describe('fillTemplate', () => {
     expect(fillTemplate('', { issue: '7' })).toBe('');
   });
 
-  it('fills a name whose value is empty, rather than leaving the braces on a card that has no repository', () => {
+  it('substitutes empty placeholder values', () => {
     expect(fillTemplate('[{repo}]', { repo: '' })).toBe('[]');
   });
 
-  /**
-   * Every object literal inherits `constructor`, `toString` and the rest, so a plain lookup would substitute a
-   * function's source into a prompt merely mentioning one — and a card action's prompt is dispatched unattended.
-   */
+  /** Inherited properties must not substitute function source into unattended prompts. */
   it('leaves an inherited name alone, which a plain lookup would substitute a function’s source for', () => {
     expect(fillTemplate('{constructor} {toString} {hasOwnProperty} {valueOf}', { issue: '7' })).toBe(
       '{constructor} {toString} {hasOwnProperty} {valueOf}',
@@ -38,11 +35,7 @@ describe('newSessionValues', () => {
     issue: { title: 'Refund window', url: 'https://github.com/example-org/example-repo/issues/19002', repository: 'example-org/example-repo' },
   };
 
-  /**
-   * The keys are the roster, since `fillTemplate` substitutes from the object itself. Written out rather than
-   * derived, so one dropped fails here — and the pairing this cannot pin is the settings description in the
-   * extension's own manifest, which is prose in another package.
-   */
+  /** Assert literal placeholder keys independently. Review the matching settings documentation separately. */
   it('names every placeholder the settings description publishes, and fills each from the card', () => {
     const values = newSessionValues(card, 'd:/work/repo');
 

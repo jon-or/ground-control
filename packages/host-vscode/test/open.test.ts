@@ -5,7 +5,7 @@ import { SETTLING_MS, openableSessions, planCheckout, planOpen, planStart, resum
 import { PLACEMENTS } from '../src/placements.js';
 import { session } from './helpers.js';
 
-/** One session in this window's checkout, another sharing it, and one in a different checkout: what routing is for. */
+/** Sessions sharing the current checkout and in another checkout. */
 const live = session();
 const twin = session({ sessionId: 'a1b2c3d4-0000-4000-8000-000000000001', title: 'the twin' });
 const away = session({
@@ -26,8 +26,8 @@ function sidebarIn(session: Session, root: string): SessionSurface {
 }
 
 /**
- * A request that would reveal a tab in this window, so each test changes exactly the one thing it is about. `now` is
- * well past the settling window, which makes a session missing from the surfaces unplaceable rather than merely new.
+ * Default to revealing a tab here. Use an age beyond the storage delay so missing surfaces are not treated as
+ * new sessions.
  */
 function request(session: Session, over: Partial<OpenRequest> = {}): OpenRequest {
   return {
@@ -54,15 +54,12 @@ function routeOf(plan: OpenPlan): string | undefined {
 }
 
 describe('planOpen refuses, by name', () => {
-  /**
-   * The route that produced the failure this exists to stop: a detached run resolved to whatever surface the agent's
-   * sidebar happened to record, and opening it there started a second process on one conversation.
-   */
-  it('refuses a detached run rather than routing it to a window', () => {
+  /** Reject background runs even when a recorded sidebar could otherwise route them into a duplicate process. */
+  it('refuses editor routing for background runs', () => {
     const run = { ...live, attachId: 'c5d0c58f' };
 
     expect(refusalOf(decide(request(run)))).toBe('attach-only');
-    // Finished changes nothing: the process goes on holding the conversation, which is what a resume runs into.
+    // Finished turns can leave background processes running and prevent resume.
     expect(refusalOf(decide(request({ ...run, finished: true })))).toBe('attach-only');
   });
 
@@ -82,14 +79,14 @@ describe('planOpen refuses, by name', () => {
     expect(refusalOf(decide(request(live, { extensionReady: false })))).toBe('no-extension');
   });
 
-  it('refuses a session no window is showing, which is one started from a terminal', () => {
+  it('refuses terminal sessions without a recorded window', () => {
     const plan = decide(request(live, { surfaces: [] }));
 
     expect(refusalOf(plan)).toBe('no-surface');
     expect('refusal' in plan && plan.message).toContain(live.cwd);
   });
 
-  it('says a session is still settling when it is too young for VS Code to have recorded it', () => {
+  it('allows time for new sessions to appear in window storage', () => {
     const plan = decide(request(live, { surfaces: [], now: live.startedAt + SETTLING_MS - 1 }));
 
     expect(refusalOf(plan)).toBe('settling');
@@ -103,7 +100,7 @@ describe('planOpen refuses, by name', () => {
     expect(refusalOf(plan)).toBe('window-closed');
   });
 
-  it('falls back to the agent’s own name for a session the developer has not titled', () => {
+  it('uses the agent name for untitled sessions', () => {
     const unnamed = session({ title: null, details: { name: 'repo-37' } });
     const plan = decide(request(unnamed, { sessions: [unnamed], surfaces: [] }));
 
@@ -125,7 +122,7 @@ describe('planOpen refuses, by name', () => {
     expect('refusal' in plan && plan.message).not.toContain(nameless.sessionId.slice(0, 8));
   });
 
-  it('refuses another window when it may not bring one forward, naming the directory', () => {
+  it('names the target folder when window opening is disabled', () => {
     const plan = decide(
       request(live, { surfaces: [tabIn(live, away.cwd)], liveRoots: [away.cwd] }),
       false,
@@ -135,7 +132,7 @@ describe('planOpen refuses, by name', () => {
     expect('refusal' in plan && plan.message).toContain(away.cwd);
   });
 
-  /** The permission is about moving the developer's focus, so it has nothing to say about the window they are in. */
+  /** Window-opening permission does not restrict the current window. */
   it('still opens a session in this window when it may not bring another forward', () => {
     expect(routeOf(decide(request(live), false))).toBe('reveal-here');
   });
@@ -147,10 +144,10 @@ describe('planOpen refuses, by name', () => {
   });
 
   /**
-   * `code` on one folder of a multi-root window opens a second window on that folder alone, which is where a fire
-   * would then land — so with no record naming the workspace file, there is no path to the window at all.
+   * A multi-root folder path opens a separate window. Require its saved workspace path to target the existing
+   * window.
    */
-  it('refuses a multi-root window no record names, rather than aiming at one of its folders', () => {
+  it('refuses multi-root windows without a recorded workspace path', () => {
     const plan = decide(
       request(live, { surfaces: [], window: { folders: [away.cwd, live.cwd] }, liveRoots: [] }),
     );
@@ -171,26 +168,26 @@ describe('planOpen routes by the surface holding the session', () => {
     expect('root' in plan && plan.root).toBe(away.cwd);
   });
 
-  /** The pair that must not collapse: one session, one window, and the surface alone decides what may be fired. */
-  it('opens the sidebar rather than a tab for a session the sidebar holds, in this window', () => {
+  /** Keep tab and sidebar routes distinct for the same session and window. */
+  it('focuses an existing sidebar session in this window', () => {
     expect(routeOf(decide(request(live, { surfaces: [sidebarIn(live, live.cwd)] })))).toBe('sidebar-here');
   });
 
-  it('opens the sidebar rather than a tab for a session the sidebar holds, in another window', () => {
+  it('focuses an existing sidebar session in another window', () => {
     const plan = decide(request(live, { surfaces: [sidebarIn(live, away.cwd)], liveRoots: [away.cwd] }));
 
     expect(routeOf(plan)).toBe('sidebar-elsewhere');
     expect('root' in plan && plan.root).toBe(away.cwd);
   });
 
-  it('routes elsewhere when this window has no root at all, rather than refusing', () => {
+  it('routes from a window without a workspace root', () => {
     const plan = decide(request(live, { workspaceRoot: null, liveRoots: [live.cwd] }));
 
     expect(routeOf(plan)).toBe('reveal-elsewhere');
   });
 
   /** The board window's root is compared to the recorded one as given, so a multi-root window must report its file. */
-  it('reveals here when this window is a multi-root one, which is named by its workspace file', () => {
+  it('recognizes the current multi-root workspace file', () => {
     const root = 'd:/git/team.code-workspace';
     const plan = decide(request(live, { surfaces: [tabIn(live, root)], workspaceRoot: root, liveRoots: [] }));
 
@@ -212,7 +209,7 @@ describe('planOpen routes by the surface holding the session', () => {
     expect('root' in plan && plan.root).toBe(root);
   });
 
-  it('sends `code` a folder rather than a workspace file it would open as a file', () => {
+  it('uses a folder instead of generated workspace.json', () => {
     const generated = 'c:/Users/dev/AppData/Roaming/Code/Workspaces/1788438555144/workspace.json';
     const plan = decide(
       request(live, {
@@ -226,7 +223,7 @@ describe('planOpen routes by the surface holding the session', () => {
     expect('root' in plan && plan.root).toBe(away.cwd);
   });
 
-  it('keeps a saved workspace file, which is exactly what `code` reopens that window with', () => {
+  it('preserves saved workspace paths for window reuse', () => {
     const saved = 'd:/git/team.code-workspace';
     const plan = decide(
       request(live, { surfaces: [tabIn(live, saved)], window: { folders: [away.cwd] }, liveRoots: [] }),
@@ -252,10 +249,7 @@ describe('planOpen routes by the surface holding the session', () => {
     expect(routeOf(plan)).toBe('unknown-surface-here');
   });
 
-  /**
-   * M44: a Codex reveal names the thread and re-activates whatever already holds it, so the window the join found is
-   * enough. It is also the only way to reach a thread left in Codex's sidebar, which records no id to read back.
-   */
+  /** Idempotent Codex reveal only needs the target window, including sessions in its unrecorded sidebar (M44). */
   it('reveals an unrecorded session anyway where the reveal is idempotent', () => {
     const thread = session({ agent: 'codex' });
 
@@ -269,16 +263,13 @@ describe('planOpen routes by the surface holding the session', () => {
     expect('root' in elsewhere && elsewhere.root).toBe(away.cwd);
   });
 
-  it('refuses a session of that agent that no window is running, which is one started outside every window', () => {
+  it('refuses sessions outside known windows', () => {
     const plan = decide(request(session({ agent: 'codex' }), { surfaces: [], window: null, liveRoots: [] }));
 
     expect(refusalOf(plan)).toBe('no-surface');
   });
 
-  /**
-   * The record is stale where it names a window the join does not: the session moved, or that window has closed. Its
-   * root would send `code` to open a window the session is not in, and the fire there would start a second agent.
-   */
+  /** Prefer process-based window evidence over stale recorded roots to avoid duplicate sessions. */
   it('takes the folder from the join over a recorded root that window does not have open', () => {
     const plan = decide(
       request(live, {
@@ -293,7 +284,7 @@ describe('planOpen routes by the surface holding the session', () => {
   });
 
   /** A lock file lists the folders inside a workspace and never the file, so roots alone can never confirm one. */
-  it('accepts a workspace file the join could not confirm, rather than calling its window closed', () => {
+  it('accepts saved workspace files without matching lock records', () => {
     const saved = 'd:/git/team.code-workspace';
     const plan = decide(
       request(live, { surfaces: [tabIn(live, saved)], window: null, liveRoots: [away.cwd] }),
@@ -304,7 +295,7 @@ describe('planOpen routes by the surface holding the session', () => {
   });
 
   /** The generated file is not a root `code` reopens, and the window it came from offers no folder to use instead. */
-  it('never hands `code` a generated workspace.json, even with nothing else to aim at', () => {
+  it('rejects generated workspace.json without a folder fallback', () => {
     const generated = 'c:/Users/dev/AppData/Roaming/Code/Workspaces/1788438555144/workspace.json';
     const plan = decide(
       request(live, { surfaces: [tabIn(live, generated)], window: { folders: [] }, liveRoots: [] }),
@@ -380,7 +371,7 @@ describe('verifyOpen', () => {
     expect(verifyOpen(1, 2, false)).toBe('opened');
   });
 
-  it('reports opened on an unchanged count when a Claude tab is now focused, which is a reveal', () => {
+  it('accepts focus on an existing Claude tab without a new tab', () => {
     expect(verifyOpen(2, 2, true)).toBe('opened');
   });
 
@@ -422,20 +413,19 @@ describe('resuming historical sessions', () => {
     expect(resumeRefusal(live.sessionId, [live])).toContain('already active');
     expect(resumeRefusal(live.sessionId, [])).toBeNull();
     expect(resumeRefusal(live.sessionId, [{ ...live, finished: true }])).toBeNull();
-    // A `--bg` run stays listed after its turn and its process keeps holding the conversation, so finished is not
-    // gone - resuming one exits 1 (`mechanics.md` M33).
+    // Background processes can remain after a turn; resuming before process exit fails (M33).
     expect(resumeRefusal(live.sessionId, [{ ...live, finished: true, attachId: 'c5d0c58f' }])).toContain('Attach to it');
   });
 });
 
-describe('planning a Codex session, which opens as a resource rather than a webview', () => {
+describe('planning Codex resource opens', () => {
   const codex = session({ agent: 'codex', sessionId: '01a072f9-c43a-73e2-a4fd-3a63e73ad152' });
 
   it('reveals it in this window like any other placed agent', () => {
     expect(routeOf(decide(request(codex)))).toBe('reveal-here');
   });
 
-  it('names the agent whose extension is missing, rather than always naming Claude', () => {
+  it('names the agent with the missing extension', () => {
     const plan = decide(request(codex, { extensionReady: false }));
 
     expect(refusalOf(plan)).toBe('no-extension');
@@ -447,7 +437,7 @@ describe('planning a Codex session, which opens as a resource rather than a webv
 
     expect(refusalOf(plan)).toBe('other-agent');
     expect('refusal' in plan && plan.message).toContain('gemini');
-    // Two agents open in a tab now, so a refusal that says only one does is a refusal that misleads.
+    // Refusals must account for both supported agents.
     expect('refusal' in plan && plan.message).not.toContain('Claude');
   });
 
@@ -459,10 +449,7 @@ describe('planning a Codex session, which opens as a resource rather than a webv
   });
 });
 
-/**
- * A window on a card's checkout, and no agent in it. Nothing here reads a session or a surface: what decides the
- * route is which windows are open and whether one of them is nameable by that folder.
- */
+/** Checkout routing depends on open window roots, without session or surface state. */
 describe('opening a card’s checkout', () => {
   const ROOT = 'd:/work/repo.worktrees/19002-refund-window';
 
@@ -484,21 +471,20 @@ describe('opening a card’s checkout', () => {
     expect('key' in plan && plan.key).toBe('issue:19002');
   });
 
-  it('raises the window that already has the folder rather than opening a second', () => {
+  it('reuses a window already open on the folder', () => {
     expect(ask({ liveWindows: [{ folders: [ROOT] }] })).toMatchObject({ newWindow: false });
   });
 
-  // `code` given one folder of a multi-root window opens a second window on that folder alone, so the window
-  // showing the checkout is not the one that would come forward.
-  it('opens a new window rather than naming a folder of a multi-root one', () => {
+  // A multi-root folder path opens a separate window instead of focusing the existing workspace.
+  it('opens a separate window for a multi-root folder', () => {
     expect(ask({ liveWindows: [{ folders: [ROOT, 'd:/work/other'] }] })).toMatchObject({ newWindow: true });
   });
 
-  it('refuses a window this one is already on, which would open nothing and look broken', () => {
+  it('refuses checkout opens targeting the current window', () => {
     expect(refusalOf(ask({ workspaceRoot: ROOT }))).toBe('already-here');
   });
 
-  it('compares that against the developer’s own path spelling rather than byte for byte', () => {
+  it('normalizes paths when comparing checkout windows', () => {
     expect(refusalOf(ask({ workspaceRoot: 'D:\\work\\repo.worktrees\\19002-refund-window' }))).toBe('already-here');
   });
 
@@ -507,14 +493,14 @@ describe('opening a card’s checkout', () => {
     expect(refusalOf(ask({}, false))).toBe('elsewhere-not-allowed');
   });
 
-  it('lets a board with no root of its own open one, which is what a window with no folder is', () => {
+  it('opens a checkout from an empty window', () => {
     expect(routeOf(ask({ workspaceRoot: null }))).toBe('open-checkout');
   });
 });
 
 /**
- * A new session on a card. The whole of the routing is whether this window is the checkout's: an agent takes its
- * directory from the window it starts in, and nothing can name a session that does not exist yet (M51).
+ * Start only in the checkout's window. Agents inherit that directory and assign session IDs during creation
+ * (M51).
  */
 describe('starting a session on a card', () => {
   const ROOT = 'd:/work/repo.worktrees/19002-refund-window';
@@ -530,46 +516,45 @@ describe('starting a session on a card', () => {
     expect(ask()).toEqual({ route: 'start-session', key: 'issue:19002', agent: 'claude', root: ROOT, prompt: 'fix #19002' });
   });
 
-  it('compares this window’s root against the developer’s own path spelling', () => {
+  it('normalizes paths when comparing the current workspace', () => {
     expect(routeOf(ask({ workspaceRoot: 'D:\\work\\repo.worktrees\\19002-refund-window' }))).toBe('start-session');
   });
 
-  // The refusal that names the other verb: R14's setting does not fix this one, and opening the checkout does.
-  it('refuses a start in a window that is not on the checkout, and says to open it first', () => {
+  // Require opening the checkout; enabling other-window permission does not permit starts elsewhere.
+  it('requires opening the checkout before starting a session', () => {
     const plan = ask({ workspaceRoot: 'd:/work/repo' });
 
     expect(refusalOf(plan)).toBe('checkout-elsewhere');
     expect('message' in plan && plan.message).toContain('in VS Code, then start the session from its board.');
   });
 
-  it('refuses a start from a window with no folder at all, which is no checkout either', () => {
+  it('refuses session starts from an empty window', () => {
     expect(refusalOf(ask({ workspaceRoot: null }))).toBe('checkout-elsewhere');
   });
 
-  it('refuses an agent with no way in, which is the whole of what no-agent means', () => {
+  it('refuses agents without a start command', () => {
     expect(refusalOf(ask({ agent: 'gemini' }))).toBe('no-agent');
   });
 
-  it('refuses where the agent’s own extension is not in this window to be asked', () => {
+  it('refuses starts when the agent extension is unavailable', () => {
     expect(refusalOf(ask({ extensionReady: false }))).toBe('no-extension');
   });
 
-  // M51: `chatgpt.newCodexPanel` takes no arguments, so a prompt handed to it would be dropped silently. Dropping
-  // it here is what lets the menu item say the session starts bare.
+  // Codex's start command accepts no arguments. Omit the prompt and expose that limitation to the menu (M51).
   it('drops the prompt for an agent whose only way in takes none', () => {
     expect(ask({ agent: 'codex' })).toMatchObject({ route: 'start-session', agent: 'codex', prompt: null });
   });
 });
 
 describe('startableAgents', () => {
-  it('names every agent with a start row, and whether its start carries the prompt', () => {
+  it('lists startable agents and prompt support', () => {
     expect(startableAgents(PLACEMENTS)).toEqual([
       { agent: 'claude', takesPrompt: true },
       { agent: 'codex', takesPrompt: false },
     ]);
   });
 
-  it('names none out of a table whose agents have no way in', () => {
+  it('returns no agents when no start commands are configured', () => {
     const { start: _dropped, ...noStart } = PLACEMENTS['claude']!;
 
     expect(startableAgents({ claude: noStart })).toEqual([]);

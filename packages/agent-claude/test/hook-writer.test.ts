@@ -24,10 +24,7 @@ let root: string;
 let writer: string;
 let activity: string;
 
-/**
- * The writer only ever runs as a child process, so the only way to know it works is to run it. `homedir()` reads
- * USERPROFILE on Windows and HOME elsewhere, which is what keeps this off the real `~/.claude`.
- */
+/** Run the standalone writer with USERPROFILE or HOME redirected to an isolated directory. */
 function run(input: string, home = root): { status: number; stdout: string } {
   let stdout = '';
   let status = 0;
@@ -86,10 +83,7 @@ describe('the activity writer', () => {
     }
   });
 
-  /**
-   * The duration on a running card counts the turn, so the prompt's own time has to survive every event inside the
-   * turn — a heartbeat lands on every tool batch, and an event-time anchor holds the card at zero all turn.
-   */
+  /** Preserve prompt time across tool events so running duration does not reset. */
   it('stamps the turn on the prompt and carries it across the events inside the turn', () => {
     run(JSON.stringify({ session_id: 'turning', hook_event_name: 'UserPromptSubmit' }));
 
@@ -105,10 +99,7 @@ describe('the activity writer', () => {
     expect(markerFor('turning')).toMatchObject({ event: 'Stop', turnAt: prompt.turnAt });
   });
 
-  /**
-   * A background wake and a cron fire tool events and no prompt, so a stamp that outlived its stretch would count them
-   * from the prompt before them — hours of nothing, on work a second old.
-   */
+  /** Scheduled work without a prompt must start a new duration instead of reusing an earlier turn timestamp. */
   it.each([
     ['a stop with nothing left in flight', { hook_event_name: 'Stop', background_tasks: [] }],
     ['an agent_completed notification', { hook_event_name: 'Notification', notification_type: 'agent_completed' }],
@@ -138,10 +129,7 @@ describe('the activity writer', () => {
     expect(markerFor('restarting')).toMatchObject({ turnAt: null });
   });
 
-  /**
-   * The hooks are installed into a machine already at work, so the first event a session reports is routinely a
-   * heartbeat mid-turn. Anchoring the stretch there is what keeps that card off zero until its next prompt.
-   */
+  /** When hooks are installed mid-turn, start timing from the first observed event. */
   it('starts the stretch at the first event of a session it has no marker for', () => {
     run(JSON.stringify({ session_id: 'heartbeat-first', hook_event_name: 'PostToolBatch' }));
 
@@ -150,10 +138,7 @@ describe('the activity writer', () => {
     expect(marker.turnAt).toBe(marker.at);
   });
 
-  /**
-   * A subagent's hooks carry the parent's session id, so its work would land on the parent — clearing a `waiting` on
-   * a session actually parked on a prompt, which is the one case R6 exists for.
-   */
+  /** Ignore subagent events using the parent ID so they cannot overwrite a parent waiting for input (R6). */
   it('writes nothing for a hook that fired inside a subagent', () => {
     const subagent = payloads.filter((payload) => payload.agent_id !== undefined);
 
@@ -169,7 +154,7 @@ describe('the activity writer', () => {
     }
   });
 
-  /** Hooks run async, so two race at a turn boundary and the loser must not overwrite what the winner observed. */
+  /** Older asynchronous events must not overwrite newer observations. */
   it('refuses to overwrite a marker written by a newer event', () => {
     run(JSON.stringify({ session_id: 'racing', hook_event_name: 'Stop' }));
 
@@ -182,10 +167,7 @@ describe('the activity writer', () => {
     expect(markerFor('racing')).toMatchObject({ event: 'PermissionRequest' });
   });
 
-  /**
-   * Every recorded Stop happened to have nothing in flight, and a session with background work cannot be induced on
-   * demand, so the count is derived here from a recorded payload rather than saved as one.
-   */
+  /** Derive pending background-task counts because recorded Stop payloads all had zero tasks. */
   it('records how much background work a stop left in flight', () => {
     const stop = payloads.find((payload) => payload.hook_event_name === 'Stop');
 
@@ -206,8 +188,8 @@ describe('the activity writer', () => {
   });
 
   /**
-   * Not proof of atomicity — a synchronous test cannot observe a rename. What it does catch is residue: a temp file
-   * left in the directory a reader polls, and a marker whose content is not whole JSON.
+   * Check valid JSON and absence of leftover temporary files. This synchronous test does not establish rename
+   * atomicity.
    */
   it('leaves the directory holding only whole markers', () => {
     run(JSON.stringify({ session_id: 'clean', hook_event_name: 'Stop' }));
@@ -217,8 +199,8 @@ describe('the activity writer', () => {
   });
 
   /**
-   * Exit 2 is *deny* on PermissionRequest and *block* on UserPromptSubmit, and stdout is a decision on the one and
-   * injected context on the other — so a writer that cannot do its job must be silent and succeed.
+   * Writer failures must produce no stdout and exit 0; hook output can deny permissions, block prompts, or
+   * inject context.
    */
   it.each([
     ['nothing at all', ''],

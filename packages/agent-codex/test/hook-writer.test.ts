@@ -31,10 +31,7 @@ let root: string;
 let writer: string;
 let activity: string;
 
-/**
- * The writer only ever runs as a child process, so the only way to know it works is to run it. `homedir()` reads
- * USERPROFILE on Windows and HOME elsewhere, which is what keeps this off the developer's real home.
- */
+/** Run the standalone writer with USERPROFILE or HOME redirected to an isolated directory. */
 function run(input: HookPayload | string, home = root): number {
   try {
     execFileSync(process.execPath, [writer], {
@@ -68,7 +65,7 @@ afterAll(() => {
   try {
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   } catch {
-    // Windows keeps a handle on a copy of node it has just run. The temp directory is the OS's to reap.
+    // Windows can retain a handle to the node copy after exit; leave it in OS temporary storage.
   }
 });
 
@@ -92,7 +89,7 @@ describe('the Codex activity writer', () => {
     expect(marker.model).toBe(sent.model);
     expect(marker.permissionMode).toBe(sent.permission_mode);
     expect(marker.source).toBe('startup');
-    // No turn is in flight at startup, so nothing a running card would count from.
+    // Startup has no turn timestamp.
     expect(marker.turnId).toBeNull();
     expect(marker.turnAt).toBeNull();
   });
@@ -111,7 +108,7 @@ describe('the Codex activity writer', () => {
     run(payload('PostToolUse'));
     const later = markerFor(SESSION);
 
-    // The same turn id, so the stretch a running card counts is still the one the prompt opened.
+    // Preserve prompt time for the same turn ID.
     expect(later.turnAt).toBe(prompted.turnAt);
     expect(later.event).toBe('PostToolUse');
     expect(later.toolName).toBe('Bash');
@@ -128,7 +125,7 @@ describe('the Codex activity writer', () => {
     expect(after.turnAt).not.toBe(before.turnAt);
   });
 
-  it('removes the marker on SessionEnd, which is how a session leaves the board', () => {
+  it('removes the marker on SessionEnd', () => {
     run(payload('SessionStart'));
 
     expect(markers()).toEqual([`${SESSION}.json`]);
@@ -138,10 +135,7 @@ describe('the Codex activity writer', () => {
     expect(markers()).toEqual([]);
   });
 
-  /**
-   * The resurrection R9 forbids: `Stop` is async and `SessionEnd` is synchronous (`docs/mechanics.md` M41), so a
-   * `Stop` still in flight when the session ended would otherwise put a card back that nothing ever clears.
-   */
+  /** An asynchronous Stop after synchronous SessionEnd must not recreate the removed marker (R9, M41). */
   it('refuses to put a marker back for an event that arrives after the session ended', () => {
     run(payload('SessionStart'));
     run(payload('SessionEnd'));
@@ -164,8 +158,7 @@ describe('the Codex activity writer', () => {
   });
 
   it('leaves the marker a later event wrote in the same millisecond alone', () => {
-    // Measured in M40: a session's start and its first prompt land together, and the start claims no phase — so the
-    // start winning the rename would cost the card its phase for the whole first turn.
+    // Concurrent SessionStart and first-prompt events must preserve the prompt phase (M40).
     run(payload('UserPromptSubmit'));
     run(payload('SessionStart'));
 
@@ -188,7 +181,7 @@ describe('the Codex activity writer', () => {
     expect(markerFor(SESSION).event).toBe('SessionStart');
   });
 
-  it('replaces a marker from a version whose fields were redefined rather than reading it', () => {
+  it('replaces incompatible marker versions', () => {
     mkdirSync(activity, { recursive: true });
     writeFileSync(
       join(activity, `${SESSION}.json`),
@@ -197,7 +190,7 @@ describe('the Codex activity writer', () => {
 
     run(payload('UserPromptSubmit'));
 
-    // Nothing of the other version's is carried forward: its fields may mean something else.
+    // Do not carry fields forward from incompatible versions.
     expect(markerFor(SESSION).v).toBe(HOOK_MARKER_VERSION);
     expect(markerFor(SESSION).pid).not.toBe(4242);
   });
@@ -230,23 +223,22 @@ describe('the Codex activity writer', () => {
       expect(markerFor(SESSION).event).toBe('PostToolUse');
     });
 
-    it('replaces one further ahead than a race could put it, which is a clock that stepped back', () => {
+    it('replaces far-future markers after backward clock changes', () => {
       mkdirSync(activity, { recursive: true });
       writeFileSync(join(activity, `${SESSION}.json`), JSON.stringify(ahead(Date.now() + 600_000)));
 
       run(payload('Stop'));
 
-      // Without the upper bound a marker from a forward clock step would wedge the session off the board for good.
+      // Far-future markers must remain replaceable after clock changes.
       expect(markerFor(SESSION).event).toBe('Stop');
     });
   });
 });
 
-describe('the pid the writer walks to', () => {
+describe('Codex ancestor PID lookup', () => {
   /**
-   * Runs the writer under a process named for Codex, which is what the walk looks for: Codex spawns a command hook
-   * through a shell, so its own process is up the chain rather than named by any environment variable (M40). A copy
-   * of node is that process here — the walk matches a process name, not a binary.
+   * Use a node copy named Codex as the hook ancestor. Lookup matches the process name through the shell, not
+   * binary identity (M40).
    */
   function underCodex(sent: HookPayload): void {
     const shim = join(root, process.platform === 'win32' ? 'codex-shim.exe' : 'codex-shim');
@@ -270,8 +262,7 @@ describe('the pid the writer walks to', () => {
   it('claims nothing when nothing in the parent chain is Codex', () => {
     run(payload('SessionStart'));
 
-    // The chain here is vitest, and a walk that finds nothing must claim nothing: the roster then reports a session
-    // it cannot prove alive rather than showing one that may have died.
+    // Return no PID under Vitest without a Codex ancestor; the roster then reports unknown liveness.
     expect(markerFor(SESSION).pid).toBeNull();
   });
 
@@ -282,22 +273,19 @@ describe('the pid the writer walks to', () => {
 
     expect(walked).not.toBeNull();
 
-    // And the walk is not paid again: a later event copies the pid the creating event resolved.
+    // Later events preserve the resolved PID without repeating ancestry lookup.
     run(payload('PostToolUse'));
 
     expect(markerFor(SESSION).pid).toBe(walked);
   });
 
-  /**
-   * The walk costs a process spawn, and every tool call fires two hooks. A session whose start resolved no pid must
-   * not make each of them pay for a walk that will keep failing, so only an event that may create a marker walks.
-   */
+  /** Limit ancestry retries to marker-creating events; tool hooks must not repeatedly spawn failing lookups. */
   it('does not walk on a tool call, however unproven the session it belongs to is', () => {
     run(payload('UserPromptSubmit'));
 
     expect(markerFor(SESSION).pid).toBeNull();
 
-    // Spawned under the same Codex-named process the positive case walks to, so a walk here would find it.
+    // A lookup would succeed under this Codex-named parent, so retaining null proves no retry occurred.
     underCodex(payload('PostToolUse'));
 
     expect(markerFor(SESSION).pid).toBeNull();
@@ -330,18 +318,18 @@ describe('two writers at once', () => {
 
     const after = markerFor(SESSION);
 
-    // One marker, readable, and no temporary file: a rename that lost its race must clean up after itself.
+    // Concurrent writes must leave one valid marker and no temporary files.
     expect(markers()).toEqual([`${SESSION}.json`]);
-    // One of the three landed rather than every one of them standing off, which would leave the prompt's own event.
+    // At least one concurrent event must replace the original prompt marker.
     expect(['PreToolUse', 'PostToolUse', 'Stop']).toContain(after.event);
-    // And whichever landed carried the session forward rather than writing a marker of its own from nothing.
+    // Preserve session metadata in the winning write.
     expect(after.startedAt).toBe(opened.startedAt);
     expect(after.pid).toBe(opened.pid);
   });
 });
 
 describe('the recorded payloads', () => {
-  it('carries one session events, in the order Codex fired them', () => {
+  it('preserves captured event order for a session', () => {
     expect(payloads.map((sent) => sent.hook_event_name)).toEqual([
       'SessionStart',
       'UserPromptSubmit',

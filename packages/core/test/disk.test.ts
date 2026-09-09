@@ -73,7 +73,7 @@ describe('readTailFromDisk', () => {
 });
 
 describe('diskReaders', () => {
-  it('wires the four disk readers under the home it is handed', () => {
+  it('uses the injected home for all four disk readers', () => {
     const readers = diskReaders('/nowhere/home');
 
     expect(readers.home).toBe('/nowhere/home');

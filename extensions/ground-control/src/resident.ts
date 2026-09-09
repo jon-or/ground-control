@@ -7,7 +7,7 @@ import { PLACEMENTS, handOverUri, resumeRefusal, stagedUpdate, stagedUpdateRefus
 import type { AgentPlacement, CommandArg } from '@ground-control/host-vscode';
 import { spawnEnvironment } from '@ground-control/hub';
 
-/** How a session's own agent is reached here. An agent with no row is one this host was never taught (M43). */
+/** Resident operations supported by each agent (M43). */
 function placementOf(agent: string): AgentPlacement | null {
   return PLACEMENTS[agent] ?? null;
 }
@@ -18,13 +18,12 @@ const ACTIVATE_TIMEOUT_MS = 10_000;
 /** How long to wait for another window to come forward — a cold one took 3.2 s when measured (`docs/mechanics.md` M8). */
 const FOCUS_TIMEOUT_MS = 12_000;
 const LANDING_TIMEOUT_MS = 20_000;
-/** Each pass is a full roster read, so this is paced to cost a handful of them rather than one every quarter second. */
+/** Limit polling frequency because each attempt reads the full roster. */
 const LANDING_POLL_MS = 2000;
 
 /**
- * How the resident half reads the machine: it asks the hub, which is the only thing here that reads it at all.
- * Null is a read that did not happen. Never an empty list — every caller here compares against what was running
- * before, and reading a failure as "nothing was running" turns the developer's own sessions into strays.
+ * Read the roster through the hub. Return null for failed reads; treating failure as an empty roster would
+ * misidentify existing sessions as unexpected launches.
  */
 export type Roster = () => Promise<readonly Session[] | null>;
 
@@ -62,10 +61,7 @@ function agentPanelActive(placement: AgentPlacement): boolean {
   return isAgentPanel(vscode.window.tabGroups.activeTabGroup.activeTab, placement);
 }
 
-/**
- * Polled rather than slept on. A new tab and a reveal both reach `tabGroups` over an async event, so an immediate read
- * sees neither; polling also returns as soon as the tab is there instead of always paying the whole timeout.
- */
+/** Poll tabGroups because opening and revealing tabs update asynchronously; return as soon as the tab appears. */
 async function watchForTab(before: number, placement: AgentPlacement): Promise<OpenOutcome> {
   for (let waited = 0; waited < VERIFY_TIMEOUT_MS; waited += POLL_MS) {
     if (verifyOpen(before, agentTabCount(placement), agentPanelActive(placement)) === 'opened') {
@@ -104,17 +100,14 @@ export async function agentExtensionReady(agent = 'claude'): Promise<boolean> {
     return true;
   }
 
-  // An activation that never settles is as good as absent, and leaves the click hanging if it is not given up on.
+  // Bound activation time so the open request cannot hang indefinitely.
   return Promise.race([
     extension.activate().then(() => true),
     delay(ACTIVATE_TIMEOUT_MS).then(() => false),
   ]).catch(() => false);
 }
 
-/**
- * This window's own root, chosen the way a recorded one is (M21): its workspace file where it has one, else its first
- * folder. A multi-root window's folder equals no recorded root, so that alone would place every session elsewhere.
- */
+/** Match recorded roots using the workspace file, or first folder for single-folder windows (M21). */
 export function boardRoot(): string | null {
   const file = vscode.workspace.workspaceFile;
 
@@ -123,8 +116,8 @@ export function boardRoot(): string | null {
 
 /** Launches a root's window, or says why it was not launched. Coming forward is `focusLeft`, and takes seconds. */
 async function raise(root: string, newWindow = false): Promise<string | null> {
-  // A staged update swaps the executable under windows still running the old build, and the two then look for
-  // different pipes: the launch would start a second editor and restore every window into it (M49).
+  // Reject a staged editor update: mismatched builds use different pipes and could launch a second editor
+  // restoring every window (M49).
   const staged = stagedUpdate(process.execPath, vscode.env.appRoot);
 
   if (staged !== null) {
@@ -151,10 +144,7 @@ async function focusSidebar(placement: AgentPlacement): Promise<boolean> {
   return false;
 }
 
-/**
- * One argument of a placement's command, as VS Code has to receive it. `vscode.open` rejects a string whose scheme
- * is not http or https, so a resource arrives as a `Uri`; `absent` is a positional gap and stays `undefined`.
- */
+/** Convert resources to Uri for vscode.open; preserve absent positional arguments as undefined. */
 function commandArg(arg: CommandArg): unknown {
   switch (arg.kind) {
     case 'uri':
@@ -167,8 +157,8 @@ function commandArg(arg: CommandArg): unknown {
 }
 
 /**
- * Reveals a session in this window. The call is the agent's own: Claude takes a session id, and Codex takes the
- * resource URI its extension registered a custom editor for — the same call that extension makes on itself (M44).
+ * Reveal through the agent command: Claude takes a session ID; Codex takes its custom-editor resource URI
+ * (M44).
  */
 async function revealHere(session: { agent: string; sessionId: string }): Promise<string | null> {
   const placement = placementOf(session.agent);
@@ -191,18 +181,15 @@ async function revealHere(session: { agent: string; sessionId: string }): Promis
     : `The ${session.agent} extension reported the session open but no tab appeared.`;
 }
 
-/**
- * Watches, after the fact, for the session to appear where it was aimed. Not awaited: the developer has already been
- * taken to the window, and the only thing worth interrupting them for is a fire that missed (`docs/mechanics.md` M7).
- */
+/** Check the session location asynchronously after opening and report verified failures (mechanics M7). */
 async function confirmLanding(roster: Roster, root: string, before: readonly Session[], expectedSessionId?: string): Promise<void> {
   for (let waited = 0; waited < LANDING_TIMEOUT_MS; waited += LANDING_POLL_MS) {
     await delay(LANDING_POLL_MS);
 
     const now = await roster();
 
-    // A read that did not happen says nothing about where the session landed, and this watch exists only to
-    // interrupt the developer when it went wrong. Giving up quietly is the honest end (R24).
+    // An unreadable roster cannot establish an incorrect launch; stop verification without claiming a failure
+    // (R24).
     if (now === null) {
       return;
     }
@@ -224,21 +211,18 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
   }
 }
 
-/**
- * Reveals a session whose tab is in another window. The URI reaches whichever window has focus and nothing else
- * (`docs/mechanics.md` M7), so focus is taken first, deliberately, and the fire is checked afterwards.
- */
+/** Focus the target window before sending its URI, then verify the resulting session placement (mechanics M7). */
 async function revealElsewhere(roster: Roster, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean }): Promise<string | null> {
   if (resume && Date.now() >= resume.expiresAt) return 'This resume request expired. Refresh the board and try again.';
 
   const raised = await raise(root, resume?.newWindow);
   if (raised !== null) return raised;
 
-  // The URI reaches whichever window has focus, so this one losing it is the only proof the fire will land there.
+  // Wait for this window to lose focus before delivering the focus-routed URI.
   if (!(await focusLeft(FOCUS_TIMEOUT_MS))) return `Could not focus the window on ${root}. The session was not opened.`;
 
-  // Read here rather than taken from the render: anything already running when the fire went out is the developer's
-  // own work, and reporting it as a stray would tell them to close a session they had just started themselves.
+  // Read the roster immediately before launch so sessions started since rendering are not misidentified as
+  // unexpected launches.
   const before = await roster();
   if (resume) {
     const refusal = resumeRefusal(session.sessionId, before);
@@ -252,16 +236,15 @@ async function revealElsewhere(roster: Roster, session: Session | HistoricalSess
     return `Opening ${session.agent} sessions in VS Code is not supported.`;
   }
 
-  // The agent's own URI where it answers one, and the board's own where it does not: a raised window runs Ground
-  // Control too, so it can be handed the session and reveal it itself (`docs/mechanics.md` M45).
+  // Use the agent URI when supported, otherwise route through Ground Control in the target window (mechanics
+  // M45).
   const fired = await runCode(['--open-url', placement.openUri?.(session.sessionId) ?? handOverUri(session.sessionId, session.agent)]);
 
   if (fired !== null) {
     return `The ${session.agent} session could not be opened in the window on ${root}: ${fired}`;
   }
 
-  // Only with something to compare against. Without it the watch below would call every session already running a
-  // stray, which is worse than saying nothing: the fire itself is unaffected either way.
+  // Verify unexpected launches only with a successful baseline roster read.
   if (before !== null) {
     void confirmLanding(roster, root, before, resume ? session.sessionId : undefined);
   }
@@ -302,8 +285,8 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
         return `Could not open the ${plan.session.agent} sidebar. Open it from the activity bar.`;
       }
 
-      // Said out loud because the sidebar shows one session and the record of which is up to a minute old: the view
-      // that comes forward may be showing different work than the row that was clicked (`docs/mechanics.md` M21).
+      // Explain that sidebar records may be up to a minute old, so the revealed view may show another session
+      // (mechanics M21).
       void vscode.window.showInformationMessage(
         `The ${plan.session.agent} sidebar should be showing ${sessionLabel(plan.session)}.`,
       );
@@ -315,8 +298,8 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
       const raised = await raise(plan.root);
       if (raised !== null) return raised;
 
-      // Nothing else is safe: the sidebar has no reveal-by-id, and opening a panel for a session it already holds is
-      // a second process on one transcript (`docs/mechanics.md` M11).
+      // The sidebar has no reveal-by-ID operation; opening its session in a panel would create a second
+      // transcript writer (mechanics M11).
       void vscode.window.showInformationMessage(
         `${sessionLabel(plan.session)} is in the ${plan.session.agent} sidebar of the window on ${plan.root}.`,
       );
@@ -343,8 +326,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
     }
 
     case 'open-checkout':
-      // Whatever `raise` says and nothing more: no URI follows this, so there is no focus to wait for, and nothing
-      // inside a window records which folder a board asked for. What the developer sees is the window itself.
+      // Report the launch result only; no subsequent URI requires focus verification.
       return raise(plan.root, plan.newWindow);
 
     case 'start-session':
@@ -353,9 +335,8 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
 }
 
 /**
- * Starts a new session in this window. The workspace is re-read because the hub planned this against a hello that
- * may be a folder change old, and the agent takes its directory from this window rather than from anything the
- * board hands it (`docs/mechanics.md` M51) — so a stale plan would start the session in the wrong checkout.
+ * Recheck the workspace before starting: the agent uses this window directory, which may have changed since
+ * hub planning (mechanics M51).
  */
 async function startHere(agent: string, root: string, prompt: string | null): Promise<string | null> {
   const placement = placementOf(agent);
@@ -376,14 +357,12 @@ async function startHere(agent: string, root: string, prompt: string | null): Pr
     return `${command} failed: ${error instanceof Error ? error.message : String(error)}`;
   }
 
-  // No landing check, for the reason `open-checkout` has none: neither signal `verifyOpen` reads distinguishes a
-  // session that was minted from a surface that was already there. Claude's start reuses the primary editor's
-  // existing tab, so a new tab is not required; and an agent whose panel is already the active tab satisfies
-  // `agentPanelActive` without anything having happened. What the developer sees is the composer.
+  // Tab state cannot verify a new session: Claude can reuse the primary editor, and an already-active panel
+  // satisfies agentPanelActive without a start.
   return null;
 }
 
-/** R34: the one refusal the developer fixes by changing a setting is offered the setting rather than told its name. */
+/** Offer settings access for refusals resolved by configuration (R34). */
 export async function refuse(refusal: OpenRefusal, message: string): Promise<void> {
   if (refusal !== 'elsewhere-not-allowed') {
     void vscode.window.showWarningMessage(message);
@@ -400,13 +379,12 @@ export async function refuse(refusal: OpenRefusal, message: string): Promise<voi
   }
 }
 
-/** What is being opened, so a second click on something already on its way is dropped rather than repeated. */
+/** Track pending opens to suppress duplicate clicks. */
 const opening = new Set<string>();
 
 /**
- * Carries out a route the hub planned, and says what went wrong when it did not land. One at a time per session,
- * or per card where a route has no session: a second fire at a tab already on its way is a second agent on one
- * transcript (`docs/mechanics.md` M11), and a second `code` on one checkout is a second window.
+ * Execute one route per session or card. Duplicate opens could create concurrent transcript writers or
+ * duplicate checkout windows (mechanics M11).
  */
 export async function perform(route: OpenRoute, roster: Roster): Promise<void> {
   const held = routeKey(route);

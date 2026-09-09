@@ -1,11 +1,7 @@
 import { LANE_ORDER } from '@ground-control/core';
 import type { ClientHello, ClientMessage, HubMessage, LaneId } from '@ground-control/core';
 
-/**
- * Chrome talks to a native host over stdio in length-prefixed frames: four bytes of length, then that many bytes of
- * UTF-8 JSON. A megabyte is what Chrome accepts back, so a frame over that is a bug on this side rather than
- * something to send and have the port closed for.
- */
+/** Native messaging uses a four-byte length followed by UTF-8 JSON. Limit responses to Chrome's one-megabyte cap. */
 export const FRAME_LIMIT_BYTES = 1024 * 1024;
 
 export function encodeFrame(message: unknown): Buffer {
@@ -22,14 +18,11 @@ export function encodeFrame(message: unknown): Buffer {
   return Buffer.concat([header, body]);
 }
 
-/**
- * Reassembles frames from however stdin chunks them. One frame arrives across several reads and several arrive in
- * one, so neither the header nor the body can be assumed whole.
- */
+/** Decode frames across arbitrary stdin chunks, including split headers and multiple frames per chunk. */
 export class FrameReader {
   #buffered: Buffer = Buffer.alloc(0);
 
-  /** Every whole frame the new bytes completed. A frame that will not parse is dropped rather than thrown. */
+  /** Return completed frames; skip invalid JSON. */
   push(chunk: Buffer): unknown[] {
     this.#buffered = Buffer.concat([this.#buffered, chunk]);
 
@@ -42,8 +35,7 @@ export class FrameReader {
 
       const length = this.#buffered.readUInt32LE(0);
 
-      // Nothing sends a frame this large, so a header claiming one is a stream out of step with its frames. Reading
-      // on would treat the rest of the port as one body that never completes.
+      // Reject oversized headers instead of waiting indefinitely for the claimed body.
       if (length > FRAME_LIMIT_BYTES) {
         this.#buffered = Buffer.alloc(0);
 
@@ -61,13 +53,13 @@ export class FrameReader {
       try {
         messages.push(JSON.parse(body));
       } catch {
-        // A frame that is not JSON is one message lost, not a port to tear down.
+        // Skip invalid JSON without closing the port.
       }
     }
   }
 }
 
-/** What the bridge sends the browser. `trouble` is the bridge's own: the hub it relays is not answering. */
+/** Browser messages include relayed hub messages and local connection failures. */
 export type BridgeMessage = HubMessage | { type: 'trouble'; message: string | null };
 
 /**
@@ -115,16 +107,14 @@ export function bridgeAction(raw: unknown): BridgeAction {
     return { refused: 'Start or stop card actions in VS Code.' };
   }
 
-  // The card and nothing else: the hub resolves the directory, so there is nothing here a page could point at a
-  // folder of its own choosing — which is what makes this one safe to forward where `setCheckout` is not (R41).
+  // Forward only the card key; the hub resolves the checkout path. Page-selected paths remain prohibited (R41).
   if (message.type === 'openCheckout') {
     return typeof message.key === 'string'
       ? { send: { type: 'openCheckout', key: message.key } }
       : { refused: 'That card cannot be opened.' };
   }
 
-  // Both by name. `setCheckout` is the one message carrying a filesystem path, which R41 keeps to the editor's own
-  // picker; `startSession` runs an agent, which R42 keeps to the editor entirely.
+  // Explicitly reject path selection (R41) and agent starts (R42), which require an editor.
   if (message.type === 'setCheckout') {
     return { refused: 'Choose card checkouts in VS Code.' };
   }
@@ -158,7 +148,7 @@ export function redactForBrowser(message: BridgeMessage): BridgeMessage {
 
 const ORIGIN = /an Origin header, .*$/;
 
-/** The bridge as a client: no host, so no route is ever forwarded to it, and no resident half to perform one. */
+/** Register without a host or resident route capabilities. */
 export function bridgeHello(id: string, watching: boolean): ClientHello {
   return { id, hostId: null, workspaceRoot: null, residentRoutes: [], watching };
 }
@@ -172,14 +162,11 @@ export interface BridgeStreams {
 export interface BridgeDeps {
   streams: BridgeStreams;
   send(message: ClientMessage): void;
-  /** Torn down when Chrome closes the port: the bridge is Chrome's process and has nothing to do without it. */
+  /** Stop the bridge when Chrome closes its port. */
   stop(): void;
 }
 
-/**
- * Relays one Chrome port. Chrome starts this process when the overlay connects and closes stdin when the last board
- * tab goes, which is what ends it — the hub it was talking to stays up for its own idle rule to end (R35).
- */
+/** Relay one Chrome native port until stdin closes. The shared hub remains subject to its own idle timeout (R35). */
 export function runBridge(deps: BridgeDeps): (message: BridgeMessage) => void {
   const reader = new FrameReader();
 
@@ -187,7 +174,7 @@ export function runBridge(deps: BridgeDeps): (message: BridgeMessage) => void {
     try {
       deps.streams.write(encodeFrame(redactForBrowser(message)));
     } catch {
-      // A frame Chrome will not take is one message lost. The next snapshot carries the same state.
+      // Skip unencodable frames; a later snapshot will contain current state.
     }
   };
 

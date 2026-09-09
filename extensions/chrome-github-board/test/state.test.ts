@@ -24,15 +24,15 @@ const SNAPSHOT: Snapshot = {
 };
 
 describe('which pages the overlay paints', () => {
-  it('is a project board, whoever owns it', () => {
+  it('matches organization and user project boards', () => {
     expect(isBoardPath('/orgs/example-org/projects/3')).toBe(true);
     expect(isBoardPath('/orgs/example-org/projects/3/views/1')).toBe(true);
     expect(isBoardPath('/users/dev-1/projects/7')).toBe(true);
   });
 
   /**
-   * The content script is injected across github.com, because reaching a board by clicking through the site is a
-   * soft navigation and Chrome injects nothing for one. Every other page on it must be left alone.
+   * Check board paths after soft navigation because Chrome does not reinject content scripts; leave non-board
+   * pages unchanged.
    */
   it('is nothing else on the site', () => {
     expect(isBoardPath('/example-org/example-repo/issues/4501')).toBe(false);
@@ -54,10 +54,7 @@ describe('what a message from the worker changes', () => {
     expect(applyMessage(initialState(), { type: 'changed', snapshot: SNAPSHOT }).snapshot).toBe(SNAPSHOT);
   });
 
-  /**
-   * A snapshot handed to a tab may be a replay from `chrome.storage.session` — a real reading, and an old one. A
-   * tab that cleared the line on receiving one would show hours-old badges under a banner saying all was well (R24).
-   */
+  /** Cached snapshots do not establish liveness; only the worker can clear connection trouble (R24). */
   it('leaves the trouble line to the worker rather than clearing it on a snapshot', () => {
     const troubled = applyMessage(initialState(), { type: 'trouble', message: 'Disconnected from Ground Control.' });
     const after = applyMessage(troubled, { type: 'snapshot', snapshot: SNAPSHOT });
@@ -102,11 +99,7 @@ describe('trying the worker again', () => {
     });
   });
 
-  /**
-   * A reloaded extension leaves this script running in every open tab, and every retry from it throws
-   * `Extension context invalidated`. Retrying is not the answer and the developer's tab reload is, so the line has
-   * to say so — an orphan that kept the ordinary wording would sit on a snapshot frozen at the reload.
-   */
+  /** An invalidated extension context requires a page reload; retrying the old content script cannot reconnect. */
   it('gives up and asks for a tab reload when the extension is what went away', () => {
     expect(disconnection({})).toEqual({
       retry: false,
@@ -138,7 +131,7 @@ describe('the log spool', () => {
     expect(spool.watching()).toBe(true);
   });
 
-  it('tells the hub to stop only when the last sidebar closes', () => {
+  it('unsubscribes when the last sidebar closes', () => {
     const spool = makeLogSpool();
     const a = {};
     const b = {};
@@ -165,8 +158,8 @@ describe('the log spool', () => {
 
     spool.view(a, false);
 
-    // The hub's own file is the durable copy and a reopen is answered with a fresh tail of it, so a copy kept here
-    // would show that history twice. The browser's own lines have no other home and stay.
+    // Clear hub history before reopening to avoid duplicate backfill; retain browser logs because they have
+    // no durable copy.
     expect(spool.held().map((entry) => entry.message)).toEqual(['the port opened']);
   });
 
@@ -196,7 +189,7 @@ describe('the log spool', () => {
     expect(spool.held().map((entry) => entry.message)).toEqual(['2', '3', '4']);
   });
 
-  it('holds more than the hub backfills, so opening a sidebar never drops part of what the hub just sent', () => {
+  it('retains the full hub backlog alongside browser logs', () => {
     expect(LOG_LIMIT).toBeGreaterThan(1024);
   });
 });

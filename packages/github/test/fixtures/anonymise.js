@@ -1,17 +1,12 @@
-// This repo is going public, so recorded responses name no real issue, account or repository. Run over every fixture
-// in one pass — a hand-scrub of one file drifts from the others, and a login has to mean the same person in all of
-// them: `GC_SELF_LOGINS=<your gh logins> node test/fixtures/anonymise.js`.
+// Scrub all fixtures together to preserve account mappings.
+// GC_SELF_LOGINS=<comma-separated logins> node test/fixtures/anonymise.js
 const fs = require('node:fs');
 const path = require('node:path');
 const { title } = require('../../../../tools/fixture-words.js');
 
 const REPO = 'example-org/example-repo';
 
-/**
- * One synthetic login per real one, so two cards assigned to the same person still look like it. The accounts the
- * board is for come first and keep their relationship — `dev-1` and its `dev-1-bot` — because the fixtures only make
- * sense if the configured login is one of the assignees.
- */
+/** Map each account consistently. Configured accounts become dev-1 and its bot/alternate variants. */
 function loginMap(selfLogins) {
   const map = new Map();
   const [first, ...rest] = selfLogins;
@@ -31,7 +26,7 @@ function loginMap(selfLogins) {
         return known;
       }
 
-      // Already synthetic — a second run over scrubbed fixtures must not renumber everyone.
+      // Preserve synthetic logins when re-scrubbing.
       if (/^dev-\d+(-[a-z0-9-]+)?$/.test(login)) {
         map.set(login, login);
 
@@ -44,22 +39,19 @@ function loginMap(selfLogins) {
 
       return replacement;
     },
-    /** The real logins met so far, paired with what replaced them, for the leak check. */
+    /** Original-to-synthetic login pairs for leak checks. */
     pairs: () => [...map.entries()],
   };
 }
 
-/**
- * Every recorded issue in a response, whether it came from the assigned search or from a read by number. `anonymise-context.js`
- * owns the context recordings, whose issue sits at the same path — `projectItems` is what tells the two shapes apart.
- */
+/** Select assigned-search and by-number issue nodes. projectItems distinguishes them from triage context handled by anonymise-context.js. */
 function issueNodesOf(response) {
   const issue = response?.data?.repository?.issue;
 
   return [...(response?.data?.cards?.nodes ?? []), ...(issue?.projectItems ? [issue] : [])];
 }
 
-/** Walks the recorded GraphQL shape, rewriting only the fields that spell out real work. */
+/** Replace identifying fields while preserving the recorded GraphQL structure. */
 function anonymiseResponse(response, logins) {
   const nodes = issueNodesOf(response);
 
@@ -90,10 +82,7 @@ function anonymiseResponse(response, logins) {
   return response;
 }
 
-/**
- * Fails the run rather than leaving a fixture that still names something real. The tests cannot catch this — they
- * only ever see anonymised output, so an anonymiser that stopped scrubbing would leave them green.
- */
+/** Reject remaining identifying values before writing; tests consume only scrubbed fixtures. */
 function assertScrubbed(recorded, written, logins) {
   const json = JSON.stringify(written);
   const identifyingActorValues = (actor) =>
@@ -111,7 +100,7 @@ function assertScrubbed(recorded, written, logins) {
     ]),
   );
 
-  // A value the anonymiser itself produces is not a leak — that is what a second run over scrubbed files reads back.
+  // Exclude synthetic values when checking a second scrub pass.
   const real = [...fromNodes, ...logins.pairs().filter(([from, to]) => from !== to).map(([from]) => from)].filter(
     (value) => typeof value === 'string' && value.length > 3,
   );

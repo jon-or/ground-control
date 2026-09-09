@@ -1,36 +1,30 @@
 import { CHROME_EXTENSION_ID, NATIVE_HOST_NAME, groundControlDirOf } from '@ground-control/core';
 
-/**
- * What Chrome must find on disk before the overlay can reach the hub, and where. Registration is a deliberate act
- * (R34): it writes outside the extension's own storage, so a command asks for it and the same command undoes it.
- */
+/** Files and registration required for Chrome native messaging. Explicit commands install and remove these external files (R34). */
 export interface ChromeHostPlan {
-  /** The native-messaging manifest Chrome reads to learn what to start. */
+  /** Chrome native-messaging manifest. */
   manifestPath: string;
   manifest: string;
-  /** What Chrome actually starts. A script, because Chrome runs one command with no arguments of its own. */
+  /** Launcher script; Chrome supplies no configurable command arguments. */
   wrapperPath: string;
   wrapper: string;
-  /** Windows finds the manifest through this key. Every other platform finds it by its path alone. */
+  /** Windows registry key locating the manifest; other platforms use fixed paths. */
   registryKey: string | null;
 }
 
 export interface ChromeHostInput {
   platform: NodeJS.Platform;
   home: string;
-  /** The hub bundle every client starts, so an extension update never orphans what this manifest names. */
+  /** Stable hub bundle path retained across extension updates. */
   bundle: string;
-  /** The interpreter that ran the install. The wrapper names it outright: Chrome's PATH is not the developer's. */
+  /** Absolute interpreter path; Chrome may have a different PATH. */
   node: string;
   extensionId?: string;
 }
 
 const REGISTRY_KEY = `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${NATIVE_HOST_NAME}`;
 
-/**
- * Where Chrome looks for a per-user host manifest. On Windows it looks nowhere: the registry value carries the
- * path, so the manifest lives beside everything else the hub writes.
- */
+/** Per-user manifest location. Windows reads its path from the registry. */
 function manifestDirOf(platform: NodeJS.Platform, home: string): string {
   if (platform === 'darwin') {
     return `${home}/Library/Application Support/Google/Chrome/NativeMessagingHosts`;
@@ -39,13 +33,7 @@ function manifestDirOf(platform: NodeJS.Platform, home: string): string {
   return platform === 'win32' ? groundControlDirOf(home) : `${home}/.config/google-chrome/NativeMessagingHosts`;
 }
 
-/**
- * `@echo off` and no output of its own: Chrome reads this process's stdout as message frames, so a line printed by
- * the wrapper is a malformed frame and the port closes. `%*` carries the origin Chrome passes on the command line.
- *
- * `ELECTRON_RUN_AS_NODE` because the interpreter that ran the install may be VS Code's own executable, which opens
- * an editor unless it is told to be node. Plain node ignores it, so the wrapper does not have to know which it has.
- */
+/** Keep stdout limited to native-message frames. Forward Chrome arguments with %*. ELECTRON_RUN_AS_NODE lets a VS Code executable run as Node; plain Node ignores it. */
 function wrapperOf(platform: NodeJS.Platform, node: string, bundle: string): { path: string; text: string } {
   if (platform === 'win32') {
     return {
@@ -84,11 +72,11 @@ export function chromeHostPlan(input: ChromeHostInput): ChromeHostPlan {
 export interface ChromeHostDeps {
   write(path: string, text: string, executable: boolean): void;
   remove(path: string): void;
-  /** `reg.exe`, on the one platform that needs it. Returns what it said, so a failure is reported rather than assumed. */
+  /** Invoke reg.exe on Windows and return diagnostic output on failure. */
   registry(args: readonly string[]): string | null;
 }
 
-/** What was done, in the developer's terms — a command that writes outside its own storage says what it wrote (R34). */
+/** Report the files and registration written outside extension storage (R34). */
 export function installChromeHost(plan: ChromeHostPlan, deps: ChromeHostDeps): string {
   deps.write(plan.wrapperPath, plan.wrapper, true);
   deps.write(plan.manifestPath, plan.manifest, false);
@@ -106,7 +94,7 @@ export function installChromeHost(plan: ChromeHostPlan, deps: ChromeHostDeps): s
 
 export function uninstallChromeHost(plan: ChromeHostPlan, deps: ChromeHostDeps): string {
   if (plan.registryKey !== null) {
-    // Not an error: a registration that was never made, or was made and then removed by hand, is the wanted state.
+    // Missing registration already satisfies uninstall.
     deps.registry(['delete', plan.registryKey, '/f']);
   }
 

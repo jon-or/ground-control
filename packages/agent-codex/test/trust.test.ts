@@ -45,13 +45,13 @@ describe('trustedKeysFrom', () => {
     expect(trustedKeysFrom(text)).toEqual(new Set(['c:/users/jon/.codex/hooks.json:stop:0:0']));
   });
 
-  /** A table Codex is tracking without trusting fires nothing, so the hash is the evidence and not the header. */
+  /** A trust table requires trusted_hash to authorize execution. */
   it('refuses a key whose table carries no trusted_hash', () => {
     expect(trustedKeysFrom("[hooks.state.'k:stop:0:0']\n")).toEqual(new Set());
     expect(trustedKeysFrom("[hooks.state.'k:stop:0:0']\n[other]\ntrusted_hash = \"sha256:abc\"\n")).toEqual(new Set());
   });
 
-  it('reads nothing out of a missing config, rather than guessing at trust', () => {
+  it('returns no trusted keys for missing configuration', () => {
     expect(trustedKeysFrom(null)).toEqual(new Set());
   });
 });
@@ -63,7 +63,7 @@ describe('installedTrustKeys', () => {
     expect(installedTrustKeys(text, HOME)).toEqual([`${HOOKS_FILE}:stop:0:0`, `${HOOKS_FILE}:session_end:0:0`]);
   });
 
-  /** The plan appends its group, so a hook of the developer's own shifts the board's along — and its key with it. */
+  /** Existing user groups shift installed board-hook indices. */
   it("counts past a group of the developer's own for the same event", () => {
     expect(installedTrustKeys(hooksWith({ Stop: [theirGroup(), ourGroup()] }), HOME)).toEqual([`${HOOKS_FILE}:stop:1:0`]);
   });
@@ -82,7 +82,7 @@ describe('trustState', () => {
     expect(trustState(machine({}))).toEqual({ installed: [], untrusted: [] });
   });
 
-  it('holds every installed entry untrusted until the config says otherwise', () => {
+  it('requires configuration evidence for hook trust', () => {
     expect(trustState(machine({ files: { [HOOKS_FILE]: hooks } })).untrusted).toHaveLength(2);
   });
 
@@ -92,7 +92,7 @@ describe('trustState', () => {
     expect(trustState(machine({ files })).untrusted).toEqual([`${HOOKS_FILE}:session_end:0:0`]);
   });
 
-  it('reads the home CODEX_HOME names, which is the file Codex would have written', () => {
+  it('reads trust configuration under CODEX_HOME', () => {
     const home = 'D:/elsewhere/codex';
 
     expect(trustState(machine({ files: { [`${home}/hooks.json`]: hooks } }), { CODEX_HOME: home }).installed).toHaveLength(2);
@@ -118,18 +118,17 @@ describe('trustEditFor', () => {
     });
   });
 
-  /** Codex reports every hook on the machine, and trusting one the board did not write would grant a command it
-   * has never seen the right to run. */
+  /** Only trust hooks installed by the board; preserve user and plugin trust decisions. */
   it('claims no hook that is not the writer the board installed', () => {
     expect(trustEditFor(listed('powershell mine.ps1', 'untrusted'), HOME)).toEqual({ ours: 0, edit: null });
   });
 
-  /** Counted but not edited, which is what tells "already done" from "Codex read the wrong hooks file". */
+  /** Count trusted hooks to distinguish successful prior trust from a wrong hooks file. */
   it('counts an entry Codex already trusts and writes nothing for it', () => {
     expect(trustEditFor(listed(ours, 'trusted'), HOME)).toEqual({ ours: 1, edit: null });
   });
 
-  it('skips an entry Codex reported no hash for, rather than writing an empty trust', () => {
+  it('skips hooks without a reported hash', () => {
     expect(trustEditFor(listed(ours, 'untrusted', null), HOME)).toEqual({ ours: 1, edit: null });
   });
 
@@ -153,16 +152,16 @@ describe('trustEditFor', () => {
 describe('trustFailure', () => {
   const two = { installed: ['a', 'b'], untrusted: ['a', 'b'] };
 
-  it('says nothing where every entry is trusted', () => {
+  it('reports no failure when every hook is trusted', () => {
     expect(trustFailure({ installed: ['a'], untrusted: [] }, 'anything')).toBeNull();
   });
 
-  /** The read that starts the attempt must not name a state it is about to fix, or the board nags once per poll. */
-  it('says nothing while the board own attempt is still to come', () => {
+  /** Suppress pending trust failures to avoid transient poll notifications. */
+  it('suppresses failures before the trust attempt completes', () => {
     expect(trustFailure(two, null)).toBeNull();
   });
 
-  it('names the whole install and what stopped the attempt', () => {
+  it('reports the failed trust attempt for all installed hooks', () => {
     const failure = trustFailure(two, 'Codex stopped before it answered');
 
     expect(failure?.subject).toBe('codex');
@@ -171,7 +170,7 @@ describe('trustFailure', () => {
     expect(failure?.remedy).toContain('approve the Ground Control hooks');
   });
 
-  /** Codex arms trust per entry, and a trusted SessionEnd is what takes a finished session off the board. */
+  /** Trust is per entry; SessionEnd must be trusted to remove completed sessions. */
   it('counts the ones still untrusted when only some have been accepted', () => {
     expect(trustFailure({ installed: ['a', 'b'], untrusted: ['b'] }, 'refused')?.message).toContain(
       "1 of the board's 2 session hooks",

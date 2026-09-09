@@ -16,8 +16,8 @@ export function classifyArgs(input: ClassifyInput): string[] {
     '--json-schema',
     JSON.stringify(input.schema),
     '--no-session-persistence',
-    // `--setting-sources` and `--tools` are variadic, so each is written immediately before a flag. A bare value
-    // after either would be swallowed as a second element rather than read as the next option.
+    // Place each variadic option before another flag so subsequent values cannot be parsed as extra option
+    // arguments.
     '--setting-sources',
     '',
     '--tools',
@@ -31,7 +31,7 @@ export function classifyArgs(input: ClassifyInput): string[] {
   ];
 }
 
-/** The fields of `--output-format json` this reads. Everything else the CLI prints is its own business. */
+/** Fields read from --output-format json. */
 const printResult = z.object({
   is_error: z.boolean().optional(),
   subtype: z.string().optional(),
@@ -44,8 +44,8 @@ function failure(kind: string, message: string, remedy: string): ReadFailure {
 }
 
 /**
- * One bounded question, answered as JSON. Never throws and never leaves a session on the board: every failure comes
- * back named, the way a roster read's does, so a card that could not be triaged says so rather than showing a guess.
+ * Classify within a timeout and return structured failures. Disable persistence and hooks so the
+ * unprompted-session filter excludes classification from the board.
  */
 export function makeClaudeClassifier(run: ExecJson) {
   return async function classify(input: ClassifyInput): Promise<ClassifyResult> {
@@ -72,8 +72,8 @@ export function makeClaudeClassifier(run: ExecJson) {
       return { failure: failure('classify-unreadable', 'Claude Code returned an unsupported response format.', 'Refresh the board to try again.') };
     }
 
-    // The CLI reports its own trouble in the body rather than in an exit code — a usage limit reached mid-answer is a
-    // successful process and an unsuccessful classification.
+    // Check body-level errors even after exit 0; usage limits can fail a classification without failing the
+    // process.
     if (parsed.data.is_error === true || (parsed.data.subtype !== undefined && parsed.data.subtype !== 'success')) {
       return {
         failure: failure(
@@ -88,8 +88,7 @@ export function makeClaudeClassifier(run: ExecJson) {
       return { value: parsed.data.structured_output };
     }
 
-    // `result` carries the same JSON as a string. Read only where the parsed field is absent, which is what an older
-    // CLI that predates structured output answers with.
+    // Fall back to the JSON result string for older CLIs without structured_output.
     try {
       return { value: JSON.parse(parsed.data.result ?? '') };
     } catch {

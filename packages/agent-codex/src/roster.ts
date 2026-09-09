@@ -6,22 +6,19 @@ import { activityOf, readMarker } from './phase.js';
 import type { ActivityMarker } from './phase.js';
 import { CODEX_AGENT_ID, CODEX_DISPLAY_NAME } from './ids.js';
 
-/** Whether a process is still running. Injected, because a roster read is the one place the adapter touches the OS. */
+/** Injected process liveness check. */
 export type PidAlive = (pid: number) => boolean;
 
 const MARKER_FILE = /^(.+)\.json$/;
 
-/** The names Codex gives its threads, which is the only place a session's own title is written. */
+/** Codex thread-name index, the source of session titles. */
 export function sessionIndexPathOf(home: string, env: NodeJS.ProcessEnv = {}): string {
   return `${codexHomeOf(home, env)}/session_index.jsonl`;
 }
 
 const indexEntry = z.object({ id: z.string(), thread_name: z.string().optional() });
 
-/**
- * Thread names by id. The index carries only threads Codex has named, so a session missing from it has no title
- * rather than an unreadable one — a whole-file parse failure costs every title, which is why each line is its own.
- */
+/** Read named threads by ID. Parse lines independently so a malformed entry does not discard other titles. */
 export function threadNamesFrom(text: string | null): Map<string, string> {
   const names = new Map<string, string>();
 
@@ -76,19 +73,18 @@ function toSession(marker: ActivityMarker, cwd: string, title: string | null, de
     issueNumber: link.issueNumber,
     transcriptWrittenAt: marker.transcriptPath === null ? null : deps.mtime(marker.transcriptPath),
     activity: activityOf(marker),
-    // A session that ended removed its own marker, so nothing on this roster has reported an end (R24).
+    // `SessionEnd` removes the marker, so roster entries have not reported completion (R24).
     finished: false,
-    // `codex exec` has no attach: a dispatched thread is reached by resuming it, which is what the open plan does.
+    // `codex exec` has no attach command; open plans resume dispatched threads.
     attachId: null,
     details: detailsOf(marker),
   };
 }
 
 /**
- * Every live Codex session, from the markers its hooks wrote. Codex has no command that lists them: `codex agents`
- * requires a daemon this platform does not run, and a second app-server reports another process's threads as
- * `notLoaded` (`docs/mechanics.md` M39). So the marker directory is the roster, and the pid in each marker is the
- * liveness — a process that was killed fired no `SessionEnd` and left its marker behind (M40).
+ * Read hook markers and check their PIDs for liveness. `codex agents` requires an unavailable daemon, and
+ * another app-server reports threads as `notLoaded` (M39). PID checks exclude markers left after termination
+ * without `SessionEnd` (M40).
  */
 export function readRoster(
   deps: MachineDeps,
@@ -99,7 +95,7 @@ export function readRoster(
   const dir = activityDirOf(deps.home);
   const names = deps.listDir(dir);
 
-  // The install creates this directory, so its absence is a signal not yet in place rather than a failure to report.
+  // The installer creates this directory; absence means hooks are not installed yet.
   if (names === null) {
     return { sessions: [], failure: null };
   }
@@ -110,8 +106,7 @@ export function readRoster(
   let unproven = 0;
 
   for (const name of names) {
-    // The writer renames a temporary file into place, so a `<id>.json.<pid>.tmp` beside a marker is a write in
-    // flight and is not a session — which the suffix is what excludes.
+    // Exclude temporary `<id>.json.<pid>.tmp` files used for atomic marker writes.
     const sessionId = MARKER_FILE.exec(name)?.[1];
 
     if (!sessionId) {
@@ -125,14 +120,13 @@ export function readRoster(
       continue;
     }
 
-    // A marker with no directory cannot be placed on a card, and neither absence can be inferred past: both are the
-    // writer failing rather than the developer, so they are stated rather than hidden (R25).
+    // A missing directory prevents card linking and indicates an invalid marker (R25).
     if (marker.cwd === null) {
       unreadable++;
       continue;
     }
 
-    // No pid is no evidence the session is running, and a marker outlives the process that stopped without one.
+    // A marker without a PID cannot establish liveness.
     if (marker.pid === null) {
       unproven++;
       continue;
@@ -146,7 +140,7 @@ export function readRoster(
   return { sessions, failure: failureFor(unreadable, unproven) };
 }
 
-/** The unreadable markers first: a file the board cannot parse is the fault a reinstall fixes. */
+/** Prioritize unreadable markers, which may require hook reinstallation. */
 function failureFor(unreadable: number, unproven: number): ReadFailure | null {
   if (unreadable > 0) {
     return {

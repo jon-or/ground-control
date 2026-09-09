@@ -54,9 +54,8 @@ describe('what a dispatched run is started with', () => {
   });
 
   /**
-   * `codex exec` has subcommands of its own — `review`, `resume`, `fork`, `help` — so a prompt opening with one of
-   * those words is read as a subcommand and the run refuses its own arguments. "Review this diff…" is exactly how a
-   * review action's prompt begins, and a prompt of `-` alone would make it read the work from stdin.
+   * Delimit prompts from exec subcommands such as review, resume, fork, and help. A lone hyphen requests stdin
+   * instead of literal prompt text.
    */
   it('ends the flags before the prompt, so a prompt that opens with a subcommand is still a prompt', () => {
     for (const prompt of ['review this diff', 'resume where you left off', 'fork the thread', 'help me', '-']) {
@@ -83,9 +82,8 @@ describe('the permission modes Codex can and cannot run under', () => {
   });
 
   /**
-   * M46: a connect from inside `workspace-write` fails `EACCES` without this override, so a merge action under the
-   * mode the refusal recommends would do the work and fail its push. `read-only` keeps none, because a plan does
-   * not push, and the bypass has no sandbox to open.
+   * Enable network access for workspace-write dispatch so merge actions can push (M46). Read-only plans and
+   * unsandboxed dispatch need no override.
    */
   it('gives the network only to the mode that has to push', () => {
     const network = (mode: string) => (sandboxArgs(mode) ?? []).includes('sandbox_workspace_write.network_access=true');
@@ -103,7 +101,7 @@ describe('the permission modes Codex can and cannot run under', () => {
 });
 
 describe('reading the thread id back', () => {
-  it('takes the id off the line that says a thread started', () => {
+  it('reads the ID from thread.started output', () => {
     expect(threadIdFrom(STARTED)).toBe('01a07d5a-b5bd-7762-8ef8-4202ce964f31');
   });
 
@@ -160,7 +158,7 @@ describe('dispatching work to Codex', () => {
     }
   });
 
-  it('starts nothing at all under a mode that would need a human, and says which setting to change', async () => {
+  it('refuses approval modes requiring user input', async () => {
     const { start, calls } = starter();
     const outcome = await makeCodexDispatcher(start)(input({ permissionMode: 'manual' }));
 
@@ -169,7 +167,7 @@ describe('dispatching work to Codex', () => {
     expect('failure' in outcome && outcome.failure.remedy).toContain('permissionMode');
   });
 
-  it('names a CLI it could not run, and says the setting that points at it', async () => {
+  it('reports unavailable CLI paths with setting recovery steps', async () => {
     const start: StartProcess = () =>
       Promise.resolve({
         pid: null,
@@ -182,12 +180,11 @@ describe('dispatching work to Codex', () => {
     expect('failure' in outcome && outcome.failure.remedy).toContain('groundControl.agents');
   });
 
-  it('says the work may be running when the run never named its thread', async () => {
+  it('reports possibly running work without a thread ID', async () => {
     const { start } = starter({ firstLine: () => Promise.resolve(null) });
     const outcome = await makeCodexDispatcher(start)(input());
 
-    // The dangerous case: something is editing the checkout and the board cannot follow or stop it, so it says so
-    // rather than reporting a dispatch that failed cleanly.
+    // A run may be editing without a trackable ID; report uncertainty rather than definite startup failure.
     expect(outcome).toMatchObject({ failure: { kind: 'dispatch-unreadable' } });
     expect('failure' in outcome && outcome.failure.message).toContain('without returning a thread ID');
   });

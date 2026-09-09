@@ -10,7 +10,7 @@ import { captureLog, tempHome } from './helpers.js';
 
 const REPO = 'github.com/example-org/example-repo';
 
-/** Field order is `toCard`'s, not the storage schema's: a comparison that only holds for one of them holds for neither. */
+/** Use source field order to detect comparisons that depend on storage schema order. */
 function issue(number: number, over: Partial<IssueCard> = {}): IssueCard {
   return {
     number,
@@ -113,7 +113,7 @@ describe('the issues a session names but the developer is not assigned', () => {
     expect(lookup.known([session(42)], new Set())?.get(42)?.title).toBe('Issue 42');
   });
 
-  it('reads an issue it has never seen, once, and says so when it lands', async () => {
+  it('looks up missing metadata once and notifies on completion', async () => {
     const source = sourceOf((_repository, number) => ({ card: issue(number, { status: '🚦 QA' }), failure: null }));
     const { lookup } = lookupOver(source);
 
@@ -127,7 +127,7 @@ describe('the issues a session names but the developer is not assigned', () => {
     expect(lookup.known([session(42)], new Set())?.get(42)?.status).toBe('🚦 QA');
   });
 
-  it('says nothing about a number still being read, so the session keeps its checkout card until it lands', () => {
+  it('retains checkout cards while lookups are pending', () => {
     const { lookup } = lookupOver(sourceOf(() => ({ card: issue(42), failure: null })));
 
     expect(lookup.known([session(42)], new Set()).size).toBe(0);
@@ -144,7 +144,7 @@ describe('the issues a session names but the developer is not assigned', () => {
     expect(lookup.known([session(42)], new Set([42])).size).toBe(0);
   });
 
-  it('reads nothing for a session whose checkout names no repository to key it under', async () => {
+  it('skips sessions without a repository', async () => {
     const source = sourceOf(() => ({ card: issue(42), failure: null }));
     const { lookup } = lookupOver(source);
 
@@ -154,7 +154,7 @@ describe('the issues a session names but the developer is not assigned', () => {
     expect(source.asked).toEqual([]);
   });
 
-  it('reads nothing for a session naming no issue at all', async () => {
+  it('skips sessions without an issue number', async () => {
     const source = sourceOf(() => ({ card: issue(42), failure: null }));
     const { lookup } = lookupOver(source);
 
@@ -165,7 +165,7 @@ describe('the issues a session names but the developer is not assigned', () => {
   });
 });
 
-describe('a number that names nothing', () => {
+describe('missing issues', () => {
   it('is remembered, so the board asks once rather than on every poll', async () => {
     const source = sourceOf(() => ({ card: null, failure: null }));
     const { lookup } = lookupOver(source);
@@ -206,7 +206,7 @@ describe('a read that failed', () => {
 
     expect(store.read().entries['github.com/example-org/example-repo#42']).toBeUndefined();
 
-    // Held off rather than retried: the session poll comes round twice a minute, and an outage does not lift that fast.
+    // Delay failed lookups across repeated session polls.
     lookup.consider([], [session(42)], new Set());
     await settled();
 
@@ -219,8 +219,8 @@ describe('a read that failed', () => {
     expect(source.asked).toHaveLength(2);
   });
 
-  /** A source that does not serve the repository is not a source that says the issue does not exist. */
-  it('writes nothing down when no source serves the repository at all', async () => {
+  /** An unserved repository does not establish that an issue is missing. */
+  it('does not cache unserved repositories as missing issues', async () => {
     const { lookup, store } = lookupOver(sourceOf(() => null));
 
     lookup.consider([], [session(42)], new Set());
@@ -231,7 +231,7 @@ describe('a read that failed', () => {
 });
 
 describe('what the file holds', () => {
-  it('writes the assigned cards down, and prunes what nothing has named for long enough', async () => {
+  it('caches assigned cards and prunes expired unreferenced entries', async () => {
     const { lookup, store } = lookupOver(sourceOf(() => ({ card: null, failure: null })));
 
     lookup.consider([issue(42), issue(43)], [], new Set([42, 43]));
@@ -273,7 +273,7 @@ describe('what the file holds', () => {
     expect(entry.card.status).toBe('🔍 Dev Review');
   });
 
-  it('reads a file that is not JSON at all as nothing looked up, rather than throwing on every render', () => {
+  it('returns empty state for invalid JSON', () => {
     const store = makeIssueStore(home);
 
     store.write({ entries: {} });

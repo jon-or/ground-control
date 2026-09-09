@@ -4,20 +4,16 @@ import type { HubConfig, ReadFailure } from '@ground-control/core';
 import { read, writeIfChanged } from './fs.js';
 import { configPathOf } from './paths.js';
 
-/**
- * The last configuration a client gave the hub, kept so the next hub starts on it rather than on defaults nobody
- * chose. Which repository work is tracked in cannot be guessed, so a hub the browser started alone would otherwise
- * be permanently unconfigured — and the developer's settings live in an editor that may not be open (R9, R35).
- */
+/** Persist client settings so Chrome can restart a configured hub without an editor open (R9, R35). */
 export type StoredConfig = { config: HubConfig } | { failure: ReadFailure };
 
 export interface SettingsStore {
-  /** Null where nothing has been stored. A stored configuration that cannot be used comes back as the reason why. */
+  /** Return null for absent settings, or a failure for unusable stored settings. */
   read(): StoredConfig | null;
   write(config: HubConfig): void;
 }
 
-/** What the board shows for a stored configuration it will not run on: the file, and what was wrong with it. */
+/** Report the settings file and validation failure. */
 function settingsFailure(path: string, message: string): ReadFailure {
   return {
     subject: 'config',
@@ -38,10 +34,7 @@ export function makeSettingsStore(home: string): SettingsStore {
         return null;
       }
 
-      // Parsed the same way a pushed one is, never trusted for having been written here: one field of it becomes a
-      // process, the file sits in a directory any process running as the developer can write, and a build that
-      // changed the shape would otherwise hand the loop something it cannot use. What it refuses is said out loud
-      // rather than quietly replaced by defaults — a CLI that moved would otherwise drop the repository with it.
+      // Validate stored settings like client input, including executable paths. Report rejected settings rather than silently replacing them with defaults.
       try {
         const parsed = parseHubConfig(JSON.parse(text));
 
@@ -56,13 +49,11 @@ export function makeSettingsStore(home: string): SettingsStore {
         mkdirSync(groundControlDirOf(home), { recursive: true, mode: 0o700 });
 
         if (writeIfChanged(path, `${JSON.stringify(config, null, 2)}\n`)) {
-          // The developer's repository, their logins, and the paths of the processes the hub spawns. Read and
-          // written by them alone, the way the hub's own bundle is; on Windows the mode is the directory's.
+          // Restrict configuration access to its owner; Windows inherits directory permissions.
           chmodSync(path, 0o600);
         }
       } catch {
-        // A configuration that could not be stored is one the next editor window pushes again. Refusing the
-        // settings the developer just made because a write failed is the worse of the two.
+        // Keep accepted settings active after persistence failure; another client can save them later.
       }
     },
   };

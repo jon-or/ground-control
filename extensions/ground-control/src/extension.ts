@@ -13,10 +13,7 @@ import { registerUriHandler } from './openUri.js';
 import { boardLog, disposeChannels } from './logging.js';
 import type { Snapshot } from '@ground-control/core';
 
-/**
- * What `vscode.extensions.getExtension(...).exports` hands back. Readable by any extension in the window, so it is
- * two reads and nothing that acts: the snapshot this window's board renders, and what the board reports drawing.
- */
+/** Expose read-only snapshot, render, and log status to other extensions and integration tests. */
 export interface GroundControl {
   snapshot(): Snapshot | undefined;
   drew(): Drawn | null;
@@ -37,21 +34,20 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   try {
     writeBundle(home, context.extensionPath, version, bundle);
   } catch (error) {
-    // Everything else in this window still works, and a hub already on disk from an earlier run still starts. What
-    // must not happen is the commands, the board, and the settings listener going with it.
+    // Keep commands and settings available if bundle installation fails; an existing hub bundle may still
+    // start.
     boardLog().error(`could not write the hub to ${bundle}: ${String(error)}`);
     void vscode.window.showErrorMessage(`Could not write the hub bundle to ${bundle}: ${String(error)}`);
   }
 
-  // Connected on activation rather than when a board opens, because turning the signal off has to take effect with
-  // no board on screen (R34). Nothing is polled until a board says it is watching (R35).
+  // Connect on activation so settings apply without an open board (R34). Poll only while a board is watching
+  // (R35).
   const client = startClient(home, bundle);
 
   client.configure(readHubConfig(userDirOf(context)));
 
   context.subscriptions.push(
-    // One path for settings, and it runs whether or not a board is open. The hub answers a change the developer
-    // made with what its install observed, which is the only thing here worth a message of its own.
+    // Apply settings with or without a board and report the resulting hook installation status.
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(SECTION)) {
         client.configure(readHubConfig(userDirOf(context)), true);
@@ -60,8 +56,7 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
     vscode.commands.registerCommand('groundControl.openBoard', () => {
       BoardPanel.show(context);
     }),
-    // The board's Logs button by another route, for a window with no board open — which is also the only way off
-    // when the board that turned it on has been closed.
+    // Allow toggling the hub log after its board closes.
     vscode.commands.registerCommand('groundControl.toggleHubLog', () => {
       client.toggleHubLog();
     }),
@@ -70,12 +65,10 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
       boardLog().show(true);
     }),
     vscode.commands.registerCommand('groundControl.refresh', () => {
-      // Asked for on the board it opens too: what a board's arrival triggers is a read the source floor may hold,
-      // and a developer who pressed this is owed the round trip either way.
+      // Request an explicit refresh even when opening the board, bypassing the normal source refresh floor.
       BoardPanel.show(context).refresh();
     }),
-    // Turns the setting off and stops there: the configuration listener above owns the removal and its message, so
-    // there is one path that changes the hooks rather than two that have to agree.
+    // Let the configuration listener remove hooks and report the result.
     vscode.commands.registerCommand('groundControl.removeSessionHooks', () =>
       vscode.workspace
         .getConfiguration(SECTION)
@@ -95,8 +88,7 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
     { dispose: disposeChannels },
   );
 
-  // What this window has, so an integration test running inside this host reads the board a developer would see
-  // rather than a screenshot of one. Nothing in the product reads it.
+  // Expose actual window state for integration tests. Product code does not use these accessors.
   return {
     snapshot: () => client.snapshot,
     drew: () => BoardPanel.current?.drew ?? null,

@@ -1,18 +1,18 @@
 import { CODEX_DISPLAY_NAME } from './ids.js';
 import { trustEditFor } from './trust.js';
 
-/** What one attempt to have Codex trust the board's hooks came to. `null` is the attempt having worked. */
+/** Hook trust error, or null on success. */
 export type TrustAttempt = string | null;
 
-/** What to do with one message Codex sent: send the next request, answer, or neither. */
+/** Response action: send the next request, return the result, or ignore the message. */
 export type TrustStep = { send: unknown } | { answer: TrustAttempt } | null;
 
 const INITIALIZE = 1;
 const LIST = 2;
 const WRITE = 3;
 
-/** The ids this exchange asked under. A reply to anything else is Codex talking about something else. */
-const MINE = new Set<unknown>([INITIALIZE, LIST, WRITE]);
+/** Request IDs used by the trust exchange. */
+const REQUEST_IDS = new Set<unknown>([INITIALIZE, LIST, WRITE]);
 
 interface Reply {
   id?: unknown;
@@ -21,11 +21,9 @@ interface Reply {
 }
 
 /**
- * The three-request conversation that trusts the board's own hooks, as a decision per reply. Pure, so the sequencing
- * and every way it ends are testable without a process: the spawn in `appServer.ts` only moves bytes.
- *
- * `initialize`, then `hooks/list` for the hash Codex would trust per entry, then one `config/batchWrite` handing
- * those hashes back. The board computes no hash and writes no TOML (`docs/mechanics.md` M41).
+ * Process hook trust replies without starting a process. Send `initialize`, get Codex hashes from `hooks/list`,
+ * then return them through `config/batchWrite`. Codex computes hashes and writes TOML; `appServer.ts` handles
+ * transport (M41).
  */
 export function trustExchange(home: string): { start(): unknown; take(reply: unknown): TrustStep } {
   return {
@@ -40,7 +38,7 @@ export function trustExchange(home: string): { start(): unknown; take(reply: unk
     take(raw) {
       const reply = raw as Reply;
 
-      if (!MINE.has(reply.id)) {
+      if (!REQUEST_IDS.has(reply.id)) {
         return null;
       }
 
@@ -55,13 +53,12 @@ export function trustExchange(home: string): { start(): unknown; take(reply: unk
       if (reply.id === LIST) {
         const plan = trustEditFor(reply.result, home);
 
-        // Codex read a hooks file that is not the one the board wrote into. Answering this as success would hide the
-        // one fault that looks exactly like a working install and changes nothing.
+        // No matching hooks indicates Codex read a different hooks file; do not report success.
         if (plan.ours === 0) {
           return { answer: `${CODEX_DISPLAY_NAME} reported none of the board's own hooks` };
         }
 
-        // Nothing left to trust: an install that is already done, or another window's attempt that got there first.
+        // The hooks are already trusted, possibly by another window.
         if (plan.edit === null) {
           return { answer: null };
         }

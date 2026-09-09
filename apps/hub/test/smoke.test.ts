@@ -16,7 +16,7 @@ if (!existsSync(ENTRY)) {
   throw new Error(`${ENTRY} is not built. Run npm run build at the repo root, or npm run verify, which builds first.`);
 }
 
-/** Nothing of the developer's on it, so the hub finds neither `claude` nor `gh` and classifies both (R24, R25). */
+/** Isolated PATH excludes Claude and gh to exercise missing-CLI failures (R24, R25). */
 const BARE_PATH = process.platform === 'win32' ? 'C:\\Windows\\System32' : '/usr/bin';
 
 const running: ChildProcess[] = [];
@@ -74,8 +74,7 @@ interface Run {
 
 function run(home: string, ...args: string[]): Run {
   const child = spawn(process.execPath, [ENTRY, `--home=${home}`, ...args], {
-    // `--home` is what points the child at this run's own directory; these are what keep a mode that forgot it
-    // from silently writing to the developer's real board instead.
+    // Inject environment homes too, protecting user data if a mode ignores --home.
     env: { ...process.env, PATH: BARE_PATH, Path: BARE_PATH, USERPROFILE: home, HOME: home },
     windowsHide: true,
   });
@@ -162,7 +161,7 @@ function call(port: number, method: string, path: string, token: string | null, 
   });
 }
 
-describe('the hub as its own process', () => {
+describe('hub process', () => {
   it('comes up, reports both missing CLIs to a watching client, and stops when asked', async () => {
     const home = tempHome();
     const hub = run(home);
@@ -172,7 +171,7 @@ describe('the hub as its own process', () => {
     expect(there.fingerprint).toBe(fingerprintOf(home));
     expect(await call(there.port, 'GET', '/hub', null)).toContain('"hub":"ground-control"');
 
-    // The snapshot is what a client sees, and nothing is polled until one says it is watching (R35).
+    // Subscribe before polling; clients receive snapshots only while watching (R35).
     const frames: string[] = [];
     const events = request(
       {
@@ -209,10 +208,10 @@ describe('the hub as its own process', () => {
 
     await call(there.port, 'POST', '/actions?client=smoke', there.token, JSON.stringify({ type: 'refresh' }));
 
-    // Both CLIs are off this PATH, so a real read names both rather than blanking the board (R24, R25).
+    // Report both missing CLIs instead of an unexplained empty board (R24, R25).
     const seen = await until(() => (frames.join('').includes('"kind":"bad-config"') ? frames.join('') : null), 20_000);
 
-    // Both sources are named, rather than one failing quietly behind the other (R24, R25).
+    // Assert both source failures independently (R24, R25).
     const snapshot = JSON.parse((await call(there.port, 'GET', '/snapshot', there.token)).slice(4)) as {
       failures: { subject: string }[];
     };
@@ -228,7 +227,7 @@ describe('the hub as its own process', () => {
     expect(existsSync(join(home, '.claude', 'ground-control', 'hub-exit.json'))).toBe(true);
   });
 
-  it('leaves the hub a home already has alone, and says so', async () => {
+  it('preserves and reports an existing hub', async () => {
     const home = tempHome();
 
     run(home);
@@ -282,8 +281,8 @@ describe('the hub as its own process', () => {
     });
 
     expect(there.port).not.toBe(stolen);
-    // Pinned by contents, not scanned: a probe that never happened would satisfy every predicate over an empty list.
-    // Two: once before binding, and once when the record it could not claim turned out to name nothing alive.
+    // Assert exactly two probes: before binding and after finding the unclaimed record stale. Empty output must
+    // fail.
     expect(asked).toEqual(['GET /hub?nonce=… no-token', 'GET /hub?nonce=… no-token']);
   });
 
@@ -301,9 +300,8 @@ describe('the hub as its own process', () => {
   });
 
   /**
-   * A mode that threw used to drain and exit 0, because the `unhandledRejection` handler reports and deliberately
-   * does not exit. Its caller is a menu item telling the developer their browser can now reach the board (R34), and
-   * an exit code is all it has to go on.
+   * CLI failures must exit nonzero even though unhandledRejection logging keeps the process alive. Clients use
+   * the exit code to report installation success (R34).
    */
   it('exits non-zero when it cannot do what it was asked', async () => {
     const home = tempHome();

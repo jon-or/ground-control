@@ -1,16 +1,13 @@
 import { mkdirSync, openSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-/** Big enough to hold a day of a hub's starts and failures, small enough that nobody has to open it in pieces. */
+/** Maximum log size before rotation. */
 export const LOG_LIMIT_BYTES = 1_000_000;
 
-/** The current file plus this many older ones. Two is one crash back, which is as far as anyone reads. */
+/** Number of rotated files retained in addition to the current log. */
 export const LOGS_KEPT = 2;
 
-/**
- * Moves the log aside when it has grown past the limit, oldest dropped first. Called at startup and again whenever a
- * run has written the limit itself: a hub refusing a page in a background tab writes far more than its own starts.
- */
+/** Rotate at the size limit, deleting the oldest file. Called at startup and during writes. */
 export function rotateLog(path: string, limit = LOG_LIMIT_BYTES, kept = LOGS_KEPT): boolean {
   try {
     if (statSync(path).size < limit) {
@@ -33,14 +30,14 @@ export function rotateLog(path: string, limit = LOG_LIMIT_BYTES, kept = LOGS_KEP
   try {
     renameSync(path, `${path}.1`);
   } catch {
-    // Something is holding it open; the hub appends to it rather than losing its own output.
+    // If rotation fails, keep appending to the current log.
     return false;
   }
 
   return true;
 }
 
-/** An append-only file descriptor for the hub's stdout and stderr, with its directory created if it is not there. */
+/** Open the hub log for append, creating its directory if needed. */
 export function openLog(path: string): number {
   mkdirSync(dirname(path), { recursive: true });
   rotateLog(path);

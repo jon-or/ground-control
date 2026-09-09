@@ -93,7 +93,7 @@ describe('pruning', () => {
     expect(Object.keys(kept.entries)).toEqual([key]);
   });
 
-  it('keeps a recent reading nothing names, so the next session naming it costs no round trip', () => {
+  it('retains recent unreferenced lookups', () => {
     expect(Object.keys(pruneKnownIssues(state, new Set(), KNOWN_ISSUE_TTL_MS - 1).entries)).toHaveLength(2);
   });
 
@@ -103,10 +103,7 @@ describe('pruning', () => {
 });
 
 describe('whether a card has changed since it was stored', () => {
-  /**
-   * A stored card comes back in the schema's key order and a fresh one in the source's, so this is the whole of what
-   * keeps `issues.json` from being rewritten on every poll.
-   */
+  /** Ignore source/schema key-order differences to avoid rewriting unchanged issue caches. */
   it('reads a card whose keys are in another order as the same card', () => {
     const reordered = Object.fromEntries(Object.entries(card).reverse()) as unknown as IssueCard;
 

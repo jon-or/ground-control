@@ -53,7 +53,7 @@ describe('where Chrome looks for the bridge', () => {
     expect(plan('linux').registryKey).toBeNull();
   });
 
-  it('lets in this extension and nothing else', () => {
+  it('allows only the configured Chrome extension', () => {
     const manifest = JSON.parse(plan('win32').manifest) as { allowed_origins: string[]; path: string; type: string };
 
     expect(manifest.allowed_origins).toEqual([`chrome-extension://${CHROME_EXTENSION_ID}/`]);
@@ -62,7 +62,7 @@ describe('where Chrome looks for the bridge', () => {
   });
 
   /** Chrome reads this process's stdout as message frames, so a line the wrapper prints is a malformed frame. */
-  it('starts the bridge from a wrapper that prints nothing of its own', () => {
+  it('keeps launcher stdout limited to native-message frames', () => {
     const windows = plan('win32');
 
     expect(windows.wrapperPath).toBe(`${HOME}/.claude/ground-control/ground-control-bridge.cmd`);
@@ -76,16 +76,13 @@ describe('where Chrome looks for the bridge', () => {
     expect(posix.wrapper).toContain('--native-messaging');
   });
 
-  /** The bundle path, never the extension's own copy: an update would otherwise orphan what this manifest names. */
+  /** Use the stable hub bundle path across extension updates. */
   it('names the one hub every client starts', () => {
     expect(plan('win32').wrapper).toContain('/.claude/ground-control/hub.js');
   });
 
-  /**
-   * The command that registered this may have run inside VS Code, whose executable is the interpreter written into
-   * the wrapper. Without this, Chrome starts an editor instead of a bridge and the port closes with no message.
-   */
-  it('tells an Electron interpreter to be node', () => {
+  /** The interpreter may be VS Code's executable; ELECTRON_RUN_AS_NODE prevents opening an editor instead of the bridge. */
+  it('sets ELECTRON_RUN_AS_NODE for the launcher', () => {
     expect(plan('win32').wrapper).toContain('set ELECTRON_RUN_AS_NODE=1');
     expect(plan('linux').wrapper).toContain('ELECTRON_RUN_AS_NODE=1 exec');
   });
@@ -132,7 +129,7 @@ describe('registering and unregistering', () => {
   });
 
   /** Removing a registration nobody made is the wanted state, not a failure to report. */
-  it('does not complain when there was nothing registered', () => {
+  it('accepts removal of absent registration', () => {
     const { deps, removed } = fakeDeps('The system was unable to find the specified registry key.');
 
     expect(() => uninstallChromeHost(plan('win32'), deps)).not.toThrow();

@@ -43,7 +43,7 @@ export function parent(path: string): string | null {
   const cut = trimmed.lastIndexOf('/');
   const above = trimmed.slice(0, cut);
 
-  // A UNC path's first two segments are the server and the share; above them is another machine, not a parent.
+  // Stop at the UNC share root.
   if (cut <= 0 || above.endsWith(':') || /^\/\/[^/]*(\/[^/]*)?$/.test(above)) {
     return null;
   }
@@ -52,15 +52,14 @@ export function parent(path: string): string | null {
 }
 
 /**
- * A directory as a comparable key. Case is folded because two CLIs can report the same Windows path with a different
- * drive-letter case. The cost lands only on a case-sensitive filesystem, where two directories differing just in case
- * become one board card, and a session there may be opened onto the wrong checkout.
+ * Normalize separators and case for Windows path comparisons. On case-sensitive filesystems this conflates
+ * distinct directories and can select the wrong checkout.
  */
 export function dirKey(dir: string): string {
   return normalize(dir).replace(/\/+$/, '').toLowerCase();
 }
 
-/** Where everything of the board's own lives in the developer's home: the hub's files, and each agent's signal. */
+/** Hub state and agent activity files, relative to the developer home. */
 export const GROUND_CONTROL_DIR = '.claude/ground-control';
 
 export function groundControlDirOf(home: string): string {

@@ -26,58 +26,40 @@ import type { ActionStore } from './actionStore.js';
 export interface ActionDeps {
   home: string;
   store: ActionStore;
-  /** Every run the board starts, stops, or settles. This is the board editing the developer's code (R39). */
+  /** Log action starts, stops, and outcomes (R39). */
   log: Logger;
   agents: readonly AgentAdapter[];
   sources: readonly WorkSource[];
   now(): number;
-  /**
-   * Called when a run starts, lands or is settled, so the board redraws. Redrawing is what calls `consider`, so this
-   * re-enters — the `#considering` guard is what makes that safe, and removing it would have the first dispatch
-   * start the second before it had claimed its slot.
-   */
+  /** Redraw on run changes. Redrawing re-enters consider; #considering prevents duplicate dispatches. */
   changed(): void;
-  /**
-   * Says, once per machine, that the board has started work on the developer's code. Turning an action on is the
-   * consent; the first time one actually fires is the moment worth naming, because it edits a checkout and may push.
-   */
+  /** Notify once per machine after the first successful dispatch, which may edit and push changes. */
   announce(message: string): void;
-  /**
-   * Answers something the developer asked for by hand. Every gate a hand-asked run reaches is reached after the
-   * click has returned, so without this a press that refused would be a press that did nothing and said nothing.
-   */
+  /** Report asynchronous refusals for manual requests. */
   notify(message: string): void;
 }
 
-/** How long a dispatch is given to print the id it minted. `--bg` returns as soon as it has (`mechanics.md` M33). */
+/** Time allowed for the CLI to print its dispatch ID (M33). */
 const DISPATCH_TIMEOUT_MS = 60_000;
 
-/**
- * The card's checkout, but only where an agent has actually run in it. A folder the developer picked is evidence
- * enough to open a window or start a session they are watching (R41, R42) — not to edit code unattended (R39).
- */
-function ranIn(card: LanedCard): CardCheckout | null {
+/** Require a checkout used by a session for unattended edits (R39). User-selected folders allow only manual starts (R41, R42). */
+function sessionCheckout(card: LanedCard): CardCheckout | null {
   return card.checkout?.source === 'session' ? card.checkout : null;
 }
 
-/**
- * Performs the one card action the board is willing to perform rather than only label (R39). It owns nothing the
- * snapshot owns: it never places a card and never changes a lane. What it does own is a run's outcome, which is the
- * run's own signal — the base branch moves under a card all day, so re-reading GitHub measures the repository
- * rather than the work.
- */
+/** Run supported card actions without changing lane placement. Outcomes come from session reports (R39). */
 export class ActionRunner {
   readonly #deps: ActionDeps;
   readonly #inFlight = new Map<string, AbortController>();
-  /** Keys whose stop is out, so a settle pass does not decide an outcome from underneath it. */
-  readonly #settling = new Set<string>();
-  /** The shipped settings until a client sends its own, with the daily limit at nothing so no run starts before then. */
+  /** Keys with pending stop requests, excluded from outcome checks. */
+  readonly #stopping = new Set<string>();
+  /** Disable automatic dispatch until a client supplies settings. */
   #settings: ActionSettings = { ...DEFAULT_ACTIONS, dailyLimit: 0 };
   #agentPaths = new Map<string, { path: string; model: string | null }>();
   #disposed = false;
   #considering = false;
-  /** Why the runner has stood itself down, or null. Set when the store cannot be written — see `#write`. */
-  #stalled: string | null = null;
+  /** Persistence failure blocking further dispatches; see #write. */
+  #persistenceFailure: string | null = null;
 
   constructor(deps: ActionDeps) {
     this.#deps = deps;
@@ -88,7 +70,7 @@ export class ActionRunner {
     this.#agentPaths = new Map(agents.map((agent) => [agent.id, { path: agent.path, model: agent.model ?? null }]));
   }
 
-  /** The cards being worked on right now, so the snapshot can say so and nothing else is dispatched for them. */
+  /** Card keys with running actions, used for display and duplicate prevention. */
   running(): ReadonlySet<string> {
     return new Set(
       Object.entries(this.#deps.store.read().runs)
@@ -105,22 +87,22 @@ export class ActionRunner {
     return new Set([...this.#inFlight.keys(), ...this.running()]).size;
   }
 
-  /** Why runs could not be made, deduplicated above the lanes the way every other condition is (R25). */
+  /** Action failures, deduplicated above the lanes (R25). */
   failures(): ReadFailure[] {
-    const stalled: ReadFailure[] =
-      this.#stalled === null
+    const persistenceFailures: ReadFailure[] =
+      this.#persistenceFailure === null
         ? []
         : [
             {
               subject: 'action',
               kind: 'action-stalled',
-              message: this.#stalled,
+              message: this.#persistenceFailure,
               remedy: 'Check that ~/.claude/ground-control is writable, then reload the window.',
             },
           ];
 
     return [
-      ...stalled,
+      ...persistenceFailures,
       ...Object.values(this.#deps.store.read().runs)
         .filter((run) => run.outcome === 'failed')
         .map((run) => ({
@@ -150,9 +132,7 @@ export class ActionRunner {
     this.#considering = true;
 
     try {
-      // Settled before anything is pruned, because pruning drops what a card no longer on the board left behind and
-      // a run in flight is exactly what must not be dropped: forgetting it loses the developer the control that
-      // stops the agent still working in their checkout.
+      // Resolve outcomes before pruning so active runs retain their stop controls.
       if (sessionsRead) {
         this.#settle(lanes, sessions, sourcesRead);
       }
@@ -181,8 +161,8 @@ export class ActionRunner {
       return;
     }
 
-    this.#stalled =
-      'The board could not record what it has run, so it has stopped starting work. Nothing is lost — restart the board once the file is writable.';
+    this.#persistenceFailure =
+      'Could not save action state. New actions are disabled. Restore file access, then reload the window.';
   }
 
   /**
@@ -194,8 +174,8 @@ export class ActionRunner {
       return refusal('action-stopping', 'The board is shutting down.');
     }
 
-    if (this.#stalled !== null) {
-      return refusal('action-stalled', this.#stalled);
+    if (this.#persistenceFailure !== null) {
+      return refusal('action-stalled', this.#persistenceFailure);
     }
 
     const state = this.#deps.store.read();
@@ -208,8 +188,7 @@ export class ActionRunner {
       return refusal('action-busy', 'Concurrent card action limit reached.');
     }
 
-    // A ceiling of zero is the board acting on nothing, which is not the developer being refused their own click —
-    // that is the one configuration a cautious developer reaches for, and the setting says so in as many words.
+    // Zero disables automatic starts but permits manual requests.
     if (this.#settings.dailyLimit > 0 && dispatchesInWindow(state, this.#deps.now()) >= this.#settings.dailyLimit) {
       return refusal('action-daily-limit', 'Card action limit reached for the last 24 hours.');
     }
@@ -219,13 +198,7 @@ export class ActionRunner {
     return null;
   }
 
-  /**
-   * Taking back a run in flight. Stops the session the board started, and nothing else about the card.
-   *
-   * The card is marked stopped only where the session actually was: a stop that failed leaves a real agent still
-   * working in the developer's checkout, and a card reading "Stopped" over one is the board asserting a state it
-   * knows it did not reach (R24). What it says instead is what went wrong, and the run stays stoppable.
-   */
+  /** Stop the dispatched session. Mark stopped only on success; a failed stop leaves the run stoppable (R24). */
   async stopAction(key: string): Promise<ReadFailure | null> {
     const run = this.#deps.store.read().runs[key];
 
@@ -241,17 +214,16 @@ export class ActionRunner {
     if (agent?.stopDispatch === undefined || configured === undefined || run.shortId === '') {
       return refusal(
         'action-unstoppable',
-        'The board cannot stop that session itself. Stop it from a terminal, or close the tab it is in.',
+        'Cannot stop this session. Stop it from a terminal or close its tab.',
       );
     }
 
-    // Held while the stop is out, so the settle pass does not decide this run's outcome from underneath it.
-    this.#settling.add(key);
+    // Exclude this run from outcome checks while its stop request is pending.
+    this.#stopping.add(key);
     this.#deps.log.info(`${key}: stop requested`, 'actions');
 
     try {
-      // The seam is public and may throw rather than answer. A throw escaping here is an unhandled rejection in the
-      // hub, because the client's message is dispatched without one — and the run would be left claiming nothing.
+      // Convert adapter rejections to reported failures; this call has no outer rejection handler.
       const failure = await agent
         .stopDispatch(configured.path, run.shortId)
         .catch((error: unknown): ReadFailure => ({
@@ -267,7 +239,7 @@ export class ActionRunner {
 
       return failure;
     } finally {
-      this.#settling.delete(key);
+      this.#stopping.delete(key);
       this.#deps.changed();
     }
   }
@@ -280,11 +252,7 @@ export class ActionRunner {
     }
   }
 
-  /**
-   * What each card says about its action. Built from the stored run or refusal where there is one, and otherwise
-   * from the card's own reading: a card triaged to something the board performs offers the control whether or not
-   * the setting is on.
-   */
+  /** Display stored outcomes and refusals, then available manual actions regardless of automatic enablement. */
   decorate(lanes: readonly Lane[]): Lane[] {
     const state = this.#deps.store.read();
 
@@ -299,7 +267,7 @@ export class ActionRunner {
     }));
   }
 
-  /** Why a card's control would refuse before it is pressed, where the answer needs no read of GitHub. */
+  /** Report action refusals that require no GitHub read. */
   #offerRefusal(action: AutomatableAction | null, card: LanedCard): string | null {
     if (action === null) {
       return null;
@@ -310,12 +278,12 @@ export class ActionRunner {
       return 'This card has an active session.';
     }
 
-    if (ranIn(card) === null) {
+    if (sessionCheckout(card) === null) {
       return 'No checkout from a previous session is available for this card.';
     }
 
     return promptFor(action, this.#settings) === null
-      ? `No prompt is set for ${action}. Set groundControl.actions to say what should run.`
+      ? `No prompt is set for ${action}. Set its prompt in groundControl.actions.`
       : null;
   }
 
@@ -328,7 +296,7 @@ export class ActionRunner {
     const now = this.#deps.now();
     const free = this.#settings.concurrency - this.#busy();
 
-    if (this.#stalled !== null || free <= 0 || dispatchesInWindow(state, now) >= this.#settings.dailyLimit) {
+    if (this.#persistenceFailure !== null || free <= 0 || dispatchesInWindow(state, now) >= this.#settings.dailyLimit) {
       return [];
     }
 
@@ -344,10 +312,8 @@ export class ActionRunner {
           actionEnabled(action, this.#settings) &&
           state.runs[card.key]?.outcome !== 'running' &&
           !this.#inFlight.has(card.key) &&
-          // Checked before the read rather than in the plan. A card with no checkout can never be acted on, so
-          // asking GitHub about it is waste — and the board's history lands after its roster, so a refusal recorded
-          // on the pass in between would gate a perfectly eligible card for the whole gate window.
-          ranIn(card) !== null &&
+          // Wait for session history before checking GitHub; an early no-checkout refusal would delay an eligible card.
+          sessionCheckout(card) !== null &&
           card.sessions.length === 0 &&
           gateOpen(state, card.key, now)
         ) {
@@ -359,34 +325,28 @@ export class ActionRunner {
     return due;
   }
 
-  /**
-   * Settles runs whose session the roster no longer carries, from the file each was given. A run that says it pushed
-   * landed; anything else halted, in the run's own words.
-   */
+  /** Resolve completed or unlisted sessions from their result files. A reported push means landed; other results mean halted. */
   #settle(lanes: readonly Lane[], sessions: readonly Session[], sourcesRead: boolean): void {
     const state = this.#deps.store.read();
-    // `finished` and not merely listed: a `--bg` session stays on the roster after its turn with the CLI's own end
-    // word on it, so a run waited on by presence alone would never close (`docs/mechanics.md` M33).
+    // Finished background sessions remain listed (M33); presence alone would prevent completion.
     const live = new Set(sessions.filter((session) => !session.finished).map((session) => session.sessionId));
     const cards = new Map(lanes.flatMap((lane) => lane.cards).map((card) => [card.key, card]));
     let next = state;
 
     for (const [key, run] of Object.entries(state.runs)) {
-      if (run.outcome !== 'running' || this.#settling.has(key)) {
+      if (run.outcome !== 'running' || this.#stopping.has(key)) {
         continue;
       }
 
-      // The full id is resolved from the roster by the short id the CLI printed, because `--bg` will not take one it
-      // is given (`docs/mechanics.md` M33). Until that lands the run is open and untouched.
+      // Resolve the full session ID from the returned prefix; Claude --bg does not accept a caller-supplied ID (M33).
       if (run.sessionId === null) {
         const found = sessions.find((session) => session.sessionId.startsWith(run.shortId) && run.shortId !== '');
 
         if (found !== undefined) {
           next = withSession(next, key, found.sessionId);
         } else if (this.#deps.now() - run.startedAt > this.#settings.resultTimeoutMs) {
-          // A dispatch whose session never appeared is a run the board cannot follow or stop. It waits out the whole
-          // budget first, because `--bg` returns before the session registers.
-          next = withOutcome(next, key, 'failed', 'The session the board started never appeared on the machine.', this.#deps.now());
+          // Allow registration time before declaring the dispatched session missing (M33).
+          next = withOutcome(next, key, 'failed', 'The dispatched session was not found before the timeout.', this.#deps.now());
         }
 
         continue;
@@ -399,9 +359,7 @@ export class ActionRunner {
       const card = cards.get(key)?.issue;
 
       if (card == null) {
-        // Only a clean source read proves a card has left the board. A failed one renders the last good cards, or
-        // none at all on a hub that has just started — and saying a card left when the board could not be read is
-        // the wrong sentence on a real run (R24). It stays open until a read settles the question.
+        // Require a successful source read to confirm the card left the board (R24).
         if (sourcesRead) {
           next = withOutcome(next, key, 'halted', 'The card left the board while this was running.', this.#deps.now());
         }
@@ -426,7 +384,7 @@ export class ActionRunner {
     const report = readActionReport(readJson(actionReportPathOf(this.#deps.home, key)));
 
     this.#deps.log.info(
-      `${key}: the run ${report?.outcome === 'pushed' ? 'landed' : 'ended without landing'}`,
+      `${key}: ${report?.outcome === 'pushed' ? 'push reported' : 'no push reported'}`,
       'actions',
     );
 
@@ -434,12 +392,12 @@ export class ActionRunner {
       state,
       key,
       report?.outcome === 'pushed' ? 'landed' : 'halted',
-      report?.detail ?? 'The run ended without saying what it did.',
+      report?.detail ?? 'The run ended without a readable result.',
       this.#deps.now(),
     );
   }
 
-  /** One card read afresh, gated, and dispatched — or the refusal that stopped it, recorded so the card can say so. */
+  /** Read fresh context, validate, then dispatch or record the refusal. */
   async #run(key: string, lanes: readonly Lane[], asked: boolean): Promise<void> {
     const controller = new AbortController();
     this.#inFlight.set(key, controller);
@@ -458,9 +416,7 @@ export class ActionRunner {
         return;
       }
 
-      // The action is the card's own reading and never a second look at the same facts: the board derives no merge,
-      // so what authorises one is a request somebody wrote. A client may post any key, which is why it is checked
-      // here as well as in the control the developer presses.
+      // Require the card's requested action on the server too; clients can submit arbitrary card keys.
       const action = actionOf(card);
 
       if (action === null) {
@@ -485,7 +441,7 @@ export class ActionRunner {
         context: reading.context,
         lane: card.lane,
         liveSessions: card.sessions.length,
-        checkout: ranIn(card),
+        checkout: sessionCheckout(card),
         settings: this.#settings,
       });
 
@@ -495,10 +451,7 @@ export class ActionRunner {
         return;
       }
 
-      // Checked here rather than in the plan, because it is the one gate a fresh read cannot answer: it is about what
-      // the board has already spent, not about what the card is. The developer's own ask is not held to it — that is
-      // the retry the rule exists to leave them — and their record is kept rather than deleted, so a run that then
-      // refuses leaves the card saying what the last one came to.
+      // Check persisted runs separately from fresh context. Manual retries bypass this check and retain the previous outcome.
       if (!asked && alreadyRun(this.#deps.store.read(), key, decision.plan.evidence)) {
         this.#refuse(key, asked, {
           kind: 'already-run',
@@ -510,8 +463,7 @@ export class ActionRunner {
 
       await this.#dispatch(key, decision.plan, agent, configured, controller.signal, asked);
     } catch (error: unknown) {
-      // The seams are public and either may throw rather than answer. A throw that escaped would leave the card with
-      // no run and no refusal, which reads as never having been tried — and starts it again on the next broadcast.
+      // Record adapter exceptions as refusals so subsequent broadcasts respect retry limits.
       this.#refuse(key, asked, {
         kind: 'action-crashed',
         message: error instanceof Error ? error.message : String(error),
@@ -592,8 +544,7 @@ export class ActionRunner {
       ),
     );
 
-    // After the dispatch, not before: a run that never started is not the board having started work on the
-    // developer's code, and announcing it would spend the one notice they ever get on something that did not happen.
+    // Announce only successful starts so a failed dispatch does not consume the one-time notice.
     if (!failed) {
       this.#deps.announce(
         `Started ${plan.action} for #${plan.issueNumber} in ${plan.checkout}. ` +
@@ -617,7 +568,7 @@ export class ActionRunner {
   }
 }
 
-/** The action a card is asking for, where that is one the board performs at all. Read once, used everywhere. */
+/** Return the supported action from completed triage. */
 function actionOf(card: LanedCard): AutomatableAction | null {
   const reading = card.triage?.state === 'done' ? card.triage.action : null;
 
@@ -642,11 +593,7 @@ function readJson(path: string): unknown {
   }
 }
 
-/**
- * Clears the last run's report, and says whether it could. This is the one file a verdict is read from, so a stale
- * `pushed` left in place would have the next run report a landing it never reached — the reason a dispatch refuses
- * rather than starting a session whose outcome the board could not tell from the previous one's.
- */
+/** Remove the previous report before dispatch. A stale pushed result could falsely complete a new run. */
 function clearReport(path: string): boolean {
   try {
     mkdirSync(path.slice(0, path.lastIndexOf('/')), { recursive: true });

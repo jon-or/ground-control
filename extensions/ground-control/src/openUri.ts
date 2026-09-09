@@ -14,8 +14,7 @@ import { agentExtensionReady } from './resident.js';
 export function registerUriHandler(): vscode.Disposable {
   return vscode.window.registerUriHandler({
     async handleUri(uri: vscode.Uri): Promise<void> {
-      // Before the open read, and never through the hub: a detached run is entered by attaching to it, which is
-      // this window's own terminal rather than a surface the hub could route to.
+      // Handle detached attach locally in a terminal before normal hub session routing.
       const attaching = attachFromUri(uri.path, uri.query);
 
       if (attaching !== null) {
@@ -32,19 +31,16 @@ export function registerUriHandler(): vscode.Disposable {
         return;
       }
 
-      // Activation builds the client before it registers this handler, and VS Code delivers a URI only once
-      // activation has settled — so there is no window in which this window has no client to send through.
+      // Activation creates the client before registering this URI handler.
       const held = client();
 
-      // Which extension has to be up is the session's own agent's. A hand-over names it in the URI, because the
-      // window the board raised may never have had a board open and so may hold no snapshot to read it from; a link
-      // a developer clicked is read off the snapshot, and falls back to Claude where this window has none.
+      // Resolve the agent from cross-window URI parameters or the snapshot; default to Claude when neither is
+      // available.
       const handed = handedOver(uri.query);
       const agent = handed ?? agentOfSession(held?.snapshot, sessionId);
 
-      // A hand-over goes through the hub like any other open. The hub is local and every window can reach it, and
-      // it is what proves the session exists, which surface holds it, and whether a resume is allowed — none of
-      // which a link can prove, and this link is reachable from any page in the browser.
+      // Validate session identity, placement, and resume permission through the hub. Browser-accessible links
+      // cannot authorize these operations.
       held?.send({
         type: 'open',
         sessionId,
@@ -94,6 +90,6 @@ async function runNamed(sessionId: string): Promise<Session | null> {
       return null;
     }
 
-    await new Promise((wake) => setTimeout(wake, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 }

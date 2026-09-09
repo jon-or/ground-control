@@ -54,8 +54,7 @@ describe('the recording these tests rest on', () => {
   });
 
   it('shows what --all adds and the board declines: sessions that have already finished', () => {
-    // A property of each file on its own. The two `claude` calls are separate invocations, so one is not
-    // guaranteed to be a superset of the other and no test may assert a relation between them.
+    // The two CLI responses were recorded separately; neither must be a subset of the other.
     expect(all.filter((e) => e.state === 'stopped' || e.state === 'done').length).toBeGreaterThan(0);
     expect(active.filter((e) => e.state === 'stopped' || e.state === 'done')).toEqual([]);
   });
@@ -162,32 +161,26 @@ describe('the Claude adapter', () => {
     expect(mapped?.details.state).toBe(reportedState(background));
   });
 
-  /**
-   * The CLI's four words are the board's three states under other names, and `blocked` is the one that misleads: it
-   * is a session whose own state is `needs_reply` or `needs_approval`, which is what the board calls waiting.
-   */
-  it('says what a run is doing in the three words the board already uses', () => {
+  /** Map CLI needs_reply and needs_approval states to waiting. */
+  it('normalizes CLI states to board phases', () => {
     expect(reportedState({ ...entry, state: 'blocked' })).toBe('waiting');
     expect(reportedState({ ...entry, state: 'working' })).toBe('running');
     expect(reportedState({ ...entry, state: 'done' })).toBe('idle');
     expect(reportedState({ ...entry, state: 'stopped' })).toBe('idle');
-    // A word a later build invents is carried rather than guessed at.
+    // Preserve unknown states from future CLI versions.
     expect(reportedState({ ...entry, state: 'something-new' })).toBe('something-new');
     expect(reportedState(entry)).toBeUndefined();
   });
 
-  /** What it is waiting for outranks the tempo: `blocked` beside a prompt nobody can answer names neither. */
+  /** Prefer the specific wait reason over tempo. */
   it('names what a waiting run is waiting for, over its state', () => {
     expect(reportedState({ ...entry, status: 'waiting', state: 'blocked', waitingFor: 'permission prompt' })).toBe(
       'waiting on a permission prompt',
     );
   });
 
-  /**
-   * The id is what a terminal is opened with, so a job the CLI has already ended must not carry one: `claude attach`
-   * answers `No job matching` for it, and the row would offer a terminal that fails in front of the developer.
-   */
-  it('carries an attach id for a live background session, and none once the CLI says it ended', async () => {
+  /** Ended jobs must not offer attach, which would fail with No job matching. */
+  it('includes attach IDs only for live background sessions', async () => {
     const ended = all.find((e) => e.kind === 'background' && e.state === 'stopped' && e.id !== undefined)!;
     const interactive = all.find((e) => e.kind === 'interactive')!;
     const revived = all.map((e) => (e === ended ? { ...e, state: 'working', status: 'busy' } : e));
@@ -200,11 +193,8 @@ describe('the Claude adapter', () => {
     expect(gone.sessions.find((s) => s.sessionId === interactive.sessionId)?.attachId).toBeNull();
   });
 
-  /**
-   * The one field the lane rules read that no other agent may have to fake. `--all` is the only response that carries
-   * a finished session, so the mapping is proved against it and against the active list, which carries none.
-   */
-  it('calls a session finished only where the CLI said so in its own words', async () => {
+  /** Verify finished against --all and active responses; only --all includes terminated background sessions. */
+  it('marks completion only for CLI terminal states', async () => {
     const { sessions } = await read(config(), deps(all));
     const ended = new Set(all.filter((e) => e.state === 'done' || e.state === 'stopped').map((e) => e.sessionId));
 
@@ -243,7 +233,7 @@ describe('the Claude adapter', () => {
     expect(sessions.find((s) => s.branch === 'team/worker-1')?.issueNumber).toBeNull();
   });
 
-  it('carries each session its own recorded transcript write time', async () => {
+  it('reads each session transcript mtime', async () => {
     const { sessions } = await read(config(), deps());
 
     for (const entry of transcripts.entries.filter((e) => e.writtenAt !== null)) {
@@ -251,7 +241,7 @@ describe('the Claude adapter', () => {
     }
   });
 
-  it('carries each session its own recorded title, and none where the transcript held none', async () => {
+  it('reads session titles and preserves missing titles', async () => {
     const { sessions } = await read(config(), deps());
 
     const reported = transcripts.entries.filter((e) => e.writtenAt !== null);
@@ -289,7 +279,7 @@ describe('the Claude adapter', () => {
     expect(snapshot.sessions[0]?.details).not.toHaveProperty('name');
   });
 
-  it('says why nothing linked when the pattern is unusable, rather than linking silently', async () => {
+  it('reports invalid issue patterns', async () => {
     const snapshot = await read(config({ branchIssuePattern: '^(\\d+' }), deps());
 
     expect(snapshot.patternError).toContain('groundControl.branchIssuePattern');
@@ -298,7 +288,7 @@ describe('the Claude adapter', () => {
     expect(snapshot.sessions.some((s) => s.branch !== null)).toBe(true);
   });
 
-  it('says why nothing linked when the pattern captures nothing', async () => {
+  it('reports issue patterns without captures', async () => {
     const snapshot = await read(config({ branchIssuePattern: '^\\d+-' }), deps());
 
     expect(snapshot.patternError).toContain('no capturing group');
@@ -313,7 +303,7 @@ describe('the Claude adapter', () => {
     expect(snapshot.patternError).toBeNull();
   });
 
-  it('reports a missing CLI as a failure with its own remedy, and no sessions', async () => {
+  it('reports missing CLI failures with a remedy and no sessions', async () => {
     const snapshot = await read(config(), { ...deps(), agents: claudeWith(failingRunner('missing', 'spawn ENOENT')) });
 
     expect(snapshot.sessions).toEqual([]);
@@ -323,7 +313,7 @@ describe('the Claude adapter', () => {
     expect(snapshot.failures[0]?.remedy).toContain('"claude"');
   });
 
-  it('carries through what the CLI printed when the call failed', async () => {
+  it('preserves CLI failure output', async () => {
     const snapshot = await read(config(), { ...deps(), agents: claudeWith(failingRunner('failed', 'unknown command')) });
 
     expect(snapshot.failures[0]).toMatchObject({ subject: 'claude', kind: 'agent-failed' });
@@ -331,7 +321,7 @@ describe('the Claude adapter', () => {
     expect(snapshot.failures[0]?.remedy).toContain('groundControl.agents');
   });
 
-  it('tells a shim apart from an absent CLI, and says what to point the setting at', async () => {
+  it('distinguishes unsupported shims from missing executables', async () => {
     const detail = 'C:/npm/claude.cmd is a batch shim, which cannot be run directly';
     const snapshot = await read(config(), {
       ...deps(),
@@ -370,7 +360,7 @@ describe('the Claude adapter', () => {
     expect(snapshot.failures[0]?.message).not.toContain('cwd');
   });
 
-  it('keeps every readable session when one entry is not, and says how many it dropped', async () => {
+  it('keeps valid sessions and reports invalid-entry counts', async () => {
     const broken = structuredClone(active) as unknown as Record<string, unknown>[];
     delete broken[promptedIndex(0)]!.sessionId;
 
@@ -381,7 +371,7 @@ describe('the Claude adapter', () => {
     expect(snapshot.failures[0]?.message).toContain('sessionId');
   });
 
-  it('ignores a field it never reads, so a CLI dropping one does not empty the board', async () => {
+  it('accepts missing unused CLI fields', async () => {
     const withoutPid = structuredClone(active) as unknown as Record<string, unknown>[];
 
     for (const entry of withoutPid) {

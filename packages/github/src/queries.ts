@@ -1,7 +1,4 @@
-/**
- * `cards` is the filtered set the board renders; `assignedTotal` is the same search without the project
- * qualifier, so the board can say how many assigned issues the filter excluded rather than hiding them.
- */
+/** cards applies the project filter; assignedTotal omits it to count excluded assigned issues. */
 /**
  * Share issue fields between assigned and by-number reads so cards retain the same metadata. Fetch five
  * closing PR references to bound GraphQL cost (mechanics M48). Include statusCheckRollup so failing checks
@@ -33,10 +30,7 @@ query($cards:String!, $all:String!, $after:String){
   assignedTotal: search(query:$all, type:ISSUE, first:1){ issueCount }
 }`;
 
-/**
- * One issue by number, for a session naming work the assigned search did not return — an issue finished and handed
- * on, or one that was never the developer's. The card it builds is the same shape the search builds, minus nothing.
- */
+/** Read issues absent from the assigned search with the same card fields. */
 export const ISSUE_BY_NUMBER_QUERY = `
 query($owner:String!, $name:String!, $number:Int!){
   repository(owner:$owner, name:$name){

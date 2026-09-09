@@ -21,10 +21,7 @@ export function config(over: Partial<GithubConfig> = {}): GithubConfig {
   };
 }
 
-/**
- * Serves recorded responses in order and records the args it was called with. Asking for a page that was not
- * recorded is a failure, not a repeat — repeating the last page hides an over-paging bug from every test.
- */
+/** Return recorded pages in order and record arguments. Fail on excess requests instead of repeating the last page. */
 export function runnerOf(...pages: unknown[]): GhRunner & { calls: string[][]; bounds: (GhOptions | undefined)[] } {
   const calls: string[][] = [];
   const bounds: (GhOptions | undefined)[] = [];

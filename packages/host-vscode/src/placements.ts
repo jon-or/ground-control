@@ -16,7 +16,7 @@ export interface CommandCall {
 }
 
 export interface AgentPlacement {
-  /** The `providedId` of the agent's editor-tab webview, which tells its tabs from any other webview (M21). */
+  /** Agent editor-tab `providedId`, used to exclude other webviews (M21). */
   webviewId: string;
   /** Sidebar memento keys, in preference order. Empty for Codex: its recorded sidebar state is `{}` and does not identify the thread (M44). */
   sidebarKeys: readonly string[];
@@ -26,22 +26,22 @@ export interface AgentPlacement {
   lockDir?(home: string, env: NodeJS.ProcessEnv): string;
   extensionId: string;
   /**
-   * The Windows image name of the process a session's pid belongs to, whose parent is the extension host of the
-   * window showing it (M22, M47). Claude's session is that process; Codex's is the app-server its extension runs.
+   * Windows executable name for session PID lookup. Its parent is the window's extension host: Claude runs
+   * directly; Codex runs in an app-server (M22, M47).
    */
   processName: string;
   /** Reveals a tab for one session without writing the developer's preferred location (`docs/mechanics.md` M6). */
   reveal(sessionId: string): CommandCall;
   /** Start a session in the target window (M51). Prompt prefilling depends on startTakesPrompt. Absent when no start command is supported. */
   start?(prompt: string | null): CommandCall;
-  /** Whether `start` puts the prompt in the new session. False where the agent's only way in takes no arguments. */
+  /** Whether the start command accepts a prompt. */
   startTakesPrompt: boolean;
   /**
-   * Whether a reveal re-activates the surface already holding the session rather than opening a second agent on it
-   * (M6, M44). Only an idempotent one may be fired at a window whose surface VS Code has not recorded.
+   * Whether reveal focuses an existing surface without starting a duplicate agent. Required when VS Code has
+   * not recorded the surface (M6, M44).
    */
   idempotentReveal: boolean;
-  /** The views' own focus commands, tried in order; the one not registered on this VS Code rejects. */
+  /** Sidebar focus commands in fallback order; unavailable commands reject. */
   sidebarFocusCommands: readonly string[];
   /** Agent-provided OS URI for opening a session without Ground Control in the target window (M7). No working Codex deep link was measured (M44). */
   openUri?(sessionId: string): string;
@@ -54,7 +54,7 @@ export function claudeDirOf(home: string, configDir: string | undefined): string
   return configured ? configured : join(home, '.claude');
 }
 
-/** The scheme Codex registered its conversation editor for, and the host segment a local thread sits under. */
+/** Codex conversation-editor scheme and local-thread path prefix. */
 const CODEX_SCHEME = 'openai-codex';
 const CODEX_LOCAL = '/local/';
 
@@ -87,26 +87,24 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
   },
 
   /**
-   * Codex's thread is an editor resource rather than a webview holding an id, so the reveal is VS Code's own
-   * `vscode.open` on the URI its extension registered a custom editor for — which is the call the Codex extension
-   * makes on itself, and is idempotent: a second one re-activates the tab rather than forking a surface (M44).
+   * Codex opens its registered editor-resource URI through `vscode.open`. Repeating the call focuses the
+   * existing tab (M44).
    */
   codex: {
     webviewId: 'chatgpt.conversationEditor',
-    // Its sidebar mementos exist and are always `{}`, so reading them would only ever find nothing.
+    // Codex sidebar mementos contain only `{}`.
     sidebarKeys: [],
     session: { from: 'resource', scheme: CODEX_SCHEME, prefix: CODEX_LOCAL },
     // Codex has no measured IDE lock directory. Its thread records do not identify the window (M44).
     extensionId: 'openai.chatgpt',
-    // The thread runs inside `codex app-server`, which the extension spawns per window, so the pid the hook records
-    // is that process and its parent is the window's extension host (M47).
+    // The hook records the per-window `codex app-server` PID; its parent is the extension host (M47).
     processName: 'codex.exe',
     idempotentReveal: true,
     reveal: (sessionId) => ({ command: 'vscode.open', args: [{ kind: 'uri', value: `${CODEX_SCHEME}://route${CODEX_LOCAL}${sessionId}` }] }),
     // This command accepts no prompt (M51). startTakesPrompt lets the menu disclose that limitation.
     start: () => ({ command: 'chatgpt.newCodexPanel', args: [] }),
     startTakesPrompt: false,
-    // Codex's sidebar records nothing the board can read (M44), so no route ever reaches a focus command for it.
+    // Codex sidebar state has no session ID, so no route can select it (M44).
     sidebarFocusCommands: [],
   },
 };

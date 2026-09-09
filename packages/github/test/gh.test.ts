@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeGhRunner } from '../src/index.js';
 import type { LogEntry, Logger } from '@ground-control/core';
 
-/** These spawn a local process, never the network. `node -e` stands in for gh so stderr and exit code are ours to set. */
+/** Use node -e instead of gh to control process output without network requests. */
 function fakeGh(script: string, options?: { timeoutMs: number }) {
   const runner = makeGhRunner(process.execPath);
 
@@ -25,22 +25,21 @@ describe('makeGhRunner', () => {
     expect(result.ok === false && result.error.remedy).toContain('gh auth login');
   });
 
-  // Recorded from gh 2.96.0 with an invalid GH_TOKEN: exit 1, and nothing in stderr mentions gh auth login.
+  // Recorded gh 2.96.0 invalid-token error: exit 1 without gh auth login in stderr.
   it('classifies an expired or revoked token as not-authenticated', async () => {
     const result = await fakeGh('console.error("gh: Bad credentials (HTTP 401)"); process.exit(1)')();
 
     expect(result.ok === false && result.error.kind).toBe('not-authenticated');
   });
 
-  // The message on the board's own banner, recorded from gh 2.96.0 on a laptop whose network was not back yet.
-  it('classifies a machine that cannot reach GitHub as offline, and says so in its own words', async () => {
+  // Recorded gh 2.96.0 network error after laptop resume.
+  it('classifies network failures as offline', async () => {
     const stderr = 'error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com';
     const result = await fakeGh(`console.error(${JSON.stringify(stderr)}); process.exit(1)`)();
 
     expect(result.ok === false && result.error.kind).toBe('offline');
     expect(result.ok === false && result.error.transient).toBe(true);
-    // gh's own stderr never reaches the board, and neither does an instruction to do anything: a board that is
-    // already retrying must not be pointed at a refresh button or at the developer's own internet connection.
+    // Report automatic retry without exposing raw stderr or requesting manual refresh.
     expect(result.ok === false && result.error.message).not.toContain('githubstatus');
     expect(result.ok === false && result.error.remedy).not.toMatch(/refresh|connection|check/i);
   });
@@ -68,7 +67,7 @@ describe('makeGhRunner', () => {
   });
 
   /** A `gh` that never answers would otherwise hold the poll for the life of the hub, and every retry with it. */
-  it('classifies a read that ran out of time as transient, so the board rides it out rather than banners it', async () => {
+  it('classifies timeouts as transient failures', async () => {
     const result = await fakeGh('setInterval(() => undefined, 1000)', { timeoutMs: 200 })();
 
     expect(result.ok === false && result.error.kind).toBe('timed-out');
@@ -76,14 +75,14 @@ describe('makeGhRunner', () => {
     expect(result.ok === false && result.error.remedy).not.toMatch(/refresh|connection|check/i);
   });
 
-  it('falls back to the spawn error when the process said nothing on stderr', async () => {
+  it('uses the spawn error when stderr is empty', async () => {
     const result = await fakeGh('process.exit(9)')();
 
     expect(result.ok === false && result.error.kind).toBe('query-failed');
     expect(result.ok === false && result.error.message.length).toBeGreaterThan(0);
   });
 
-  it('classifies any other non-zero exit as query-failed, carrying stderr', async () => {
+  it('preserves stderr for other query failures', async () => {
     const result = await fakeGh('console.error("Could not resolve to a Repository"); process.exit(1)')();
 
     expect(result.ok === false && result.error.kind).toBe('query-failed');
@@ -104,7 +103,7 @@ describe('makeGhRunner', () => {
 });
 
 describe('what each call leaves in the log', () => {
-  /** A logger that records, with no floor of its own: what the runner writes is what a hub at `debug` would keep. */
+  /** Capture all runner log calls without threshold filtering. */
   function capturing() {
     const entries: LogEntry[] = [];
 
@@ -132,7 +131,7 @@ describe('what each call leaves in the log', () => {
     expect(entries[0]!.message).toMatch(/^-e console\.log\(JSON\.stringify\(\{ok:true\}\)\) in \d+ms$/);
   });
 
-  // The classified kind, not the CLI's own words: those reach the board through the failure the caller is handed.
+  // Log the classified kind; the caller reports detailed CLI errors.
   it('names the kind when a call fails, and does not repeat the CLI stderr', async () => {
     const { log, entries } = capturing();
 
@@ -155,7 +154,7 @@ describe('what each call leaves in the log', () => {
   });
 
   // The refusal: no logger, no wrapper, and the runner is the object it always was.
-  it('writes nothing, and wraps nothing, when no logger is given', async () => {
+  it('returns an unwrapped runner without a logger', async () => {
     const result = await makeGhRunner(process.execPath)(['-e', 'console.log("{}")']);
 
     expect(result.ok).toBe(true);

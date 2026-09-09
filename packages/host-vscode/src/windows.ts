@@ -17,8 +17,8 @@ import type { AgentPlacement } from './placements.js';
 const PORTS_TIMEOUT_MS = 5000;
 const PROCESSES_TIMEOUT_MS = 8000;
 /**
- * How long a read of the process table is reused. A session's parent never changes, so the only thing ageing here is
- * whether a session started since — and the board primes this on every refresh, so a click rarely waits for one.
+ * Cache process ancestry between refreshes. Parent PIDs are stable; refreshes discover newly started sessions
+ * before most clicks.
  */
 const PROCESSES_TTL_MS = 30_000;
 
@@ -41,7 +41,10 @@ function run(command: string, args: readonly string[], timeout: number): Promise
   });
 }
 
-/** Who holds each port open. `netstat` rather than `Get-NetTCPConnection`: 24 ms against 627, and no shell to start. */
+/**
+ * Read port owners with netstat: measured at 24 ms versus 627 ms for Get-NetTCPConnection, without starting a
+ * shell.
+ */
 async function readPorts(): Promise<ListeningPort[]> {
   if (process.platform !== 'win32') {
     return [];
@@ -51,11 +54,11 @@ async function readPorts(): Promise<ListeningPort[]> {
 }
 
 /**
- * `Get-CimInstance` costs 650 ms against `netstat`'s 24, so it is asked only for what nothing cheaper reports: the
- * parent of each session process. Node exposes no other process's parent, and `wmic` is gone from Windows 11.
+ * Use Get-CimInstance only for parent PIDs (650 ms measured). Node cannot read other processes' parents, and
+ * Windows 11 no longer includes wmic.
  */
 async function readProcesses(names: readonly string[]): Promise<ProcessEntry[]> {
-  // No names is a host placed for no agent, whose query would carry an empty `WHERE` and be swallowed as an error.
+  // Skip empty executable lists to avoid an invalid empty WHERE clause.
   if (process.platform !== 'win32' || names.length === 0) {
     return [];
   }
@@ -77,8 +80,7 @@ function processes(names: readonly string[]): Promise<ProcessEntry[]> {
 
   inFlight ??= readProcesses(names)
     .then((read) => {
-      // A read that came back empty is a failure, not an answer, and caching it would refuse every session for the
-      // whole window. Routing falls back to the recorded roots instead, and the next call tries again.
+      // Do not cache failed or empty reads. Fall back to recorded roots and retry next time.
       if (read.length > 0) {
         cached = { at: Date.now(), asked, processes: read };
       }
@@ -92,12 +94,12 @@ function processes(names: readonly string[]): Promise<ProcessEntry[]> {
   return inFlight;
 }
 
-/** Reads the process table ahead of any click, so opening a session waits on the cheap half only. */
+/** Cache process ancestry before clicks to reduce open latency. */
 export function primeWindows(placements: Readonly<Record<string, AgentPlacement>>): void {
   void processes(processNames(placements));
 }
 
-/** Every window that has written a lock file, open or not, under every placed agent's lock directory. */
+/** Read candidate windows from all configured agent lock directories, including stale files. */
 function lockedWindows(home: string, placements: Readonly<Record<string, AgentPlacement>>): IdeWindow[] {
   const byPort = new Map<number, IdeWindow>();
 
@@ -127,15 +129,15 @@ function lockedWindows(home: string, placements: Readonly<Record<string, AgentPl
 }
 
 export interface Windows {
-  /** The windows still open — a closed one leaves its lock file behind but stops listening (`docs/mechanics.md` M22). */
+  /** Open windows identified by listening lock ports (M22). */
   live: IdeWindow[];
-  /** The window holding this session's own process, or null where its parent is not a window's extension host. */
+  /** Session window, or null when its parent is not a known extension host. */
   holding: IdeWindow | null;
 }
 
 /**
- * Which VS Code windows are open, and which one is running this session. Liveness is read from who holds a port open
- * rather than by connecting, which would evict whatever client that window already has (`docs/mechanics.md` M22).
+ * Find open windows and the session's window through port ownership. Connecting to a lock port could evict its
+ * existing client (M22).
  */
 export async function readWindows(
   home: string,

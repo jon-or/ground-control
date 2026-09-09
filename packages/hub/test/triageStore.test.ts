@@ -16,13 +16,12 @@ beforeEach(() => {
 afterEach(() => dispose());
 
 describe('what the board remembers about each card', () => {
-  it('reads an absent file as nothing to say', () => {
+  it('returns empty state for a missing file', () => {
     expect(makeTriageStore(home).read()).toEqual({ entries: {}, failures: {} });
   });
 
-  it('round-trips a card that has spent its attempts, which is not a number JSON has', () => {
-    // `withTriageFailure` marks an exhausted card with Infinity, and `JSON.stringify` writes that as `null` — which
-    // zod refuses, which drops the failure, which makes the card due again and spends on a CLI that will not answer.
+  it('round-trips exhausted retry state', () => {
+    // Encode exhausted-retry Infinity as a finite timestamp; JSON null would invalidate the failure and permit retries.
     const store = makeTriageStore(home);
     let state: TriageState = { entries: {}, failures: {} };
 
@@ -51,14 +50,14 @@ describe('what the board remembers about each card', () => {
     expect(store.read().entries['issue:9']?.action).toBe('merge-upstream');
   });
 
-  it('reads a file that is not JSON at all as nothing, rather than throwing on every render', () => {
+  it('returns empty state for invalid JSON', () => {
     makeTriageStore(home).write({ entries: {}, failures: {} });
     writeFileSync(triagePathOf(home), 'not json');
 
     expect(makeTriageStore(home).read()).toEqual({ entries: {}, failures: {} });
   });
 
-  it('says when it could not store, so a caller is not told a reading was kept', () => {
+  it('reports persistence failure', () => {
     // A directory where the file belongs is the shape of every persistent write failure: a read-only home, an ACL.
     const store = makeTriageStore(`${home}/nowhere/\u0000`);
 

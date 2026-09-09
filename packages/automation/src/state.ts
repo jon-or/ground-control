@@ -11,14 +11,10 @@ import type {
   Lane,
 } from '@ground-control/core';
 
-/** A rolling day. What the dispatch ceiling is counted over, so a limit is not reset by a hub restarting. */
+/** Rolling dispatch-count window, preserved across hub restarts. */
 export const DISPATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/**
- * How long the board leaves a card alone after answering for it. Deciding whether to act needs a fresh read of
- * GitHub, and what would change the answer is somebody pushing or writing on the card — neither of which happens
- * on the loop's timescale. Shorter than this is a board asking about a settled card every pass.
- */
+/** Minimum interval between automatic action checks, each of which requires fresh GitHub context. */
 export const ACTION_GATE_MS = 30 * 60 * 1000;
 
 const actionRun = z.object({
@@ -35,15 +31,13 @@ const actionRun = z.object({
   detail: z.string().default(''),
 });
 
-// The revision is what a bump clears: a card whose action is since turned off is never reconsidered, so a reason a
-// retired gate wrote would otherwise sit on it for good.
+// Drop refusals from older rules, including for actions no longer enabled.
 const actionRefusal = z.object({ kind: z.string(), message: z.string(), at: z.number(), revision: z.number().default(0) });
 
 const actionState = z.object({
   runs: z.record(z.string(), z.unknown()).default({}),
   refusals: z.record(z.string(), z.unknown()).default({}),
-  // Read as unknown and filtered one at a time, never as a record of numbers: a typed record fails whole on one bad
-  // entry, and dropping every gate at once is a board that re-reads the entire set of cards it had just answered for.
+  // Validate entries separately so one invalid timestamp does not reset every retry interval.
   gates: z.record(z.string(), z.unknown()).catch({}).default({}),
   dispatches: z.array(z.number()).default([]),
 });
@@ -88,14 +82,14 @@ export function readActionState(stored: unknown): ActionState {
   };
 }
 
-/** What a dispatched session says it did. `pushed` is the whole of what a card reports as a landing (R23). */
+/** Session-reported outcome. `pushed` maps to landed; completion is not independently verified (R39). */
 const actionReport = z.object({
   outcome: z.enum(['pushed', 'halted']),
   detail: z.string().min(1),
   auditPath: z.string().optional(),
 });
 
-/** The report a run left at the path it was given, or null where there is nothing readable there. */
+/** Parse the session result file, or return null for invalid data. */
 export function readActionReport(stored: unknown): ActionReport | null {
   const parsed = actionReport.safeParse(stored);
 
@@ -117,22 +111,22 @@ export function alreadyRun(state: ActionState, key: string, evidence: string): b
   return run.outcome === 'landed' || run.evidence === evidence;
 }
 
-/** Whether a run is still open, so nothing else is dispatched for that card and the card can say it is working. */
+/** Whether a card has a running action, preventing another dispatch. */
 export function running(state: ActionState, key: string): boolean {
   return state.runs[key]?.outcome === 'running';
 }
 
-/** Whether the board may read this card again for actions, which every automatic decision needs and each one costs. */
+/** Whether the next automatic action check is due. */
 export function gateOpen(state: ActionState, key: string, now: number): boolean {
   return (state.gates[key] ?? 0) <= now;
 }
 
-/** How many dispatches fall inside the rolling day, which is what the daily ceiling is judged against. */
+/** Count dispatch attempts in the rolling limit window. */
 export function dispatchesInWindow(state: ActionState, now: number): number {
   return state.dispatches.filter((at) => now - at < DISPATCH_WINDOW_MS).length;
 }
 
-/** The state after a dispatch. The timestamp is recorded whatever the run goes on to do — starting one is the cost. */
+/** Record the attempt and timestamp regardless of its outcome. */
 export function withDispatch(state: ActionState, run: ActionRun, now: number): ActionState {
   const refusals = { ...state.refusals };
   delete refusals[run.key];
@@ -145,7 +139,7 @@ export function withDispatch(state: ActionState, run: ActionRun, now: number): A
   };
 }
 
-/** The state after a run was settled. A key with no open run is left exactly as it is. */
+/** Record an outcome if the run exists. */
 export function withOutcome(
   state: ActionState,
   key: string,
@@ -162,17 +156,14 @@ export function withOutcome(
   return { ...state, runs: { ...state.runs, [key]: { ...run, outcome, detail, endedAt: now } } };
 }
 
-/** The state once a run's session id is known, resolved from the roster by the short id the CLI printed (M33). */
+/** Record the session ID resolved from the dispatch ID (M33). */
 export function withSession(state: ActionState, key: string, sessionId: string): ActionState {
   const run = state.runs[key];
 
   return run === undefined ? state : { ...state, runs: { ...state.runs, [key]: { ...run, sessionId } } };
 }
 
-/**
- * The state after the board declined to act. Recorded so the card can say why and so the same read is not made again
- * on the next pass — a refusal is an answer, and one worth keeping for as long as any other.
- */
+/** Persist a refusal for display and defer the next automatic context read. */
 export function withRefusal(
   state: ActionState,
   key: string,
@@ -186,11 +177,7 @@ export function withRefusal(
   };
 }
 
-/**
- * The state after a render. Everything about a card no longer on the board is dropped, the way triage drops its
- * entries — but only on a clean read, because a failed source read re-renders the last good cards and would
- * otherwise forget every run on the board at once.
- */
+/** After a successful source read, remove state for absent cards, except running actions. Retain state on failed reads. */
 export function nextActionState(
   lanes: readonly Lane[],
   state: ActionState,
@@ -207,10 +194,7 @@ export function nextActionState(
   const kept = <T>(record: Record<string, T>): Record<string, T> =>
     Object.fromEntries(Object.entries(record).filter(([key]) => shown.has(key)));
 
-  // A run still working is kept whatever became of its card. The agent is in the developer's checkout either way,
-  // and the record is what holds its slot against the concurrency ceiling, blocks a second dispatch, and lets the
-  // run be settled when its session ends. Dropped, an issue closed mid-merge leaves a session the board has
-  // forgotten. It is dropped on the pass after it settles, since by then the card is gone and the run is not running.
+  // Keep running actions for absent cards to count concurrency, block duplicate dispatch, and record completion. Remove them after completion on the next pass.
   const runs = kept(state.runs);
 
   for (const [key, run] of Object.entries(state.runs)) {

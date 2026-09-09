@@ -86,11 +86,11 @@ describe('mergeBoard', () => {
     expect(onBoard.has(off.issueNumber!)).toBe(false);
   });
 
-  it('leaves an assigned card unmarked, so the lanes tell one apart from an issue nobody gave the developer', () => {
+  it('leaves assigned cards without the unassigned flag', () => {
     expect(board.find((c) => onBoard.has(c.issueNumber ?? -1))?.unassigned).toBeUndefined();
   });
 
-  it('drops a number nothing could be looked up for, so the session joins its checkout rather than a bare card', () => {
+  it('groups sessions with unresolved issue numbers by checkout', () => {
     const off = linkedOffBoard[0]!;
     const cards = mergeBoard([], [off]);
 
@@ -168,7 +168,7 @@ describe('mergeBoard', () => {
     expect(cards[0]?.sessions).toHaveLength(2);
   });
 
-  it('gives each branch of one repository a card of its own, so a worktree is never folded into the clone', () => {
+  it('groups distinct branches into separate cards', () => {
     const mine = unlinked[0]!;
     const worktree: Session = {
       ...mine,
@@ -236,11 +236,7 @@ describe('latest historical session fallback', () => {
     expect(mergeBoard([issue], [], [past('old', 1, { repository: null }), past('other', 2, { repository: 'github.com/other/repo' })])[0]?.lastSession).toBeUndefined();
     expect(mergeBoard([issue], [], [past('moved', 1), past('moved', 2, { issueNumber: 43 })])[0]?.lastSession).toBeUndefined();
   });
-  /**
-   * How a session was started decides how it is opened and nothing else. A `SessionStart` maps to no phase, so a
-   * resume wipes the reading its own process wrote — and the row would fall back to the CLI's word while the board's
-   * own observation of that same session sat in the store.
-   */
+  /** SessionStart can clear the marker phase on resume. Apply retained activity before falling back to CLI state. */
   it('gives a live session with no current reading its own kept one, whatever started it', () => {
     const base = { ...sessions[0]!, agent: 'claude', sessionId: 'live-one', issueNumber: 42, finished: false, activity: null };
     const kept = new Map([['claude:live-one', { phase: 'idle' as const, event: 'Stop', at: 20 }]]);
@@ -259,11 +255,7 @@ describe('latest historical session fallback', () => {
     expect(mergeBoard([issue], [{ ...base }], [], new Map(), new Map())[0]?.sessions[0]?.activity).toBeNull();
   });
 
-  /**
-   * Whatever was working when the reading was taken is not working now: the marker went to no phase because a new
-   * process took the session. A kept `running` handed to a live row would shimmer it and ring its card for a turn
-   * that stopped, which is the same demotion `retainedPhase` makes on a saved session's row.
-   */
+  /** Retained running activity must render as idle after a new process clears the phase marker. */
   it('demotes a kept running reading to idle, and keeps a kept waiting one', () => {
     const base = { ...sessions[0]!, agent: 'claude', sessionId: 'live-two', issueNumber: 42, finished: false, activity: null };
     const phaseOf = (phase: 'running' | 'waiting' | 'idle') =>
@@ -275,7 +267,7 @@ describe('latest historical session fallback', () => {
     expect(phaseOf('idle')).toBe('idle');
   });
 
-  it('carries the reading the board kept for that session, so closing its window does not blank the card', () => {
+  it('preserves retained activity on historical sessions', () => {
     const retained = new Map([['claude:old', { phase: 'waiting' as const, event: 'PreToolUse', at: 20 }]]);
 
     expect(mergeBoard([issue], [], [past('old', 10)], new Map(), retained)[0]?.lastSession?.retained).toEqual({
@@ -285,7 +277,10 @@ describe('latest historical session fallback', () => {
     });
   });
 
-  /** A reading is about one session, not about the card: the saved session on the card is a different attempt than the one that reported it. */
+  /**
+   * A reading is about one session, not about the card: the saved session on the card is a different attempt than
+   * the one that reported it.
+   */
   it('carries no reading held under another session id, or under another agent', () => {
     const other = new Map([['claude:other', { phase: 'waiting' as const, event: 'PreToolUse', at: 20 }]]);
     const codex = new Map([['codex:old', { phase: 'waiting' as const, event: 'PreToolUse', at: 20 }]]);
@@ -294,7 +289,7 @@ describe('latest historical session fallback', () => {
     expect(mergeBoard([issue], [], [past('old', 10)], new Map(), codex)[0]?.lastSession?.retained).toBeUndefined();
   });
 
-  it('leaves the history it was handed unchanged, which several cards read in turn', () => {
+  it('does not mutate shared history', () => {
     const history = [past('old', 10)];
     const retained = new Map([['claude:old', { phase: 'idle' as const, event: 'Stop', at: 20 }]]);
 

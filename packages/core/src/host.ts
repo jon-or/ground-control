@@ -6,18 +6,21 @@ export interface HostWindow {
   folders: string[];
 }
 
-/** Which surface inside a window holds a session. Only a tab can be revealed by id; a sidebar can only be brought forward. */
+/**
+ * Which surface inside a window holds a session. Only a tab can be revealed by id; a sidebar can only be brought
+ * forward.
+ */
 export type Surface = 'tab' | 'sidebar';
 
 export interface SessionSurface {
   agent: string;
   sessionId: string;
-  /** What the host is given to bring the window forward: its folder, or its workspace file. */
+  /** Folder or workspace file used to raise the window. */
   root: string;
   surface: Surface;
 }
 
-/** Why the board would not open a session. Each case has a different remedy, so each is named separately. */
+/** Session-opening refusals with distinct remedies. */
 export type OpenRefusal =
   | 'unknown-session'
   | 'other-agent'
@@ -37,10 +40,7 @@ export type OpenRefusal =
   | 'no-agent'
   | 'checkout-elsewhere';
 
-/**
- * Where a session can be reached. A tab is revealed by id in the window holding it; a sidebar has no such command, so
- * the whole of what can be done is bringing its window forward and saying which session is in it.
- */
+/** Session surface: reveal tabs by ID; for sidebars, focus the window and identify the session. */
 export type OpenRoute =
   | { route: 'resume-here'; session: HistoricalSession; root: string; expiresAt: number }
   | { route: 'resume-elsewhere'; session: HistoricalSession; root: string; expiresAt: number; newWindow: boolean }
@@ -50,11 +50,9 @@ export type OpenRoute =
   | { route: 'sidebar-elsewhere'; session: Session; root: string }
   | { route: 'unknown-surface-here'; session: Session; root: string }
   | { route: 'unknown-surface-elsewhere'; session: Session; root: string }
-  // A window on a card's checkout, opened so the developer can work there. Keyed by the card, because there is no
-  // session id to hold it by and one is what stops a second click (R18).
+  // Open a checkout without a session. Deduplicate by card key (R18).
   | { route: 'open-checkout'; key: string; root: string; newWindow: boolean }
-  // A new session for the card, in the window performing this and no other: nothing can name a session that does
-  // not exist yet, so there is no way to hand one to another window (`docs/mechanics.md` M51). Keyed by the card.
+  // Start in the performing window; no session ID exists for cross-window routing yet (mechanics M51).
   | { route: 'start-session'; key: string; agent: string; root: string; prompt: string | null };
 
 /**
@@ -69,31 +67,25 @@ export function routeKey(route: OpenRoute): string {
   return route.route === 'start-session' ? `${route.route}:${route.key}:${route.agent}` : `${route.route}:${route.key}`;
 }
 
-/**
- * What is asked when a card is to be opened rather than a session. It carries no session and no surfaces: a
- * directory is reached by `code` and nothing inside a window records it.
- */
+/** Request to open a card checkout without a session. */
 export interface CheckoutRequest {
-  /** The card this is for, which is what the route is keyed by. */
+  /** Card key used to deduplicate routes. */
   key: string;
   root: string;
-  /** The board window's own root, chosen as a recorded one is: its workspace file where it has one, else its folder. */
+  /** Requesting window workspace file, otherwise its first workspace folder. */
   workspaceRoot: string | null;
   /** Full folder sets, because only a window with exactly one folder can be raised by naming that folder. */
   liveWindows: readonly HostWindow[];
 }
 
-/**
- * What is asked when a card is to be given a new session. Its own type rather than `CheckoutRequest` widened: a
- * start reads no window but the one asking, since it is refused anywhere a checkout would merely be opened.
- */
+/** Request to start a session in the requesting window. Opening another checkout is a separate operation. */
 export interface StartRequest {
   key: string;
   agent: string;
   root: string;
   /** Unsent prompt for a new session, or null for a bare session (R42). */
   prompt: string | null;
-  /** The board window's own root. A start runs here or nowhere, so this is what decides the whole route. */
+  /** Requesting window workspace file, otherwise its first workspace folder. */
   workspaceRoot: string | null;
   /** Whether the agent's own extension is available in this window to start a session. */
   extensionReady: boolean;
@@ -112,23 +104,19 @@ export interface OpenRequest {
   historicalSession?: HistoricalSession;
   /** Which surface holds each session, from every window's own persisted state (`docs/mechanics.md` M21). */
   surfaces: readonly SessionSurface[];
-  /**
-   * The window holding this session's own process, from the parent-process join (`docs/mechanics.md` M22). Exact
-   * where it answers, and null where the parent is not a window's extension host — then the record is all there is.
-   */
+  /** Window identified by session PID and extension-host parent PID (mechanics M22). Null when no window parent matches. */
   window: HostWindow | null;
   /** Folders a live window has open. The fallback for confirming a recorded root when the join names no window. */
   liveRoots: readonly string[];
   /** Full folder sets are needed to distinguish a standalone resume directory from a multi-root workspace. */
   liveWindows?: readonly HostWindow[];
-  /** The board window's own root, chosen as a recorded one is: its workspace file where it has one, else its folder. */
+  /** Requesting window workspace file, otherwise its first workspace folder. */
   workspaceRoot: string | null;
   /** Whether the agent's own extension is available in the host to perform a reveal. */
   extensionReady: boolean;
   /**
-   * Whether the board raised this window and handed it the session, rather than a developer clicking a link. A
-   * hand-over is revealed by the window that received it or refused there: routing one onward is how two windows
-   * pass a session back and forth, because the surface record a plan reads can be a minute old (M44, M45).
+   * Whether this request was routed from another window. Do not forward it again; stale surface records could
+   * cause a routing loop (M44, M45).
    */
   handedOver?: boolean;
   /** Epoch milliseconds, which is what a session's age is measured against. */
@@ -147,15 +135,12 @@ export interface HostWindows {
   holding: HostWindow | null;
 }
 
-/**
- * One application a session can show in. It owns the host's persisted state, its window enumeration, and the verbs
- * for reaching a session in it. Routes only a client resident in the host can perform are named in `residentRoutes`.
- */
+/** Host-specific state, window discovery, and session-opening operations. residentRoutes require a client in that host. */
 export interface HostAdapter {
   readonly id: string;
   /** Parses this host's entry in the configuration, or names what is wrong with it. */
   configure(raw: unknown): ReadFailure | null;
-  /** Warms whatever `windows` and `surfaces` read, so an open pays the cheap half only. */
+  /** Preload window and surface data to reduce open latency. */
   prime(deps: MachineReaders): void;
   /** Which windows are open, and which one is running this session. */
   windows(session: Session | undefined, deps: MachineReaders): Promise<HostWindows>;
@@ -163,24 +148,18 @@ export interface HostAdapter {
   surfaces(deps: MachineReaders): Promise<SessionSurface[]>;
   /** A route to the session, or a named refusal with its remedy. Pure, and judged against this host's own settings. */
   plan(request: OpenRequest): OpenPlan;
-  /** A route to a card's checkout, the same way. Absent where the host has no way to be pointed at a directory. */
+  /** Optional checkout-opening plan. */
   planCheckout?(request: CheckoutRequest): OpenPlan;
-  /** A route to a new session on a card, the same way. Absent where no agent in this host can be asked to start. */
+  /** Optional new-session plan. */
   planStart?(request: StartRequest): OpenPlan;
-  /**
-   * The agents this host can start a new session for, and whether the prompt reaches one. Host-wide rather than
-   * per-card: which agents have a way in is a fact of this host, and every card with a checkout has the same answer.
-   */
+  /** Host-wide agent start capabilities, including prompt support. */
   startable?(): readonly StartableAgent[];
-  /** Which of these sessions this host offers to open. Another host's answer is its own (R14). */
+  /** Sessions this host can open (R14). */
   openable(sessions: readonly Session[], history?: readonly HistoricalSession[]): string[];
-  /**
-   * Routes only a client resident in the host can perform, named so the hub forwards them rather than attempting
-   * them. A host whose every route is resident performs none itself, and omits `open`.
-   */
+  /** Routes requiring a host client. Omit open if all routes require a resident client. */
   readonly residentRoutes: readonly OpenRoute['route'][];
   /** Routes this adapter can perform from a headless process. Absent where every route is resident. */
   open?(route: OpenRoute, deps: MachineReaders): Promise<OpenOutcome>;
-  /** Closes the surface holding a session so it can be handed back. Absent where the host cannot do it yet. */
+  /** Optional session-surface release for takeover. */
   release?(session: Session, deps: MachineReaders): Promise<void>;
 }

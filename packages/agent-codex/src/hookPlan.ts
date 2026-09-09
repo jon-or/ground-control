@@ -1,10 +1,7 @@
 import type { ActivityPlan, ActivityPlanInput } from '@ground-control/core';
 import { hookPathOf } from './hookScript.js';
 
-/**
- * One hook entry the board installs. Codex takes the whole command as one string rather than a command and an
- * argument list, so the writer's path is quoted inside it. `async` keeps the session from waiting on the writer.
- */
+/** Codex accepts one command string, so quote the writer path. Async hooks do not block the session. */
 interface HookEntry {
   type: 'command';
   command: string;
@@ -16,21 +13,17 @@ interface HookGroup {
   hooks: HookEntry[];
 }
 
-/**
- * Codex clamps these two events to three seconds and reports every longer timeout as an error item in the
- * developer's own session, so the shipped entry asks for what it will get (`docs/mechanics.md` M41).
- */
+/** Use the three-second limit for SessionEnd and Interrupt to avoid Codex timeout-clamping errors (M41). */
 const CLAMPED_EVENTS = new Set(['SessionEnd', 'Interrupt']);
 const TIMEOUT_SECONDS = 5;
 const CLAMPED_TIMEOUT_SECONDS = 3;
 
 /**
- * The events the board installs, in Codex's own PascalCase. No matcher is written on any of them: Codex accepts one
- * per entry, its semantics per event are unmeasured, and a matcher that misses is a hook that never fires — a
- * missing phase rather than a wasted spawn. `phaseOf` handles every value regardless.
+ * Use Codex PascalCase events without matchers. Matcher semantics are unverified and could suppress activity;
+ * phaseOf handles all payload values.
  */
-const WANTED: readonly string[] = [
-  // Installed for the roster, not for a phase: this is the only event that reports a session the board has not seen.
+const HOOK_EVENTS: readonly string[] = [
+  // Discover sessions on SessionStart without assigning an activity phase.
   'SessionStart',
   'UserPromptSubmit',
   'PreToolUse',
@@ -56,7 +49,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Two spaces unless the file says otherwise: a re-indented hooks file is a diff the developer did not ask for. */
+/** Preserve existing indentation; default to two spaces. */
 function indentOf(text: string): string | number {
   const found = /\n([ \t]+)"/.exec(text)?.[1];
 
@@ -72,17 +65,16 @@ function commandFor(hookPath: string): string {
 }
 
 /**
- * Ours by the exact command we write. A substring test would take a hook of the developer's own that wraps the same
- * writer with arguments of theirs; Codex leaves this file byte-identical (`docs/mechanics.md` M41), so the command
- * it holds is the command we wrote.
+ * Match the exact board command to preserve user wrappers with extra arguments. Codex leaves hooks.json
+ * unchanged (M41).
  */
 function isOurEntry(entry: unknown, hookPath: string): boolean {
   return isRecord(entry) && entry.command === commandFor(hookPath);
 }
 
 /**
- * A group with our entries taken out, or null when nothing of ours was in it. Entry by entry, never the whole group:
- * a developer who put a hook of their own beside ours would otherwise lose it to an install.
+ * Remove board entries individually, preserving user hooks in the same group. Return null when no board entry
+ * exists.
  */
 function withoutOurs(group: unknown, hookPath: string): { kept: unknown; removed: number } | null {
   if (!isRecord(group) || !Array.isArray(group.hooks)) {
@@ -116,7 +108,7 @@ function groupFor(event: string, hookPath: string): HookGroup {
   };
 }
 
-/** The keys a group and an entry of ours are allowed to carry. Anything else is a hand edit, not what we wrote. */
+/** Allowed keys for installed board groups and entries. */
 const GROUP_KEYS = new Set(['hooks']);
 const ENTRY_KEYS = new Set(['type', 'command', 'async', 'timeout']);
 
@@ -125,27 +117,26 @@ function keysAre(value: Record<string, unknown>, allowed: ReadonlySet<string>): 
 }
 
 /**
- * Whether a group already says exactly what the board would write. Field by field rather than by serialised text, and
- * no extra key is tolerated because `enabled: false` and a `matcher` each change whether the hook fires. Codex
- * reports those two on every entry but persists neither, so this converges on the second run (`mechanics.md` M41).
+ * Compare installed fields and reject extra keys that can affect execution. Codex reports enabled and matcher
+ * but persists neither, so repeat installation makes no changes (M41).
  */
-function alreadySays(group: unknown, wanted: HookGroup): boolean {
+function matchesGroup(group: unknown, wanted: HookGroup): boolean {
   if (!isRecord(group) || !Array.isArray(group.hooks)) {
     return false;
   }
 
   const entry = group.hooks[0];
-  const mine = wanted.hooks[0]!;
+  const expected = wanted.hooks[0]!;
 
   return (
     keysAre(group, GROUP_KEYS) &&
     group.hooks.length === 1 &&
     isRecord(entry) &&
     keysAre(entry, ENTRY_KEYS) &&
-    entry.type === mine.type &&
-    entry.command === mine.command &&
-    entry.async === mine.async &&
-    entry.timeout === mine.timeout
+    entry.type === expected.type &&
+    entry.command === expected.command &&
+    entry.async === expected.async &&
+    entry.timeout === expected.timeout
   );
 }
 
@@ -156,11 +147,11 @@ function alreadySays(group: unknown, wanted: HookGroup): boolean {
 export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInput): ActivityPlan {
   const hookPath = hookPathOf(home);
 
-  // Nothing to lose and nothing to misread. Creating the file is not the repair of a corrupt one.
+  // Create missing files as empty objects; reject malformed existing files below.
   const text = settingsText ?? '{}\n';
 
-  // PowerShell 5.1's `Out-File` and Notepad both write one, and `JSON.parse` rejects it. Refusing a file Codex
-  // itself reads happily would be the board's own bug, not the developer's.
+  // Strip and preserve the BOM accepted by the CLI but rejected by JSON.parse. PowerShell 5.1 and Notepad can
+  // write it.
   const body = text.replace(/^﻿/, '');
   const bom = text.length === body.length ? '' : '﻿';
 
@@ -191,20 +182,19 @@ export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInpu
 
   const hooks: Record<string, unknown> = isRecord(root.hooks) ? { ...root.hooks } : {};
 
-  // Install walks what it wants *and* what is already there: an event dropped from WANTED would otherwise keep an
-  // entry of ours wired forever, with nothing to notice it. Remove walks only what is there.
-  const events = [...new Set([...(wanted === 'install' ? WANTED : []), ...Object.keys(hooks)])];
+  // Inspect desired and existing events to remove obsolete board hooks. Uninstall inspects existing events
+  // only.
+  const events = [...new Set([...(wanted === 'install' ? HOOK_EVENTS : []), ...Object.keys(hooks)])];
 
   let added = 0;
   let removed = 0;
 
   for (const event of events) {
     const existing = hooks[event];
-    const wants = wanted === 'install' && WANTED.includes(event);
+    const wants = wanted === 'install' && HOOK_EVENTS.includes(event);
 
     if (existing !== undefined && !Array.isArray(existing)) {
-      // Only an event the plan is about to touch. Refusing over one it would never write is a refusal the developer
-      // cannot act on, and it would leave the board's own entries installed on a removal.
+      // Validate only events being changed; unrelated malformed events must not block hook removal.
       if (!wants && !hasOurEntry(existing, hookPath)) {
         continue;
       }
@@ -218,9 +208,9 @@ export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInpu
     const current = Array.isArray(existing) ? existing : [];
     const group = wants ? groupFor(event, hookPath) : null;
 
-    // One correct group already there is the steady state, and reaching it means writing nothing at all.
+    // Skip writes when exactly one matching board group is already installed.
     if (group && current.filter((held) => hasOurEntry(held, hookPath)).length === 1) {
-      if (current.some((held) => alreadySays(held, group))) {
+      if (current.some((held) => matchesGroup(held, group))) {
         continue;
       }
     }
@@ -259,7 +249,7 @@ export function planHookInstall({ settingsText, home, wanted }: ActivityPlanInpu
     return { kind: 'up-to-date' };
   }
 
-  // Assigned back whole, so JSON's insertion order — and with it every key the developer put in this file — survives.
+  // Preserve existing object key order.
   if (Object.keys(hooks).length === 0) {
     delete root.hooks;
   } else {

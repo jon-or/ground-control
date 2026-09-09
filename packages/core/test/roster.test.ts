@@ -12,14 +12,13 @@ describe('rosterIsStale', () => {
     expect(rosterIsStale([{ kind: 'deleted', sessionId: SESSION }], known, reports)).toBe(true);
   });
 
-  // A rename over a path the watcher has seen before is a create on one platform and a change on another, so an
-  // unlisted session counts whichever kind it arrives as.
+  // Watcher create/change events vary across platforms; either may identify a new session.
   it.each(['created', 'changed'] as const)('needs the CLI for a %s marker on a session it has not listed', (kind) => {
     expect(rosterIsStale([{ kind, sessionId: 'brand-new' }], known, reports)).toBe(true);
   });
 
-  // The board would filter that session out of the list it came back in, so the spawn buys nothing (R2).
-  it('does not read the CLI for an unlisted session whose marker claims no phase', () => {
+  // An unprompted session without a phase would be filtered from the roster (R2).
+  it('skips roster reads for unknown sessions without phase evidence', () => {
     expect(rosterIsStale([{ kind: 'created', sessionId: 'brand-new' }], known, () => false)).toBe(false);
   });
 
@@ -36,12 +35,12 @@ describe('rosterIsStale', () => {
     expect(rosterIsStale(changes, known, reports)).toBe(true);
   });
 
-  it('claims nothing to do for an empty batch', () => {
+  it('skips roster reads for empty marker batches', () => {
     expect(rosterIsStale([], known, reports)).toBe(false);
   });
 });
 
-/** Whole, not cast: a partial literal would go on compiling the day `Session` grows a field. */
+/** Use complete Session objects so type changes fail compilation. */
 const base: Session = {
   agent: 'claude',
   sessionId: SESSION,
@@ -62,10 +61,7 @@ const base: Session = {
 
 const session = (over: Partial<Session>): Session => ({ ...base, ...over });
 
-/**
- * The ladder, as literal strings. Both boards draw it from a copy they cannot import — `media/board.js` and the
- * Chrome overlay are plain scripts — so the same table is asserted in each of their suites. Change one, change all.
- */
+/** Keep the same literal session-label table in core and both client suites. */
 const LADDER: [string, Partial<Session>, string][] = [
   ['the title derived from the first prompt', { title: 'Fix the lane divider' }, 'Fix the lane divider'],
   ['what the CLI called it', { details: { name: 'plucky-otter' } }, 'plucky-otter'],

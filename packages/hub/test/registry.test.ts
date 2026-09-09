@@ -27,7 +27,7 @@ describe('the registries', () => {
 });
 
 describe('defaultConfig', () => {
-  it('polls the shipped agent at its own command, with the shipped statuses and lanes', () => {
+  it('uses default agent commands and board settings', () => {
     const config = defaultConfig(makeRegistries(), fakeReaders());
 
     expect(config.agents).toEqual([{ id: CLAUDE_AGENT_ID, path: 'claude' }]);
@@ -37,8 +37,8 @@ describe('defaultConfig', () => {
     expect(config.sources).toEqual({ [GITHUB_SOURCE_ID]: {} });
   });
 
-  /** R30: an installed Codex needs no setting, which is what makes a session of its own turn up on a fresh board. */
-  it('polls Codex too, once its own home is on the machine', () => {
+  /** Detect installed Codex without explicit agent settings (R30). */
+  it('detects Codex when its home exists', () => {
     const registries = makeRegistries();
     const readers = fakeReaders({ '/home/dev/.codex': ['config.toml'] });
 
@@ -67,7 +67,7 @@ describe('defaultConfig', () => {
   });
 
   /** A hub the browser started alone has heard from no client, so these are what it polls with. */
-  it('is usable with nothing configured at all', () => {
+  it('supports empty configuration', () => {
     const config = defaultConfig(makeRegistries(), fakeReaders());
 
     expect(config.branchIssuePattern).toBe('^(\\d+)-');
@@ -76,11 +76,11 @@ describe('defaultConfig', () => {
 });
 
 describe('configureHosts', () => {
-  it('accepts what a registered host accepts, and reports nothing', () => {
+  it('accepts valid host settings', () => {
     expect(configureHosts(makeRegistries(), { [VSCODE_HOST_ID]: { mayOpenWindow: false } })).toEqual([]);
   });
 
-  it('names an id the registry does not carry, rather than reaching nothing in silence', () => {
+  it('reports unknown host IDs', () => {
     const failures = configureHosts(makeRegistries(), { intellij: {} });
 
     expect(failures).toHaveLength(1);
@@ -88,7 +88,7 @@ describe('configureHosts', () => {
     expect(failures[0]?.remedy).toContain('groundControl.hosts');
   });
 
-  it('carries through what the host said was wrong with its own settings', () => {
+  it('preserves host validation failures', () => {
     const failures = configureHosts(makeRegistries(), { [VSCODE_HOST_ID]: { mayOpenWindow: 'yes' } });
 
     expect(failures[0]).toMatchObject({ subject: VSCODE_HOST_ID, kind: 'bad-config' });
@@ -102,11 +102,11 @@ describe('configureHosts', () => {
 });
 
 describe('configureSources', () => {
-  it('accepts what a registered source accepts, and reports nothing', () => {
+  it('accepts valid source settings', () => {
     expect(configureSources(makeRegistries(), { [GITHUB_SOURCE_ID]: { repo: 'example-org/example-repo' } })).toEqual([]);
   });
 
-  it('names an id the registry does not carry, rather than reading nothing in silence', () => {
+  it('reports unknown source IDs', () => {
     const failures = configureSources(makeRegistries(), { jira: {} });
 
     expect(failures).toHaveLength(1);
@@ -114,7 +114,7 @@ describe('configureSources', () => {
     expect(failures[0]?.remedy).toContain('groundControl.sources');
   });
 
-  it('carries through what the source said was wrong with its own settings', () => {
+  it('preserves source validation failures', () => {
     const failures = configureSources(makeRegistries(), { [GITHUB_SOURCE_ID]: { repo: '' } });
 
     expect(failures[0]).toMatchObject({ subject: GITHUB_SOURCE_ID, kind: 'bad-config' });

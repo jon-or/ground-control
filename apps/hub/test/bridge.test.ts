@@ -7,9 +7,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { encodeFrame } from '@ground-control/hub';
 
 /**
- * The bundle a client writes into the developer's home, which is what the native-messaging wrapper starts. It is the
- * extension's CommonJS build rather than this package's ESM output: a `.js` dropped into a directory with no
- * `package.json` is CommonJS to node, and that is the file the registration names.
+ * Test the installed CommonJS bundle used by native messaging. A copied .js file without package.json cannot
+ * use the package's ESM output.
  */
 const BUNDLE = join(import.meta.dirname, '..', '..', '..', 'extensions', 'ground-control', 'dist', 'hub.js');
 const ENTRY = join(import.meta.dirname, '..', 'dist', 'main.js');
@@ -80,7 +79,7 @@ function until<T>(what: () => T | null, within = 20_000): Promise<T> {
   });
 }
 
-/** The frames on the wire, decoded the way Chrome would. Reading these is the whole contract with the browser. */
+/** Decode frames with Chrome's native-messaging format. */
 function reader(child: ChildProcess): { messages: { type: string }[]; failed: string } {
   const messages: { type: string }[] = [];
   let buffered = Buffer.alloc(0);
@@ -120,8 +119,7 @@ function reader(child: ChildProcess): { messages: { type: string }[]; failed: st
 
 function run(command: string, args: string[], env: Record<string, string>): ChildProcess {
   const child = spawn(process.execPath, [command, ...args], {
-    // As in the smoke test: `--home` points the child at the run's directory, and these keep a mode that forgot
-    // it from writing to the developer's real board. A caller's own `env` still wins.
+    // Inject environment homes as a fallback if a mode ignores --home. Preserve caller overrides.
     env: { ...process.env, PATH: SYSTEM_PATH, Path: SYSTEM_PATH, USERPROFILE: tmpdir(), HOME: tmpdir(), ...env },
     windowsHide: true,
   });
@@ -140,11 +138,10 @@ describe('the bridge Chrome starts', () => {
     const bridge = run(join(home, '.claude', 'ground-control', 'hub.js'), ['--native-messaging', `--home=${home}`], {});
     const seen = reader(bridge);
 
-    // What the worker sends when the first project board tab connects. Nothing polls until a client is watching.
+    // Subscribe as the first browser tab would; polling requires a watching client.
     bridge.stdin?.write(encodeFrame({ type: 'watching', watching: true }));
 
-    // Both reads reach the browser, on their own cadences: the sources on the long interval, the agents on the
-    // short one, so the first frame carries one of them and a later one carries both.
+    // Agent and source reads use different intervals; wait for a frame containing both.
     const relayed = await until(
       () =>
         (seen.messages
@@ -155,7 +152,7 @@ describe('the bridge Chrome starts', () => {
           ) as unknown as { snapshot: { failures: { subject: string }[] } } | undefined) ?? null,
     );
 
-    // Neither CLI is on this PATH, so a real read names both rather than leaving the overlay a blank board (R24, R25).
+    // Missing CLIs must produce named failures instead of an unexplained empty board (R24, R25).
     expect([...new Set(relayed.snapshot.failures.map((failure) => failure.subject))].sort()).toEqual([
       'github',
       'sessions',
@@ -170,17 +167,15 @@ describe('the bridge Chrome starts', () => {
 
     expect(await ended).toBe(0);
 
-    // The hub it started outlives it, for its own idle rule to end (R35). Left running, it holds this home open.
+    // Stop the independent hub before removing its test home (R35).
     const stop = run(ENTRY, ['--stop', `--home=${home}`], {});
 
     await new Promise((done) => stop.on('exit', done));
   });
 
   /**
-   * The one thing the bridge has to say again. Its hello carries whether a board is watching, so that survives a
-   * reconnect on its own; the log subscription is a plain message the transport deliberately does not queue, and a
-   * hub restarts every time a VS Code window reloads — so without the restate a sidebar left open in Chrome would
-   * show the lines from before the restart and never another one (R40).
+   * Resubscribe to logs after reconnect. Hello restores board watching, but watchLog messages are not queued
+   * (R40).
    */
   it('asks a restarted hub for its log again, so a sidebar left open keeps filling', async () => {
     const home = tempHome();
@@ -200,8 +195,7 @@ describe('the bridge Chrome starts', () => {
 
     const before = logs().length;
 
-    // What a VS Code window reloading does: the hub on this home is stopped and the bridge's transport, which is
-    // still up because Chrome's port is, reconnects and starts another.
+    // Simulate hub replacement during VS Code reload while Chrome's port remains connected.
     const stop = run(ENTRY, ['--stop', `--home=${home}`], {});
 
     await new Promise((done) => stop.on('exit', done));
@@ -216,7 +210,7 @@ describe('the bridge Chrome starts', () => {
     await new Promise((done) => last.on('exit', done));
   });
 
-  it('tells the browser what it refused, rather than dropping it', async () => {
+  it('reports refused browser messages', async () => {
     const home = tempHome();
 
     copyFileSync(BUNDLE, join(home, '.claude', 'ground-control', 'hub.js'));
@@ -234,7 +228,7 @@ describe('the bridge Chrome starts', () => {
 
     bridge.stdin?.end();
 
-    // The hub it started outlives it by design, and would hold this home open past the teardown that removes it.
+    // Stop the independent hub before removing its test home.
     const stop = run(ENTRY, ['--stop', `--home=${home}`], {});
 
     await new Promise((done) => stop.on('exit', done));
