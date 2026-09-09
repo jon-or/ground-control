@@ -74,8 +74,8 @@ async function main(argv: readonly string[]): Promise<number> {
       process.stderr.write(`${activity.failure?.message ?? 'Activity settings are locked.'}\n`);
       return 1;
     }
-    uninstallChromeHost(chrome(), realChromeHostDeps);
-    process.stdout.write('Removed the activity hooks and the browser registration, and stopped the hub.\n');
+    const browser = uninstallChromeHost(chrome(), realChromeHostDeps);
+    process.stdout.write(`Removed the activity hooks and stopped the hub. ${browser}\n`);
 
     return 0;
   }

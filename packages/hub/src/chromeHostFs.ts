@@ -27,4 +27,15 @@ export const realChromeHostDeps: ChromeHostDeps = {
       return String(error);
     }
   },
+
+  registered(key) {
+    try {
+      // The value label is localized; the type column is not.
+      const output = execFileSync('reg', ['query', key, '/ve'], { stdio: 'pipe', windowsHide: true, encoding: 'utf8' });
+
+      return /REG_SZ\s+(.+?)\s*$/m.exec(output)?.[1] ?? null;
+    } catch {
+      return null;
+    }
+  },
 };

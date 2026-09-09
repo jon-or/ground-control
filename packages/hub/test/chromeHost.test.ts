@@ -9,7 +9,7 @@ function plan(platform: NodeJS.Platform): ChromeHostPlan {
   return chromeHostPlan({ platform, home: HOME, bundle: `${HOME}/.claude/ground-control/hub.js`, node: 'd:/node/node.exe' });
 }
 
-function fakeDeps(registry: string | null = null) {
+function fakeDeps(registry: string | null = null, registered: string | null = plan('win32').manifestPath) {
   const wrote: { path: string; text: string; executable: boolean }[] = [];
   const removed: string[] = [];
   const ran: string[][] = [];
@@ -22,6 +22,7 @@ function fakeDeps(registry: string | null = null) {
 
       return registry;
     },
+    registered: () => registered,
   };
 
   return { deps, wrote, removed, ran };
@@ -130,9 +131,30 @@ describe('registering and unregistering', () => {
 
   /** Removing a registration nobody made is the wanted state, not a failure to report. */
   it('accepts removal of absent registration', () => {
-    const { deps, removed } = fakeDeps('The system was unable to find the specified registry key.');
+    const { deps, removed, ran } = fakeDeps(null, null);
 
-    expect(() => uninstallChromeHost(plan('win32'), deps)).not.toThrow();
+    expect(uninstallChromeHost(plan('win32'), deps)).toBe('GitHub overlay connection disabled.');
+    expect(ran).toEqual([]);
     expect(removed).toHaveLength(2);
+  });
+
+  it('matches the registered manifest across separator and case differences', () => {
+    const windows = plan('win32');
+    const { deps, ran } = fakeDeps(null, windows.manifestPath.toUpperCase().replace(/\//g, '\\'));
+
+    uninstallChromeHost(windows, deps);
+
+    expect(ran).toEqual([['delete', windows.registryKey, '/f']]);
+  });
+
+  /** One user, many homes: a test or a second install must not unregister the browser from the home in use. */
+  it('leaves a registration that names another home in place and says so', () => {
+    const windows = plan('win32');
+    const other = 'c:/users/dev/.claude/ground-control/com.groundcontrol.ground_control.json';
+    const { deps, removed, ran } = fakeDeps(null, other);
+
+    expect(uninstallChromeHost(windows, deps)).toContain(`remains registered to ${other}`);
+    expect(ran).toEqual([]);
+    expect(removed).toEqual([windows.manifestPath, windows.wrapperPath]);
   });
 });

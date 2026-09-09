@@ -1,4 +1,4 @@
-import { CHROME_EXTENSION_ID, NATIVE_HOST_NAME, bootstrapDirOf } from '@ground-control/core';
+import { CHROME_EXTENSION_ID, NATIVE_HOST_NAME, bootstrapDirOf, dirKey } from '@ground-control/core';
 
 /** Files and registration required for Chrome native messaging. Explicit commands install and remove these external files (R34). */
 export interface ChromeHostPlan {
@@ -74,6 +74,8 @@ export interface ChromeHostDeps {
   remove(path: string): void;
   /** Invoke reg.exe on Windows and return diagnostic output on failure. */
   registry(args: readonly string[]): string | null;
+  /** The manifest path a key registers, or null when the key is absent or unreadable. */
+  registered(key: string): string | null;
 }
 
 /** Report the files and registration written outside extension storage (R34). */
@@ -92,14 +94,24 @@ export function installChromeHost(plan: ChromeHostPlan, deps: ChromeHostDeps): s
   return `GitHub overlay connection enabled. Chrome launcher: ${plan.wrapperPath}.`;
 }
 
+/** The registry key is per user, not per home; only a registration naming this plan's manifest is ours to remove. */
 export function uninstallChromeHost(plan: ChromeHostPlan, deps: ChromeHostDeps): string {
+  let kept: string | null = null;
+
   if (plan.registryKey !== null) {
-    // Missing registration already satisfies uninstall.
-    deps.registry(['delete', plan.registryKey, '/f']);
+    const held = deps.registered(plan.registryKey);
+
+    if (held !== null && dirKey(held) !== dirKey(plan.manifestPath)) {
+      kept = held;
+    } else if (held !== null) {
+      deps.registry(['delete', plan.registryKey, '/f']);
+    }
   }
 
   deps.remove(plan.manifestPath);
   deps.remove(plan.wrapperPath);
 
-  return 'GitHub overlay connection disabled.';
+  return kept === null
+    ? 'GitHub overlay connection disabled.'
+    : `GitHub overlay connection disabled for this home. Chrome remains registered to ${kept}.`;
 }

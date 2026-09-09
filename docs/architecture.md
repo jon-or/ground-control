@@ -312,7 +312,7 @@ Chrome starts a per-user registered wrapper that runs the hub bundle in native-m
 
 Frames contain a four-byte length and JSON body. Reassemble partial stdin chunks and reject claimed lengths above one megabyte. Keep wrapper stdout exclusively for frames. Redact refused-request origins from log messages before forwarding to Chrome.
 
-The shipped registration targets Google Chrome. Other Chromium browsers require their own registration. Enable/disable commands and uninstall manage the wrapper, manifest, and Windows `HKCU` registration. The wrapper names the stable home bundle, not a versioned extension directory.
+The shipped registration targets Google Chrome. Other Chromium browsers require their own registration. Enable/disable commands and uninstall manage the wrapper, manifest, and Windows `HKCU` registration. The registration is per user while wrapper and manifest are per home, so removal deletes the registry value only when it names this home's manifest; a value naming another home is reported and left in place. The wrapper names the stable home bundle, not a versioned extension directory.
 
 ### Relocation
 

@@ -29,10 +29,11 @@ void (async () => {
 
     // Remove the native-host registration before its bundle so Chrome cannot start a missing executable
     // (R34).
-    uninstallChromeHost(
+    const browser = uninstallChromeHost(
       chromeHostPlan({ platform: process.platform, home, bundle: bundlePathOf(home), node: process.execPath }),
       realChromeHostDeps,
     );
+    process.stdout.write(`${browser}\n`);
     rmSync(bundlePathOf(home), { force: true });
   } catch (error) {
     process.stderr.write(`Ground Control cleanup was incomplete: ${String(error)}\n`);

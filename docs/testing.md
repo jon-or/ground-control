@@ -108,6 +108,8 @@ Browser tests cover behavior depending on message/repaint ordering. Examples inc
 
 Assert that portable mode remains enabled and the seeded settings are active. On Windows, compare the per-user `vscode://` registry tree before launch, inside the running test host, and after exit. A changed registration fails the run. Re-verify this isolation after VS Code upgrades.
 
+The hub smoke test runs `--uninstall` against a temporary home with real registry access. The Chrome registration is per user, not per home, so removal must keep checking that the registered manifest belongs to the home being uninstalled; without that check the test deletes the developer's own registration.
+
 The profile seeds application-scoped settings with unavailable `gh` and agent executable names. A temporary home alone does not isolate GitHub credentials stored in `%APPDATA%`. No integration test should accidentally run the developer's authenticated CLI.
 
 The outer runner cleans up after VS Code exits, then removes its hub and temporary directories. Cleaning up the hub from a Mocha hook races the still-connected extension's reconnect. Later runs remove abandoned test directories older than one hour.
