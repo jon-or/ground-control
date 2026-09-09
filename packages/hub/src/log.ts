@@ -1,4 +1,4 @@
-import { mkdirSync, openSync, renameSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, openSync, renameSync, rmSync, statSync, truncateSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 /** Maximum log size before rotation. */
@@ -7,7 +7,13 @@ export const LOG_LIMIT_BYTES = 1_000_000;
 /** Number of rotated files retained in addition to the current log. */
 export const LOGS_KEPT = 2;
 
-/** Rotate at the size limit, deleting the oldest file. Called at startup and during writes. */
+/** The most a setting may keep; lowering the count deletes generations above it. */
+export const MAX_LOGS_KEPT = 20;
+
+/**
+ * Rotate at the size limit, deleting generations beyond those kept. Called at startup and during writes. Zero kept
+ * truncates in place: the launcher holds the file open as the hub's stdout, so unlinking it would lose crash output.
+ */
 export function rotateLog(path: string, limit = LOG_LIMIT_BYTES, kept = LOGS_KEPT): boolean {
   try {
     if (statSync(path).size < limit) {
@@ -17,7 +23,19 @@ export function rotateLog(path: string, limit = LOG_LIMIT_BYTES, kept = LOGS_KEP
     return false;
   }
 
-  rmSync(`${path}.${kept}`, { force: true });
+  for (let index = Math.max(kept, 0); index <= MAX_LOGS_KEPT; index++) {
+    rmSync(`${path}.${index}`, { force: true });
+  }
+
+  if (kept <= 0) {
+    try {
+      truncateSync(path, 0);
+    } catch {
+      return false;
+    }
+
+    return true;
+  }
 
   for (let index = kept - 1; index >= 1; index--) {
     try {

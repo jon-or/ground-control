@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LOG_LEVELS, formatLogLine, meetsLevel, parseLogLines } from '../src/log.js';
+import { LOG_FLOORS, LOG_LEVELS, formatLogLine, meetsLevel, parseLogLines } from '../src/log.js';
 import type { LogEntry } from '../src/log.js';
 
 const AT = '2026-09-06T19:01:24.114Z';
@@ -18,6 +18,11 @@ describe('the levels', () => {
     expect(meetsLevel('info', 'info')).toBe(true);
     expect(meetsLevel('error', 'info')).toBe(true);
     expect(meetsLevel('warn', 'error')).toBe(false);
+  });
+
+  /** Every level but debug is a floor a developer may choose; a floor that is not a level would drop everything. */
+  it('offers every level as a floor', () => {
+    expect([...LOG_FLOORS]).toEqual([...LOG_LEVELS]);
   });
 });
 

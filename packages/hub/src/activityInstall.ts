@@ -53,8 +53,8 @@ export const DISPATCH_LOG = /^[a-z][a-z0-9-]*-dispatch-.+\.log(\.err)?$/;
 export const DISPATCH_LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Identify dispatch logs eligible for age-based deletion. */
-export function dispatchLogIsStale(mtimeMs: number, now: number): boolean {
-  return now - mtimeMs > DISPATCH_LOG_MAX_AGE_MS;
+export function dispatchLogIsStale(mtimeMs: number, now: number, maxAgeMs = DISPATCH_LOG_MAX_AGE_MS): boolean {
+  return now - mtimeMs > maxAgeMs;
 }
 
 /** Retry transient settings-file access failures during backup. */
@@ -216,7 +216,7 @@ export function syncActivity(
  * Best-effort cleanup of old activity markers and dispatched-process output files. Killed sessions may leave
  * markers without SessionEnd; live-roster PID checks remain separate from age-based pruning.
  */
-export function pruneMarkers(agents: readonly AgentAdapter[], stateDir: string, now: number = Date.now()): void {
+export function pruneMarkers(agents: readonly AgentAdapter[], stateDir: string, now: number = Date.now(), dispatchRetentionMs = DISPATCH_LOG_MAX_AGE_MS): void {
   const dirs = new Set(agents.flatMap((agent) => (agent.activity ? [agent.activity.watchDir(stateDir)] : [])));
 
   // Also remove stale .tmp files from the state directory; other hub state files are excluded.
@@ -239,7 +239,7 @@ export function pruneMarkers(agents: readonly AgentAdapter[], stateDir: string, 
         const mtime = statSync(path).mtimeMs;
         const orphaned = name.endsWith('.tmp')
           ? tempIsOrphaned(mtime, now)
-          : (markers && markerIsOrphaned(mtime, now)) || (!markers && DISPATCH_LOG.test(name) && dispatchLogIsStale(mtime, now));
+          : (markers && markerIsOrphaned(mtime, now)) || (!markers && DISPATCH_LOG.test(name) && dispatchLogIsStale(mtime, now, dispatchRetentionMs));
 
         if (orphaned) {
           rmSync(path, { force: true });

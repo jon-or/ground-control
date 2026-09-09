@@ -420,6 +420,8 @@ In the overlay, failures use dismissible notices; informational details belong i
 
 Provide both client and hub logs. Record client connection and failure history without requiring a viewer. Detailed message logging is off by default.
 
+The hub log floor is configurable from `debug` to `error`; a line under the floor is neither recorded nor streamed, and configuration and source failures still reach both boards through snapshot failures. Hub log rotation size and count and dispatch-output retention are configurable within bounds the hub enforces; rotation and retention only touch `hub.log`, its rotated generations, and `<agent>-dispatch-<id>.log` files. Orphan activity markers and settings backups are safety and recovery state with fixed limits. There is no recording-off switch: the launcher redirects the hub process's stdout and stderr into `hub.log` so crash output is kept, and a switch that left that redirection in place would misdescribe what is recorded.
+
 Subscribe to hub logs only on request, starting with recent history. Subscription is independent of board visibility and must survive reconnects. Show its state in a control available even after the board closes; stopping streaming retains displayed lines.
 
 The overlay log closes on outside click unless pinned. Filters are reversible. Redact refused-request origins before sending hub logs to the browser. Other displayed log contents may include private work data readable by scripts on the host page; do not describe them as public or local-only.

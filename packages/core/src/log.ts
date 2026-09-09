@@ -3,8 +3,8 @@ export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
-/** Configurable log thresholds. Always retain info-level lifecycle and refusal diagnostics. */
-export const LOG_FLOORS = ['debug', 'info'] as const;
+/** Configurable log thresholds. Above info, lifecycle lines are dropped; failures still reach boards as snapshot failures. */
+export const LOG_FLOORS = ['debug', 'info', 'warn', 'error'] as const;
 
 export type LogFloor = (typeof LOG_FLOORS)[number];
 

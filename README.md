@@ -126,6 +126,8 @@ One hub serves both clients. It can continue serving Chrome after VS Code closes
 
 State and logs are stored under `~/.claude/ground-control/` unless moved with `stateDirectory`. **Logs** on the editor board and **Ground Control: Toggle Hub Log** toggle hub-log streaming. **Ground Control: Show Board Log** opens extension diagnostics. Chrome's **Show log** opens a sidebar with browser and hub lines.
 
+`logLevel` (`debug`, `info`, `warn`, `error`; default `info`) is the lowest level the hub records to `hub.log` and streams to viewers; `warn` and above drop lifecycle lines, while configuration and source failures still reach both boards as notices. `logs.rotateMegabytes` (1–100, default 1) and `logs.keep` (0–20, default 2) rotate `hub.log`; 0 truncates it in place, and lowering the count deletes the generations above it. `logs.dispatchRetentionDays` (1–365, default 7) deletes dispatched agents' `<agent>-dispatch-<id>.log` files after that age. The hub clamps every value and only ever touches those file names. Recording cannot be turned off: the launcher redirects the hub process's own output into `hub.log` so crash output survives, and the floor and rotation bound what is kept. Orphan activity markers (30 days) and settings backups (5 kept) are recovery state with fixed limits.
+
 After building, `npm run hub` runs a foreground hub against your real home. Use `node apps/hub/dist/main.js --home=<path>` for an isolated home, and add `--stop` to request shutdown for that home. An installed extension can replace an older foreground hub on activation.
 
 ### State directory

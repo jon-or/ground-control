@@ -509,15 +509,47 @@
             "scope": "application",
             "type": "string",
             "enum": [
+              "debug",
               "info",
-              "debug"
+              "warn",
+              "error"
             ],
             "default": "info",
             "order": 4,
             "enumDescriptions": [
+              "Adds CLI timings and session activity details.",
               "Routine events and failures.",
-              "Adds CLI timings and session activity details."
-            ]
+              "Warnings and errors only; lifecycle lines are not recorded.",
+              "Errors only; failures still appear on the boards."
+            ],
+            "markdownDescription": "Lowest level the hub records to hub.log and streams to log viewers."
+          },
+          "groundControl.logs.rotateMegabytes": {
+            "scope": "application",
+            "type": "number",
+            "default": 1,
+            "minimum": 1,
+            "maximum": 100,
+            "order": 5,
+            "markdownDescription": "Size at which hub.log is rotated."
+          },
+          "groundControl.logs.keep": {
+            "scope": "application",
+            "type": "integer",
+            "default": 2,
+            "minimum": 0,
+            "maximum": 20,
+            "order": 6,
+            "markdownDescription": "Rotated hub.log files kept; 0 truncates instead of rotating."
+          },
+          "groundControl.logs.dispatchRetentionDays": {
+            "scope": "application",
+            "type": "number",
+            "default": 7,
+            "minimum": 1,
+            "maximum": 365,
+            "order": 7,
+            "markdownDescription": "Days to keep dispatched agents' output files in the state directory."
           }
         }
       }

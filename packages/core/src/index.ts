@@ -8,8 +8,8 @@ export type { Attention, BoardCard, Lane, LaneId, LanedCard } from './board.js';
 export { checkoutFor } from './checkout.js';
 export type { CardCheckout, CheckoutReaders, CheckoutSource } from './checkout.js';
 export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
-export { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_NEW_SESSION, DEFAULT_TRIAGE, IDLE_EXIT_CEILING_MS, IDLE_EXIT_FLOOR_MS, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, spawnable, triageMode } from './config.js';
-export type { HubConfig, NewSessionSettings, TriageSettings } from './config.js';
+export { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_TRIAGE, IDLE_EXIT_CEILING_MS, IDLE_EXIT_FLOOR_MS, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, spawnable, triageMode } from './config.js';
+export type { HubConfig, LogSettings, NewSessionSettings, TriageSettings } from './config.js';
 export { ACTION_REVISION, AUTOMATABLE_ACTIONS, EMPTY_ACTIONS, isAutomatable } from './actions.js';
 export type {
   ActionOutcome,

@@ -281,7 +281,6 @@ export class Hub {
       allowed: (key) => (this.#sessions?.sessions ?? []).some((session) =>
         `${session.repository}#${session.issueNumber}` === key && this.#sessionAllowed(session)),
     });
-    pruneMarkers(deps.registries.agents, deps.stateDir);
     this.#armWatchers();
   }
 
@@ -791,6 +790,8 @@ export class Hub {
   /** Configure each adapter and report unknown IDs (R25). */
   #applyConfig(): ReadFailure[] {
     this.#deps.log.setLevel(this.#config.logLevel);
+    // Sweep with the current retention on every settings application, so a shortened retention applies without restart.
+    pruneMarkers(this.#deps.registries.agents, this.#deps.stateDir, this.#deps.clock.now(), this.#config.logs.dispatchRetentionMs);
     this.#actions?.configure(this.#config.actions, this.#config.agents);
 
     const refused = configureSources(this.#deps.registries, this.#config.sources);
@@ -1547,6 +1548,11 @@ export class Hub {
   /** Current no-client exit window; serveHub reads it on every idle tick so a settings change applies without restart. */
   idleExitMs(): number {
     return this.#config.idleExitMs;
+  }
+
+  /** Current hub.log rotation limits, read by the file sink on every write. */
+  logRotation(): { bytes: number; kept: number } {
+    return { bytes: this.#config.logs.rotateBytes, kept: this.#config.logs.kept };
   }
 
   /** Build the board snapshot, retaining cached source data alongside read failures (R24). */

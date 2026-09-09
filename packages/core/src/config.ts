@@ -26,6 +26,7 @@ export interface HubConfig {
   sessionIntervalMs: number;
   /** How long the hub stays up after its last client disconnects. */
   idleExitMs: number;
+  logs: LogSettings;
   sessionScope?: SessionScope;
   installActivity: boolean;
   /** Per-agent hook choices; omission permits hooks while installActivity remains authoritative. */
@@ -35,6 +36,16 @@ export interface HubConfig {
   triage: TriageSettings;
   actions: ActionSettings;
   newSession: NewSessionSettings;
+}
+
+/** Hub log rotation and dispatch-output retention. Markers and settings backups are safety state with fixed limits. */
+export interface LogSettings {
+  /** Rotate hub.log at this size. */
+  rotateBytes: number;
+  /** Rotated files kept beside hub.log; 0 truncates instead of rotating. */
+  kept: number;
+  /** Age after which <agent>-dispatch-<id>.log files are deleted. */
+  dispatchRetentionMs: number;
 }
 
 /**
@@ -80,6 +91,28 @@ const laneId = z.enum(LANE_ORDER as [LaneId, ...LaneId[]]);
 /** Minimum polling intervals prevent repeated immediate reads. */
 const REFRESH_FLOOR_MS = 30_000;
 const SESSION_FLOOR_MS = 2_000;
+
+export const DEFAULT_LOGS: LogSettings = { rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 7 * 24 * 60 * 60 * 1000 };
+
+/** Clamp a number setting; anything that is not a finite number keeps the default. */
+function bounded(fallback: number, floor: number, ceiling: number) {
+  return z
+    .number()
+    .finite()
+    .catch(fallback)
+    .default(fallback)
+    .transform((value) => Math.min(ceiling, Math.max(floor, value)));
+}
+
+// Sizes under 100 KB would rotate constantly; retention under a day would delete output of a run still in progress.
+const logs = z
+  .object({
+    rotateBytes: bounded(DEFAULT_LOGS.rotateBytes, 100_000, 100_000_000),
+    kept: bounded(DEFAULT_LOGS.kept, 0, 20).transform((kept) => Math.round(kept)),
+    dispatchRetentionMs: bounded(DEFAULT_LOGS.dispatchRetentionMs, 24 * 60 * 60 * 1000, 365 * 24 * 60 * 60 * 1000),
+  })
+  .catch(() => ({ ...DEFAULT_LOGS }))
+  .default(() => ({ ...DEFAULT_LOGS }));
 
 /** No-client exit window: default 30 minutes, clamped to one minute and one day. */
 export const DEFAULT_IDLE_EXIT_MS = 30 * 60 * 1000;
@@ -183,13 +216,9 @@ export const hubConfig = z.object({
   statusLanes: z.record(z.string(), laneId),
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
-  // A window under a minute would drop the hub between an editor reload and its reconnect; a non-number keeps the default.
-  idleExitMs: z
-    .number()
-    .finite()
-    .catch(DEFAULT_IDLE_EXIT_MS)
-    .default(DEFAULT_IDLE_EXIT_MS)
-    .transform((ms) => Math.min(IDLE_EXIT_CEILING_MS, Math.max(IDLE_EXIT_FLOOR_MS, ms))),
+  // A window under a minute would drop the hub between an editor reload and its reconnect.
+  idleExitMs: bounded(DEFAULT_IDLE_EXIT_MS, IDLE_EXIT_FLOOR_MS, IDLE_EXIT_CEILING_MS),
+  logs,
   sessionScope: sessionScopeSchema.default(DEFAULT_SESSION_SCOPE),
   agentHomes: z.record(z.string(), agentHomeSchema).optional(),
   installActivity: z.boolean(),

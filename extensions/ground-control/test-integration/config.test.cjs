@@ -77,6 +77,21 @@ describe('what this window pushes to the hub', () => {
     await settings().update('github.projectOwner', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('github.statusField', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('idleExitMinutes', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('logLevel', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('logs.rotateMegabytes', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('logs.keep', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('logs.dispatchRetentionDays', undefined, vscode.ConfigurationTarget.Global);
+  });
+
+  it('sends the log floor and retention settings in the units the hub keeps', async () => {
+    await settings().update('logLevel', 'warn', vscode.ConfigurationTarget.Global);
+    await settings().update('logs.rotateMegabytes', 5, vscode.ConfigurationTarget.Global);
+    await settings().update('logs.keep', 0, vscode.ConfigurationTarget.Global);
+    await settings().update('logs.dispatchRetentionDays', 1, vscode.ConfigurationTarget.Global);
+    await untilStored(
+      (c) => c.logLevel === 'warn' && c.logs?.rotateBytes === 5_000_000 && c.logs?.kept === 0 && c.logs?.dispatchRetentionMs === 24 * 60 * 60 * 1000,
+      'the log settings never reached the hub',
+    );
   });
 
   it('sends the idle exit window in milliseconds and lets the hub clamp it', async () => {

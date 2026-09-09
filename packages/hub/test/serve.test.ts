@@ -335,4 +335,30 @@ describe('the hub log', () => {
   it('skips rotation for missing logs', () => {
     expect(rotateLog(`${homeForThisTest()}/never-written.log`, 1)).toBe(false);
   });
+
+  /** Keeping nothing means the current file goes, not that it is renamed to a generation nobody will delete. */
+  it('truncates instead of rotating when nothing is to be kept', () => {
+    const path = `${homeForThisTest()}/hub.log`;
+
+    writeFileSync(path, 'x'.repeat(2000));
+    writeFileSync(`${path}.1`, 'older');
+    expect(rotateLog(path, 1000, 0)).toBe(true);
+    // Truncated in place, not unlinked: the launcher's stdout handle still points at this file.
+    expect(statSync(path).size).toBe(0);
+    expect(existsSync(`${path}.1`)).toBe(false);
+  });
+
+  it('deletes the generations a lowered count no longer keeps', () => {
+    const path = `${homeForThisTest()}/hub.log`;
+
+    for (let index = 1; index <= 6; index++) {
+      writeFileSync(`${path}.${index}`, `generation ${index}`);
+    }
+
+    writeFileSync(path, 'x'.repeat(2000));
+    expect(rotateLog(path, 1000, 2)).toBe(true);
+    expect(existsSync(`${path}.1`)).toBe(true);
+    expect(readFileSync(`${path}.2`, 'utf8')).toBe('generation 1');
+    expect([3, 4, 5, 6].some((index) => existsSync(`${path}.${index}`))).toBe(false);
+  });
 });

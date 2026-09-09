@@ -9,6 +9,7 @@ describe('the package public surface', () => {
       'CHROME_EXTENSION_ID',
       'DEFAULT_ACTIONS',
       'DEFAULT_IDLE_EXIT_MS',
+      'DEFAULT_LOGS',
       'DEFAULT_NEW_SESSION',
       'DEFAULT_SESSION_SCOPE',
       'DEFAULT_TRIAGE',

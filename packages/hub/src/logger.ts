@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, openSync } from 'node:fs';
 import { formatLogLine, meetsLevel, parseLogLines } from '@ground-control/core';
 import type { LogEntry, LogFloor, LogLevel, Logger, ReadTail } from '@ground-control/core';
-import { LOG_LIMIT_BYTES, openLog, rotateLog } from './log.js';
+import { LOGS_KEPT, LOG_LIMIT_BYTES, openLog, rotateLog } from './log.js';
 import { logPathOf } from './paths.js';
 
 export interface LoggerDeps {
@@ -12,8 +12,13 @@ export interface LoggerDeps {
   now?(): string;
 }
 
+/** Rotation limits read on every write, so a settings change applies to the running hub. */
+export type LogRotation = () => { bytes: number; kept: number };
+
+const DEFAULT_ROTATION: LogRotation = () => ({ bytes: LOG_LIMIT_BYTES, kept: LOGS_KEPT });
+
 /** Append to hub.log and rotate by bytes written, avoiding a stat call per line. */
-export function fileSink(stateDir: string): (line: string) => void {
+export function fileSink(stateDir: string, rotation: LogRotation = DEFAULT_ROTATION): (line: string) => void {
   const path = logPathOf(stateDir);
 
   let fd = openLog(path);
@@ -26,10 +31,12 @@ export function fileSink(stateDir: string): (line: string) => void {
       appendFileSync(fd, text);
       written += text.length;
 
-      if (written >= LOG_LIMIT_BYTES) {
+      const { bytes, kept } = rotation();
+
+      if (written >= bytes) {
         written = 0;
         closeSync(fd);
-        rotateLog(path);
+        rotateLog(path, bytes, kept);
         fd = openSync(path, 'a');
       }
     } catch {

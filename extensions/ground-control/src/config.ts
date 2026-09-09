@@ -4,8 +4,8 @@ import { boardStatuses, statusLanes } from '@ground-control/board';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubConfig } from '@ground-control/github';
-import { AUTOMATABLE_ACTIONS, diskReaders, idsFrom } from '@ground-control/core';
-import type { ActionSetting, AgentConfig, AutomatableAction, HubConfig } from '@ground-control/core';
+import { AUTOMATABLE_ACTIONS, LOG_FLOORS, diskReaders, idsFrom } from '@ground-control/core';
+import type { ActionSetting, AgentConfig, AutomatableAction, HubConfig, LogFloor } from '@ground-control/core';
 import { defaultConfig, makeRegistries } from '@ground-control/hub';
 import { readSessionScope } from './sessionScope.js';
 import { editorAgentHomes } from './agentStorage.js';
@@ -58,9 +58,14 @@ export function readHubConfig(userDir: string): HubConfig {
     statusLanes: statusLanes(cfg.get<unknown>('statusLanes')),
     refreshIntervalMs: refreshIntervalMs(),
     sessionIntervalMs: sessionIntervalMs(),
-    logLevel: cfg.get<string>('logLevel', 'info') === 'debug' ? 'debug' : 'info',
-    // Minutes in settings, milliseconds in the hub; the hub clamps the window itself.
+    logLevel: logFloor(cfg.get<unknown>('logLevel', 'info')),
+    // Minutes, megabytes, and days in settings; milliseconds and bytes in the hub, which clamps every value itself.
     idleExitMs: minutesToMs(cfg.get<unknown>('idleExitMinutes', 30), 30),
+    logs: {
+      rotateBytes: numberOr(cfg.get<unknown>('logs.rotateMegabytes'), 1) * 1_000_000,
+      kept: numberOr(cfg.get<unknown>('logs.keep'), 2),
+      dispatchRetentionMs: numberOr(cfg.get<unknown>('logs.dispatchRetentionDays'), 7) * 24 * 60 * 60 * 1000,
+    },
     installActivity: installSessionHooks(),
     sessionHooks: {
       claude: cfg.get<boolean>('sessionHooks.claude', true),
@@ -146,10 +151,16 @@ export function readBoardStatuses(): string[] {
   return boardStatuses(vscode.workspace.getConfiguration(SECTION).get<unknown>('boardStatuses'));
 }
 
-function minutesToMs(value: unknown, fallback: number): number {
-  const minutes = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
 
-  return minutes * 60 * 1000;
+function minutesToMs(value: unknown, fallback: number): number {
+  return numberOr(value, fallback) * 60 * 1000;
+}
+
+function logFloor(value: unknown): LogFloor {
+  return (LOG_FLOORS as readonly unknown[]).includes(value) ? (value as LogFloor) : 'info';
 }
 
 /** A hand-edited settings.json can hold a string here, and setInterval(NaN) fires every millisecond. */

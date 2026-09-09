@@ -244,6 +244,7 @@ function hubConfig(
     refreshIntervalMs: 300_000,
     sessionIntervalMs: 30_000,
     idleExitMs: 1_800_000,
+    logs: { rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 604_800_000 },
     newSession: { prompt: '' },
     installActivity: false,
     triage,

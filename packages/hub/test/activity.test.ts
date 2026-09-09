@@ -303,6 +303,25 @@ describe('pruneMarkers', () => {
     expect(existsSync(lanes)).toBe(true);
   });
 
+  /** Retention is the developer's to set, within bounds; only dispatch output answers to it. */
+  it('deletes dispatch output older than the configured retention and nothing else', () => {
+    const day = 24 * 60 * 60 * 1000;
+    const old = marker(stateDir, 'claude-dispatch-abc.log', 3 * day);
+    const older = marker(stateDir, 'codex-dispatch-def.log.err', 10 * day);
+    const notOurs = marker(stateDir, 'notes-dispatch-abc.txt', 10 * day);
+
+    pruneMarkers([fakeAgent('fake', fakeSignal(written))], stateDir, now, 2 * day);
+
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(older)).toBe(false);
+    expect(existsSync(notOurs)).toBe(true);
+
+    const fresh = marker(stateDir, 'claude-dispatch-ghi.log', 3 * day);
+
+    pruneMarkers([fakeAgent('fake', fakeSignal(written))], stateDir, now, 7 * day);
+    expect(existsSync(fresh)).toBe(true);
+  });
+
   it('tolerates missing activity directories', () => {
     expect(() => pruneMarkers([fakeAgent('fake', fakeSignal(written))], stateDir, now)).not.toThrow();
   });

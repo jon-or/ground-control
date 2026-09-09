@@ -135,6 +135,26 @@ describe('the cadences', () => {
     expect(accepted(legacy).idleExitMs).toBe(30 * 60 * 1000);
   });
 
+  /** Retention bounds are what keep a hand-edited setting from truncating on every line or deleting a run in progress. */
+  it('clamps log rotation and dispatch retention, defaulting anything absent or not a number', () => {
+    const tight = accepted(config({ logs: { rotateBytes: 10, kept: -3, dispatchRetentionMs: 0 } })).logs;
+
+    expect(tight).toEqual({ rotateBytes: 100_000, kept: 0, dispatchRetentionMs: 24 * 60 * 60 * 1000 });
+
+    const loose = accepted(config({ logs: { rotateBytes: 1e12, kept: 99.6, dispatchRetentionMs: 1e15 } })).logs;
+
+    expect(loose).toEqual({ rotateBytes: 100_000_000, kept: 20, dispatchRetentionMs: 365 * 24 * 60 * 60 * 1000 });
+    expect(accepted({ ...config(), logs: { rotateBytes: 'big', kept: 2.4 } }).logs).toEqual({ rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 7 * 24 * 60 * 60 * 1000 });
+    expect(accepted({ ...config(), logs: 'none' }).logs).toEqual({ rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 7 * 24 * 60 * 60 * 1000 });
+    expect(accepted(config()).logs).toEqual({ rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 7 * 24 * 60 * 60 * 1000 });
+  });
+
+  it('accepts every floor the log levels offer', () => {
+    expect(accepted(config({ logLevel: 'error' })).logLevel).toBe('error');
+    expect(accepted(config({ logLevel: 'warn' })).logLevel).toBe('warn');
+    expect(accepted({ ...config(), logLevel: 'loud' }).logLevel).toBe('info');
+  });
+
   it('refuses a cadence that is not a number the clock can use', () => {
     expect(refusal(config({ refreshIntervalMs: Number.NaN }))).toContain('refreshIntervalMs');
     expect(refusal(config({ sessionIntervalMs: Number.POSITIVE_INFINITY }))).toContain('sessionIntervalMs');
@@ -410,9 +430,9 @@ describe('how much the hub says about itself', () => {
     expect(levelOf(bad)).toBe('info');
   });
 
-  // Retain info-level lifecycle and refusal logs needed to diagnose hub startup.
-  it.each([['warn'], ['error']])('refuses to take %s as a floor, because it would silence what happened', (level) => {
-    expect(levelOf(level)).toBe('info');
+  /** Failures still reach the boards as snapshot failures, so a quiet floor hides lifecycle lines, not what went wrong. */
+  it.each([['warn'], ['error']])('takes %s as a floor', (level) => {
+    expect(levelOf(level)).toBe(level);
   });
 });
 

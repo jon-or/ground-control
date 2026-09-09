@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { LogEntry, LogFloor } from '@ground-control/core';
 import { LOG_FLOORS } from '@ground-control/core';
@@ -49,19 +49,25 @@ describe('what the hub writes about itself', () => {
     expect(log.level()).toBe('info');
   });
 
-  // Do not allow warn-only thresholds that suppress startup diagnostics.
-  it.each(LOG_FLOORS)('still writes what happened at a floor of %s, whatever a client asked for', (floor) => {
+  /** A floor drops what is under it and nothing else: warn keeps refusals and failures, error keeps failures alone. */
+  it.each([
+    ['debug', 3],
+    ['info', 3],
+    ['warn', 2],
+    ['error', 1],
+  ] as const)('writes at a floor of %s the lines at or above it', (floor, count) => {
     const { log, written } = logging(floor);
 
     log.info('listening on 127.0.0.1:51844');
     log.warn('refused GET /hub: an Origin header, https://a.example', 'server');
     log.error('could not listen on 127.0.0.1');
 
-    expect(written).toHaveLength(3);
+    expect(written).toHaveLength(count);
+    expect(written[written.length - 1]).toContain('could not listen');
   });
 
-  it('offers no floor that could silence a refusal', () => {
-    expect([...LOG_FLOORS]).toEqual(['debug', 'info']);
+  it('offers every level as a floor', () => {
+    expect([...LOG_FLOORS]).toEqual(['debug', 'info', 'warn', 'error']);
   });
 });
 
@@ -160,6 +166,30 @@ describe('the file it appends to', () => {
 
       expect(readFileSync(`${logPathOf(home)}.1`, 'utf8')).toContain(fat);
       expect(readFileSync(logPathOf(home), 'utf8')).toBe('after the rotation\n');
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe('the limits the sink follows', () => {
+  it('reads the rotation limits on each write, so a setting change applies to the running hub', () => {
+    const { home, dispose } = tempHome();
+
+    try {
+      let limits = { bytes: LOG_LIMIT_BYTES, kept: 2 };
+      const write = fileSink(home, () => limits);
+
+      write('x'.repeat(500));
+      expect(existsSync(`${logPathOf(home)}.1`)).toBe(false);
+
+      limits = { bytes: 100, kept: 1 };
+      write('y'.repeat(100));
+      write('z');
+
+      expect(readFileSync(`${logPathOf(home)}.1`, 'utf8')).toContain('yyyy');
+      expect(existsSync(`${logPathOf(home)}.2`)).toBe(false);
+      expect(readFileSync(logPathOf(home), 'utf8')).toBe('z\n');
     } finally {
       dispose();
     }

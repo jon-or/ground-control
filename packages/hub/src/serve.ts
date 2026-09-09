@@ -7,6 +7,7 @@ import { Hub, realHubDeps } from './hub.js';
 import { makeLaneStore } from './lanes.js';
 import { makeMarkStore } from './marks.js';
 import { makeSettingsStore } from './settings.js';
+import { LOGS_KEPT, LOG_LIMIT_BYTES } from './log.js';
 import { fileSink, makeLogger } from './logger.js';
 import { exitPathOf, hubJsonPathOf } from './paths.js';
 import { makeRegistries } from './registry.js';
@@ -122,7 +123,9 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
     return { refused: refusal };
   }
 
-  const log = options.log ?? makeLogger({ write: fileSink(stateDir) });
+  // The sink exists before the hub; once the hub has loaded settings, its rotation limits govern each write.
+  let serving: Hub | null = null;
+  const log = options.log ?? makeLogger({ write: fileSink(stateDir, () => serving?.logRotation() ?? { bytes: LOG_LIMIT_BYTES, kept: LOGS_KEPT }) });
 
   // Respect authenticated hubs with any protocol to prevent duplicate writers. Clients decide whether to replace incompatible hubs.
   const already = await recordedHub(stateDir);
@@ -136,6 +139,8 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
 
   const fingerprint = fingerprintOf(stateDir);
   const hub = makeHub(log, home, stateDir, options.agentEnv ?? (options.home === undefined ? process.env : undefined));
+
+  serving = hub;
   const startedAt = new Date().toISOString();
 
   let server: HubServer;
