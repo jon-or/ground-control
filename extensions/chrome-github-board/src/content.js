@@ -24,6 +24,18 @@
   const timers = [];
   /** What the worker was last told about the sidebar, restated on every connect: a restarted worker holds nothing. */
   let watchingLog = false;
+  let reported = '';
+
+  // Visibility reporting cannot wait for a frame: Chrome suspends frames in hidden tabs.
+  function report() {
+    if (helpers === null || stopped) return;
+    const board = helpers.isBoardPath(location.pathname);
+    const visible = document.visibilityState === 'visible';
+    const next = `${board}:${visible}`;
+    if (next === reported || port === null) return;
+    reported = next;
+    post({ type: 'boardState', board, visible });
+  }
 
   const observer = new MutationObserver(() => schedule());
 
@@ -48,6 +60,7 @@
 
   /** Coalesce renders to one frame and pause the observer during writes to prevent mutation loops. */
   function schedule() {
+    report();
     if (scheduled || overlay === null) {
       return;
     }
@@ -118,6 +131,8 @@
     }
 
     reconnecting = false;
+    reported = '';
+    report();
 
     port.onMessage.addListener((message) => {
       attempt = 0;
@@ -168,6 +183,10 @@
   });
 
   observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  document.addEventListener('visibilitychange', schedule);
+  document.addEventListener('turbo:load', schedule);
+  window.addEventListener('popstate', schedule);
 
   // A card that has not changed produces no mutation, so the board is rescanned on its own clock for anything the
   // snapshot moved. Structure only — the durations advance below, and rebuilding a footer every second to move a

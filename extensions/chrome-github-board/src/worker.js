@@ -10,6 +10,8 @@ const KEEPALIVE = 'gc-keepalive';
 
 /** @type {Set<chrome.runtime.Port>} */
 const boards = new Set();
+/** @type {Set<chrome.runtime.Port>} */
+const watchers = new Set();
 
 /**
  * Keep log subscribers and history in memory through makeLogSpool. Reconnecting tabs restore subscriptions;
@@ -128,7 +130,7 @@ function connectNative() {
 
   // Restore watching and log subscriptions whenever the native port reopens, including alarm-driven
   // reconnects without a tab event.
-  toNative({ type: 'watching', watching: boards.size > 0 });
+  toNative({ type: 'watching', watching: watchers.size > 0 });
 
   if (spool.watching()) {
     // Announce repeated backfill before requesting the tail, which may duplicate displayed lines.
@@ -191,42 +193,56 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
 
-  boards.add(port);
-  say('debug', `a board tab connected; ${boards.size} open`, 'tabs');
-
   port.onMessage.addListener((message) => {
+    if (message?.type === 'boardState') {
+      const joined = message.board === true && !boards.has(port);
+      if (message.board === true) boards.add(port);
+      else {
+        boards.delete(port);
+        watchLog(port, false);
+      }
+      if (message.board === true && message.visible === true) watchers.add(port);
+      else watchers.delete(port);
+      reconcile();
+      if (joined) replay(port);
+      return;
+    }
+
+    if (!boards.has(port)) return;
+
     if (message?.type === 'logView') {
       watchLog(port, message.open === true);
 
       return;
     }
 
-    toNative(message);
+    // Only aggregate visibility may reach the hub.
+    if (message?.type !== 'watching') toNative(message);
   });
   port.onDisconnect.addListener(() => {
     // Read lastError to acknowledge expected port closure when Chrome caches a page in back/forward history.
     void chrome.runtime.lastError;
 
     boards.delete(port);
+    watchers.delete(port);
     watchLog(port, false);
     say('debug', `board tab disconnected; ${boards.size} open`, 'tabs');
 
-    // Stop polling after the last board tab closes; the hub remains available during its 30-minute idle
-    // timeout (R35).
-    if (boards.size === 0) {
-      toNative({ type: 'watching', watching: false });
-      native?.disconnect();
-      native = null;
-      troubled(UNANSWERED);
-    }
+    reconcile();
   });
-
-  connectNative();
-  // Update watching on the first tab connection if the port was already open; additional tabs do not change
-  // it.
-  toNative({ type: 'watching', watching: true });
-  replay(port);
 });
+
+function reconcile() {
+  if (boards.size === 0) {
+    if (native !== null) {
+      toNative({ type: 'watching', watching: false });
+      native.disconnect();
+      native = null;
+    }
+    troubled(UNANSWERED);
+  } else if (native === null) connectNative();
+  else toNative({ type: 'watching', watching: watchers.size > 0 });
+}
 
 chrome.alarms.create(KEEPALIVE, { periodInMinutes: 1 });
 

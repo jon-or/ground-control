@@ -352,6 +352,8 @@ A newly visible board receives cached issues if the previous source read is less
 
 On supported GitHub project pages, add triage and session rows inside matching issue cards, with the same names, phases, durations, attention, and open/attach behavior as the editor board. Preserve GitHub's card controls and drag behavior. Offer local lane moves without changing GitHub status.
 
+Only visible project tabs count as watched boards. Ordinary GitHub pages do not open or retain a hub connection. Hidden project tabs retain their connection and requested logs, but do not enable polling or automatic work. Recompute visibility on navigation and reconnect.
+
 Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, request triage, or open combined diffs.
 
 Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.

@@ -302,6 +302,8 @@ The VS Code panel owns display preferences such as archive visibility. Persist t
 
 The overlay separates DOM rendering (`overlay.js`), state decisions (`state.js`), and Chrome/observer wiring (`content.js`, `worker.js`). Inject across github.com to handle soft navigation; only render on supported project pages.
 
+Content ports report project eligibility and document visibility independently of animation frames. The worker aggregates visible project tabs for hub watching; a connection alone is not a watcher. Only project tabs receive snapshots and retain the native connection. Hidden project tabs may keep requested logs streaming. Leaving or closing the last project tab disconnects the native port. Both content and native reconnects restate current visibility.
+
 Retain unchanged card footers in a `WeakMap` keyed by GitHub's card element and content signature. Replaced nodes rebuild. Disarm the observer while painting and appending logs. Duration updates modify existing text nodes; delayed image failures hide nodes instead of repeatedly removing/recreating them. View switches, scroll, resize, and detached anchors must not leave menus or tooltips incorrectly positioned.
 
 Cache the last snapshot in `chrome.storage.session`, not durable browser storage. A cached snapshot does not clear a transport failure. Restate watching and logging when the worker reopens the native port. An invalidated extension context (`chrome.runtime.id` absent) stops observers/timers and requests a tab reload instead of retrying forever.
