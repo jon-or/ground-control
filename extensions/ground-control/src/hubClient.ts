@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { ClientHello, ClientMessage, HubConfig, HubMessage, Session, Snapshot } from '@ground-control/core';
+import type { ClientHello, ClientMessage, HubConfig, HubMessage, Session, SessionCheck, Snapshot } from '@ground-control/core';
 import { HubTransport } from '@ground-control/hub';
 import { makeHubProcess } from './hubProcess.js';
 import { boardLog, hubLog, showHubEntries } from './logging.js';
@@ -104,6 +104,10 @@ export class HubClient {
     return this.#transport.roster();
   }
 
+  sessionCheck(sessionId: string): Promise<SessionCheck | null> {
+    return this.#transport.sessionCheck(sessionId);
+  }
+
   dispose(): void {
     this.#transport.dispose();
     this.#snapshots.dispose();
@@ -166,7 +170,7 @@ export class HubClient {
 
       // Handle resident routes on the client because the requesting board may close before the response.
       case 'perform':
-        void perform(message.route, () => this.roster());
+        void perform(message.route, () => this.roster(), (id) => this.sessionCheck(id));
 
         return;
 

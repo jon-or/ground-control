@@ -154,23 +154,10 @@ async function emit() {
   }, reading);
 }
 
-async function holdCachedSnapshot() {
+async function storeOldSnapshot() {
   await worker.evaluate(async (snapshot) => {
-    const api = (globalThis as any).chrome;
-    const probe = (globalThis as any).probe;
     snapshot.lanes[0]!.cards[0]!.issue!.avatar!.login = 'cached-reviewer';
-    await api.storage.session.set({ last: { type: 'snapshot', snapshot } });
-    const get = api.storage.session.get.bind(api.storage.session);
-    let first = true;
-    api.storage.session.get = async (key: string) => {
-      const result = await get(key);
-      if (key === 'last' && first) {
-        first = false;
-        probe.cacheReads = 1;
-        await new Promise<void>((resolve) => { probe.releaseCache = resolve; });
-      }
-      return result;
-    };
+    await (globalThis as any).chrome.storage.session.set({ last: { type: 'snapshot', snapshot } });
   }, reading);
 }
 
@@ -280,6 +267,7 @@ it('clears hidden tabs immediately, restores GitHub markup, unsubscribes logs, a
   expect(await board.locator('.gc-badge').count()).toBe(0);
   await preferences(true);
   await shown(board, true);
+  await emit();
   await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
   await worker.evaluate(`
     probe.stale.snapshot.lanes[0].cards[0].issue.avatar.login = 'stale-reviewer';
@@ -328,54 +316,78 @@ it('fails closed for invalid stored preferences and can recover through the opti
   await shown(board, true);
 });
 
-it('discards a cached snapshot read that finishes after preferences disable its requesting tab', async () => {
-  await holdCachedSnapshot();
+it('waits for current hub scope instead of replaying snapshots saved by an older worker', async () => {
+  await storeOldSnapshot();
   const board = await pageAt();
   await shown(board, true);
-  await expect.poll(() => worker.evaluate('probe.cacheReads')).toBe(1);
-  await preferences(false);
-  await shown(board, false);
-  await expect.poll(() => worker.evaluate('probe.closes')).toBe(1);
-  await worker.evaluate('probe.releaseCache()');
-  // Round-trip through the worker after promise continuations have run.
-  await worker.evaluate('Promise.resolve()');
   expect(await worker.evaluate('probe.deliveries.filter(d => ["snapshot", "changed"].includes(d.message.type))')).toEqual([]);
   expect(await board.locator('.gc-badge').count()).toBe(0);
-});
-
-it('keeps a newer native snapshot when an older storage replay finishes later', async () => {
-  await holdCachedSnapshot();
-  const board = await pageAt();
-  await expect.poll(() => worker.evaluate('probe.cacheReads')).toBe(1);
-  await emit();
-  await expect.poll(() => board.locator('.gc-actor').getAttribute('aria-label')).toBe('reviewer, pull request author');
-  await worker.evaluate('probe.releaseCache()');
-  await worker.evaluate('Promise.resolve()');
+  // A log response establishes liveness but cannot authorize a prior snapshot.
+  await worker.evaluate('probe.emit({ type: "log", entries: [] })');
   const second = await pageAt();
+  await shown(second, true);
+  expect(await worker.evaluate('probe.deliveries.filter(d => d.message.type === "snapshot")')).toEqual([]);
+  await emit();
   await expect.poll(() => second.locator('.gc-actor').getAttribute('aria-label')).toBe('reviewer, pull request author');
-  expect(await board.locator('.gc-actor').getAttribute('aria-label')).toBe('reviewer, pull request author');
   expect(await worker.evaluate('probe.deliveries.filter(d => d.message.type === "snapshot").map(d => d.message.snapshot.lanes[0].cards[0].issue.avatar.login)'))
     .not.toContain('cached-reviewer');
 });
 
-it('invalidates an old cache read even when the same tab becomes eligible again', async () => {
-  await holdCachedSnapshot();
+it('clears prior native snapshots before reconnecting tabs can replay them', async () => {
   const board = await pageAt();
-  await expect.poll(() => worker.evaluate('probe.cacheReads')).toBe(1);
+  await shown(board, true);
+  await emit();
+  await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
+  await worker.evaluate('probe.dropNative(); probe.deliveries = []');
+  const second = await pageAt();
+  await shown(second, true);
+  await expect.poll(() => worker.evaluate('probe.opens')).toBe(2);
+  expect(await worker.evaluate('probe.deliveries.filter(d => d.message.type === "snapshot")')).toEqual([]);
+  expect(await second.locator('.gc-badge').count()).toBe(0);
+  // A changed response from the new hub replaces the old scope for every connected tab.
+  await worker.evaluate((snapshot) => {
+    snapshot.lanes = [];
+    (globalThis as any).probe.emit({ type: 'changed', snapshot });
+  }, reading);
+  await expect.poll(() => board.locator('.gc-badge').count()).toBe(0);
+  const third = await pageAt();
+  await shown(third, true);
+  await expect.poll(() => worker.evaluate('probe.deliveries.filter(d => d.id === 2 && d.message.type === "changed").length')).toBe(1);
+  expect(await third.locator('.gc-badge').count()).toBe(0);
+});
+
+it('waits for a fresh snapshot after disabling and re-enabling the overlay', async () => {
+  const board = await pageAt();
+  await shown(board, true);
+  await emit();
+  await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
   await preferences(false);
   await shown(board, false);
   await expect.poll(() => worker.evaluate('probe.closes')).toBe(1);
-  await worker.evaluate(async (snapshot) => {
-    await (globalThis as any).chrome.storage.session.set({ last: { type: 'snapshot', snapshot } });
-  }, reading);
+  await worker.evaluate('probe.deliveries = []');
   await preferences(true);
   await shown(board, true);
-  await expect.poll(() => board.locator('.gc-actor').getAttribute('aria-label')).toBe('reviewer, pull request author');
-  await worker.evaluate('probe.releaseCache()');
-  await worker.evaluate('Promise.resolve()');
-  expect(await worker.evaluate('probe.deliveries.filter(d => d.message.type === "snapshot").map(d => d.message.snapshot.lanes[0].cards[0].issue.avatar.login)'))
-    .not.toContain('cached-reviewer');
-  expect(await board.locator('.gc-actor').getAttribute('aria-label')).toBe('reviewer, pull request author');
+  await expect.poll(() => worker.evaluate('probe.opens')).toBe(2);
+  expect(await worker.evaluate('probe.deliveries.filter(d => d.message.type === "snapshot")')).toEqual([]);
+  expect(await board.locator('.gc-badge').count()).toBe(0);
+  await emit();
+  await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
+});
+
+it('does not replay a prior scope while the same native bridge reconnects to the hub', async () => {
+  const board = await pageAt();
+  await shown(board, true);
+  await emit();
+  await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
+  await worker.evaluate('probe.emit({ type: "trouble", message: "Hub disconnected" }); probe.deliveries = []');
+  const second = await pageAt();
+  await shown(second, true);
+  expect(await worker.evaluate('probe.opens')).toBe(1);
+  expect(await worker.evaluate('probe.deliveries.filter(d => d.message.type === "snapshot")')).toEqual([]);
+  expect(await worker.evaluate('probe.deliveries.filter(d => d.id === 1 && d.message.type === "trouble").map(d => d.message.message)')).toContain('Hub disconnected');
+  expect(await second.locator('.gc-badge').count()).toBe(0);
+  await emit();
+  await expect.poll(() => second.locator('.gc-badge').count()).toBe(1);
 });
 
 it('removes all disabled tabs before reporting the new aggregate watching state', async () => {
@@ -391,28 +403,4 @@ it('removes all disabled tabs before reporting the new aggregate watching state'
   await expect.poll(() => worker.evaluate('probe.closes')).toBe(1);
   const watching = await worker.evaluate('probe.messages.filter(m => m.type === "watching").map(m => m.watching)');
   expect(watching).toEqual([false]);
-});
-
-it('invalidates pending cache work on worker policy changes before content receives those changes', async () => {
-  await holdCachedSnapshot();
-  const board = await pageAt();
-  await expect.poll(() => worker.evaluate('probe.cacheReads')).toBe(1);
-  await board.evaluate(() => { document.documentElement.dataset.holdPreferences = 'true'; });
-  const before = await worker.evaluate('probe.reports.at(-1).message.token');
-  await preferences(false);
-  await expect.poll(() => worker.evaluate('probe.closes')).toBe(1);
-  await worker.evaluate(async (snapshot) => {
-    await (globalThis as any).chrome.storage.session.set({ last: { type: 'snapshot', snapshot } });
-  }, reading);
-  await preferences(true);
-  await expect.poll(() => worker.evaluate('probe.opens')).toBe(2);
-  await expect.poll(() => board.locator('.gc-actor').getAttribute('aria-label')).toBe('reviewer, pull request author');
-  expect(await worker.evaluate('probe.reports.at(-1).message.token')).toBe(before);
-  await worker.evaluate('probe.deliveries = []; probe.releaseCache()');
-  await worker.evaluate('Promise.resolve()');
-  expect(await worker.evaluate('probe.deliveries.filter(d => d.message.type === "snapshot")')).toEqual([]);
-  await board.evaluate(() => {
-    document.documentElement.dataset.holdPreferences = 'false';
-    document.dispatchEvent(new Event('releasePreferences'));
-  });
 });

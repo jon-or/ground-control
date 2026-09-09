@@ -11,6 +11,8 @@ export interface IssueLookupDeps {
   now(): number;
   /** Redraw after a lookup completes. */
   changed(): void;
+  /** Current session policy; a completed read must not publish or log an excluded session-derived issue. */
+  allowed?(key: string): boolean;
 }
 
 /** Maximum concurrent issue lookups. */
@@ -142,9 +144,10 @@ export class IssueLookup {
       let served = false;
 
       for (const source of this.#deps.sources()) {
+        if (this.#deps.allowed?.(key) === false) return;
         const reading = await source.readCard?.(repository, number, abort.signal);
 
-        if (this.#disposed) {
+        if (this.#disposed || this.#deps.allowed?.(key) === false) {
           return;
         }
 
@@ -172,7 +175,7 @@ export class IssueLookup {
       }
     } catch (error) {
       this.#retryAt.set(key, this.#deps.now() + RETRY_AFTER_FAILURE_MS);
-      this.#deps.log.debug(`issue ${key} could not be read: ${String(error)}`, 'issues');
+      if (this.#deps.allowed?.(key) !== false) this.#deps.log.debug(`issue ${key} could not be read: ${String(error)}`, 'issues');
     } finally {
       this.#inFlight.delete(key);
       this.#aborts.delete(abort);

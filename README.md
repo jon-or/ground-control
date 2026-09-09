@@ -62,6 +62,18 @@ Hook changes preserve unrelated agent settings, hooks, and Codex trust entries, 
 
 `newSession.prompt` prefills Claude's composer without submitting. It accepts `{issue}`, `{repo}`, `{title}`, `{url}`, and `{checkout}`; unknown placeholders remain unchanged. Empty prompts and new Codex sessions start without a prompt.
 
+### Session scope
+
+`sessions.includeRepositories`, `sessions.excludeRepositories`, `sessions.includeDirectories`, and `sessions.excludeDirectories` default to empty lists. Empty includes allow all sessions; otherwise a repository or directory include must match. Exclusions always win. These shared settings apply to both boards without filtering assigned GitHub issues.
+
+Repository rules accept `owner/repo`, `host/owner/repo`, HTTPS URLs, `ssh://git@host/owner/repo`, and `git@host:owner/repo`. They normalize to lowercase `host/owner/repo`, without `.git`. Passwords, HTTPS usernames, queries, fragments, and extra path components are rejected. Unknown repository identities cannot match repository includes; any repository exclusion hides unknown identities, even if a directory include matches.
+
+Directory rules require absolute paths and include descendants at directory boundaries. They match the session's working directory and canonical checkout root, including worktrees. Windows drive and UNC paths ignore case and separator differences; POSIX paths preserve case. Symlink aliases are not resolved.
+
+`sessions.showHistory` and `sessions.showAdHoc` default to true. Turning them off hides saved session rows or cards without confirmed issues. Scope filters client snapshots and opening routes; it does not stop all underlying roster/history reads or erase existing logs. The hub retains complete live-session evidence to prevent duplicate work and keeps stop controls for work it started, with excluded session details removed.
+
+Chrome keeps snapshots in memory for the current hub connection and waits for fresh data after either the bridge or hub disconnects. A disconnected tab may retain its already displayed snapshot, marked stale, until the hub confirms current state.
+
 ### Triage settings
 
 `triage.mode` defaults to `manual`: use **Read this card** in VS Code for an unread assigned issue, or its retry/reread control. `off` disables all classification controls and requests while retaining previous results. `automatic` reads eligible cards while a board is visible. Chrome displays triage state and results but cannot request classification.

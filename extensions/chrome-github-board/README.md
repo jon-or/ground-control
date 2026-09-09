@@ -28,11 +28,11 @@ Preferences use durable extension storage and apply across open tabs immediately
 | `src/preferences.js` | Project eligibility, validation, and preference updates | Vitest and browser tests |
 | `options.html`, `src/options.js` | Browser preference editor and shared-settings link | Headless Playwright |
 | `src/content.js` | Worker port, observer, and repaint scheduling | Headless Playwright |
-| `src/worker.js` | Native port, tab ports, snapshot cache, and reconnect alarm | Headless Playwright |
+| `src/worker.js` | Native port, tab ports, current snapshot, and reconnect alarm | Headless Playwright |
 
 The content script injects across github.com to support soft navigation, but renders only on enabled, allowed project roots and their `/views/<number>` pages. Both content and worker enforce eligibility before rendering or delivering data. JSDoc checks snapshot types against core. Unchanged footers are retained by card node and content signature; GitHub view changes replace nodes and require rebuilding.
 
-The worker connects through native messaging and makes no direct GitHub API requests. It caches the latest snapshot in `chrome.storage.session`. Log lines remain in memory. The first sidebar subscribes to hub logs; the last closing sidebar unsubscribes and discards hub backfill.
+The worker connects through native messaging and makes no direct GitHub API requests. Snapshots and log lines remain in memory. After either the bridge or hub disconnects, a fresh hub snapshot must arrive before tabs receive session data; snapshots from prior connections are discarded. An already displayed disconnected board remains marked stale. The first sidebar subscribes to hub logs; the last closing sidebar unsubscribes and discards hub backfill.
 
 **Show log** opens browser and hub diagnostics with source filters. Outside click closes it unless pinned. Refused-request origins are redacted, but other private operational text may remain visible to GitHub page scripts. See [data boundaries](../../docs/architecture.md#data-boundaries).
 

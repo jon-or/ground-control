@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
+import { DEFAULT_SESSION_SCOPE } from '@ground-control/core';
 import type {
   AgentAdapter,
   ContextReading,
@@ -109,6 +110,8 @@ interface Control {
   reads: number[];
   /** Set to make the source seam throw rather than answer. Both seams are public and either may. */
   readThrows: boolean;
+  contextHolding: Promise<void> | null;
+  permissions: string[];
   /** Set to make every store write fail, which is the one condition that would leave the runner with no ceilings. */
   storeBroken: boolean;
   /** Set to make `claude stop` refuse, so a card cannot claim a stop the board did not achieve. */
@@ -169,6 +172,8 @@ function harness(
     classified: { action: 'merge-upstream', detail: 'Behind master.' },
     reads: [],
     readThrows: false,
+    contextHolding: null,
+    permissions: ['manual', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions'],
     storeBroken: false,
     stopFails: false,
     dispatched: [],
@@ -225,6 +230,7 @@ function harness(
     }),
     readContext: async (card): Promise<ContextReading> => {
       control.reads.push(card.number);
+      if (control.contextHolding) await control.contextHolding;
 
       // Throw only on action context reads; triage must succeed to make the card eligible.
       if (control.readThrows && control.reads.length > 1) {
@@ -259,7 +265,7 @@ function harness(
 
       return control.dispatch;
     },
-    dispatchPermissions: ['manual', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions'],
+    dispatchPermissions: control.permissions,
     stopDispatch: async (_path: string, shortId: string): Promise<ReadFailure | null> => {
       control.stopped.push(shortId);
 
@@ -774,6 +780,71 @@ describe('following a run to its end', () => {
 });
 
 describe('the developer asking by hand', () => {
+  it('keeps excluded live sessions in automatic and manual duplicate checks', async () => {
+    const control = harness({}, [issue()], [sessionOn({ checkoutRoot: CHECKOUT })]);
+    control.hub.configure({ ...config(), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeDirectories: [CHECKOUT] } });
+    watch(control);
+    await control.pass();
+    expect(control.snapshot().lanes.flatMap((lane) => lane.cards).flatMap((card) => card.sessions)).toEqual([]);
+    expect(control.dispatched).toEqual([]);
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    expect(control.dispatched).toEqual([]);
+    expect(control.notices).toContain('This card has an active session.');
+    control.hub.dispose();
+  });
+
+  it('rechecks checkout scope after a held manual context read', async () => {
+    const control = harness({ actions: {} });
+    watch(control);
+    await control.pass();
+    let release!: () => void;
+    control.contextHolding = new Promise<void>((resolve) => { release = resolve; });
+    const reads = control.reads.length;
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    expect(control.reads).toHaveLength(reads + 1);
+    control.hub.configure({ ...config({ actions: {} }), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeDirectories: [CHECKOUT] } });
+    release();
+    await control.settle();
+    expect(control.dispatched).toEqual([]);
+    expect(control.notices).toContain('No checkout from a previous session is available for this card.');
+    control.hub.dispose();
+  });
+
+  it('rechecks a newly active session after a held manual context read', async () => {
+    const control = harness({ actions: {} });
+    watch(control);
+    await control.pass();
+    let release!: () => void;
+    control.contextHolding = new Promise<void>((resolve) => { release = resolve; });
+    const reads = control.reads.length;
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    expect(control.reads).toHaveLength(reads + 1);
+    control.agent.sessions = [sessionOn({ checkoutRoot: CHECKOUT })];
+    await control.hub.roster();
+    release();
+    await control.settle();
+    expect(control.dispatched).toEqual([]);
+    expect(control.notices).toContain('This card has an active session.');
+    control.hub.dispose();
+  });
+
+  it('preserves a useful unsupported-permission refusal for an in-scope card', async () => {
+    const control = harness({ actions: {} });
+    control.permissions.splice(0, control.permissions.length, 'manual');
+    control.hub.configure({ ...config({ actions: {}, permissionMode: 'auto' }), sessionScope: { ...DEFAULT_SESSION_SCOPE, includeDirectories: [home] } });
+    watch(control);
+    await control.pass();
+    const reads = control.reads.length;
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    expect(control.dispatched).toEqual([]);
+    expect(control.reads).toHaveLength(reads);
+    expect(control.notices).toContain('claude cannot use "auto" for card actions. Set groundControl.actions.permissionMode to a supported mode (manual) or change groundControl.actions.agent.');
+    control.hub.dispose();
+  });
   it('runs a card whose action is turned off, because the click is the opt-in', async () => {
     const control = harness({ actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge {issue}' } } });
     watch(control);

@@ -10,6 +10,13 @@ import type { ReadFailure } from './types.js';
  */
 export const PROTOCOL = 1;
 
+/** Authoritative route safety without exposing excluded roster records. */
+export interface SessionCheck {
+  allowed: boolean;
+  targetActive: boolean;
+  cardActive: boolean;
+}
+
 /** Board display state computed by the hub; source item state remains externally owned. */
 export interface Snapshot {
   lanes: Lane[];

@@ -7,6 +7,7 @@ import type { CardSource, GithubConfig } from '@ground-control/github';
 import { AUTOMATABLE_ACTIONS, diskReaders, idsFrom } from '@ground-control/core';
 import type { ActionSetting, AgentConfig, AutomatableAction, HubConfig } from '@ground-control/core';
 import { defaultConfig, makeRegistries } from '@ground-control/hub';
+import { readSessionScope } from './sessionScope.js';
 
 export const SECTION = 'groundControl';
 const LOGINS = 'github.logins';
@@ -59,6 +60,7 @@ export function readHubConfig(userDir: string): HubConfig {
       claude: cfg.get<boolean>('sessionHooks.claude', true),
       codex: cfg.get<boolean>('sessionHooks.codex', true),
     },
+    sessionScope: readSessionScope(),
     triage: readTriage(),
     actions: readActions(),
     newSession: { prompt: cfg.get<string>('newSession.prompt', '') },

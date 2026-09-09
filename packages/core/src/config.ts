@@ -5,6 +5,8 @@ import { LANE_ORDER } from './board.js';
 import type { ActionSettings } from './actions.js';
 import type { LaneId } from './board.js';
 import { LOG_FLOORS } from './log.js';
+import { DEFAULT_SESSION_SCOPE, sessionScopeSchema } from './sessionScope.js';
+import type { SessionScope } from './sessionScope.js';
 import type { AgentConfig, ReadFailure } from './types.js';
 import type { LogFloor } from './log.js';
 
@@ -19,6 +21,7 @@ export interface HubConfig {
   statusLanes: Record<string, LaneId>;
   refreshIntervalMs: number;
   sessionIntervalMs: number;
+  sessionScope?: SessionScope;
   installActivity: boolean;
   /** Per-agent hook choices; omission permits hooks while installActivity remains authoritative. */
   sessionHooks?: Record<string, boolean>;
@@ -170,6 +173,7 @@ export const hubConfig = z.object({
   statusLanes: z.record(z.string(), laneId),
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
+  sessionScope: sessionScopeSchema.default(DEFAULT_SESSION_SCOPE),
   installActivity: z.boolean(),
   sessionHooks: z.record(z.string(), z.boolean()).default({}),
   // Default missing or unsupported log levels to info for cross-version compatibility.

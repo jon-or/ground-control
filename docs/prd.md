@@ -24,7 +24,11 @@ The configured card source selects assigned issues on the project or all assigne
 
 ### R2. Local sessions
 
-Show sessions from enabled agent adapters, including work unrelated to an assigned issue. Identify the agent by its official mark where available, otherwise by name. Keep brand colors where the mark has them; monochrome marks follow the theme.
+Show in-scope sessions from enabled agent adapters, including work unrelated to an assigned issue unless ad-hoc display is disabled. Identify the agent by its official mark where available, otherwise by name. Keep brand colors where the mark has them; monochrome marks follow the theme.
+
+Shared `sessions.includeRepositories`, `excludeRepositories`, `includeDirectories`, and `excludeDirectories` lists default to empty. Empty includes permit all sessions; otherwise include matches combine by union across repository, working directory, and canonical checkout root. Exclusions win. Repository entries normalize supported shorthand, HTTPS, and SSH forms to lowercase host/owner/repository without credentials or `.git`. Unknown identities cannot match repository includes; any repository exclusion hides unknown identities conservatively. Directory entries require absolute paths and match descendants at segment boundaries, preserving POSIX case and ignoring Windows drive/UNC case and separator differences. Symlink aliases are not resolved.
+
+Scope removes excluded session identities, titles, branches, paths, details, history, and derived checkout fields from both clients' snapshots. Assigned GitHub issue cards remain independent of session scope. The hub retains full local evidence for safety; scope is output filtering, not a restriction on all disk reads or a rewrite of existing diagnostic logs.
 
 Exclude:
 
@@ -35,7 +39,7 @@ With hooks installed and a board visible, target arrival within one second of a 
 
 ### R3. Issue-linked sessions and history
 
-Group matching live sessions under their issue card. Multiple sessions may work on one issue. Idle and waiting sessions remain live.
+Group matching in-scope live sessions under their issue card. Multiple sessions may work on one issue. Idle and waiting sessions remain live. A known different repository must not match an issue solely by its number.
 
 For an issue card with no live sessions, show one saved session: the matching transcript with the newest modification time. Match using its saved branch, then saved directory name, and the configured issue pattern. Require the checkout's origin repository to match the issue repository. Do not use the checkout's current branch to assign historical work.
 
@@ -48,6 +52,8 @@ A saved row:
 
 History creates no ad-hoc cards. Unknown repository identity, missing metadata, or an unreadable checkout can prevent a historical match. A partial or failed live-roster read suppresses history until inactivity can be established. A history failure does not disable live rows.
 
+`sessions.showHistory` defaults to true. False hides saved rows and prevents stale links from resuming them; it does not claim that history files are no longer read. Apply scope to saved-session working directories and verified checkout roots before exposing their details.
+
 ### R4. Ad-hoc work
 
 Group sessions without a confirmed issue by canonical repository and branch. Sessions started in subdirectories join their checkout's card. Separate clones on the same repository and branch share a card; a branch switch produces a different card.
@@ -55,6 +61,8 @@ Group sessions without a confirmed issue by canonical repository and branch. Ses
 If repository or branch identity is unavailable, use the checkout directory instead. Do not combine unrelated unknown repositories or detached checkouts.
 
 Name the card by repository and branch, falling back to directory. Qualify the repository owner on hover. Show which checkout is used when several qualify. An ad-hoc card exists only while it has live sessions, but its saved lane applies to later work with the same card identity.
+
+`sessions.showAdHoc` defaults to true. False hides these cards without disabling discovery or removing the roster used for safety checks. Apply scope before session-derived remote issue lookups so excluded sessions do not trigger them.
 
 ### R5. Card presentation and controls
 
@@ -196,11 +204,15 @@ Check cross-window focus and unexpected session creation. Refuse editor launches
 
 Missing extensions, unsupported agents, unavailable sessions, ambiguous windows, and expired requests receive specific refusals.
 
+Enforce current session scope and history-display preferences on open, attach, resume, checkout, and start routes, including after asynchronous refresh or window discovery. Stale controls cannot open excluded work. Refusals must not repeat excluded paths or session identities.
+
 ### R18. Prevent accidental duplicate sessions
 
 Do not open a second editor process on a session already held elsewhere. Session identity determines duplication, not the issue or checkout: intentionally starting another session on the same card is allowed (R42).
 
 Use window and surface records before opening. Labels cannot establish identity. Two windows sharing one workspace store remain an ambiguity; fail conservatively when the records cannot resolve it.
+
+Client filtering must not hide conflicts from internal safety checks or make new-session/action starts newly safe. Keep the complete live roster and action ledger for duplicate prevention, settlement, and stop resolution. Tightening scope preserves a minimal stop control for Ground Control-started work without exposing its excluded session details.
 
 ### R37. Combined changes
 
@@ -367,6 +379,8 @@ On supported GitHub project pages, add triage and session rows inside matching i
 Browser-local overlay enablement defaults to true; an empty project allowlist permits all supported project roots and view pages. Match owner kind, owner, and project number exactly, ignoring owner case and view selection. Persist preferences in extension-owned durable storage. Invalid or unreadable preferences refuse access until corrected.
 
 Only enabled, allowed, visible project tabs count as watched boards. Ordinary GitHub pages and disabled/disallowed projects receive no snapshots or logs and do not open or retain a hub connection. Hidden allowed project tabs retain their connection and requested logs, but do not enable polling or automatic work. Recompute eligibility and visibility on preference changes, navigation, and reconnect. Immediately restore modified GitHub DOM and stop log subscriptions when eligibility ends, including hidden tabs. Reject stale deliveries from prior page or preference state.
+
+Keep browser snapshots only in memory for the current hub connection. After either the bridge or hub disconnects, wait for a fresh hub snapshot before sending session details to tabs. New or reconnected content must not paint data from an unconfirmed scope. Already displayed data may remain marked stale during a disconnection.
 
 Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, request triage, or open combined diffs.
 

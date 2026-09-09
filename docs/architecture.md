@@ -135,7 +135,13 @@ The activity watcher re-arms after directory loss and handles initially absent p
 
 ### Merge, history, lanes, and attention
 
-`mergeBoard` joins assigned issues and live sessions, resolves ad-hoc identities, and attaches one historical fallback where eligible. `assignLanes` applies membership, arrival rules, manual placements, and departure history. Attention is computed separately; a phase change does not move or reorder a card.
+`mergeBoard` joins assigned issues and live sessions, resolves ad-hoc identities, and attaches one historical fallback where eligible. Known different repository identities do not join solely by issue number. `assignLanes` applies membership, arrival rules, manual placements, and departure history. Attention is computed separately; a phase change does not move or reorder a card.
+
+`HubConfig.sessionScope` stores shared include/exclude repository and directory lists plus `showHistory` and `showAdHoc`. Older configurations default to empty lists and true display switches. VS Code exposes these as application-scoped `sessions.*` settings; Chrome consumes the same projected state without another local editor for them.
+
+Keep internal board construction separate from client projection. The complete live roster, historical evidence, retained activity, and action ledger remain available to duplicate checks, action settlement, and stop resolution. Client projection removes excluded session details and derived checkout fields while retaining assigned issues and minimal running-action stop state. Scope also gates session-derived remote issue lookups and current open/attach/resume/checkout/start authorization; recheck after asynchronous work to reject stale controls without echoing private values.
+
+Repository rules accept shorthand, HTTPS, and SSH forms and normalize to lowercase host/owner/repository without `.git`; reject credentials and extra URL components. Includes combine by union and exclusions win. Unknown repositories cannot match repository includes and are excluded whenever any repository exclusion exists. Directory rules match cwd or verified checkout roots at segment boundaries, using case-insensitive Windows drive/UNC paths and case-sensitive POSIX paths. Resolve worktree repository identity through the shared git directory; do not claim symlink alias resolution.
 
 History reads follow a complete successful roster read and are serialized with it. Replaced agent/pattern settings invalidate in-flight results. Phase-only marker changes do not scan history. Claude history reads are bounded to 64 KiB at each end of a transcript and cache parsed metadata by path and mtime. Each scan recomputes repository/pattern associations. Incomplete reads report failure rather than asserting no history exists.
 
@@ -226,9 +232,9 @@ Before dispatch, remove the previous result file. Read completion from the new f
 
 Live-session opening rechecks identity and plans from host records. Claude tabs reveal by ID; sidebar and unknown-surface routes focus and explain. Codex's idempotent resource reveal can operate with a known window but no readable sidebar identity.
 
-Detached Claude sessions use `attachId` and a terminal running the configured executable with `['attach', id]`. They do not enter the normal surface plan. The browser uses `/attach?session=<id>`; the extension resolves the ID against its snapshot or a fresh roster before creating the terminal.
+Detached Claude sessions use `attachId` and a terminal running the configured executable with `['attach', id]`. They do not enter the normal surface plan. The browser uses `/attach?session=<id>`; the extension resolves the ID against its snapshot or a fresh projected roster, then checks shared authorization and current application scope before creating the terminal.
 
-Historical opening refreshes roster/history and calls `canResume`. A now-active session takes the live route; another active session on the card refuses a stale historical click. Reserve resumes across clients before asynchronous discovery. A request retains ownership of its reservation; stale lookups cannot consume or delete a newer one. Routes have a 30-second firing deadline inside a 60-second reservation. The resident checks the deadline after its final fresh roster read. Landing checks allow the expected newly resumed process.
+Historical opening refreshes roster/history and calls `canResume`. A now-active session takes the live route; another active session on the card refuses a stale historical click. Reserve resumes across clients before asynchronous discovery. A request retains ownership of its reservation; stale lookups cannot consume or delete a newer one. Routes have a 30-second firing deadline inside a 60-second reservation. Before executing, the resident checks the deadline, local scope/history preferences, and authoritative shared authorization after asynchronous reads or focus changes. `sessionCheck` returns only allowed/target-active/card-active booleans derived from the full roster; an empty projected roster cannot authorize a resume. Landing checks allow the expected newly resumed process.
 
 Cross-window routes raise a known target, check focus where needed, and then invoke an agent URI or Ground Control's handover URI. Handover requests cannot route onward to a third window. Unexpected session creation is checked against the roster captured for the request, not against arbitrary later activity.
 
@@ -274,7 +280,8 @@ On reconnect, restate configuration and log subscription after `hello`. Never qu
 |---|---|
 | `GET /hub` | Identity, protocol, home fingerprint, optional nonce proof |
 | `GET /snapshot` | Current snapshot |
-| `GET /roster` | Fresh roster for resident operations |
+| `GET /roster` | Fresh projected roster for visible session resolution and landing diagnostics |
+| `GET /session-check?sessionId=<id>` | Current session authorization and full-roster conflict booleans, without private session details |
 | `GET /events?client=<id>` | SSE stream, with 20-second heartbeat |
 | `POST /actions?client=<id>` | Typed client action |
 | `POST /shutdown` | Authenticated shutdown |
@@ -319,7 +326,7 @@ Content and worker load validated preferences before allowing access; newer stor
 
 Retain unchanged card footers in a `WeakMap` keyed by GitHub's card element and content signature. Replaced nodes rebuild. Disarm the observer while painting and appending logs. Duration updates modify existing text nodes; delayed image failures hide nodes instead of repeatedly removing/recreating them. View switches, scroll, resize, and detached anchors must not leave menus or tooltips incorrectly positioned.
 
-Cache the last snapshot in `chrome.storage.session`, not durable browser storage. A cached snapshot does not clear a transport failure. Guard delayed cache reads with policy and page generations, and prevent them from replacing fresher native data. Ignore callbacks from replaced native ports. Restate watching and logging when the worker reopens the native port. An invalidated extension context (`chrome.runtime.id` absent) stops observers/timers and requests a tab reload instead of retrying forever.
+Keep the latest browser snapshot only in worker memory for the current hub connection; do not persist snapshots in browser storage. After either the bridge or hub disconnects, clear that snapshot and wait for fresh hub data before tabs receive any replay. A connection alone cannot confirm current session scope. New or reconnected content waits for current state instead of painting data from a prior connection. An already displayed snapshot may remain marked stale while disconnected. Check current page eligibility before delivery and ignore callbacks from replaced native ports. Restate watching and logging when the worker reopens the native port. An invalidated extension context (`chrome.runtime.id` absent) stops observers/timers and requests a tab reload instead of retrying forever.
 
 The hub writes timestamped, leveled, optionally scoped logs. Persistent failures are deduplicated by subject and kind. Default `info` retains connection, source, action, and failure diagnostics; `debug` adds frequent details. Keep non-parsing stdout/stderr lines as raw output, associated with the preceding timestamp.
 
@@ -331,7 +338,7 @@ The browser combines browser and hub lines in one in-memory sidebar. Its worker 
 
 Board persistence is local, but normal operation includes remote GitHub reads and model-backed classification. Triage sends card conversation and identity data to the model service. Dispatched agents run locally with the configured permissions and may contact model services, repositories, and other tools permitted by their settings. Do not describe dispatch as having no external data flow.
 
-Snapshots include private issue text, session names, paths, branches, and identities. Logs may contain additional operational details and arbitrary process output. The overlay inserts these into github.com, where page scripts can read the DOM. Only refused-request origins receive the specific browser redaction; other log contents are not guaranteed public.
+Snapshots include private issue text and in-scope session names, paths, branches, and identities. Session scope is an output and authorization boundary, not an operating-system read restriction: safety checks retain internal roster data, and display switches do not imply that all history reads stop. Scope does not rewrite or delete existing diagnostic files. Logs may contain additional operational details and arbitrary process output. The overlay inserts these into github.com, where page scripts can read the DOM. Only refused-request origins receive the specific browser redaction; other log contents are not guaranteed public.
 
 Any process running as the developer can read the hub record and token. Authentication protects against other users and web-origin requests, not against processes already running with the developer's authority. Windows file modes are not a substitute for that distinction.
 

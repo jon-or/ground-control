@@ -1,6 +1,6 @@
 import { IncomingMessage, createServer } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Client, ClientHello, ClientMessage, HubMessage, Session, Snapshot } from '@ground-control/core';
+import type { Client, ClientHello, ClientMessage, HubMessage, Session, SessionCheck, Snapshot } from '@ground-control/core';
 import { createHubServer } from '../src/server.js';
 import type { HubServer } from '../src/server.js';
 import { HubTransport } from '../src/transport.js';
@@ -41,10 +41,14 @@ const SESSION = {
 function fakeHub() {
   const sends = new Map<string, (message: HubMessage) => void>();
   const received: ClientMessage[] = [];
+  const checking: { value: unknown; ids: string[] } = { value: null, ids: [] };
 
   return {
     sends,
     received,
+    checking,
+    // Malformed values deliberately model an untrusted or incompatible HTTP peer.
+    sessionCheck: async (id: string) => { checking.ids.push(id); return checking.value as SessionCheck | null; },
     connect(who: ClientHello, send: (message: HubMessage) => void): Client {
       sends.set(who.id, send);
 
@@ -178,6 +182,27 @@ describe('how a client reads a socket', () => {
 });
 
 describe('what a client does over the wire', () => {
+  it('accepts boolean session-check decisions and fails closed on malformed or failed responses', async () => {
+    const { hub, server } = await serving();
+    const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };
+    const client = connecting('board-1', () => Promise.resolve(found as Ensured));
+    await until(() => client.restated > 0, 'never connected');
+    hub.checking.value = { allowed: true, targetActive: false, cardActive: true };
+    expect(await client.transport.sessionCheck('session-1')).toEqual({ allowed: true, targetActive: false, cardActive: true });
+    expect(hub.checking.ids).toEqual(['session-1']);
+    hub.checking.value = { allowed: false, targetActive: false, cardActive: false };
+    expect(await client.transport.sessionCheck('session-2')).toEqual({ allowed: false, targetActive: false, cardActive: false });
+    for (const bad of [null, true, [], {}, { allowed: 'true', targetActive: false, cardActive: false },
+      { allowed: true, targetActive: 0, cardActive: false }, { allowed: true, targetActive: false, cardActive: null }]) {
+      hub.checking.value = bad;
+      expect(await client.transport.sessionCheck('session-1')).toBeNull();
+    }
+    const calls = hub.checking.ids.length;
+    expect(await client.transport.sessionCheck('private/path')).toBeNull();
+    expect(hub.checking.ids).toHaveLength(calls);
+    await server.close();
+    expect(await client.transport.sessionCheck('session-1')).toBeNull();
+  });
   it('registers the stream and receives hub messages', async () => {
     const { hub, server } = await serving();
     const found = { hub: { record: recordOf(server), identity: { hub: 'ground-control', protocol: 1, fingerprint: 'abc123' } } };

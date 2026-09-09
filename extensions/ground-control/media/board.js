@@ -1048,6 +1048,9 @@ function cardMenuControl(boardCard) {
  */
 function checkoutName(boardCard) {
   const session = boardCard.sessions[0];
+  if (!session) {
+    return { repository: '', owner: '', branch: null, directory: 'Ground Control action' };
+  }
   const dir = basename(session.checkoutRoot ?? session.cwd);
   const parts = session.repository === null ? [] : session.repository.split('/');
 
@@ -1577,9 +1580,14 @@ function cardFor(boardCard, placeable) {
     return known.el;
   }
 
+  const actions = JSON.stringify(cardActions(boardCard));
+  if (openMenu?.key === boardCard.key && known?.actions !== actions) {
+    closeMenu(false);
+  }
+
   const el = card(boardCard, avatarPoolOf(known?.el), placeable);
   known?.el.remove();
-  cardEls.set(boardCard.key, { el, sig });
+  cardEls.set(boardCard.key, { el, sig, actions });
 
   return el;
 }

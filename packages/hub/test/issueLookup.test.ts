@@ -293,3 +293,38 @@ it('stops starting reads once it is disposed', async () => {
 
   expect(source.asked).toEqual([]);
 });
+
+it.each([false, true])('does not publish or log excluded lookup completions (source throws: %s)', async (throws) => {
+  let allowed = false;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let reads = 0;
+  const source: WorkSource = {
+    ...sourceOf(() => ({ card: null, failure: null })),
+    readCard: async () => {
+      reads++;
+      await held;
+      if (throws) throw new Error('private lookup details');
+      return { card: issue(42, { title: 'Private issue title' }), failure: null };
+    },
+  };
+  const store = makeIssueStore(home);
+  const logging = captureLog();
+  const lookup = new IssueLookup({
+    store, sources: () => [source], log: logging.log, now: () => now,
+    changed: () => { changes++; }, allowed: () => allowed,
+  });
+  lookup.consider([], [session(42)], new Set());
+  await settled();
+  expect(reads).toBe(0);
+  allowed = true;
+  lookup.consider([], [session(42)], new Set());
+  expect(reads).toBe(1);
+  allowed = false;
+  release();
+  await settled();
+  expect(store.read().entries).toEqual({});
+  expect(changes).toBe(0);
+  expect(logging.messages).toEqual([]);
+  lookup.dispose();
+});

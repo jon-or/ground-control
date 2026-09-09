@@ -59,7 +59,7 @@ function cardFor(all: Lane[], number: number) {
 }
 
 function withPhase(phase: ActivityPhase, over: Partial<Session> = {}): Session {
-  return { ...sessions[0]!, activity: { phase, since: 1, at: 1, event: 'Stop' }, ...over };
+  return { ...sessions[0]!, repository: 'github.com/example-org/example-repo', activity: { phase, since: 1, at: 1, event: 'Stop' }, ...over };
 }
 
 /** Historical session fixture. Retained activity survives only after the AWAY_AT departure timestamp. */
@@ -241,7 +241,7 @@ describe('assignLanes', () => {
   });
 
   it('holds an archiving card on the board while an agent is still running on it — R2 outranks R9', () => {
-    const live: Session = { ...sessions[0]!, issueNumber: 19072, finished: false };
+    const live: Session = { ...sessions[0]!, issueNumber: 19072, repository: 'github.com/example-org/example-repo', finished: false };
     const held = lanes(restatus(19072, '🏃 Testing'), [live]);
 
     expect(issueIn(held, 19072)).toBe('unstarted');
@@ -249,7 +249,7 @@ describe('assignLanes', () => {
   });
 
   it('archives that same card once its agents have finished', () => {
-    const finished: Session = { ...sessions[0]!, issueNumber: 19072, finished: true };
+    const finished: Session = { ...sessions[0]!, issueNumber: 19072, repository: 'github.com/example-org/example-repo', finished: true };
 
     expect(issueIn(lanes(restatus(19072, '🏃 Testing'), [finished]), 19072)).toBe('archived');
   });
@@ -259,6 +259,7 @@ describe('assignLanes', () => {
     const live: Session = {
       ...sessions[0]!,
       issueNumber: 19072,
+      repository: 'github.com/example-org/example-repo',
       finished: false,
       attachId: null,
       activity: { phase, since: 1, at: 1, event: 'Stop' },
@@ -776,7 +777,7 @@ describe('nextMemory', () => {
   });
 
   it('preserves placement while an active session prevents archiving', () => {
-    const live: Session = { ...sessions[0]!, issueNumber: 19072, finished: false };
+    const live: Session = { ...sessions[0]!, issueNumber: 19072, repository: 'github.com/example-org/example-repo', finished: false };
     const memory = remember({ 'issue:19072': 'done' });
     const held = lanes(restatus(19072, '🏃 Testing'), [live], memory);
 

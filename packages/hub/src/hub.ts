@@ -1,5 +1,5 @@
 import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
-import { compilePattern, dirKey, diskReaders, fillTemplate, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, rosterIsStale, unreportedSessions } from '@ground-control/core';
+import { DEFAULT_SESSION_SCOPE, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions } from '@ground-control/core';
 import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { IssueLookup } from './issueLookup.js';
@@ -233,16 +233,19 @@ export class Hub {
     this.#actions = new ActionRunner({
       home: deps.home,
       store: deps.actions,
-      log: deps.log,
+      log: this.#scopedLog(),
+      currentCard: (key) => this.#lanes(false).flatMap((lane) => lane.cards).find((card) => card.key === key),
       agents: deps.registries.agents,
       sources: deps.registries.sources,
       now: () => deps.clock.now(),
       changed: () => this.#broadcast(),
       announce: (message) => this.#notifyActionsOnce(message),
       // Broadcast manual action refusals because the runner does not identify the requesting client (R25).
-      notify: (message) => {
+      notify: (message, kind) => {
+        const safe = ['action-permission-unsupported', 'action-agent-unavailable', 'action-settings-changed', 'not-a-merge',
+          'action-unavailable', 'session-running', 'no-checkout', 'no-prompt', 'no-default-branch', 'no-pull-request', 'already-run'].includes(kind ?? '');
         for (const client of this.#clients.values()) {
-          client.send({ type: 'notice', level: 'info', message });
+          client.send({ type: 'notice', level: 'info', message: safe ? message : this.#scopeMessage(message) });
         }
       },
     });
@@ -253,6 +256,8 @@ export class Hub {
       log: deps.log,
       now: () => deps.clock.now(),
       changed: () => this.#broadcast(),
+      allowed: (key) => (this.#sessions?.sessions ?? []).some((session) =>
+        `${session.repository}#${session.issueNumber}` === key && this.#sessionAllowed(session)),
     });
     pruneMarkers(deps.registries.agents, deps.home);
     this.#armWatchers();
@@ -359,7 +364,11 @@ export class Hub {
 
       case 'runAction': {
         // Manual actions require fresh context and the same safety checks as automatic actions.
-        const refused = this.#actions.runAction(this.snapshot().lanes, message.key);
+        if (!this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === message.key))) {
+          this.#scopeRefusal(connected);
+          return;
+        }
+        const refused = this.#actions.runAction(this.#lanes(false), message.key);
 
         if (refused) {
           connected.send({ type: 'notice', level: 'info', message: refused.message });
@@ -371,7 +380,7 @@ export class Hub {
       case 'stopAction':
         void this.#actions.stopAction(message.key).then((refused) => {
           if (refused) {
-            connected.send({ type: 'notice', level: 'warning', message: refused.message });
+            connected.send({ type: 'notice', level: 'warning', message: this.#scopeMessage(refused.message) });
           }
         });
 
@@ -406,6 +415,12 @@ export class Hub {
 
     const card = this.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
     const root = card?.checkout?.root;
+
+    const full = this.#lanes(false).flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+    if (full?.sessions.some((session) => !session.finished && !this.#sessionAllowed(session))) {
+      this.#scopeRefusal(client);
+      return;
+    }
 
     if (card === undefined || root === undefined) {
       client.send({
@@ -482,6 +497,11 @@ export class Hub {
     const readers = this.#readers();
     const wanted = card.issue === null ? null : repositoryKey(card.issue.url);
     const chosen = normalize(root);
+
+    if (!this.#rootAllowed(chosen)) {
+      this.#scopeRefusal(client);
+      return;
+    }
 
     // Require absolute paths because the hub and editor have different working directories.
     if (!isAbsolute(chosen) || wanted === null || repositoryOf(chosen, readers.readText) !== wanted) {
@@ -562,6 +582,10 @@ export class Hub {
     const windows = await host.windows(undefined, readers);
 
     if (this.#disposed) {
+      return;
+    }
+    if (!this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === key && card.checkout?.root === root))) {
+      this.#scopeRefusal(client);
       return;
     }
 
@@ -651,6 +675,7 @@ export class Hub {
     }
     this.#configFailures = this.#applyConfig();
     this.#stored = null;
+    if (!same(before.sessionScope, parsed.config.sessionScope)) this.#considerIssues();
 
     // Persist only settings accepted by the schema and adapters, so later browser starts do not inherit rejected values.
     if (this.#configFailures.length === 0) {
@@ -864,7 +889,32 @@ export class Hub {
   async roster(): Promise<readonly Session[] | null> {
     await this.#refreshSessions(true);
 
-    return this.#sessions && this.#sessions.failures.length === 0 ? this.#sessions.sessions : null;
+    return this.#sessions && this.#sessions.failures.length === 0
+      ? this.#lanes(true).flatMap((lane) => lane.cards).flatMap((card) => card.sessions) : null;
+  }
+
+  /** Read complete safety evidence while returning only decisions for a currently visible target. */
+  async sessionCheck(sessionId: string): Promise<import('@ground-control/core').SessionCheck | null> {
+    await this.#refreshSessions(true);
+    if (!this.#sessions || this.#sessions.failures.length > 0) return null;
+    const sessions = this.#sessions.sessions;
+    const target = sessions.find((session) => session.sessionId === sessionId && !session.finished) ??
+      this.#history.find((session) => session.sessionId === sessionId) ?? sessions.find((session) => session.sessionId === sessionId);
+    const visible = target !== undefined && this.#lanes(true).some((lane) => lane.cards.some((card) =>
+      card.sessions.some((session) => session.sessionId === sessionId) || card.lastSession?.sessionId === sessionId));
+    // A new conflicting session may suppress the history row after the click. Report that conflict without
+    // returning its identity; the selected saved session must itself remain within scope.
+    const historical = this.#history.find((session) => session.sessionId === sessionId);
+    const allowed = visible || (historical !== undefined && !sessions.some((session) => session.sessionId === sessionId && !session.finished) &&
+      this.#scope().showHistory && this.#sessionAllowed(historical) &&
+      (this.#items()?.cards ?? []).some((issue) => issue.number === historical.issueNumber && repositoryKey(issue.url) === historical.repository));
+    if (!allowed || target === undefined) return { allowed: false, targetActive: false, cardActive: false };
+    return {
+      allowed: true,
+      targetActive: sessions.some((session) => session.sessionId === sessionId && !session.finished),
+      cardActive: target.issueNumber !== null && sessions.some((session) => !session.finished && session.issueNumber === target.issueNumber &&
+        (session.repository === null || target.repository === null || session.repository === target.repository)),
+    };
   }
 
   /** Refresh work sources and sessions using their respective minimum intervals. */
@@ -946,7 +996,7 @@ export class Hub {
       return;
     }
 
-    this.#issues.consider(items.cards, this.#sessions?.sessions ?? [], new Set(items.cards.map((card) => card.number)));
+    this.#issues.consider(items.cards, (this.#sessions?.sessions ?? []).filter((session) => this.#sessionAllowed(session)), new Set(items.cards.map((card) => card.number)));
   }
 
   async #readSource(source: WorkSource): Promise<void> {
@@ -1094,7 +1144,7 @@ export class Hub {
       return;
     }
 
-    this.#deps.log.warn(failures.map((failure) => `${failure.subject}: ${failure.message}`).join('; '), 'sessions');
+    this.#deps.log.warn(this.#scopeMessage(failures.map((failure) => `${failure.subject}: ${failure.message}`).join('; ')), 'sessions');
   }
 
   #readers(): MachineReaders {
@@ -1164,6 +1214,8 @@ export class Hub {
   // — the developer's own acts —
 
   #move(key: string, lane: LaneId): void {
+    if ((restrictedSessionScope(this.#scope()) || !this.#scope().showAdHoc) &&
+      !this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === key))) return;
     this.#deps.lanes.write(withPlacement(this.#memory(), key, lane));
     this.#deps.log.info(`${key} moved to ${lane}`, 'lanes');
     this.#broadcast();
@@ -1171,6 +1223,10 @@ export class Hub {
 
   /** Plan session routes in the host and send resident routes to the requesting client. */
   async #open(client: Connected, sessionId: string, extensionReady: boolean, handedOver = false): Promise<void> {
+    const permitted = () => this.#lanes(true).some((lane) => lane.cards.some((card) =>
+      card.sessions.some((session) => session.sessionId === sessionId) || card.lastSession?.sessionId === sessionId));
+    const limited = () => restrictedSessionScope(this.#scope()) || !this.#scope().showHistory || !this.#scope().showAdHoc;
+    if (limited() && !permitted()) { this.#scopeRefusal(client); return; }
     const named = client.hello.hostId !== null && Object.hasOwn(this.#config.hosts, client.hello.hostId);
     const host = named ? this.#deps.registries.hosts.find((h) => h.id === client.hello.hostId) : undefined;
 
@@ -1189,6 +1245,7 @@ export class Hub {
     // A card can have been drawn before this session resumed elsewhere. Never resume from a cached roster.
     await this.#refreshSessions(true);
     if (this.#disposed) return;
+    if (limited() && !permitted()) { this.#scopeRefusal(client); return; }
     const sessions = this.#sessions?.sessions ?? [];
     const live = sessions.find((s) => s.sessionId === sessionId && !s.finished);
     const historical = live ? undefined : this.#history.find((s) => s.sessionId === sessionId);
@@ -1211,7 +1268,8 @@ export class Hub {
         client.send({ type: 'notice', level: 'warning', refusal: 'history-unavailable', message: 'The saved transcript or its working directory is no longer available. Refresh the board.' });
         return;
       }
-      if (historical.issueNumber !== null && sessions.some((s) => !s.finished && s.issueNumber === historical.issueNumber)) {
+      if (historical.issueNumber !== null && sessions.some((s) => !s.finished && s.issueNumber === historical.issueNumber &&
+        (s.repository === null || historical.repository === null || s.repository === historical.repository))) {
         client.send({ type: 'notice', level: 'warning', refusal: 'card-active', message: 'This card now has an active session. Refresh the board to open it.' });
         return;
       }
@@ -1226,6 +1284,11 @@ export class Hub {
       ),
       host.surfaces(readers),
     ]);
+    if (this.#disposed || (limited() && !permitted())) {
+      if (resumeLease !== undefined && this.#resuming.get(sessionId) === resumeLease) this.#resuming.delete(sessionId);
+      if (!this.#disposed) this.#scopeRefusal(client);
+      return;
+    }
 
     // A slow window lookup must not borrow or release a later click's reservation.
     if (resumeLease !== undefined && this.#resuming.get(sessionId) !== resumeLease) return;
@@ -1280,6 +1343,93 @@ export class Hub {
 
   // — the snapshot —
 
+  #scope() { return this.#config.sessionScope ?? DEFAULT_SESSION_SCOPE; }
+
+  #scopeMessage(message: string): string {
+    return restrictedSessionScope(this.#scope()) ? 'Session details are hidden by session scope. Check the session settings before retrying.' : message;
+  }
+
+  #scopedLog(): Logger {
+    const log = this.#deps.log;
+    return {
+      ...log,
+      debug: (message, scope) => log.debug(this.#scopeMessage(message), scope),
+      info: (message, scope) => log.info(this.#scopeMessage(message), scope),
+      warn: (message, scope) => log.warn(this.#scopeMessage(message), scope),
+      error: (message, scope) => log.error(this.#scopeMessage(message), scope),
+    };
+  }
+
+  #scopeRefusal(client: Connected): void {
+    client.send({ type: 'notice', level: 'warning', message: 'This session or checkout is not available under the current session settings.' });
+  }
+
+  #sessionAllowed(session: Session | HistoricalSession): boolean {
+    const scope = this.#scope();
+    if (!restrictedSessionScope(scope)) return true;
+    const checkoutRoot = 'checkoutRoot' in session ? session.checkoutRoot : findCheckout(session.cwd, this.#readers().readText)?.root ?? null;
+    return sessionInScope(scope, { ...session, checkoutRoot });
+  }
+
+  #rootAllowed(root: string): boolean {
+    if (!restrictedSessionScope(this.#scope())) return true;
+    const readers = this.#readers();
+    return sessionInScope(this.#scope(), {
+      cwd: root, checkoutRoot: findCheckout(root, readers.readText)?.root ?? null,
+      repository: repositoryOf(root, readers.readText),
+    });
+  }
+
+  /** Full lanes preserve safety evidence. Projection starts again from allowed inputs, never redacted session objects. */
+  #lanes(projected: boolean): Lane[] {
+    const scope = this.#scope();
+    const items = this.#items();
+    const cards = items?.cards ?? [];
+    const all = this.#sessions?.sessions ?? [];
+    const sessions = projected ? all.filter((session) => this.#sessionAllowed(session)) : all;
+    const history = projected ? (scope.showHistory ? this.#history.filter((session) => this.#sessionAllowed(session)) : []) : this.#history;
+    const unassigned = items === null ? new Map<number, IssueCard>() : this.#issues.known(sessions, new Set(cards.map((card) => card.number)));
+    const laned = assignLanes(mergeBoard(cards, sessions, history, unassigned, this.#deps.status.read()), {
+      boardStatuses: this.#config.boardStatuses, statusLanes: this.#config.statusLanes, logins: items?.owners ?? [],
+    }, this.#memory());
+    const checked = withCheckouts(withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now()),
+      this.#deps.checkouts.read(), this.#readers()).map((lane) => ({ ...lane, cards: lane.cards.map((card) => {
+        if (card.checkout && !this.#rootAllowed(card.checkout.root)) {
+          const { checkout: _checkout, ...rest } = card;
+          return rest;
+        }
+        return card;
+      }) }));
+    const lanes = this.#actions.decorate(checked);
+    if (!projected) return lanes;
+    const internal = this.#lanes(false);
+    const full = new Map(internal.flatMap((lane) => lane.cards).map((card) => [card.key, card]));
+    const shown = lanes.map((lane) => ({ ...lane, cards: lane.cards.filter((card) => scope.showAdHoc || card.issue !== null).map((card) => {
+      const original = full.get(card.key);
+      const result = { ...card };
+      if (result.lastSession && original?.sessions.some((session) => !session.finished)) {
+        delete result.lastSession;
+        if (result.checkout?.source === 'session') delete result.checkout;
+      }
+      if (original?.action) result.action = original.action;
+      else delete result.action;
+      if (restrictedSessionScope(scope)) {
+        if (result.action?.state === 'done') result.action = { ...result.action, detail: 'Action finished. Session details are hidden by session scope.' };
+        if (result.action?.state === 'refused') result.action = { ...result.action, reason: 'This action is unavailable under the current session settings or safety checks.' };
+      }
+      return result;
+    }) }));
+    const present = new Set(shown.flatMap((lane) => lane.cards).map((card) => card.key));
+    for (const run of Object.values(this.#deps.actions.read().runs)) {
+      if (run.outcome !== 'running' || present.has(run.key)) continue;
+      shown.find((lane) => lane.id === 'build')?.cards.push({
+        key: run.key, issue: null, issueNumber: null, sessions: [], lane: 'build', returned: false,
+        attention: null, reason: 'Ground Control action is running.', action: { state: 'running', action: run.action, since: run.startedAt },
+      });
+    }
+    return shown;
+  }
+
   #memory() {
     return this.#deps.lanes.read(this.#config.boardStatuses);
   }
@@ -1288,7 +1438,7 @@ export class Hub {
   snapshot(): Snapshot {
     const activity = this.#ensureActivity();
     const now = this.#deps.clock.now();
-    const failures: ReadFailure[] = [...this.#configFailures, ...this.#historyFailures];
+    const failures: ReadFailure[] = [...this.#configFailures, ...this.#historyFailures.map((failure) => this.#sessionFailure(failure))];
 
     // A stored configuration this hub would not run on. Said rather than swallowed: silently falling back to
     // defaults is how a board comes to report itself unconfigured with the developer's settings sitting on disk.
@@ -1307,37 +1457,12 @@ export class Hub {
     }
 
     for (const failure of this.#sessions?.failures ?? []) {
-      failures.push({ ...failure, subject: 'sessions' });
+      failures.push(this.#sessionFailure({ ...failure, subject: 'sessions' }));
     }
 
-    failures.push(...this.#triage.failures(), ...this.#actions.failures());
-
-    const memory = this.#memory();
+    failures.push(...this.#triage.failures(), ...this.#actions.failures().map((failure) => this.#sessionFailure(failure)));
     const items = this.#items();
-    const cards = items?.cards ?? [];
-    const sessions = this.#sessions?.sessions ?? [];
-    // Empty until a source has read: with no assigned set to compare against, every session-named number would read
-    // as an issue nobody assigned, and the board would archive itself on the way up (R24).
-    const unassigned = items === null ? new Map<number, IssueCard>() : this.#issues.known(sessions, new Set(cards.map((card) => card.number)));
-    const laned = assignLanes(
-      mergeBoard(cards, sessions, this.#history, unassigned, this.#deps.status.read()),
-      {
-        boardStatuses: this.#config.boardStatuses,
-        statusLanes: this.#config.statusLanes,
-        // Use the logins from the completed source read, which may predate changed settings.
-        logins: items?.owners ?? [],
-      },
-      memory,
-    );
-
-    // Add triage, checkouts, then actions without changing lane placement (R8). Actions require checkout data first.
-    const lanes = this.#actions.decorate(
-      withCheckouts(
-        withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now()),
-        this.#deps.checkouts.read(),
-        this.#readers(),
-      ),
-    );
+    const lanes = this.#lanes(true);
 
     return {
       lanes,
@@ -1353,7 +1478,7 @@ export class Hub {
         : null,
       sessions: this.#sessions
         ? {
-            count: this.#sessions.sessions.length,
+            count: lanes.flatMap((lane) => lane.cards).reduce((count, card) => count + card.sessions.length, 0),
             patternError: this.#sessions.patternError,
             fetchedAt: this.#sessions.fetchedAt,
           }
@@ -1373,6 +1498,12 @@ export class Hub {
       needs: this.#needs(),
       fetchedAt: new Date(now).toISOString(),
     };
+  }
+
+  #sessionFailure(failure: ReadFailure): ReadFailure {
+    return restrictedSessionScope(this.#scope())
+      ? { subject: 'sessions', kind: failure.kind, message: 'Session or action data could not be read.', remedy: 'Check the session settings and refresh the board.' }
+      : failure;
   }
 
   /** Suppress transient failure notices during the grace period while cached data exists. The snapshot still reports stale data. */
@@ -1472,7 +1603,7 @@ export class Hub {
       snapshot: {
         ...base,
         openable: this.#hostFor(client.hello)?.openable(
-          this.#sessions?.sessions ?? [],
+          base.lanes.flatMap((lane) => lane.cards).flatMap((card) => card.sessions),
           base.lanes.flatMap((l) => l.cards).flatMap((c) => c.lastSession ?? []).filter((s) =>
             this.#deps.registries.agents.some((a) => a.id === s.agent && a.canResume !== undefined)),
         ) ?? [],
@@ -1492,7 +1623,8 @@ export class Hub {
 
     const base = this.snapshot();
 
-    this.#persist(base.lanes);
+    const internal = this.#lanes(false);
+    this.#persist(internal);
 
     for (const id of [...this.#clients.keys()]) {
       this.#sendTo(id, 'changed', base);
@@ -1501,7 +1633,7 @@ export class Hub {
     // Send this snapshot before consider can broadcast a newer triage state; reversing the order would display stale state.
     this.#triage.consider(base.lanes, this.#sourcesRead(), this.#watched());
     this.#actions.consider(
-      base.lanes,
+      internal,
       this.#sessions?.sessions ?? [],
       this.#sourcesRead(),
       this.#sessions !== undefined && this.#sessions.failures.length === 0,
@@ -1531,7 +1663,7 @@ export class Hub {
     this.#deps.marks.write({ ...this.#deps.marks.read(), actionsToldAt: this.#deps.clock.now() });
 
     for (const client of this.#clients.values()) {
-      client.send({ type: 'notice', level: 'warning', message });
+      client.send({ type: 'notice', level: 'warning', message: this.#scopeMessage(message) });
     }
   }
 

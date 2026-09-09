@@ -4,6 +4,7 @@ const { join } = require('node:path');
 const vscode = require('vscode');
 
 const settings = () => vscode.workspace.getConfiguration('groundControl');
+const SESSION_SCOPE_KEYS = ['includeRepositories', 'excludeRepositories', 'includeDirectories', 'excludeDirectories', 'showHistory', 'showAdHoc'];
 
 const configJson = join(process.env.GC_TEST_HOME, '.claude', 'ground-control', 'config.json');
 
@@ -70,6 +71,9 @@ describe('what this window pushes to the hub', () => {
     await settings().update('actions.agent', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('actions.model', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('actions.permissionMode', undefined, vscode.ConfigurationTarget.Global);
+    for (const key of SESSION_SCOPE_KEYS) {
+      await settings().update(`sessions.${key}`, undefined, vscode.ConfigurationTarget.Global);
+    }
   });
 
   /** Verify the host configuration structure reaches the hub without treating setting fields as host IDs. */
@@ -98,6 +102,50 @@ describe('what this window pushes to the hub', () => {
     await untilStored((c) => c.triage?.mode === 'manual' && c.triage.dailyLimit === 3 && c.triage.enabled,
       'explicit mode and limit did not reach the hub');
     await untilSnapshot((s) => s.triage?.mode === 'manual' && s.triage.canRequest, 'manual capability was not displayed');
+  });
+
+  it('propagates normalized session scope and both display preferences', async () => {
+    const include = join(process.env.GC_TEST_HOME, 'Scope', 'Work');
+    const exclude = join(include, 'Private');
+    const directory = (value) => process.platform === 'win32' ? value.replace(/\\/g, '/').toLowerCase() : value;
+    const preferences = {
+      includeRepositories: ['https://github.com/Example/Repo.git'],
+      excludeRepositories: ['git@github.com:Personal/Notes.git'],
+      includeDirectories: [include],
+      excludeDirectories: [exclude],
+      showHistory: false,
+      showAdHoc: false,
+    };
+    const expected = {
+      ...preferences,
+      includeRepositories: ['github.com/example/repo'],
+      excludeRepositories: ['github.com/personal/notes'],
+      includeDirectories: [directory(include)],
+      excludeDirectories: [directory(exclude)],
+    };
+
+    for (const [key, value] of Object.entries(preferences)) {
+      await settings().update(`sessions.${key}`, value, vscode.ConfigurationTarget.Global);
+    }
+    const selected = await untilStored((c) => SESSION_SCOPE_KEYS.every((key) => JSON.stringify(c.sessionScope?.[key]) === JSON.stringify(expected[key])),
+      'session scope preferences did not reach the shared hub');
+    assert.deepStrictEqual(selected.sessionScope, expected);
+
+    for (const key of SESSION_SCOPE_KEYS) {
+      await settings().update(`sessions.${key}`, undefined, vscode.ConfigurationTarget.Global);
+    }
+    const restored = await untilStored((c) => c.sessionScope?.showHistory === true && c.sessionScope.showAdHoc === true &&
+      ['includeRepositories', 'excludeRepositories', 'includeDirectories', 'excludeDirectories'].every((key) => c.sessionScope[key]?.length === 0),
+      'clearing session preferences did not restore the defaults');
+    assert.deepStrictEqual(restored.agents, [{ id: 'claude', path: 'claude-not-on-this-path' }]);
+  });
+
+  it('refuses relative session scope directories instead of accepting ambiguous rules', async () => {
+    const badScope = (s) => s.failures.some((f) => f.kind === 'bad-config' && f.message.includes('sessionScope'));
+    await settings().update('sessions.includeDirectories', ['relative-folder'], vscode.ConfigurationTarget.Global);
+    await untilSnapshot(badScope, 'invalid session scope was not refused');
+    await settings().update('sessions.includeDirectories', [], vscode.ConfigurationTarget.Global);
+    await untilSnapshot((s) => !badScope(s), 'corrected session scope remained refused');
   });
 
   it('keeps action agent and model independent of triage and discovery configuration', async () => {

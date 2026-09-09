@@ -215,8 +215,54 @@
             "scope": "application",
             "type": "boolean",
             "default": true,
-            "order": 6,
+            "order": 8,
             "markdownDescription": "Allow opening sessions to focus another VS Code window or open a new one."
+          },
+          "groundControl.sessions.includeRepositories": {
+            "scope": "application",
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "order": 9,
+            "markdownDescription": "Repositories to show, combined with directory includes using the [session scope rules](https://github.com/jon-or/ground-control/blob/master/README.md#session-scope)."
+          },
+          "groundControl.sessions.excludeRepositories": {
+            "scope": "application",
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "order": 10,
+            "markdownDescription": "Repositories to hide; exclusions override includes and also hide sessions whose repository is unknown."
+          },
+          "groundControl.sessions.includeDirectories": {
+            "scope": "application",
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "order": 11,
+            "markdownDescription": "Absolute directories and descendants to show, combined with repository includes."
+          },
+          "groundControl.sessions.excludeDirectories": {
+            "scope": "application",
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "order": 12,
+            "markdownDescription": "Absolute directories and descendants to hide, overriding includes."
+          },
+          "groundControl.sessions.showHistory": {
+            "scope": "application",
+            "type": "boolean",
+            "default": true,
+            "order": 13,
+            "markdownDescription": "Show saved session rows; hiding them does not stop underlying safety reads."
+          },
+          "groundControl.sessions.showAdHoc": {
+            "scope": "application",
+            "type": "boolean",
+            "default": true,
+            "order": 14,
+            "markdownDescription": "Show session cards without a confirmed issue; hiding them does not stop discovery."
           }
         }
       },

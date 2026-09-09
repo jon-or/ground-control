@@ -63,8 +63,14 @@ export function mergeBoard(
   sessions = sessions.map((session) => observed(session, retained));
 
   const onBoard = new Set(issues.map((issue) => issue.number));
-  const known = (session: Session): boolean =>
-    session.issueNumber !== null && (onBoard.has(session.issueNumber) || unassigned.has(session.issueNumber));
+  const known = (session: Session): boolean => {
+    const issue = issues.find((issue) => issue.number === session.issueNumber) ??
+      (session.issueNumber === null ? undefined : unassigned.get(session.issueNumber));
+    if (issue === undefined) return false;
+    const repository = repositoryKey(issue.url);
+    // Unknown identities retain conservative issue-number matching; known different repositories never attach.
+    return session.repository === null || repository === null || session.repository === repository;
+  };
 
   const linked = groupSessions(
     sessions.filter(known),

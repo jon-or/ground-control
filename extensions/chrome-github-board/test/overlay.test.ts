@@ -1448,6 +1448,29 @@ describe('moving a card from the browser', () => {
       expect(document.querySelector('.gc-lanes button[data-action="open-checkout"]')).toBeNull();
     });
 
+    it('removes excluded session details and an already-open checkout menu on projection changes', () => {
+      const shown = withCheckout();
+      paint(document, state({ snapshot: shown }), NOW, actions);
+      clickOn('.gc-lane', shown);
+      expect(document.querySelectorAll('.gc-session')).toHaveLength(1);
+      expect(document.querySelector('.gc-lanes button[data-action="open-checkout"]')).not.toBeNull();
+      expect(document.body.innerHTML).toContain(CHECKOUT.root);
+
+      const projected = laneOf(card(4501, {
+        sessions: [],
+        action: { state: 'running', action: 'merge-upstream', since: NOW },
+      }));
+      paint(document, state({ snapshot: projected }), NOW, actions);
+
+      expect(document.querySelectorAll('.gc-session')).toHaveLength(0);
+      expect(document.querySelector('.gc-lanes button[data-action="open-checkout"]')).toBeNull();
+      expect(document.body.innerHTML).not.toContain(CHECKOUT.root);
+      expect(document.body.innerHTML).not.toContain(SESSION_ID);
+      expect(document.body.innerHTML).not.toContain(session().cwd);
+      expect(badges()).toHaveLength(1);
+      expect(actions.openCheckout).not.toHaveBeenCalled();
+    });
+
     // The browser cannot start sessions and receives no startable capabilities.
     it('offers no way to start a session, or to choose a folder, whatever the card carries', () => {
       const shown = withCheckout();

@@ -1,7 +1,7 @@
 import { request } from 'node:http';
 import { StringDecoder } from 'node:string_decoder';
 import type { ClientRequest } from 'node:http';
-import type { ClientHello, ClientMessage, HubMessage, Session } from '@ground-control/core';
+import type { ClientHello, ClientMessage, HubMessage, Session, SessionCheck } from '@ground-control/core';
 import type { HubRecord } from './discover.js';
 import type { Ensured } from './ensure.js';
 
@@ -87,6 +87,15 @@ export class HubTransport {
     const answer = (await this.#get('/roster')) as { sessions?: Session[] } | null;
 
     return answer?.sessions ?? null;
+  }
+
+  /** Missing/invalid responses cannot authorize a session launch. */
+  async sessionCheck(sessionId: string): Promise<SessionCheck | null> {
+    const answer = await this.#get(`/session-check?sessionId=${encodeURIComponent(sessionId)}`);
+    if (answer === null || typeof answer !== 'object') return null;
+    const value = answer as Record<string, unknown>;
+    if (typeof value.allowed !== 'boolean' || typeof value.targetActive !== 'boolean' || typeof value.cardActive !== 'boolean') return null;
+    return { allowed: value.allowed, targetActive: value.targetActive, cardActive: value.cardActive };
   }
 
   dispose(): void {

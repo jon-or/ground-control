@@ -3,7 +3,7 @@ import { connect } from 'node:net';
 import type { IncomingMessage } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PROTOCOL } from '@ground-control/core';
-import type { Client, ClientHello, ClientMessage, HubMessage, Session, Snapshot } from '@ground-control/core';
+import type { Client, ClientHello, ClientMessage, HubMessage, Session, SessionCheck, Snapshot } from '@ground-control/core';
 import { BODY_LIMIT_BYTES, HEARTBEAT_MS, MAX_EVENT_STREAMS, REFUSALS_PER_MINUTE, createHubServer } from '../src/server.js';
 import type { HubServer, ServerClock } from '../src/server.js';
 import { captureLog } from './helpers.js';
@@ -33,6 +33,7 @@ function fakeHub() {
   const received: { id: string; message: ClientMessage }[] = [];
   const disconnected: string[] = [];
   const roster: Session[] = [];
+  const checking: { value: SessionCheck | null; ids: string[] } = { value: null, ids: [] };
 
   return {
     connected,
@@ -40,6 +41,8 @@ function fakeHub() {
     disconnected,
     roster: () => Promise.resolve(roster),
     listing: roster,
+    checking,
+    sessionCheck: async (id: string) => { checking.ids.push(id); return checking.value; },
     connect(who: ClientHello, send: (message: HubMessage) => void): Client {
       connected.set(who.id, send);
 
@@ -215,6 +218,23 @@ async function serving(clock?: ServerClock) {
 }
 
 describe('what the hub answers over loopback', () => {
+  it('authenticates and validates session checks before consulting private roster evidence', async () => {
+    const { hub, server } = await serving();
+    hub.checking.value = { allowed: true, targetActive: false, cardActive: true };
+    expect((await call(server, { path: '/session-check?sessionId=session-1', token: null })).status).toBe(401);
+    expect((await call(server, { path: '/session-check?sessionId=session-1', token: 'wrong' })).status).toBe(401);
+    for (const path of ['/session-check', '/session-check?sessionId=', '/session-check?sessionId=a&sessionId=b',
+      '/session-check?sessionId=../private', '/session-check?sessionId=white%20space', `/session-check?sessionId=${'a'.repeat(201)}`]) {
+      expect((await call(server, { path })).status).toBe(400);
+    }
+    expect(hub.checking.ids).toEqual([]);
+    const answer = await call(server, { path: '/session-check?sessionId=session-1' });
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual({ allowed: true, targetActive: false, cardActive: true });
+    expect(hub.checking.ids).toEqual(['session-1']);
+    hub.checking.value = null;
+    expect(JSON.parse((await call(server, { path: '/session-check?sessionId=session-2' })).body)).toBeNull();
+  });
   it('serves identity without a token or additional data', async () => {
     const { server } = await serving();
 

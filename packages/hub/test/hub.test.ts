@@ -18,7 +18,7 @@ import { makeMarkStore } from '../src/marks.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { lanesPathOf, logPathOf } from '../src/paths.js';
-import { groundControlDirOf } from '@ground-control/core';
+import { DEFAULT_SESSION_SCOPE, groundControlDirOf } from '@ground-control/core';
 import type { LogEntry } from '@ground-control/core';
 import { defaultConfig } from '../src/registry.js';
 import { captureLog, fakeClock, fakeHost, fakeReaders, fakeSession, reportingAgent, tempHome } from './helpers.js';
@@ -53,7 +53,7 @@ function card(number: number, author: string | null = null): IssueCard {
     title: `Issue ${number}`,
     type: null,
     typeColor: null,
-    url: `https://example.invalid/issues/${number}`,
+    url: `https://github.com/example-org/example-repo/issues/${number}`,
     status: null,
     statusColor: null,
     statusChangedAt: null,
@@ -1957,7 +1957,7 @@ describe('historical fallback publication', () => {
     await h.hub.roster();
     expect(inbox.filter((m) => m.type === 'changed')).toHaveLength(2);
     expect(inbox.filter((m) => m.type === 'changed').every((m) => m.type === 'changed' && m.snapshot.lanes.flatMap((l) => l.cards)[0]?.lastSession?.sessionId === 'past')).toBe(true);
-    h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42 })];
+    h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42, repository: 'github.com/org/repo' })];
     h.agent.phases.set('past', { phase: 'running', since: 1, at: 1, event: 'UserPromptSubmit' });
     h.signal([{ kind: 'created', sessionId: 'past' }]); await settle();
     expect(shown().lastSession).toBeUndefined();
@@ -1971,7 +1971,7 @@ describe('historical fallback publication', () => {
   it('retains phases after session exit until the card leaves active work', async () => {
     const h = setup();
     h.agent.adapter.listHistory = async () => ({ sessions: [past], failure: null });
-    h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42 })];
+    h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42, repository: 'github.com/org/repo' })];
     h.agent.phases.set('past', { phase: 'waiting', since: 400, at: 400, event: 'Notification' });
     await h.hub.refresh('asked');
 
@@ -2037,6 +2037,26 @@ describe('opening a historical session', () => {
     return h;
   }
   const ask = (h: Harness, client: ReturnType<typeof connect>['client']) => h.hub.receive(client, { type: 'open', sessionId: 'past', extensionReady: true });
+  it('checks full roster conflicts without returning excluded session records', async () => {
+    const h = setup();
+    connect(h);
+    await h.hub.refresh('asked');
+    h.hub.configure(h.config({ sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeDirectories: ['/private'] } }));
+    h.agent.sessions = [fakeSession({ sessionId: 'hidden-live', cwd: '/private/work', checkoutRoot: '/private/work', issueNumber: 42, repository: 'github.com/org/repo' })];
+    expect(await h.hub.sessionCheck('past')).toEqual({ allowed: true, targetActive: false, cardActive: true });
+    expect(await h.hub.roster()).toEqual([]);
+    expect(await h.hub.sessionCheck('hidden-live')).toEqual({ allowed: false, targetActive: false, cardActive: false });
+    expect(await h.hub.sessionCheck('unknown')).toEqual({ allowed: false, targetActive: false, cardActive: false });
+    h.agent.sessions = [fakeSession({ sessionId: 'elsewhere', issueNumber: 42, repository: 'github.com/other/repo' })];
+    expect(await h.hub.sessionCheck('past')).toEqual({ allowed: true, targetActive: false, cardActive: false });
+    h.agent.sessions = [fakeSession({ sessionId: 'past', cwd: past.cwd, checkoutRoot: past.cwd, issueNumber: 42, repository: 'github.com/org/repo' })];
+    expect(await h.hub.sessionCheck('past')).toEqual({ allowed: true, targetActive: true, cardActive: true });
+    h.agent.sessions = [fakeSession({ sessionId: 'past', cwd: '/private/work', checkoutRoot: '/private/work', issueNumber: 42, repository: 'github.com/org/repo' })];
+    expect(await h.hub.sessionCheck('past')).toEqual({ allowed: false, targetActive: false, cardActive: false });
+    h.agent.failure = { subject: 'fake', kind: 'unreadable', message: 'failed', remedy: 'retry' };
+    expect(await h.hub.sessionCheck('past')).toBeNull();
+    h.hub.dispose();
+  });
   it('offers history to both boards and serializes concurrent editor clicks before window discovery', async () => {
     const h = setup();
     const first = connect(h, hello({ residentRoutes: ['resume-here'] }));
@@ -2057,7 +2077,7 @@ describe('opening a historical session', () => {
   });
   it('uses the live reveal path if the clicked session resumed since rendering', async () => {
     const h = setup(); const { client, inbox } = connect(h);
-    await h.hub.refresh('asked'); h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42 })];
+    await h.hub.refresh('asked'); h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42, repository: 'github.com/org/repo' })];
     h.host.plan = { route: 'reveal-here', session: h.agent.sessions[0]!, root: past.cwd };
     ask(h, client); await settle();
     expect(h.host.planned.at(-1)?.historicalSession).toBeUndefined();
@@ -2067,7 +2087,7 @@ describe('opening a historical session', () => {
     const h = setup(); const { client, inbox } = connect(h); await h.hub.refresh('asked');
     if (kind === 'unreadable') h.agent.failure = { subject: 'fake', kind: 'bad-response', message: 'unreadable', remedy: 'retry' };
     if (kind === 'missing') h.agent.adapter.canResume = () => false;
-    if (kind === 'active-card') h.agent.sessions = [fakeSession({ sessionId: 'different', issueNumber: 42 })];
+    if (kind === 'active-card') h.agent.sessions = [fakeSession({ sessionId: 'different', issueNumber: 42, repository: 'github.com/org/repo' })];
     ask(h, client); await settle();
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(0);
     expect(inbox.some((m) => m.type === 'notice')).toBe(true);

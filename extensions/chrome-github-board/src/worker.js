@@ -1,7 +1,7 @@
 // @ts-check
 /**
  * Relay between one native bridge port and board tabs. Recover from worker shutdown through alarms, tab
- * reconnects, and snapshots in chrome.storage.session.
+ * reconnects. Replay snapshots only from the current native connection.
  */
 import { makeLogSpool } from './state.js';
 import { allowsProject, watchPreferences } from './preferences.js';
@@ -17,7 +17,6 @@ const watchers = new Set();
 const reports = new Map();
 /** @type {import('./preferences.js').Preferences | null} */
 let preferences = null;
-let policyRevision = 0;
 
 /**
  * Keep log subscribers and history in memory through makeLogSpool. Reconnecting tabs restore subscriptions;
@@ -30,9 +29,8 @@ let native = null;
 
 /** Replay the latest hub snapshot to newly connected tabs. */
 let last = null;
-let snapshotRevision = 0;
 
-/** Recheck policy on every delivery, including asynchronous cache reads. */
+/** Recheck browser preferences on every delivery. */
 function permitted(port) {
   const report = reports.get(port);
   return report !== undefined && report.board && allowsProject(preferences, report.pathname);
@@ -110,6 +108,11 @@ function connectNative() {
   const connected = native;
   connected.onMessage.addListener((message) => {
     if (native !== connected) return;
+    if (message.type === 'trouble') {
+      if (message.message !== null) last = null;
+      troubled(message.message);
+      return;
+    }
     // Clear trouble only on a native-port response; a cached snapshot does not establish liveness (R24).
     if (trouble !== null) {
       troubled(null);
@@ -128,9 +131,7 @@ function connectNative() {
     }
 
     if (message.type === 'snapshot' || message.type === 'changed') {
-      snapshotRevision++;
       last = message;
-      void chrome.storage.session.set({ last: message });
     }
 
     broadcast(message);
@@ -139,6 +140,7 @@ function connectNative() {
   connected.onDisconnect.addListener(() => {
     if (native !== connected) return;
     native = null;
+    last = null;
     troubled('Disconnected from Ground Control. Enable the GitHub overlay from VS Code, or open the board there.');
   });
 
@@ -180,26 +182,11 @@ function watchLog(port, open) {
   );
 }
 
-/** What a tab is shown before the hub has answered: the last reading, and the fact that it is only that. */
+/** Prior connections may have used a different session scope. Wait for a fresh hub snapshot. */
 function replay(port) {
   const token = reports.get(port)?.token;
   send(port, { type: 'trouble', message: trouble }, token);
-
-  if (last !== null) {
-    send(port, last, token);
-
-    return;
-  }
-
-  const revision = snapshotRevision;
-  const policy = policyRevision;
-  void chrome.storage.session.get('last').then((held) => {
-    if (policy !== policyRevision || !boards.has(port) || !permitted(port) || token !== reports.get(port)?.token) return;
-    if (held.last && last === null && revision === snapshotRevision) {
-      last = held.last;
-    }
-    if (last !== null) send(port, last, token);
-  }, () => {});
+  if (last !== null) send(port, last, token);
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -258,6 +245,7 @@ function reconcile() {
       toNative({ type: 'watching', watching: false });
       const disconnected = native;
       native = null;
+      last = null;
       disconnected.disconnect();
     }
     troubled(UNANSWERED);
@@ -282,7 +270,6 @@ function applyBoard(port, changed = false, immediately = true) {
 
 watchPreferences(chrome.storage, (next) => {
   preferences = next.value;
-  policyRevision++;
   for (const port of reports.keys()) applyBoard(port, false, false);
   reconcile();
   for (const port of boards) replay(port);

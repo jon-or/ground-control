@@ -36,7 +36,9 @@ export interface ActionDeps {
   /** Notify once per machine after the first successful dispatch, which may edit and push changes. */
   announce(message: string): void;
   /** Report asynchronous refusals for manual requests. */
-  notify(message: string): void;
+  notify(message: string, kind?: string): void;
+  /** Recheck the full roster and current checkout authorization after asynchronous source reads. */
+  currentCard?(key: string): LanedCard | undefined;
 }
 
 /** Time allowed for the CLI to print its dispatch ID (M33). */
@@ -407,7 +409,7 @@ export class ActionRunner {
 
     try {
       const configuration = this.#configuration;
-      const card = lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+      let card = lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
       const source = this.#deps.sources.find((candidate) => candidate.readContext !== undefined);
       const selected = this.#settings.agent ?? 'auto';
       const agent = this.#deps.agents.find(
@@ -451,6 +453,12 @@ export class ActionRunner {
       }
 
       const reading = await source.readContext!(card.issue, controller.signal);
+
+      if (this.#deps.currentCard) card = this.#deps.currentCard(key);
+      if (controller.signal.aborted || card === undefined) {
+        this.#refuse(key, asked, { kind: 'action-unavailable', message: 'This card is no longer available. Nothing was started.' });
+        return;
+      }
 
       if (configuration !== this.#configuration) {
         this.#refuse(key, asked, { kind: 'action-settings-changed', message: 'Action settings changed while reading the card. Retry with the current settings.' });
@@ -590,7 +598,7 @@ export class ActionRunner {
    */
   #refuse(key: string, asked: boolean, refused: ActionRefusal): void {
     if (asked) {
-      this.#deps.notify(refused.message);
+      this.#deps.notify(refused.message, refused.kind);
 
       return;
     }

@@ -6,6 +6,18 @@ import type { HistoricalSession, OpenOutcome, OpenRefusal, OpenRoute, Session } 
 import { PLACEMENTS, handOverUri, resumeRefusal, stagedUpdate, stagedUpdateRefusal, strayFrom, verifyOpen } from '@ground-control/host-vscode';
 import type { AgentPlacement, CommandArg } from '@ground-control/host-vscode';
 import { spawnEnvironment } from '@ground-control/hub';
+import { routeAllowed, sessionAllowed } from './sessionScope.js';
+import type { SessionChecker } from './sessionScope.js';
+
+const SCOPE_REFUSAL = 'This work is hidden by the current session settings. Refresh the board.';
+
+async function checkSession(session: Session | HistoricalSession, root: string, history: boolean, check: SessionChecker): Promise<string | null> {
+  const checked = await check(session.sessionId);
+  if (!sessionAllowed(session, history, root) || checked?.allowed === false) return SCOPE_REFUSAL;
+  if (!checked) return 'Live sessions could not be checked. Refresh the board and try again.';
+  return (history ? !checked.targetActive && !checked.cardActive : checked.targetActive)
+    ? null : 'This session can no longer be opened safely. Refresh the board.';
+}
 
 /** Resident operations supported by each agent (M43). */
 function placementOf(agent: string): AgentPlacement | null {
@@ -212,18 +224,24 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
 }
 
 /** Focus the target window before sending its URI, then verify the resulting session placement (mechanics M7). */
-async function revealElsewhere(roster: Roster, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean }): Promise<string | null> {
+async function revealElsewhere(roster: Roster, check: SessionChecker, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean }): Promise<string | null> {
+  if (!sessionAllowed(session, resume !== undefined, root)) return SCOPE_REFUSAL;
   if (resume && Date.now() >= resume.expiresAt) return 'This resume request expired. Refresh the board and try again.';
 
   const raised = await raise(root, resume?.newWindow);
+  if (!sessionAllowed(session, resume !== undefined, root)) return SCOPE_REFUSAL;
   if (raised !== null) return raised;
 
   // Wait for this window to lose focus before delivering the focus-routed URI.
-  if (!(await focusLeft(FOCUS_TIMEOUT_MS))) return `Could not focus the window on ${root}. The session was not opened.`;
+  const left = await focusLeft(FOCUS_TIMEOUT_MS);
+  if (!sessionAllowed(session, resume !== undefined, root)) return SCOPE_REFUSAL;
+  if (!left) return `Could not focus the window on ${root}. The session was not opened.`;
 
   // Read the roster immediately before launch so sessions started since rendering are not misidentified as
   // unexpected launches.
   const before = await roster();
+  const checked = await checkSession(session, root, resume !== undefined, check);
+  if (checked) return checked;
   if (resume) {
     const refusal = resumeRefusal(session.sessionId, before);
     if (refusal) return refusal;
@@ -256,11 +274,23 @@ async function revealElsewhere(roster: Roster, session: Session | HistoricalSess
  * Execute a planned route in this extension host and return any user-visible failure. In-process commands
  * target this window; external URIs depend on focus (mechanics M7, M8). Keep the route switch exhaustive.
  */
-export async function performRoute(plan: OpenRoute, roster: Roster): Promise<string | null> {
+export async function performRoute(plan: OpenRoute, roster: Roster, check: SessionChecker): Promise<string | null> {
+  const failure = await performAllowedRoute(plan, roster, check);
+  return failure !== null && !routeAllowed(plan) ? SCOPE_REFUSAL : failure;
+}
+
+async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: SessionChecker): Promise<string | null> {
+  if (!routeAllowed(plan)) return SCOPE_REFUSAL;
+  if ('session' in plan) {
+    const checked = await checkSession(plan.session, plan.root, plan.route.startsWith('resume-'), check);
+    if (checked) return checked;
+  }
   switch (plan.route) {
     case 'resume-here': {
       if (dirKey(boardRoot() ?? '') !== dirKey(plan.root)) return 'The workspace changed before this session could be resumed. Refresh the board.';
       const before = await roster();
+      const checked = await checkSession(plan.session, plan.root, true, check);
+      if (checked) return checked;
       const refusal = resumeRefusal(plan.session.sessionId, before);
       if (refusal) return refusal;
       if (Date.now() >= plan.expiresAt) return 'This resume request expired. Refresh the board and try again.';
@@ -270,18 +300,20 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
     }
 
     case 'resume-elsewhere':
-      return revealElsewhere(roster, plan.session, plan.root, plan);
+      return revealElsewhere(roster, check, plan.session, plan.root, plan);
 
     case 'reveal-here':
       return revealHere(plan.session);
 
     case 'reveal-elsewhere':
-      return revealElsewhere(roster, plan.session, plan.root);
+      return revealElsewhere(roster, check, plan.session, plan.root);
 
     case 'sidebar-here': {
       const placement = placementOf(plan.session.agent);
 
-      if (placement === null || !(await focusSidebar(placement))) {
+      const focused = placement !== null && await focusSidebar(placement);
+      if (!routeAllowed(plan)) return SCOPE_REFUSAL;
+      if (!focused) {
         return `Could not open the ${plan.session.agent} sidebar. Open it from the activity bar.`;
       }
 
@@ -296,6 +328,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
 
     case 'sidebar-elsewhere': {
       const raised = await raise(plan.root);
+      if (!routeAllowed(plan)) return SCOPE_REFUSAL;
       if (raised !== null) return raised;
 
       // The sidebar has no reveal-by-ID operation; opening its session in a panel would create a second
@@ -316,6 +349,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
 
     case 'unknown-surface-elsewhere': {
       const raised = await raise(plan.root);
+      if (!routeAllowed(plan)) return SCOPE_REFUSAL;
       if (raised !== null) return raised;
 
       void vscode.window.showInformationMessage(
@@ -386,7 +420,7 @@ const opening = new Set<string>();
  * Execute one route per session or card. Duplicate opens could create concurrent transcript writers or
  * duplicate checkout windows (mechanics M11).
  */
-export async function perform(route: OpenRoute, roster: Roster): Promise<void> {
+export async function perform(route: OpenRoute, roster: Roster, check: SessionChecker): Promise<void> {
   const held = routeKey(route);
 
   if (opening.has(held)) {
@@ -396,7 +430,7 @@ export async function perform(route: OpenRoute, roster: Roster): Promise<void> {
   opening.add(held);
 
   try {
-    const failure = await performRoute(route, roster);
+    const failure = await performRoute(route, roster, check);
 
     if (failure) {
       void vscode.window.showErrorMessage(failure);

@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { PROTOCOL } from '@ground-control/core';
-import type { Client, ClientHello, ClientMessage, HubMessage, Logger, Session, Snapshot } from '@ground-control/core';
+import type { Client, ClientHello, ClientMessage, HubMessage, Logger, Session, SessionCheck, Snapshot } from '@ground-control/core';
 
 /** Minimal hub contract for routing and isolated server tests. */
 export interface ServableHub {
@@ -12,6 +12,8 @@ export interface ServableHub {
   snapshot(): Snapshot;
   /** Read current sessions while the client completes an open route. */
   roster(): Promise<readonly Session[] | null>;
+  /** Current authorization and duplicate checks without exposing hidden roster details. */
+  sessionCheck?(sessionId: string): Promise<SessionCheck | null>;
 }
 
 export interface ServerClock {
@@ -349,6 +351,16 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
     if (path === '/roster' && request.method === 'GET') {
       send(response, 200, { sessions: await deps.hub.roster() });
 
+      return;
+    }
+
+    if (path === '/session-check' && request.method === 'GET') {
+      const sessionId = url.searchParams.get('sessionId');
+      if (!sessionId || sessionId.length > 200 || !/^[a-z0-9_-]+$/i.test(sessionId) || url.searchParams.getAll('sessionId').length !== 1) {
+        refuse(response, 400, 'Supply one valid session ID.');
+        return;
+      }
+      send(response, 200, await deps.hub.sessionCheck?.(sessionId) ?? null);
       return;
     }
 

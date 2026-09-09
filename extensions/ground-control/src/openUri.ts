@@ -57,7 +57,7 @@ const ATTACH_DEADLINE_MS = 8_000;
 async function attach(sessionId: string): Promise<void> {
   const known = await runNamed(sessionId);
 
-  if (!known || !attachTo(known)) {
+  if (!known || !await attachTo(known, (id) => client()?.sessionCheck(id) ?? Promise.resolve(null))) {
     void vscode.window.showWarningMessage('This run is unavailable or does not support attaching.');
   }
 }

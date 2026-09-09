@@ -217,6 +217,16 @@ describe('mergeBoard', () => {
 describe('latest historical session fallback', () => {
   const issue = { ...issues[0]!, number: 42, url: 'https://github.com/org/repo/issues/42' };
   const past = (id: string, at: number, over = {}) => ({ agent: 'claude', sessionId: id, title: 'Past attempt', cwd: '/work/42-test', branch: '42-test', issueNumber: 42, repository: 'github.com/org/repo', updatedAt: at, ...over });
+  it('keeps a known different repository off the issue and preserves its history', () => {
+    const live = { ...sessions[0]!, sessionId: 'other-repository', issueNumber: 42, repository: 'github.com/personal/repo' };
+    const cards = mergeBoard([issue], [live], [past('saved', 10)]);
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.sessions).toEqual([]);
+    expect(cards[0]?.lastSession?.sessionId).toBe('saved');
+    expect(cards[1]?.issue).toBeNull();
+    expect(cards[1]?.sessions.map((session) => session.sessionId)).toEqual(['other-repository']);
+    expect(mergeBoard([issue], [{ ...live, repository: null }], [past('saved', 10)])[0]?.lastSession).toBeUndefined();
+  });
   it('chooses one newest modified session with a deterministic tie-break and without mutating inputs', () => {
     const history = [past('z', 10), past('b', 20), past('a', 20)];
     const card = mergeBoard([issue], [], history)[0]!;
@@ -226,7 +236,7 @@ describe('latest historical session fallback', () => {
   });
   it('lets every live phase suppress history and excludes resumed ids even after their issue link changes', () => {
     for (const phase of ['running', 'waiting', 'idle'] as const) {
-      const live = { ...sessions[0]!, agent: 'claude', issueNumber: 42, finished: false, activity: { phase, since: 1, at: 1, event: 'test' } };
+      const live = { ...sessions[0]!, agent: 'claude', issueNumber: 42, repository: 'github.com/org/repo', finished: false, activity: { phase, since: 1, at: 1, event: 'test' } };
       expect(mergeBoard([issue], [live], [past('old', 10)])[0]?.lastSession).toBeUndefined();
       const moved = { ...live, issueNumber: 43, sessionId: 'old' };
       expect(mergeBoard([issue], [moved], [past('old', 10)])[0]?.lastSession).toBeUndefined();
@@ -238,7 +248,7 @@ describe('latest historical session fallback', () => {
   });
   /** SessionStart can clear the marker phase on resume. Apply retained activity before falling back to CLI state. */
   it('gives a live session with no current reading its own kept one, whatever started it', () => {
-    const base = { ...sessions[0]!, agent: 'claude', sessionId: 'live-one', issueNumber: 42, finished: false, activity: null };
+    const base = { ...sessions[0]!, agent: 'claude', sessionId: 'live-one', issueNumber: 42, repository: 'github.com/org/repo', finished: false, activity: null };
     const kept = new Map([['claude:live-one', { phase: 'idle' as const, event: 'Stop', at: 20 }]]);
 
     expect(mergeBoard([issue], [{ ...base }], [], new Map(), kept)[0]?.sessions[0]?.activity).toEqual({
@@ -257,7 +267,7 @@ describe('latest historical session fallback', () => {
 
   /** Retained running activity must render as idle after a new process clears the phase marker. */
   it('demotes a kept running reading to idle, and keeps a kept waiting one', () => {
-    const base = { ...sessions[0]!, agent: 'claude', sessionId: 'live-two', issueNumber: 42, finished: false, activity: null };
+    const base = { ...sessions[0]!, agent: 'claude', sessionId: 'live-two', issueNumber: 42, repository: 'github.com/org/repo', finished: false, activity: null };
     const phaseOf = (phase: 'running' | 'waiting' | 'idle') =>
       mergeBoard([issue], [{ ...base }], [], new Map(), new Map([['claude:live-two', { phase, event: 'PostToolBatch', at: 20 }]]))[0]
         ?.sessions[0]?.activity?.phase;

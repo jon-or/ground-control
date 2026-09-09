@@ -2471,6 +2471,40 @@ describe('card actions (R39)', () => {
     expect(chip()?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
   });
 
+  it('removes scoped-out session details while keeping the running action stoppable', () => {
+    const action = { state: 'running', action: 'merge-upstream', since: at } as const;
+    send(message({ lanes: lanes({ build: [{ ...liveCard, action }] }) }));
+    expect(document.querySelectorAll('.session')).toHaveLength(1);
+    document.querySelector<HTMLElement>('.card-menu')!.click();
+    expect(document.body.innerHTML).toContain(liveCard.checkout!.root);
+    expect(document.body.textContent).toContain('cache-remediation');
+
+    const { checkout: _checkout, ...projected } = liveCard;
+    send(message({ lanes: lanes({ build: [{ ...projected, sessions: [], action }] }) }));
+
+    expect(document.querySelectorAll('.session')).toHaveLength(0);
+    expect(document.body.innerHTML).not.toContain(session.cwd);
+    expect(document.body.innerHTML).not.toContain(liveCard.checkout!.root);
+    expect(document.body.innerHTML).not.toContain('cache-remediation');
+    expect(document.body.textContent).toContain(liveCard.issue!.title);
+    expect(chip()?.textContent).toBe('Working…');
+    chip()?.click();
+    expect(sent()).toContainEqual({ type: 'stopAction', key: liveCard.key });
+  });
+
+  it('renders a stop-only action without issue or session details', () => {
+    const card: LanedCard = {
+      key: 'issue:18953', issue: null, issueNumber: null, sessions: [], lane: 'build', returned: false,
+      attention: null, reason: 'Ground Control action is running.',
+      action: { state: 'running', action: 'merge-upstream', since: at },
+    };
+    send(message({ lanes: lanes({ build: [card] }) }));
+    expect(document.body.textContent).toContain('Ground Control action');
+    expect(document.querySelectorAll('.session, .card-menu')).toHaveLength(0);
+    chip()?.click();
+    expect(sent()).toContainEqual({ type: 'stopAction', key: card.key });
+  });
+
   const outcomes: [NonNullable<LanedCard['action']> & { state: 'done' }, string][] = [
     [{ state: 'done', action: 'merge-upstream', outcome: 'landed', detail: 'Merged master.', at }, 'Merged'],
     [{ state: 'done', action: 'merge-upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at }, 'Stopped short'],

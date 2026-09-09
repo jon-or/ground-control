@@ -330,10 +330,10 @@ export class BoardPanel {
   }
 
   /** Share attachTo with the browser URI handler. */
-  #attach(sessionId: string): void {
+  async #attach(sessionId: string): Promise<void> {
     const session = sessionOf(this.#last, sessionId);
 
-    if (session === null || !attachTo(session)) {
+    if (session === null || !await attachTo(session, (id) => client()?.sessionCheck(id) ?? Promise.resolve(null))) {
       void vscode.window.showWarningMessage('This run is unavailable or does not support attaching.');
     }
   }
