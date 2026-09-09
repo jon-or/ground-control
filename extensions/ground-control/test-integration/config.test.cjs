@@ -63,6 +63,9 @@ describe('what this window pushes to the hub', () => {
     await settings().update('sources', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('actions.merge-upstream.enabled', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('actions.merge-upstream.prompt', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('triage.mode', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('triage.enabled', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('triage.dailyLimit', undefined, vscode.ConfigurationTarget.Global);
   });
 
   /** Verify the host configuration structure reaches the hub without treating setting fields as host IDs. */
@@ -78,6 +81,19 @@ describe('what this window pushes to the hub', () => {
       [],
       `settings were refused: ${failures.map((f) => f.message).join(' | ')}`,
     );
+  });
+
+  it('defaults triage to manual and preserves explicit legacy choices until a mode is selected', async () => {
+    await untilStored((c) => c.triage?.mode === 'manual', 'fresh triage did not default to manual');
+    await settings().update('triage.enabled', true, vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.triage?.mode === 'automatic', 'explicit legacy true did not select automatic');
+    await settings().update('triage.enabled', false, vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.triage?.mode === 'off', 'explicit legacy false did not select off');
+    await settings().update('triage.mode', 'manual', vscode.ConfigurationTarget.Global);
+    await settings().update('triage.dailyLimit', 3, vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.triage?.mode === 'manual' && c.triage.dailyLimit === 3 && c.triage.enabled,
+      'explicit mode and limit did not reach the hub');
+    await untilSnapshot((s) => s.triage?.mode === 'manual' && s.triage.canRequest, 'manual capability was not displayed');
   });
 
   /** Unknown host and source IDs must produce named failures in hub state. */

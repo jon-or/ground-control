@@ -1294,6 +1294,23 @@ describe('what went wrong, as a toast', () => {
     expect(toasts()).toHaveLength(0);
   });
 
+  it.each([
+    ['off', 'Triage is off.', false],
+    ['manual', 'Triage is manual.', true],
+    ['automatic', 'Automatic triage reached its daily limit.', true],
+  ] as const)('shows the %s diagnostic as a neutral notice', (mode, message, canRequest) => {
+    const updated = state({ snapshot: snapshot({ triage: { mode, message, canRequest } }) });
+
+    paint(document, updated, NOW, actions);
+    paint(document, updated, NOW, actions);
+    expect(toasts()).toHaveLength(1);
+    expect(toasts()[0]?.textContent).toContain(message);
+    expect(toasts()[0]?.dataset.tone).toBe('default');
+    expect(toasts()[0]?.getAttribute('role')).toBe('status');
+    paint(document, state({ snapshot: snapshot({ triage: { mode, message: null, canRequest } }) }), NOW, actions);
+    expect(toasts()).toHaveLength(0);
+  });
+
   /** A scan runs every few seconds and after every board mutation. One failure is one toast, however many scans. */
   it('shows one toast per failure however many times it paints', () => {
     paint(document, state({ snapshot: failing }), NOW, actions);
@@ -2263,6 +2280,25 @@ describe('card triage (R38)', () => {
 
     expect(mark()).toBeNull();
     expect(document.querySelector('.gc-triage-detail')).toBeNull();
+  });
+
+  it.each(['manual', 'off', 'automatic'] as const)('keeps triage display-only in %s mode', (mode) => {
+    const cards = [
+      card(4501, { sessions: [] }),
+      card(4502, { sessions: [], triage: { state: 'failed', attempts: 2, exhausted: false } }),
+      card(4503, { sessions: [], triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW, stale: false } }),
+    ];
+
+    paint(document, state({ snapshot: snapshot({
+      lanes: [{ id: 'build', title: 'Build', cards }],
+      triage: { mode, message: null, canRequest: mode !== 'off' },
+    }) }), NOW, actions);
+
+    const marks = [...document.querySelectorAll('.gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"]')];
+
+    expect(marks.map((entry) => entry.textContent)).toEqual(['Not read', 'Develop']);
+    expect(marks.every((entry) => entry.tagName === 'SPAN' && entry.querySelector('button, a') === null)).toBe(true);
+    expect([...document.querySelectorAll('button, a')].some((entry) => /Read this card|Retry triage/i.test(entry.textContent ?? ''))).toBe(false);
   });
 
   /** Verify literal triage labels against packages/board and both clients, which cannot share runtime imports. */

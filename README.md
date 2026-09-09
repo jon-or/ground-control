@@ -8,7 +8,7 @@ A personal board for assigned GitHub issues and local Claude Code and Codex sess
 - Organize work in local lanes shared across clients. Moving a card does not change its GitHub status.
 - Reveal or resume sessions, attach to Claude background jobs, open checkouts, and inspect combined changes in VS Code.
 - Start an editor session at a card's checkout. Claude accepts an unsent prompt; Codex opens a bare session.
-- Classify the next action from issue and pull-request context. Triage is enabled by default and can be disabled.
+- Classify the next action from issue and pull-request context on request; automatic triage requires opt-in.
 - Run a requested merge-upstream action using your prompt. Automatic dispatch is disabled by default; [R39](docs/prd.md#r39-merge-upstream-action) describes checks and implementation limits.
 
 Working lanes are Unstarted, Plan, Build, Review, Done, and Icebox. Archived contains work outside the configured membership set. [Arrival rules](docs/prd.md#r8-arrival-and-manual-placement) determine placement until you move a card.
@@ -55,6 +55,16 @@ These application settings configure the shared hub for both clients; Chrome has
 An empty `agents` object enables Claude and detects Codex from its home directory. An explicit map replaces that selection, so include every agent you want, for example `{"claude": "claude", "codex": "codex"}`; values may also be executable paths. Omitted agents are not read and do not receive hooks.
 
 `newSession.prompt` prefills Claude's composer without submitting. It accepts `{issue}`, `{repo}`, `{title}`, `{url}`, and `{checkout}`; unknown placeholders remain unchanged. Empty prompts and new Codex sessions start without a prompt.
+
+### Triage settings
+
+`triage.mode` defaults to `manual`: use **Read this card** in VS Code for an unread assigned issue, or its retry/reread control. `off` disables all classification controls and requests while retaining previous results. `automatic` reads eligible cards while a board is visible. Chrome displays triage state and results but cannot request classification.
+
+An explicit `triage.mode` overrides legacy `triage.enabled`. Without an explicit mode, an explicitly saved legacy `true` selects automatic and `false` selects off; an unset legacy key selects manual. Existing saved hub configurations with `enabled` but no mode retain their legacy choice until an editor supplies its settings.
+
+`triage.dailyLimit` defaults to 100 automatic attempts per rolling 24 hours (0–1000). Attempts are reserved before source reads and include failures and cancellations; zero pauses automatic starts. The count survives hub restarts. Manual requests do not use this allowance but retain concurrency and cooldown limits. Unreadable or unsavable usage records pause automatic starts until repaired and the hub restarted.
+
+Switching to manual cancels automatic readings; switching off cancels all readings. Cancelled attempts remain charged to the daily allowance but do not consume per-card retries. Classification sends issue/PR context to the model and uses your allowance.
 
 ### Action settings
 

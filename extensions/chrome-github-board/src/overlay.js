@@ -1424,6 +1424,12 @@ export function renderToasts(doc, state) {
     problems.push({ key: `notice:${state.notice}`, message: state.notice, remedy: null, tone: 'default' });
   }
 
+  if (state.snapshot?.triage?.message) {
+    const message = state.snapshot.triage.message;
+
+    problems.push({ key: `triage:${message}`, message, remedy: null, tone: 'default' });
+  }
+
   const live = new Set(problems.map((problem) => problem.key));
 
   // Keep dismissed notices hidden until the condition clears and recurs.
@@ -1473,7 +1479,7 @@ function toast(doc, problem) {
   const element = doc.createElement('div');
 
   element.className = 'gc-toast';
-  element.setAttribute('role', 'alert');
+  element.setAttribute('role', problem.key.startsWith('triage:') ? 'status' : 'alert');
   element.dataset.key = problem.key;
   element.dataset.tone = problem.tone;
 

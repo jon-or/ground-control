@@ -2262,6 +2262,86 @@ describe('card triage (R38)', () => {
     expect(document.querySelector('.triage-again')).toBeNull();
   });
 
+  it('requests an initial reading in manual mode', () => {
+    send(message({
+      triage: { mode: 'manual', message: 'Triage is manual.', canRequest: true },
+      lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }),
+    }));
+
+    const read = document.querySelector<HTMLButtonElement>('button.triage-read')!;
+
+    expect(read.textContent).toBe('Read this card');
+    expect(tipOf(read)).toContain('model usage');
+    expect(sent()).toEqual([]);
+    read.click();
+    expect(sent()).toEqual([{ type: 'retriage', key: 'issue:18953' }]);
+  });
+
+  it.each([
+    ['ad-hoc', { issue: null, issueNumber: null, sessions: [{ ...session, ...checkout }] }],
+    ['unassigned', { unassigned: true }],
+    ['archived', { lane: 'archived' }],
+  ] satisfies [string, Partial<LanedCard>][])('offers no initial reading for %s cards', (_name, over) => {
+    const entry = { ...liveCard, sessions: [], ...over };
+
+    send(message({
+      triage: { mode: 'manual', message: null, canRequest: true },
+      lanes: lanes({ [entry.lane]: [entry] }),
+    }));
+
+    if (entry.lane === 'archived') {
+      toggleArchived();
+    }
+
+    expect(document.querySelectorAll('.card')).toHaveLength(1);
+    expect(document.querySelector('.triage-read')).toBeNull();
+  });
+
+  it('redraws initial request controls when triage is turned off and on', () => {
+    const shown = lanes({ unstarted: [{ ...liveCard, sessions: [] }] });
+
+    send(message({ lanes: shown, triage: { mode: 'manual', message: null, canRequest: true } }));
+    expect(document.querySelector('button.triage-read')).not.toBeNull();
+    send(message({ lanes: shown, triage: { mode: 'off', message: null, canRequest: false } }));
+    expect(document.querySelector('.triage-read')).toBeNull();
+    send(message({ lanes: shown, triage: { mode: 'automatic', message: null, canRequest: true } }));
+    document.querySelector<HTMLButtonElement>('button.triage-read')!.click();
+    expect(sent()).toEqual([{ type: 'retriage', key: 'issue:18953' }]);
+  });
+
+  it.each([
+    { state: 'failed', attempts: 5, exhausted: true },
+    { state: 'failed', attempts: 1, exhausted: false },
+    { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: false },
+  ] satisfies NonNullable<LanedCard['triage']>[])('preserves $state results with no request control while off', (triage) => {
+    const shown = lanes({ unstarted: [triaged(triage)] });
+
+    send(message({ lanes: shown, triage: { mode: 'manual', message: null, canRequest: true } }));
+    expect(document.querySelector('button.triage-failed, button.triage-again')).not.toBeNull();
+    send(message({ lanes: shown, triage: { mode: 'off', message: null, canRequest: false } }));
+    expect(chip()?.textContent).toBe(triage.state === 'done' ? 'Develop' : 'Not read');
+    expect(document.querySelector('button.triage-failed, .triage-again, .triage-read')).toBeNull();
+    expect(tipOf(chip())).not.toContain('Click to retry');
+    chip()?.click();
+    expect(sent()).toEqual([]);
+  });
+
+  it.each([
+    ['off', 'Triage is off.', false],
+    ['manual', 'Triage is manual.', true],
+    ['automatic', 'Automatic triage reached its daily limit.', true],
+  ] as const)('shows the %s diagnostic as a neutral notice', (mode, text, canRequest) => {
+    send(message({ triage: { mode, message: text, canRequest } }));
+
+    const notes = document.querySelectorAll('#notices .notice');
+
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.textContent).toBe(text);
+    expect(notes[0]?.classList.contains('error')).toBe(false);
+    send(message({ triage: { mode, message: null, canRequest } }));
+    expect(document.querySelector('#notices .notice')).toBeNull();
+  });
+
   it('offers retry for failed triage', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 2, exhausted: false })] }) }));
 

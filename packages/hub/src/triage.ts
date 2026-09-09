@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { groundControlDirOf } from '@ground-control/core';
-import type { AgentAdapter, IssueCard, Lane, LaneId, Logger, ReadFailure, TriageSettings, WorkSource } from '@ground-control/core';
+import { groundControlDirOf, triageMode } from '@ground-control/core';
+import type { AgentAdapter, IssueCard, Lane, LaneId, Logger, ReadFailure, Snapshot, TriageSettings, WorkSource } from '@ground-control/core';
 import {
   buildTriagePrompt,
   dueForTriage,
@@ -19,6 +19,7 @@ import {
   withTriaged,
 } from '@ground-control/board';
 import type { TriageStore } from './triageStore.js';
+import { TriageUsage } from './triageUsage.js';
 
 export interface TriageDeps {
   home: string;
@@ -54,6 +55,9 @@ export class TriageRunner {
   readonly #sessions = new Set<string>();
   readonly #inFlight = new Map<string, AbortController>();
   readonly #asked = new Map<string, number>();
+  readonly #automatic = new Set<string>();
+  readonly #usage: TriageUsage;
+  #usageFailed = false;
 
   #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 180_000, names: {} };
   /** Use the same status mapping as lane assignment (R38). */
@@ -66,6 +70,18 @@ export class TriageRunner {
 
   constructor(deps: TriageDeps) {
     this.#deps = deps;
+    this.#usage = new TriageUsage(deps.home);
+  }
+
+  status(): NonNullable<Snapshot['triage']> {
+    const mode = triageMode(this.#settings);
+    const count = this.#usage.read(this.#deps.now());
+    let message: string | null = null;
+    if (mode === 'off') message = 'Card triage is off.';
+    else if (mode === 'manual') message = 'Card triage is manual. Request a reading in VS Code.';
+    else if (this.#usageFailed || count === null) message = 'Automatic triage paused because its usage record could not be read or saved. Repair triage-usage.json in the Ground Control state directory and restart the hub. Manual requests remain available.';
+    else if (count.length >= (this.#settings.dailyLimit ?? 100)) message = 'Automatic triage limit reached for the rolling 24-hour window. Manual requests remain available.';
+    return { mode, message, canRequest: mode !== 'off' };
   }
 
   /** Card keys currently being classified. */
@@ -98,8 +114,10 @@ export class TriageRunner {
     this.#statusLanes = statusLanes;
     this.#agentPaths = new Map(agents.map((agent) => [agent.id, { path: agent.path, model: agent.model ?? null }]));
 
-    if (!settings.enabled) {
+    if (triageMode(settings) === 'off') {
       this.#standDown();
+    } else if (triageMode(settings) === 'manual') {
+      this.#standDown(this.#automatic);
     }
   }
 
@@ -116,7 +134,7 @@ export class TriageRunner {
       const state = nextTriageState(lanes, this.#deps.store.read(), sourcesRead);
       this.#deps.store.write(state);
 
-      if (!this.#settings.enabled || !watched) {
+      if (triageMode(this.#settings) !== 'automatic' || !watched || this.#usageFailed) {
         return;
       }
 
@@ -128,18 +146,16 @@ export class TriageRunner {
 
       const waiting = dueForTriage(lanes, state, this.#running, this.#deps.now());
 
-      if (waiting.length > 0) {
-        this.#deps.announce(
-          `Triaging ${waiting.length === 1 ? 'a card' : `${waiting.length} cards`}. ` +
-            `This uses your Claude allowance and sends issue and pull request text to the model. ` +
-            `Disable triage with groundControl.triage.enabled.`,
-        );
-      }
-
       for (const key of waiting.slice(0, free)) {
         const due = this.#dueOf(lanes, key);
 
         if (due !== null) {
+          const reserved = this.#usage.reserve(this.#deps.now(), this.#settings.dailyLimit ?? 100);
+          if (reserved !== 'reserved') {
+            this.#usageFailed = reserved === 'unavailable';
+            break;
+          }
+          this.#automatic.add(key);
           this.#start(due);
         }
       }
@@ -158,7 +174,7 @@ export class TriageRunner {
       return refusal('triage-unknown-card', 'This card is no longer on the board.');
     }
 
-    if (!this.#settings.enabled) {
+    if (triageMode(this.#settings) === 'off') {
       return refusal('triage-disabled', 'Card triage is turned off in Settings.');
     }
 
@@ -194,8 +210,9 @@ export class TriageRunner {
   }
 
   /** Mark cancellations before aborting so they do not consume attempts. Timeout aborts remain failures. */
-  #standDown(): void {
+  #standDown(keys?: ReadonlySet<string>): void {
     for (const [key, controller] of this.#inFlight) {
+      if (keys !== undefined && !keys.has(key)) continue;
       this.#stoodDown.add(key);
       controller.abort();
     }
@@ -219,6 +236,7 @@ export class TriageRunner {
   }
 
   #start(due: Due): void {
+    this.#deps.announce('Triaging a card. This uses your Claude allowance and sends issue and pull request text to the model. Set groundControl.triage.mode to off to disable triage.');
     void this.#run(due);
   }
 
@@ -267,6 +285,7 @@ export class TriageRunner {
       clearTimeout(deadline);
       this.#stoodDown.delete(due.key);
       this.#running.delete(due.key);
+      this.#automatic.delete(due.key);
       this.#inFlight.delete(due.key);
       this.#sessions.delete(sessionId);
       this.#deps.changed();
@@ -276,6 +295,8 @@ export class TriageRunner {
   /** Read and classify a card, saving successful results and returning failures without changing lanes. */
   async #read(due: Due, sessionId: string, signal: AbortSignal): Promise<{ kind: string; message: string } | null> {
     const reading = await due.source.readContext!(due.card, signal);
+
+    if (signal.aborted) return { kind: 'triage-cancelled', message: 'Triage was cancelled.' };
 
     if (reading.context === null) {
       return reading.failure ?? { kind: 'context-empty', message: 'The card conversation could not be read.' };
@@ -296,6 +317,8 @@ export class TriageRunner {
       timeoutMs: this.#settings.timeoutMs,
       signal,
     });
+
+    if (signal.aborted) return { kind: 'triage-cancelled', message: 'Triage was cancelled.' };
 
     if ('failure' in answered) {
       return answered.failure;

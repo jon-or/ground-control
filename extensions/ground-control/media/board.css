@@ -1050,8 +1050,8 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   visibility: visible;
 }
 
-.badge.triage:hover .triage-age,
-.card:focus-within .triage-age {
+.badge.triage:has(.triage-again):hover .triage-age,
+.card:focus-within .badge.triage:has(.triage-again) .triage-age {
   visibility: hidden;
 }
 

@@ -62,6 +62,7 @@ describe('the package public surface', () => {
       'sessionLabel',
     'sessionOf',
       'spawnable',
+      'triageMode',
       'unreportedSessions',
     ]);
   });

@@ -111,8 +111,14 @@ export function readTriage(): HubConfig['triage'] {
     return Number.isFinite(value) ? Number(value) : fallback;
   };
 
+  const explicitMode = cfg.inspect<NonNullable<HubConfig['triage']['mode']>>('triage.mode')?.globalValue;
+  const legacy = cfg.inspect<boolean>('triage.enabled')?.globalValue;
+  const mode = explicitMode ?? (legacy === undefined ? 'manual' : legacy ? 'automatic' : 'off');
+
   return {
-    enabled: cfg.get<boolean>('triage.enabled', true),
+    enabled: mode !== 'off',
+    mode,
+    dailyLimit: number('triage.dailyLimit', 100),
     concurrency: number('triage.concurrency', 2),
     // Seconds in settings, milliseconds in the hub, the way every other interval here is.
     timeoutMs: number('triage.timeoutSeconds', 180) * 1000,

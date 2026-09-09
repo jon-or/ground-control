@@ -1326,6 +1326,7 @@ function card(boardCard, avatarPool, placeable) {
 
   // Keep triage separate from attention styling (R38).
   const triage = boardCard.triage;
+  const canRequest = board.triage?.canRequest !== false;
 
   const readAgain = () => vscode.postMessage({ type: 'retriage', key: boardCard.key });
 
@@ -1338,10 +1339,10 @@ function card(boardCard, avatarPool, placeable) {
         'triage-failed',
         'Not read',
         'GRAY',
-        triage.exhausted
-          ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped. Click to retry.`
-          : `Triage failed. Click to retry.`,
-        readAgain,
+        (triage.exhausted
+          ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped.`
+          : 'Triage failed.') + (canRequest ? ' Click to retry.' : ''),
+        canRequest ? readAgain : undefined,
       ),
     );
   } else if (triage?.state === 'done') {
@@ -1372,22 +1373,26 @@ function card(boardCard, avatarPool, placeable) {
       chip.append(' · ');
     }
 
-    // Keep paid retriage separate from opening the explanation.
-    const again = document.createElement('button');
+    if (canRequest) {
+      // Keep paid retriage separate from opening the explanation.
+      const again = document.createElement('button');
 
-    again.type = 'button';
-    again.className = 'triage-again';
-    again.draggable = false;
-    again.appendChild(syncMark());
-    setAccessibleName(again, 'Read this card again');
-    setTooltip(again, 'Read this card again.');
-    again.addEventListener('click', (event) => {
-      event.stopPropagation();
-      readAgain();
-    });
-    end.appendChild(again);
+      again.type = 'button';
+      again.className = 'triage-again';
+      again.draggable = false;
+      again.appendChild(syncMark());
+      setAccessibleName(again, 'Read this card again');
+      setTooltip(again, 'Read this card again.');
+      again.addEventListener('click', (event) => {
+        event.stopPropagation();
+        readAgain();
+      });
+      end.appendChild(again);
+    }
     chip.appendChild(end);
     marks.appendChild(chip);
+  } else if (board.triage?.canRequest === true && issue && boardCard.lane !== 'archived' && boardCard.unassigned !== true) {
+    marks.appendChild(badge('triage-read', 'Read this card', 'GRAY', 'Identify the next action. Uses model usage.', readAgain));
   }
 
   // Place action state beside triage with neutral styling; dispatched work does not imply attention (R39).
@@ -1515,6 +1520,7 @@ function signature(boardCard) {
     boardCard.returned,
     boardCard.attention,
     boardCard.triage,
+    board.triage?.canRequest,
     boardCard.action,
     boardCard.issue,
     // Everything the menu branches on. A folder just picked changes only the source, a worktree deleted under a
@@ -1708,6 +1714,10 @@ function draw(payload) {
 
   if (payload.hooks) {
     notice(payload.hooks.notice, null, false);
+  }
+
+  if (payload.triage?.message) {
+    notice(payload.triage.message, null, false);
   }
 
   if (payload.sessions?.patternError) {

@@ -160,6 +160,7 @@ The hub's directory is `~/.claude/ground-control`, or the corresponding path und
 | `lanes.json` | Manual placements, archived set, acknowledged returns, departure timestamps |
 | `status.json` | Last observed activity by agent and session ID |
 | `triage.json` | Results, evidence, trigger, revision and retry state |
+| `triage-usage.json` | Automatic attempt timestamps for the rolling 24-hour limit |
 | `actions.json` | Runs, retry delays, authorization evidence and daily ledger |
 | `checkouts.json` | Explicit checkout picks by card |
 | `issues.json` | Cached issue metadata and confirmed missing issues |
@@ -181,6 +182,10 @@ Retain five settings backups per agent. Best-effort cleanup removes markers olde
 ### Triage
 
 `packages/board` interprets status and assignment timelines, derives actions from deterministic evidence, constructs prompts, and decides result freshness. `packages/hub` schedules reads and classification, persists results, and enforces budgets.
+
+New configurations default to manual triage. Normalize legacy enabled to automatic/off when mode is absent; explicit mode wins. The editor distinguishes an unset legacy key from an explicit choice before sending configuration. Snapshot triage state supplies mode, request capability, and an informational message to both clients; Chrome cannot send classification requests.
+
+The runner reserves automatic attempts synchronously in `triage-usage.json` before source reads, default 100 per rolling 24 hours. Failed and cancelled attempts count; manual requests do not. Preserve future timestamps after clock rollback. Reject automatic starts if the record is corrupt or cannot be written; repair the record and restart the hub to clear a failed-write latch. Reading results and retry state cannot reset the allowance. Off aborts all readings, while manual aborts only automatic readings; check cancellation before invoking the classifier after an asynchronous source read.
 
 Two values have different purposes:
 

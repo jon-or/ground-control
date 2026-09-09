@@ -254,9 +254,13 @@ Mark triage stale when issue/PR evidence changes. Age alone does not invalidate 
 
 Run only while a board is visible or on an explicit editor request, with bounded concurrency, timeout, and retry backoff. Stop automatic retries after the retry budget. A failed classification leaves no result label; show the failure once above the board and retain a retry control. The overlay displays results but cannot request classification.
 
-Completed triage has a separate reread control, accessible by keyboard and touch. Clicking the label or age to inspect its explanation must not start classification or spend usage.
+Eligible unread issues have an editor reading control. Completed triage has a separate reread control, accessible by keyboard and touch. Off mode removes classification controls while retaining results. Clicking the label or age to inspect its explanation must not start classification or spend usage.
 
-Triage is enabled by default and sends issue/PR text, recent comments, identities, review information, and status/assignment history to the configured model service. It uses the developer's usage allowance. Provide a setting to disable it. Classifier sessions have no tools, MCP servers, developer settings, or saved conversation visible to the board.
+Triage defaults to manual requests; `triage.mode` also offers off and automatic. Explicit mode takes precedence over legacy `triage.enabled`; without an explicit mode, preserve explicit legacy true as automatic and false as off. Configurations without an explicit choice default to manual. Existing saved hub configurations retain their legacy mode until replaced by client configuration.
+
+Automatic attempts have a persisted rolling 24-hour limit, default 100 and configurable from 0 to 1000. Reserve before concurrent source reads; count failed and cancelled attempts. Manual requests are independent of this allowance. Unreadable or unsavable usage records pause automatic starts. Both clients display mode and limit state. Changing to manual cancels automatic readings; off cancels all readings. Cancellation does not consume per-card retry attempts.
+
+Triage sends issue/PR text, recent comments, identities, review information, and status/assignment history to the configured model service and uses the developer's allowance. Classifier sessions have no tools, MCP servers, developer settings, or saved conversation visible to the board.
 
 ### R39. Merge-upstream action
 
@@ -326,7 +330,7 @@ Triage has no tools or developer settings and offers no broader permission mode.
 
 ### R32. Opt-in automation
 
-Unattended code changes start disabled. Enable actions individually, each with its own prompt. Triage is a separately configurable read that costs model usage and sends text off-machine; it is enabled by default. Starting a prefilled editor session is a deliberate user action, not unattended automation.
+Unattended code changes start disabled. Enable actions individually, each with its own prompt. Triage is a separately configurable read that costs model usage and sends text off-machine; it defaults to manual requests. Starting a prefilled editor session is a deliberate user action, not unattended automation.
 
 ### R33. Limits
 

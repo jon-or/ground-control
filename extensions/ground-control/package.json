@@ -216,7 +216,25 @@
             "type": "boolean",
             "default": true,
             "order": 1,
-            "markdownDescription": "Classify cards by sending issue and PR context to the model service using your Claude allowance."
+            "markdownDescription": "Legacy triage switch overridden by an explicit triage.mode.",
+            "deprecationMessage": "Use groundControl.triage.mode. Explicit legacy true selects automatic; false selects off when no explicit mode exists."
+          },
+          "groundControl.triage.mode": {
+            "scope": "application",
+            "type": "string",
+            "enum": ["off", "manual", "automatic"],
+            "default": "manual",
+            "order": 0,
+            "markdownDescription": "Choose whether to classify cards off-machine using your model allowance, following the [mode and compatibility rules](https://github.com/jon-or/ground-control/blob/master/README.md#triage-settings)."
+          },
+          "groundControl.triage.dailyLimit": {
+            "scope": "application",
+            "type": "integer",
+            "default": 100,
+            "minimum": 0,
+            "maximum": 1000,
+            "order": 6,
+            "markdownDescription": "Maximum automatic attempts per rolling 24 hours, including failures and cancellations (zero pauses automatic starts; manual requests are independent)."
           },
           "groundControl.triage.model": {
             "scope": "application",

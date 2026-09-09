@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { groundControlDirOf } from '@ground-control/core';
 import type {
   AgentAdapter,
   ClassifyInput,
@@ -80,6 +83,8 @@ interface Control {
   classified: ClassifyInput[];
   /** Held open so a test can watch what runs while one classification is genuinely in flight. */
   hold: (() => void) | null;
+  holdContext?: (() => Promise<ContextReading>) | undefined;
+  answerOnAbort?: ClassifyResult | undefined;
   answer: ClassifyResult;
   contextFailure: { kind: string; message: string } | null;
   /** Set to make the seam throw rather than classify a failure. Both seams are public and either may. */
@@ -151,6 +156,8 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     readContext: async (card): Promise<ContextReading> => {
       control.contexts.push(card.number);
 
+      if (control.holdContext) return control.holdContext();
+
       if (control.contextThrows) {
         throw new Error('the seam threw rather than classifying');
       }
@@ -178,7 +185,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
             input.signal.addEventListener('abort', () => resolve(), { once: true });
           });
 
-          return { failure: { subject: 'claude', kind: 'classify-aborted', message: 'stood down', remedy: 'r' } };
+          return control.answerOnAbort ?? { failure: { subject: 'claude', kind: 'classify-aborted', message: 'stood down', remedy: 'r' } };
         }
 
         return control.answer;
@@ -491,9 +498,125 @@ describe('classification cancellation', () => {
   });
 });
 
+describe('triage modes and automatic allowance', () => {
+  const limits = { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} };
+  const usagePath = () => join(groundControlDirOf(home), 'triage-usage.json');
+  const keyOf = (control: Control) => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+  it('manual mode makes no automatic reads and permits an initial deliberate request', async () => {
+    const control = harness();
+    control.hub.configure(hubConfig({ ...limits, mode: 'manual' }));
+    watch(control.hub);
+    await control.pass();
+    expect(control.contexts).toEqual([]);
+    expect(control.snapshot().triage).toMatchObject({ mode: 'manual', canRequest: true });
+    control.hub.receive({ id: 'board' }, { type: 'retriage', key: keyOf(control) });
+    await control.settle();
+    expect(control.classified).toHaveLength(1);
+    expect(triageOf(control.snapshot())).toMatchObject({ state: 'done' });
+
+    control.hub.configure(hubConfig({ ...limits, mode: 'off' }));
+    await control.pass();
+    control.hub.receive({ id: 'board' }, { type: 'retriage', key: keyOf(control) });
+    await control.settle();
+    expect(control.classified).toHaveLength(1);
+    expect(control.snapshot().triage).toMatchObject({ mode: 'off', canRequest: false });
+  });
+
+  it('reserves concurrent automatic starts before reading and keeps manual requests available at the cap', async () => {
+    const control = harness({}, [issue({ number: 1 }), issue({ number: 2 }), issue({ number: 3 })]);
+    control.hold = () => undefined;
+    control.hub.configure(hubConfig({ ...limits, mode: 'automatic', dailyLimit: 1 }));
+    watch(control.hub);
+    await control.pass();
+    expect(control.contexts).toEqual([1]);
+    expect(control.classified).toHaveLength(1);
+    expect(JSON.parse(readFileSync(usagePath(), 'utf8'))).toHaveLength(1);
+    expect(control.snapshot().triage?.message).toContain('limit reached');
+    const second = control.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.issueNumber === 2)!;
+    control.hub.receive({ id: 'board' }, { type: 'retriage', key: second.key });
+    await control.settle();
+    expect(control.contexts).toEqual([1, 2]);
+    expect(control.peak()).toBe(2);
+    expect(JSON.parse(readFileSync(usagePath(), 'utf8'))).toHaveLength(1);
+    control.hub.dispose();
+    await control.settle();
+  });
+
+  it('retains failed attempts across restart without retrying at an exhausted cap', async () => {
+    const control = harness();
+    control.answer = { failure: { subject: 'claude', kind: 'classify-failed', message: 'failed', remedy: 'retry' } };
+    control.hub.configure(hubConfig({ ...limits, dailyLimit: 1 }));
+    watch(control.hub);
+    await control.pass();
+    expect(control.classified).toHaveLength(1);
+    await control.pass(3_600_000);
+    expect(control.classified).toHaveLength(1);
+    control.hub.dispose();
+
+    const restarted = harness();
+    restarted.hub.configure(hubConfig({ ...limits, dailyLimit: 1 }));
+    watch(restarted.hub);
+    await restarted.pass(3_600_000);
+    expect(restarted.classified).toEqual([]);
+    expect(restarted.snapshot().triage?.message).toContain('limit reached');
+    await restarted.pass(24 * 60 * 60 * 1000);
+    expect(restarted.classified).toHaveLength(1);
+    restarted.hub.dispose();
+  });
+
+  it('cancels automatic context reads on manual mode without starting a classifier afterward', async () => {
+    const control = harness();
+    let resolve: (reading: ContextReading) => void = () => undefined;
+    control.holdContext = () => new Promise((done) => { resolve = done; });
+    watch(control.hub);
+    await control.pass();
+    expect(control.contexts).toEqual([17198]);
+    control.hub.configure(hubConfig({ ...limits, mode: 'manual' }));
+    resolve({ context: contextOf(issue()), failure: null });
+    await control.settle();
+    expect(control.classified).toEqual([]);
+    expect(JSON.parse(readFileSync(usagePath(), 'utf8'))).toHaveLength(1);
+    expect(triageOf(control.snapshot())).toBeUndefined();
+  });
+
+  it('keeps manual work running when automatic mode changes to manual, then cancels it in off mode', async () => {
+    const control = harness();
+    control.hold = () => undefined;
+    control.answerOnAbort = { value: { action: 'develop', detail: 'Late result after cancellation.' } };
+    watch(control.hub, false);
+    await control.pass();
+    control.hub.receive({ id: 'board' }, { type: 'retriage', key: keyOf(control) });
+    await control.settle();
+    expect(control.classified).toHaveLength(1);
+    control.hub.configure(hubConfig({ ...limits, mode: 'manual' }));
+    await control.settle();
+    expect(control.classified[0]!.signal.aborted).toBe(false);
+    expect(triageOf(control.snapshot())).toMatchObject({ state: 'running' });
+    control.hub.configure(hubConfig({ ...limits, mode: 'off' }));
+    await control.settle();
+    expect(control.classified[0]!.signal.aborted).toBe(true);
+    expect(triageOf(control.snapshot())).toBeUndefined();
+  });
+
+  it('refuses automatic work when usage cannot be trusted or saved', async () => {
+    mkdirSync(groundControlDirOf(home), { recursive: true });
+    writeFileSync(usagePath(), 'corrupt');
+    const control = harness();
+    watch(control.hub);
+    await control.pass();
+    expect(control.contexts).toEqual([]);
+    expect(control.snapshot().triage?.message).toContain('could not be read or saved');
+    // Manual requests are independent of the automatic ledger.
+    control.hub.receive({ id: 'board' }, { type: 'retriage', key: keyOf(control) });
+    await control.settle();
+    expect(control.classified).toHaveLength(1);
+  });
+});
+
 describe('telling the developer what it is about to spend', () => {
   it('announces triage usage once before the first read', async () => {
-    // Disclose that default-enabled triage uses paid resources and sends card text to an API (R25, R38).
+    // Disclose that requested triage uses paid resources and sends card text to an API (R25, R38).
     const told: string[] = [];
     const control = harness({}, [issue({ number: 1 }), issue({ number: 2 })]);
     control.hub.connect(
@@ -506,9 +629,9 @@ describe('telling the developer what it is about to spend', () => {
     await control.pass();
 
     expect(told).toHaveLength(1);
-    expect(told[0]).toContain('2 cards');
+    expect(told[0]).toContain('Triaging a card');
     expect(told[0]).toContain('uses your Claude allowance');
-    expect(told[0]).toContain('groundControl.triage.enabled');
+    expect(told[0]).toContain('groundControl.triage.mode');
 
     control.cards = [issue({ number: 3 })];
     await control.pass();

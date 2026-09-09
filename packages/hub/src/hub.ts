@@ -1357,6 +1357,7 @@ export class Hub {
       openable: [],
       startable: [],
       hooks: null,
+      triage: this.#triage.status(),
       // Deduplicated by what failed and how: fifteen cards failing one logged-out CLI is one condition, and R25 says
       // a condition belonging to the whole board is stated once above the lanes rather than fifteen times.
       failures: distinct(failures),

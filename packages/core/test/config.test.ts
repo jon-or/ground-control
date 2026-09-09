@@ -173,12 +173,14 @@ describe('triage settings', () => {
   it('defaults a configuration written before triage existed, rather than refusing it', () => {
     const parsed = parseHubConfig(config());
 
-    expect('config' in parsed && parsed.config.triage).toEqual({ enabled: true, concurrency: 2, timeoutMs: 180_000, names: {} });
+    expect('config' in parsed && parsed.config.triage).toEqual({ enabled: true, mode: 'manual', dailyLimit: 100, concurrency: 2, timeoutMs: 180_000, names: {} });
   });
 
   it('takes what a client asked for', () => {
     expect(triageOf({ enabled: false, concurrency: 4, timeoutMs: 90_000, names: { buildfriday: 'Chris' } })).toEqual({
       enabled: false,
+      mode: 'off',
+      dailyLimit: 100,
       concurrency: 4,
       timeoutMs: 90_000,
       names: { buildfriday: 'Chris' },
@@ -194,12 +196,16 @@ describe('triage settings', () => {
   it('floors and ceilings a hand-edited spend, in both directions', () => {
     expect(triageOf({ enabled: true, concurrency: 0, timeoutMs: 1 })).toEqual({
       enabled: true,
+      mode: 'automatic',
+      dailyLimit: 100,
       concurrency: 1,
       timeoutMs: 10_000,
       names: {},
     });
     expect(triageOf({ enabled: true, concurrency: 500, timeoutMs: 9_999_999 })).toEqual({
       enabled: true,
+      mode: 'automatic',
+      dailyLimit: 100,
       concurrency: 8,
       timeoutMs: 300_000,
       names: {},
@@ -209,6 +215,18 @@ describe('triage settings', () => {
   it('refuses a triage block that is not one, rather than spending on a default nobody chose', () => {
     expect(triageOf({ enabled: 'yes', concurrency: 2, timeoutMs: 60_000 })).toMatchObject({ kind: 'bad-config' });
     expect(triageOf('on')).toMatchObject({ kind: 'bad-config' });
+  });
+
+  it('preserves legacy choices and gives explicit modes precedence', () => {
+    const legacy = { enabled: true, concurrency: 2, timeoutMs: 60_000 };
+    expect(triageOf(legacy)).toMatchObject({ mode: 'automatic', enabled: true });
+    expect(triageOf({ ...legacy, enabled: false })).toMatchObject({ mode: 'off', enabled: false });
+    expect(triageOf({ ...legacy, mode: 'off' })).toMatchObject({ mode: 'off', enabled: false });
+    expect(triageOf({ ...legacy, enabled: false, mode: 'manual', dailyLimit: 0 })).toMatchObject({ mode: 'manual', enabled: true, dailyLimit: 0 });
+    for (const dailyLimit of [-1, 1001, 1.5, '100']) {
+      expect(triageOf({ ...legacy, dailyLimit })).toMatchObject({ kind: 'bad-config' });
+    }
+    expect(triageOf({ ...legacy, mode: 'sometimes' })).toMatchObject({ kind: 'bad-config' });
   });
 
   it('carries an agent model where one is set, and omits the field where none is', () => {

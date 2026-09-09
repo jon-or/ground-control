@@ -38,6 +38,10 @@ export interface NewSessionSettings {
 /** Triage enablement, concurrency, timeout, and display names. */
 export interface TriageSettings {
   enabled: boolean;
+  /** Explicit mode overrides legacy enabled. Missing mode preserves legacy configuration. */
+  mode?: 'off' | 'manual' | 'automatic';
+  /** Automatic attempts per rolling 24 hours, including failures and cancellations. */
+  dailyLimit?: number;
   /** How many cards are read and classified at once. Fetch and classification share the budget. */
   concurrency: number;
   /** Combined source-read and classification timeout. */
@@ -70,10 +74,16 @@ const TRIAGE_TIMEOUT_FLOOR_MS = 10_000;
 const TRIAGE_TIMEOUT_CEILING_MS = 300_000;
 const TRIAGE_CONCURRENCY_CEILING = 8;
 
-export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, concurrency: 2, timeoutMs: 180_000, names: {} };
+export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, mode: 'manual', dailyLimit: 100, concurrency: 2, timeoutMs: 180_000, names: {} };
+
+export function triageMode(settings: TriageSettings): 'off' | 'manual' | 'automatic' {
+  return settings.mode ?? (settings.enabled ? 'automatic' : 'off');
+}
 
 const triage = z.object({
   enabled: z.boolean(),
+  mode: z.enum(['off', 'manual', 'automatic']).optional(),
+  dailyLimit: z.number().int().min(0).max(1000).default(100),
   concurrency: z.number().finite().transform((n) => Math.min(TRIAGE_CONCURRENCY_CEILING, Math.max(1, Math.trunc(n)))),
   timeoutMs: z
     .number()
@@ -81,6 +91,9 @@ const triage = z.object({
     .transform((ms) => Math.min(TRIAGE_TIMEOUT_CEILING_MS, Math.max(TRIAGE_TIMEOUT_FLOOR_MS, ms))),
   // Invalid or missing display-name overrides default to an empty map.
   names: z.record(z.string(), z.string()).catch({}).default({}),
+}).transform((settings) => {
+  const mode = settings.mode ?? (settings.enabled ? 'automatic' : 'off');
+  return { ...settings, mode, enabled: mode !== 'off' };
 });
 
 /**

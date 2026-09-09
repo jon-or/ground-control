@@ -28,6 +28,8 @@ export interface Snapshot {
   startable: StartableAgent[];
   /** Activity-hook installation notice, when needed (R25). */
   hooks: { notice: string } | null;
+  /** Optional for older client snapshots. Shared triage policy; Chrome remains display-only. */
+  triage?: { mode: 'off' | 'manual' | 'automatic'; message: string | null; canRequest: boolean };
   failures: ReadFailure[];
   /** Source-read failure state; host configuration errors do not imply stale source data. */
   stale: boolean;
