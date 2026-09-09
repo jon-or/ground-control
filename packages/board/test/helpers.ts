@@ -59,6 +59,7 @@ const SESSION_KEYS = {
   transcriptWrittenAt: true,
   activity: true,
   finished: true,
+  attachId: true,
   details: true,
 } satisfies Record<keyof Session, true>;
 

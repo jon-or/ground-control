@@ -395,7 +395,10 @@ function sessionDot(phase, live, title = dotTitle(phase, live)) {
  * could only ever refuse is worse than no button, as well as costing the card a strip it could be dragged by.
  */
 function sessionLine(session) {
-  const reachable = openable.has(session.sessionId);
+  // A detached run is always reachable: `attach` needs a terminal rather than the agent's editor extension, and it
+  // is the only way into a session no window holds - opening one as a tab starts a second process that exits 1.
+  const attachId = typeof session.attachId === 'string' ? session.attachId : null;
+  const reachable = attachId !== null || openable.has(session.sessionId);
   const el = document.createElement(reachable ? 'button' : 'span');
 
   el.className = 'session';
@@ -412,10 +415,16 @@ function sessionLine(session) {
   // the row does not say — what the board saw, and when — stays on the state at the other end of it.
   if (reachable) {
     el.type = 'button';
-    nameFor(el, `${name} - go to this session`);
+    nameFor(el, attachId === null ? `${name} - go to this session` : `${name} - attach to this run in a terminal`);
     // Without this, a few pixels of drift on the way to a click starts a drag of the card and the click never fires.
     el.draggable = false;
-    el.addEventListener('click', () => vscode.postMessage({ type: 'openSession', sessionId: session.sessionId }));
+    el.addEventListener('click', () =>
+      vscode.postMessage(
+        attachId === null
+          ? { type: 'openSession', sessionId: session.sessionId }
+          : { type: 'attachSession', sessionId: session.sessionId },
+      ),
+    );
   }
 
   el.append(sessionDot(session.activity?.phase, !session.finished), agent, label);
@@ -429,8 +438,8 @@ function sessionLine(session) {
   const state = document.createElement('span');
   state.className = 'state';
 
-  // One state per row, never two. The board's own observation where it has one, the CLI's own word where it does
-  // not - a row reading "idle" beside a shimmering label is two of the board's claims disagreeing (R24).
+  // One state per row, never two. The board's own observation where it has one, the adapter's reading of what the
+  // CLI said where it does not - a row reading "idle" beside a shimmering label is two claims disagreeing (R24).
   if (activity) {
     age(state, activity.since);
     tip(state, stateTitle(activity));

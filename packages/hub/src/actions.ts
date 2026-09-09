@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { ACTION_REVISION, checkoutOf, isAutomatable } from '@ground-control/core';
+import { ACTION_REVISION, DEFAULT_ACTIONS, checkoutOf, isAutomatable } from '@ground-control/core';
 import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource } from '@ground-control/core';
 import {
   actionEnabled,
@@ -64,13 +64,8 @@ export class ActionRunner {
   readonly #inFlight = new Map<string, AbortController>();
   /** Keys whose stop is out, so a settle pass does not decide an outcome from underneath it. */
   readonly #settling = new Set<string>();
-  #settings: ActionSettings = {
-    permissionMode: 'manual',
-    concurrency: 1,
-    dailyLimit: 0,
-    resultTimeoutMs: 30 * 60 * 1000,
-    actions: {},
-  };
+  /** The shipped settings until a client sends its own, with the daily limit at nothing so no run starts before then. */
+  #settings: ActionSettings = { ...DEFAULT_ACTIONS, dailyLimit: 0 };
   #agentPaths = new Map<string, { path: string; model: string | null }>();
   #disposed = false;
   #considering = false;
@@ -383,7 +378,9 @@ export class ActionRunner {
    */
   #settle(lanes: readonly Lane[], sessions: readonly Session[], sourcesRead: boolean): void {
     const state = this.#deps.store.read();
-    const live = new Set(sessions.map((session) => session.sessionId));
+    // `finished` and not merely listed: a `--bg` session stays on the roster after its turn with the CLI's own end
+    // word on it, so a run waited on by presence alone would never close (`docs/mechanics.md` §33).
+    const live = new Set(sessions.filter((session) => !session.finished).map((session) => session.sessionId));
     const cards = new Map(lanes.flatMap((lane) => lane.cards).map((card) => [card.key, card]));
     let next = state;
 

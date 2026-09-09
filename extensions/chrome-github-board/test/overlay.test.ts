@@ -28,6 +28,7 @@ function session(over: Partial<Session> = {}): Session {
     transcriptWrittenAt: NOW - 30_000,
     activity: { phase: 'waiting', since: NOW - 125_000, at: NOW - 125_000, event: 'PermissionRequest' },
     finished: false,
+    attachId: null,
     details: {},
     ...over,
   };

@@ -13,6 +13,7 @@
     "transcriptWrittenAt": 1788281205340,
     "activity": null,
     "finished": false,
+    "attachId": null,
     "details": {
       "kind": "interactive",
       "name": "project-1-e0",
@@ -37,6 +38,7 @@
       "event": "Stop"
     },
     "finished": false,
+    "attachId": null,
     "details": {
       "kind": "interactive",
       "name": "project-2-83"
@@ -60,6 +62,7 @@
       "event": "PostToolBatch"
     },
     "finished": false,
+    "attachId": null,
     "details": {
       "kind": "interactive",
       "name": "project-2-97"
@@ -83,6 +86,7 @@
       "event": "Stop"
     },
     "finished": false,
+    "attachId": null,
     "details": {
       "kind": "interactive",
       "name": "project-3-2b"
@@ -106,6 +110,7 @@
       "event": "Stop"
     },
     "finished": false,
+    "attachId": null,
     "details": {
       "kind": "interactive",
       "name": "19357-refund-ledger-fails-silently-on-an-empty-result-a3"
@@ -125,6 +130,7 @@
     "transcriptWrittenAt": 1788456626510.8274,
     "activity": null,
     "finished": false,
+    "attachId": null,
     "details": {
       "kind": "interactive",
       "name": "19072-listing-sync-retries-a-settled-charge-ff"
@@ -148,6 +154,7 @@
       "event": "Stop"
     },
     "finished": false,
+    "attachId": null,
     "details": {
       "kind": "interactive",
       "name": "19072-listing-sync-retries-a-settled-charge-8e"
@@ -167,6 +174,7 @@
     "transcriptWrittenAt": 1788456636927,
     "activity": null,
     "finished": false,
+    "attachId": null,
     "details": {
       "kind": "interactive",
       "name": "project-4-ce",

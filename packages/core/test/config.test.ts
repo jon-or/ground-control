@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { idsFrom, parseHubConfig } from '../src/config.js';
+import { agentCommand, idsFrom, parseHubConfig } from '../src/config.js';
 import type { HubConfig } from '../src/config.js';
 
 let dir: string;
@@ -49,6 +49,23 @@ function refusal(raw: unknown): string {
 
   return parsed.failure.message;
 }
+
+/**
+ * Resolved here rather than in the client that runs it: an empty configured path is the adapter's own default, so a
+ * client falling back to nothing would run a bare `attach` with no command in front of it.
+ */
+describe('the command that runs an agent', () => {
+  it('takes the path the developer named, and the id where they named none', () => {
+    expect(agentCommand({ claude: 'C:/tools/claude.exe' }, 'claude')).toBe('C:/tools/claude.exe');
+    expect(agentCommand({}, 'claude')).toBe('claude');
+    expect(agentCommand({ codex: 'x' }, 'claude')).toBe('claude');
+  });
+
+  it('reads an empty or blank path as none, the way an adapter does', () => {
+    expect(agentCommand({ claude: '' }, 'claude')).toBe('claude');
+    expect(agentCommand({ claude: '   ' }, 'claude')).toBe('claude');
+  });
+});
 
 describe('the path a client asks the hub to spawn', () => {
   /** A bare name is resolved against `PATH` at spawn time, so there is nothing to check for on disk. */
@@ -231,7 +248,7 @@ describe('what the board may do on its own', () => {
     const parsed = parseHubConfig(config());
 
     expect('config' in parsed && parsed.config.actions).toEqual({
-      permissionMode: 'manual',
+      permissionMode: 'auto',
       concurrency: 1,
       dailyLimit: 10,
       resultTimeoutMs: 1_800_000,
@@ -269,12 +286,12 @@ describe('what the board may do on its own', () => {
   });
 
   /** This value is handed straight to a spawn, so one the CLI does not know must never reach it. */
-  it('falls back to the careful permission mode rather than passing one the CLI has no word for', () => {
+  it('falls back to the shipped permission mode rather than passing one the CLI has no word for', () => {
     expect(actionsOf({ permissionMode: 'yolo', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 })).toMatchObject({
-      permissionMode: 'manual',
+      permissionMode: 'auto',
     });
     expect(actionsOf({ permissionMode: 7, concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 })).toMatchObject({
-      permissionMode: 'manual',
+      permissionMode: 'auto',
     });
   });
 

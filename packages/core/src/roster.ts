@@ -36,6 +36,21 @@ export function sessionLabel(session: Session): string {
   return session.title ?? session.details['name'] ?? session.details['shortId'] ?? basename(session.cwd);
 }
 
+/** One live session off a snapshot, wherever it is placed. Null where no card carries it. */
+export function sessionOf(snapshot: Snapshot | undefined, sessionId: string): Session | null {
+  for (const lane of snapshot?.lanes ?? []) {
+    for (const card of lane.cards) {
+      const found = card.sessions.find((session) => session.sessionId === sessionId);
+
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * The agent that reported a session, read off the snapshot a client is holding. Claude where the board has never
  * seen the id, which is the only answer available: the id says nothing about which CLI produced it.
@@ -45,14 +60,14 @@ export function sessionLabel(session: Session): string {
  * decision in a module that imports `vscode` is one no test can reach.
  */
 export function agentOfSession(snapshot: Snapshot | undefined, sessionId: string): string {
+  const live = sessionOf(snapshot, sessionId);
+
+  if (live) {
+    return live.agent;
+  }
+
   for (const lane of snapshot?.lanes ?? []) {
     for (const card of lane.cards) {
-      const found = card.sessions.find((session) => session.sessionId === sessionId);
-
-      if (found) {
-        return found.agent;
-      }
-
       if (card.lastSession?.sessionId === sessionId) {
         return card.lastSession.agent;
       }

@@ -36,6 +36,8 @@ const agentEntry = z.object({
   name: z.string().optional(),
   status: z.string().optional(),
   state: z.string().optional(),
+  /** Present only while the session is waiting, and names what for — `permission prompt` on the runs measured. */
+  waitingFor: z.string().optional(),
 });
 
 export type AgentEntry = z.infer<typeof agentEntry>;
@@ -166,8 +168,10 @@ function failure(kind: FailureKind, message: string, remedy: string): ReadFailur
 const PATH_SETTING = `the "${CLAUDE_AGENT_ID}" entry in groundControl.agents`;
 
 /**
- * The words only Claude reports. `id` is its short id, given to `--bg` sessions and not to interactive ones; `kind`,
- * `status` and `state` are the `--bg` shape. Undefined ones are left out, so a reader can tell absent from empty.
+ * The words only Claude reports. `id` is its short id, given to `--bg` sessions and not to interactive ones; `kind`
+ * and `status` are the `--bg` shape. `state` is the board's reading of it rather than the raw word, because the raw
+ * one misreports what a run is doing — see `reportedState`. Undefined ones are left out, so a reader can tell
+ * absent from empty.
  */
 function detailsOf(entry: AgentEntry): Record<string, string> {
   const details: Record<string, string> = { kind: entry.kind };
@@ -176,7 +180,8 @@ function detailsOf(entry: AgentEntry): Record<string, string> {
     ['name', entry.name],
     ['shortId', entry.id],
     ['status', entry.status],
-    ['state', entry.state],
+    ['state', reportedState(entry)],
+    ['waitingFor', entry.waitingFor],
   ] as const) {
     if (value !== undefined) {
       details[key] = value;
@@ -184,6 +189,23 @@ function detailsOf(entry: AgentEntry): Record<string, string> {
   }
 
   return details;
+}
+
+/**
+ * What a session is doing, in the board's words rather than the CLI's. The CLI reports `blocked` for a session whose
+ * own state is `needs_reply` or `needs_approval` (`docs/mechanics.md` §33), which on a card reads as something having
+ * gone wrong rather than as a run holding for the developer — the one state R6 exists to surface.
+ */
+export function reportedState(entry: AgentEntry): string | undefined {
+  if (entry.waitingFor !== undefined) {
+    return `waiting on a ${entry.waitingFor}`;
+  }
+
+  if (entry.state === 'blocked') {
+    return 'needs a reply';
+  }
+
+  return entry.state === 'done' ? 'finished' : entry.state;
 }
 
 /** The states the CLI reports for a background session that has stopped. Anything else is a session still in play. */
@@ -209,6 +231,9 @@ function toSession(entry: AgentEntry, deps: MachineDeps): Session {
     // `status: "idle"` is not this: an interactive session is idle whenever nobody is typing, and an exited one is
     // never listed at all, so only the CLI's own end word counts (R24).
     finished: entry.state !== undefined && FINISHED_STATES.has(entry.state),
+    // Only a `--bg` session has one, and only a `--bg` session needs one: nothing an editor window holds is reached
+    // this way, and `claude attach` is the only way into one the board started (§33).
+    attachId: entry.kind === 'background' ? (entry.id ?? null) : null,
     details: detailsOf(entry),
   };
 }

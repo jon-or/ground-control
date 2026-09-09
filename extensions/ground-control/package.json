@@ -230,9 +230,9 @@
         "groundControl.actions.permissionMode": {
           "scope": "application",
           "type": "string",
-          "default": "manual",
-          "enum": ["manual", "acceptEdits", "auto", "dontAsk", "plan", "bypassPermissions"],
-          "markdownDescription": "What a session the board starts may do without asking. `manual` is the default because a developer who has not thought about this should get the careful behaviour — but a merge that stops at every `git` command will simply park, so turning an action on is a decision about this too. `bypassPermissions` is what an unattended merge needs, and it means the session runs whatever it likes in that checkout."
+          "default": "auto",
+          "enum": ["auto", "manual", "acceptEdits", "dontAsk", "plan", "bypassPermissions"],
+          "markdownDescription": "What a session the board starts may do without asking. `auto` is the default because it is the narrowest mode a background run actually finishes under: `manual` and `acceptEdits` park on the first `git` command with a permission prompt nobody is there to answer, `dontAsk` denies it outright, and `plan` cannot write at all — a card under any of those reads as **Working** until the run is stopped. `bypassPermissions` turns the permission system off entirely, and means the session runs whatever it likes in that checkout."
         },
         "groundControl.actions.concurrency": {
           "scope": "application",

@@ -54,6 +54,18 @@ function routeOf(plan: OpenPlan): string | undefined {
 }
 
 describe('planOpen refuses, by name', () => {
+  /**
+   * The route that produced the failure this exists to stop: a detached run resolved to whatever surface the agent's
+   * sidebar happened to record, and opening it there started a second process on one conversation.
+   */
+  it('refuses a detached run rather than routing it to a window', () => {
+    const run = { ...live, attachId: 'c5d0c58f' };
+
+    expect(refusalOf(decide(request(run)))).toBe('attach-only');
+    // Finished changes nothing: the process goes on holding the conversation, which is what a resume runs into.
+    expect(refusalOf(decide(request({ ...run, finished: true })))).toBe('attach-only');
+  });
+
   it('refuses a session that is no longer on the board', () => {
     const plan = decide(request(live, { sessions: [], surfaces: [] }));
 
@@ -411,6 +423,9 @@ describe('resuming historical sessions', () => {
     expect(resumeRefusal(live.sessionId, [live])).toContain('now active');
     expect(resumeRefusal(live.sessionId, [])).toBeNull();
     expect(resumeRefusal(live.sessionId, [{ ...live, finished: true }])).toBeNull();
+    // A `--bg` run stays listed after its turn and its process keeps holding the conversation, so finished is not
+    // gone - resuming one exits 1 (`mechanics.md` §33).
+    expect(resumeRefusal(live.sessionId, [{ ...live, finished: true, attachId: 'c5d0c58f' }])).toContain('Attach to it');
   });
 });
 

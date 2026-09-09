@@ -103,10 +103,19 @@ const ACTION_RESULT_TIMEOUT_CEILING_MS = 4 * 60 * 60 * 1000;
  * The permission modes a dispatched session may be given, as the CLI names them (`docs/mechanics.md` §33). A value
  * outside this list would be handed straight to a spawn, so it is refused rather than passed through.
  */
+/**
+ * The command that runs one agent's CLI, from the `agents` map a client holds. An id named with no path is the CLI on
+ * the path under its own name, which is the same fallback an adapter makes of an empty configured path — a client
+ * that resolved it differently would run a command the hub never would.
+ */
+export function agentCommand(configured: Record<string, string>, id: string): string {
+  return configured[id]?.trim() || id;
+}
+
 export const PERMISSION_MODES = ['manual', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions'] as const;
 
 export const DEFAULT_ACTIONS: ActionSettings = {
-  permissionMode: 'manual',
+  permissionMode: 'auto',
   concurrency: 1,
   dailyLimit: 10,
   resultTimeoutMs: 30 * 60 * 1000,
@@ -119,7 +128,7 @@ const actionSetting = z.object({
 });
 
 const actions = z.object({
-  permissionMode: z.enum(PERMISSION_MODES).catch('manual').default('manual'),
+  permissionMode: z.enum(PERMISSION_MODES).catch('auto').default('auto'),
   concurrency: z
     .number()
     .finite()

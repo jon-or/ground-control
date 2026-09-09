@@ -20,6 +20,7 @@ const SESSION: Session = {
   transcriptWrittenAt: null,
   activity: null,
   finished: false,
+  attachId: null,
   details: {},
 };
 

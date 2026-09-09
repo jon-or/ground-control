@@ -78,6 +78,8 @@ function toSession(marker: ActivityMarker, cwd: string, title: string | null, de
     activity: activityOf(marker),
     // A session that ended removed its own marker, so nothing on this roster has reported an end (R24).
     finished: false,
+    // `codex exec` has no attach: a dispatched thread is reached by resuming it, which is what the open plan does.
+    attachId: null,
     details: detailsOf(marker),
   };
 }

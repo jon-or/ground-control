@@ -23,6 +23,7 @@ export type OpenRefusal =
   | 'other-agent'
   | 'no-extension'
   | 'no-surface'
+  | 'attach-only'
   | 'settling'
   | 'window-closed'
   | 'unnamed-window'

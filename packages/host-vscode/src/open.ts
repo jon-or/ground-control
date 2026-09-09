@@ -68,6 +68,16 @@ export function planOpen(
 ): OpenPlan {
   const session = request.sessions.find((candidate) => candidate.sessionId === request.sessionId);
 
+  // Before anything about windows: a detached run is not openable here at all. Opening a session in an editor resumes
+  // it, and the CLI refuses that while the run's own process still holds the conversation, whether or not the run has
+  // finished its turn - the process it starts exits 1 (`docs/mechanics.md` §33).
+  if (session?.attachId != null) {
+    return {
+      refusal: 'attach-only',
+      message: `${sessionLabel(session)} is a run the board started in the background. Attach to it from its row on the editor board — opening it here would start a second process on the same conversation.`,
+    };
+  }
+
   const historical = request.historicalSession;
   if ((!session || session.finished) && historical?.sessionId === request.sessionId) {
     if (!(historical.agent in placements)) return { refusal: 'other-agent', message: `This editor cannot resume ${historical.agent} sessions.` };
@@ -199,6 +209,9 @@ export function strayFrom(before: readonly Session[], after: readonly Session[],
 export function resumeRefusal(sessionId: string, roster: readonly Session[] | null): string | null {
   if (roster === null) return 'Could not verify whether this session is active. Refresh the board and try again.';
   if (roster.some((s) => s.sessionId === sessionId && !s.finished)) return 'This session is now active. Refresh the board to go to its existing session.';
+  // A detached run stays on the roster after its turn, and its process goes on holding the conversation — which is
+  // what makes a resume exit 1 rather than continue it (§33). Finished is not gone.
+  if (roster.some((s) => s.sessionId === sessionId && s.attachId !== null)) return 'This is a run the board started in the background. Attach to it from its row rather than resuming it.';
   return null;
 }
 

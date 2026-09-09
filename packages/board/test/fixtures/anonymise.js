@@ -34,7 +34,7 @@ function slug(number) {
  * chose, not a sentence about what is being built. Anything else is rebuilt below or fails the assertion, so the
  * next field an adapter adds to the bag cannot leak by being unknown to this file.
  */
-const NEUTRAL_DETAIL_KEYS = new Set(['kind', 'status', 'state']);
+const NEUTRAL_DETAIL_KEYS = new Set(['kind', 'status', 'state', 'waitingFor']);
 
 /** The two `details` keys that name real work: Claude derives `name` from the directory, and `shortId` is its own id. */
 function detailsFor(details, replacement, sessionId) {

@@ -100,7 +100,7 @@ export function readActions(): HubConfig['actions'] {
   };
 
   return {
-    permissionMode: cfg.get<string>('actions.permissionMode', 'manual'),
+    permissionMode: cfg.get<string>('actions.permissionMode', 'auto'),
     concurrency: number('actions.concurrency', 1),
     dailyLimit: number('actions.dailyLimit', 10),
     // Minutes in settings, milliseconds in the hub, the way every other interval here is.

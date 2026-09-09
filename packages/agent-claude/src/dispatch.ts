@@ -10,6 +10,8 @@ import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from './ids.js';
  * - `--permission-mode` is passed on every dispatch, because a bare `--bg` runs under `auto` and R31 asks that the
  *   conservative value be the one a developer who has not thought about it gets.
  * - `-n` is the display name, which is how a run the board started is told from one the developer started.
+ * - `--settings` turns off `worktree.bgIsolation`, which otherwise refuses every `Edit` and `Write` a `--bg` session
+ *   makes in a repository's main checkout (§33). A merge that conflicts is the case the board exists for.
  * - `--session-id` is deliberately **not** passed: `--bg` warns and ignores it, minting its own id (§33).
  *
  * The prompt is the last element and may begin with `/`, which the CLI resolves as a slash command — but only if it
@@ -21,6 +23,8 @@ export function dispatchArgs(input: DispatchInput): string[] {
     '--bg',
     '--permission-mode',
     input.permissionMode,
+    '--settings',
+    JSON.stringify({ worktree: { bgIsolation: 'none' } }),
     '-n',
     input.name,
     ...(input.model === null ? [] : ['--model', input.model]),

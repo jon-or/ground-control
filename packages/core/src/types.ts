@@ -93,9 +93,16 @@ export interface Session {
    */
   finished: boolean;
   /**
+   * The id the agent's CLI takes to open this session in a terminal, where the session is one no editor surface can
+   * hold — a process the board started detached. Null for a session an editor window holds, which is opened by
+   * revealing it instead.
+   */
+  attachId: string | null;
+  /**
    * Words only one agent reports, kept for display so a field like Claude's background-session `status` never becomes
    * a column every adapter has to fake. The board reads `name` and `shortId` in the label ladder after `title`, and
-   * `state` or `status` as the CLI's own word where no phase was reported. An adapter may carry any others.
+   * `state` or `status` where no phase was reported — an adapter's reading of what its CLI said, not the raw word.
+   * An adapter may carry any others.
    */
   details: Record<string, string>;
 }

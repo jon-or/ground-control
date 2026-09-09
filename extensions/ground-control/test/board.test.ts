@@ -26,6 +26,7 @@ const session: Session = {
   transcriptWrittenAt: null,
   activity: null,
   finished: false,
+  attachId: null,
   details: { kind: 'interactive', name: 'cache-remediation', status: 'working', state: 'editing tests' },
 };
 
@@ -382,6 +383,27 @@ describe('board webview', () => {
     label.click();
 
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'openSession', sessionId: 'session-1' });
+  });
+
+  /**
+   * The only way into a run the board started: opening one as a tab resumes it, which the CLI refuses while the
+   * background process still holds the conversation (`mechanics.md` §33). So a detached run is reachable whether or
+   * not the agent's editor extension is, because a terminal is all `attach` needs.
+   */
+  it('attaches to a detached run instead of opening it, and offers it even where nothing is openable', () => {
+    const detached = { ...session, attachId: 'c5d0c58f', details: { kind: 'background', name: 'merge-upstream' } };
+
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [detached] }] }), openable: [] }));
+
+    const row = document.querySelector<HTMLElement>('.session')!;
+
+    expect(row.tagName).toBe('BUTTON');
+    expect(row.getAttribute('aria-label')).toBe('merge-upstream - attach to this run in a terminal');
+
+    row.click();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'attachSession', sessionId: 'session-1' });
+    expect(api.postMessage).not.toHaveBeenCalledWith({ type: 'openSession', sessionId: 'session-1' });
   });
 
   it('offers no control for a session no command can open, such as another agent’s', () => {

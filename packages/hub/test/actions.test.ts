@@ -644,6 +644,23 @@ describe('following a run to its end', () => {
   });
 
   /**
+   * A `--bg` session does not leave the roster when its turn ends — it stays listed carrying the CLI's own end word
+   * (`mechanics.md` §33). A run waited on by presence alone would sit at Working for as long as the process lived.
+   */
+  it('settles a run whose session is still listed once the agent calls it finished', async () => {
+    const control = harness();
+    watch(control);
+    await control.pass();
+    await control.appear();
+
+    control.report({ outcome: 'pushed', detail: 'Merged master, tests green.' });
+    control.agent.sessions = [sessionOn({ sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', finished: true })];
+    await control.pass();
+
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+  });
+
+  /**
    * The run is the verdict, and GitHub is not asked. The base branch moves within minutes of a merge, so a conflict
    * somebody else landed afterwards would read as this run having failed, and a card nothing touched as fine.
    */

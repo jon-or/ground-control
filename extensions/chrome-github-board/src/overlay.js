@@ -1627,7 +1627,7 @@ function laneMenu(doc, card, actions) {
 
 /**
  * One session, as the developer reads it across a board: which agent reported it, what it calls itself, and the one
- * state the board will claim for it — its own observation where it has one, the CLI's own word where it does not,
+ * state the board will claim for it — its own observation where it has one, the reported state where it does not,
  * and nothing at all where there is neither (R24).
  *
  * @param {Document} doc

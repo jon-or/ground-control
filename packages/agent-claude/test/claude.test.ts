@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fetchSessions } from '@ground-control/core';
 import type { AgentAdapter, MachineReaders, SessionsConfig } from '@ground-control/core';
+import { reportedState } from '../src/claude.js';
 import type { AgentEntry } from '../src/claude.js';
 import { HOOK_MARKER_VERSION } from '../src/hookScript.js';
 import { claudeWith, config, expectedTitle, failingRunner, fixture, recordedReaders, runnerOf, transcripts } from './helpers.js';
@@ -27,6 +28,9 @@ function deps(response: unknown = active): Deps {
 
   return { run, agents: claudeWith(run), readers: recordedReaders() };
 }
+
+/** A roster entry with nothing on it but the fields the CLI always sends, to spread a single field over. */
+const entry: AgentEntry = { cwd: 'd:/checkouts/one', kind: 'background', startedAt: 1, sessionId: 'a-b-c-d' };
 
 /** The adapter read the way the hub reads it, so a row here is the same `Session` a card is built from. */
 const read = (cfg: SessionsConfig, d: Deps) => fetchSessions(cfg, d.agents, d.readers);
@@ -140,7 +144,7 @@ describe('the Claude adapter', () => {
 
     for (const [i, entry] of prompted.entries()) {
       expect(sessions[i]?.details.status).toBe(entry.status);
-      expect(sessions[i]?.details.state).toBe(entry.state);
+      expect(sessions[i]?.details.state).toBe(reportedState(entry));
       expect(sessions[i]?.details.shortId).toBe(entry.id);
       expect(sessions[i]?.details.name).toBe(entry.name);
       expect(sessions[i]?.cwd).toBe(entry.cwd);
@@ -155,7 +159,36 @@ describe('the Claude adapter', () => {
     const mapped = sessions.find((s) => s.sessionId === background.sessionId);
 
     expect(mapped?.details.shortId).toBe(background.id);
-    expect(mapped?.details.state).toBe(background.state);
+    expect(mapped?.details.state).toBe(reportedState(background));
+  });
+
+  /**
+   * The whole point of the translation: `blocked` is what the CLI calls a session whose own state is `needs_reply` or
+   * `needs_approval`, and a card that prints it says something has gone wrong rather than that a run is holding for
+   * the developer.
+   */
+  it('says what a run is doing in the board own words, not the CLI raw state', () => {
+    expect(reportedState({ ...entry, state: 'blocked' })).toBe('needs a reply');
+    expect(reportedState({ ...entry, state: 'done' })).toBe('finished');
+    expect(reportedState({ ...entry, state: 'working' })).toBe('working');
+    expect(reportedState({ ...entry, state: 'stopped' })).toBe('stopped');
+    expect(reportedState(entry)).toBeUndefined();
+  });
+
+  /** What it is waiting for outranks the tempo: `blocked` beside a prompt nobody can answer names neither. */
+  it('names what a waiting run is waiting for, over its state', () => {
+    expect(reportedState({ ...entry, status: 'waiting', state: 'blocked', waitingFor: 'permission prompt' })).toBe(
+      'waiting on a permission prompt',
+    );
+  });
+
+  it('carries an attach id for a background session, and none for one a window holds', async () => {
+    const { sessions } = await read(config(), deps(all));
+    const background = all.find((e) => e.kind === 'background' && e.id !== undefined)!;
+    const interactive = all.find((e) => e.kind === 'interactive')!;
+
+    expect(sessions.find((s) => s.sessionId === background.sessionId)?.attachId).toBe(background.id);
+    expect(sessions.find((s) => s.sessionId === interactive.sessionId)?.attachId).toBeNull();
   });
 
   /**

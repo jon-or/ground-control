@@ -42,6 +42,7 @@ function session(number: number | null, over: Partial<Session> = {}): Session {
     issueNumber: number,
     startedAt: 1,
     finished: false,
+    attachId: null,
     ...over,
   } as Session;
 }

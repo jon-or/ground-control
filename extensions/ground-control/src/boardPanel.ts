@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { agentOfSession, basename, checkoutOf } from '@ground-control/core';
+import { agentCommand, agentOfSession, basename, checkoutOf, sessionLabel, sessionOf } from '@ground-control/core';
 import type { BoardMessage, Checkout, ClientMessage, LaneId, Snapshot } from '@ground-control/core';
 import { readHubConfig, userDirOf } from './config.js';
 import { promptForLogins } from './identity.js';
@@ -41,6 +41,7 @@ type Inbound =
   | { type: 'runAction'; key: string }
   | { type: 'stopAction'; key: string }
   | { type: 'openSession'; sessionId: string }
+  | { type: 'attachSession'; sessionId: string }
   | { type: 'openChanges'; key: string }
   | { type: 'toggleLogs' }
   | { type: 'showBoardLog' }
@@ -244,6 +245,11 @@ export class BoardPanel {
 
         return;
 
+      case 'attachSession':
+        this.#attach(msg.sessionId);
+
+        return;
+
       case 'openChanges':
         void this.#changes(msg.key);
 
@@ -315,6 +321,33 @@ export class BoardPanel {
     const extensionReady = await agentExtensionReady(agentOfSession(this.#last, sessionId));
 
     this.#tell({ type: 'open', sessionId, extensionReady });
+  }
+
+  /**
+   * Opens a detached run in a terminal. `attach` and not a tab: opening a session as a tab resumes it, which the CLI
+   * refuses while a background process still holds the conversation - the process it starts exits 1 and the panel
+   * shows the raw stderr (`docs/mechanics.md` §33). The terminal keeps running when it is closed, as attach does.
+   */
+  #attach(sessionId: string): void {
+    const session = sessionOf(this.#last, sessionId);
+
+    if (session?.attachId == null) {
+      void vscode.window.showWarningMessage('That run is no longer on the board, or is not one the board can attach to.');
+
+      return;
+    }
+
+    // The same map the hub is configured from, read here rather than carried: a CLI named in settings is named by
+    // the path a terminal has to run, and an unnamed one is on the path under its own id (R30).
+    // The same map the hub is configured from, read here rather than carried, and resolved by the same rule (R30).
+    const configured = vscode.workspace.getConfiguration('groundControl').get<Record<string, string>>('agents', {});
+    const path = agentCommand(configured, session.agent);
+
+    // `shellPath` and not `sendText`: the CLI is the terminal's own process, so a configured path with spaces in it
+    // is one argument rather than two tokens for a shell to mis-split.
+    vscode.window
+      .createTerminal({ name: sessionLabel(session), cwd: session.cwd, shellPath: path, shellArgs: ['attach', session.attachId] })
+      .show();
   }
 
   async #changes(key: string): Promise<void> {

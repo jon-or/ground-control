@@ -79,6 +79,7 @@ describe('the roster the markers make', () => {
       startedAt: NOW - 60_000,
       transcriptWrittenAt: 1_234,
       finished: false,
+      attachId: null,
     });
     expect(session?.activity).toEqual({ phase: 'running', since: NOW - 20_000, at: NOW, event: 'PostToolUse' });
     expect(session?.details).toEqual({ model: 'gpt-6-astra', permissionMode: 'default' });

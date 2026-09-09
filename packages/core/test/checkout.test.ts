@@ -24,6 +24,7 @@ function session(over: Partial<Session> = {}): Session {
     transcriptWrittenAt: null,
     activity: null,
     finished: false,
+    attachId: null,
     details: { kind: 'interactive' },
     ...over,
   };

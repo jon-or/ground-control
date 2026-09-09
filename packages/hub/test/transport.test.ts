@@ -32,6 +32,7 @@ const SESSION = {
   transcriptWrittenAt: null,
   activity: null,
   finished: false,
+  attachId: null,
   details: {},
 } as Session;
 

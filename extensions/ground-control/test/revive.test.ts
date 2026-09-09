@@ -76,6 +76,7 @@ const CURRENT: Session = {
   transcriptWrittenAt: null,
   activity: null,
   finished: false,
+  attachId: null,
   details: { kind: 'interactive', name: 'cache-remediation' },
 };
 

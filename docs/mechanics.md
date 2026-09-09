@@ -1498,7 +1498,46 @@ claude --bg --permission-mode <mode> -n <name> "<prompt>"
 
 **An unknown command is a session that starts and does nothing.** The probe's transcript holds the two warnings and no user message at all: no turn, no work, and a roster entry at `status: idle` almost at once. A mistyped prompt does not fail loudly — it produces a live session that never worked, which is why an action's outcome is read from the file the run was told to write rather than from the session having ended. A run that never ran writes nothing, and nothing reads as stopped short.
 
-**A bare `--bg` runs under `permissionMode: "auto"`,** recorded in the transcript's own `permission-mode` entry. That is not the conservative setting R31 asks for as a default, so the mode is passed explicitly on every dispatch rather than left to the CLI.
+**A bare `--bg` runs under `permissionMode: "auto"`,** recorded in the transcript's own `permission-mode` entry. The mode is passed explicitly on every dispatch, so what a run may do is the setting's word rather than the CLI's default.
+
+**Only `auto` and `bypassPermissions` let a `--bg` run finish. Measured 2026-09-08** against `claude` 2.1.261, six probe sessions in a scratch repository, one prompt asking for a `Write` and a `Bash` call. `--permission-mode` takes exactly the six values `PERMISSION_MODES` carries; `plan` was not probed, and the five that were, on the Bash call:
+
+| Mode | What the probe did |
+| --- | --- |
+| `manual` | Prompted. Roster held `status: waiting`, `waitingFor: permission prompt` until stopped. |
+| `acceptEdits` | Prompted. Edits are pre-approved; Bash is not. |
+| `dontAsk` | Denied: *"Permission to use Bash has been denied because Claude Code is running in don't ask mode."* |
+| `auto` | Ran `certutil -hashfile`, `git status --short` and `git push origin master` unprompted, then went idle. |
+| `bypassPermissions` | Same, with the permission system off. |
+
+`dontAsk` is the one that reads as the unattended setting and is its opposite — it never asks and answers no, so a run under it starts, fails its first tool, and reports work it never did. That is why the shipped `permissionMode` is `auto`: a merge is Bash from its first command, and the three modes that ask or refuse leave a card reading **Working** for as long as the session lives.
+
+**A `--bg` session will not `Write` or `Edit` in a repository's main working tree unless `worktree.bgIsolation` is turned off.** In the main checkout every probe, `bypassPermissions` included, got the same tool error: *"This background session hasn't isolated its changes yet. Call `EnterWorktree` first so edits land in a worktree instead of the shared checkout, then retry this edit using the worktree path."* Started with its cwd in a linked worktree — `git worktree add ../wt feature`, `.git` a gitdir file — the same `Write` and `Edit` succeeded untouched, and `git worktree list` still showed two entries, so a linked worktree is already the isolation the guard wants. Bash is never gated: `git status` and `git push` ran in the main checkout under `auto`.
+
+The guard is a setting, not a flag. The settings schema carries `worktree.bgIsolation`, `"worktree" | "none"`, described as *"Isolation mode for background sessions in this repo. 'worktree' (default) blocks Edit/Write in the main checkout until EnterWorktree is called. 'none' lets background jobs edit the working copy directly."* The tool error names `.claude/settings.json` as the place to set it, but it takes on the command line as well: `--settings '{"worktree":{"bgIsolation":"none"}}'` on the dispatch let the same probe `Write` and `Edit` in the main checkout, with no worktree created. That is what the board passes, so a conflicted merge can be resolved wherever the card's checkout happens to be — `--settings` merges with the developer's own rather than replacing them, so nothing else about the session changes.
+
+`bgIsolation` sits in the CLI's restrictive-merge table with `"worktree"` as the restrictive value, so a repository or managed settings file that names `"worktree"` explicitly wins over the dispatch's `"none"`. Not reproduced here; the probe repository set nothing. **Version-fragile** — the guard, its setting name and the merge rule are all undocumented shapes read out of the binary.
+
+**A background session is opened with `claude attach <short-id>`, and resuming one fails.** Measured 2026-09-08. `attach` takes the alternate screen and needs a TTY; its help reads *"Open the background session in this terminal. ← returns to agent view, Ctrl+Z drops back to your shell. The session keeps running either way."* `claude logs <short-id>` prints the run's recent terminal output — 94.5 kB of ANSI screen frames on one merge run, so it is a dump rather than a log. Resuming instead is refused while the process still holds the conversation:
+
+```
+$ claude -p --resume d600b72f-… "…"
+Error: Session d600b72f-… is running as a background session (d600b72f). Run `claude attach d600b72f`
+to open it, or `claude stop d600b72f` first to resume it here. Add --fork-session to branch off a copy instead.
+```
+
+That is what a VS Code tab hits, because opening a session there resumes it: the process it starts exits 1 and the panel prints the raw stderr under a banner reading like a crash, over whatever of the transcript it had loaded. Nothing is lost — the transcript is intact on disk — and no editor surface can hold a `--bg` session, so `attach` in a terminal is the only way in.
+
+**`attach` and `logs` take a background job and nothing else.** Both answer `No job matching '<id>'. Run 'claude agents' to list running sessions.` for an interactive session's id — short form and full uuid alike — and for an id that names nothing. A `--bg` session is a job the CLI's own background service holds, with a terminal buffer it can replay; an interactive session's I/O already belongs to the surface that started it, a VS Code tab's pty or a shell, so there is nothing to attach to. That is the split the board's `attachId` marks: a detached run is attached to, and a session a window holds is revealed in that window.
+
+**`status` and `state` on a background session mean different things, and `blocked` is not a failure.** `status` is `idle | busy | waiting`, and a waiting entry adds `waitingFor` naming what for (`permission prompt` on the runs measured). `state` is `working | blocked | done | stopped`, and the CLI derives `blocked` from the session's own state being `needs_reply` or `needs_approval`:
+
+```js
+let t = n.state === "needs_reply" || n.state === "needs_approval";
+return { state: t ? "blocked" : n.state, tempo: t ? "blocked" : "idle", needs: … }
+```
+
+So `blocked` is a run holding for the developer, and `done` is one that finished its turn — measured on a one-turn probe, which reported `done`, against a merge run that ended by handing over a choice, which reported `blocked`. The `needs` string is internal: `claude agents --json` emits `waitingFor` but never `needs`. A finished session stays on the plain roster carrying its end word, so presence is not liveness.
 
 **`claude stop <short-id>` answers `stopped <short-id>`** and the session leaves the roster. `claude rm` is never used: its help says it deletes the session "and its worktree when that is safe", and a card's checkout holds the developer's work.
 

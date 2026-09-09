@@ -20,7 +20,8 @@ describe('the package public surface', () => {
       'PERMISSION_MODES',
       'PROTOCOL',
       'TRIAGE_ACTIONS',
-      'agentOfSession',
+      'agentCommand',
+    'agentOfSession',
       'basename',
       'checkoutOf',
       'compilePattern',
@@ -55,6 +56,7 @@ describe('the package public surface', () => {
       'runJsonCli',
       'runTextCli',
       'sessionLabel',
+    'sessionOf',
       'spawnable',
       'unreportedSessions',
     ]);

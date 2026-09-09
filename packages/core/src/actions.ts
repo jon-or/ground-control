@@ -30,9 +30,9 @@ export interface ActionSetting {
  */
 export interface ActionSettings {
   /**
-   * What a dispatched session may do without asking. `manual` is the shipped value because R31 asks that a developer
-   * who has not thought about it gets the conservative behaviour; a merge that stops at every `git` command is not
-   * automation, so turning an action on is a decision about this as well.
+   * What a dispatched session may do without asking. `auto` is the shipped value: it is the narrowest mode a `--bg`
+   * run finishes under, since `manual` and `acceptEdits` park on the first `git` command and `dontAsk` denies it
+   * (`docs/mechanics.md` §33). Loosening past it to `bypassPermissions` is the developer's own (R31).
    */
   permissionMode: string;
   /**

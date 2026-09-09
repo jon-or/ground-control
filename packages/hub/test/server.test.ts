@@ -246,6 +246,7 @@ describe('what the hub answers over loopback', () => {
       transcriptWrittenAt: null,
       activity: null,
       finished: false,
+      attachId: null,
       details: {},
     });
 

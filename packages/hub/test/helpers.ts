@@ -173,6 +173,7 @@ export function fakeSession(over: Partial<Session> = {}): Session {
     transcriptWrittenAt: null,
     activity: null,
     finished: false,
+    attachId: null,
     details: {},
     ...over,
   };

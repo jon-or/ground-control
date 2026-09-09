@@ -253,6 +253,7 @@ describe('assignLanes', () => {
       ...sessions[0]!,
       issueNumber: 19072,
       finished: false,
+      attachId: null,
       activity: { phase, since: 1, at: 1, event: 'Stop' },
     };
 

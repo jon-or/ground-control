@@ -49,6 +49,8 @@ describe('the flags a dispatched session runs under', () => {
       '--bg',
       '--permission-mode',
       'manual',
+      '--settings',
+      '{"worktree":{"bgIsolation":"none"}}',
       '-n',
       'ground-control · merge-upstream · #17198',
       '/or-merge master 17198-channel-mapping 17198 --single',
@@ -60,6 +62,8 @@ describe('the flags a dispatched session runs under', () => {
       '--bg',
       '--permission-mode',
       'manual',
+      '--settings',
+      '{"worktree":{"bgIsolation":"none"}}',
       '-n',
       'ground-control · merge-upstream · #17198',
       '--model',
@@ -76,6 +80,13 @@ describe('the flags a dispatched session runs under', () => {
 
   it('carries whatever permission mode it was configured with', () => {
     expect(dispatchArgs(input({ permissionMode: 'bypassPermissions' }))[2]).toBe('bypassPermissions');
+  });
+
+  /** Without it every Edit and Write a run makes in a main checkout is refused, and a conflicted merge is edits (§33). */
+  it('turns off the background-isolation guard, whatever else it was given', () => {
+    const args = dispatchArgs(input({ permissionMode: 'bypassPermissions', model: 'claude-sonnet-5' }));
+
+    expect(args[args.indexOf('--settings') + 1]).toBe('{"worktree":{"bgIsolation":"none"}}');
   });
 });
 
