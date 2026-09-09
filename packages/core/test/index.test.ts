@@ -6,8 +6,10 @@ describe('the package public surface', () => {
     expect(Object.keys(api).sort()).toEqual([
       'ACTION_REVISION',
       'AUTOMATABLE_ACTIONS',
+      'AVATAR_POLICIES',
       'CHROME_EXTENSION_ID',
       'DEFAULT_ACTIONS',
+      'DEFAULT_BOARD_POLICY',
       'DEFAULT_IDLE_EXIT_MS',
       'DEFAULT_LOGS',
       'DEFAULT_NEW_SESSION',

@@ -165,12 +165,27 @@
             "order": 2,
             "markdownDescription": "Map project statuses to initial lanes using the [placement rules](https://github.com/jon-or/ground-control/blob/master/README.md#board-settings)."
           },
+          "groundControl.avatar": {
+            "scope": "application",
+            "type": "string",
+            "enum": [
+              "review-author",
+              "assignee"
+            ],
+            "enumDescriptions": [
+              "The selected pull request's author while the status maps to the Review lane; otherwise the assignee.",
+              "Always the assignee, preferring your configured identity."
+            ],
+            "default": "review-author",
+            "order": 3,
+            "markdownDescription": "Whose avatar a card shows, in both clients."
+          },
           "groundControl.refreshIntervalSeconds": {
             "scope": "application",
             "type": "number",
             "default": 300,
             "minimum": 30,
-            "order": 3,
+            "order": 4,
             "markdownDescription": "Seconds between issue refreshes while a board is visible."
           }
         }

@@ -1,7 +1,7 @@
 import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SESSION_SCOPE, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions } from '@ground-control/core';
-import type { ActivityChange, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
+import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { IssueLookup } from './issueLookup.js';
 import { makeIssueStore } from './issueStore.js';
@@ -164,6 +164,14 @@ export function realHubDeps(
     settings,
     log,
     syncActivity: (regs, wanted, where, state, enabled) => syncActivity(regs.agents, wanted, where, state, false, enabled),
+  };
+}
+
+/** Review statuses follow the lane mapping, so avatars and arrival agree without a second list of names (R5). */
+function boardPolicyOf(config: HubConfig): BoardPolicy {
+  return {
+    reviewStatuses: Object.entries(config.statusLanes).filter(([, lane]) => lane === 'review').map(([status]) => status).sort(),
+    avatar: config.avatar,
   };
 }
 
@@ -701,9 +709,9 @@ export class Hub {
       }
     }
     if (acceptingProfiles) {
-      const refused = [...configureHosts(this.#deps.registries, parsed.config.hosts), ...configureSources(this.#deps.registries, parsed.config.sources)];
+      const refused = [...configureHosts(this.#deps.registries, parsed.config.hosts), ...configureSources(this.#deps.registries, parsed.config.sources, boardPolicyOf(parsed.config))];
       configureHosts(this.#deps.registries, before.hosts);
-      configureSources(this.#deps.registries, before.sources);
+      configureSources(this.#deps.registries, before.sources, boardPolicyOf(before));
       const failure = refused[0] ?? acceptAgentHomes(this.#deps.registries,
         before.agentHomes ?? defaultAgentHomes(this.#deps.registries, this.#deps.home), resolved.homes,
         this.#deps.home, this.#deps.stateDir, () => this.#deps.settings.write(parsed.config), new Set(parsed.config.installActivity ? parsed.config.agents.filter((agent) => parsed.config.sessionHooks?.[agent.id] !== false).map((agent) => agent.id) : []));
@@ -776,7 +784,7 @@ export class Hub {
     // Broadcast corrected settings immediately; refresh throttling could otherwise retain an obsolete error.
     this.#broadcast();
     // Refresh sources only when their settings change; every client restates settings on connection.
-    const reason = same(before.sources, parsed.config.sources) ? 'visible' : 'settings';
+    const reason = same(before.sources, parsed.config.sources) && same(boardPolicyOf(before), boardPolicyOf(parsed.config)) ? 'visible' : 'settings';
     if (sessionsChanged) {
       void this.#refreshSources(reason);
       void this.#refreshSessions(true);
@@ -794,7 +802,7 @@ export class Hub {
     pruneMarkers(this.#deps.registries.agents, this.#deps.stateDir, this.#deps.clock.now(), this.#config.logs.dispatchRetentionMs);
     this.#actions?.configure(this.#config.actions, this.#config.agents);
 
-    const refused = configureSources(this.#deps.registries, this.#config.sources);
+    const refused = configureSources(this.#deps.registries, this.#config.sources, boardPolicyOf(this.#config));
 
     // Immediately clear cached cards for omitted or rejected sources, even when polling is inactive.
     for (const id of [...this.#readings.keys()]) {

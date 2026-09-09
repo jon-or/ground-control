@@ -120,6 +120,29 @@ describe('fetchAssignedIssues', () => {
     });
   });
 
+  /** The review status set comes from the lane mapping, so a team's own status name works without a code change (R5). */
+  it('shows the pull request author for whichever statuses the board maps to review', async () => {
+    const renamed = structuredClone(fixture('avatars')) as {
+      data: { cards: { nodes: { number: number; projectItems: { nodes: { fieldValueByName: { name: string } | null }[] } }[] } };
+    };
+
+    for (const item of renamed.data.cards.nodes.find((n) => n.number === 19400)!.projectItems.nodes) {
+      if (item.fieldValueByName) item.fieldValueByName.name = 'Awaiting Review';
+    }
+
+    const before = await unwrap(config({ logins: ['dev-2'] }), runnerOf(renamed));
+    const after = await unwrap(config({ logins: ['dev-2'], reviewStatuses: ['Awaiting Review'] }), runnerOf(renamed));
+
+    expect(before.cards.find((c) => c.number === 19400)?.avatar?.source).toBe('issue');
+    expect(after.cards.find((c) => c.number === 19400)?.avatar).toMatchObject({ login: 'dev-3', source: 'pull-request' });
+  });
+
+  it('keeps the assignee under the assignee policy, review status or not', async () => {
+    const value = await unwrap(config({ logins: ['dev-2'], avatar: 'assignee' }), runnerOf(fixture('avatars')));
+
+    expect(value.cards.find((c) => c.number === 19400)?.avatar).toMatchObject({ login: 'dev-2', source: 'issue' });
+  });
+
   it('names the pull request that would close the issue', async () => {
     const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(fixture('avatars')));
 

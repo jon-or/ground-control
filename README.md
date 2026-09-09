@@ -54,6 +54,8 @@ These application settings configure the shared hub for both clients; Chrome has
 
 `boardStatuses` selects active project statuses; all others archive the card. Editing the list clears Returned marks and archived placements, including cards newly archived by the edit.
 
+`avatar` chooses whose face a card shows in both clients: `review-author` (default) shows the selected pull request's author while the status is mapped to the Review lane and the assignee otherwise; `assignee` always shows the assignee, preferring your configured identity.
+
 `statusLanes` maps project statuses to initial lanes and informs triage. A `build` mapping takes precedence over your open PR; your open PR takes precedence over other mappings. Manual placement persists until the card leaves your active work and returns. See [arrival rules](docs/prd.md#r8-arrival-and-manual-placement).
 
 ### Session settings

@@ -1,7 +1,7 @@
 export { fetchAssignedIssues, fetchIssue, buildSearchQuery, fieldProblemOf } from './issues.js';
 export { onConfiguredProject, projectOwnerOf } from './project.js';
 export { GITHUB_SOURCE_ID, detectLogins, makeGithubSource, readGithubConfig } from './source.js';
-export type { GithubSourceDeps } from './source.js';
+export type { GithubSettings, GithubSourceDeps } from './source.js';
 export { makeGhRunner } from './gh.js';
 export { TIMELINE_STATUS_FIELD, clip, fetchCardContext, repositoryOfUrl } from './context.js';
 export { CARD_CONTEXT_QUERY, ISSUE_BY_NUMBER_QUERY } from './queries.js';

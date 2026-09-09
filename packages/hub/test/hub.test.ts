@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { GITHUB_SOURCE_ID, makeGithubSource } from '@ground-control/github';
 import type { AssignedIssues, GithubConfig, GithubSourceDeps, Result } from '@ground-control/github';
-import type { ClientHello, HubConfig, HubMessage, IssueCard, Snapshot, WorkSource } from '@ground-control/core';
+import type { BoardPolicy, ClientHello, HubConfig, HubMessage, IssueCard, Snapshot, WorkSource } from '@ground-control/core';
 import type { ActivityState } from '../src/activityInstall.js';
 import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
@@ -2233,6 +2233,24 @@ describe('what the hub writes down about itself', () => {
 
     expect(refusal?.message).toBeDefined();
     expect(h.logged).toContain(`client settings rejected: ${refusal!.message}`);
+  });
+
+  /** Avatars follow the lane mapping, so renaming a review status needs no second setting (R5). */
+  it('derives the review statuses for sources from the lanes', async () => {
+    const policies: unknown[] = [];
+    const policy: WorkSource = {
+      id: 'policy',
+      displayName: 'Policy',
+      configure: (_raw: unknown, board?: BoardPolicy) => { policies.push(board); return null; },
+      read: () => Promise.resolve({ items: null, failure: null, needs: null }),
+    };
+    const h = harness({}, { sources: [policy] });
+    const { client } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ sources: { policy: {} }, statusLanes: { 'Awaiting Review': 'review', Building: 'build' }, avatar: 'assignee' }) });
+    await settle();
+
+    expect(policies.at(-1)).toEqual({ reviewStatuses: ['Awaiting Review'], avatar: 'assignee' });
   });
 
   // Log unchanged settings only at debug level.

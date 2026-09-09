@@ -24,6 +24,7 @@ function config(over: Partial<HubConfig> = {}): Record<string, unknown> {
     refreshIntervalMs: 300_000,
     sessionIntervalMs: 30_000,
     idleExitMs: 1_800_000,
+    avatar: 'review-author',
     installActivity: true,
     ...over,
   };
@@ -147,6 +148,12 @@ describe('the cadences', () => {
     expect(accepted({ ...config(), logs: { rotateBytes: 'big', kept: 2.4 } }).logs).toEqual({ rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 7 * 24 * 60 * 60 * 1000 });
     expect(accepted({ ...config(), logs: 'none' }).logs).toEqual({ rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 7 * 24 * 60 * 60 * 1000 });
     expect(accepted(config()).logs).toEqual({ rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 7 * 24 * 60 * 60 * 1000 });
+  });
+
+  it('reads the avatar policy and falls back to the review author for anything else', () => {
+    expect(accepted(config({ avatar: 'assignee' })).avatar).toBe('assignee');
+    expect(accepted({ ...config(), avatar: 'nobody' }).avatar).toBe('review-author');
+    expect(accepted(config()).avatar).toBe('review-author');
   });
 
   it('accepts every floor the log levels offer', () => {

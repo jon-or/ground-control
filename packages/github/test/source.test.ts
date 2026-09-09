@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { GITHUB_SOURCE_ID, detectLogins, makeGithubSource, readGithubConfig } from '../src/source.js';
-import type { GithubSourceDeps } from '../src/source.js';
+import type { GithubSettings, GithubSourceDeps } from '../src/source.js';
 import type { AssignedIssues, GithubConfig } from '../src/types.js';
 
-function accepted(raw: unknown): GithubConfig {
+function accepted(raw: unknown): GithubSettings {
   const parsed = readGithubConfig(raw);
 
   if ('failure' in parsed) {
@@ -37,6 +37,20 @@ describe('the GitHub entry in a pushed configuration', () => {
       statusField: 'Status',
       cardSource: 'project',
       maxPages: 5,
+    });
+  });
+
+  it('refuses board policy keys in client settings, which the hub supplies', () => {
+    expect(refusal({ repo: 'o/r', avatar: 'assignee' })).toContain('avatar');
+  });
+
+  it('takes the board policy from the hub, not from the client settings', () => {
+    const { source: made, asked } = source();
+
+    made.configure({ repo: 'example-org/example-repo', logins: ['dev-1'] }, { reviewStatuses: ['Awaiting Review'], avatar: 'assignee' });
+
+    return made.read().then(() => {
+      expect(asked[0]).toMatchObject({ reviewStatuses: ['Awaiting Review'], avatar: 'assignee' });
     });
   });
 

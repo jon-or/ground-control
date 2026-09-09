@@ -4,6 +4,7 @@ import { CLAUDE_AGENT_ID } from '@ground-control/agent-claude';
 import { CODEX_AGENT_ID } from '@ground-control/agent-codex';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
+import type { BoardPolicy, WorkSource } from '@ground-control/core';
 import { configureHosts, configureSources, defaultConfig, makeRegistries } from '../src/registry.js';
 import { fakeAgent, fakeReaders } from './helpers.js';
 
@@ -104,6 +105,15 @@ describe('configureHosts', () => {
 describe('configureSources', () => {
   it('accepts valid source settings', () => {
     expect(configureSources(makeRegistries(), { [GITHUB_SOURCE_ID]: { repo: 'example-org/example-repo' } })).toEqual([]);
+  });
+
+  it('hands every source the board policy', () => {
+    const given: unknown[] = [];
+    const fake: WorkSource = { id: 'fake', displayName: 'Fake', configure: (_raw: unknown, board?: BoardPolicy) => { given.push(board); return null; }, read: () => Promise.resolve({ items: null, failure: null, needs: null }) };
+
+    configureSources({ ...makeRegistries(), sources: [fake] }, { fake: {} }, { reviewStatuses: ['QA'], avatar: 'assignee' });
+
+    expect(given).toEqual([{ reviewStatuses: ['QA'], avatar: 'assignee' }]);
   });
 
   it('reports unknown source IDs', () => {

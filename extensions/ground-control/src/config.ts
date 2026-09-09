@@ -4,8 +4,8 @@ import { boardStatuses, statusLanes } from '@ground-control/board';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubConfig } from '@ground-control/github';
-import { AUTOMATABLE_ACTIONS, LOG_FLOORS, diskReaders, idsFrom } from '@ground-control/core';
-import type { ActionSetting, AgentConfig, AutomatableAction, HubConfig, LogFloor } from '@ground-control/core';
+import { AUTOMATABLE_ACTIONS, AVATAR_POLICIES, LOG_FLOORS, diskReaders, idsFrom } from '@ground-control/core';
+import type { ActionSetting, AgentConfig, AutomatableAction, AvatarPolicy, HubConfig, LogFloor } from '@ground-control/core';
 import { defaultConfig, makeRegistries } from '@ground-control/hub';
 import { readSessionScope } from './sessionScope.js';
 import { editorAgentHomes } from './agentStorage.js';
@@ -20,7 +20,8 @@ export function splitLogins(value: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-export function readConfig(): GithubConfig {
+/** Client source settings; the hub adds the board policy (review statuses, avatar) when it configures the source. */
+export function readConfig(): Omit<GithubConfig, 'reviewStatuses' | 'avatar'> {
   const cfg = vscode.workspace.getConfiguration(SECTION);
 
   return {
@@ -31,7 +32,7 @@ export function readConfig(): GithubConfig {
     projectOwner: cfg.get<string>('github.projectOwner', ''),
     statusField: cfg.get<string>('github.statusField', 'Status'),
     cardSource: cfg.get<CardSource>('cardSource', 'project'),
-    // The source refuses values outside 1–20 with a visible failure rather than reading an unbounded search.
+    // The source refuses values outside 1–10 with a visible failure rather than reading an unbounded search.
     maxPages: numberOr(cfg.get<unknown>('github.maxPages'), 5),
   };
 }
@@ -57,6 +58,7 @@ export function readHubConfig(userDir: string): HubConfig {
     sources: Object.fromEntries(sourceIds().map((id) => [id, id === GITHUB_SOURCE_ID ? readConfig() : {}])),
     boardStatuses: readBoardStatuses(),
     statusLanes: statusLanes(cfg.get<unknown>('statusLanes')),
+    avatar: avatarPolicy(cfg.get<unknown>('avatar')),
     refreshIntervalMs: refreshIntervalMs(),
     sessionIntervalMs: sessionIntervalMs(),
     logLevel: logFloor(cfg.get<unknown>('logLevel', 'info')),
@@ -158,6 +160,10 @@ function numberOr(value: unknown, fallback: number): number {
 
 function minutesToMs(value: unknown, fallback: number): number {
   return numberOr(value, fallback) * 60 * 1000;
+}
+
+function avatarPolicy(value: unknown): AvatarPolicy {
+  return (AVATAR_POLICIES as readonly unknown[]).includes(value) ? (value as AvatarPolicy) : 'review-author';
 }
 
 function logFloor(value: unknown): LogFloor {

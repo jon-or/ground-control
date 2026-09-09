@@ -2,7 +2,8 @@ import { homedir } from 'node:os';
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
 import { killOnMachine, makeCodexAdapter, makeMachineStarter, makeTrustOnMachine, pidAliveOnMachine } from '@ground-control/agent-codex';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
-import { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_SESSION_SCOPE, DEFAULT_TRIAGE, bootstrapDirOf } from '@ground-control/core';
+import { DEFAULT_ACTIONS, DEFAULT_BOARD_POLICY, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_SESSION_SCOPE, DEFAULT_TRIAGE, bootstrapDirOf } from '@ground-control/core';
+import type { BoardPolicy } from '@ground-control/core';
 import type { AgentAdapter, HostAdapter, HubConfig, Logger, MachineReaders, ReadFailure, WorkSource } from '@ground-control/core';
 import { makeGithubSource } from '@ground-control/github';
 import { makeVscodeHost } from '@ground-control/host-vscode';
@@ -79,6 +80,7 @@ export function defaultConfig(registries: Registries, readers: MachineReaders): 
     sessionIntervalMs: SESSION_INTERVAL_MS,
     idleExitMs: DEFAULT_IDLE_EXIT_MS,
     logs: { ...DEFAULT_LOGS },
+    avatar: 'review-author',
     sessionScope: { ...DEFAULT_SESSION_SCOPE },
     installActivity: true,
     sessionHooks: {},
@@ -113,7 +115,7 @@ export function configureHosts(registries: Registries, hosts: Record<string, unk
 }
 
 /** Configure sources and report unknown IDs. Rejected settings disable reads instead of retaining prior client settings. */
-export function configureSources(registries: Registries, sources: Record<string, unknown>): ReadFailure[] {
+export function configureSources(registries: Registries, sources: Record<string, unknown>, board: BoardPolicy = DEFAULT_BOARD_POLICY): ReadFailure[] {
   return Object.entries(sources).flatMap(([id, raw]) => {
     const source = registries.sources.find((candidate) => candidate.id === id);
 
@@ -128,7 +130,7 @@ export function configureSources(registries: Registries, sources: Record<string,
       ];
     }
 
-    const failure = source.configure(raw);
+    const failure = source.configure(raw, board);
 
     return failure ? [failure] : [];
   });

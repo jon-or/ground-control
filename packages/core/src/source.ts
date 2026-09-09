@@ -26,12 +26,26 @@ export interface SourceReading {
   needs: { detected: string[] } | null;
 }
 
+/** Whose face a card shows: the selected pull request's author while the status is a review status, or always the assignee. */
+export const AVATAR_POLICIES = ['review-author', 'assignee'] as const;
+export type AvatarPolicy = (typeof AVATAR_POLICIES)[number];
+
+/** Board policy a source needs to shape its cards; the hub derives it from board settings, not from source settings. */
+export interface BoardPolicy {
+  /** Statuses the board maps to the review lane. */
+  reviewStatuses: readonly string[];
+  avatar: AvatarPolicy;
+}
+
+/** Mirrors the review entry of the board package's DEFAULT_STATUS_LANES, which core cannot import. */
+export const DEFAULT_BOARD_POLICY: BoardPolicy = { reviewStatuses: ['🔍 Dev Review'], avatar: 'review-author' };
+
 /** Work-source adapter selected by configuration and registry ID. */
 export interface WorkSource {
   readonly id: string;
   readonly displayName: string;
-  /** Validate and store source configuration, or return a failure. */
-  configure(raw: unknown): ReadFailure | null;
+  /** Validate and store source configuration, or return a failure. Without a board policy, sources use DEFAULT_BOARD_POLICY. */
+  configure(raw: unknown, board?: BoardPolicy): ReadFailure | null;
   read(): Promise<SourceReading>;
   /** Optional conversation context for triage; omit if unavailable (R30). */
   readContext?(card: IssueCard, signal: AbortSignal): Promise<ContextReading>;

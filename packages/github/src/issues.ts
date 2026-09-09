@@ -28,12 +28,14 @@ export function buildSearchQuery(cfg: GithubConfig, withProject: boolean): strin
   return parts.join(' ');
 }
 
+/** The pull request author while the status is a review status under the review-author policy; otherwise an assignee (R5). */
 function selectCardAvatar(
   node: Pick<SearchNode, 'assignees' | 'pullRequests'>,
-  logins: string[],
+  cfg: Pick<GithubConfig, 'logins' | 'reviewStatuses' | 'avatar'>,
   status: string | null,
 ): CardAvatar | null {
-  const pullRequest = status?.trim().endsWith('Dev Review')
+  const inReview = cfg.avatar === 'review-author' && status !== null && cfg.reviewStatuses.includes(status);
+  const pullRequest = inReview
     ? [...(node.pullRequests?.nodes ?? [])]
         .filter((pr) => pr.author)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
@@ -44,7 +46,7 @@ function selectCardAvatar(
   }
 
   const assignees = new Map(node.assignees.nodes.map((actor) => [actor.login.toLowerCase(), actor]));
-  const assignee = logins.map((login) => assignees.get(login.toLowerCase())).find(Boolean) ?? node.assignees.nodes[0];
+  const assignee = cfg.logins.map((login) => assignees.get(login.toLowerCase())).find(Boolean) ?? node.assignees.nodes[0];
 
   return assignee?.avatarUrl ? { login: assignee.login, url: assignee.avatarUrl, source: 'issue' } : null;
 }
@@ -114,7 +116,7 @@ function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
     statusColor: item?.fieldValueByName?.color ?? null,
     statusChangedAt: item?.fieldValueByName?.updatedAt ?? null,
     assignees: node.assignees.nodes.map((a) => a.login),
-    avatar: selectCardAvatar(node, cfg.logins, status),
+    avatar: selectCardAvatar(node, cfg, status),
     pullRequest: selectPullRequest(node),
     updatedAt: node.updatedAt,
   };

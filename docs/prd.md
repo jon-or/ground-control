@@ -92,7 +92,7 @@ Both clients draw tooltips rather than native `title` tooltips. Open after 120 m
 
 Select the most recently updated open closing pull request; if none is open, select the most recently updated closing pull request of any state. Render its chip with a neutral outline and state-colored glyph. Use accessible text for the state. Selection is limited to the fetched page; see [GitHub query limits](mechanics.md#github-query-cost-and-limits).
 
-For a status ending in `Dev Review`, show the selected pull request's author. Otherwise show an assignee, preferring the developer's configured identity. Label the role. This status-name rule is independent of lane mapping. The overlay replaces GitHub's assignee display only where an author should replace it and an assignee area already exists; otherwise leave GitHub's display intact.
+`avatar` selects whose face a card shows in both clients. Under `review-author`, the default, a card whose status is mapped to the Review lane shows the selected pull request's author; otherwise, and under `assignee`, it shows an assignee, preferring the developer's configured identity. Label the role. The review statuses come from the lane mapping, so custom status names need no second list. The overlay replaces GitHub's assignee display only where an author should replace it and an assignee area already exists; otherwise leave GitHub's display intact.
 
 Issue and pull-request controls open URLs resolved from source data. A guessed issue number is not sufficient to construct a link.
 

@@ -77,6 +77,7 @@ describe('what this window pushes to the hub', () => {
     await settings().update('github.projectOwner', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('github.statusField', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('github.maxPages', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('avatar', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('idleExitMinutes', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('logLevel', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('logs.rotateMegabytes', undefined, vscode.ConfigurationTarget.Global);
@@ -102,6 +103,12 @@ describe('what this window pushes to the hub', () => {
     // A refused configuration is not stored, so the refusal itself is the evidence that nothing clamped the value first.
     await settings().update('github.maxPages', 25, vscode.ConfigurationTarget.Global);
     await untilSnapshot((s) => s.failures.some((f) => f.subject === 'github' && f.kind === 'bad-config' && f.message.includes('maxPages')), 'the hub did not refuse 25 pages');
+  });
+
+  it('sends the avatar policy to the hub', async () => {
+    await untilStored((c) => c.avatar === 'review-author', 'the default avatar policy never reached the hub');
+    await settings().update('avatar', 'assignee', vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.avatar === 'assignee', 'the assignee policy never reached the hub');
   });
 
   it('sends the idle exit window in milliseconds and lets the hub clamp it', async () => {

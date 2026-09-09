@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CardAvatar, CardPullRequest, IssueCard } from '@ground-control/core';
+import type { AvatarPolicy, CardAvatar, CardPullRequest, IssueCard } from '@ground-control/core';
 
 export type { CardAvatar, CardPullRequest, IssueCard };
 
@@ -17,6 +17,9 @@ export interface GithubConfig {
   statusField: string;
   cardSource: CardSource;
   maxPages: number;
+  /** Board policy supplied by the hub at configure time, not by the client's source settings. */
+  reviewStatuses: readonly string[];
+  avatar: AvatarPolicy;
 }
 
 export interface AssignedIssues {

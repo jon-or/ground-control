@@ -6,6 +6,8 @@ import type { ActionSettings } from './actions.js';
 import type { LaneId } from './board.js';
 import { LOG_FLOORS } from './log.js';
 import { DEFAULT_SESSION_SCOPE, sessionScopeSchema } from './sessionScope.js';
+import { AVATAR_POLICIES } from './source.js';
+import type { AvatarPolicy } from './source.js';
 import { agentHomeSchema } from './agentHomes.js';
 import type { SessionScope } from './sessionScope.js';
 import type { AgentConfig, ReadFailure } from './types.js';
@@ -27,6 +29,8 @@ export interface HubConfig {
   /** How long the hub stays up after its last client disconnects. */
   idleExitMs: number;
   logs: LogSettings;
+  /** Whose face a card shows (R5). */
+  avatar: AvatarPolicy;
   sessionScope?: SessionScope;
   installActivity: boolean;
   /** Per-agent hook choices; omission permits hooks while installActivity remains authoritative. */
@@ -219,6 +223,7 @@ export const hubConfig = z.object({
   // A window under a minute would drop the hub between an editor reload and its reconnect.
   idleExitMs: bounded(DEFAULT_IDLE_EXIT_MS, IDLE_EXIT_FLOOR_MS, IDLE_EXIT_CEILING_MS),
   logs,
+  avatar: z.enum(AVATAR_POLICIES).catch('review-author').default('review-author'),
   sessionScope: sessionScopeSchema.default(DEFAULT_SESSION_SCOPE),
   agentHomes: z.record(z.string(), agentHomeSchema).optional(),
   installActivity: z.boolean(),

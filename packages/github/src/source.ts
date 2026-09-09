@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { z } from 'zod';
-import { spawnable } from '@ground-control/core';
-import type { Logger, ReadFailure } from '@ground-control/core';
+import { DEFAULT_BOARD_POLICY, spawnable } from '@ground-control/core';
+import type { BoardPolicy, Logger, ReadFailure } from '@ground-control/core';
 import type { CardReading, ContextReading, IssueCard, SourceReading, WorkSource } from '@ground-control/core';
 import { fetchCardContext } from './context.js';
 import { makeGhRunner } from './gh.js';
@@ -38,7 +38,10 @@ function unconfigured(raw: unknown): boolean {
   return typeof repo === 'string' && repo.trim().length === 0;
 }
 
-export function readGithubConfig(raw: unknown): { config: GithubConfig } | { failure: ReadFailure } {
+/** Client source settings only; the board policy arrives with configure, never from a client. */
+export type GithubSettings = Omit<GithubConfig, 'reviewStatuses' | 'avatar'>;
+
+export function readGithubConfig(raw: unknown): { config: GithubSettings } | { failure: ReadFailure } {
   if (unconfigured(raw)) {
     return {
       failure: {
@@ -110,7 +113,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
     id: GITHUB_SOURCE_ID,
     displayName: 'GitHub',
 
-    configure(raw) {
+    configure(raw, board: BoardPolicy = DEFAULT_BOARD_POLICY) {
       const parsed = readGithubConfig(raw);
 
       if ('failure' in parsed) {
@@ -119,7 +122,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
         return parsed.failure;
       }
 
-      currentConfig = parsed.config;
+      currentConfig = { ...parsed.config, reviewStatuses: [...board.reviewStatuses], avatar: board.avatar };
 
       return null;
     },

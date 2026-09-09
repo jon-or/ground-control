@@ -19,6 +19,8 @@ export function config(over: Partial<GithubConfig> = {}): GithubConfig {
     statusField: 'Status',
     cardSource: 'project',
     maxPages: 5,
+    reviewStatuses: ['🔍 Dev Review'],
+    avatar: 'review-author',
     ...over,
   };
 }
