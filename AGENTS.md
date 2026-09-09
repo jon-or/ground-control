@@ -73,7 +73,7 @@ npm run package --workspace ground-control
 code --install-extension extensions/ground-control/ground-control-0.0.0.vsix --force
 ```
 
-Packaging must succeed with `vsce package --no-dependencies`; the workspace script includes that flag. It has no `vscode:prepublish` hook, so build first. A repository build alone does not update the installed VSIX.
+Packaging must succeed with `vsce package --no-dependencies`; the workspace script includes that flag, and `--baseContentUrl`/`--baseImagesUrl` because the extension README links to repository-root files. It has no `vscode:prepublish` hook, so build first. A repository build alone does not update the installed VSIX.
 
 Verify the relevant installed bundle (`dist/hub.js` or `dist/extension.js`) contains the change. For example, replace the placeholder below with a changed, single-line ASCII string from the hub bundle:
 
