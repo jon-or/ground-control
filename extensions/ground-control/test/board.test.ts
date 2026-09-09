@@ -2079,10 +2079,11 @@ describe("the card's own menu", () => {
   /** A card the hub found no checkout for carries no such field at all, which is not the same as carrying undefined. */
   const { checkout: _resolved, ...noCheckout } = liveCard;
 
-  // A card nobody has worked on has no directory to read, and a menu whose every item could only refuse is worse
-  // than no menu — the rule the session rows already follow.
+  // A menu whose every item could only refuse is worse than no menu — the rule the session rows already follow.
+  // Ad-hoc work whose directory has gone is the card that reaches it: no checkout to open, and no issue to name a
+  // repository a picked folder could be checked against.
   it('is absent on a card with nothing to offer — no checkout, and no issue to choose one for', () => {
-    send(message({ lanes: lanes({ unstarted: [{ ...noCheckout, sessions: [], issue: null }] }) }));
+    send(message({ lanes: lanes({ unstarted: [{ ...noCheckout, issue: null, issueNumber: null }] }) }));
 
     expect(control()).toBeNull();
   });
@@ -2110,7 +2111,7 @@ describe("the card's own menu", () => {
     ]);
   });
 
-  // §48: `chatgpt.newCodexPanel` takes no arguments, so the prompt is dropped — and the item says so rather than
+  // §51: `chatgpt.newCodexPanel` takes no arguments, so the prompt is dropped — and the item says so rather than
   // letting a developer with a configured prompt believe it reached the session.
   it('says on the item itself which agent’s start cannot carry the prompt', () => {
     send(message({

@@ -2367,6 +2367,8 @@ function footprint(card, openable) {
     card.triage,
     card.issue?.statusChangedAt ?? null,
     card.issue?.avatar ?? null,
+    // The lane menu offers the checkout, so a card that gains or loses one has to be rebuilt to stop offering it.
+    card.checkout?.root ?? null,
     card.lastSession === undefined
       ? null
       : [

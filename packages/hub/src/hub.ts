@@ -111,8 +111,8 @@ const TICK_MS = 5_000;
  */
 const START_LEASE_MS = 10_000;
 
-/** The same, for one card's window. Sized to `raise`'s own 12s wait for focus, which is what a repeat would stack on. */
-const OPEN_LEASE_MS = 12_000;
+/** The same, for one card's window. Sized to the `code` spawn, which is all `raise` waits for — it checks no focus. */
+const OPEN_LEASE_MS = 3_000;
 
 /**
  * A tick this much later than it was due is a machine that was suspended, not a loop that ran slow: the poll timers
@@ -210,7 +210,7 @@ export class Hub {
   #history: HistoricalSession[] = [];
   #historyFailures: ReadFailure[] = [];
   readonly #resuming = new Map<string, number>();
-  /** Cards whose start is in flight, held by card because the session it creates has no id yet (§48). */
+  /** Cards whose start is in flight, held by card because the session it creates has no id yet (§51). */
   readonly #starting = new Map<string, number>();
   /** Cards whose window is in flight, held the same way. The client's own guard covers one board, not two. */
   readonly #opening = new Map<string, number>();
@@ -453,7 +453,16 @@ export class Hub {
       return;
     }
 
-    // Held by the card and the agent, because the session it will create has no id until the agent mints one (§48)
+    // An issue the developer is not assigned is on the board only because a session still names it, and it is
+    // archived and read-only there (R9) — the rule triage already follows. The menu leaves the item out; this is
+    // the same answer for a click made against a snapshot taken before they were unassigned.
+    if (card.unassigned === true) {
+      client.send({ type: 'notice', level: 'warning', message: 'That issue is no longer assigned to you, so the board will not start work on it.' });
+
+      return;
+    }
+
+    // Held by the card and the agent, because the session it will create has no id until the agent mints one (§51)
     // — so between the click and that session appearing there is nothing else to tell a second click apart by. Two
     // agents on one card are two different starts, and neither blocks the other.
     const now = this.#deps.clock.now();

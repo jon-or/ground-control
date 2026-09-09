@@ -359,7 +359,7 @@ export async function performRoute(plan: OpenRoute, roster: Roster): Promise<str
 /**
  * Starts a new session in this window. The workspace is re-read because the hub planned this against a hello that
  * may be a folder change old, and the agent takes its directory from this window rather than from anything the
- * board hands it (`docs/mechanics.md` §48) — so a stale plan would start the session in the wrong checkout.
+ * board hands it (`docs/mechanics.md` §51) — so a stale plan would start the session in the wrong checkout.
  */
 async function startHere(agent: string, root: string, prompt: string | null): Promise<string | null> {
   const placement = placementOf(agent);

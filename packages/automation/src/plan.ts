@@ -107,10 +107,10 @@ export function planAction(input: PlanInput): ActionDecision {
     return refuse('session-running', 'Something is already working on this card.');
   }
 
-  // Read from a session the card carries, never from the branch name — the rule the changes fold already holds
-  // (R37). A card nobody has worked on locally has no checkout, and the board will not invent one.
+  // A checkout an agent has run in, never one the developer merely picked and never a branch name (R37, R39): the
+  // caller narrows it, because a folder pointed at is enough to open a window and not enough to edit code unwatched.
   if (checkout === null) {
-    return refuse('no-checkout', 'The board has no checkout for this card, because nothing has worked on it here.');
+    return refuse('no-checkout', 'The board has no checkout an agent has worked in for this card.');
   }
 
   return {

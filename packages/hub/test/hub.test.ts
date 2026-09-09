@@ -2557,7 +2557,7 @@ describe('opening a card in an editor', () => {
 
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
 
-    h.clock.advance(12_001);
+    h.clock.advance(3_001);
     h.hub.receive(client, { type: 'openCheckout', key });
     await settle();
 
@@ -2657,6 +2657,45 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
   });
 
+  /**
+   * An issue the developer was unassigned from stays on the board while a session still names it, archived and
+   * read-only (R9). The menu leaves the item out; this is the same answer for a click made against a snapshot
+   * taken before they were unassigned.
+   */
+  it('refuses a start on a card the developer is no longer assigned', async () => {
+    const root = join(home, 'project-1');
+    mkdirSync(root, { recursive: true });
+
+    // The session names an issue the assigned read did not return, and the store knows that issue — which is
+    // exactly what `IssueLookup` reads to name a card the developer has been unassigned from.
+    makeIssueStore(home).write({
+      entries: { 'github.com/example-org/example-repo#18941': { card: card(18941), at: Date.now() } },
+    });
+
+    const h = harness({}, { fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [], matched: 0, totalAssigned: 0 } }) });
+    const { client, inbox } = connect(h, hello({ residentRoutes: ['reveal-here', 'start-session'], workspaceRoot: root }));
+
+    h.host.resident = ['reveal-here', 'start-session'];
+    h.agent.sessions = [fakeSession({ cwd: root, checkoutRoot: root })];
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const unassigned = h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.unassigned === true);
+
+    // Named, so this cannot pass by the card never having been built as unassigned in the first place.
+    expect(unassigned).toBeDefined();
+
+    const key = unassigned!.key;
+
+    h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
+    await settle();
+
+    expect(h.host.startsPlanned).toEqual([]);
+    expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({
+      message: expect.stringContaining('no longer assigned'),
+    });
+  });
+
   it('refuses a card with no checkout by name, rather than starting somewhere it invented', async () => {
     const h = harness();
     const { client, inbox } = connect(h, hello({ residentRoutes: ['start-session'] }));
@@ -2695,7 +2734,7 @@ describe('starting a session on a card', () => {
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('Reload') });
   });
 
-  // Two boards, or two clicks: no session exists between the click and the agent minting one (§48), so the card is
+  // Two boards, or two clicks: no session exists between the click and the agent minting one (§51), so the card is
   // the only thing there is to tell a second from the first by.
   it('holds one card’s start against a second while the first is in flight', async () => {
     const { h, client, inbox, key } = await boardWith();
@@ -2750,8 +2789,11 @@ describe('starting a session on a card', () => {
     expect(h.host.performed).toEqual([]);
   });
 
-  // The prompt is the hub's to build: the card's facts are its own, and a client naming one would be a client
-  // naming what an agent is told to do.
+  /**
+   * The prompt is the hub's to build: the card's facts are its own, and a client naming one would be a client
+   * naming what an agent is told to do. This card is a session with no issue on the board (R4), so `{issue}` fills
+   * empty rather than with a number read off the branch — what a card with one gets is `newSessionValues`' own test.
+   */
   it('fills the configured prompt from the card and hands the result to the host', async () => {
     const { h, client, key, root } = await boardWith();
 
@@ -2759,7 +2801,7 @@ describe('starting a session on a card', () => {
     h.hub.receive(client, { type: 'startSession', key, agent: 'claude', extensionReady: true });
     await settle();
 
-    expect(h.host.startsPlanned.at(-1)?.prompt).toBe(`Work on #18941 in ${root}. Not {nonsense}.`);
+    expect(h.host.startsPlanned.at(-1)?.prompt).toBe(`Work on # in ${root}. Not {nonsense}.`);
   });
 
   // R39's rule is the card action's, not this one's: nothing here runs unattended, so an unset prompt is a bare

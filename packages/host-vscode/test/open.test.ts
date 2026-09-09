@@ -514,7 +514,7 @@ describe('opening a card’s checkout', () => {
 
 /**
  * A new session on a card. The whole of the routing is whether this window is the checkout's: an agent takes its
- * directory from the window it starts in, and nothing can name a session that does not exist yet (§48).
+ * directory from the window it starts in, and nothing can name a session that does not exist yet (§51).
  */
 describe('starting a session on a card', () => {
   const ROOT = 'd:/work/repo.worktrees/19002-refund-window';
@@ -554,7 +554,7 @@ describe('starting a session on a card', () => {
     expect(refusalOf(ask({ extensionReady: false }))).toBe('no-extension');
   });
 
-  // §48: `chatgpt.newCodexPanel` takes no arguments, so a prompt handed to it would be dropped silently. Dropping
+  // §51: `chatgpt.newCodexPanel` takes no arguments, so a prompt handed to it would be dropped silently. Dropping
   // it here is what lets the menu item say the session starts bare.
   it('drops the prompt for an agent whose only way in takes none', () => {
     expect(ask({ agent: 'codex' })).toMatchObject({ route: 'start-session', agent: 'codex', prompt: null });

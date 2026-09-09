@@ -179,32 +179,10 @@ describe('what this window is told about starting a session on a card', () => {
    */
   it('carries the new-session prompt to the hub with its placeholders intact', async () => {
     const PROMPT = 'Work on #{issue} in {checkout}.';
-    const stored = join(process.env.GC_TEST_HOME, '.claude', 'ground-control', 'config.json');
-
-    // Never throws: a rename the hub could not make over a file this loop holds open falls back to a write in
-    // place, so a read can land on a truncated document. That is another poll, not a failure.
-    const held = () => {
-      try {
-        return JSON.parse(readFileSync(stored, 'utf8'));
-      } catch {
-        return null;
-      }
-    };
 
     await settings().update('newSession.prompt', PROMPT, vscode.ConfigurationTarget.Global);
 
-    const deadline = Date.now() + 20_000;
-
-    for (;;) {
-      const config = held();
-
-      if (config?.newSession?.prompt === PROMPT) {
-        return;
-      }
-
-      assert.ok(Date.now() < deadline, `the hub never stored the prompt; it holds ${JSON.stringify(config?.newSession)}`);
-      await new Promise((done) => setTimeout(done, 100));
-    }
+    await untilStored((config) => config.newSession?.prompt === PROMPT, 'the hub never stored the prompt');
   });
 
   /**

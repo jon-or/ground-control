@@ -30,7 +30,7 @@ describe('the placement table', () => {
   });
 
   /**
-   * §48: Claude's start is the reveal's own command with the session slot left empty, so the webview mints an id
+   * §51: Claude's start is the reveal's own command with the session slot left empty, so the webview mints an id
    * rather than being handed one; Codex's is its own no-argument command, which no prompt can reach.
    */
   it('pins the whole of each agent’s start command, including the slot the prompt goes in', () => {

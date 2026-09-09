@@ -54,7 +54,7 @@ export type OpenRoute =
   // session id to hold it by and one is what stops a second click (R18).
   | { route: 'open-checkout'; key: string; root: string; newWindow: boolean }
   // A new session for the card, in the window performing this and no other: nothing can name a session that does
-  // not exist yet, so there is no way to hand one to another window (`docs/mechanics.md` §48). Keyed by the card.
+  // not exist yet, so there is no way to hand one to another window (`docs/mechanics.md` §51). Keyed by the card.
   | { route: 'start-session'; key: string; agent: string; root: string; prompt: string | null };
 
 /**

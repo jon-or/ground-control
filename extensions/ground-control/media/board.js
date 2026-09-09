@@ -865,9 +865,9 @@ function cardActions(boardCard) {
       run: () => vscode.postMessage({ type: 'openCheckout', key: boardCard.key }),
     });
 
-    // One item per agent this host has a way into. Which of them the window can actually start is settled on the
-    // click — the extension may not be installed, and a start runs only in a window already on the checkout.
-    for (const { agent, takesPrompt } of startable) {
+    // One item per agent this host has a way into, and none on a card that is not the developer's: an issue they
+    // are unassigned from is archived and read-only, which is the rule triage already follows.
+    for (const { agent, takesPrompt } of boardCard.unassigned === true ? [] : startable) {
       actions.push({
         label: `Start ${agentTitle(agent)} session`,
         hint: takesPrompt
@@ -1609,6 +1609,12 @@ function signature(boardCard) {
     boardCard.triage,
     boardCard.action,
     boardCard.issue,
+    // Everything the menu branches on. A folder just picked changes only the source, a worktree deleted under a
+    // card only the root, and an assignment dropped from a card already archived changes neither.
+    boardCard.checkout?.root ?? null,
+    boardCard.checkout?.source ?? null,
+    boardCard.unassigned ?? false,
+    startable.length,
     boardCard.lastSession,
     boardCard.lastSession ? openable.has(boardCard.lastSession.sessionId) : false,
     // The phase, not the activity: `since` moves at every turn, and including it would rebuild the card each time -

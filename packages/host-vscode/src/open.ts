@@ -249,7 +249,7 @@ export function planCheckout(request: CheckoutRequest, mayOpenWindow: boolean): 
  *
  * A start runs in the window performing it and nowhere else. Every other elsewhere route hands a session id to the
  * window it raises, and there is no id to hand: the agent mints one when the session appears (`docs/mechanics.md`
- * §48), so nothing can name in advance the session another window would be asked to open. The remedy is the other
+ * §51), so nothing can name in advance the session another window would be asked to open. The remedy is the other
  * verb — open the checkout, and the board in that window offers the start.
  */
 export function planStart(request: StartRequest, placements: Readonly<Record<string, AgentPlacement>>): OpenPlan {

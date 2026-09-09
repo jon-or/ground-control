@@ -128,6 +128,7 @@ interface Control {
   report(body: unknown): void;
   cardAction(): Snapshot['lanes'][number]['cards'][number]['action'];
   key(): string;
+  cardCheckout(): Snapshot['lanes'][number]['cards'][number]['checkout'];
 }
 
 /** A session on the card, which is what a dispatched run becomes and the directory the card's checkout is read from. */
@@ -211,6 +212,7 @@ function harness(
     },
     cardAction: () => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]?.action,
     key: () => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key,
+    cardCheckout: () => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]?.checkout,
   };
 
   const source: WorkSource = {
@@ -609,7 +611,39 @@ describe('what the board refuses to act on', () => {
     expect(control.cardAction()).toEqual({
       state: 'refused',
       action: 'merge-upstream',
-      reason: 'The board has no checkout for this card. Choose the folder its work happens in.',
+      reason: 'The board has no checkout an agent has worked in for this card.',
+    });
+  });
+
+  /**
+   * A folder the developer pointed at is authority for a window and for a session they are watching (R41, R42), and
+   * not for the board editing their code unwatched — which since master's default is `auto` would accept every
+   * prompt it met. So the runner narrows the card's checkout to one an agent has actually run in.
+   */
+  it('refuses a card whose only checkout is a folder the developer picked, never having run there', async () => {
+    const control = harness();
+    control.history = [];
+    watch(control);
+    await control.pass();
+
+    // A real checkout of the card's own repository, which is what `setCheckout` stores and `checkoutFor` re-checks.
+    // Written after the first pass, because the key it is stored against is the card's and the card comes off that.
+    const picked = join(home, 'picked-by-hand');
+    mkdirSync(join(picked, '.git'), { recursive: true });
+    writeFileSync(join(picked, '.git', 'config'), '[remote "origin"]\n url = https://github.com/example-org/example-repo.git');
+    makeCheckoutStore(home).write(control.key(), picked.replace(/\\/g, '/'));
+
+    control.dispatched.length = 0;
+    await control.pass();
+
+    // Named, so this cannot pass by the pick never having reached the card at all.
+    expect(control.cardCheckout()).toEqual({ root: picked.replace(/\\/g, '/'), source: 'remembered', only: true });
+
+    expect(control.dispatched).toEqual([]);
+    expect(control.cardAction()).toEqual({
+      state: 'refused',
+      action: 'merge-upstream',
+      reason: 'The board has no checkout an agent has worked in for this card.',
     });
   });
 

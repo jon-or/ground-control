@@ -52,7 +52,7 @@ export interface AgentPlacement {
   reveal(sessionId: string): CommandCall;
   /**
    * Starts a new session in the window it is fired in, prefilled with the prompt and unsent (`docs/mechanics.md`
-   * §48). Absent for an agent whose extension registers no way in, which is the whole of what `no-agent` means.
+   * §51). Absent for an agent whose extension registers no way in, which is the whole of what `no-agent` means.
    */
   start?(prompt: string | null): CommandCall;
   /** Whether `start` puts the prompt in the new session. False where the agent's only way in takes no arguments. */
@@ -104,7 +104,7 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     idempotentReveal: false,
     reveal: (sessionId) => ({ command: 'claude-vscode.primaryEditor.open', args: [{ kind: 'text', value: sessionId }] }),
     // The same command with the session slot empty: the webview looks for the id it was given, finds none, and mints
-    // one of its own — which is why a start cannot be named in advance (§48). `editor.open` would rewrite the
+    // one of its own — which is why a start cannot be named in advance (§51). `editor.open` would rewrite the
     // developer's preferred location as a side effect, so the reveal's command is the start's too (§6).
     start: (prompt) => ({
       command: 'claude-vscode.primaryEditor.open',
@@ -133,7 +133,7 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     processName: 'codex.exe',
     idempotentReveal: true,
     reveal: (sessionId) => ({ command: 'vscode.open', args: [{ kind: 'uri', value: `${CODEX_SCHEME}://route${CODEX_LOCAL}${sessionId}` }] }),
-    // Codex's own command for a fresh panel, which takes no arguments at all (§48) — so a Codex session starts bare
+    // Codex's own command for a fresh panel, which takes no arguments at all (§51) — so a Codex session starts bare
     // and the prompt is dropped rather than half-applied. `startTakesPrompt` is what the menu item says so from.
     start: () => ({ command: 'chatgpt.newCodexPanel', args: [] }),
     startTakesPrompt: false,

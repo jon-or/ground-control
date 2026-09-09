@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { ACTION_REVISION, DEFAULT_ACTIONS, fillTemplate, isAutomatable } from '@ground-control/core';
-import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource } from '@ground-control/core';
+import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, CardCheckout, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource } from '@ground-control/core';
 import {
   actionEnabled,
   alreadyRun,
@@ -51,6 +51,14 @@ export interface ActionDeps {
 
 /** How long a dispatch is given to print the id it minted. `--bg` returns as soon as it has (`mechanics.md` §33). */
 const DISPATCH_TIMEOUT_MS = 60_000;
+
+/**
+ * The card's checkout, but only where an agent has actually run in it. A folder the developer picked is evidence
+ * enough to open a window or start a session they are watching (R41, R42) — not to edit code unattended (R39).
+ */
+function ranIn(card: LanedCard): CardCheckout | null {
+  return card.checkout?.source === 'session' ? card.checkout : null;
+}
 
 /**
  * Performs the one card action the board is willing to perform rather than only label (R39). It owns nothing the
@@ -318,8 +326,8 @@ export class ActionRunner {
       return 'Something is already working on this card.';
     }
 
-    if (card.checkout === undefined) {
-      return 'The board has no checkout for this card. Choose the folder its work happens in.';
+    if (ranIn(card) === null) {
+      return 'The board has no checkout an agent has worked in for this card.';
     }
 
     return promptFor(action, this.#settings) === null
@@ -359,7 +367,7 @@ export class ActionRunner {
           // Checked before the read rather than in the plan. A card with no checkout can never be acted on, so
           // asking GitHub about it is waste — and the board's history lands after its roster, so a refusal recorded
           // on the pass in between would gate a perfectly eligible card for the whole gate window.
-          card.checkout !== undefined &&
+          ranIn(card) !== null &&
           card.sessions.length === 0 &&
           gateOpen(state, card.key, now)
         ) {
@@ -499,7 +507,7 @@ export class ActionRunner {
         context: reading.context,
         lane: card.lane,
         liveSessions: card.sessions.length,
-        checkout: card.checkout ?? null,
+        checkout: ranIn(card),
         settings: this.#settings,
       });
 
