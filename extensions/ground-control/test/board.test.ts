@@ -2310,6 +2310,21 @@ describe('card triage (R38)', () => {
   });
 
   it.each([
+    { state: 'done', action: 'develop', qualifier: null, detail: 'Saved result.', at, stale: false },
+    { state: 'failed', attempts: 1, exhausted: false },
+  ] satisfies NonNullable<LanedCard['triage']>[])('retains archived $state state without classification controls', (triage) => {
+    const entry = { ...triaged(triage, '2026-09-01T19:00:00Z'), lane: 'archived' as const };
+    send(message({ lanes: lanes({ archived: [entry] }), triage: { mode: 'manual', message: null, canRequest: true } }));
+    toggleArchived();
+    expect(chip()).not.toBeNull();
+    expect(chip()?.textContent).toContain(triage.state === 'done' ? 'Develop' : 'Not read');
+    expect(document.querySelector('.triage-again, .triage-read')).toBeNull();
+    api.postMessage.mockClear();
+    chip()?.click();
+    expect(sent()).toEqual([]);
+  });
+
+  it.each([
     { state: 'failed', attempts: 5, exhausted: true },
     { state: 'failed', attempts: 1, exhausted: false },
     { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: false },
@@ -2329,6 +2344,8 @@ describe('card triage (R38)', () => {
   it.each([
     ['off', 'Triage is off.', false],
     ['manual', 'Triage is manual.', true],
+    ['manual', 'No enabled agent supports card classification.', false],
+    ['automatic', 'No configured source can provide card conversations.', false],
     ['automatic', 'Automatic triage reached its daily limit.', true],
   ] as const)('shows the %s diagnostic as a neutral notice', (mode, text, canRequest) => {
     send(message({ triage: { mode, message: text, canRequest } }));

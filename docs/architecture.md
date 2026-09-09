@@ -185,6 +185,8 @@ Retain five settings backups per agent. Best-effort cleanup removes markers olde
 
 New configurations default to manual triage. Normalize legacy enabled to automatic/off when mode is absent; explicit mode wins. The editor distinguishes an unset legacy key from an explicit choice before sending configuration. Snapshot triage state supplies mode, request capability, and an informational message to both clients; Chrome cannot send classification requests.
 
+The hub passes configured, accepted source IDs to the triage runner. Classification requires an enabled adapter with `classify` and an accepted source with `readContext`; registered but omitted/refused sources cannot provide it. Derive missing capability on every status read and distinguish it from missing/ineligible cards in manual refusals. Loss of capability cancels pending reads. No model-use announcement or usage reservation precedes capability resolution.
+
 The runner reserves automatic attempts synchronously in `triage-usage.json` before source reads, default 100 per rolling 24 hours. Failed and cancelled attempts count; manual requests do not. Preserve future timestamps after clock rollback. Reject automatic starts if the record is corrupt or cannot be written; repair the record and restart the hub to clear a failed-write latch. Reading results and retry state cannot reset the allowance. Off aborts all readings, while manual aborts only automatic readings; check cancellation before invoking the classifier after an asynchronous source read.
 
 Two values have different purposes:

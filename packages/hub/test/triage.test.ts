@@ -17,6 +17,7 @@ import type {
 } from '@ground-control/core';
 import { triageJsonSchema } from '@ground-control/board';
 import { Hub } from '../src/hub.js';
+import type { Registries } from '../src/registry.js';
 import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
@@ -72,6 +73,7 @@ function contextOf(card: IssueCard): TriageContext {
 }
 
 interface Control {
+  registries: Registries;
   hub: Hub;
   /** What the hub wrote down, message only. Reading a card spends the developer's usage, so it leaves a record. */
   logged: string[];
@@ -105,6 +107,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
   const logging = captureLog();
 
   const control: Control = {
+    registries: { agents: [], hosts: [], sources: [] },
     hub: undefined as unknown as Hub,
     logged: logging.messages,
     clock,
@@ -196,6 +199,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
   };
 
   const registries = { agents: [classifying], hosts: [], sources: [source] };
+  control.registries = registries;
 
   control.hub = new Hub({
     clock: clock.clock,
@@ -611,6 +615,102 @@ describe('triage modes and automatic allowance', () => {
     control.hub.receive({ id: 'board' }, { type: 'retriage', key: keyOf(control) });
     await control.settle();
     expect(control.classified).toHaveLength(1);
+  });
+});
+
+describe('classification capability', () => {
+  const limits = { enabled: true, mode: 'automatic' as const, concurrency: 2, timeoutMs: 60_000, names: {} };
+  const keyOf = (control: Control) => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+
+  it('refuses deliberate readings of archived issues', async () => {
+    const control = harness({}, [issue({ status: 'Backlog' })]);
+    const notices: string[] = [];
+    control.hub.connect({ id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+      if (message.type === 'notice') notices.push(message.message);
+    });
+    await control.pass();
+    expect(control.snapshot().lanes.find((lane) => lane.id === 'archived')?.cards).toHaveLength(1);
+    control.hub.receive({ id: 'board' }, { type: 'retriage', key: keyOf(control) });
+    expect(notices.at(-1)).toContain('Only assigned issues on active lanes');
+    expect(control.contexts).toEqual([]);
+  });
+
+  it('explains absent classification in a Codex-only configuration without announcing or charging usage', async () => {
+    const control = harness();
+    const notices: string[] = [];
+    control.hub.configure({ ...hubConfig(limits), agents: [{ id: 'codex', path: 'codex-cli' }] });
+    control.hub.connect({ id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+      if (message.type === 'notice') notices.push(message.message);
+    });
+    await control.pass();
+    expect(control.classified).toEqual([]);
+    expect(control.contexts).toEqual([]);
+    expect(control.snapshot().triage).toMatchObject({ canRequest: false });
+    expect(control.snapshot().triage?.message).toContain('No enabled agent supports card classification');
+    expect(notices).toEqual([]);
+    control.hub.receive({ id: 'board' }, { type: 'retriage', key: keyOf(control) });
+    expect(notices.at(-1)).toContain('No enabled agent supports card classification');
+    expect(() => readFileSync(join(groundControlDirOf(home), 'triage-usage.json'))).toThrow();
+
+    control.hub.configure(hubConfig(limits));
+    await control.pass();
+    expect(control.snapshot().triage?.canRequest).toBe(true);
+    expect(control.classified).toHaveLength(1);
+  });
+
+  it('handles an empty adapter registry without losing card state', async () => {
+    const control = harness();
+    // The runner and hub retain this registry array; remove all adapters in the isolated harness.
+    (control.registries.agents as AgentAdapter[]).splice(0);
+    watch(control.hub);
+    await control.pass();
+    expect(keyOf(control)).toBe('issue:17198');
+    expect(control.snapshot().triage?.canRequest).toBe(false);
+    expect(control.classified).toEqual([]);
+  });
+
+  it('distinguishes a missing card from an unavailable conversation source', async () => {
+    const control = harness();
+    control.hub.configure(hubConfig({ ...limits, mode: 'manual' }));
+    const notices: string[] = [];
+    control.hub.connect({ id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+      if (message.type === 'notice') notices.push(message.message);
+    });
+    await control.pass();
+    delete control.registries.sources[0]!.readContext;
+    control.hub.configure(hubConfig(limits));
+    expect(control.snapshot().triage?.message).toContain('No configured source can provide card conversations');
+    control.hub.receive({ id: 'board' }, { type: 'retriage', key: keyOf(control) });
+    expect(notices.at(-1)).toContain('No configured source can provide card conversations');
+    control.hub.receive({ id: 'board' }, { type: 'retriage', key: 'missing' });
+    expect(notices.at(-1)).toContain('no longer on the board');
+    expect(control.contexts).toEqual([]);
+  });
+
+  it('does not retain omitted or rejected sources as classification providers', async () => {
+    const control = harness();
+    control.hub.configure({ ...hubConfig(limits), sources: {} });
+    expect(control.snapshot().triage?.canRequest).toBe(false);
+    expect(control.snapshot().triage?.message).toContain('No configured source');
+    control.registries.sources[0]!.configure = () => ({ subject: 'github', kind: 'bad-config', message: 'invalid source', remedy: 'correct it' });
+    control.hub.configure(hubConfig(limits));
+    watch(control.hub);
+    await control.pass();
+    expect(control.snapshot().triage?.canRequest).toBe(false);
+    expect(control.contexts).toEqual([]);
+  });
+
+  it('cancels pending readings when the classifier is disabled', async () => {
+    const control = harness();
+    control.hold = () => undefined;
+    watch(control.hub);
+    await control.pass();
+    expect(control.classified).toHaveLength(1);
+    control.hub.configure({ ...hubConfig(limits), agents: [{ id: 'codex', path: 'codex-cli' }] });
+    await control.settle();
+    expect(control.classified[0]!.signal.aborted).toBe(true);
+    expect(triageOf(control.snapshot())).toBeUndefined();
+    expect(control.snapshot().triage?.canRequest).toBe(false);
   });
 });
 

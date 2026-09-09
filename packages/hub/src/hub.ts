@@ -229,7 +229,7 @@ export class Hub {
       changed: () => this.#broadcast(),
       announce: (message) => this.#notifyTriageOnce(message),
     });
-    this.#triage.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes);
+    this.#triage.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources());
     this.#actions = new ActionRunner({
       home: deps.home,
       store: deps.actions,
@@ -696,7 +696,6 @@ export class Hub {
   /** Configure each adapter and report unknown IDs (R25). */
   #applyConfig(): ReadFailure[] {
     this.#deps.log.setLevel(this.#config.logLevel);
-    this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes);
     this.#actions?.configure(this.#config.actions, this.#config.agents);
 
     const refused = configureSources(this.#deps.registries, this.#config.sources);
@@ -711,8 +710,13 @@ export class Hub {
     }
 
     this.#sourcesRefused = refused;
+    this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources());
 
     return [...configureHosts(this.#deps.registries, this.#config.hosts), ...refused];
+  }
+
+  #triageSources(): ReadonlySet<string> {
+    return new Set(Object.keys(this.#config.sources).filter((id) => !this.#sourcesRefused.some((failure) => failure.subject === id)));
   }
 
   /** Cache completed activity installation results. Retry busy results because another process held the lock (R25). */

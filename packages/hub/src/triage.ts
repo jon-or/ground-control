@@ -63,6 +63,7 @@ export class TriageRunner {
   /** Use the same status mapping as lane assignment (R38). */
   #statusLanes: Readonly<Record<string, LaneId>> = {};
   #agentPaths = new Map<string, { path: string; model: string | null }>();
+  #sourceIds: ReadonlySet<string> = new Set();
   #disposed = false;
   #considering = false;
   /** Deliberately cancelled keys do not count as failed attempts. */
@@ -75,13 +76,15 @@ export class TriageRunner {
 
   status(): NonNullable<Snapshot['triage']> {
     const mode = triageMode(this.#settings);
+    const capability = this.#capabilityFailure();
     const count = this.#usage.read(this.#deps.now());
     let message: string | null = null;
     if (mode === 'off') message = 'Card triage is off.';
+    else if (capability !== null) message = `${capability.message} ${capability.remedy}`;
     else if (mode === 'manual') message = 'Card triage is manual. Request a reading in VS Code.';
     else if (this.#usageFailed || count === null) message = 'Automatic triage paused because its usage record could not be read or saved. Repair triage-usage.json in the Ground Control state directory and restart the hub. Manual requests remain available.';
     else if (count.length >= (this.#settings.dailyLimit ?? 100)) message = 'Automatic triage limit reached for the rolling 24-hour window. Manual requests remain available.';
-    return { mode, message, canRequest: mode !== 'off' };
+    return { mode, message, canRequest: mode !== 'off' && capability === null };
   }
 
   /** Card keys currently being classified. */
@@ -109,12 +112,14 @@ export class TriageRunner {
     settings: TriageSettings,
     agents: readonly { id: string; path: string; model?: string | undefined }[],
     statusLanes: Readonly<Record<string, LaneId>>,
+    sourceIds: ReadonlySet<string>,
   ): void {
     this.#settings = settings;
     this.#statusLanes = statusLanes;
     this.#agentPaths = new Map(agents.map((agent) => [agent.id, { path: agent.path, model: agent.model ?? null }]));
+    this.#sourceIds = sourceIds;
 
-    if (triageMode(settings) === 'off') {
+    if (triageMode(settings) === 'off' || this.#capabilityFailure() !== null) {
       this.#standDown();
     } else if (triageMode(settings) === 'manual') {
       this.#standDown(this.#automatic);
@@ -149,7 +154,7 @@ export class TriageRunner {
       for (const key of waiting.slice(0, free)) {
         const due = this.#dueOf(lanes, key);
 
-        if (due !== null) {
+        if (!('kind' in due)) {
           const reserved = this.#usage.reserve(this.#deps.now(), this.#settings.dailyLimit ?? 100);
           if (reserved !== 'reserved') {
             this.#usageFailed = reserved === 'unavailable';
@@ -166,17 +171,15 @@ export class TriageRunner {
 
   /** Validate and rate-limit manual card triage requests. */
   retriage(lanes: readonly Lane[], key: string): ReadFailure | null {
-    const due = this.#dueOf(lanes, key);
     const asked = this.#asked.get(key) ?? 0;
     const now = this.#deps.now();
-
-    if (due === null) {
-      return refusal('triage-unknown-card', 'This card is no longer on the board.');
-    }
 
     if (triageMode(this.#settings) === 'off') {
       return refusal('triage-disabled', 'Card triage is turned off in Settings.');
     }
+
+    const due = this.#dueOf(lanes, key);
+    if ('kind' in due) return due;
 
     if (this.#disposed) {
       return refusal('triage-stopping', 'The board is shutting down.');
@@ -218,21 +221,34 @@ export class TriageRunner {
     }
   }
 
-  /** Resolve the card, agent, and source, or return null if any is unavailable. */
-  #dueOf(lanes: readonly Lane[], key: string): Due | null {
-    const card = lanes.flatMap((lane) => lane.cards).find((c) => c.key === key)?.issue;
+  #source(): WorkSource | undefined {
+    return this.#deps.sources.find((source) => source.readContext !== undefined && this.#sourceIds.has(source.id));
+  }
 
-    if (!card) {
-      return null;
+  #capabilityFailure(): ReadFailure | null {
+    if (!this.#deps.agents.some((agent) => agent.classify !== undefined && this.#agentPaths.has(agent.id))) {
+      return { ...refusal('triage-no-classifier', 'No enabled agent supports card classification.'), remedy: 'Enable Claude in groundControl.agents to use triage; session discovery remains available.' };
     }
+    if (!this.#source()) {
+      return { ...refusal('triage-no-source', 'No configured source can provide card conversations.'), remedy: 'Enable and configure a supported source in Settings to use triage.' };
+    }
+    return null;
+  }
 
-    const source = this.#deps.sources.find((s) => s.readContext !== undefined);
+  /** Resolve card eligibility independently of classifier and source capability. */
+  #dueOf(lanes: readonly Lane[], key: string): Due | ReadFailure {
+    const row = lanes.flatMap((lane) => lane.cards).find((card) => card.key === key);
+    if (!row) return refusal('triage-unknown-card', 'This card is no longer on the board.');
+    if (!row.issue || row.issueNumber === null || row.unassigned || row.lane === 'archived' || key.startsWith('session:')) {
+      return refusal('triage-ineligible-card', 'Only assigned issues on active lanes can be classified.');
+    }
+    const unavailable = this.#capabilityFailure();
+    if (unavailable !== null) return unavailable;
+
+    const source = this.#source()!;
     const agent = this.#deps.agents.find((a) => a.classify !== undefined && this.#agentPaths.has(a.id));
-    const configured = agent ? this.#agentPaths.get(agent.id) : undefined;
-
-    return source && agent && configured
-      ? { key, card, agent, source, path: configured.path, model: configured.model }
-      : null;
+    const configured = this.#agentPaths.get(agent!.id)!;
+    return { key, card: row.issue, agent: agent!, source, path: configured.path, model: configured.model };
   }
 
   #start(due: Due): void {

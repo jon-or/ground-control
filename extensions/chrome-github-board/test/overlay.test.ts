@@ -1297,6 +1297,8 @@ describe('what went wrong, as a toast', () => {
   it.each([
     ['off', 'Triage is off.', false],
     ['manual', 'Triage is manual.', true],
+    ['manual', 'No enabled agent supports card classification.', false],
+    ['automatic', 'No configured source can provide card conversations.', false],
     ['automatic', 'Automatic triage reached its daily limit.', true],
   ] as const)('shows the %s diagnostic as a neutral notice', (mode, message, canRequest) => {
     const updated = state({ snapshot: snapshot({ triage: { mode, message, canRequest } }) });

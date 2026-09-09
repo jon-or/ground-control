@@ -96,6 +96,14 @@ describe('what this window pushes to the hub', () => {
     await untilSnapshot((s) => s.triage?.mode === 'manual' && s.triage.canRequest, 'manual capability was not displayed');
   });
 
+  it('reports absent classification for Codex-only settings and clears it when Claude is restored', async () => {
+    await settings().update('agents', { codex: 'codex-not-on-this-path' }, vscode.ConfigurationTarget.Global);
+    await untilSnapshot((s) => s.triage?.canRequest === false && s.triage.message.includes('No enabled agent'),
+      'Codex-only settings did not explain missing classification');
+    await settings().update('agents', OFFLINE_AGENTS, vscode.ConfigurationTarget.Global);
+    await untilSnapshot((s) => s.triage?.canRequest === true, 'restoring Claude did not clear missing capability');
+  });
+
   /** Unknown host and source IDs must produce named failures in hub state. */
   it('carries an editor id the board does not know through to the lanes', async () => {
     await settings().update('hosts', ['not-an-editor'], vscode.ConfigurationTarget.Global);

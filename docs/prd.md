@@ -262,6 +262,8 @@ Automatic attempts have a persisted rolling 24-hour limit, default 100 and confi
 
 Triage sends issue/PR text, recent comments, identities, review information, and status/assignment history to the configured model service and uses the developer's allowance. Classifier sessions have no tools, MCP servers, developer settings, or saved conversation visible to the board.
 
+Only Claude currently provides classification. Report absent classifier or configured conversation source separately from missing/ineligible cards and disabled mode. Both clients display the missing capability and the editor removes request controls until it is restored. Do not announce model use or reserve automatic attempts without an available classifier and source. Removing required capability cancels pending readings while preserving prior results and session discovery.
+
 ### R39. Merge-upstream action
 
 The only implemented unattended card action merges a PR's base branch into its head. It is disabled by default and requires a developer-supplied prompt. Supply issue, repository, PR, branches, and checkout facts to that prompt; do not define the repository's build, test, push, or commenting policy.
