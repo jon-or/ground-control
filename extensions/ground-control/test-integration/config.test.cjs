@@ -161,3 +161,66 @@ describe('what this window pushes to the hub', () => {
     );
   });
 });
+
+/**
+ * What a card needs before it can be given a session (R42). Both halves cross the `vscode` boundary and so are
+ * reachable nowhere else: `readHubConfig` reads the setting out of the workspace configuration, and `startable`
+ * is the host adapter's own answer, finished per client and read back off this window's snapshot.
+ */
+describe('what this window is told about starting a session on a card', () => {
+  afterEach(async () => {
+    await settings().update('newSession.prompt', undefined, vscode.ConfigurationTarget.Global);
+  });
+
+  /**
+   * Read back out of the hub's own `config.json`, which is the only place the prompt is observable: it reaches a
+   * session rather than a snapshot, and this run has no cards to start one on. A value the schema stripped or the
+   * window never sent reads as the shipped empty string.
+   */
+  it('carries the new-session prompt to the hub with its placeholders intact', async () => {
+    const PROMPT = 'Work on #{issue} in {checkout}.';
+    const stored = join(process.env.GC_TEST_HOME, '.claude', 'ground-control', 'config.json');
+
+    // Never throws: a rename the hub could not make over a file this loop holds open falls back to a write in
+    // place, so a read can land on a truncated document. That is another poll, not a failure.
+    const held = () => {
+      try {
+        return JSON.parse(readFileSync(stored, 'utf8'));
+      } catch {
+        return null;
+      }
+    };
+
+    await settings().update('newSession.prompt', PROMPT, vscode.ConfigurationTarget.Global);
+
+    const deadline = Date.now() + 20_000;
+
+    for (;;) {
+      const config = held();
+
+      if (config?.newSession?.prompt === PROMPT) {
+        return;
+      }
+
+      assert.ok(Date.now() < deadline, `the hub never stored the prompt; it holds ${JSON.stringify(config?.newSession)}`);
+      await new Promise((done) => setTimeout(done, 100));
+    }
+  });
+
+  /**
+   * What only a real host settles: that this window's hello declares `start-session` among the routes it can
+   * perform, and that the hub answers it from the real `vscode` adapter. Which agents the table holds, and in what
+   * order, is pinned in `packages/host-vscode`.
+   */
+  it('is offered a start for the agent it places, rather than the empty list a browser gets', async () => {
+    const { startable } = await untilSnapshot(
+      (s) => s.startable.length > 0,
+      'no snapshot ever named an agent this window can start',
+    );
+
+    assert.ok(
+      startable.some((offered) => offered.agent === 'claude'),
+      `expected Claude among the startable agents, got ${JSON.stringify(startable)}`,
+    );
+  });
+});

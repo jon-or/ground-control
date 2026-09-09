@@ -130,7 +130,7 @@ interface Control {
   key(): string;
 }
 
-/** A session on the card, which is what a dispatched run becomes and what `checkoutOf` reads the directory from. */
+/** A session on the card, which is what a dispatched run becomes and the directory the card's checkout is read from. */
 function sessionOn(over: Partial<Session> = {}): Session {
   return fakeSession({ sessionId: 'a1b2c3d4-0000-4000-8000-000000000000', cwd: CHECKOUT, issueNumber: 17198, ...over });
 }

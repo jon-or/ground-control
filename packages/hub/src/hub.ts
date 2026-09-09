@@ -591,6 +591,12 @@ export class Hub {
     // A card whose window is on its way is not asked for again. `raise` waits up to 12s for focus, and the browser
     // is a surface where a script can fire every card's item at once — thirty cards would be thirty `code` spawns.
     if (this.#opening.has(key)) {
+      // Said to a developer who clicked twice, and not to a page that fired thirty: a notice per item would be
+      // thirty warnings for something they did not do.
+      if (client.hello.hostId !== null) {
+        client.send({ type: 'notice', level: 'info', message: 'That window is already being opened. Give it a moment to come forward.' });
+      }
+
       return;
     }
 

@@ -17,12 +17,6 @@ function checkoutDir(session: Session): string {
   return session.checkoutRoot ?? session.cwd;
 }
 
-/** `only` is false where the card's sessions are spread over more than one checkout, and one of them was picked. */
-export interface Checkout {
-  cwd: string;
-  only: boolean;
-}
-
 /**
  * The directory a card's work is being done in, or null where the card has no session to read one from. Never
  * guessed from a branch or an issue number: a session records where it runs, and a second answer for the same
@@ -41,13 +35,6 @@ function ranked(card: Pick<BoardCard, 'sessions' | 'lastSession'>): string[] {
 
   // `lastSession` is carried only by a card with no live sessions, so it is the other case rather than a fallback.
   return order.length > 0 ? order.map(checkoutDir) : card.lastSession ? [card.lastSession.cwd] : [];
-}
-
-function checkoutOf(card: Pick<BoardCard, 'sessions' | 'lastSession'>): Checkout | null {
-  const dirs = ranked(card);
-  const [cwd] = dirs;
-
-  return cwd === undefined ? null : { cwd, only: new Set(dirs.map(dirKey)).size < 2 };
 }
 
 /**
