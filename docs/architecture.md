@@ -133,7 +133,7 @@ Codex activity markers remain in shared state and include a profile root. Reader
 | Activity batch | 150 ms, fixed from first event |
 | Source page timeout | 30 seconds |
 | Per-card context page timeout | 20 seconds |
-| Zero-client exit | 30 minutes |
+| Zero-client exit | `idleExitMs`, default 30 minutes, clamped 1 minute–24 hours, checked at most once a minute |
 
 Configuration clamps source polling to at least 30 seconds and session polling to at least 2 seconds. These bounds are separate from the hub's read-coalescing and visibility floors.
 

@@ -45,9 +45,6 @@ export function makeHub(log: Logger, home: string = homedir(), stateDir: string 
   );
 }
 
-/** Exit after 30 minutes without clients; opening a board starts a new hub (R35). */
-export const IDLE_EXIT_MS = 30 * 60 * 1000;
-
 export interface ServeOptions {
   home?: string;
   /** Default: the home's pointer, or its bootstrap directory. */
@@ -110,7 +107,8 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   const resolved = resolveStateDir(home);
   const stateDir = options.stateDir ?? resolved.stateDir;
   const exit = options.exit ?? ((code: number) => process.exit(code));
-  const idleMs = Number.isFinite(options.idleMs) ? (options.idleMs as number) : IDLE_EXIT_MS;
+  // A CLI or test override wins; otherwise the configured window, read per tick so a settings change applies live.
+  const override = Number.isFinite(options.idleMs) ? (options.idleMs as number) : null;
 
   sanitizeEnvironment();
   mkdirSync(stateDir, { recursive: true });
@@ -239,13 +237,15 @@ export async function serveHub(options: ServeOptions): Promise<ServeResult> {
   // Forced Windows termination skips cleanup (M25); clients must probe for liveness instead of trusting this file.
   process.on('exit', unclaim);
 
+  const idleMs = (): number => override ?? hub.idleExitMs();
+
   idle = setInterval(() => {
     const since = server.emptySince();
 
-    if (since !== null && Date.now() - since >= idleMs) {
-      void stop('nobody has been watching').then(() => exit(0));
+    if (since !== null && Date.now() - since >= idleMs()) {
+      void stop('nobody has been connected').then(() => exit(0));
     }
-  }, Math.max(200, Math.min(60_000, idleMs)));
+  }, Math.max(200, Math.min(60_000, idleMs())));
   idle.unref();
 
   log.info(`listening on 127.0.0.1:${server.port} as pid ${process.pid}, state in ${stateDir}`);

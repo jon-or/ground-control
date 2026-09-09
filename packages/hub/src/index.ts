@@ -35,7 +35,7 @@ export type { HubIdentity, HubRecord, LiveHub } from './discover.js';
 export { LOGS_KEPT, LOG_LIMIT_BYTES, openLog, rotateLog } from './log.js';
 export { BACKFILL_BYTES, fileSink, makeLogger, readLogTail } from './logger.js';
 export type { LoggerDeps } from './logger.js';
-export { IDLE_EXIT_MS, makeHub, sanitizeEnvironment, serveHub, spawnEnvironment } from './serve.js';
+export { makeHub, sanitizeEnvironment, serveHub, spawnEnvironment } from './serve.js';
 export type { ServeOptions, ServeResult, Served } from './serve.js';
 export {
   actionReportPathOf,

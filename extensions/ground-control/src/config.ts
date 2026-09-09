@@ -59,6 +59,8 @@ export function readHubConfig(userDir: string): HubConfig {
     refreshIntervalMs: refreshIntervalMs(),
     sessionIntervalMs: sessionIntervalMs(),
     logLevel: cfg.get<string>('logLevel', 'info') === 'debug' ? 'debug' : 'info',
+    // Minutes in settings, milliseconds in the hub; the hub clamps the window itself.
+    idleExitMs: minutesToMs(cfg.get<unknown>('idleExitMinutes', 30), 30),
     installActivity: installSessionHooks(),
     sessionHooks: {
       claude: cfg.get<boolean>('sessionHooks.claude', true),
@@ -142,6 +144,12 @@ export function readTriage(): HubConfig['triage'] {
 
 export function readBoardStatuses(): string[] {
   return boardStatuses(vscode.workspace.getConfiguration(SECTION).get<unknown>('boardStatuses'));
+}
+
+function minutesToMs(value: unknown, fallback: number): number {
+  const minutes = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+  return minutes * 60 * 1000;
 }
 
 /** A hand-edited settings.json can hold a string here, and setInterval(NaN) fires every millisecond. */

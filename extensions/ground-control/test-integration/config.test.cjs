@@ -76,6 +76,15 @@ describe('what this window pushes to the hub', () => {
     }
     await settings().update('github.projectOwner', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('github.statusField', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('idleExitMinutes', undefined, vscode.ConfigurationTarget.Global);
+  });
+
+  it('sends the idle exit window in milliseconds and lets the hub clamp it', async () => {
+    await untilStored((c) => c.idleExitMs === 30 * 60 * 1000, 'the default idle window never reached the hub');
+    await settings().update('idleExitMinutes', 2, vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.idleExitMs === 120_000, 'a two-minute window never reached the hub');
+    await settings().update('idleExitMinutes', 0, vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.idleExitMs === 60_000, 'a zero window was not lifted to the floor');
   });
 
   it('sends the project owner and status field to the hub', async () => {

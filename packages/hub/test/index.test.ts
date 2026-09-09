@@ -15,7 +15,6 @@ describe('the package public surface', () => {
       'HEARTBEAT_MS',
       'Hub',
       'HubTransport',
-      'IDLE_EXIT_MS',
       'LOCK_STALE_MS',
       'LOGS_KEPT',
       'LOG_LIMIT_BYTES',

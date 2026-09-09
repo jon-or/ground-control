@@ -122,7 +122,7 @@ A positive `actions.dailyLimit` applies to both automatic and manual starts over
 
 ## Background process and logs
 
-One hub serves both clients. It can continue serving Chrome after VS Code closes, stops polling when no board is visible, and exits after 30 minutes without connected clients.
+One hub serves both clients. It can continue serving Chrome after VS Code closes, stops polling when no board is visible, and exits after `idleExitMinutes` (Advanced, default 30, clamped to 1–1440 by the hub) without connected clients. An activated editor stays connected even with its board closed, so the window starts when the last editor or browser disconnects; a reconnection cancels it, and a changed value applies to a wait already in progress at the next check, which runs at most once a minute. Browser-started hubs use the stored value. Dispatched agent sessions are separate processes and are not stopped by hub exit.
 
 State and logs are stored under `~/.claude/ground-control/` unless moved with `stateDirectory`. **Logs** on the editor board and **Ground Control: Toggle Hub Log** toggle hub-log streaming. **Ground Control: Show Board Log** opens extension diagnostics. Chrome's **Show log** opens a sidebar with browser and hub lines.
 

@@ -1,8 +1,9 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync } from 'node:fs';
-import { bootstrapDirOf, formatStatePointer, statePointerPathOf } from '@ground-control/core';
+import { bootstrapDirOf, diskReaders, formatStatePointer, statePointerPathOf } from '@ground-control/core';
+import { defaultConfig, makeRegistries } from '../src/registry.js';
 import { LOGS_KEPT, rotateLog } from '../src/log.js';
 import { exitPathOf, hubJsonPathOf, logPathOf } from '../src/paths.js';
 import { fingerprintOf, probe } from '../src/discover.js';
@@ -245,8 +246,35 @@ describe('starting a hub for a home', () => {
     await new Promise((done) => setTimeout(done, 900));
 
     expect(exits).toEqual([0]);
-    expect(lines.join(' ')).toContain('nobody has been watching');
+    expect(lines.join(' ')).toContain('nobody has been connected');
     expect(await probe(hub.port, 200)).toBe('unreachable');
+  });
+
+  /** Browser-started hubs have no editor to tell them the window; the stored settings must carry it. */
+  it('follows the stored idle window when nothing overrides it, and a new window pushed later applies to the wait in progress', async () => {
+    const home = homeForThisTest();
+    const stateDir = bootstrapDirOf(home);
+
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(`${stateDir}/config.json`, JSON.stringify({ ...defaultConfig(makeRegistries(), diskReaders(home, stateDir)), idleExitMs: 3_600_000 }));
+
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+
+    try {
+      const { result, exits } = await serving(home);
+      const hub = served(result);
+
+      // Empty since it started, checked once a minute: after a tick it is still inside the stored hour.
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(exits).toEqual([]);
+
+      // Lowering the window to its floor makes the minute already served count at the next check.
+      hub.hub.configure({ ...defaultConfig(makeRegistries(), diskReaders(home, stateDir)), idleExitMs: 60_000 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.waitFor(() => expect(exits).toEqual([0]));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   /** The other half of R35, and the one a regression would cost a developer: a board open must keep the hub alive. */

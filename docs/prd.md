@@ -378,7 +378,7 @@ Leave writer files available for sessions that cached the old settings, so they 
 
 One hub per machine performs reads and maintains shared board state. Clients report whether a board is visible. Stop polling, activity reads, automatic triage, and automatic action starts when none is visible. Already dispatched processes continue independently. An activated editor remains connected for configuration changes even with its board closed.
 
-Exit after 30 minutes with no connected clients. Start on demand and remember accepted settings so the browser can use them without an editor running. Resolve the state directory from the bootstrap pointer at every start and connection attempt, and refuse to start while a state move is recorded.
+Exit after the configured no-client window: `idleExitMinutes`, default 30, clamped by the hub to one minute and one day; a non-numeric value keeps the default. Measure from the last disconnect, cancel on reconnection, and apply a changed value to the wait in progress. Start on demand and remember accepted settings so the browser can use them without an editor running. Resolve the state directory from the bootstrap pointer at every start and connection attempt, and refuse to start while a state move is recorded.
 
 A newly visible board receives cached issues if the previous source read is less than one minute old; otherwise request a read. This is a refresh floor, not a maximum age guarantee. Normal GitHub polling defaults to 300 seconds and session polling to 30 seconds. Manual refresh and relevant settings changes bypass the visibility floor. Display freshness accurately and retry transient failures.
 

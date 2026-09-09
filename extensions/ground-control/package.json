@@ -496,6 +496,15 @@
             ],
             "markdownDescription": "Browsers that **Enable GitHub Overlay** registers the native host for on this machine."
           },
+          "groundControl.idleExitMinutes": {
+            "scope": "application",
+            "type": "number",
+            "default": 30,
+            "minimum": 1,
+            "maximum": 1440,
+            "order": 3,
+            "markdownDescription": "Minutes the shared hub stays running after its last client disconnects; an activated editor counts as connected even with its board closed."
+          },
           "groundControl.logLevel": {
             "scope": "application",
             "type": "string",

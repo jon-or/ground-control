@@ -1544,6 +1544,11 @@ export class Hub {
     return this.#deps.lanes.read(this.#config.boardStatuses);
   }
 
+  /** Current no-client exit window; serveHub reads it on every idle tick so a settings change applies without restart. */
+  idleExitMs(): number {
+    return this.#config.idleExitMs;
+  }
+
   /** Build the board snapshot, retaining cached source data alongside read failures (R24). */
   snapshot(): Snapshot {
     const activity = this.#ensureActivity();

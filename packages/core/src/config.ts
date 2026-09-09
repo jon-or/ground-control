@@ -24,6 +24,8 @@ export interface HubConfig {
   statusLanes: Record<string, LaneId>;
   refreshIntervalMs: number;
   sessionIntervalMs: number;
+  /** How long the hub stays up after its last client disconnects. */
+  idleExitMs: number;
   sessionScope?: SessionScope;
   installActivity: boolean;
   /** Per-agent hook choices; omission permits hooks while installActivity remains authoritative. */
@@ -78,6 +80,11 @@ const laneId = z.enum(LANE_ORDER as [LaneId, ...LaneId[]]);
 /** Minimum polling intervals prevent repeated immediate reads. */
 const REFRESH_FLOOR_MS = 30_000;
 const SESSION_FLOOR_MS = 2_000;
+
+/** No-client exit window: default 30 minutes, clamped to one minute and one day. */
+export const DEFAULT_IDLE_EXIT_MS = 30 * 60 * 1000;
+export const IDLE_EXIT_FLOOR_MS = 60 * 1000;
+export const IDLE_EXIT_CEILING_MS = 24 * 60 * 60 * 1000;
 
 /** Bound automatic triage usage with timeout and concurrency limits. */
 const TRIAGE_TIMEOUT_FLOOR_MS = 10_000;
@@ -176,6 +183,13 @@ export const hubConfig = z.object({
   statusLanes: z.record(z.string(), laneId),
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
+  // A window under a minute would drop the hub between an editor reload and its reconnect; a non-number keeps the default.
+  idleExitMs: z
+    .number()
+    .finite()
+    .catch(DEFAULT_IDLE_EXIT_MS)
+    .default(DEFAULT_IDLE_EXIT_MS)
+    .transform((ms) => Math.min(IDLE_EXIT_CEILING_MS, Math.max(IDLE_EXIT_FLOOR_MS, ms))),
   sessionScope: sessionScopeSchema.default(DEFAULT_SESSION_SCOPE),
   agentHomes: z.record(z.string(), agentHomeSchema).optional(),
   installActivity: z.boolean(),

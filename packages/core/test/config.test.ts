@@ -23,6 +23,7 @@ function config(over: Partial<HubConfig> = {}): Record<string, unknown> {
     statusLanes: { '🔍 Dev Review': 'review' },
     refreshIntervalMs: 300_000,
     sessionIntervalMs: 30_000,
+    idleExitMs: 1_800_000,
     installActivity: true,
     ...over,
   };
@@ -119,6 +120,19 @@ describe('the cadences', () => {
 
     expect(kept.refreshIntervalMs).toBe(900_000);
     expect(kept.sessionIntervalMs).toBe(45_000);
+  });
+
+  /** A hub that leaves the moment an editor reloads would be restarted on every reload; a hub that never leaves is a leak. */
+  it('clamps the no-client exit window between a minute and a day, and defaults it when absent or not a number', () => {
+    expect(accepted(config({ idleExitMs: 5_000 })).idleExitMs).toBe(60_000);
+    expect(accepted(config({ idleExitMs: 48 * 60 * 60 * 1000 })).idleExitMs).toBe(24 * 60 * 60 * 1000);
+    expect(accepted(config({ idleExitMs: 120_000 })).idleExitMs).toBe(120_000);
+    expect(accepted(config({ idleExitMs: Number.NaN })).idleExitMs).toBe(30 * 60 * 1000);
+
+    const legacy = { ...config() } as Record<string, unknown>;
+
+    delete legacy['idleExitMs'];
+    expect(accepted(legacy).idleExitMs).toBe(30 * 60 * 1000);
   });
 
   it('refuses a cadence that is not a number the clock can use', () => {

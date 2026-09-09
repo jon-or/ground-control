@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
 import { killOnMachine, makeCodexAdapter, makeMachineStarter, makeTrustOnMachine, pidAliveOnMachine } from '@ground-control/agent-codex';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
-import { DEFAULT_ACTIONS, DEFAULT_NEW_SESSION, DEFAULT_SESSION_SCOPE, DEFAULT_TRIAGE, bootstrapDirOf } from '@ground-control/core';
+import { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_NEW_SESSION, DEFAULT_SESSION_SCOPE, DEFAULT_TRIAGE, bootstrapDirOf } from '@ground-control/core';
 import type { AgentAdapter, HostAdapter, HubConfig, Logger, MachineReaders, ReadFailure, WorkSource } from '@ground-control/core';
 import { makeGithubSource } from '@ground-control/github';
 import { makeVscodeHost } from '@ground-control/host-vscode';
@@ -77,6 +77,7 @@ export function defaultConfig(registries: Registries, readers: MachineReaders): 
     statusLanes: { ...DEFAULT_STATUS_LANES },
     refreshIntervalMs: REFRESH_INTERVAL_MS,
     sessionIntervalMs: SESSION_INTERVAL_MS,
+    idleExitMs: DEFAULT_IDLE_EXIT_MS,
     sessionScope: { ...DEFAULT_SESSION_SCOPE },
     installActivity: true,
     sessionHooks: {},

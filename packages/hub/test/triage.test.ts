@@ -243,6 +243,7 @@ function hubConfig(
     statusLanes,
     refreshIntervalMs: 300_000,
     sessionIntervalMs: 30_000,
+    idleExitMs: 1_800_000,
     newSession: { prompt: '' },
     installActivity: false,
     triage,
