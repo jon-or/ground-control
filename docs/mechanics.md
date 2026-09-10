@@ -2,7 +2,7 @@
 
 This document records experiments and source inspections relevant to Ground Control. Some support implemented features; others establish options or constraints for future work. A successful experiment is not a claim that the product implements it. Product scope is in the [requirements](prd.md), and current use is described in [architecture](architecture.md).
 
-Record IDs retain the experiment identifiers M1–M52, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
+Record IDs retain the experiment identifiers M1–M54, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
 
 Code references use these M IDs rather than the former numbered sections. A record grouped under a topic keeps its original ID. Source inspections of Ground Control distinguish current implementation from the external experiment; they do not re-verify the measured CLI or editor version.
 
@@ -662,7 +662,7 @@ Schema introspection on 2026-09-09: `IssueTimelineItemsItemType` lists `PROJECT_
 
 ### Conversation timeline reads
 
-**Record M50. API measurements, 2026-09-10, `gh` 2.83.0 against `ownerrez/orez`. Used by the reading panel (R43).**
+**Record M54. API measurements, 2026-09-10, `gh` 2.83.0 against `ownerrez/orez`. Used by the reading panel (R43).**
 
 `timelineItems.totalCount` counts entries its own connection does not return. On PR 19572, the reading panel's `itemTypes` list reports `totalCount: 14` while returning 8 nodes with `hasPreviousPage: false` and no nulls. `totalCount - nodes.length` therefore names events that cannot be fetched. Every clipping signal in the panel comes from `pageInfo` instead, and no count is displayed. Re-verify before using `totalCount` on any timeline connection.
 

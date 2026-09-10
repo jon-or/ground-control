@@ -208,7 +208,7 @@ export function mayOpenWindow(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('openWindowsForSessions', true);
 }
 
-/** Resume Claude worktree sessions in the repository's window instead of one window per worktree (R43). */
+/** Resume Claude worktree sessions in the repository's window instead of one window per worktree (R44). */
 export function resumeWorktreesInRepositoryWindow(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('resumeWorktreesInRepositoryWindow', false);
 }

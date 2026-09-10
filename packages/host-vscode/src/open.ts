@@ -54,7 +54,7 @@ function windowRoot(recorded: string | null, window: HostWindow): string | null 
   return only !== undefined && second === undefined ? only : null;
 }
 
-/** Host settings that change routing (R14, R43). */
+/** Host settings that change routing (R14, R44). */
 export interface OpenSettings {
   mayOpenWindow: boolean;
   resumeWorktreesInRepositoryWindow: boolean;
@@ -81,7 +81,7 @@ export function planOpen(
   if ((!session || session.finished) && historical?.sessionId === request.sessionId) {
     if (!(historical.agent in placements)) return { refusal: 'other-agent', message: `This editor cannot resume ${historical.agent} sessions.` };
     if (!request.extensionReady) return { refusal: 'no-extension', message: `Install or enable the ${historical.agent} extension to resume this session.` };
-    // Redirect the window, not the working directory: the session still runs in its own checkout (R43). A
+    // Redirect the window, not the working directory: the session still runs in its own checkout (R44). A
     // window already on that checkout resumes it directly (R14).
     const inCheckout = request.workspaceRoot !== null && dirKey(request.workspaceRoot) === dirKey(historical.cwd);
     const repository =

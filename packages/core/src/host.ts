@@ -42,7 +42,7 @@ export type OpenRefusal =
 
 /**
  * Session surface: reveal tabs by ID; for sidebars, focus the window and identify the session. A resume's
- * `worktree` is the checkout it must run in, present when `root` is the repository window instead (R43).
+ * `worktree` is the checkout it must run in, present when `root` is the repository window instead (R44).
  */
 export type OpenRoute =
   ({ agentHome?: string; resumeToken?: string } & (

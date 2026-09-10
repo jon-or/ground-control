@@ -486,7 +486,7 @@
             "minimum": 0,
             "maximum": 50,
             "order": 7,
-            "markdownDescription": "Maximum action starts per rolling 24 hours; zero allows only manual starts."
+            "markdownDescription": "Maximum action starts per rolling 24 hours; zero allows only manual starts from the editor, and blocks starts from the GitHub overlay."
           },
           "groundControl.actions.fromBrowser": {
             "scope": "application",

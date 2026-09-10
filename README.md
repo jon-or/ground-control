@@ -37,7 +37,7 @@ An install that already holds an explicit `agents`, hook, or triage setting, or 
 
 For the browser overlay, run **Ground Control: Enable GitHub Overlay** in VS Code, then load `extensions/chrome-github-board` unpacked at `chrome://extensions` or `edge://extensions`. `groundControl.overlayBrowsers` selects Google Chrome, Microsoft Edge, or both; the default is Chrome. **Ground Control: Disable GitHub Overlay** removes every registration Ground Control made. See the [overlay guide](extensions/chrome-github-board/README.md).
 
-The overlay displays card/session state and supports local lane moves, session links, checkout opening, classification requests, and logs. Session links open the connected editor in its own URI scheme, so VS Code stable and Insiders each receive their own links; without a connected editor the last reported scheme applies, and `vscode` is the default. Starting or stopping work, selecting paths, and opening combined diffs require VS Code. Checkout opening requires a connected editor.
+The overlay displays card/session state and supports local lane moves, session links, checkout opening, classification requests, and logs. Session links open the connected editor in its own URI scheme, so VS Code stable and Insiders each receive their own links; without a connected editor the last reported scheme applies, and `vscode` is the default. Selecting paths and opening combined diffs require VS Code. Opening a checkout and starting a session require a connected editor to perform them.
 
 Use **Overlay settings** in its menu, or **Extension options** in Chrome, to disable the overlay or restrict it to listed GitHub projects. It defaults to enabled; an empty project list allows all supported project pages. Preferences persist in this browser and apply to open tabs immediately. Disabled or disallowed pages receive no overlay UI, snapshots, or logs and do not keep hub work active through this client.
 
@@ -125,6 +125,10 @@ The board reports `pushed` as Merged and missing output as stopped short; it doe
 `actions.permissionMode` defaults to Claude's `auto`. Claude's `manual` and `acceptEdits` modes can wait for approval in unattended runs; `dontAsk` denies operations needing approval, `plan` cannot write, and `bypassPermissions` disables permission checks. Codex supports only `plan`, `dontAsk`, and `bypassPermissions`. Unsupported agent/mode combinations refuse before reading card context or dispatching; unknown modes reject configuration. Ground Control never substitutes broader permissions.
 
 A positive `actions.dailyLimit` applies to both automatic and manual starts over a rolling 24 hours; zero disables automatic starts but permits manual starts from an editor. `actions.fromBrowser` defaults to off; turning it on lets the GitHub overlay start a card action, which also needs a visible project tab, an enabled action, and a positive `actions.dailyLimit`. Stopping a run needs no setting. `actions.resultMinutes` limits the wait for a dispatched session to appear, not the duration of its work.
+
+### Settings this guide does not cover
+
+Every setting is described in the Settings editor under Ground Control. The ones with no paragraph here are `refreshIntervalSeconds` and `sessionRefreshSeconds` (poll intervals), `branchIssuePattern` (how a branch name yields an issue number), `openWindowsForSessions` and `resumeWorktreesInRepositoryWindow` (which window a session opens in), `triage.names`, `triage.concurrency` and `triage.timeoutSeconds`, `actions.concurrency`, `github.ghPath`, and the `hosts` and `sources` objects.
 
 ## Background process and logs
 

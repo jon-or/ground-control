@@ -56,7 +56,7 @@ function runCode(args: string[]): Promise<string | null> {
   const env = spawnEnvironment();
 
   // A launched window would inherit a held redirect for its whole life. Dropping the project directory alone
-  // disables it and keeps a configuration directory the developer set (R43).
+  // disables it and keeps a configuration directory the developer set (R44).
   if (pointing) {
     delete env['CLAUDE_CODE_PROJECT_DIR_NAME'];
   }
@@ -251,7 +251,7 @@ function pointAtWorktree(sessionId: string, worktree: string): { restore: () => 
 
 /**
  * Reveal through the agent command: Claude takes a session ID; Codex takes its custom-editor resource URI
- * (M44). `worktree` resumes a session whose checkout is not this window's folder (R43).
+ * (M44). `worktree` resumes a session whose checkout is not this window's folder (R44).
  */
 async function revealHere(session: { agent: string; sessionId: string }, worktree?: string): Promise<string | null> {
   const placement = placementOf(session.agent);
@@ -300,7 +300,7 @@ async function reveal(
 
 /**
  * Check the session location asynchronously after opening and report verified failures (mechanics M7). `cwd`
- * is where the session must run, which is the worktree rather than the window folder for a redirect (R43).
+ * is where the session must run, which is the worktree rather than the window folder for a redirect (R44).
  */
 async function confirmLanding(roster: Roster, cwd: string, before: readonly Session[], expectedSessionId?: string): Promise<void> {
   for (let waited = 0; waited < LANDING_TIMEOUT_MS; waited += LANDING_POLL_MS) {
