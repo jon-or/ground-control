@@ -387,6 +387,8 @@ function agentMark(agent) {
   // Preserve agent brand colors; use the row color for monochrome logos.
   svg.setAttribute('data-agent', agent);
   svg.setAttribute('viewBox', '0 0 24 24');
+  // Names the agent on a row with no accessible name of its own. A row that has one states the agent itself,
+  // because an aria-label there replaces everything inside it.
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', agent);
 
@@ -436,10 +438,14 @@ function sessionLine(session) {
   label.className = 'session-label';
   label.textContent = name;
 
+  // The row names the agent because a name on the mark inside it would never be read: an aria-label here
+  // replaces the row's contents (R2).
+  const named = `${name}, ${agentTitle(session.agent)}`;
+
   // Keep activity details on the state tooltip; the row label already identifies the session.
   if (reachable) {
     el.type = 'button';
-    setAccessibleName(el, attachId === null ? `${name} - open this session` : `${name} - attach to this run in a terminal`);
+    setAccessibleName(el, attachId === null ? `${named} - open this session` : `${named} - attach to this run in a terminal`);
     // Prevent session clicks from starting a card drag.
     el.draggable = false;
     el.addEventListener('click', () =>
@@ -544,7 +550,7 @@ function historyLine(session) {
   setTooltip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
 
   if (reachable) {
-    setAccessibleName(el, `${label.textContent} - resume this session`);
+    setAccessibleName(el, `${label.textContent}, ${agentTitle(session.agent)} - resume this session`);
   }
 
   // Apply the retained phase to the row and dot; retainedMark maps running to idle after process exit.

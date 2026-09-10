@@ -401,7 +401,7 @@ describe('board webview', () => {
     expect(label.tagName).toBe('SPAN');
     // The accessible name describes opening the session; the visible label needs no duplicate tooltip.
     expect(tipOf(row)).toBe('');
-    expect(row.getAttribute('aria-label')).toBe('cache-remediation - open this session');
+    expect(row.getAttribute('aria-label')).toBe('cache-remediation, Claude - open this session');
     expect(getComputedStyle(row).cursor).toBe('pointer');
     // Override native button colors to match session text contrast across clients (mechanics M38).
     expect(getComputedStyle(label).color).toBe('var(--vscode-foreground)');
@@ -426,7 +426,7 @@ describe('board webview', () => {
     const row = document.querySelector<HTMLElement>('.session')!;
 
     expect(row.tagName).toBe('BUTTON');
-    expect(row.getAttribute('aria-label')).toBe('merge-upstream - attach to this run in a terminal');
+    expect(row.getAttribute('aria-label')).toBe('merge-upstream, Claude - attach to this run in a terminal');
 
     row.click();
 
@@ -682,10 +682,13 @@ describe('board webview', () => {
     const mark = document.querySelector<SVGElement>('.session .agent-mark')!;
 
     expect(mark).not.toBeNull();
-    expect(mark.getAttribute('aria-label')).toBe('claude');
     expect(mark.getAttribute('data-agent')).toBe('claude');
-    // Use aria-label for the logo; an SVG title would add a duplicate native tooltip.
+    // An openable row replaces the mark with its own name, so both state the agent and only one is read.
+    expect(mark.getAttribute('aria-label')).toBe('claude');
     expect(mark.querySelector('title')).toBeNull();
+    expect(document.querySelector('.session')!.getAttribute('aria-label')).toBe(
+      'cache-remediation, Claude - open this session',
+    );
   });
 
   it("marks a Codex session with OpenAI's icon rather than the word — R2", () => {
@@ -700,6 +703,9 @@ describe('board webview', () => {
     expect(mark).not.toBeNull();
     expect(mark.getAttribute('aria-label')).toBe('codex');
     expect(document.querySelector('.session .agent')?.textContent).toBe('');
+    expect(document.querySelector('.session')!.getAttribute('aria-label')).toBe(
+      'cache-remediation, Codex - open this session',
+    );
   });
 
   /** Key logo fill by agent so the monochrome OpenAI logo does not inherit Claude brand orange. */
@@ -726,6 +732,9 @@ describe('board webview', () => {
 
     expect(document.querySelector('.session .agent-mark')).toBeNull();
     expect(document.querySelector('.session .agent')?.textContent).toBe('gemini');
+    expect(document.querySelector('.session')!.getAttribute('aria-label')).toBe(
+      'cache-remediation, Gemini - open this session',
+    );
   });
 
   it('shows stale-source, pattern, project-filter, and truncation notices together', () => {
@@ -1652,6 +1661,24 @@ describe('lanes', () => {
 });
 
 /**
+ * Both clients duplicate the agent display name because neither can import workspace packages at runtime. The
+ * board has no export to call, so read it back off a rendered row.
+ */
+describe('the agent display name', () => {
+  it.each([
+    ['claude', 'Claude'],
+    ['codex', 'Codex'],
+    ['gemini', 'Gemini'],
+  ])('titles %s as %s on the row', (agent, titled) => {
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, agent }] }] }) }));
+
+    expect(document.querySelector('.session')!.getAttribute('aria-label')).toBe(
+      `cache-remediation, ${titled} - open this session`,
+    );
+  });
+});
+
+/**
  * Verify the same literal session-label precedence in core and both clients, which cannot import core at
  * runtime.
  */
@@ -1785,7 +1812,7 @@ it('makes a historical title openable when the host offers it, including after a
   expect(button.querySelector('.destination')?.getAttribute('data-destination')).toBe('editor');
   button.click(); expect(sent()).toEqual([{ type: 'openSession', sessionId: 'past' }]);
   expect(tipOf(button)).toBe('');
-  expect(button.getAttribute('aria-label')).toBe('Past attempt - resume this session');
+  expect(button.getAttribute('aria-label')).toBe('Past attempt, Claude - resume this session');
   expect(tipOf(button.querySelector('.state'))).toContain('Resume this session');
   send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
   expect(document.querySelector('button.historical')).toBeNull();

@@ -518,6 +518,16 @@ export function sessionLabel(session) {
 }
 
 /**
+ * Display the agent ID consistently; agents have no separate display names.
+ *
+ * @param {string} agent
+ * @returns {string}
+ */
+export function agentTitle(agent) {
+  return agent.charAt(0).toUpperCase() + agent.slice(1);
+}
+
+/**
  * The dot color indicates phase and its fill indicates a live session. Its accessible name states both.
  *
  * @param {Document} doc
@@ -798,7 +808,10 @@ export function agentIcon(doc, agent) {
   // Use 13px icons to match the editor board at 13.6px.
   svg.setAttribute('width', '13');
   svg.setAttribute('height', '13');
-  svg.setAttribute('aria-hidden', 'true');
+  // Names the agent on a row with no accessible name of its own. A row that has one states the agent itself,
+  // because an aria-label there replaces everything inside it.
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', agent);
   mark.setAttribute('d', drawn);
   svg.appendChild(mark);
 
@@ -1840,7 +1853,7 @@ function sessionRow(doc, session, now, openable) {
     setTooltip(state, stateTitle(session.activity));
   }
 
-  row.setAttribute('aria-label', `${name} — ${destinationWords(reachable, attachId)}.`);
+  row.setAttribute('aria-label', `${name}, ${agentTitle(session.agent)} — ${destinationWords(reachable, attachId)}.`);
 
   // Italic names identify board-dispatched runs.
   if (attachId !== null) {
@@ -1901,7 +1914,10 @@ function historyRow(doc, session, now, openable) {
   age(state, mark ? mark.at : session.updatedAt, now);
   // Put the exact timestamp on the duration tooltip, using the same time as the displayed age.
   setTooltip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
-  row.setAttribute('aria-label', `${name.textContent} — ${reachable ? 'resume this session in VS Code' : 'historical session'}.`);
+  row.setAttribute(
+    'aria-label',
+    `${name.textContent}, ${agentTitle(session.agent)} — ${reachable ? 'resume this session in VS Code' : 'historical session'}.`,
+  );
   row.append(name, state);
 
   // Saved sessions must resume in the editor; there is no process to attach to.

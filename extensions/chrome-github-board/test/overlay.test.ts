@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { LOG_LIMIT, ago, agentIcon, appendLog, assigneeStackOf, cardsByIssue, clear, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText, viewerLogin } from '../src/overlay.js';
+import { LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, cardsByIssue, clear, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText, viewerLogin } from '../src/overlay.js';
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
@@ -887,7 +887,7 @@ describe('the footer on a card', () => {
     expect(chip.firstElementChild!.className).toBe('gc-dot');
     // Put activity details on the state tooltip; the row label already identifies the session.
     expect(tipOf(chip)).toBe('');
-    expect(chip.getAttribute('aria-label')).toBe('Working on it — open this session in VS Code.');
+    expect(chip.getAttribute('aria-label')).toBe('Working on it, Claude — open this session in VS Code.');
     // The phase is the mark's; the duration says only what it counts, or the row would say the same thing twice.
     expect(tipOf(chip.querySelector('.gc-dot'))).toBe('Waiting for your input.');
     expect(tipOf(chip.querySelector('.gc-state'))).toBe(
@@ -974,6 +974,7 @@ describe('the footer on a card', () => {
     expect(chip.querySelector('svg')).not.toBeNull();
     expect(chip.querySelector('.gc-agent')).toBeNull();
     expect(agentIcon(document, 'codex')?.getAttribute('data-agent')).toBe('codex');
+    expect(chip.getAttribute('aria-label')).toBe('Working on it, Codex — cannot open this session in VS Code.');
   });
 
   /** Key logo fill by agent so the monochrome OpenAI logo does not inherit Claude brand orange. */
@@ -999,6 +1000,22 @@ describe('the footer on a card', () => {
     expect(chip.querySelector('svg')).toBeNull();
     expect(chip.querySelector('.gc-agent')!.textContent).toBe('gemini');
     expect(agentIcon(document, 'gemini')).toBeNull();
+    expect(chip.getAttribute('aria-label')).toBe('Working on it, Gemini — cannot open this session in VS Code.');
+  });
+
+  /**
+   * A row with an `aria-label` replaces everything inside it, so an openable row states the agent itself. The
+   * mark keeps its own name for the rows that have none (R2).
+   */
+  it('names the agent on the row and on the mark, because only one of them is ever read', () => {
+    paint(document, state(), NOW, actions);
+
+    const chip = badges()[0]!.querySelector('.gc-session')!;
+    const mark = chip.querySelector('svg.gc-agent-icon')!;
+
+    expect(mark.getAttribute('role')).toBe('img');
+    expect(mark.getAttribute('aria-label')).toBe('claude');
+    expect(chip.getAttribute('aria-label')).toBe('Working on it, Claude — open this session in VS Code.');
   });
 });
 
@@ -1966,6 +1983,17 @@ describe('how long ago', () => {
   });
 });
 
+/** Both clients duplicate this helper because neither can import workspace packages at runtime. */
+describe('the agent display name', () => {
+  it.each([
+    ['claude', 'Claude'],
+    ['codex', 'Codex'],
+    ['gemini', 'Gemini'],
+  ])('titles %s as %s', (agent, titled) => {
+    expect(agentTitle(agent)).toBe(titled);
+  });
+});
+
 /** Verify the same literal session-label table in core and both clients. */
 describe('the session label ladder', () => {
   const rows: [string, Partial<Session>, string][] = [
@@ -2401,7 +2429,7 @@ it('links historical rows through the same VS Code handler without opening the G
   const link = document.querySelector<HTMLAnchorElement>('a.gc-historical')!;
   expect(link.href).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}`);
   expect(link.draggable).toBe(false);
-  expect(link.getAttribute('aria-label')).toContain('resume this session in VS Code');
+  expect(link.getAttribute('aria-label')).toBe('Past attempt, Claude — resume this session in VS Code.');
   expect(tipOf(link.querySelector('.gc-state'))).toContain('Resume this session');
   const parentClick = vi.fn(); link.parentElement!.addEventListener('click', parentClick);
   link.addEventListener('click', (event) => event.preventDefault()); link.click();
