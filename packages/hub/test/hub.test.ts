@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { GITHUB_SOURCE_ID, makeGithubSource } from '@ground-control/github';
 import type { AssignedIssues, GithubConfig, GithubSourceDeps, Result } from '@ground-control/github';
-import type { BoardPolicy, ClientHello, HubConfig, HubMessage, IssueCard, Snapshot, WorkSource } from '@ground-control/core';
+import type { BoardPolicy, ClientHello, DetailReading, HubConfig, HubMessage, IssueCard, ItemDetail, Snapshot, WorkSource } from '@ground-control/core';
 import type { ActivityState } from '../src/activityInstall.js';
 import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
@@ -114,6 +114,7 @@ function harness(
     remembered?: Partial<HubConfig>;
     stored?: StoredConfig;
     readCard?: GithubSourceDeps['readCard'];
+    readDetail?: GithubSourceDeps['readDetail'];
   } = {},
 ): Harness {
   const agent = reportingAgent();
@@ -134,6 +135,10 @@ function harness(
     detectLogins: async () => detected,
     // Inject issue lookups so session-only references cannot spawn gh in tests.
     readCard: extra.readCard ?? (async () => ({ ok: true, value: null })),
+    // Inject conversation reads so a detail request cannot spawn gh in tests.
+    readDetail:
+      extra.readDetail ??
+      (async () => ({ detail: null, failure: { message: 'no reader is injected', remedy: 'inject one' } })),
   });
 
   const registries = { agents: [agent.adapter], hosts: [host.adapter], sources: [github, ...(extra.sources ?? [])] };
@@ -2960,5 +2965,193 @@ describe('choosing a card’s folder', () => {
 
     expect(makeCheckoutStore(stateDir).read()).toEqual({});
     expect(inbox.filter((m) => m.type === 'notice').at(-1)).toMatchObject({ message: expect.stringContaining('no longer on the board') });
+  });
+});
+
+describe('reading one card conversation (R43)', () => {
+  const CONVERSATION: ItemDetail = {
+    subject: 'issue',
+    number: 7,
+    repository: 'example-org/example-repo',
+    title: 'Issue 7',
+    url: 'https://example.invalid/issues/7',
+    state: 'OPEN',
+    bodyHtml: '<p>rendered by the source</p>',
+    author: 'dev-1',
+    authorAvatarUrl: null,
+    createdAt: '2026-09-03T08:00:00Z',
+    editedAt: null,
+    reactions: [],
+    labels: [],
+    assignees: [],
+    milestone: null,
+    branches: null,
+    draft: false,
+    reviewDecision: null,
+    checks: null,
+    events: [],
+    moreEvents: false,
+    moreThreads: false,
+    threads: [],
+  };
+
+  /** Record which subjects the hub asked a source for, so a refusal can be told from a read that happened. */
+  function reader(answer: DetailReading = { detail: CONVERSATION, failure: null }) {
+    const asked: string[] = [];
+
+    return {
+      asked,
+      readDetail: (async (_config, _card, subject) => {
+        asked.push(subject);
+
+        return answer.detail === null ? answer : { detail: { ...answer.detail, subject }, failure: null };
+      }) as GithubSourceDeps['readDetail'],
+    };
+  }
+
+  async function board(readDetail: GithubSourceDeps['readDetail'], withPr = false) {
+    // Each subject resolves against its own address, so both must be github.com ones for the source to serve them.
+    const base = card(7, withPr ? 'dev-1' : null);
+    const served = {
+      ...base,
+      url: 'https://github.com/example-org/example-repo/issues/7',
+      pullRequest: base.pullRequest && { ...base.pullRequest, url: 'https://github.com/example-org/example-repo/pull/8' },
+    };
+    const h = harness(
+      {},
+      {
+        fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [served], matched: 1, totalAssigned: 1 } }),
+        readDetail,
+      },
+    );
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((held) => held.issue !== null)!.key;
+
+    return { h, client, inbox, key };
+  }
+
+  const detailsIn = (inbox: HubMessage[]) => inbox.filter((message) => message.type === 'detail');
+
+  it('answers only the client that asked, because a conversation is a request and not board state', async () => {
+    const read = reader();
+    const { h, client, inbox, key } = await board(read.readDetail);
+    const { inbox: other } = connect(h, hello({ id: 'client-b' }));
+
+    h.hub.receive(client, { type: 'readDetail', key, subject: 'issue' });
+    await settle();
+
+    expect(detailsIn(inbox)).toHaveLength(1);
+    expect(detailsIn(other)).toHaveLength(0);
+  });
+
+  it('resolves the card from its own snapshot, so a client never names a repository', async () => {
+    const read = reader();
+    const { h, client, inbox, key } = await board(read.readDetail);
+
+    h.hub.receive(client, { type: 'readDetail', key, subject: 'issue' });
+    await settle();
+
+    expect(read.asked).toEqual(['issue']);
+    expect(detailsIn(inbox)[0]).toMatchObject({ key, subject: 'issue', failure: null });
+    expect((detailsIn(inbox)[0] as { detail: ItemDetail }).detail.bodyHtml).toBe('<p>rendered by the source</p>');
+  });
+
+  it('reads the pull request the card already selected when asked for one', async () => {
+    const read = reader();
+    const { h, client, inbox, key } = await board(read.readDetail, true);
+
+    h.hub.receive(client, { type: 'readDetail', key, subject: 'pull-request' });
+    await settle();
+
+    expect(read.asked).toEqual(['pull-request']);
+    expect(detailsIn(inbox)[0]).toMatchObject({ subject: 'pull-request', failure: null });
+  });
+
+  it('refuses a pull request the card does not have, without asking a source', async () => {
+    const read = reader();
+    const { h, client, inbox, key } = await board(read.readDetail);
+
+    h.hub.receive(client, { type: 'readDetail', key, subject: 'pull-request' });
+    await settle();
+
+    expect(read.asked).toEqual([]);
+    expect(detailsIn(inbox)[0]).toMatchObject({ detail: null, failure: 'That card has no pull request.' });
+  });
+
+  it('refuses a key that is not on the board, so a request cannot reach an arbitrary issue', async () => {
+    const read = reader();
+    const { h, client, inbox } = await board(read.readDetail);
+
+    h.hub.receive(client, { type: 'readDetail', key: 'issue:9999', subject: 'issue' });
+    await settle();
+
+    expect(read.asked).toEqual([]);
+    expect(detailsIn(inbox)[0]).toMatchObject({ detail: null, failure: 'That card is no longer on the board. Refresh the board and open it again.' });
+  });
+
+  it('reads once while a read is still open, so clicking again does not queue another source process', async () => {
+    let open = 0;
+    let peak = 0;
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const { h, client, inbox, key } = await board((async () => {
+      open += 1;
+      peak = Math.max(peak, open);
+      await held;
+      open -= 1;
+
+      return { detail: { ...CONVERSATION }, failure: null };
+    }) as GithubSourceDeps['readDetail']);
+
+    h.hub.receive(client, { type: 'readDetail', key, subject: 'issue' });
+    h.hub.receive(client, { type: 'readDetail', key, subject: 'issue' });
+    await settle();
+
+    expect(peak).toBe(1);
+
+    release();
+    await settle();
+
+    // The one read that ran still answers; the repeat is dropped rather than queued behind it.
+    expect(detailsIn(inbox)).toHaveLength(1);
+  });
+
+  it('carries a source failure and its remedy rather than an empty conversation', async () => {
+    const read = reader({ detail: null, failure: { message: 'GitHub could not be reached.', remedy: 'Check your connection.' } });
+    const { h, client, inbox, key } = await board(read.readDetail);
+
+    h.hub.receive(client, { type: 'readDetail', key, subject: 'issue' });
+    await settle();
+
+    expect(detailsIn(inbox)[0]).toMatchObject({ detail: null, failure: 'GitHub could not be reached. Check your connection.' });
+  });
+
+  it('says so when no configured source serves the card, rather than reporting an empty conversation', async () => {
+    const read = reader();
+    // A card outside github.com: the GitHub source declines it, which is not the same as finding nothing.
+    const elsewhere = { ...card(7), url: 'https://ghe.example.com/example-org/example-repo/issues/7' };
+    const h = harness(
+      {},
+      { fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [elsewhere], matched: 1, totalAssigned: 1 } }), readDetail: read.readDetail },
+    );
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((held) => held.issue !== null)!.key;
+
+    h.hub.receive(client, { type: 'readDetail', key, subject: 'issue' });
+    await settle();
+
+    expect(read.asked).toEqual([]);
+    expect(detailsIn(inbox)[0]).toMatchObject({
+      detail: null,
+      failure: 'No configured source can read that conversation. Check the GitHub settings for this board.',
+    });
   });
 });

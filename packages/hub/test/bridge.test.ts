@@ -132,6 +132,12 @@ describe('what the browser may ask the hub for', () => {
     });
   });
 
+  it('refuses to read a conversation, because the overlay runs on the page that already shows it (R36, R43)', () => {
+    expect(bridgeAction({ type: 'readDetail', key: 'issue:17198', subject: 'issue' })).toEqual({
+      refused: 'Read issues and pull requests on GitHub itself.',
+    });
+  });
+
   it('refuses everything else by name', () => {
     expect(bridgeAction({ type: 'configure', config: {} })).toEqual({ refused: 'The overlay may not send configure.' });
     expect(bridgeAction({ type: 'hello' })).toEqual({ refused: 'The overlay may not send hello.' });

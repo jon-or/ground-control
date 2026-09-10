@@ -61,6 +61,24 @@ Arguments correspond to the files below in order. Use `-` to preserve a file, fo
 
 Tests derive a null `statusCheckRollup` because the recording repository runs checks on every commit.
 
+## Conversation detail
+
+`record-detail.js` reads `DETAIL_QUERY` and `DETAIL_EVENTS_QUERY` from source, resolving every `${NAME}` part, pages each timeline backwards the way the adapter does, and records one issue and one pull request for the reading panel (R43):
+
+```sh
+GC_SELF_LOGINS=<gh logins> GC_DETAIL_REPO=owner/name \
+  node test/fixtures/record-detail.js <issue> <pr>
+```
+
+| File | Scenario |
+|---|---|
+| `detail-issue.json` | Issue whose body carries a table, nested task lists, and cross-reference links, with a timeline of comments, label, assignment, milestone, rename, status, and reference events, and reactions on two comments |
+| `detail-pull-request.json` | Pull request read through the same field list, with commits, five reviews, and inline threads three of those reviews opened |
+
+Pass `-` in place of a number to keep a recorded file, for example `node test/fixtures/record-detail.js - <pr>`.
+
+Element structure and attribute names are preserved, because the panel's sanitizer and stylesheet are tested against GitHub's markup shapes. Every run of text is replaced, and `href`, `src`, `alt`, `title`, and `data-*` values are rewritten, because bodies and cross-references are private. Comments are trimmed to three while `totalCount` keeps its recorded value, and both trimmed collections report `hasPreviousPage`, so the panel's clipped-conversation path is exercised. A trimmed timeline keeps the recent tail plus the first of every earlier event kind, so one recording covers every event shape the mapper reads, and reports `hasNextPage`. Review threads are trimmed the same way, and their paths become `src/example-<n>` with the recorded extension. Event prose, logins, label names, repository names, and addresses are replaced wherever they sit in an event's shape. The script refuses to write a fixture still naming the recording repository or its accounts.
+
 ### Context scrubbing
 
 `anonymise-context.js` replaces every body using `remark()` in `fixture-words.js`, keyed by number and position.

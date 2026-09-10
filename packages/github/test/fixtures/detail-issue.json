@@ -1,0 +1,1512 @@
+{
+  "data": {
+    "repository": {
+      "nameWithOwner": "example-org/example-repo",
+      "issue": {
+        "number": 15619,
+        "title": "Inbox badge fails silently on an empty result",
+        "url": "https://github.com/example-org/example-repo/issues/15619",
+        "state": "CLOSED",
+        "createdAt": "2026-02-27T16:12:41Z",
+        "bodyHTML": "<h2 dir=\"auto\">Reproduced</h2>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th></th>\n<th></th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><strong>Rebased</strong></td>\n<td>I think we settled on the second approach in the design review. (review import)</td>\n</tr>\n<tr>\n<td><strong>Verified</strong></td>\n<td>Verified</td>\n</tr>\n<tr>\n<td><strong>Should</strong></td>\n<td>Left a couple of notes on the</td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n\n<p dir=\"auto\">Can you confirm which account<br>\n<a href=\"https://github.com/example-org/example-repo/issues/1\">This</a></p>\n<p dir=\"auto\">Rebased<br>\n<a href=\"https://github.com/example-org/example-repo/issues/1\" rel=\"nofollow\">Rebased</a></p>\n<p dir=\"auto\">I<br>\n<a href=\"https://github.com/example-org/example-repo/issues/1\" rel=\"nofollow\">Blocked</a></p>\n<hr>\n<p dir=\"auto\">Should this<a href=\"https://github.com/example-org/example-repo/issues/1\">The</a></p>\n<h2 dir=\"auto\">Left</h2>\n<h3 dir=\"auto\">Can you confirm</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">This still fails for</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Reproduced on the second</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">I think we settled on the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked on the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Verified in UAT, the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked on the other</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Should this<a class=\"issue-link js-issue-link\" data-error-text=\"example\" data-id=\"example\" data-permission-text=\"example\" data-url=\"example\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">The</a></li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Left a couple</li>\n</ul>\n<h3 dir=\"auto\">This still fails</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Reproduced on the second page of</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Reproduced on the second page</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">I think we</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked on the other change</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Verified in UAT, the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Should this respect the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Left a couple of notes</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Left a couple of notes</li>\n</ul>\n<h3 dir=\"auto\">Can you confirm which</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Reproduced on the second page</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Rebased and pushed; checks are</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">I think we settled</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Verified in UAT, the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Verified in UAT, the</li>\n</ul>\n<h3 dir=\"auto\">Should this respect</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">The fix looks</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Can you confirm which<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">This still</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">This still fails for</li>\n</ul>\n</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Rebased and pushed; checks are<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">I think we</li>\n</ul>\n</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Should this respect the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\"> <del>The fix</del> <em>The</em></li>\n</ul>\n</li>\n</ul>\n<h3 dir=\"auto\">Left a couple</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">This still fails for me</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Reproduced on the second page of</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Rebased and pushed; checks are green</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked on the other change landing</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked on the other change landing</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Verified in UAT, the totals line</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">The fix looks right,</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Left a couple of</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Can you confirm which account</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">This still fails</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Reproduced on the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Rebased and pushed; checks are green again.</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">I think we settled on the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Verified in UAT, the</li>\n</ul>\n<h3 dir=\"auto\">Should this respect</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">The fix looks right, but</li>\n</ul>\n<h3 dir=\"auto\">Left a couple</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Can you confirm which account</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">This still fails for me after</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Reproduced on the second page<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">I think<a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Blocked</a></li>\n</ul>\n</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked on the other</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Should this respect</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">The fix looks</li>\n</ul>\n<h3 dir=\"auto\">Left a couple</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">This still fails</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Reproduced on</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">This still fails</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Reproduced on the second</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">I think</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked on the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Verified</li>\n</ul>\n<h3 dir=\"auto\">The fix</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">The fix looks right,</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\"> <del>Left<a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">This</a></del> <strong>Reproduced on the second page of results; the</strong></li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Rebased</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Rebased and pushed; checks are</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked on the</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Verified in</li>\n</ul>\n<hr>\n<h3 dir=\"auto\">Should</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\">Left a couple of<ul dir=\"auto\">\n<li>Can you confirm which account this</li>\n<li>Can you confirm which account this was tested against?</li>\n<li>Reproduced on the<code class=\"notranslate\">Rebased</code></li>\n<li>I think we settled on the second</li>\n<li>Blocked on the other</li>\n<li>Should</li>\n<li>Should<a id=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\" data-name=\"example\" style=\"--label-r:255;--label-g:0;--label-b:0;--label-h:0;--label-s:100;--label-l:50;\" data-view-component=\"example\" class=\"IssueLabel hx_IssueLabel Label--inline\">The fix</a>\n  <tool-tip id=\"example\" for=\"label-78feee\" popover=\"manual\" data-direction=\"example\" data-type=\"example\" data-view-component=\"example\" class=\"sr-only position-absolute\">Can you confirm which account this was tested</tool-tip>This still fails for me</li>\n<li>Reproduced<a id=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\" data-name=\"example\" style=\"--label-r:159;--label-g:124;--label-b:57;--label-h:39;--label-s:47;--label-l:42;\" data-view-component=\"example\" class=\"IssueLabel hx_IssueLabel Label--inline\">I</a>I think we settled on<ins>Blocked</ins>Verified in UAT,</li>\n<li>The<a href=\"https://github.com/example-org/example-repo/issues/1\">Left</a>Can you confirm which account<ins>This</ins>Reproduced on the</li>\n</ul>\n</li>\n</ul>\n<h3 dir=\"auto\">Rebased</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">Blocked<code class=\"notranslate\">Verified</code>Should</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\" checked=\"\">  <code class=\"notranslate\">Should</code>Left a couple</li>\n</ul>\n<h3 dir=\"auto\">Can</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\">This</li>\n</ul>\n<h3 dir=\"auto\">Rebased and</h3>\n<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\">I</li>\n</ul>",
+        "lastEditedAt": "2026-07-31T20:53:46Z",
+        "author": {
+          "login": "dev-2",
+          "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+        },
+        "reactionGroups": [
+          {
+            "content": "THUMBS_UP",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "THUMBS_DOWN",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "LAUGH",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "HOORAY",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "CONFUSED",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "HEART",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "ROCKET",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "EYES",
+            "reactors": {
+              "totalCount": 0
+            }
+          }
+        ],
+        "assignees": {
+          "nodes": []
+        },
+        "milestone": {
+          "title": "Patch 1"
+        },
+        "labels": {
+          "nodes": [
+            {
+              "name": "area-1",
+              "color": "e3e3e3"
+            },
+            {
+              "name": "kind-2",
+              "color": "C2E0C6"
+            },
+            {
+              "name": "stage-3",
+              "color": "aaaaaa"
+            }
+          ]
+        },
+        "timelineItems": {
+          "pageInfo": {
+            "hasPreviousPage": true,
+            "startCursor": null
+          },
+          "nodes": [
+            {
+              "__typename": "AssignedEvent",
+              "createdAt": "2026-02-27T16:12:41Z",
+              "actor": {
+                "login": "dev-2",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "assignee": {
+                "login": "dev-3"
+              }
+            },
+            {
+              "__typename": "LabeledEvent",
+              "createdAt": "2026-02-27T16:12:42Z",
+              "actor": {
+                "login": "dev-2",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "label": {
+                "name": "area-1"
+              }
+            },
+            {
+              "__typename": "ProjectV2ItemStatusChangedEvent",
+              "createdAt": "2026-02-27T16:12:44Z",
+              "actor": {
+                "login": "dev-4",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "previousStatus": "",
+              "status": "🆕 New"
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-02-27T16:35:44Z",
+              "lastEditedAt": null,
+              "isMinimized": true,
+              "minimizedReason": "outdated",
+              "bodyHTML": "<h1 dir=\"auto\">I think we</h1>\n<p dir=\"auto\"><strong>I</strong> <code class=\"notranslate\">Verified</code><br>\n<strong>Should</strong>The<br>\n<strong>Can</strong>This still fails for me after the latest deploy. (guest portal)</p>\n<h2 dir=\"auto\">This</h2>\n<div class=\"snippet-clipboard-content notranslate position-relative overflow-auto\" data-snippet-clipboard-copy-content=\"example\"><pre class=\"notranslate\"><code class=\"notranslate\">Rebased and pushed; checks are green again. (quote email)</code></pre></div>\n<p dir=\"auto\"><strong>I think</strong></p>\n<ul dir=\"auto\">\n<li>Blocked<strong>Verified</strong>The fix looks</li>\n<li>Should this<strong>The</strong></li>\n<li>Can you<strong>This</strong>Reproduced on</li>\n</ul>\n<hr>\n<h2 dir=\"auto\">I think we settled</h2>\n<blockquote>\n<p dir=\"auto\"><strong>I</strong>Blocked<br>\n<strong>Verified</strong>The<br>\n<strong>Left</strong>Left a couple of notes on the diff</p>\n</blockquote>\n<h3 dir=\"auto\">This still fails</h3>\n<p dir=\"auto\">Reproduced on the</p>\n<p dir=\"auto\"><strong>Rebased</strong>Blocked on the other change landing first. (review</p>\n<p dir=\"auto\"><strong>Verified</strong>Verified in UAT, the totals line</p>\n<hr>\n<h3 dir=\"auto\">Should this respect</h3>\n<p dir=\"auto\">Left a couple of notes on the diff — mostly naming. (refund</p>\n<p dir=\"auto\"><strong>Can</strong>This still fails for me after the latest deploy. (owner statement)</p>\n<p dir=\"auto\"><strong>Rebased</strong>Rebased and pushed; checks</p>\n<hr>\n<h3 dir=\"auto\">I think we settled on</h3>\n<p dir=\"auto\">Verified in UAT, the totals</p>\n<p dir=\"auto\"><strong>Should</strong>The fix</p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>Left</th>\n<th>Can</th>\n<th>This</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Reproduced</td>\n<td><strong>I</strong></td>\n<td>Blocked on the</td>\n</tr>\n<tr>\n<td>Verified</td>\n<td><strong>Should this</strong></td>\n<td>The fix looks right,</td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<p dir=\"auto\"><strong>Left</strong>Can you confirm which account this was tested against? (channel mapping)</p>\n<p dir=\"auto\"><strong>Reproduced on</strong>Rebased and pushed; checks are green</p>\n<p dir=\"auto\"><strong>Rebased and</strong>Blocked on</p>\n<p dir=\"auto\"><strong>Verified in UAT,</strong> <em>Should this respect the account time zone, or the property</em></p>\n<p dir=\"auto\"><strong>Left</strong>Can you confirm which account this</p>\n<p dir=\"auto\"><strong>Can you</strong>This still fails</p>\n<hr>\n<h2 dir=\"auto\">Rebased and pushed;</h2>\n<blockquote>\n<p dir=\"auto\"><strong>I</strong>Blocked on the<br>\n<strong>Should</strong>Should this respect the<br>\n<strong>The</strong>Can you confirm which account this was tested</p>\n</blockquote>\n<h3 dir=\"auto\">This still fails</h3>\n<h4 dir=\"auto\">Reproduced on the</h4>\n<p dir=\"auto\">I think we settled on the second approach in the design review. (listing</p>\n<p dir=\"auto\"><strong>Verified in UAT,</strong>Should this respect the account time zone, or the property</p>\n<p dir=\"auto\"><strong>The</strong>Can you confirm which account this was tested against? (calendar</p>\n<p dir=\"auto\"><strong>This</strong>This still fails for me</p>\n<hr>\n<h4 dir=\"auto\">Rebased and pushed; checks</h4>\n<p dir=\"auto\">I think we settled on the second approach in the design review. (review import)</p>\n<p dir=\"auto\"><strong>Blocked</strong>Verified in UAT,</p>\n<p dir=\"auto\"><strong>The fix</strong>The fix looks</p>\n<hr>\n<h3 dir=\"auto\">Left a couple</h3>\n<h4 dir=\"auto\">This still fails for</h4>\n<p dir=\"auto\">Reproduced on the second page of results;</p>\n<p dir=\"auto\"><strong>Rebased</strong>Blocked on the other change</p>\n<p dir=\"auto\"><strong>Blocked</strong>Verified in UAT, the totals</p>\n<hr>\n<h4 dir=\"auto\">Should this respect the</h4>\n<p dir=\"auto\">Left a couple of notes on</p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>Can</th>\n<th>This</th>\n<th>Reproduced</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Rebased</td>\n<td><strong>I think we</strong></td>\n<td>Verified in UAT, the totals</td>\n</tr>\n<tr>\n<td>Should</td>\n<td><strong>The fix looks right,</strong></td>\n<td>The fix looks right, but</td>\n</tr>\n<tr>\n<td>Can</td>\n<td><strong>This still fails</strong></td>\n<td>Reproduced on the second page</td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<p dir=\"auto\"><strong>I think</strong>Blocked on the other change landing first. (tax rule)</p>\n<p dir=\"auto\"><strong>Blocked on</strong>Should this respect the account time zone, or the property one? (calendar feed)</p>\n<p dir=\"auto\"><strong>The fix looks</strong>Left a couple of notes on the diff — mostly naming. (quote email)</p>\n<p dir=\"auto\"><strong>Can</strong>Reproduced on the second page of results; the</p>\n<hr>\n<h4 dir=\"auto\">Reproduced on</h4>\n<p dir=\"auto\">Rebased and pushed; checks are green again. (channel mapping)</p>\n<p dir=\"auto\">Blocked on the other change landing first. (owner statement)</p>\n<p dir=\"auto\"><strong>Verified</strong>Should</p>\n<hr>\n<h4 dir=\"auto\">Left a couple</h4>\n<p dir=\"auto\">Left a couple of notes on the diff — mostly naming.</p>\n<hr>\n<h4 dir=\"auto\">Can you confirm</h4>\n<p dir=\"auto\">This still fails for me after the latest deploy. (payment retry)</p>\n<hr>\n<h4 dir=\"auto\">Rebased and pushed;</h4>\n<p dir=\"auto\">I think we settled on</p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>I</th>\n<th>Verified</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Should this</td>\n<td>The</td>\n</tr>\n<tr>\n<td>Can you</td>\n<td>This</td>\n</tr>\n<tr>\n<td>Can you</td>\n<td>This</td>\n</tr>\n<tr>\n<td>Rebased and</td>\n<td>I</td>\n</tr>\n<tr>\n<td>Blocked on</td>\n<td>Should</td>\n</tr>\n<tr>\n<td>Should this</td>\n<td>The</td>\n</tr>\n<tr>\n<td>Can you</td>\n<td>This</td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<p dir=\"auto\"><strong>Reproduced</strong>Rebased</p>\n<hr>\n<h4 dir=\"auto\">I think we</h4>\n<p dir=\"auto\">Blocked on the other change landing first. (quote email)</p>\n<p dir=\"auto\"><strong>Verified</strong>The fix looks right, but</p>\n<p dir=\"auto\"><strong>Left</strong>Can you confirm which</p>\n<hr>\n<h4 dir=\"auto\">This still</h4>\n<p dir=\"auto\">Reproduced on the second page of results; the first page is fine. (refund ledger)</p>\n<p dir=\"auto\"><strong>Rebased</strong>I</p>\n<hr>\n<h4 dir=\"auto\">Verified in UAT,</h4>\n<p dir=\"auto\">Should this respect the account time zone, or the property one? (inbox badge)</p>\n<p dir=\"auto\">Should</p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>Left</th>\n<th>Can</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>This<strong>Rebased and</strong></td>\n<td>I think we</td>\n</tr>\n<tr>\n<td>I<strong>Blocked on the</strong></td>\n<td>Should this respect</td>\n</tr>\n<tr>\n<td>The<strong>Left a couple of notes</strong></td>\n<td>This still fails for me</td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<p dir=\"auto\">This still fails for me after</p>\n<p dir=\"auto\"><strong>Reproduced</strong>I think we settled on</p>\n<hr>\n<h4 dir=\"auto\">Blocked on the</h4>\n<p dir=\"auto\">Verified in UAT, the totals line up now.</p>\n<p dir=\"auto\">Verified in</p>\n<ol dir=\"auto\">\n<li>The fix looks right, but it needs a test for the empty case. (tax</li>\n<li>Left a couple of notes</li>\n</ol>\n<p dir=\"auto\">Can you confirm which account this was tested against?</p>\n<p dir=\"auto\"><strong>Reproduced</strong>Rebased and pushed; checks are</p>\n<p dir=\"auto\"><strong>Rebased and</strong>Blocked on the</p>\n<hr>\n<h2 dir=\"auto\">Verified in UAT,</h2>\n<blockquote>\n<p dir=\"auto\"><strong>Should</strong>The<br>\n<strong>Can</strong>Can<br>\n<strong>This</strong>Rebased and pushed; checks are green again. (listing sync)</p>\n</blockquote>\n<h3 dir=\"auto\">I think we</h3>\n<p dir=\"auto\">Blocked on the</p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>Should</th>\n<th>Verified</th>\n<th>Should</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>The</td>\n<td><em>Can you confirm which account this</em></td>\n<td><em>This still fails for me after the latest</em></td>\n</tr>\n<tr>\n<td>Reproduced</td>\n<td><em>Rebased and pushed; checks</em></td>\n<td><em>I think we settled on the</em></td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<p dir=\"auto\"><strong>Blocked on</strong>Should this respect the account time zone, or the property one? (inbox badge)</p>\n<p dir=\"auto\"><strong>The fix</strong>Left a couple of notes on the diff — mostly naming. (booking export)</p>\n<p dir=\"auto\"><strong>Left</strong>This still fails for me after the latest deploy. (payment retry)</p>\n<p dir=\"auto\"><strong>Reproduced on the</strong></p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>Rebased</th>\n<th>Blocked</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Verified in UAT,</td>\n<td><code class=\"notranslate\">Verified in UAT,</code></td>\n</tr>\n<tr>\n<td>The fix looks</td>\n<td><code class=\"notranslate\">Left a couple of</code></td>\n</tr>\n<tr>\n<td>Can you confirm which</td>\n<td><code class=\"notranslate\">This still</code></td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<p dir=\"auto\"><strong>Rebased and</strong>Rebased and pushed;</p>\n<hr>\n<h2 dir=\"auto\">I think we</h2>\n<blockquote>\n<p dir=\"auto\"><strong>Verified</strong>Should this respect<br>\n<strong>The</strong>Can<br>\n<strong>Can</strong>This still fails for me after the latest deploy. (payment</p>\n</blockquote>\n<h3 dir=\"auto\">Reproduced on the</h3>\n<p dir=\"auto\">I think we settled on the second approach in the design review.</p>\n<p dir=\"auto\"><strong>Blocked on the other change</strong></p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>Blocked</th>\n<th>Should</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>The fix looks</td>\n<td>Left a couple of notes</td>\n</tr>\n<tr>\n<td>This still fails</td>\n<td>Reproduced on the second page of results;</td>\n</tr>\n<tr>\n<td>Reproduced</td>\n<td>Rebased and pushed;</td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<p dir=\"auto\"><strong>Blocked</strong>Verified in UAT, the totals line up now.</p>\n<p dir=\"auto\"><strong>Should</strong>Left</p>\n<hr>\n<h3 dir=\"auto\">Left a couple</h3>\n<p dir=\"auto\">Can you confirm which account this was tested against?</p>\n<p dir=\"auto\"><strong>Reproduced on the</strong>Rebased and pushed;</p>\n<ul dir=\"auto\">\n<li><strong>I</strong>Blocked on the</li>\n<li><strong>Verified</strong>Should this<ul dir=\"auto\">\n<li><strong>The</strong>Can you confirm which account this was tested against? (refund ledger)</li>\n<li><strong>This still</strong>Reproduced on the second page of results; the first page is</li>\n</ul>\n</li>\n</ul>\n<p dir=\"auto\">Reproduced on the second page of results;</p>\n<p dir=\"auto\"><strong>Rebased</strong>I think we settled on the second approach in the design review. (owner statement)</p>\n<p dir=\"auto\"><strong>Blocked</strong>Should this respect</p>\n<p dir=\"auto\"><strong>The</strong>The</p>\n<hr>\n<h3 dir=\"auto\">Can you confirm</h3>\n<p dir=\"auto\">This still fails for me after the latest deploy. (tax rule)</p>\n<p dir=\"auto\">Reproduced on the second page of</p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>I</th>\n<th>Blocked</th>\n<th>Blocked on</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Verified</td>\n<td><strong>The</strong></td>\n<td>Left a couple of notes on the diff —</td>\n</tr>\n<tr>\n<td>Can</td>\n<td><strong>Reproduced on</strong></td>\n<td>Reproduced on</td>\n</tr>\n<tr>\n<td>Rebased</td>\n<td><strong>Blocked</strong></td>\n<td>Left a</td>\n</tr>\n<tr>\n<td>Can</td>\n<td><strong>Can you</strong></td>\n<td>Reproduced on</td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<p dir=\"auto\">Rebased and<strong>I</strong>Verified in UAT, the totals line up</p>\n<p dir=\"auto\"><strong>Should this</strong> <em>Should this respect the account time zone, or the property one?</em></p>\n<p dir=\"auto\"><strong>Left</strong>Can you confirm</p>\n<hr>\n<h3 dir=\"auto\">This still fails</h3>\n<p dir=\"auto\">Reproduced on the second page of results; the first page is fine. (booking export)</p>\n<p dir=\"auto\">I think we settled on the second approach in the design review. (inbox badge)</p>\n<p dir=\"auto\"><strong>I</strong>Blocked on the other change landing</p>\n<hr>\n<h3 dir=\"auto\">Should this respect the</h3>\n<p dir=\"auto\">The fix looks<strong>Left</strong>This still fails</p>\n<p dir=\"auto\"><strong>This still fails for</strong>Reproduced on</p>\n<p dir=\"auto\">Rebased and pushed; checks are green again. (calendar feed)</p>\n<ul dir=\"auto\">\n<li>Blocked on</li>\n<li>Verified in UAT, the</li>\n<li>Should this respect the account</li>\n<li>The fix</li>\n<li>Left a</li>\n<li>Can you confirm</li>\n<li><g-emoji class=\"g-emoji\" alias=\"warning\">Reproduced</g-emoji>Rebased and pushed; checks are</li>\n<li><g-emoji class=\"g-emoji\" alias=\"warning\">I</g-emoji>I<a class=\"issue-link js-issue-link\" data-error-text=\"example\" data-id=\"example\" data-permission-text=\"example\" data-url=\"example\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Verified</a>Should this respect the</li>\n<li><g-emoji class=\"g-emoji\" alias=\"warning\">The</g-emoji>Can you confirm which</li>\n</ul>\n<p dir=\"auto\"><em>This still fails for me after the latest</em></p>\n<p dir=\"auto\"><strong>Can you confirm</strong>Reproduced on the second page of results; the first page is fine. (refund ledger)<g-emoji class=\"g-emoji\" alias=\"warning\">Rebased</g-emoji>I think we settled on the</p>\n<p dir=\"auto\"><strong>Blocked on the</strong></p>\n<p dir=\"auto\"><em>Should this respect the account time zone, or the property one? (channel mapping)</em></p>\n<p dir=\"auto\"><strong>Should this respect</strong></p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>The</th>\n<th>Can</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><strong>This still fails</strong></td>\n<td>Reproduced on</td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<hr>\n<h2 dir=\"auto\">I think we settled</h2>\n<p dir=\"auto\">I think we settled on<strong>Blocked on the</strong>Verified</p>\n<ul dir=\"auto\">\n<li>The fix<strong>Left a</strong>Left a</li>\n<li>This still fails for me after the latest deploy. (review import)</li>\n<li>Reproduced on the<code class=\"notranslate\">Rebased</code></li>\n</ul>",
+              "author": {
+                "login": "dev-2",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "CrossReferencedEvent",
+              "createdAt": "2026-04-08T13:50:52Z",
+              "actor": {
+                "login": "dev-5",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "source": {
+                "number": 16253,
+                "url": "https://github.com/example-org/example-repo/issues/1",
+                "repository": {
+                  "nameWithOwner": "example-org/example-repo"
+                }
+              }
+            },
+            {
+              "__typename": "ReferencedEvent",
+              "createdAt": "2026-04-08T20:23:40Z",
+              "actor": {
+                "login": "dev-5",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "commit": {
+                "abbreviatedOid": "78aa565"
+              }
+            },
+            {
+              "__typename": "RenamedTitleEvent",
+              "createdAt": "2026-04-14T12:14:16Z",
+              "actor": {
+                "login": "dev-5",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "previousTitle": "Review import rounds the wrong currency unit",
+              "currentTitle": "Calendar feed sends before the template renders"
+            },
+            {
+              "__typename": "MilestonedEvent",
+              "createdAt": "2026-05-08T15:24:22Z",
+              "actor": {
+                "login": "dev-6",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "milestoneTitle": "Inbox badge sends before the template renders"
+            },
+            {
+              "__typename": "UnassignedEvent",
+              "createdAt": "2026-05-08T20:24:07Z",
+              "actor": {
+                "login": "dev-7",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "assignee": {
+                "login": "dev-5"
+              }
+            },
+            {
+              "__typename": "DemilestonedEvent",
+              "createdAt": "2026-06-01T18:23:13Z",
+              "actor": {
+                "login": "dev-6",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "milestoneTitle": "Booking export fails silently on an empty result"
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-22T22:19:48Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<blockquote>\n<p dir=\"auto\">The fix looks right, but it<code class=\"notranslate\">Left</code>Can you confirm</p>\n</blockquote>\n<p dir=\"auto\">Reproduced on the second page of results;<a class=\"issue-link js-issue-link\" data-error-text=\"example\" data-id=\"example\" data-permission-text=\"example\" data-url=\"example\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Rebased</a></p>",
+              "author": {
+                "login": "dev-8",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-24T11:56:41Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\">Verified<code class=\"notranslate\">Should</code>Left<code class=\"notranslate\">Can</code>Can you confirm</p>\n<p dir=\"auto\"><strong>This</strong>Rebased and pushed; checks are green again. (refund ledger)</p>\n<p dir=\"auto\"><strong>I</strong>Blocked</p>\n<ul dir=\"auto\">\n<li><code class=\"notranslate\">Should</code>Should this respect<code class=\"notranslate\">The</code>Can you confirm<code class=\"notranslate\">This still</code>Reproduced on<code class=\"notranslate\">I</code>Verified in UAT, the totals line</li>\n</ul>\n<details>\n<summary>Should this respect<a class=\"commit-link\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\"><tt>The</tt></a>Can</summary>\n<div class=\"highlight highlight-source-diff notranslate position-relative overflow-auto\" dir=\"auto\" data-snippet-clipboard-copy-content=\"example\"><pre class=\"notranslate\"><span class=\"pl-mdr\">This still</span>This still fails for me after the latest deploy.<span class=\"pl-md\"><span class=\"pl-md\">Rebased</span>I think we settled on the</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Blocked</span>Verified in UAT, the totals</span>\n<span class=\"pl-md\"><span class=\"pl-md\">The</span>The</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Left</span>This still fails</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Reproduced</span>Rebased</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Blocked</span>Blocked on the other</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Verified</span>Should this respect the</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">Left</span>Can you confirm which account this</span>This</pre></div>\n</details>\n<p dir=\"auto\"><strong>Reproduced on the second</strong>Rebased and<code class=\"notranslate\">I</code>Verified<code class=\"notranslate\">Should</code>The fix looks right, but it needs a test for the empty case. (owner statement)</p>\n<ul dir=\"auto\">\n<li>The fix looks<code class=\"notranslate\">Can</code>This still fails for</li>\n<li>Reproduced<code class=\"notranslate\">I</code>Blocked on the other change<code class=\"notranslate\">Blocked</code></li>\n<li>Should this respect the<code class=\"notranslate\">The</code>Left</li>\n<li>Can you confirm<code class=\"notranslate\">Reproduced</code>Reproduced on the</li>\n</ul>\n<p dir=\"auto\">Rebased and pushed; checks are green again. (channel mapping)</p>\n<p dir=\"auto\"><strong>Blocked</strong>Verified in UAT, the<strong>Should this respect the account</strong>Left a couple</p>\n<p dir=\"auto\">Left<code class=\"notranslate\">Can</code>This</p>\n<p dir=\"auto\">Rebased and pushed; checks are<code class=\"notranslate\">I</code>I<code class=\"notranslate\">Verified</code>Should<code class=\"notranslate\">The</code>Can you confirm which account this was tested against? (refund ledger)<code class=\"notranslate\">This</code>Can you confirm which account this was tested against?</p>",
+              "author": {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-24T14:35:35Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\">I<a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Blocked</a>Should this respect the account time zone, or the property one? (booking export)</p>\n<p dir=\"auto\">Should this respect the account time<br>The fix looks right,</p>\n<p dir=\"auto\">Can</p>\n<div class=\"snippet-clipboard-content notranslate position-relative overflow-auto\" data-snippet-clipboard-copy-content=\"example\"><pre class=\"notranslate\"><code class=\"notranslate\">This still fails for me after the latest deploy. (inbox badge)</code></pre></div>",
+              "author": {
+                "login": "dev-9",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-24T14:52:50Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\"><a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Reproduced</a> <a class=\"commit-link\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\"><tt>I</tt></a>Verified in UAT, the totals line up now. (guest</p>",
+              "author": {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-24T14:58:10Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\"><a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">This</a>Rebased and pushed; checks are green<br>I think we</p>",
+              "author": {
+                "login": "dev-9",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-24T16:29:13Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\"><a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Left</a>This still fails for</p>",
+              "author": {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-28T01:39:01Z",
+              "lastEditedAt": "2026-07-28T01:47:32Z",
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<blockquote>\n<p dir=\"auto\"><a href=\"https://github.com/example-org/example-repo/issues/1\">Should</a> <a href=\"https://github.com/example-org/example-repo/issues/1\">Left</a>Can you confirm which account this was tested against?</p>\n</blockquote>\n<p dir=\"auto\"><a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">This</a>Reproduced on the second page of results; the first page is fine. (refund ledger)</p>\n<a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://github.com/example-org/example-repo/issues/1\"><img width=\"1870\" height=\"971\" alt=\"example\" src=\"https://private-user-images.githubusercontent.com/1/example.png?jwt=scrubbed\" data-animated-image=\"example\" style=\"max-width: 100%; height: auto; max-height: 971px;; aspect-ratio: 1870 / 971; background-color: var(--bgColor-muted); border-radius: 6px\" class=\"js-gh-image-fallback\"></a>",
+              "author": {
+                "login": "dev-10",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-29T13:22:24Z",
+              "lastEditedAt": "2026-07-29T13:38:09Z",
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\"><a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Verified</a>Should this respect the account time zone, or the property one? (channel mapping)</p>\n<p dir=\"auto\"><a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">The</a>The fix looks right, but it needs a test</p>\n<blockquote>\n<p dir=\"auto\">Can you confirm which account this was tested against? (inbox</p>\n</blockquote>\n<p dir=\"auto\">This still fails for me after the latest deploy. (payment retry)</p>",
+              "author": {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-29T13:31:20Z",
+              "lastEditedAt": "2026-07-29T13:31:36Z",
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<blockquote>\n<p dir=\"auto\"><a href=\"https://github.com/example-org/example-repo/issues/1\">I</a>Blocked on the other change landing first. (tax rule)</p>\n<p dir=\"auto\"><a href=\"https://github.com/example-org/example-repo/issues/1\">Blocked</a>Should this respect the account time zone, or the</p>\n<blockquote>\n<p dir=\"auto\">The fix looks right, but it needs a test for</p>\n</blockquote>\n<p dir=\"auto\">Left a couple of notes on the diff — mostly naming. (quote email)</p>\n</blockquote>\n<p dir=\"auto\"><a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Can</a>Reproduced on the second page of results;</p>",
+              "author": {
+                "login": "dev-10",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-29T15:02:11Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" id=\"example\" disabled=\"\" class=\"task-list-item-checkbox\" aria-label=\"example\">Reproduced on the second page of results; the first page is fine. (review import)</li>\n</ul>\n<a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://github.com/example-org/example-repo/issues/1\"><img width=\"1166\" height=\"667\" alt=\"example\" src=\"https://private-user-images.githubusercontent.com/1/example.png?jwt=scrubbed\" data-animated-image=\"example\" style=\"max-width: 100%; height: auto; max-height: 667px;; aspect-ratio: 1166 / 667; background-color: var(--bgColor-muted); border-radius: 6px\" class=\"js-gh-image-fallback\"></a>",
+              "author": {
+                "login": "dev-3",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-29T15:21:25Z",
+              "lastEditedAt": "2026-07-29T15:43:33Z",
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<blockquote>\n<p dir=\"auto\">Left a couple of notes on the diff — mostly naming. (booking export)</p>\n</blockquote>\n<p dir=\"auto\">Can you confirm which account<a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">This</a>Rebased and<a href=\"https://github.com/example-org/example-repo/issues/1\">I</a>I think we settled on the second approach in the design review. (tax rule)</p>",
+              "author": {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-29T15:53:47Z",
+              "lastEditedAt": "2026-07-29T16:18:21Z",
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\"><a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Should</a></p>\n<p dir=\"auto\">The fix<code class=\"notranslate\">Can</code>This<code class=\"notranslate\">Can</code>This</p>\n<p dir=\"auto\">Rebased and</p>\n<p dir=\"auto\">I think we</p>\n<p dir=\"auto\">Blocked</p>",
+              "author": {
+                "login": "dev-11",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-29T16:50:42Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\">I<code class=\"notranslate\">Blocked</code>Should<code class=\"notranslate\">Should</code>The fix looks right, but</p>\n<p dir=\"auto\"><strong>Can</strong>This still fails for<code class=\"notranslate\">Reproduced</code>Rebased and pushed; checks are green</p>\n<p dir=\"auto\"><strong>I</strong>Blocked</p>\n<ul dir=\"auto\">\n<li><code class=\"notranslate\">Verified</code>The fix looks<code class=\"notranslate\">Left</code>Can you<code class=\"notranslate\">This</code>Reproduced<code class=\"notranslate\">Rebased</code>I think we</li>\n<li><code class=\"notranslate\">Verified</code>Should<code class=\"notranslate\">Should</code>Left a<code class=\"notranslate\">Can</code>This still fails for</li>\n<li><code class=\"notranslate\">Rebased</code>I think we settled on the second approach in the</li>\n<li><code class=\"notranslate\">I</code>Blocked on<ol dir=\"auto\">\n<li><code class=\"notranslate\">Should</code>The fix<code class=\"notranslate\">Left</code>This still fails for me after the latest deploy. (inbox badge)<code class=\"notranslate\">This still fails</code>Reproduced on the</li>\n<li><strong>I think we</strong>Blocked on<code class=\"notranslate\">Verified</code>Verified in UAT,<code class=\"notranslate\">The</code>Left<code class=\"notranslate\">Can</code>Reproduced on the second page<code class=\"notranslate\">Rebased</code>Rebased and pushed;<code class=\"notranslate\">Blocked</code>Verified in<code class=\"notranslate\">Should this</code>The fix looks<code class=\"notranslate\">Can</code>Can<code class=\"notranslate\">This</code>Rebased<code class=\"notranslate\">I</code>Blocked on the other change landing first. (tax rule)</li>\n</ol>\n</li>\n</ul>\n<p dir=\"auto\">Should<code class=\"notranslate\">Verified</code>Should this respect the account time zone,<code class=\"notranslate\">The</code>Can you confirm which account</p>\n<details>\n<summary>This still fails<a class=\"commit-link\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\"><tt>Reproduced</tt></a>Rebased</summary>\n<div class=\"highlight highlight-source-diff notranslate position-relative overflow-auto\" dir=\"auto\" data-snippet-clipboard-copy-content=\"example\"><pre class=\"notranslate\">I think we settled on the second approach in the design review. (owner statement)<span class=\"pl-c1\">Blocked on</span>Should this respect the account<span class=\"pl-md\">The</span>\n<span class=\"pl-mi1\">Left</span>\n<span class=\"pl-mdr\">Left a</span>This still fails for me after the latest deploy. (payment retry)<span class=\"pl-md\"><span class=\"pl-md\">Reproduced</span>Rebased and pushed; checks</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">Blocked</span>Verified</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">Verified</span>The</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">Left</span>Can you</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">This</span>Rebased</span>Rebased and pushed; checks are<span class=\"pl-mdr\">I think</span>Verified in UAT, the totals line<span class=\"pl-md\"><span class=\"pl-md\">Should</span>The fix</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Can</span>Can</span>\n<span class=\"pl-md\"><span class=\"pl-md\">This</span>Reproduced</span>\n<span class=\"pl-md\"><span class=\"pl-md\">I</span>Blocked</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Blocked</span>Should</span>\n<span class=\"pl-md\"><span class=\"pl-md\">The</span>Left a</span>\n<span class=\"pl-md\"><span class=\"pl-md\">This</span>Reproduced</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Reproduced</span>Rebased</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Blocked</span>Verified in UAT,</span>Should this respect<span class=\"pl-c1\">Left a</span>Left a couple of notes<span class=\"pl-md\">Can</span>\n<span class=\"pl-mi1\">Reproduced</span>\n<span class=\"pl-mdr\">Rebased and</span>I think we settled on the<span class=\"pl-md\"><span class=\"pl-md\">Blocked</span>Verified in UAT, the</span>\n \n<span class=\"pl-md\"><span class=\"pl-md\">Should</span>The fix looks right,</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Can</span>This still</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Reproduced</span>Reproduced on the second</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Rebased</span>I</span>Blocked on the other<span class=\"pl-md\"><span class=\"pl-md\">Should</span>The fix looks</span>The fix<span class=\"pl-mdr\">Can you</span>This still fails for me<span class=\"pl-md\"><span class=\"pl-md\">Reproduced</span>I think we settled on</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">Blocked</span>Blocked on the other change</span>Verified in UAT, the totals line<span class=\"pl-mdr\">The fix</span>Left a couple of notes on the<span class=\"pl-md\"><span class=\"pl-md\">Can</span>Reproduced on the second page of results; the</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">Reproduced</span>Rebased and pushed; checks are green again. (guest portal)</span>Blocked on the other change landing first. (tax rule)<span class=\"pl-mdr\">Left a</span>Can you confirm which account this<span class=\"pl-md\"><span class=\"pl-md\">Can</span>Reproduced on the second page</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">Rebased</span>I think we settled on</span>Verified in<span class=\"pl-c1\">Should this</span>Should this respect the account<span class=\"pl-md\">Left</span>\n<span class=\"pl-mi1\">Can</span>\n<span class=\"pl-mdr\">This still</span>Reproduced on the second page<span class=\"pl-md\"><span class=\"pl-md\">I</span>I think we settled</span>Blocked on the other change landing first. (listing sync)<span class=\"pl-md\"><span class=\"pl-md\">Should</span>The fix</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Left</span>This</span>This still fails for me after the<span class=\"pl-mdr\">Reproduced on</span>Rebased and pushed; checks are green<span class=\"pl-md\"><span class=\"pl-md\">Blocked</span>Verified in UAT,</span>Should this respect the account<span class=\"pl-mdr\">The fix</span>Left a couple of notes on<span class=\"pl-md\"><span class=\"pl-md\">Can</span>Reproduced on the second</span>Rebased and<span class=\"pl-md\"><span class=\"pl-md\">I</span>I think</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Verified</span>Should</span>The fix looks<span class=\"pl-md\"><span class=\"pl-md\">Can</span>This still fails</span>Can you<span class=\"pl-mdr\">Reproduced on</span>Rebased and pushed; checks are green again. (calendar<span class=\"pl-md\"><span class=\"pl-md\">I</span>Blocked on the other</span>Should this<span class=\"pl-md\"><span class=\"pl-md\">Should</span>The fix</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Can</span>This</span>Reproduced on the second<span class=\"pl-md\"><span class=\"pl-md\">I</span>I think we</span>Blocked on the other<span class=\"pl-c1\">Verified in</span>The fix looks right, but<span class=\"pl-md\">Left</span>\n<span class=\"pl-mi1\">Left</span>\n<span class=\"pl-mdr\">This still</span>Reproduced on the second page of results;<span class=\"pl-md\"><span class=\"pl-md\">Rebased</span>Blocked on the other</span>Verified in UAT, the<span class=\"pl-mdr\">Verified in</span>Should this respect the account<span class=\"pl-md\"><span class=\"pl-md\">Left</span>Can you</span>\n<span class=\"pl-md\"><span class=\"pl-md\">This</span>Rebased</span>Rebased and pushed;<span class=\"pl-md\"><span class=\"pl-md\">I</span>Verified in UAT,</span>Should this</pre></div>\n</details>\n<p dir=\"auto\">The fix looks right, but it needs a</p>\n<p dir=\"auto\">Left<code class=\"notranslate\">Can</code>This<code class=\"notranslate\">Reproduced</code>I think<code class=\"notranslate\">Blocked on the</code>Verified</p>",
+              "author": {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-29T17:48:44Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<blockquote>\n<p dir=\"auto\">Reproduced on the second page</p>\n</blockquote>\n<p dir=\"auto\">Rebased and pushed; checks are green again. (guest portal)</p>\n<p dir=\"auto\">I think we settled on the second approach in the design review.</p>",
+              "author": {
+                "login": "dev-2",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-29T18:43:21Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\">Can you confirm which account</p>",
+              "author": {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 1
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-30T17:14:54Z",
+              "lastEditedAt": "2026-07-30T17:19:59Z",
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\">Should this<br>Left a couple of<a href=\"https://github.com/example-org/example-repo/issues/1\" rel=\"nofollow\">Can</a>This<br>Rebased and pushed; checks are</p>\n<p dir=\"auto\"><strong>I</strong><br>I think we settled on the second<br>Blocked<a href=\"https://github.com/example-org/example-repo/issues/1\" rel=\"nofollow\">Should</a>The fix<br>Left<a href=\"https://github.com/example-org/example-repo/issues/1\" rel=\"nofollow\">This</a>This still</p>\n<a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://github.com/example-org/example-repo/issues/1\"><img width=\"1870\" height=\"971\" alt=\"example\" src=\"https://private-user-images.githubusercontent.com/1/example.png?jwt=scrubbed\" data-animated-image=\"example\" style=\"max-width: 100%; height: auto; max-height: 971px;; aspect-ratio: 1870 / 971; background-color: var(--bgColor-muted); border-radius: 6px\" class=\"js-gh-image-fallback\"></a>",
+              "author": {
+                "login": "dev-10",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 3
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-30T18:37:00Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\">Blocked</p>",
+              "author": {
+                "login": "dev-12",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-30T18:37:51Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\"><a class=\"user-mention notranslate\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" data-octo-click=\"example\" data-octo-dimensions=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">I</a>Blocked on the</p>\n<ul dir=\"auto\">\n<li><strong>Verified</strong>Verified in UAT, the totals line up now.</li>\n</ul>\n<p dir=\"auto\">The fix looks right, but</p>",
+              "author": {
+                "login": "dev-13",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "CrossReferencedEvent",
+              "createdAt": "2026-07-31T19:08:02Z",
+              "actor": {
+                "login": "dev-11",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "source": {
+                "number": 18583,
+                "url": "https://github.com/example-org/example-repo/issues/1",
+                "repository": {
+                  "nameWithOwner": "example-org/example-repo"
+                }
+              }
+            },
+            {
+              "__typename": "IssueComment",
+              "createdAt": "2026-07-31T19:24:20Z",
+              "lastEditedAt": null,
+              "isMinimized": false,
+              "minimizedReason": null,
+              "bodyHTML": "<p dir=\"auto\">Can<code class=\"notranslate\">Can</code>This<code class=\"notranslate\">Rebased</code>I think we</p>\n<p dir=\"auto\"><strong>Blocked</strong>Should</p>\n<p dir=\"auto\"><strong>Verified</strong>Should</p>\n<ul dir=\"auto\">\n<li><code class=\"notranslate\">The</code>Can you confirm which account this was</li>\n<li><code class=\"notranslate\">This</code>Reproduced on<code class=\"notranslate\">Rebased</code>I think we settled on the second<code class=\"notranslate\">Blocked</code>Should<code class=\"notranslate\">The</code>Left a couple of<code class=\"notranslate\">Left</code>This still fails for<code class=\"notranslate\">Reproduced</code>Rebased and</li>\n<li><code class=\"notranslate\">Blocked</code>Verified in<code class=\"notranslate\">Verified</code>The<code class=\"notranslate\">Left</code>Can you confirm<code class=\"notranslate\">This</code>Rebased and pushed;</li>\n<li><code class=\"notranslate\">Rebased</code>I think we<code class=\"notranslate\">Verified</code>Should this<code class=\"notranslate\">The</code>Can<code class=\"notranslate\">Can</code>This<code class=\"notranslate\">Reproduced</code>I think</li>\n</ul>\n<details>\n<summary>Blocked on<code class=\"notranslate\">Blocked on</code>Should</summary>\n<div class=\"highlight highlight-source-diff notranslate position-relative overflow-auto\" dir=\"auto\" data-snippet-clipboard-copy-content=\"example\"><pre class=\"notranslate\"><span class=\"pl-c1\">The fix</span>Left a couple of<span class=\"pl-md\">This</span>\n<span class=\"pl-mi1\">Reproduced</span>\n<span class=\"pl-mdr\">Reproduced on</span>Rebased and pushed;<span class=\"pl-md\"><span class=\"pl-md\">Blocked</span>Verified in UAT,</span>Should this respect the<span class=\"pl-md\"><span class=\"pl-md\">Left</span>Left</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Can</span>Reproduced</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Rebased</span>I</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Blocked</span>Verified</span>Should this respect the account<span class=\"pl-mdr\">The fix</span>Can you<span class=\"pl-md\"><span class=\"pl-md\">This</span>Reproduced</span>Reproduced on<span class=\"pl-c1\">Rebased and</span>I think we settled<span class=\"pl-md\">Blocked</span>\n<span class=\"pl-mi1\">Should</span>\n<span class=\"pl-mdr\">The fix</span>The<span class=\"pl-md\"><span class=\"pl-md\">Can</span>This</span>Reproduced on the second<span class=\"pl-md\"><span class=\"pl-md\">I</span>Blocked</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Blocked</span>Verified in UAT,</span>\n<span class=\"pl-md\"><span class=\"pl-md\">The</span>Left</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Can</span>Reproduced on the</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Reproduced</span>Rebased</span>\n<span class=\"pl-mdr\">Blocked on</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Left</span>Can you confirm which account</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">Can</span>Reproduced on the second page</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Rebased</span>I think we</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">Verified</span>Should this respect the account</span>\n<span class=\"pl-mdr\">Should this</span>\n<span class=\"pl-md\"><span class=\"pl-md\">Left</span>Can you confirm which account</span>\n<span class=\"pl-mi1\"><span class=\"pl-mi1\">This</span>Reproduced on the second page</span>\n\n<span class=\"pl-c1\">I think</span>I think we settled on the second approach in<span class=\"pl-c1\">Blocked on</span>Should this respect the account time zone, or the</pre></div>\n</details>\n<p dir=\"auto\">The fix looks right, but it needs</p>",
+              "author": {
+                "login": "dev-14",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "CrossReferencedEvent",
+              "createdAt": "2026-07-31T19:39:47Z",
+              "actor": {
+                "login": "dev-11",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "source": {
+                "number": 18587,
+                "url": "https://github.com/example-org/example-repo/issues/1",
+                "repository": {
+                  "nameWithOwner": "example-org/example-repo"
+                }
+              }
+            },
+            {
+              "__typename": "CrossReferencedEvent",
+              "createdAt": "2026-08-04T18:48:49Z",
+              "actor": {
+                "login": "dev-15",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "source": {
+                "number": 1513,
+                "url": "https://github.com/example-org/example-repo/issues/1",
+                "repository": {
+                  "nameWithOwner": "example-org/example-repo"
+                }
+              }
+            },
+            {
+              "__typename": "CrossReferencedEvent",
+              "createdAt": "2026-08-05T18:12:30Z",
+              "actor": {
+                "login": "dev-16",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "source": {
+                "number": 18708,
+                "url": "https://github.com/example-org/example-repo/issues/1",
+                "repository": {
+                  "nameWithOwner": "example-org/example-repo"
+                }
+              }
+            },
+            {
+              "__typename": "CrossReferencedEvent",
+              "createdAt": "2026-08-31T22:46:48Z",
+              "actor": {
+                "login": "dev-16",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "source": {
+                "number": 19318,
+                "url": "https://github.com/example-org/example-repo/issues/1",
+                "repository": {
+                  "nameWithOwner": "example-org/example-repo"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -207,6 +207,20 @@ Removing hooks empties marker files without deleting the directory. Leave writer
 
 Retain five settings backups per agent. Best-effort cleanup removes markers older than 30 days, temporary files older than 60 seconds, and dispatch output older than seven days. File age is a cleanup heuristic, not proof that a process ended.
 
+### Reading one conversation
+
+`readDetail` names a card key and a subject; the hub resolves the card from its own snapshot, so a client never names a repository or an address. `WorkSource.readDetail` returns null for a card the source does not serve, distinct from a subject it serves and cannot find. The GitHub source reads `bodyHTML` and one `timelineItems` connection, so no client parses markdown and no client orders the conversation. Answers reach the requesting client alone and are neither cached nor broadcast: a body is large, changes independently of its card, and is wanted only while someone is reading it.
+
+One `timelineItems` list carries comments, review summaries, commits, and state changes together, so the panel never merges collections or sorts by timestamp. `ItemDetail.events` keeps that order. A comment or review becomes a `DetailPost` with its body, reactions, and hidden reason; everything else becomes a `DetailNote` whose one-line `summary` the source composes, because the wording is a product decision rather than a client one. Issues and pull requests request different `itemTypes` against different unions, so the shared event selections are one string spread into both.
+
+A pull-request read also returns `reviewThreads`, which an issue read omits. Each thread hangs off the review its first comment belongs to; the rest are sorted by file then line and listed after the conversation, since the panel does not show the diff they hang off.
+
+Both connections page backwards — `last`/`before`, newest page first — so a read that stops early drops the oldest entries and never the latest. Follow-up pages go in their own documents, so a second timeline page never refetches the threads; `DETAIL_EVENTS_QUERY` carries the event fragments and `DETAIL_THREADS_QUERY` only `who` and `reacted`, because a document must spread every fragment it defines. `moreEvents`, `moreThreads`, and a thread's `moreComments` all come from `pageInfo.hasPreviousPage`. No count is reported, for the reason recorded in [M50](mechanics.md#conversation-timeline-reads). A page that fails after the first leaves the conversation short and clipped rather than failing the read. Paging stops at 20 event pages and 5 thread pages, but the hub's 60-second read budget usually stops a long read first.
+
+The webview sanitizes source HTML before it reaches the document, keeping an element and attribute allowlist and only `http`/`https` addresses. Class names are filtered by value, because the board's own class names position and style chrome that conversation markup could otherwise wear. Conversation images come from GitHub's user-content hosts and its attachment and asset hosts, which the board's `img-src` policy names.
+
+The panel is modal: a scrim dims the board, and everything outside the panel is `inert` while it is open, because `aria-modal` tells assistive technology that nothing outside exists. The VS Code panel owns whether conversations are read on the board (`groundControl.readConversations`) and the dragged panel width, sending both to the webview as `reading`. The width is a `globalState` memento, as archive visibility is; a setting change reaches an open board without a reload.
+
 ## Triage and automation
 
 ### Triage
@@ -293,8 +307,9 @@ The authoritative message types are in [protocol.ts](../packages/core/src/protoc
 | `setCheckout` | Validate and save a selected folder | Refused |
 | `startSession` | Agent and card; root/prompt resolved by hub | Refused |
 | `watchLog` | Subscribe or unsubscribe | Allowed |
+| `readDetail` | Read one card's conversation for display | Refused |
 
-Hub messages are `snapshot`, `changed`, `perform`, `notice`, and `log`. The bridge adds `trouble` for connection failures. `BoardMessage` types the extension-to-webview contract. The webview sends `ready` after script startup; the panel responds with current display state.
+Hub messages are `snapshot`, `changed`, `perform`, `notice`, `log`, and `detail`. The bridge adds `trouble` for connection failures. `BoardMessage` types the extension-to-webview contract. The webview sends `ready` after script startup; the panel responds with current display state.
 
 On reconnect, restate configuration and log subscription after `hello`. Never queue stale copies of these messages. Broadcast accepted/refused configuration before waiting for the resulting read, so a read floor cannot leave an obsolete error visible.
 

@@ -7,6 +7,9 @@ import { boardLog, hubLog, showHubEntries } from './logging.js';
 import { host } from './registry.js';
 import { boardRoot, perform, refuse } from './resident.js';
 
+/** The hub's answer to one readDetail, forwarded to whichever board asked for it. */
+export type DetailMessage = Extract<HubMessage, { type: 'detail' }>;
+
 /**
  * Keep one client per extension host so configuration works after the board closes (R34) and the hub remains
  * available to browser clients (R35).
@@ -18,6 +21,7 @@ export class HubClient {
   #transport: HubTransport;
   readonly #snapshots = new vscode.EventEmitter<Snapshot>();
   readonly #streaming = new vscode.EventEmitter<boolean>();
+  readonly #details = new vscode.EventEmitter<DetailMessage>();
 
   #config: HubConfig | undefined;
   #watching = false;
@@ -59,6 +63,9 @@ export class HubClient {
   }
 
   readonly onSnapshot = this.#snapshots.event;
+
+  /** Detail answers for whichever board asked; every open board sees them and ignores keys it did not request. */
+  readonly onDetail = this.#details.event;
 
   /** Fired whenever the hub's log starts or stops arriving, so every board in this window paints the same button. */
   readonly onStreamingChanged = this.#streaming.event;
@@ -126,6 +133,7 @@ export class HubClient {
     this.#transport.dispose();
     this.#snapshots.dispose();
     this.#streaming.dispose();
+    this.#details.dispose();
   }
 
   #hello(): ClientHello {
@@ -196,6 +204,11 @@ export class HubClient {
 
         this.#hubLines += message.entries.length;
         showHubEntries(message.entries);
+
+        return;
+
+      case 'detail':
+        this.#details.fire(message);
 
         return;
 

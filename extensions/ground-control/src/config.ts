@@ -192,6 +192,11 @@ export function sessionIntervalMs(): number {
   return intervalMs('sessionRefreshSeconds', 30, 2);
 }
 
+/** Whether a card's issue and pull-request controls open the reading panel rather than the browser (R43). */
+export function readConversations(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>('readConversations', true);
+}
+
 /** Disabling session hooks removes existing hooks; skipping installation would leave them active (R34). */
 export function installSessionHooks(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('installSessionHooks', true);

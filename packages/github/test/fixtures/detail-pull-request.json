@@ -1,0 +1,888 @@
+{
+  "data": {
+    "repository": {
+      "nameWithOwner": "example-org/example-repo",
+      "pullRequest": {
+        "number": 19572,
+        "title": "Review import reads across the tenant boundary",
+        "url": "https://github.com/example-org/example-repo/pull/19572",
+        "state": "OPEN",
+        "createdAt": "2026-09-09T22:27:09Z",
+        "bodyHTML": "<p dir=\"auto\">I<span class=\"issue-keyword tooltipped tooltipped-se\" aria-label=\"example\">I</span> <a class=\"issue-link js-issue-link\" data-error-text=\"example\" data-id=\"example\" data-permission-text=\"example\" data-url=\"example\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Blocked</a></p>\n<h2 dir=\"auto\">Verified in</h2>\n<p dir=\"auto\">The fix looks right, but it needs<code class=\"notranslate\">Left a</code>Can<code class=\"notranslate\">This still</code>Reproduced<code class=\"notranslate\">Rebased</code>Blocked on the other change<code class=\"notranslate\">Verified</code>Should this respect the</p>\n<p dir=\"auto\">Should<code class=\"notranslate\">Left</code>Can you confirm which account this was<code class=\"notranslate\">This</code>Rebased<code class=\"notranslate\">I</code>I think<code class=\"notranslate\">Verified</code>Should this<code class=\"notranslate\">The</code>Left a<code class=\"notranslate\">This</code>Should this respect<code class=\"notranslate\">The</code>Can you<code class=\"notranslate\">This</code>Reproduced<code class=\"notranslate\">I</code>I think<code class=\"notranslate\">Blocked</code>Verified</p>\n<p dir=\"auto\">The fix looks right,<code class=\"notranslate\">Left</code>Left a couple of<code class=\"notranslate\">This</code>Reproduced on the second page<code class=\"notranslate\">Rebased</code>Blocked on the other change landing first. (owner<code class=\"notranslate\">Verified</code>Verified in UAT, the totals line up</p>\n<p dir=\"auto\">Should this respect the account time zone,<a class=\"issue-link js-issue-link notranslate\" rel=\"noopener noreferrer nofollow\" href=\"https://github.com/example-org/example-repo/issues/1\">Left</a>Can you confirm which account this was</p>\n<h2 dir=\"auto\">This</h2>\n<p dir=\"auto\"><strong>Rebased and<code class=\"notranslate\">Rebased</code></strong>I think<code class=\"notranslate\">Verified</code>Should this respect the account time zone,<code class=\"notranslate\">The</code>Left a couple of notes on the diff — mostly naming. (refund ledger)</p>\n<p dir=\"auto\">Can<code class=\"notranslate\">This</code>Reproduced on the second page of results; the first page is fine.<code class=\"notranslate\">I</code>Blocked on the other change landing</p>\n<p dir=\"auto\"><strong>Verified in UAT,<code class=\"notranslate\">Should</code></strong>The fix looks<code class=\"notranslate\">Left</code>Can you confirm which account this was tested against? (guest portal)<code class=\"notranslate\">Reproduced</code>Rebased and pushed; checks are green again.</p>\n<markdown-accessiblity-table><table role=\"table\">\n<thead>\n<tr>\n<th>Rebased</th>\n<th>Blocked</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code class=\"notranslate\">Verified</code></td>\n<td>Should this respect the<code class=\"notranslate\">Left</code>Can</td>\n</tr>\n<tr>\n<td><code class=\"notranslate\">Can</code>This</td>\n<td>Rebased<code class=\"notranslate\">I</code>Blocked on</td>\n</tr>\n<tr>\n<td><code class=\"notranslate\">Should</code>Should</td>\n<td>The<code class=\"notranslate\">Can</code>This<code class=\"notranslate\">Reproduced on</code></td>\n</tr>\n<tr>\n<td><code class=\"notranslate\">I</code></td>\n<td>Verified in<code class=\"notranslate\">Should</code>The fix looks right, but</td>\n</tr>\n</tbody>\n</table></markdown-accessiblity-table>\n<p dir=\"auto\">Can you<code class=\"notranslate\">This still fails for</code>This still fails for me after the latest deploy.<code class=\"notranslate\">Rebased</code>I think we settled on the second approach in the design</p>\n<p dir=\"auto\"><strong>Blocked on</strong>Verified in UAT, the totals line up now. (inbox badge)<code class=\"notranslate\">The</code>The<code class=\"notranslate\">Left</code>This still fails</p>\n<h2 dir=\"auto\">Reproduced</h2>\n<ul dir=\"auto\">\n<li>Rebased<strong>Blocked</strong>Blocked<code class=\"notranslate\">Verified</code>Should<code class=\"notranslate\">Left</code>Can you<code class=\"notranslate\">This</code>Reproduced on</li>\n<li><strong><code class=\"notranslate\">Rebased</code></strong>I<code class=\"notranslate\">Verified</code>Should<code class=\"notranslate\">The</code>The<code class=\"notranslate\">Can</code>This<code class=\"notranslate\">Reproduced</code>I think we settled</li>\n</ul>\n<h2 dir=\"auto\">Blocked</h2>\n<ul dir=\"auto\">\n<li><code class=\"notranslate\">Blocked</code>Should this respect the account time zone, or the property one? (calendar<code class=\"notranslate\">The</code>Left a couple</li>\n<li><code class=\"notranslate\">Can</code>Reproduced on the second page of results; the</li>\n<li>Reproduced<code class=\"notranslate\">Rebased</code>Blocked on the other change landing</li>\n<li>Verified<code class=\"notranslate\">Should</code>Left a couple<a class=\"issue-link js-issue-link\" data-error-text=\"example\" data-id=\"example\" data-permission-text=\"example\" data-url=\"example\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\">Left</a>Can you confirm which</li>\n</ul>\n<h2 dir=\"auto\">This still fails</h2>\n<p dir=\"auto\">Rebased and pushed; checks are<code class=\"notranslate\">I think we settled</code>I think we settled on the second</p>\n<p dir=\"auto\">Verified in UAT, the totals line up now. (refund ledger)<code class=\"notranslate\">Should</code>The fix looks right, but it needs a test for</p>",
+        "lastEditedAt": null,
+        "author": {
+          "login": "dev-14",
+          "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+        },
+        "reactionGroups": [
+          {
+            "content": "THUMBS_UP",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "THUMBS_DOWN",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "LAUGH",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "HOORAY",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "CONFUSED",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "HEART",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "ROCKET",
+            "reactors": {
+              "totalCount": 0
+            }
+          },
+          {
+            "content": "EYES",
+            "reactors": {
+              "totalCount": 0
+            }
+          }
+        ],
+        "assignees": {
+          "nodes": []
+        },
+        "milestone": null,
+        "labels": {
+          "nodes": []
+        },
+        "isDraft": false,
+        "merged": false,
+        "reviewDecision": "REVIEW_REQUIRED",
+        "baseRefName": "main",
+        "headRefName": "topic-branch",
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "state": "SUCCESS"
+                }
+              }
+            }
+          ]
+        },
+        "timelineItems": {
+          "pageInfo": {
+            "hasPreviousPage": false,
+            "startCursor": null
+          },
+          "nodes": [
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "abbreviatedOid": "aa4e3c8",
+                "messageHeadline": "Booking export reads across the tenant boundary",
+                "committedDate": "2026-09-09T22:18:38Z",
+                "author": {
+                  "user": {
+                    "login": "dev-14"
+                  },
+                  "name": "dev-14"
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestReview",
+              "id": "PRR_kwDOBL-JR88AAAABM5j9vg",
+              "createdAt": "2026-09-09T22:44:49Z",
+              "lastEditedAt": null,
+              "state": "COMMENTED",
+              "bodyHTML": "",
+              "author": {
+                "login": "dev-17",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "PullRequestReview",
+              "id": "PRR_kwDOBL-JR88AAAABM5j_vg",
+              "createdAt": "2026-09-09T22:44:53Z",
+              "lastEditedAt": null,
+              "state": "COMMENTED",
+              "bodyHTML": "",
+              "author": {
+                "login": "dev-17",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "PullRequestReview",
+              "id": "PRR_kwDOBL-JR88AAAABM5kBIQ",
+              "createdAt": "2026-09-09T22:44:57Z",
+              "lastEditedAt": null,
+              "state": "COMMENTED",
+              "bodyHTML": "",
+              "author": {
+                "login": "dev-17",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "PullRequestReview",
+              "id": "PRR_kwDOBL-JR88AAAABM5kC1Q",
+              "createdAt": "2026-09-09T22:45:01Z",
+              "lastEditedAt": null,
+              "state": "COMMENTED",
+              "bodyHTML": "",
+              "author": {
+                "login": "dev-17",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "PullRequestReview",
+              "id": "PRR_kwDOBL-JR88AAAABM5kE_Q",
+              "createdAt": "2026-09-09T22:45:05Z",
+              "lastEditedAt": null,
+              "state": "COMMENTED",
+              "bodyHTML": "",
+              "author": {
+                "login": "dev-17",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "reactionGroups": [
+                {
+                  "content": "THUMBS_UP",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "THUMBS_DOWN",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "LAUGH",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HOORAY",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "CONFUSED",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "HEART",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "ROCKET",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                },
+                {
+                  "content": "EYES",
+                  "reactors": {
+                    "totalCount": 0
+                  }
+                }
+              ]
+            },
+            {
+              "__typename": "CrossReferencedEvent",
+              "createdAt": "2026-09-09T22:47:18Z",
+              "actor": {
+                "login": "dev-14",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+              },
+              "source": {
+                "number": 19258,
+                "url": "https://github.com/example-org/example-repo/issues/1",
+                "repository": {
+                  "nameWithOwner": "example-org/example-repo"
+                }
+              }
+            },
+            {
+              "__typename": "PullRequestCommit",
+              "commit": {
+                "abbreviatedOid": "7b70bd5",
+                "messageHeadline": "Booking export sends before the template renders",
+                "committedDate": "2026-09-09T22:58:16Z",
+                "author": {
+                  "user": {
+                    "login": "dev-14"
+                  },
+                  "name": "dev-14"
+                }
+              }
+            }
+          ]
+        },
+        "reviewThreads": {
+          "pageInfo": {
+            "hasPreviousPage": true,
+            "startCursor": null
+          },
+          "nodes": [
+            {
+              "path": "src/example-1.cs",
+              "line": 86,
+              "originalLine": 87,
+              "isResolved": true,
+              "isOutdated": false,
+              "comments": {
+                "pageInfo": {
+                  "hasPreviousPage": false
+                },
+                "nodes": [
+                  {
+                    "bodyHTML": "<p dir=\"auto\">This still fails for me after the latest deploy. (calendar feed)</p>\n<p dir=\"auto\"></p><div class=\"Box Box--condensed my-2\">\n  <div class=\"Box-header f6\">\n    <p class=\"mb-0 text-bold\">\n      <a href=\"https://github.com/example-org/example-repo/issues/1\">This</a>\n    </p>\n    <p class=\"mb-0 color-fg-muted\">Reproduced on the<a data-pjax=\"example\" class=\"commit-tease-sha Link--inTextBlock\" href=\"https://github.com/example-org/example-repo/issues/1\">Rebased</a>\n    </p>\n  </div>\n  <div itemprop=\"text\" class=\"Box-body p-0 blob-wrapper blob-wrapper-embedded data\">\n    <table class=\"highlight tab-size mb-0 js-file-line-container\" data-tab-size=\"example\" data-paste-markdown-skip=\"example\">\n\n        <tbody><tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-kos\">Blocked</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">  </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">Verified</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">Should this respect the account time zone, or the property one?</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">The fix looks right, but it needs a test for</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">Left a couple of notes on</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">Can</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-k\">Reproduced</span> <span class=\"pl-k\"><span class=\"pl-k\">Rebased</span></span> <span class=\"pl-smi\">I</span> <span class=\"pl-en\">I</span><span class=\"pl-kos\">Verified</span><span class=\"pl-k\">Should</span> <span class=\"pl-smi\">The</span> <span class=\"pl-s1\">Can</span><span class=\"pl-kos\">This</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-kos\">Can</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-k\">Reproduced</span> <span class=\"pl-s1\">Rebased</span> <span class=\"pl-c1\">I</span> <span class=\"pl-c1\">Blocked</span> <span class=\"pl-c1\">Should</span> <span class=\"pl-s1\">Should</span><span class=\"pl-kos\">The</span><span class=\"pl-s1\">Can</span> <span class=\"pl-c1\">This</span> <span class=\"pl-s1\">Reproduced</span><span class=\"pl-kos\">I</span><span class=\"pl-en\">I</span><span class=\"pl-kos\">Blocked</span><span class=\"pl-kos\">Verified</span><span class=\"pl-kos\">The</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-kos\">Left</span> </td>\n        </tr>\n    </tbody></table>\n  </div>\n</div>\n<p></p>\n  <div class=\"my-2 border rounded-2 js-suggested-changes-blob diff-view js-check-hidden-unicode\" id=\"example\">\n    <div class=\"f6 p-2 lh-condensed border-bottom d-flex\">\n      <div class=\"flex-auto flex-items-center color-fg-muted\">Left</div>\n    </div>\n    <div itemprop=\"text\" class=\"blob-wrapper data file rounded-0\" style=\"margin: 0; border: none; overflow-y: visible; overflow-x: auto;\">\n      <table class=\"d-table tab-size mb-0 width-full\" data-paste-markdown-skip=\"example\">\n          <tbody><tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\">        <span class=\"pl-c\">This</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\">        <span class=\"pl-c\">Reproduced on the second page of results; the first page is</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\">        <span class=\"pl-c\">Rebased and pushed; checks are green again. (inbox badge)</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\">        <span class=\"pl-c\">Blocked on the other change landing</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\">        <span class=\"pl-c\">Verified</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-addition text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-addition js-blob-code-addition blob-code-marker-addition\">        <span class=\"pl-c\">Verified</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-addition text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-addition js-blob-code-addition blob-code-marker-addition\">        <span class=\"pl-c\">Should this respect the account time zone, or the property one?</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-addition text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-addition js-blob-code-addition blob-code-marker-addition\">        <span class=\"pl-c\">Left a couple of notes on the diff</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-addition text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-addition js-blob-code-addition blob-code-marker-addition\">        <span class=\"pl-c\">Can</span></td>\n          </tr>\n      </tbody></table>\n    </div>\n    <div class=\"js-apply-changes\"></div>\n  </div>\n",
+                    "createdAt": "2026-09-09T22:44:57Z",
+                    "lastEditedAt": null,
+                    "isMinimized": false,
+                    "minimizedReason": null,
+                    "author": {
+                      "login": "dev-17",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+                    },
+                    "reactionGroups": [
+                      {
+                        "content": "THUMBS_UP",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "THUMBS_DOWN",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "LAUGH",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HOORAY",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "CONFUSED",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HEART",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "ROCKET",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "EYES",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      }
+                    ],
+                    "pullRequestReview": {
+                      "id": "PRR_kwDOBL-JR88AAAABM5kBIQ"
+                    }
+                  },
+                  {
+                    "bodyHTML": "<p dir=\"auto\">This still<a class=\"commit-link\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\"><tt>Reproduced</tt></a>Rebased</p>",
+                    "createdAt": "2026-09-09T23:04:12Z",
+                    "lastEditedAt": null,
+                    "isMinimized": false,
+                    "minimizedReason": null,
+                    "author": {
+                      "login": "dev-14",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+                    },
+                    "reactionGroups": [
+                      {
+                        "content": "THUMBS_UP",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "THUMBS_DOWN",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "LAUGH",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HOORAY",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "CONFUSED",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HEART",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "ROCKET",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "EYES",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      }
+                    ],
+                    "pullRequestReview": {
+                      "id": "PRR_kwDOBL-JR88AAAABM5r-Bg"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "path": "src/example-2.cs",
+              "line": 10,
+              "originalLine": 11,
+              "isResolved": true,
+              "isOutdated": false,
+              "comments": {
+                "pageInfo": {
+                  "hasPreviousPage": false
+                },
+                "nodes": [
+                  {
+                    "bodyHTML": "<p dir=\"auto\">Reproduced on the second page of results; the first page is fine. (refund ledger)</p>\n<p dir=\"auto\"></p><div class=\"Box Box--condensed my-2\">\n  <div class=\"Box-header f6\">\n    <p class=\"mb-0 text-bold\">\n      <a href=\"https://github.com/example-org/example-repo/issues/1\">Rebased</a>\n    </p>\n    <p class=\"mb-0 color-fg-muted\">I think we<a data-pjax=\"example\" class=\"commit-tease-sha Link--inTextBlock\" href=\"https://github.com/example-org/example-repo/issues/1\">Blocked</a>\n    </p>\n  </div>\n  <div itemprop=\"text\" class=\"Box-body p-0 blob-wrapper blob-wrapper-embedded data\">\n    <table class=\"highlight tab-size mb-0 js-file-line-container\" data-tab-size=\"example\" data-paste-markdown-skip=\"example\">\n\n        <tbody><tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-k\">Should</span> <span class=\"pl-s1\">Should</span><span class=\"pl-kos\">The</span><span class=\"pl-s1\">Can</span><span class=\"pl-kos\">This</span><span class=\"pl-s1\">Reproduced</span><span class=\"pl-kos\">I</span><span class=\"pl-s1\">I</span><span class=\"pl-kos\">Blocked</span><span class=\"pl-s1\">Verified</span><span class=\"pl-kos\">The</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">  </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">Left</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">Left a couple of notes on the diff —</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">This still fails for me after the latest</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">Reproduced on the second page of results; the</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-c\">Rebased</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-k\">Blocked</span> <span class=\"pl-k\">Verified</span> <span class=\"pl-smi\">Verified</span> <span class=\"pl-c1\">Should</span> <span class=\"pl-smi\">Left</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-kos\">Can</span> </td>\n        </tr>\n    </tbody></table>\n  </div>\n</div>\n<p></p>\n  <div class=\"my-2 border rounded-2 js-suggested-changes-blob diff-view js-check-hidden-unicode\" id=\"example\">\n    <div class=\"f6 p-2 lh-condensed border-bottom d-flex\">\n      <div class=\"flex-auto flex-items-center color-fg-muted\">This</div>\n    </div>\n    <div itemprop=\"text\" class=\"blob-wrapper data file rounded-0\" style=\"margin: 0; border: none; overflow-y: visible; overflow-x: auto;\">\n      <table class=\"d-table tab-size mb-0 width-full\" data-paste-markdown-skip=\"example\">\n          <tbody><tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\"><span class=\"pl-c\">Rebased</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\"><span class=\"pl-c\">Rebased and pushed; checks are green again. (calendar feed)</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\"><span class=\"pl-c\">I think we settled on the second approach</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\"><span class=\"pl-c\">Verified in UAT, the totals line up now.</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-deletion text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-deletion js-blob-code-deletion blob-code-marker-deletion\"><span class=\"pl-c\">Should</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-addition text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-addition js-blob-code-addition blob-code-marker-addition\"><span class=\"pl-c\">The</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-addition text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-addition js-blob-code-addition blob-code-marker-addition\"><span class=\"pl-c\">Left a couple of notes on the diff —</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-addition text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-addition js-blob-code-addition blob-code-marker-addition\"><span class=\"pl-c\">Can you confirm which account this</span></td>\n          </tr>\n          <tr class=\"border-0\">\n            <td class=\"blob-num blob-num-addition text-right border-0 px-2 py-1 lh-default\" data-line-number=\"example\"></td>\n            <td class=\"border-0 px-2 py-1 blob-code-inner blob-code-addition js-blob-code-addition blob-code-marker-addition\"><span class=\"pl-c\">This</span></td>\n          </tr>\n      </tbody></table>\n    </div>\n    <div class=\"js-apply-changes\"></div>\n  </div>\n",
+                    "createdAt": "2026-09-09T22:45:01Z",
+                    "lastEditedAt": null,
+                    "isMinimized": false,
+                    "minimizedReason": null,
+                    "author": {
+                      "login": "dev-17",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+                    },
+                    "reactionGroups": [
+                      {
+                        "content": "THUMBS_UP",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "THUMBS_DOWN",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "LAUGH",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HOORAY",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "CONFUSED",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HEART",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "ROCKET",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "EYES",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      }
+                    ],
+                    "pullRequestReview": {
+                      "id": "PRR_kwDOBL-JR88AAAABM5kC1Q"
+                    }
+                  },
+                  {
+                    "bodyHTML": "<p dir=\"auto\">Rebased and<a class=\"commit-link\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\"><tt>I</tt></a>Blocked</p>",
+                    "createdAt": "2026-09-09T23:04:13Z",
+                    "lastEditedAt": null,
+                    "isMinimized": false,
+                    "minimizedReason": null,
+                    "author": {
+                      "login": "dev-14",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+                    },
+                    "reactionGroups": [
+                      {
+                        "content": "THUMBS_UP",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "THUMBS_DOWN",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "LAUGH",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HOORAY",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "CONFUSED",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HEART",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "ROCKET",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "EYES",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      }
+                    ],
+                    "pullRequestReview": {
+                      "id": "PRR_kwDOBL-JR88AAAABM5r-fA"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "path": "src/example-3.cs",
+              "line": 2058,
+              "originalLine": 2058,
+              "isResolved": true,
+              "isOutdated": true,
+              "comments": {
+                "pageInfo": {
+                  "hasPreviousPage": false
+                },
+                "nodes": [
+                  {
+                    "bodyHTML": "<p dir=\"auto\">Blocked on the other<code class=\"notranslate\">Verified</code>Verified in<code class=\"notranslate\">Should</code>Left a couple of notes on the<code class=\"notranslate\">Can</code>This<code class=\"notranslate\">Rebased</code>Rebased<code class=\"notranslate\">I</code>Verified in UAT, the totals line up now. (refund ledger)<code class=\"notranslate\">Should</code>The<code class=\"notranslate\">Left</code>Can you confirm which<code class=\"notranslate\">This</code>Reproduced<code class=\"notranslate\">I</code>Blocked on the other change landing first. (payment retry)</p>\n<p dir=\"auto\"></p><div class=\"Box Box--condensed my-2\">\n  <div class=\"Box-header f6\">\n    <p class=\"mb-0 text-bold\">\n      <a href=\"https://github.com/example-org/example-repo/issues/1\">Verified</a>\n    </p>\n    <p class=\"mb-0 color-fg-muted\">Should this respect<a data-pjax=\"example\" class=\"commit-tease-sha Link--inTextBlock\" href=\"https://github.com/example-org/example-repo/issues/1\">The</a>\n    </p>\n  </div>\n  <div itemprop=\"text\" class=\"Box-body p-0 blob-wrapper blob-wrapper-embedded data\">\n    <table class=\"highlight tab-size mb-0 js-file-line-container\" data-tab-size=\"example\" data-paste-markdown-skip=\"example\">\n\n        <tbody><tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-k\">Left</span> <span class=\"pl-kos\">Can</span><span class=\"pl-s1\">Reproduced</span><span class=\"pl-kos\">Rebased</span><span class=\"pl-s1\">Rebased</span> <span class=\"pl-c1\">Blocked</span> <span class=\"pl-c1\">Verified</span> <span class=\"pl-c1\">Should</span> <span class=\"pl-c1\">Left</span><span class=\"pl-s1\">Can</span><span class=\"pl-kos\">Can</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">         <span class=\"pl-k\">This</span> <span class=\"pl-smi\">Rebased</span><span class=\"pl-kos\">I</span><span class=\"pl-s1\">Blocked</span><span class=\"pl-kos\">Should</span> <span class=\"pl-c1\">Verified</span><span class=\"pl-kos\">Should</span> <span class=\"pl-s1\">Left</span><span class=\"pl-kos\">Can</span><span class=\"pl-kos\">This</span><span class=\"pl-en\">This</span><span class=\"pl-kos\">Rebased</span><span class=\"pl-s1\">I</span><span class=\"pl-kos\">Blocked</span><span class=\"pl-kos\">Should</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">  </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-c\">The fix looks right, but it needs</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-smi\">The</span> <span class=\"pl-s1\">Can</span> <span class=\"pl-c1\">This</span> <span class=\"pl-s1\">Reproduced</span><span class=\"pl-kos\">Rebased</span><span class=\"pl-s1\">Blocked</span> <span class=\"pl-c1\">Blocked</span> <span class=\"pl-c1\">Verified</span><span class=\"pl-kos\">The</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">  </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-k\">Left</span> <span class=\"pl-kos\">Can</span><span class=\"pl-s1\">Reproduced</span><span class=\"pl-kos\">Reproduced</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-kos\">Rebased</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">         <span class=\"pl-s1\">I</span><span class=\"pl-c1\">Verified</span><span class=\"pl-kos\">Should</span><span class=\"pl-s1\">The</span><span class=\"pl-kos\">Left</span><span class=\"pl-s\"><span class=\"pl-s\">Can</span>This still</span><span class=\"pl-kos\">Rebased</span><span class=\"pl-kos\">I</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">  </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">         <span class=\"pl-s1\">Blocked</span><span class=\"pl-kos\">Blocked</span><span class=\"pl-en\">Should</span><span class=\"pl-kos\">The</span><span class=\"pl-s1\">Left</span><span class=\"pl-kos\">This</span> <span class=\"pl-s1\">Reproduced</span><span class=\"pl-c1\">Reproduced</span> <span class=\"pl-c1\">I</span><span class=\"pl-kos\">Blocked</span> <span class=\"pl-s1\">Verified</span><span class=\"pl-c1\">Should</span> <span class=\"pl-c1\">Left</span><span class=\"pl-kos\">Left</span><span class=\"pl-kos\">Can</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-kos\">Reproduced</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">  </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-k\">Rebased</span> <span class=\"pl-kos\">I</span><span class=\"pl-s1\">Verified</span> <span class=\"pl-c1\">Verified</span> <span class=\"pl-s1\">Should</span><span class=\"pl-kos\">The</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-kos\">Can</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">         <span class=\"pl-s1\">This</span><span class=\"pl-c1\">Can</span><span class=\"pl-kos\">Reproduced</span><span class=\"pl-s1\">Rebased</span><span class=\"pl-kos\">I</span><span class=\"pl-s\"><span class=\"pl-s\">Verified</span>Should this</span><span class=\"pl-kos\">Should</span><span class=\"pl-kos\">The</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">  </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">         <span class=\"pl-s1\">Can</span><span class=\"pl-kos\">This</span><span class=\"pl-en\">Reproduced</span><span class=\"pl-kos\">I</span><span class=\"pl-s1\">I</span><span class=\"pl-kos\">Blocked</span> <span class=\"pl-s1\">Should</span><span class=\"pl-kos\">The</span><span class=\"pl-s1\">Left</span> <span class=\"pl-c1\">Can</span> <span class=\"pl-c1\">This</span> <span class=\"pl-c1\">Reproduced</span> <span class=\"pl-s1\">Rebased</span><span class=\"pl-kos\">The</span><span class=\"pl-s1\">Left</span> <span class=\"pl-c1\">Can</span> <span class=\"pl-c1\">This</span><span class=\"pl-kos\">Reproduced</span> <span class=\"pl-s1\">Rebased</span><span class=\"pl-kos\">I</span><span class=\"pl-s1\">Verified</span> <span class=\"pl-c1\">Should</span> <span class=\"pl-c1\">Should</span><span class=\"pl-kos\">Left</span> <span class=\"pl-s1\">Can</span><span class=\"pl-kos\">This</span><span class=\"pl-s1\">Rebased</span> <span class=\"pl-c1\">I</span> <span class=\"pl-c1\">I</span><span class=\"pl-kos\">Blocked</span> <span class=\"pl-c1\">Should</span><span class=\"pl-kos\">The</span> <span class=\"pl-c1\">Left</span><span class=\"pl-kos\">This</span><span class=\"pl-kos\">This</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\">     <span class=\"pl-kos\">Reproduced</span> </td>\n        </tr>\n\n        <tr class=\"border-0\">\n          <td id=\"example\" class=\"blob-num border-0 tmp-px-3 py-0 color-bg-default\" data-line-number=\"example\"></td>\n          <td id=\"example\" class=\"blob-code border-0 tmp-px-3 py-0 color-bg-default blob-code-inner js-file-line\"> <span class=\"pl-kos\">I</span> </td>\n        </tr>\n    </tbody></table>\n  </div>\n</div>\n<p></p>",
+                    "createdAt": "2026-09-09T22:45:05Z",
+                    "lastEditedAt": null,
+                    "isMinimized": false,
+                    "minimizedReason": null,
+                    "author": {
+                      "login": "dev-17",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+                    },
+                    "reactionGroups": [
+                      {
+                        "content": "THUMBS_UP",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "THUMBS_DOWN",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "LAUGH",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HOORAY",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "CONFUSED",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HEART",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "ROCKET",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "EYES",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      }
+                    ],
+                    "pullRequestReview": {
+                      "id": "PRR_kwDOBL-JR88AAAABM5kE_Q"
+                    }
+                  },
+                  {
+                    "bodyHTML": "<p dir=\"auto\">Verified<a class=\"commit-link\" data-hovercard-type=\"example\" data-hovercard-url=\"example\" href=\"https://github.com/example-org/example-repo/issues/1\"><tt>Verified</tt></a>Should this respect<code class=\"notranslate\">Left</code>Can you confirm which account this<code class=\"notranslate\">This</code>Rebased</p>\n<p dir=\"auto\">Rebased and pushed; checks are green again. (calendar feed)<code class=\"notranslate\">I</code>Verified in UAT, the totals line up now. (refund ledger)</p>",
+                    "createdAt": "2026-09-09T23:04:21Z",
+                    "lastEditedAt": null,
+                    "isMinimized": false,
+                    "minimizedReason": null,
+                    "author": {
+                      "login": "dev-14",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/1?s=40"
+                    },
+                    "reactionGroups": [
+                      {
+                        "content": "THUMBS_UP",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "THUMBS_DOWN",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "LAUGH",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HOORAY",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "CONFUSED",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "HEART",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "ROCKET",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      },
+                      {
+                        "content": "EYES",
+                        "reactors": {
+                          "totalCount": 0
+                        }
+                      }
+                    ],
+                    "pullRequestReview": {
+                      "id": "PRR_kwDOBL-JR88AAAABM5sBJg"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

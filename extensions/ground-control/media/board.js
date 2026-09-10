@@ -1244,10 +1244,10 @@ function card(boardCard, avatarPool, placeable) {
 
     number.type = 'button';
     // The visible label identifies the issue; the accessible name adds the open action.
-    setAccessibleName(number, `Open ${issueLabel} on GitHub`);
+    setAccessibleName(number, reading ? `Read ${issueLabel}` : `Open ${issueLabel} on GitHub`);
     // Disable dragging on this control.
     number.draggable = false;
-    number.addEventListener('click', () => vscode.postMessage({ type: 'openIssue', number: issue.number }));
+    number.addEventListener('click', (event) => openIssueFrom(event, boardCard, number));
   }
 
   const avatarSlot = document.createElement('span');
@@ -1292,7 +1292,7 @@ function card(boardCard, avatarPool, placeable) {
   open.appendChild(title);
 
   if (issue) {
-    open.addEventListener('click', () => vscode.postMessage({ type: 'openIssue', number: issue.number }));
+    open.addEventListener('click', (event) => openIssueFrom(event, boardCard, open));
   } else {
     open.disabled = true;
   }
@@ -1322,11 +1322,13 @@ function card(boardCard, avatarPool, placeable) {
       `#${issue.pullRequest.number}`,
       PR_COLORS[issue.pullRequest.state] ?? null,
       null,
-      () => vscode.postMessage({ type: 'openPullRequest', number: issue.number }),
+      (event) => openPullRequestFrom(event, boardCard, pr),
     );
     setAccessibleName(
       pr,
-      `Open pull request #${issue.pullRequest.number}, ${issue.pullRequest.state.toLowerCase()}, on GitHub`,
+      reading
+        ? `Read pull request #${issue.pullRequest.number}, ${issue.pullRequest.state.toLowerCase()}`
+        : `Open pull request #${issue.pullRequest.number}, ${issue.pullRequest.state.toLowerCase()}, on GitHub`,
     );
     pr.prepend(pullRequestMark());
     badges.appendChild(pr);
@@ -1656,6 +1658,812 @@ function emptyText(payload) {
     : 'None of your assigned issues match the current card source.';
 }
 
+/**
+ * Elements kept from source-rendered conversation HTML. GitHub sanitizes its own render, and the webview runs a
+ * nonce-only script policy; this is the third guard, and the one this repository controls.
+ */
+const DETAIL_TAGS = new Set([
+  'a', 'b', 'blockquote', 'br', 'code', 'del', 'details', 'div', 'dd', 'dl', 'dt', 'em', 'h1', 'h2', 'h3', 'h4',
+  'h5', 'h6', 'hr', 'i', 'img', 'input', 'ins', 'kbd', 'li', 'markdown-accessiblity-table', 'ol', 'p', 'pre',
+  'q', 'samp', 'span', 'strong', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'tt', 'ul',
+]);
+
+/**
+ * Elements whose children are source text rather than markup. Their subtrees are dropped: a template's content is
+ * not in `childNodes` at all, and a script's or style's text is code, which must not be read as conversation prose.
+ */
+const DETAIL_OPAQUE = new Set(['script', 'style', 'template', 'title', 'xmp', 'iframe', 'noembed', 'noframes']);
+
+/** Attributes kept per element. `class` is filtered by value, because board class names position and style chrome. */
+const DETAIL_ATTRS = {
+  '*': ['class', 'dir', 'lang'],
+  a: ['href'],
+  img: ['src', 'alt', 'width', 'height'],
+  input: ['type', 'checked', 'disabled'],
+  ol: ['start'],
+  td: ['colspan', 'rowspan', 'align'],
+  th: ['colspan', 'rowspan', 'align'],
+};
+
+/**
+ * Class names kept from source HTML: the ones the panel's stylesheet draws. Anything else is dropped, so a comment
+ * cannot borrow the board's own chrome — `.card-popover` is fixed-position and would escape the panel.
+ */
+/** Addresses the editor can open. Source-composed note addresses are checked against it, like conversation links. */
+const DETAIL_HTTP = /^https?:\/\//i;
+
+const DETAIL_CLASS = /^(?:highlight(?:-source-[\w-]+)?|pl-[\w-]+|task-list-item(?:-checkbox)?|contains-task-list|markdown-[\w-]+|notranslate|position-relative|overflow-auto|anchor|footnotes|email-hidden-[\w-]+)$/;
+
+/** Only addresses the editor can open. Anything else drops the attribute, leaving the element's text in place. */
+function safeUrl(value, schemes) {
+  return typeof value === 'string' && schemes.test(value) ? value : null;
+}
+
+/** Keep the classes the stylesheet draws and drop the rest, rather than dropping the attribute wholesale. */
+function safeClasses(value) {
+  return String(value)
+    .split(/\s+/)
+    .filter((name) => name !== '' && DETAIL_CLASS.test(name))
+    .join(' ');
+}
+
+/**
+ * Rebuild source HTML from an inert document, keeping only known elements and attributes. Task-list checkboxes stay
+ * disabled: this view reads a conversation and never writes one.
+ */
+function sanitizeDetail(html) {
+  const parsed = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+  const out = document.createDocumentFragment();
+
+  const copy = (source, into) => {
+    for (const node of source.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        into.appendChild(document.createTextNode(node.nodeValue));
+        continue;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        continue;
+      }
+
+      const tag = node.localName;
+
+      // Source text, not markup: keeping it would print code as prose, and a template holds nothing here anyway.
+      if (DETAIL_OPAQUE.has(tag)) {
+        continue;
+      }
+
+      // Keep the content of an unknown element, re-filtered; dropping the subtree would lose conversation text.
+      if (!DETAIL_TAGS.has(tag)) {
+        copy(node, into);
+        continue;
+      }
+
+      const el = document.createElement(tag);
+      const allowed = [...DETAIL_ATTRS['*'], ...(DETAIL_ATTRS[tag] ?? [])];
+
+      for (const name of allowed) {
+        if (!node.hasAttribute(name)) {
+          continue;
+        }
+
+        const value = node.getAttribute(name);
+
+        if (name === 'href' || name === 'src') {
+          // Images must be https because the webview policy allows no other scheme; links reach the editor.
+          const url = safeUrl(value, name === 'src' ? /^https:\/\//i : DETAIL_HTTP);
+
+          if (url === null) {
+            continue;
+          }
+
+          el.setAttribute(name, url);
+          continue;
+        }
+
+        if (name === 'class') {
+          const classes = safeClasses(value);
+
+          if (classes !== '') {
+            el.setAttribute(name, classes);
+          }
+
+          continue;
+        }
+
+        el.setAttribute(name, value);
+      }
+
+      // Checkboxes reflect the conversation's state; the board does not write it back.
+      if (tag === 'input') {
+        el.disabled = true;
+      }
+
+      copy(node, el);
+      into.appendChild(el);
+    }
+  };
+
+  copy(parsed.body, out);
+
+  return out;
+}
+
+/** The open conversation, or null. Held outside the payload so a redraw does not close it. */
+let detailFor = null;
+let detailState = null;
+/** Narrowest and widest the panel can be dragged, so it cannot be lost or made to cover the whole board. */
+const DETAIL_MIN_WIDTH = 360;
+const DETAIL_WIDTH_STEP = 40;
+
+/** Width the developer dragged the panel to, in pixels, or null for the stylesheet's own. */
+let detailWidth = null;
+
+function detailMaxWidth() {
+  return Math.max(DETAIL_MIN_WIDTH, Math.round(window.innerWidth * 0.95));
+}
+
+function applyDetailWidth(panel) {
+  panel.style.width = detailWidth === null ? '' : `${Math.min(detailWidth, detailMaxWidth())}px`;
+}
+
+/** Size the panel from its own edge, and tell the extension so the next one opens the same width. */
+/** Report the panel's width the way a window splitter must, so arrow keys have audible effect. */
+function gripValue(grip, panel) {
+  grip.setAttribute('aria-valuemin', String(DETAIL_MIN_WIDTH));
+  grip.setAttribute('aria-valuemax', String(Math.round(detailMaxWidth())));
+  grip.setAttribute('aria-valuenow', String(Math.round(panel.getBoundingClientRect().width)));
+}
+
+function detailGrip(panel) {
+  const grip = document.createElement('button');
+  grip.type = 'button';
+  grip.className = 'detail-grip';
+  grip.setAttribute('role', 'separator');
+  grip.setAttribute('aria-orientation', 'vertical');
+  setAccessibleName(grip, 'Resize conversation');
+  gripValue(grip, panel);
+
+  const resize = (width) => {
+    detailWidth = Math.max(DETAIL_MIN_WIDTH, Math.min(Math.round(width), detailMaxWidth()));
+    applyDetailWidth(panel);
+    gripValue(grip, panel);
+  };
+
+  const save = () => vscode.postMessage({ type: 'setDetailWidth', width: detailWidth });
+
+  grip.addEventListener('pointerdown', (event) => {
+    // Capture so a fast drag that leaves the grip keeps sizing, and stop the text selection a drag would start.
+    grip.setPointerCapture(event.pointerId);
+    grip.dataset.dragging = 'true';
+    event.preventDefault();
+
+    const from = event.clientX;
+    const started = panel.getBoundingClientRect().width;
+
+    const move = (moved) => resize(started + (from - moved.clientX));
+    const done = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', done);
+      grip.removeEventListener('pointercancel', done);
+      delete grip.dataset.dragging;
+      save();
+    };
+
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', done);
+    grip.addEventListener('pointercancel', done);
+  });
+
+  // A separator is operable from the keyboard too; the pointer is not the only way to size a panel.
+  grip.addEventListener('keydown', (event) => {
+    const step = event.key === 'ArrowLeft' ? DETAIL_WIDTH_STEP : event.key === 'ArrowRight' ? -DETAIL_WIDTH_STEP : 0;
+
+    if (step === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    resize(panel.getBoundingClientRect().width + step);
+  });
+
+  // Save once the reader stops, not on every repeat of a held arrow key.
+  grip.addEventListener('keyup', save);
+
+  return grip;
+}
+
+function detailPanel() {
+  const held = document.getElementById('detail');
+
+  if (held) {
+    return held;
+  }
+
+  const scrim = document.createElement('div');
+  scrim.id = 'detail-scrim';
+  scrim.addEventListener('click', () => closeDetail());
+
+  const panel = document.createElement('aside');
+  panel.id = 'detail';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-label', 'Conversation');
+  applyDetailWidth(panel);
+
+  document.body.append(scrim, panel);
+  // `aria-modal` claims nothing outside the panel exists, so everything outside it is held out of pointer and keyboard.
+  for (const outside of behindDetail()) {
+    outside.setAttribute('inert', '');
+  }
+
+  return panel;
+}
+
+/** Everything the scrim covers: the panel is modal, so none of it may be reached while a conversation is open. */
+function behindDetail() {
+  return [...document.body.children].filter((el) => el.id !== 'detail' && el.id !== 'detail-scrim');
+}
+
+function closeDetail() {
+  const panel = document.getElementById('detail');
+
+  if (panel === null) {
+    return;
+  }
+
+  const opener = detailFor?.opener ?? null;
+
+  detailFor = null;
+  detailState = null;
+  panel.remove();
+  document.getElementById('detail-scrim')?.remove();
+
+  for (const outside of behindDetail()) {
+    outside.removeAttribute('inert');
+  }
+
+  // A redraw can replace the control that opened the panel; focus the board rather than dropping it on the body.
+  (opener?.isConnected === true ? opener : lanesEl).focus();
+}
+
+/** Ask the hub for one conversation and show the panel in its loading state. */
+function openDetail(boardCard, subject, opener) {
+  detailFor = { key: boardCard.key, subject, opener: opener ?? null };
+  detailState = { loading: true, detail: null, failure: null };
+  paintDetail(true);
+  vscode.postMessage({ type: 'readDetail', key: boardCard.key, subject });
+}
+
+/** Ignore answers for a card or subject the panel is no longer showing; requests can overtake each other. */
+function detailAnswered(message) {
+  if (detailFor === null || message.key !== detailFor.key || message.subject !== detailFor.subject) {
+    return;
+  }
+
+  detailState = { loading: false, detail: message.detail, failure: message.failure };
+  paintDetail(false);
+}
+
+function detailHeading(detail, subject) {
+  const where = document.createElement('div');
+  where.className = 'detail-where';
+
+  const state = document.createElement('span');
+  state.className = 'detail-state';
+  state.dataset.state = (detail?.state ?? '').toLowerCase();
+  state.textContent = detail === null ? (subject === 'issue' ? 'Issue' : 'Pull request') : statusWord(detail.state);
+  where.appendChild(state);
+
+  if (detail) {
+    const at = document.createElement('span');
+    at.className = 'detail-ref';
+    at.textContent = `${detail.repository} #${detail.number}`;
+    where.appendChild(at);
+  }
+
+  return where;
+}
+
+/** GitHub reports upper-case states; the panel shows them the way GitHub draws them. */
+function statusWord(state) {
+  const word = String(state).toLowerCase();
+
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+/** Reaction names as GitHub reports them, drawn the way GitHub draws them. */
+const REACTION_EMOJI = {
+  THUMBS_UP: '👍',
+  THUMBS_DOWN: '👎',
+  LAUGH: '😄',
+  HOORAY: '🎉',
+  CONFUSED: '😕',
+  HEART: '❤️',
+  ROCKET: '🚀',
+  EYES: '👀',
+};
+
+/** What a review of each state did, in GitHub's own words rather than its enum. */
+const REVIEW_WORD = {
+  APPROVED: 'approved these changes',
+  CHANGES_REQUESTED: 'requested changes',
+  COMMENTED: 'reviewed this',
+  DISMISSED: 'left a dismissed review',
+  PENDING: 'started a review',
+};
+
+/** Runs of state changes shorter than this read as part of the conversation; longer ones collapse into one row. */
+const ACTIVITY_RUN = 3;
+
+function detailWhen(iso) {
+  const at = Date.parse(iso);
+
+  return Number.isNaN(at) ? '' : `${ago(Date.now() - at)} ago`;
+}
+
+/** Text for a screen reader that the sighted reader does not need, since the emoji already says it. */
+function hidden(text) {
+  const span = document.createElement('span');
+  span.className = 'sr-only';
+  span.textContent = text;
+
+  return span;
+}
+
+function detailReactions(reactions) {
+  const el = document.createElement('div');
+  el.className = 'detail-reactions';
+
+  for (const reaction of reactions) {
+    const chip = document.createElement('span');
+    chip.className = 'detail-reaction';
+    chip.textContent = `${Object.hasOwn(REACTION_EMOJI, reaction.content) ? REACTION_EMOJI[reaction.content] : '•'} ${reaction.count}`;
+    // A bare span takes no accessible name, so the count reads from the text itself.
+    chip.append(hidden(` ${reaction.content.toLowerCase().replaceAll('_', ' ')}`));
+    el.appendChild(chip);
+  }
+
+  return el;
+}
+
+function detailAvatar(url, size) {
+  const image = document.createElement('img');
+  image.className = 'detail-avatar';
+  image.src = url;
+  image.alt = '';
+  image.width = size;
+  image.height = size;
+
+  return image;
+}
+
+/**
+ * One thing somebody wrote: the opening body, a conversation comment, or a review summary. A review carries its
+ * state and the inline threads it opened; a comment the source hid opens collapsed behind its reason.
+ */
+function detailPost(post, verb) {
+  const el = document.createElement('article');
+  el.className = 'detail-comment';
+  el.dataset.kind = post.kind;
+
+  const head = document.createElement('header');
+
+  if (post.avatarUrl) {
+    head.appendChild(detailAvatar(post.avatarUrl, 20));
+  }
+
+  const who = document.createElement('strong');
+  who.textContent = post.author ?? 'someone';
+  head.appendChild(who);
+
+  const said = document.createElement('span');
+  said.className = 'detail-when';
+  const did = post.kind === 'review' && Object.hasOwn(REVIEW_WORD, post.state) ? REVIEW_WORD[post.state] : null;
+  said.textContent = `${verb ?? did ?? (post.kind === 'review' ? 'reviewed this' : 'commented')} ${detailWhen(post.createdAt)}`;
+  head.appendChild(said);
+
+  if (post.editedAt) {
+    const edited = document.createElement('span');
+    edited.className = 'detail-when';
+    edited.textContent = `edited ${detailWhen(post.editedAt)}`;
+    head.appendChild(edited);
+  }
+
+  if (post.kind === 'review' && post.state) {
+    // The verb above already names the state, so this only colours it.
+    said.classList.add('detail-review-state');
+    said.dataset.state = post.state.toLowerCase();
+  }
+
+  el.appendChild(head);
+
+  const body = document.createElement('div');
+  body.className = 'markdown-body';
+  body.appendChild(sanitizeDetail(post.bodyHtml));
+
+  if (post.hidden !== null) {
+    // A hidden comment is still part of the record, so it is collapsed rather than dropped.
+    const fold = document.createElement('details');
+    fold.className = 'detail-hidden';
+
+    const why = document.createElement('summary');
+    why.textContent = `Hidden as ${String(post.hidden).toLowerCase().replace('_', ' ')}`;
+    fold.append(why, body);
+    el.appendChild(fold);
+  } else if (post.bodyHtml.trim() !== '') {
+    el.appendChild(body);
+  }
+
+  if (post.reactions.length > 0) {
+    el.appendChild(detailReactions(post.reactions));
+  }
+
+  for (const thread of post.threads) {
+    el.appendChild(detailThread(thread));
+  }
+
+  return el;
+}
+
+/**
+ * One inline review conversation, headed by the file and line its comments hang off. A resolved thread opens
+ * closed, because it is settled; its heading still says where it was and how much it holds.
+ */
+function detailThread(thread) {
+  const el = document.createElement('details');
+  el.className = 'detail-thread';
+  el.open = thread.resolved === false;
+
+  const where = document.createElement('summary');
+  where.className = 'detail-thread-where';
+
+  const path = document.createElement('code');
+  path.textContent = thread.line === null ? thread.path : `${thread.path}:${thread.line}`;
+  where.appendChild(path);
+
+  for (const mark of [thread.outdated ? 'Outdated' : null, thread.resolved ? 'Resolved' : null]) {
+    if (mark === null) {
+      continue;
+    }
+
+    const tag = document.createElement('span');
+    tag.className = 'detail-thread-mark';
+    tag.textContent = mark;
+    where.appendChild(tag);
+  }
+
+  const held = thread.comments.length;
+  const count = document.createElement('span');
+  count.className = 'detail-thread-count';
+  count.textContent = `${held}${thread.moreComments ? '+' : ''} comment${held === 1 && !thread.moreComments ? '' : 's'}`;
+  where.appendChild(count);
+
+  el.appendChild(where);
+
+  for (const comment of thread.comments) {
+    el.appendChild(detailPost(comment));
+  }
+
+  if (thread.moreComments) {
+    el.insertBefore(detailNote('Earlier replies are not shown.'), el.children[1] ?? null);
+  }
+
+  return el;
+}
+
+function detailNote(text, error) {
+  const note = document.createElement('p');
+  note.className = error === true ? 'detail-note error' : 'detail-note';
+  note.textContent = text;
+
+  return note;
+}
+
+/** One state change or commit: a single line naming who did what, and when. */
+function detailActivityRow(event) {
+  const row = document.createElement('div');
+  row.className = 'detail-activity';
+  row.dataset.kind = event.kind;
+
+  if (event.avatarUrl) {
+    row.appendChild(detailAvatar(event.avatarUrl, 16));
+  }
+
+  const who = document.createElement('span');
+  who.className = 'detail-activity-who';
+  who.textContent = event.actor ?? 'someone';
+  row.appendChild(who);
+
+  const said = document.createElement('span');
+  said.className = 'detail-activity-said';
+
+  const address = safeUrl(event.url, DETAIL_HTTP);
+
+  if (address === null) {
+    said.textContent = event.summary;
+  } else {
+    const link = document.createElement('a');
+    link.href = address;
+    link.textContent = event.summary;
+    said.appendChild(link);
+  }
+
+  row.appendChild(said);
+
+  const when = document.createElement('span');
+  when.className = 'detail-when';
+  when.textContent = detailWhen(event.createdAt);
+  row.appendChild(when);
+
+  return row;
+}
+
+/** Fold a long run of state changes so it does not bury the conversation, while still holding every one of them. */
+function detailActivityRun(events) {
+  if (events.length < ACTIVITY_RUN) {
+    const loose = document.createDocumentFragment();
+
+    for (const event of events) {
+      loose.appendChild(detailActivityRow(event));
+    }
+
+    return loose;
+  }
+
+  const fold = document.createElement('details');
+  fold.className = 'detail-activity-run';
+
+  const summary = document.createElement('summary');
+  summary.textContent = `${events.length} updates`;
+  fold.appendChild(summary);
+
+  for (const event of events) {
+    fold.appendChild(detailActivityRow(event));
+  }
+
+  return fold;
+}
+
+/** Draw the conversation in the order it happened, folding consecutive state changes into one row. */
+function detailTimeline(events) {
+  const out = document.createDocumentFragment();
+  let run = [];
+
+  const flush = () => {
+    if (run.length > 0) {
+      out.appendChild(detailActivityRun(run));
+      run = [];
+    }
+  };
+
+  for (const event of events) {
+    if (event.kind === 'comment' || event.kind === 'review') {
+      flush();
+      out.appendChild(detailPost(event));
+    } else {
+      run.push(event);
+    }
+  }
+
+  flush();
+
+  return out;
+}
+
+/** Threads whose opening review is not in the timeline still belong to the conversation, so they are listed apart. */
+function detailThreads(threads) {
+  const section = document.createElement('section');
+  section.className = 'detail-threads';
+
+  const heading = document.createElement('h3');
+  heading.textContent = `Review comments (${threads.length})`;
+  section.appendChild(heading);
+
+  for (const thread of threads) {
+    section.appendChild(detailThread(thread));
+  }
+
+  return section;
+}
+
+/** The line under the title: labels, author, assignees, milestone, and a pull request's branches and checks. */
+function detailChips(detail) {
+  const chips = document.createElement('div');
+  chips.className = 'detail-chips';
+
+  for (const label of detail.labels) {
+    const chip = document.createElement('span');
+    chip.className = 'detail-label';
+    chip.style.setProperty('--gc-label', `#${label.color}`);
+    chip.textContent = label.name;
+    chips.appendChild(chip);
+  }
+
+  if (detail.assignees.length > 0) {
+    const who = document.createElement('span');
+    who.className = 'detail-facet';
+    who.textContent = `assigned ${detail.assignees.join(', ')}`;
+    chips.appendChild(who);
+  }
+
+  if (detail.milestone) {
+    const milestone = document.createElement('span');
+    milestone.className = 'detail-facet';
+    milestone.textContent = detail.milestone;
+    chips.appendChild(milestone);
+  }
+
+  if (detail.draft) {
+    const draft = document.createElement('span');
+    draft.className = 'detail-facet';
+    draft.textContent = 'draft';
+    chips.appendChild(draft);
+  }
+
+  if (detail.branches) {
+    const branches = document.createElement('span');
+    branches.className = 'detail-facet';
+    branches.textContent = `${detail.branches.head} → ${detail.branches.base}`;
+    chips.appendChild(branches);
+  }
+
+  if (detail.reviewDecision) {
+    const decision = document.createElement('span');
+    decision.className = 'detail-facet';
+    decision.textContent = statusWord(detail.reviewDecision.replace('_', ' '));
+    chips.appendChild(decision);
+  }
+
+  if (detail.checks) {
+    const checks = document.createElement('span');
+    checks.className = 'detail-facet';
+    checks.dataset.checks = detail.checks.toLowerCase();
+    checks.textContent = `checks ${detail.checks.toLowerCase()}`;
+    chips.appendChild(checks);
+  }
+
+  return chips;
+}
+
+function paintDetail(opening) {
+  if (detailFor === null) {
+    return;
+  }
+
+  const panel = detailPanel();
+  const { loading, detail, failure } = detailState;
+  // Whether the reader was inside the panel must be read before the repaint detaches whatever held focus.
+  const held = document.activeElement;
+  const inside = held !== null && (held === document.body || panel.contains(held));
+
+  panel.replaceChildren(detailGrip(panel));
+
+  const head = document.createElement('header');
+  const top = detailHeading(detail, detailFor.subject);
+
+  const external = document.createElement('button');
+  external.type = 'button';
+  external.className = 'detail-action';
+  external.textContent = 'Open on GitHub';
+  external.disabled = detail === null;
+  setTooltip(external, 'Open this conversation in your browser');
+  external.addEventListener('click', () => detail && vscode.postMessage({ type: 'openLink', url: detail.url }));
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'detail-close';
+  close.textContent = '×';
+  setAccessibleName(close, 'Close conversation');
+  close.addEventListener('click', () => closeDetail());
+
+  top.append(external, close);
+  head.appendChild(top);
+
+  const heading = document.createElement('h2');
+  heading.textContent = detail?.title ?? (loading ? 'Reading…' : 'Nothing to show');
+  head.appendChild(heading);
+
+  if (detail) {
+    head.appendChild(detailChips(detail));
+  }
+
+  panel.appendChild(head);
+
+  const body = document.createElement('div');
+  body.className = 'detail-scroll';
+  // A conversation with no links has nothing else to focus, so the scrolling region takes the keyboard itself.
+  body.tabIndex = 0;
+  body.setAttribute('role', 'region');
+  setAccessibleName(body, 'Conversation');
+
+  if (loading) {
+    body.appendChild(detailNote('Reading the conversation…'));
+  } else if (failure !== null || detail === null) {
+    body.appendChild(detailNote(failure ?? 'That conversation could not be found.', true));
+  } else {
+    body.appendChild(
+      detailPost(
+        {
+          kind: 'comment',
+          author: detail.author,
+          avatarUrl: detail.authorAvatarUrl,
+          bodyHtml: detail.bodyHtml.trim() === '' ? '<p>No description.</p>' : detail.bodyHtml,
+          createdAt: detail.createdAt,
+          editedAt: detail.editedAt,
+          reactions: detail.reactions,
+          hidden: null,
+          state: null,
+          threads: [],
+        },
+        detail.subject === 'issue' ? 'opened this' : 'opened this pull request',
+      ),
+    );
+
+    if (detail.moreEvents) {
+      body.appendChild(detailNote('Earlier updates are not shown. Open on GitHub to read them.'));
+    }
+
+    body.appendChild(detailTimeline(detail.events));
+
+    if (detail.threads.length > 0) {
+      body.appendChild(detailThreads(detail.threads));
+    }
+
+    if (detail.moreThreads) {
+      body.appendChild(detailNote('Some review threads are not shown. Open on GitHub to read them.'));
+    }
+  }
+
+  panel.appendChild(body);
+
+  // Every paint replaces the panel's children, so focus that was inside it goes back to the same control.
+  if (opening || inside) {
+    const wanted = (held?.className ?? '').split(' ')[0] ?? '';
+
+    (panel.querySelector(`.${wanted === '' ? 'detail-close' : wanted}`) ?? close).focus();
+  }
+}
+
+/** Whether card controls read a conversation here; off sends them to the browser, as they went before (R43). */
+let reading = true;
+
+/** Ctrl-click, or Cmd-click on macOS, sends a card's controls to the browser instead of the reading panel. */
+function wantsBrowser(event) {
+  return reading === false || event.ctrlKey === true || event.metaKey === true;
+}
+
+function openIssueFrom(event, boardCard, opener) {
+  if (wantsBrowser(event)) {
+    vscode.postMessage({ type: 'openIssue', number: boardCard.issue.number });
+
+    return;
+  }
+
+  openDetail(boardCard, 'issue', opener);
+}
+
+function openPullRequestFrom(event, boardCard, opener) {
+  if (wantsBrowser(event)) {
+    vscode.postMessage({ type: 'openPullRequest', number: boardCard.issue.number });
+
+    return;
+  }
+
+  openDetail(boardCard, 'pull-request', opener);
+}
+
+/*
+ * Links inside a conversation are left to the webview host, which opens an anchor's address in the browser on its
+ * own. Opening them from here as well opened every link twice. The sanitizer is what limits the address (R43).
+ */
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && detailFor !== null) {
+    closeDetail();
+  }
+});
+
 function countCards(lanes) {
   return lanes.reduce((total, lane) => total + lane.cards.length, 0);
 }
@@ -1829,6 +2637,28 @@ window.addEventListener('message', (event) => {
 
     if (board !== null) {
       draw(board);
+    }
+
+    return;
+  }
+
+  if (message.type === 'detail') {
+    detailAnswered(message);
+
+    return;
+  }
+
+  if (message.type === 'reading') {
+    reading = message.enabled !== false;
+    detailWidth = typeof message.width === 'number' ? message.width : null;
+
+    // A board turned off while a conversation is open closes it; the setting is what says it should not be there.
+    if (!reading) {
+      closeDetail();
+    }
+
+    if (board) {
+      render(board);
     }
 
     return;

@@ -660,6 +660,16 @@ Project-addition events had empty previousStatus and `wasAutomated: false`, desp
 
 Schema introspection on 2026-09-09: `IssueTimelineItemsItemType` lists `PROJECT_V2_ITEM_STATUS_CHANGED_EVENT`, project addition/removal events, and issue field events, but no event for a change to a custom project field, so status changes reach the timeline for the built-in Status field only. `ProjectV2.owner` is the `ProjectV2Owner` interface (Organization, User, Issue, PullRequest); `owner{ ... on Organization{ login } ... on User{ login } }` resolves the login. `ProjectV2Item.fieldValueByName(name:)` accepts a variable, returns null for an absent field or unset value, and returns an object matching no single-select fragment for a field of another type; `ProjectV2.field(name:)` returns null for an absent field. Used by project identity and the status-field diagnostic.
 
+### Conversation timeline reads
+
+**Record M50. API measurements, 2026-09-10, `gh` 2.83.0 against `ownerrez/orez`. Used by the reading panel (R43).**
+
+`timelineItems.totalCount` counts entries its own connection does not return. On PR 19572, the reading panel's `itemTypes` list reports `totalCount: 14` while returning 8 nodes with `hasPreviousPage: false` and no nulls. `totalCount - nodes.length` therefore names events that cannot be fetched. Every clipping signal in the panel comes from `pageInfo` instead, and no count is displayed. Re-verify before using `totalCount` on any timeline connection.
+
+`DETAIL_QUERY` measured `rateLimit { cost }` of 1 for both subjects, despite requesting `last:100` timeline entries plus `last:100` review threads with `last:100` replies each. Unlike the closing-PR selection in M48, page size did not drive cost here. Reads are per click, not polled, and paging adds one point per page.
+
+Issue 15619 held 441 timeline entries across the requested types, of which 76 were `ReferencedEvent`. A conversation of that size is the reason consecutive state changes fold in the panel, and the reason reads run newest first.
+
 ### GitHub query cost and limits
 
 **Record M48. API measurements, 2026-09-08, 13 assigned issues and 31 open PRs. Used by polling and triage freshness.**

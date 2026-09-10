@@ -148,6 +148,13 @@
             "order": 1,
             "markdownDescription": "Project statuses that keep cards active; other statuses archive them."
           },
+          "groundControl.readConversations": {
+            "type": "boolean",
+            "scope": "application",
+            "default": true,
+            "order": 2,
+            "markdownDescription": "Open an issue or pull request in a reading panel on the board. When off, its controls open GitHub in your browser, which Ctrl-click, or Cmd-click on macOS, does either way."
+          },
           "groundControl.statusLanes": {
             "type": "object",
             "scope": "application",

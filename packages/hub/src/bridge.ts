@@ -123,6 +123,11 @@ export function bridgeAction(raw: unknown): BridgeAction {
     return { refused: 'Start card sessions in VS Code.' };
   }
 
+  // The overlay already runs on the page that renders these conversations (R36).
+  if (message.type === 'readDetail') {
+    return { refused: 'Read issues and pull requests on GitHub itself.' };
+  }
+
   return { refused: `The overlay may not send ${String(message.type)}.` };
 }
 

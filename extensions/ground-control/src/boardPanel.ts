@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { agentOfSession, basename, sessionOf } from '@ground-control/core';
-import type { BoardMessage, CardCheckout, ClientMessage, LaneId, Snapshot } from '@ground-control/core';
-import { SECTION, userDirOf } from './config.js';
+import { readableLink } from '@ground-control/core';
+import type { BoardMessage, CardCheckout, ClientMessage, DetailSubject, LaneId, Snapshot } from '@ground-control/core';
+import { SECTION, readConversations, userDirOf } from './config.js';
 import { configureHub, runSetup, setupPending } from './setup.js';
 import { promptForLogins } from './identity.js';
 import { client } from './hubClient.js';
@@ -15,6 +16,9 @@ export const VIEW_TYPE = 'groundControl.board';
 
 /** Persist archive visibility beyond the lifetime of the webview tab. */
 export const SHOW_ARCHIVED_KEY = 'groundControl.showArchived';
+
+/** Dragged conversation-panel width in pixels, retained across boards and windows. */
+export const DETAIL_WIDTH_KEY = 'groundControl.detailWidth';
 
 /** Allow a cold extension host to render before reporting script-start failure. */
 const BLANK_AFTER_MS = 10_000;
@@ -47,7 +51,13 @@ type Inbound =
   | { type: 'toggleLogs' }
   | { type: 'showBoardLog' }
   | { type: 'openSettings' }
-  | { type: 'setShowArchived'; shown: boolean };
+  | { type: 'setShowArchived'; shown: boolean }
+  // The webview names the card, never the URL; the hub resolves the conversation from its own snapshot.
+  | { type: 'readDetail'; key: string; subject: DetailSubject }
+  // A link inside rendered conversation HTML. Only http(s) is opened.
+  | { type: 'openLink'; url: string }
+  // Panel width the developer dragged to, retained for the next conversation they open.
+  | { type: 'setDetailWidth'; width: number | null };
 
 
 /** Name diff tabs by issue or checkout directory. Include the selected directory when sessions span checkouts. */
@@ -172,6 +182,13 @@ export class BoardPanel {
   #connect(): void {
     this.#disposables.push(
       this.#client.onSnapshot((snapshot) => this.#render(snapshot)),
+      this.#client.onDetail((message) => this.#post(message)),
+      // A setting change reaches an open board without a reload, as the archive choice does.
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration(`${SECTION}.readConversations`)) {
+          this.#postReading();
+        }
+      }),
       // Fired by the client, so a board and the command that runs with no board open cannot disagree about it.
       this.#client.onStreamingChanged((streaming) => this.#post({ type: 'logs', streaming })),
     );
@@ -212,6 +229,7 @@ export class BoardPanel {
         this.#postLogs();
         this.#post({ type: 'showArchived', shown: this.#memento.get<boolean>(SHOW_ARCHIVED_KEY, false) });
         this.#postPresentation();
+        this.#postReading();
 
         return;
 
@@ -234,6 +252,17 @@ export class BoardPanel {
 
       case 'openPullRequest':
         this.#openExternal(this.#issueOf(msg.number)?.pullRequest?.url);
+
+        return;
+
+      case 'readDetail':
+        this.#tell({ type: 'readDetail', key: msg.key, subject: msg.subject });
+
+        return;
+
+      // Links come from source-rendered HTML, which anyone who can comment may write.
+      case 'openLink':
+        this.#openExternal(readableLink(msg.url) ?? undefined);
 
         return;
 
@@ -305,6 +334,11 @@ export class BoardPanel {
       // Filter settings to the Ground Control prefix.
       case 'openSettings':
         void vscode.commands.executeCommand('workbench.action.openSettings', '@ext:groundcontrol.ground-control');
+
+        return;
+
+      case 'setDetailWidth':
+        void this.#memento.update(DETAIL_WIDTH_KEY, typeof msg.width === 'number' && msg.width > 0 ? Math.round(msg.width) : undefined);
 
         return;
 
@@ -412,6 +446,11 @@ export class BoardPanel {
       .find((card) => card.issue?.number === number)?.issue;
   }
 
+  /** Tell the webview whether to read a conversation on the board, and how wide the developer left the panel. */
+  #postReading(): void {
+    this.#post({ type: 'reading', enabled: readConversations(), width: this.#memento.get<number>(DETAIL_WIDTH_KEY) ?? null });
+  }
+
   #openExternal(url: string | undefined): void {
     if (url) {
       void vscode.env.openExternal(vscode.Uri.parse(url));
@@ -481,7 +520,7 @@ export class BoardPanel {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://avatars.githubusercontent.com; style-src ${webview.cspSource}; script-src 'nonce-${n}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://*.githubusercontent.com https://github.com/user-attachments/ https://github.githubassets.com; style-src ${webview.cspSource}; script-src 'nonce-${n}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link href="${media('board.css')}" rel="stylesheet">
 <title>Ground Control</title>

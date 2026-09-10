@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { LANE_ORDER, LANE_TITLES, boardStatuses, statusLanes } from '@ground-control/board';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
 import type { HistoricalSession, Session } from '@ground-control/core';
-import type { BoardMessage, SnapshotMessage } from '@ground-control/core';
+import type { BoardMessage, DetailNote, DetailPost, DetailThread, ItemDetail, SnapshotMessage } from '@ground-control/core';
 
 const api = {
   postMessage: vi.fn(),
@@ -175,7 +175,7 @@ beforeAll(async () => {
       <div id="meta"></div>
       <button id="board-menu" type="button"></button>
     </header>
-    <div id="notices"></div><main id="lanes"></main>
+    <div id="notices"></div><main id="lanes" tabindex="-1"></main>
   `;
 
   const boardScript = '../media/board.js';
@@ -195,6 +195,8 @@ beforeEach(() => {
   // The renderer keeps its lane and card elements across renders, so a test starts from a board that carries none.
   send(message());
   document.getElementById('lanes')!.replaceChildren();
+  document.getElementById('detail')?.remove();
+  document.getElementById('detail-scrim')?.remove();
   document.getElementById('lanes')!.className = '';
 });
 
@@ -266,7 +268,7 @@ describe('board webview', () => {
     expect(avatar.querySelector('img')).toBeNull();
 
     open.click();
-    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'readDetail', key: 'issue:18953', subject: 'issue' });
   });
 
   it('labels the issue author when the hub picked one', () => {
@@ -350,20 +352,42 @@ describe('board webview', () => {
     // The number and its repository are the chip's whole fact, so it says nothing further on hover.
     expect(tipOf(number)).toBe('');
     // The button's own text is a bare number, so without this a screen reader announces only "18953, button".
-    expect(number.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
+    expect(number.getAttribute('aria-label')).toBe('Read issue example-repo #18953');
     expect(number.getAttribute('draggable')).toBe('false');
     expect(pr.tagName).toBe('BUTTON');
     // The accessible name includes PR state; no redundant hover text is needed.
     expect(tipOf(pr)).toBe('');
-    expect(pr.getAttribute('aria-label')).toBe('Open pull request #19403, open, on GitHub');
+    expect(pr.getAttribute('aria-label')).toBe('Read pull request #19403, open');
     expect(pr.getAttribute('draggable')).toBe('false');
     expect(getComputedStyle(pr).cursor).toBe('pointer');
 
     number.click();
-    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'readDetail', key: 'issue:18953', subject: 'issue' });
 
     pr.click();
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'readDetail', key: 'issue:18953', subject: 'pull-request' });
+  });
+
+  it('sends the issue and pull request to the browser when the click asks for it', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    const number = document.querySelector<HTMLButtonElement>('.card-meta .number')!;
+    const title = document.querySelector<HTMLButtonElement>('.card-open')!;
+    const pr = document.querySelector<HTMLButtonElement>('.badges.github .badge.pull-request')!;
+
+    number.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
+
+    // The same modifier on macOS, where Ctrl-click is the context menu.
+    title.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }));
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
+
+    pr.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'openPullRequest', number: 18953 });
+
+    // A modified click goes to the browser instead of the panel, never to both.
+    expect(sent().some((m) => (m as { type: string }).type === 'readDetail')).toBe(false);
+    expect(document.getElementById('detail')).toBeNull();
   });
 
   it('opens a session from its own row, naming the session and never its directory', () => {
@@ -623,7 +647,7 @@ describe('board webview', () => {
     const number = document.querySelector<HTMLElement>('.number')!;
 
     expect(number.textContent).toBe('example-repo #18953');
-    expect(number.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
+    expect(number.getAttribute('aria-label')).toBe('Read issue example-repo #18953');
   });
 
   // A snapshot an older hub cached carries no repository, and the card must read as it did rather than as a blank.
@@ -639,7 +663,7 @@ describe('board webview', () => {
     const number = document.querySelector<HTMLElement>('.number')!;
 
     expect(number.textContent).toBe('#18953');
-    expect(number.getAttribute('aria-label')).toBe('Open issue #18953 on GitHub');
+    expect(number.getAttribute('aria-label')).toBe('Read issue #18953');
   });
 
   it('leaves out a badge the issue has nothing for', () => {
@@ -2877,7 +2901,7 @@ describe('the tooltip', () => {
    * announcement.
    */
   it('sets accessible descriptions before hover', () => {
-    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Open issue example-repo #18953 on GitHub');
+    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Read issue example-repo #18953');
     expect(document.querySelector('.session')!.getAttribute('aria-label')).toContain('open this session');
     // The state is the row's described half: what the board saw is the part not written on the row.
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, activity: { phase: 'running', since: Date.now(), at: Date.now(), event: 'PostToolBatch' } }] }] }) }));
@@ -3090,5 +3114,594 @@ describe('the tooltip shape both boards share', () => {
     };
 
     expect(Number(constants[name]!.exec(script)?.[1])).toBe(expected);
+  });
+});
+
+describe('the conversation panel', () => {
+  const detailFixture = JSON.parse(
+    readFileSync(resolve('../../packages/github/test/fixtures/detail-issue.json'), 'utf8'),
+  ) as { data: { repository: { issue: { bodyHTML: string } } } };
+
+  const recordedBody = detailFixture.data.repository.issue.bodyHTML;
+
+  function detail(over: Partial<ItemDetail> = {}): ItemDetail {
+    return {
+      subject: 'issue',
+      number: 18953,
+      repository: 'example-org/example-repo',
+      title: 'Cache remediation',
+      url: 'https://github.com/example-org/example-repo/issues/18953',
+      state: 'OPEN',
+      bodyHtml: '<p dir="auto">A body the source rendered.</p>',
+      author: 'dev-1',
+      authorAvatarUrl: 'https://avatars.githubusercontent.com/u/1?s=40',
+      createdAt: '2026-08-19T20:16:30Z',
+      editedAt: null,
+      reactions: [],
+      labels: [{ name: 'area-1', color: 'e3e3e3' }],
+      assignees: [],
+      milestone: null,
+      branches: null,
+      draft: false,
+      reviewDecision: null,
+      checks: null,
+      events: [],
+      moreEvents: false,
+      moreThreads: false,
+      threads: [],
+      ...over,
+    };
+  }
+
+  function post(over: Partial<DetailPost> = {}): DetailPost {
+    return {
+      kind: 'comment',
+      author: 'dev-2',
+      avatarUrl: null,
+      bodyHtml: '<p>said</p>',
+      createdAt: '2026-08-19T20:16:30Z',
+      editedAt: null,
+      reactions: [],
+      hidden: null,
+      state: null,
+      threads: [],
+      ...over,
+    };
+  }
+
+  function note(over: Partial<DetailNote> = {}): DetailNote {
+    return { kind: 'note', actor: 'dev-2', avatarUrl: null, createdAt: '2026-08-19T20:16:30Z', summary: 'closed this', url: null, ...over };
+  }
+
+  function thread(over: Partial<DetailThread> = {}): DetailThread {
+    return { path: 'src/one.cs', line: 86, resolved: false, outdated: false, comments: [post()], moreComments: false, ...over };
+  }
+
+  function answer(over: Partial<ItemDetail> | null = {}, failure: string | null = null): void {
+    send({
+      type: 'detail',
+      key: 'issue:18953',
+      subject: 'issue',
+      detail: over === null ? null : detail(over),
+      failure,
+    } as BoardMessage);
+  }
+
+  function openPanel(): void {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+  }
+
+  function panel(): HTMLElement | null {
+    return document.getElementById('detail');
+  }
+
+  function closePanel(): void {
+    document.getElementById('detail')!.querySelector<HTMLButtonElement>('.detail-close')!.click();
+  }
+
+  afterEach(() => {
+    document.getElementById('detail')?.remove();
+    document.getElementById('detail-scrim')?.remove();
+  });
+
+  it('says it is reading before the hub has answered, rather than showing an empty conversation', () => {
+    openPanel();
+
+    expect(panel()).not.toBeNull();
+    expect(panel()!.textContent).toContain('Reading');
+  });
+
+  it('renders the body the source returned without parsing markdown', () => {
+    openPanel();
+    answer({ bodyHtml: recordedBody });
+
+    const body = panel()!.querySelector('.markdown-body')!;
+
+    // The recorded body carries GitHub's own table and task-list markup.
+    expect(body.querySelector('table')).not.toBeNull();
+    expect(body.querySelector('.task-list-item-checkbox')).not.toBeNull();
+  });
+
+  it('leaves task-list checkboxes disabled, because the panel reads a conversation and never writes one', () => {
+    openPanel();
+    answer({ bodyHtml: recordedBody });
+
+    const boxes = Array.from(panel()!.querySelectorAll<HTMLInputElement>('input'));
+
+    expect(boxes.length).toBeGreaterThan(0);
+    expect(boxes.every((box) => box.disabled)).toBe(true);
+  });
+
+  it('drops scripts, frames, and event handlers the source did not sanitize', () => {
+    openPanel();
+    answer({
+      bodyHtml:
+        '<p onclick="steal()">text</p><script>steal()</script><iframe src="https://example.com"></iframe><img src="javascript:steal()">',
+    });
+
+    const body = panel()!.querySelector('.markdown-body')!;
+
+    expect(body.querySelector('script')).toBeNull();
+    expect(body.querySelector('iframe')).toBeNull();
+    expect(body.querySelector('p')!.hasAttribute('onclick')).toBe(false);
+    expect(body.querySelector('img')?.hasAttribute('src')).toBe(false);
+    // Source text is not conversation prose: a dropped script's code must not be printed as body copy.
+    expect(body.textContent).toBe('text');
+  });
+
+  it('keeps the words of an element it does not know, because losing prose is worse than losing a tag', () => {
+    openPanel();
+    answer({ bodyHtml: '<p>before <picture><span>kept</span></picture> after</p>' });
+
+    const body = panel()!.querySelector('.markdown-body')!;
+
+    expect(body.querySelector('picture')).toBeNull();
+    expect(body.textContent).toContain('kept');
+    // The unknown element's children are filtered too, not trusted.
+    expect(body.querySelector('span')).not.toBeNull();
+  });
+
+  it('drops the content of elements whose children are source text rather than markup', () => {
+    openPanel();
+    answer({ bodyHtml: '<style>body{background:url(https://tracker.example/x)}</style><template><p>hidden</p></template><p>shown</p>' });
+
+    expect(panel()!.querySelector('.markdown-body')!.textContent).toBe('shown');
+  });
+
+  it('refuses class names the conversation does not own, so a comment cannot wear the board’s chrome', () => {
+    openPanel();
+    answer({ bodyHtml: '<div class="card-popover highlight notranslate"><p class="lane">x</p></div>' });
+
+    const wrapper = panel()!.querySelector('.markdown-body div')!;
+
+    // A fixed-position board class inside the panel would render as a menu over the board.
+    expect(wrapper.classList.contains('card-popover')).toBe(false);
+    expect(wrapper.classList.contains('highlight')).toBe(true);
+    expect(panel()!.querySelector('.markdown-body p')!.hasAttribute('class')).toBe(false);
+  });
+
+  it('refuses an image the webview policy could never load, rather than drawing a broken one', () => {
+    openPanel();
+    answer({ bodyHtml: '<p><img src="http://example.com/a.png" alt="a"><img src="https://x.githubusercontent.com/b.png" alt="b"></p>' });
+
+    const images = Array.from(panel()!.querySelectorAll('.markdown-body img'));
+
+    expect(images.filter((image) => image.hasAttribute('src')).map((image) => image.getAttribute('alt'))).toEqual(['b']);
+  });
+
+  it('drops the cross-reference data attributes GitHub attaches to links', () => {
+    openPanel();
+    answer({ bodyHtml: recordedBody });
+
+    expect(panel()!.querySelector('[data-hovercard-url]')).toBeNull();
+    expect(recordedBody).toContain('data-hovercard-url');
+  });
+
+  it('keeps only addresses the editor can open', () => {
+    openPanel();
+    answer({ bodyHtml: '<p><a href="https://github.com/a/b/issues/1">ok</a><a href="vbscript:bad()">bad</a></p>' });
+
+    const links = Array.from(panel()!.querySelectorAll('a'));
+
+    expect(links.filter((link) => link.hasAttribute('href'))).toHaveLength(1);
+    expect(links[0]!.getAttribute('href')).toBe('https://github.com/a/b/issues/1');
+  });
+
+
+  it('shows what people wrote, in the order the source reported it', () => {
+    openPanel();
+    answer({
+      events: [
+        post({ author: 'dev-2', bodyHtml: '<p>first</p>' }),
+        post({ author: 'dev-3', bodyHtml: '<p>second</p>', createdAt: '2026-08-20T20:16:30Z' }),
+      ],
+    });
+
+    // The opening body is drawn as a post too, so the reader sees who opened the conversation and when.
+    const written = Array.from(panel()!.querySelectorAll('.detail-comment'));
+
+    expect(written).toHaveLength(3);
+    expect(written[0]!.textContent).toContain('dev-1');
+    expect(written[0]!.textContent).toContain('opened this');
+    expect(written[1]!.textContent).toContain('dev-2');
+    expect(written[2]!.textContent).toContain('dev-3');
+  });
+
+  it('says a conversation is clipped without inventing a number the source cannot give', () => {
+    openPanel();
+    answer({ moreEvents: true });
+
+    expect(panel()!.textContent).toContain('Earlier updates are not shown');
+    // GitHub overcounts a timeline, so the panel must not print a count derived from that total.
+    expect(panel()!.textContent).not.toMatch(/\d+ earlier update/);
+  });
+
+  it('draws a review with the state it left and the threads it opened', () => {
+    openPanel();
+    answer({ events: [post({ kind: 'review', state: 'CHANGES_REQUESTED', author: 'dev-3', threads: [thread()] })] });
+
+    const review = panel()!.querySelector('.detail-comment[data-kind="review"]')!;
+
+    expect(review.textContent).toContain('requested changes');
+    expect(review.querySelector('.detail-review-state')!.getAttribute('data-state')).toBe('changes_requested');
+    expect(review.querySelector('.detail-thread code')!.textContent).toBe('src/one.cs:86');
+  });
+
+  it('draws a state change as one line naming who did what', () => {
+    openPanel();
+    answer({ events: [note({ actor: 'dev-4', summary: 'added the bug label' })] });
+
+    const row = panel()!.querySelector('.detail-activity')!;
+
+    expect(row.querySelector('.detail-activity-who')!.textContent).toBe('dev-4');
+    expect(row.textContent).toContain('added the bug label');
+    expect(panel()!.querySelectorAll('.detail-comment')).toHaveLength(1);
+  });
+
+  it('folds a long run of state changes so it does not bury the conversation, while still holding them', () => {
+    openPanel();
+    answer({
+      events: [
+        note({ summary: 'one' }),
+        note({ summary: 'two' }),
+        note({ summary: 'three' }),
+        note({ summary: 'four' }),
+        post({ bodyHtml: '<p>after</p>' }),
+        note({ summary: 'five' }),
+        note({ summary: 'six' }),
+      ],
+    });
+
+    const run = panel()!.querySelector('.detail-activity-run')!;
+
+    expect(run.querySelector('summary')!.textContent).toBe('4 updates');
+    expect(run.querySelectorAll('.detail-activity')).toHaveLength(4);
+    // A run shorter than three stays inline rather than hiding two lines behind a disclosure.
+    expect(panel()!.querySelectorAll('.detail-activity-run')).toHaveLength(1);
+    expect(panel()!.querySelectorAll('.detail-activity')).toHaveLength(6);
+  });
+
+  it('shows reactions people left, and nothing when nobody reacted', () => {
+    openPanel();
+    answer({ events: [post({ reactions: [{ content: 'THUMBS_UP', count: 2 }] }), post({ bodyHtml: '<p>quiet</p>' })] });
+
+    const reacted = Array.from(panel()!.querySelectorAll('.detail-reaction'));
+
+    expect(reacted).toHaveLength(1);
+    expect(reacted[0]!.firstChild!.textContent).toBe('👍 2');
+    // A bare span takes no accessible name, so the emoji is named in text only a screen reader reads.
+    expect(reacted[0]!.querySelector('.sr-only')!.textContent).toBe(' thumbs up');
+  });
+
+  it('collapses a hidden comment behind the reason the source hid it, rather than dropping it', () => {
+    openPanel();
+    answer({ events: [post({ hidden: 'OFF_TOPIC', bodyHtml: '<p>off topic</p>' })] });
+
+    const fold = panel()!.querySelector('.detail-hidden') as HTMLDetailsElement;
+
+    expect(fold.open).toBe(false);
+    expect(fold.querySelector('summary')!.textContent).toBe('Hidden as off topic');
+    expect(fold.textContent).toContain('off topic');
+  });
+
+  it('marks an edited comment without claiming to know what changed', () => {
+    openPanel();
+    answer({ events: [post({ editedAt: '2026-08-21T20:16:30Z' })] });
+
+    expect(panel()!.textContent).toContain('edited');
+  });
+
+  it('shows the facts that sit beside a pull-request conversation', () => {
+    openPanel();
+    answer({
+      subject: 'pull-request',
+      assignees: ['dev-1'],
+      milestone: 'Patch 1',
+      branches: { base: 'main', head: 'topic' },
+      reviewDecision: 'CHANGES_REQUESTED',
+      checks: 'FAILURE',
+    });
+
+    const facets = Array.from(panel()!.querySelectorAll('.detail-facet')).map((chip) => chip.textContent);
+
+    expect(facets).toEqual(['assigned dev-1', 'Patch 1', 'topic → main', 'Changes requested', 'checks failure']);
+  });
+
+  it('shows inline review threads with their file, line, and state', () => {
+    openPanel();
+    answer({
+      subject: 'pull-request',
+      threads: [
+        thread({ resolved: true, comments: [post({ bodyHtml: '<p>naming</p>' })] }),
+        thread({
+          path: 'src/two.cs',
+          line: null,
+          outdated: true,
+          comments: [post({ author: 'dev-3', bodyHtml: '<p>moved</p>' })],
+          moreComments: true,
+        }),
+      ],
+      moreThreads: true,
+    });
+
+    const threads = Array.from(panel()!.querySelectorAll('.detail-thread'));
+
+    expect(threads).toHaveLength(2);
+    expect(threads[0]!.querySelector('code')!.textContent).toBe('src/one.cs:86');
+    expect(Array.from(threads[0]!.querySelectorAll('.detail-thread-mark')).map((mark) => mark.textContent)).toEqual(['Resolved']);
+    // A thread whose diff moved past it has no current line, so the panel names the file alone.
+    expect(threads[1]!.querySelector('code')!.textContent).toBe('src/two.cs');
+    expect(Array.from(threads[1]!.querySelectorAll('.detail-thread-mark')).map((mark) => mark.textContent)).toEqual(['Outdated']);
+    expect(threads[1]!.textContent).toContain('Earlier replies are not shown');
+    // A resolved thread is settled, so it opens closed; an unresolved one stays open to be read.
+    expect((threads[0] as HTMLDetailsElement).open).toBe(false);
+    expect((threads[1] as HTMLDetailsElement).open).toBe(true);
+    expect(threads[0]!.querySelector('.detail-thread-count')!.textContent).toBe('1 comment');
+    // A clipped thread marks its count, rather than stating a number the source cannot give.
+    expect(threads[1]!.querySelector('.detail-thread-count')!.textContent).toBe('1+ comments');
+    expect(panel()!.querySelector('.detail-threads h3')!.textContent).toBe('Review comments (2)');
+    expect(panel()!.textContent).toContain('Some review threads are not shown');
+  });
+
+  it('leaves out the review section when every thread belongs to a review above it', () => {
+    openPanel();
+    answer({ threads: [], events: [post({ kind: 'review', state: 'COMMENTED', threads: [thread()] })] });
+
+    expect(panel()!.querySelector('.detail-threads')).toBeNull();
+    expect(panel()!.querySelectorAll('.detail-thread')).toHaveLength(1);
+  });
+
+  it('renders a review comment body through the same sanitizer as the conversation', () => {
+    openPanel();
+    answer({ threads: [thread({ comments: [post({ bodyHtml: '<p onclick="steal()">kept</p><script>steal()</script>' })] })] });
+
+    const body = panel()!.querySelector('.detail-thread .markdown-body')!;
+
+    expect(body.textContent).toContain('kept');
+    expect(body.querySelector('script')).toBeNull();
+    expect(body.querySelector('p')!.getAttribute('onclick')).toBeNull();
+  });
+
+  it('reports a failure with the hub’s own words rather than an empty body', () => {
+    openPanel();
+    answer(null, 'GitHub could not be reached. Check your connection.');
+
+    expect(panel()!.querySelector('.detail-note.error')!.textContent).toBe('GitHub could not be reached. Check your connection.');
+    expect(panel()!.querySelector('.markdown-body')).toBeNull();
+  });
+
+  it('says a conversation with no description has none, rather than drawing nothing', () => {
+    openPanel();
+    answer({ bodyHtml: '' });
+
+    expect(panel()!.textContent).toContain('No description');
+  });
+
+  it('ignores an answer for a card or subject it is no longer showing', () => {
+    openPanel();
+
+    for (const stale of [
+      { key: 'issue:99999', subject: 'issue' },
+      { key: 'issue:18953', subject: 'pull-request' },
+    ]) {
+      send({ ...stale, type: 'detail', detail: detail({ title: 'Another conversation' }), failure: null } as BoardMessage);
+    }
+
+    expect(panel()!.textContent).not.toContain('Another conversation');
+    expect(panel()!.textContent).toContain('Reading');
+  });
+
+  it('keeps focus where the reader put it when the answer arrives', () => {
+    openPanel();
+
+    const close = panel()!.querySelector<HTMLButtonElement>('.detail-close')!;
+
+    expect(document.activeElement).toBe(close);
+
+    // The reader moves on while the read is in flight. Open on GitHub is disabled until the answer lands.
+    panel()!.querySelector<HTMLButtonElement>('.detail-grip')!.focus();
+    answer();
+
+    // Every paint replaces the panel's children, so focus must land back on the same control, not on the document.
+    expect(document.activeElement).toBe(panel()!.querySelector('.detail-grip'));
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('holds the board out of pointer and keyboard reach while a conversation is open', () => {
+    openPanel();
+
+    expect(panel()!.getAttribute('aria-modal')).toBe('true');
+    expect(document.getElementById('lanes')!.hasAttribute('inert')).toBe(true);
+
+    closePanel();
+
+    expect(document.getElementById('lanes')!.hasAttribute('inert')).toBe(false);
+  });
+
+  it('returns focus to the board when the control that opened it has been redrawn away', () => {
+    openPanel();
+    answer();
+
+    // A rebuild replaces the card, so the opener is no longer in the document.
+    document.getElementById('lanes')!.replaceChildren();
+    closePanel();
+
+    expect(document.activeElement).toBe(document.getElementById('lanes'));
+  });
+
+  it('opens the conversation in the browser from the panel itself', () => {
+    openPanel();
+    answer();
+
+    panel()!.querySelector<HTMLButtonElement>('.detail-action')!.click();
+
+    expect(api.postMessage).toHaveBeenCalledWith({
+      type: 'openLink',
+      url: 'https://github.com/example-org/example-repo/issues/18953',
+    });
+  });
+
+  it('closes on Escape, on the close control, and on a click outside it', () => {
+    for (const close of [
+      () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+      () => panel()!.querySelector<HTMLButtonElement>('.detail-close')!.click(),
+      () => document.getElementById('detail-scrim')!.click(),
+    ]) {
+      openPanel();
+      answer();
+      expect(panel()).not.toBeNull();
+
+      close();
+
+      expect(panel()).toBeNull();
+      expect(document.getElementById('detail-scrim')).toBeNull();
+    }
+  });
+
+  it('survives a board redraw, because a snapshot arriving must not close what is being read', () => {
+    openPanel();
+    answer();
+
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    expect(panel()).not.toBeNull();
+    expect(panel()!.textContent).toContain('Cache remediation');
+  });
+  it('sizes the panel from its own edge and reports the width for the next one', () => {
+    openPanel();
+    answer();
+
+    const grip = panel()!.querySelector<HTMLElement>('.detail-grip')!;
+
+    expect(grip.getAttribute('role')).toBe('separator');
+
+    // jsdom reports no layout, so the drag is measured from the width the panel reports.
+    panel()!.getBoundingClientRect = () => ({ width: 600 }) as DOMRect;
+    grip.setPointerCapture = () => {};
+    grip.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 900 }));
+    grip.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 800 }));
+    grip.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 800 }));
+
+    // Dragging left widens a panel anchored to the right edge.
+    expect(panel()!.style.width).toBe('700px');
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'setDetailWidth', width: 700 });
+  });
+
+  it('refuses to be dragged narrower than it can be read', () => {
+    openPanel();
+    answer();
+
+    const grip = panel()!.querySelector<HTMLElement>('.detail-grip')!;
+
+    panel()!.getBoundingClientRect = () => ({ width: 600 }) as DOMRect;
+    grip.setPointerCapture = () => {};
+    grip.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100 }));
+    grip.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 9000 }));
+
+    expect(Number.parseInt(panel()!.style.width, 10)).toBe(360);
+  });
+
+  it('sizes it from the keyboard, because a pointer is not the only way to resize a panel', () => {
+    openPanel();
+    answer();
+
+    const grip = panel()!.querySelector<HTMLElement>('.detail-grip')!;
+    panel()!.getBoundingClientRect = () => ({ width: 600 }) as DOMRect;
+
+    grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+
+    expect(panel()!.style.width).toBe('640px');
+    // Sizing is reported as it happens; the width is saved once the reader lets the key go, not on every repeat.
+    expect(grip.getAttribute('aria-valuenow')).toBe('600');
+    expect(api.postMessage).not.toHaveBeenCalledWith({ type: 'setDetailWidth', width: 640 });
+
+    grip.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }));
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'setDetailWidth', width: 640 });
+  });
+
+  it('opens the width the developer last dragged to', () => {
+    send({ type: 'reading', enabled: true, width: 720 } as BoardMessage);
+    openPanel();
+
+    expect(panel()!.style.width).toBe('720px');
+  });
+
+  it('leaves links to the host, which opens an anchor once on its own', () => {
+    openPanel();
+    answer({ bodyHtml: '<p><a href="https://github.com/a/b/issues/1">ok</a></p>' });
+
+    const link = panel()!.querySelector('a')!;
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    link.dispatchEvent(event);
+
+    // Opening it from here as well opened every link twice.
+    expect(sent().some((m) => (m as { type: string }).type === 'openLink')).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+});
+
+describe('reading conversations turned off', () => {
+  afterEach(() => {
+    send({ type: 'reading', enabled: true, width: null } as BoardMessage);
+    document.getElementById('detail')?.remove();
+    document.getElementById('detail-scrim')?.remove();
+  });
+
+  it('sends a card’s controls to the browser, as they went before the panel existed', () => {
+    send({ type: 'reading', enabled: false, width: null } as BoardMessage);
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+    document.querySelector<HTMLButtonElement>('.badges.github .badge.pull-request')!.click();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'openPullRequest', number: 18953 });
+    expect(sent().some((m) => (m as { type: string }).type === 'readDetail')).toBe(false);
+    expect(document.getElementById('detail')).toBeNull();
+  });
+
+  it('says what its controls do, so the name matches the click', () => {
+    send({ type: 'reading', enabled: false, width: null } as BoardMessage);
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    expect(document.querySelector('.card-meta .number')!.getAttribute('aria-label')).toBe(
+      'Open issue example-repo #18953 on GitHub',
+    );
+    expect(document.querySelector('.badge.pull-request')!.getAttribute('aria-label')).toBe(
+      'Open pull request #19403, open, on GitHub',
+    );
+  });
+
+  it('closes a conversation left open when the setting is turned off', () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+    expect(document.getElementById('detail')).not.toBeNull();
+
+    send({ type: 'reading', enabled: false, width: null } as BoardMessage);
+
+    expect(document.getElementById('detail')).toBeNull();
+    expect(document.getElementById('lanes')!.hasAttribute('inert')).toBe(false);
   });
 });

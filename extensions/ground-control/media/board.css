@@ -1165,3 +1165,636 @@ body[data-motion='reduced'] .badge.triage-running {
 body[data-motion='reduced'] #tip[data-open='true'] {
   animation: none;
 }
+
+/* Conversation panel: read-only issue and pull-request bodies, over the board rather than beside it. */
+#detail-scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, black 38%, transparent);
+  z-index: 30;
+}
+
+#detail {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(960px, 85vw);
+  max-width: 95vw;
+  min-width: 22rem;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-editor-background);
+  border-left: 1px solid var(--gc-edge);
+  box-shadow: -8px 0 24px color-mix(in srgb, black 35%, transparent);
+}
+
+/*
+ * Drag the panel's own edge to size it, drawn as the editor's own sash: a wide invisible target, and a thin line
+ * painted only while it is being used.
+ */
+.detail-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+/* The line is always drawn and only faded, so appearing and disappearing are the same animation. */
+.detail-grip::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 1px;
+  width: 3px;
+  background: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder));
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+/* The editor waits before painting its sash, so dragging the cursor past an edge does not flash a line. */
+.detail-grip:hover::before {
+  opacity: 1;
+  transition: opacity 120ms ease-out 300ms;
+}
+
+/* Keyboard focus and an active drag are deliberate, so neither waits. */
+.detail-grip:focus-visible::before,
+.detail-grip[data-dragging='true']::before {
+  opacity: 1;
+  transition: opacity 80ms ease-out;
+}
+
+.detail-grip:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-grip::before,
+  .detail-grip:hover::before,
+  .detail-grip:focus-visible::before,
+  .detail-grip[data-dragging='true']::before {
+    transition-duration: 0s;
+  }
+}
+
+/* The board's own animation setting, which the editor sends and the body carries. */
+body[data-motion='reduced'] .detail-grip::before,
+body[data-motion='reduced'] .detail-grip:hover::before,
+body[data-motion='reduced'] .detail-grip:focus-visible::before,
+body[data-motion='reduced'] .detail-grip[data-dragging='true']::before {
+  transition-duration: 0s;
+}
+
+body[data-motion='reduced'] #detail {
+  animation: none;
+}
+
+/*
+ * The board's own page header is a flex row with negative side margins, and that rule reaches every header in the
+ * panel. Reset it here so a comment header cannot grow wider than the column it sits in.
+ */
+#detail header {
+  display: block;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border-bottom: 0;
+}
+
+#detail > header {
+  flex: none;
+  padding: 0.75rem 1rem 0.6rem;
+  border-bottom: 1px solid var(--gc-edge);
+}
+
+.detail-where {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-state {
+  border-radius: 1rem;
+  padding: 0.05rem 0.5rem;
+  font-weight: 600;
+  color: var(--vscode-editor-background);
+  background: var(--vscode-charts-green);
+}
+
+.detail-state[data-state='closed'] {
+  background: var(--vscode-charts-red);
+}
+
+.detail-state[data-state='merged'] {
+  background: var(--vscode-charts-purple);
+}
+
+.detail-action {
+  margin-left: auto;
+}
+
+/* Outlined, hover-filled controls at the board's own control height, as the board menu button is drawn. */
+.detail-action,
+.detail-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  height: 1.5rem;
+  padding: 0 0.55rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.detail-close {
+  width: 1.5rem;
+  padding: 0;
+  font-size: 1rem;
+}
+
+.detail-action:hover,
+.detail-close:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.detail-action:disabled {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.detail-action:disabled:hover {
+  background: transparent;
+}
+
+.detail-action:focus-visible,
+.detail-close:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+#detail h2 {
+  margin: 0.35rem 0 0.4rem;
+  font-size: 1.15em;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85em;
+}
+
+.detail-label {
+  border-radius: 1rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid var(--gc-label);
+  background: color-mix(in srgb, var(--gc-label) 22%, transparent);
+}
+
+.detail-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-avatar {
+  border-radius: 50%;
+}
+
+.detail-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem;
+}
+
+/* The scrolling region takes focus so a conversation with no links can still be read by keyboard. */
+.detail-scroll:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.detail-note {
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-note.error {
+  color: var(--vscode-errorForeground);
+}
+
+.detail-comment {
+  margin-top: 1.1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--gc-edge);
+}
+
+/* Outranks the reset above, which is ID-scoped because the board's page-header rule is not. */
+#detail .detail-comment > header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+}
+
+/* The opening body leads the conversation, so it carries no separator above it. */
+.detail-scroll > .detail-comment:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.detail-comment[data-kind='review'] {
+  border-left: 2px solid var(--gc-edge);
+  padding-left: 0.7rem;
+}
+
+/* The verb itself carries the state, so the state only colours it. */
+.detail-review-state[data-state='approved'] {
+  color: var(--vscode-charts-green);
+}
+
+.detail-review-state[data-state='changes_requested'] {
+  color: var(--vscode-charts-red);
+}
+
+.detail-review-state[data-state='dismissed'] {
+  text-decoration: line-through;
+}
+
+/* Names a control for a screen reader without repeating what the sighted reader already sees. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.detail-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.detail-reaction {
+  padding: 0 0.4rem;
+  border: 1px solid var(--gc-edge);
+  border-radius: 999px;
+  font-size: 0.85em;
+}
+
+.detail-hidden {
+  margin: 0.3rem 0;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-hidden > summary {
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+/* State changes are one line each: they carry the record without competing with what people wrote. */
+.detail-activity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.15rem 0;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-activity-who {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.detail-activity[data-kind='commit'] .detail-activity-said {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.detail-activity-run {
+  margin: 0.4rem 0;
+}
+
+.detail-activity-run > summary {
+  cursor: pointer;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-activity-run[open] > summary {
+  margin-bottom: 0.2rem;
+}
+
+.detail-facet {
+  padding: 0 0.4rem;
+  border: 1px solid var(--gc-edge);
+  border-radius: 999px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-facet[data-checks='success'] {
+  color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+}
+
+.detail-facet[data-checks='failure'] {
+  color: var(--vscode-charts-red);
+}
+
+.detail-threads {
+  margin-top: 1.6rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--gc-edge);
+}
+
+#detail .detail-threads h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-thread {
+  margin-bottom: 0.9rem;
+  border: 1px solid var(--gc-edge);
+  border-radius: 4px;
+  padding: 0.55rem 0.7rem 0.7rem;
+}
+
+/* Flex removes the disclosure marker, so the rule below draws one that follows the element's open state. */
+#detail .detail-thread-where {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.2rem;
+  font-size: 0.9em;
+  cursor: pointer;
+  list-style: none;
+}
+
+.detail-thread:not([open]) {
+  padding-bottom: 0.55rem;
+}
+
+#detail .detail-thread:not([open]) > .detail-thread-where {
+  margin-bottom: 0;
+}
+
+#detail .detail-thread-where::-webkit-details-marker {
+  display: none;
+}
+
+.detail-thread-where::before {
+  content: '';
+  flex: none;
+  width: 0;
+  height: 0;
+  border: 4px solid transparent;
+  border-left-color: var(--vscode-descriptionForeground);
+  transform: translateX(1px);
+}
+
+.detail-thread[open] > .detail-thread-where::before {
+  transform: rotate(90deg) translateY(1px);
+}
+
+.detail-thread-where:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
+.detail-thread-count {
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-thread-where code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+
+.detail-thread-mark {
+  padding: 0 0.35rem;
+  border: 1px solid var(--gc-edge);
+  border-radius: 999px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* The first comment of a thread opens it; the rule above separates comments that follow one another. */
+.detail-thread > .detail-comment:first-of-type {
+  margin-top: 0.5rem;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.detail-when {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Source-rendered conversation bodies. GitHub supplies the markup; these rules give it the editor's palette. */
+.markdown-body {
+  line-height: 1.55;
+  /* break-word, not anywhere: `anywhere` also shrinks min-content, which collapses table columns to one character. */
+  overflow-wrap: break-word;
+}
+
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+/* A paragraph inside a list item is part of the item, not a break between items. */
+.markdown-body li > p {
+  margin: 0.25em 0;
+}
+
+.markdown-body li {
+  margin: 0.15em 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 1.1em 0 0.5em;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.markdown-body h1,
+.markdown-body h2 {
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--gc-edge);
+}
+
+.markdown-body h1 {
+  font-size: 1.35em;
+}
+
+.markdown-body h2 {
+  font-size: 1.2em;
+}
+
+.markdown-body h3 {
+  font-size: 1.08em;
+}
+
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-size: 1em;
+}
+
+.markdown-body h6 {
+  color: var(--vscode-descriptionForeground);
+}
+
+.markdown-body a {
+  color: var(--vscode-textLink-foreground);
+}
+
+.markdown-body img {
+  max-width: 100%;
+  border-radius: var(--gc-radius);
+}
+
+.markdown-body code {
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  background: var(--vscode-textCodeBlock-background, color-mix(in srgb, var(--vscode-foreground) 10%, transparent));
+}
+
+.markdown-body pre {
+  overflow-x: auto;
+  padding: 0.75rem;
+  border-radius: var(--gc-radius);
+  background: var(--vscode-textCodeBlock-background, color-mix(in srgb, var(--vscode-foreground) 8%, transparent));
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: none;
+}
+
+.markdown-body blockquote {
+  margin: 0.6em 0;
+  padding-left: 0.8em;
+  border-left: 3px solid var(--gc-edge);
+  color: var(--vscode-descriptionForeground);
+}
+
+/* GitHub wraps tables in a custom element; it has no definition here, so it must be told to lay out. */
+.markdown-body markdown-accessiblity-table,
+.markdown-body .highlight {
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 0.3em 0.7em;
+  border: 1px solid var(--gc-edge);
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-body tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+}
+
+.markdown-body th {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent);
+}
+
+.markdown-body hr {
+  border: 0;
+  border-top: 1px solid var(--gc-edge);
+  margin: 1.1em 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.4em;
+}
+
+/* Task lists arrive from the source with their bullets suppressed and their checkboxes disabled. */
+.markdown-body .contains-task-list {
+  list-style: none;
+  padding-left: 0.6em;
+}
+
+.markdown-body .task-list-item-checkbox {
+  margin: 0 0.4em 0 0;
+  vertical-align: middle;
+}
+
+.markdown-body .task-list-item {
+  list-style: none;
+}
+
+.markdown-body details {
+  margin: 0.6em 0;
+}
+
+.markdown-body summary {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #detail {
+    animation: detail-in 120ms ease-out;
+  }
+}
+
+@keyframes detail-in {
+  from {
+    transform: translateX(1.5rem);
+    opacity: 0;
+  }
+
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}

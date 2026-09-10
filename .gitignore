@@ -9,6 +9,7 @@ dist/
 .claude/worktrees/
 .tmp/
 .tmp-smoke/
+.wip/
 coverage/
 .vscode-test/
 test-results/

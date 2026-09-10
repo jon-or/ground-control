@@ -94,7 +94,29 @@ Select the most recently updated open closing pull request; if none is open, sel
 
 `avatar.review` and `avatar.offReview` select whose face a card shows in both clients, one setting per side of the review boundary, so a review card can name who implemented the issue while every other card names who reported it. `avatar.review` takes `pull-request-author`, the default, or `assignee`. `avatar.offReview` takes `assignee`, the default, or `issue-author`; a pull request author is not offered there because the unstarted, plan, and icebox lanes have no pull request to name. Each side falls through to an assignee wherever its person is unavailable, such as a review card with no pull request or a deleted account, and the preferred assignee is the developer's configured identity. Label the role. The review statuses come from the lane mapping, so custom status names need no second list. The overlay replaces GitHub's assignee display only where an author should replace it and an assignee area already exists; otherwise leave GitHub's display intact, which makes `assignee` on either side a no-op for that side in the browser and a visible choice on the editor board.
 
-Issue and pull-request controls open URLs resolved from source data. A guessed issue number is not sufficient to construct a link.
+Issue and pull-request controls resolve their addresses from source data; a guessed issue number is not sufficient to construct a link. What an unmodified click on those controls does is R43.
+
+### R43. Reading a conversation
+
+A card's issue and pull-request controls open that conversation for reading, over the board. Holding Ctrl, or Cmd on macOS, sends the same control to the browser instead. A setting turns reading off, after which those controls always open the browser and the accessible name says so. The card itself stays unclickable (R5).
+
+The panel reads and never writes. It shows the title, state, labels, author, assignees, and milestone, the body, and the whole conversation that followed: comments, review summaries with the state each left, inline review threads, commits, and every state change, in the order they happened. A pull request also shows its branches, draft state, review decision, and combined check state. Reactions are displayed as counts, a comment the source hid is collapsed behind its reason rather than dropped, and an edited comment is marked without claiming what changed. Task-list checkboxes stay disabled, and there is no comment box, reaction control, or field editor: writing to GitHub remains out of scope. Offer a control that opens the same conversation in the browser, where all of that already works.
+
+Inline review threads hang off the review that opened them, ordered by file then line, each naming the file and the line it hangs off and marked when it is resolved or its diff has moved past it. A thread whose review is not in the timeline is listed after the conversation instead. A resolved thread opens collapsed, since it is settled; every thread heading carries its comment count so a collapsed one still says what it holds, and any thread can be opened or closed.
+
+A run of three or more consecutive state changes folds into one disclosure so it does not bury what people wrote, while still holding every one of them; a shorter run stays inline.
+
+Read the conversation in pages, newest first, so a read that stops early loses its oldest entries and never its latest. Say the conversation is clipped without stating a number: the source's timeline total counts entries its connection does not return, so any count derived from it would be wrong. The same holds for a thread's replies. A page that fails after the first leaves the conversation short rather than failing the read.
+
+The diff itself, its file list, and commit contents are outside this panel: it reads the conversation, and the browser control opens the rest.
+
+The panel is modal: it dims the board behind it, and a click there closes it rather than reaching the board. Nothing outside the panel takes pointer or keyboard while it is open. It is resizable from its own edge by pointer and by keyboard, within bounds that keep both it and the dimmed board legible. Its width is retained across boards and windows.
+
+Bodies are rendered by the source, not by a client markdown parser, so a conversation reads as its author wrote it. A client sanitizes source HTML before it reaches a document, keeping only known elements and attributes and only `http`/`https` addresses. Links inside a conversation are left to the host, which opens an anchor's address in the browser itself; opening them from the client as well opens each link twice.
+
+Conversations are read per request and are not carried in snapshots, which would broadcast every body on every poll. Answer only the client that asked. Report a read failure with its remedy rather than an empty conversation, and distinguish a subject that could not be read from one that does not exist.
+
+The overlay does not offer this: it runs on the page that already renders these conversations (R36), so its cards keep opening GitHub itself.
 
 ### R6. Attention
 
@@ -406,7 +428,7 @@ Keep browser snapshots only in memory for the current hub connection. After eith
 
 Native-host registration supports Google Chrome and Microsoft Edge, selected by `overlayBrowsers` with Chrome as the default. Enabling registers only the selected browsers and removes Ground Control's registrations for the others; disabling removes the selected browsers' registrations and keeps shared files another registration still needs; uninstall removes every registration Ground Control owns. Neither removes a registration made for another home. Unsupported browsers and platforms are reported as limitations.
 
-Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, request triage, or open combined diffs.
+Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, request triage, open combined diffs, or read a card conversation (R43).
 
 Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.
 

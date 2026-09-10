@@ -1,7 +1,7 @@
 import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SESSION_SCOPE, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions } from '@ground-control/core';
-import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
+import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { IssueLookup } from './issueLookup.js';
@@ -104,6 +104,9 @@ const START_LEASE_MS = 10_000;
 /** Suppress duplicate checkout opens while the code process starts. */
 const OPEN_LEASE_MS = 3_000;
 
+/** Bound one detail read so a slow source cannot hold a client's request open. A long conversation reads in pages. */
+const DETAIL_TIMEOUT_MS = 60_000;
+
 /** Treat a delayed tick as resume from suspend and refresh immediately. */
 const WAKE_GAP_MS = 20_000;
 
@@ -191,6 +194,8 @@ export class Hub {
   readonly #clients = new Map<string, Connected>();
   readonly #watchers: { dispose(): void }[] = [];
   readonly #timers: NodeJS.Timeout[] = [];
+  /** Detail reads a client already has open, keyed by client, card, and subject. */
+  readonly #detailReads = new Set<string>();
 
   #config: HubConfig;
   #storageReady = false;
@@ -289,7 +294,7 @@ export class Hub {
     this.#actions.configure(this.#config.actions, this.#config.agents);
     this.#issues = new IssueLookup({
       store: deps.issues,
-      sources: () => deps.registries.sources.filter((source) => Object.hasOwn(this.#config.sources, source.id)),
+      sources: () => this.#enabledSources(),
       log: deps.log,
       now: () => deps.clock.now(),
       changed: () => this.#broadcast(),
@@ -374,6 +379,11 @@ export class Hub {
 
       case 'watchLog':
         this.#watchLog(connected, message.watching);
+
+        return;
+
+      case 'readDetail':
+        void this.#readDetail(connected, message.key, message.subject);
 
         return;
 
@@ -884,6 +894,67 @@ export class Hub {
     this.#deps.log.debug(`${client.hello.id} opened its log viewer`, 'clients');
   }
 
+  /**
+   * Answer one client's detail request from the card the snapshot already holds, so a client never names a
+   * repository or URL. Bodies are not cached: the request is user-initiated and the conversation changes
+   * independently of the card.
+   */
+  async #readDetail(client: Connected, key: string, subject: DetailSubject): Promise<void> {
+    const answer = (detail: ItemDetail | null, failure: string | null) =>
+      client.send({ type: 'detail', key, subject, detail, failure });
+
+    const card = this.snapshot()
+      .lanes.flatMap((lane) => lane.cards)
+      .find((laned) => laned.key === key);
+
+    if (!card?.issue) {
+      answer(null, 'That card is no longer on the board. Refresh the board and open it again.');
+
+      return;
+    }
+
+    if (subject === 'pull-request' && card.issue.pullRequest === null) {
+      answer(null, 'That card has no pull request.');
+
+      return;
+    }
+
+    // One reader clicking across cards must not queue a source process per click.
+    const inFlight = `${client.hello.id}|${key}|${subject}`;
+
+    if (this.#detailReads.has(inFlight)) {
+      return;
+    }
+
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), DETAIL_TIMEOUT_MS);
+
+    this.#detailReads.add(inFlight);
+
+    try {
+      for (const source of this.#enabledSources()) {
+        const reading = await source.readDetail?.(card.issue, subject, abort.signal);
+
+        // A source that does not serve this card establishes nothing; try the next one.
+        if (reading === undefined || reading === null) {
+          continue;
+        }
+
+        answer(reading.detail, reading.failure === null ? null : `${reading.failure.message} ${reading.failure.remedy}`);
+
+        return;
+      }
+
+      answer(null, 'No configured source can read that conversation. Check the GitHub settings for this board.');
+    } catch (error) {
+      this.#deps.log.debug(`detail ${key}/${subject} could not be read: ${String(error)}`, 'issues');
+      answer(null, 'That conversation could not be read. Try again.');
+    } finally {
+      clearTimeout(timer);
+      this.#detailReads.delete(inFlight);
+    }
+  }
+
   #watched(): boolean {
     return [...this.#clients.values()].some((client) => client.watching);
   }
@@ -1060,11 +1131,14 @@ export class Hub {
     return this.#sessionsInFlight;
   }
 
+  /** The sources this configuration enables, in registry order. */
+  #enabledSources(): readonly WorkSource[] {
+    return this.#deps.registries.sources.filter((source) => Object.hasOwn(this.#config.sources, source.id));
+  }
+
   /** Read configured sources concurrently. */
   async #readSources(): Promise<void> {
-    const sources = this.#deps.registries.sources.filter((source) =>
-      Object.hasOwn(this.#config.sources, source.id),
-    );
+    const sources = this.#enabledSources();
 
     await Promise.all(sources.map((source) => this.#readSource(source)));
 

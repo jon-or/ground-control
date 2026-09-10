@@ -1,5 +1,6 @@
 import type { Lane, LaneId } from './board.js';
 import type { HubConfig } from './config.js';
+import type { DetailSubject, ItemDetail } from './detail.js';
 import type { OpenRefusal, OpenRoute, StartableAgent } from './host.js';
 import type { LogEntry } from './log.js';
 import type { ReadFailure } from './types.js';
@@ -91,7 +92,9 @@ export type ClientMessage =
   // Start the selected agent in this client window, checking current extension readiness.
   | { type: 'startSession'; key: string; agent: string; extensionReady: boolean }
   // Subscribe to log reads and streaming, or unsubscribe. No reads occur without a subscriber.
-  | { type: 'watchLog'; watching: boolean };
+  | { type: 'watchLog'; watching: boolean }
+  // Read one card's conversation for display. Answered to the requesting client alone, never broadcast.
+  | { type: 'readDetail'; key: string; subject: DetailSubject };
 
 export type HubMessage =
   | { type: 'snapshot'; snapshot: Snapshot }
@@ -99,7 +102,9 @@ export type HubMessage =
   | { type: 'perform'; route: OpenRoute }
   | { type: 'notice'; level: 'info' | 'warning' | 'error'; message: string; refusal?: OpenRefusal }
   // Send subscribed clients the log tail first, then individual new lines.
-  | { type: 'log'; entries: LogEntry[] };
+  | { type: 'log'; entries: LogEntry[] }
+  // Answer one readDetail. `detail` null with no failure is a subject the source found nothing for.
+  | { type: 'detail'; key: string; subject: DetailSubject; detail: ItemDetail | null; failure: string | null };
 
 /** Flattened snapshot fields consumed by the webview. */
 export type SnapshotMessage = { type: 'board' } & Snapshot;
@@ -118,4 +123,8 @@ export type BoardMessage =
   | { type: 'presentation'; animations: boolean }
   // First-run choices still owed; hooks and triage stay off until they are made (R26).
   | { type: 'setup'; pending: boolean }
+  // Conversation for the card the webview asked about, or the reason it has none.
+  | { type: 'detail'; key: string; subject: DetailSubject; detail: ItemDetail | null; failure: string | null }
+  // Whether card controls read a conversation on the board, and the panel width the developer dragged to (R43).
+  | { type: 'reading'; enabled: boolean; width: number | null }
   | SnapshotMessage;

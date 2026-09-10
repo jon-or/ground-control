@@ -67,6 +67,7 @@ describe('the package public surface', () => {
       'readHeadFromDisk',
       'readTailFromDisk',
       'readTextFromDisk',
+      'readableLink',
       'repositoryKey',
       'repositoryOf',
       'resolveAgentHomes',

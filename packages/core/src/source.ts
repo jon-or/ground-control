@@ -1,4 +1,5 @@
 import type { IssueCard } from './cards.js';
+import type { DetailReading, DetailSubject } from './detail.js';
 import type { TriageContext } from './triage.js';
 import type { ReadFailure } from './types.js';
 
@@ -66,6 +67,11 @@ export interface WorkSource {
    * missing issue. Without lookup, preserve the unlinked session (R4).
    */
   readCard?(repository: string, number: number, signal: AbortSignal): Promise<CardReading | null>;
+  /**
+   * Optional read-only conversation for one card, requested when a client opens it. Return null for a card this
+   * source does not serve, distinct from a subject it serves and cannot find.
+   */
+  readDetail?(card: IssueCard, subject: DetailSubject, signal: AbortSignal): Promise<DetailReading | null>;
 }
 
 /** One item read by number. `card` null beside no failure is a number the source served and found nothing for. */

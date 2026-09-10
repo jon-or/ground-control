@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { DEFAULT_BOARD_POLICY, spawnable } from '@ground-control/core';
 import type { BoardPolicy, Logger, ReadFailure } from '@ground-control/core';
 import type { CardReading, ContextReading, IssueCard, SourceReading, WorkSource } from '@ground-control/core';
+import type { DetailReading, DetailSubject } from '@ground-control/core';
 import { fetchCardContext } from './context.js';
+import { fetchDetail, itemAddress } from './detail.js';
 import { makeGhRunner } from './gh.js';
 import { parseAuthStatusLogins } from './identity.js';
 import { fetchAssignedIssues, fetchIssue } from './issues.js';
@@ -87,6 +89,7 @@ export interface GithubSourceDeps {
   detectLogins(ghPath: string): Promise<string[]>;
   readContext(config: GithubConfig, card: IssueCard, signal: AbortSignal): Promise<ContextReading>;
   readCard(config: GithubConfig, owner: string, name: string, number: number, signal: AbortSignal): Promise<Result<IssueCard | null>>;
+  readDetail(config: GithubConfig, card: IssueCard, subject: DetailSubject, signal: AbortSignal): Promise<DetailReading>;
 }
 
 /** Match github.com owner/name repositories only. Enterprise checkouts remain unlinked (R4). */
@@ -106,6 +109,15 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
     deps.readContext ??
     ((config: GithubConfig, card: IssueCard, signal: AbortSignal) =>
       fetchCardContext(config, card, makeGhRunner(config.ghPath, deps.log), signal));
+  const detail =
+    deps.readDetail ??
+    ((config: GithubConfig, card: IssueCard, subject: DetailSubject, signal: AbortSignal) => {
+      const at = itemAddress(card, subject);
+
+      return at === null
+        ? Promise.resolve({ detail: null, failure: null })
+        : fetchDetail(config, at.owner, at.name, at.number, subject, makeGhRunner(config.ghPath, deps.log), signal);
+    });
 
   let currentConfig: GithubConfig | null = null;
 
@@ -191,6 +203,13 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
       return result.ok
         ? { card: result.value, failure: null }
         : { card: null, failure: { ...result.error, subject: GITHUB_SOURCE_ID } };
+    },
+
+    readDetail(card, subject, signal): Promise<DetailReading | null> {
+      // Null means this source does not serve the card, so another source may answer for it.
+      return currentConfig === null || itemAddress(card, subject) === null
+        ? Promise.resolve(null)
+        : detail(currentConfig, card, subject, signal);
     },
   };
 }
