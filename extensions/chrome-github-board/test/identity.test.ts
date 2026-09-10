@@ -22,6 +22,8 @@ describe('browser integration identifiers', () => {
       readFileSync(join(src, '..', '..', 'ground-control', 'package.json'), 'utf8'),
     ) as { publisher: string; name: string };
 
-    expect(read('overlay.js')).toContain(`://${manifest.publisher}.${manifest.name}/open?session=`);
+    for (const path of ['open', 'attach']) {
+      expect(read('overlay.js')).toContain(`://${manifest.publisher}.${manifest.name}/${path}?session=`);
+    }
   });
 });

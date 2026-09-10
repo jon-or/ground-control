@@ -49,6 +49,14 @@ export function sessionOf(snapshot: Snapshot | undefined, sessionId: string): Se
  * fall back to Claude. Keep the lookup in core so both clients share the same testable rule.
  */
 export function agentOfSession(snapshot: Snapshot | undefined, sessionId: string): string {
+  return agentOfKnownSession(snapshot, sessionId) ?? 'claude';
+}
+
+/**
+ * The same lookup without the fallback, for a caller that has another source for an ID this snapshot does not
+ * carry. A window activated by a link can have no snapshot at all.
+ */
+export function agentOfKnownSession(snapshot: Snapshot | undefined, sessionId: string): string | null {
   const live = sessionOf(snapshot, sessionId);
 
   if (live) {
@@ -63,5 +71,5 @@ export function agentOfSession(snapshot: Snapshot | undefined, sessionId: string
     }
   }
 
-  return 'claude';
+  return null;
 }

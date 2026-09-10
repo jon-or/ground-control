@@ -480,7 +480,7 @@ Ground Control's cross-window handover URI is:
 vscode://groundcontrol.ground-control/open?session=<id>&agent=<agent>&hop=1
 ```
 
-The scheme is the running distribution's `vscode.env.uriScheme` (`vscode-insiders://` under Insiders); stable's is shown. The receiving handler passes through normal hub validation and refuses onward routing. This behavior was tested with an unknown ID. Delivery immediately after raising a window is inferred from the official Claude-URI experiment; it was not separately measured for this URI. Carrying the agent avoids guessing from a snapshot the receiving window may not have.
+The scheme is the running distribution's `vscode.env.uriScheme` (`vscode-insiders://` under Insiders); stable's is shown. The receiving handler passes through normal hub validation and refuses onward routing. This behavior was tested with an unknown ID. Delivery immediately after raising a window is inferred from the official Claude-URI experiment; it was not separately measured for this URI. Carrying the agent avoids guessing from a snapshot the receiving window may not have. The browser board carries `agent` on an ordinary open for the same reason, without `hop`.
 
 `/attach?session=<id>` is a separate local terminal operation without agent or hop parameters. On 2026-09-09, a real-host probe created a terminal with `shellPath: 'claude'`, `shellArgs: ['attach', '<short-id>']`, and the checkout cwd. Creation options and processId confirmed the command shape. `shellPath` does not perform a PATHEXT lookup for a `.cmd` shim; configured executable paths must account for that.
 

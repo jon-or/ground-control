@@ -2256,15 +2256,34 @@ describe('going to a session from the browser', () => {
    * Use browser link navigation for the user gesture required by VS Code foreground activation (mechanics M26,
    * M29).
    */
-  it('addresses the session by id, and nothing else', () => {
+  it('addresses the session by id and agent, and nothing else', () => {
     paint(document, state(), NOW, actions);
 
     const chip = badges()[0]!.querySelector<HTMLAnchorElement>('.gc-session')!;
 
     expect(chip.tagName).toBe('A');
-    expect(chip.getAttribute('href')).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}`);
+    expect(chip.getAttribute('href')).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}&agent=claude`);
     // Assert the draggable attribute: the property default alone would not prove explicit drag suppression.
     expect(chip.getAttribute('draggable')).toBe('false');
+  });
+
+  /** The reason the link names the agent: a window the link activates has no snapshot to resolve it from. */
+  it('names the agent the session actually runs, not the one a cold window would assume', () => {
+    const codex = session({ agent: 'codex' });
+
+    paint(
+      document,
+      state({ snapshot: snapshot({
+        lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [codex] })] }],
+        openable: [codex.sessionId],
+      }) }),
+      NOW,
+      actions,
+    );
+
+    expect(badges()[0]!.querySelector('.gc-session')!.getAttribute('href')).toBe(
+      `vscode://groundcontrol.ground-control/open?session=${codex.sessionId}&agent=codex`,
+    );
   });
 
   it('offers no link for a session the hub says no editor can open', () => {
@@ -2416,10 +2435,10 @@ it('writes session links in the scheme the connected editor reports, and in stab
   const insiders = snapshot({ editor: { uriScheme: 'vscode-insiders' } });
 
   paint(document, state({ snapshot: insiders }), NOW, actions);
-  expect(document.querySelector<HTMLAnchorElement>('.gc-session')!.getAttribute('href')).toBe(`vscode-insiders://groundcontrol.ground-control/open?session=${SESSION_ID}`);
+  expect(document.querySelector<HTMLAnchorElement>('.gc-session')!.getAttribute('href')).toBe(`vscode-insiders://groundcontrol.ground-control/open?session=${SESSION_ID}&agent=claude`);
 
   paint(document, state({ snapshot: snapshot({ editor: { uriScheme: 'java script' } }) }), NOW, actions);
-  expect(document.querySelector<HTMLAnchorElement>('.gc-session')!.getAttribute('href')).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}`);
+  expect(document.querySelector<HTMLAnchorElement>('.gc-session')!.getAttribute('href')).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}&agent=claude`);
 });
 
 it('links historical rows through the same VS Code handler without opening the GitHub card', () => {
@@ -2427,7 +2446,7 @@ it('links historical rows through the same VS Code handler without opening the G
   const entry = card(4501, { sessions: [], lastSession });
   paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [SESSION_ID] }) }), NOW, actions);
   const link = document.querySelector<HTMLAnchorElement>('a.gc-historical')!;
-  expect(link.href).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}`);
+  expect(link.href).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}&agent=claude`);
   expect(link.draggable).toBe(false);
   expect(link.getAttribute('aria-label')).toBe('Past attempt, Claude — resume this session in VS Code.');
   expect(tipOf(link.querySelector('.gc-state'))).toContain('Resume this session');

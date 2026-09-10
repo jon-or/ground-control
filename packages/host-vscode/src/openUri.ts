@@ -2,6 +2,8 @@
  * Construct editor links for browser navigation. OS routing and foreground behavior depend on the registered
  * handler and launch context (mechanics M26, M29). The URI alone does not guarantee target-window focus.
  */
+import { agentOfKnownSession, agentOfSession } from '@ground-control/core';
+import type { Snapshot } from '@ground-control/core';
 
 /** Supported session URI paths. */
 const OPEN_SESSION_PATH = '/open';
@@ -43,16 +45,33 @@ function sessionIdIn(query: string): string | null {
   return session !== null && SESSION_ID.test(session) ? session : null;
 }
 
+/** Agent IDs are registry keys, not display names. Shape only; an unknown name resolves to no placement. */
+const AGENT = /^[a-z][a-z0-9-]{0,31}$/;
+
+/**
+ * Read the agent a link names, on a handover or an ordinary open. A cold window has no snapshot to resolve the
+ * agent from and would otherwise assume Claude. Browser-supplied parameters receive the same validation.
+ */
+export function agentFromUri(query: string): string | null {
+  const agent = new URLSearchParams(query).get('agent');
+
+  return agent !== null && AGENT.test(agent) ? agent : null;
+}
+
+/**
+ * Which agent a link is for. The snapshot is authoritative where it carries the session; a window the link
+ * activated may have none, and resolving without one assumes Claude and checks the wrong extension.
+ */
+export function agentForLink(query: string, snapshot: Snapshot | undefined, sessionId: string): string {
+  return agentOfKnownSession(snapshot, sessionId) ?? agentFromUri(query) ?? agentOfSession(snapshot, sessionId);
+}
+
 /**
  * Read the handover agent when hop=1. The receiving window must validate the request and either open locally
- * or refuse; it cannot forward again. Carry the agent because the receiver may have no snapshot. Browser-
- * supplied parameters receive the same validation.
+ * or refuse; it cannot forward again.
  */
 export function handedOver(query: string): string | null {
-  const params = new URLSearchParams(query);
-  const agent = params.get('agent');
-
-  return params.get('hop') === '1' && agent !== null && /^[a-z][a-z0-9-]{0,31}$/.test(agent) ? agent : null;
+  return new URLSearchParams(query).get('hop') === '1' ? agentFromUri(query) : null;
 }
 
 /** Build the URI for the target window to reveal a session, in the running distribution's own scheme. */

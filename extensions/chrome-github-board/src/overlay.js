@@ -87,13 +87,20 @@ const DEFAULT_URI_SCHEME = 'vscode';
 let uriScheme = DEFAULT_URI_SCHEME;
 
 /** @param {string} sessionId */
-function openSessionUri(sessionId) {
-  return `${uriScheme}${OPEN_SESSION_PATH}${encodeURIComponent(sessionId)}`;
-}
-
-/** @param {string} sessionId */
 function attachSessionUri(sessionId) {
   return `${uriScheme}${ATTACH_SESSION_PATH}${encodeURIComponent(sessionId)}`;
+}
+
+/**
+ * Name the agent on an open. A window the link activates has no snapshot yet to resolve it from, and would
+ * check the Claude extension for a Codex session. Attach reads no agent: it resolves one from the roster.
+ *
+ * @param {string} sessionId
+ * @param {string} agent
+ * @returns {string}
+ */
+function openSessionUri(sessionId, agent) {
+  return `${uriScheme}${OPEN_SESSION_PATH}${encodeURIComponent(sessionId)}&agent=${encodeURIComponent(agent)}`;
 }
 
 /** Where the collapse is remembered. Page-origin storage, so it is per developer and per browser rather than per tab. */
@@ -1811,7 +1818,10 @@ function sessionRow(doc, session, now, openable) {
 
   if (reachable) {
     // Use link navigation as the browser user gesture for VS Code foreground activation (mechanics M26, M29).
-    row.setAttribute('href', attachId === null ? openSessionUri(session.sessionId) : attachSessionUri(session.sessionId));
+    row.setAttribute(
+      'href',
+      attachId === null ? openSessionUri(session.sessionId, session.agent) : attachSessionUri(session.sessionId),
+    );
     // A few pixels of drift on the way to a click would otherwise drag the card GitHub wraps around this.
     row.setAttribute('draggable', 'false');
   }
@@ -1896,7 +1906,7 @@ function historyRow(doc, session, now, openable) {
   const reachable = openable.includes(session.sessionId);
   const row = doc.createElement(reachable ? 'a' : 'span');
   if (reachable) {
-    row.setAttribute('href', openSessionUri(session.sessionId));
+    row.setAttribute('href', openSessionUri(session.sessionId, session.agent));
     row.setAttribute('draggable', 'false');
   }
   row.className = 'gc-session gc-historical';

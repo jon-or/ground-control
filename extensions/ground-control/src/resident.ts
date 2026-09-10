@@ -24,9 +24,9 @@ async function checkSession(session: Session | HistoricalSession, root: string, 
     ? null : 'This session can no longer be opened safely. Refresh the board.';
 }
 
-/** Resident operations supported by each agent (M43). */
+/** Resident operations supported by each agent (M43). Own keys only: a link can name `constructor`. */
 function placementOf(agent: string): AgentPlacement | null {
-  return PLACEMENTS[agent] ?? null;
+  return Object.hasOwn(PLACEMENTS, agent) ? PLACEMENTS[agent] ?? null : null;
 }
 const VERIFY_TIMEOUT_MS = 2500;
 const POLL_MS = 250;

@@ -35,6 +35,7 @@ describe('the package public surface', () => {
       'TRIAGE_ACTIONS',
       'agentCommand',
       'agentHomeSchema',
+    'agentOfKnownSession',
     'agentOfSession',
       'basename',
       'bootstrapDirOf',

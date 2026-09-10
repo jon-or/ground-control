@@ -2,12 +2,68 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { attachFromUri, handOverUri, handedOver, handoverToken, sessionFromUri, uriSchemeOf } from '../src/openUri.js';
+import { agentForLink, agentFromUri, attachFromUri, handOverUri, handedOver, handoverToken, sessionFromUri, uriSchemeOf } from '../src/openUri.js';
+import type { Snapshot } from '@ground-control/core';
 
 const SESSION = 'a1b2c3d4-0000-4000-8000-000000000000';
 
 /** Use the browser overlay's literal URI to verify cross-client compatibility (docs/testing.md). */
-const LINK = `vscode://groundcontrol.ground-control/open?session=${SESSION}`;
+const LINK = `vscode://groundcontrol.ground-control/open?session=${SESSION}&agent=claude`;
+
+describe('the agent a link names', () => {
+  it('reads it without a hop, which is how the browser board writes an ordinary open', () => {
+    expect(agentFromUri(new URL(LINK).search.slice(1))).toBe('claude');
+    expect(agentFromUri(`session=${SESSION}&agent=codex`)).toBe('codex');
+  });
+
+  it('is absent from a link that names none, so the caller falls back to the roster', () => {
+    expect(agentFromUri(`session=${SESSION}`)).toBeNull();
+  });
+
+  it.each(['Claude', '../claude', 'claude apples', '', '1claude', 'a'.repeat(33)])(
+    'refuses %j, because a page writes these too',
+    (agent) => {
+      expect(agentFromUri(`session=${SESSION}&agent=${encodeURIComponent(agent)}`)).toBeNull();
+    },
+  );
+
+  /** An agent alone is not a handover: only hop=1 transfers a reservation to the receiving window. */
+  it('is not a handover without the hop', () => {
+    expect(handedOver(new URL(LINK).search.slice(1))).toBeNull();
+    expect(handedOver(`session=${SESSION}&agent=codex&hop=1`)).toBe('codex');
+  });
+});
+
+describe('which agent a link is for', () => {
+  const carrying = (agent: string, sessionId = SESSION): Snapshot =>
+    ({
+      lanes: [
+        {
+          id: 'build',
+          title: 'Build',
+          cards: [{ key: 'k', issue: null, issueNumber: null, sessions: [{ agent, sessionId }], lane: 'build', returned: false, attention: null, reason: '' }],
+        },
+      ],
+    }) as unknown as Snapshot;
+
+  it('takes the snapshot where it carries the session, over anything the link claims', () => {
+    expect(agentForLink(`session=${SESSION}&agent=claude`, carrying('codex'), SESSION)).toBe('codex');
+  });
+
+  /** The reason the link names the agent at all: a window it activated has no snapshot to read. */
+  it('takes the link where no snapshot has arrived yet', () => {
+    expect(agentForLink(`session=${SESSION}&agent=codex`, undefined, SESSION)).toBe('codex');
+  });
+
+  it('takes the link for a session this snapshot does not carry', () => {
+    expect(agentForLink(`session=${SESSION}&agent=codex`, carrying('claude', 'other'), SESSION)).toBe('codex');
+  });
+
+  it('falls back to Claude when neither knows, which is what the roster does', () => {
+    expect(agentForLink(`session=${SESSION}`, undefined, SESSION)).toBe('claude');
+    expect(agentForLink(`session=${SESSION}&agent=..%2Fcodex`, undefined, SESSION)).toBe('claude');
+  });
+});
 
 it('carries one reservation token and rejects malformed or duplicate tokens', () => {
   const token = '01234567-89ab-4cde-8fab-0123456789ab';
