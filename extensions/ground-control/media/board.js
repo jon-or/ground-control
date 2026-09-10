@@ -816,8 +816,9 @@ function cardActions(boardCard) {
       run: () => vscode.postMessage({ type: 'openCheckout', key: boardCard.key }),
     });
 
-    // Offer one start action per available agent. Archived issues are read-only.
-    for (const { agent, takesPrompt } of boardCard.unassigned === true ? [] : startable) {
+    // Offer one start action per available agent. Archived cards are read-only (R9), which is wider than
+    // unassigned: a closed issue is archived while still assigned.
+    for (const { agent, takesPrompt } of boardCard.unassigned === true || boardCard.lane === 'archived' ? [] : startable) {
       actions.push({
         label: `Start ${agentTitle(agent)} session`,
         hint: takesPrompt

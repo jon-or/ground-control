@@ -270,11 +270,11 @@ Two limitations are accepted. A repository opened as a saved `.code-workspace` r
 
 ### R42. Start a session
 
-Offer one start item per supported agent on a card with a checkout. Start in the requesting window only. For another checkout, direct the developer to open it first.
+Offer one start item per supported agent on a card with a checkout, except an archived or unassigned card, which is read-only (R9). An editor starts in the window that asked. A browser has no window of its own, so the hub starts in a connected editor on that checkout, and requires a visible project tab and no other page-asked start in flight. For another checkout, direct the developer to open it first.
 
 The `newSession.prompt` setting defaults to empty. Substitute `{issue}`, `{repo}`, `{title}`, `{url}`, and `{checkout}`; leave unknown placeholders unchanged. Prefill without submitting. Claude accepts the prompt; Codex's available start command opens a bare session, which its menu item states.
 
-Allow additional sessions on the same card. Prevent repeated starts for the same card and agent during the launch interval. These deliberate starts do not consume automation limits. The overlay cannot start sessions.
+Allow additional sessions on the same card. Prevent repeated starts for the same card and agent during the launch interval. These deliberate starts do not consume automation limits. A start prefills without submitting, so it needs no separate browser opt-in; the window that performs it rechecks its own workspace and agent extension.
 
 ## Triage and card actions
 
@@ -430,7 +430,7 @@ Keep browser snapshots only in memory for the current hub connection. After eith
 
 Native-host registration supports Google Chrome and Microsoft Edge, selected by `overlayBrowsers` with Chrome as the default. Enabling registers only the selected browsers and removes Ground Control's registrations for the others; disabling removes the selected browsers' registrations and keeps shared files another registration still needs; uninstall removes every registration Ground Control owns. Neither removes a registration made for another home. Unsupported browsers and platforms are reported as limitations.
 
-Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions, open combined diffs, or read a card conversation (R43).
+Session links can launch VS Code even with no editor client connected. Opening a checkout and starting a session require a connected editor to resolve and perform the request, and the overlay offers a start only for agents such an editor reports. The overlay cannot choose filesystem paths, open combined diffs, or read a card conversation (R43).
 
 Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.
 

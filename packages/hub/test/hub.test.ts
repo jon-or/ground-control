@@ -240,6 +240,11 @@ function connect(h: Harness, who: ClientHello = hello()) {
   return { client: h.hub.connect(who, (message) => inbox.push(message)), inbox };
 }
 
+/** The notice text a client received, in order. */
+function noticesOf(inbox: HubMessage[]): string[] {
+  return inbox.flatMap((message) => (message.type === 'notice' ? [message.message] : []));
+}
+
 /** Complete pending promises; injected reads resolve without timers. */
 const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
@@ -2872,10 +2877,10 @@ describe('starting a session on a card', () => {
     });
   });
 
-  /** Chrome has no resident routes even when host resolution succeeds; do not offer session starts (R42). */
-  it('offers no start to a client that cannot perform the route, which is every browser board', async () => {
+  /** An editor client performs its own start, so one without the route is offered nothing (R42). */
+  it('offers no start to an editor that cannot perform the route', async () => {
     const h = harness();
-    const { client, inbox } = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
+    const { client, inbox } = connect(h, hello({ residentRoutes: [] }));
 
     h.hub.receive(client, { type: 'refresh' });
     await settle();
@@ -2885,6 +2890,180 @@ describe('starting a session on a card', () => {
 
     expect(snapshots.length).toBeGreaterThan(0);
     expect(snapshots.at(-1)).toMatchObject({ snapshot: { startable: [] } });
+  });
+
+  /** The browser performs no route itself, so what it may offer is what a connected editor can start (R36). */
+  it('offers a browser board nothing while no editor is connected', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
+
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    const snapshots = inbox.filter((m) => m.type === 'snapshot' || m.type === 'changed');
+
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(snapshots.at(-1)).toMatchObject({ snapshot: { startable: [] } });
+  });
+
+  /** An outdated editor resolves the host but cannot run the route, so its presence is not an offer. */
+  it('offers a browser board nothing for an editor that cannot perform the route', async () => {
+    const h = harness();
+    const { inbox } = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
+
+    connect(h, hello({ id: 'board-2', residentRoutes: [] }));
+    await settle();
+
+    expect(latest(inbox)).toMatchObject({ startable: [] });
+  });
+
+  it('offers a browser board the agents an editor can start, as soon as one connects', async () => {
+    const h = harness();
+    const { inbox } = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
+
+    expect(inbox.at(-1)).toMatchObject({ snapshot: { startable: [] } });
+
+    connect(h, hello({ id: 'board-2', residentRoutes: ['start-session'] }));
+    await settle();
+
+    expect(inbox.at(-1)).toMatchObject({ snapshot: { startable: [{ agent: 'claude', takesPrompt: true }] } });
+  });
+});
+
+/** R42 starts in the requesting window; a browser has none, so the hub picks a connected editor (R36). */
+describe('starting a session asked for from the browser', () => {
+  async function board(over: Partial<ClientHello> = {}) {
+    const root = join(home, 'project-1');
+    mkdirSync(root, { recursive: true });
+
+    const h = harness();
+    const editor = connect(h, hello({ residentRoutes: ['reveal-here', 'start-session'], workspaceRoot: root }));
+
+    h.host.resident = ['reveal-here', 'start-session'];
+    h.agent.sessions = [fakeSession({ cwd: root, checkoutRoot: root })];
+
+    const overlay = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [], ...over }));
+
+    h.hub.receive(overlay.client, { type: 'refresh' });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
+    h.host.startPlan = { route: 'start-session', key, agent: 'claude', root, prompt: null };
+
+    return { h, editor, overlay, key, root };
+  }
+
+  it('performs the start in the editor on that checkout, not in the tab that asked', async () => {
+    const { h, editor, overlay, key, root } = await board();
+
+    h.hub.receive(overlay.client, { type: 'startSession', key, agent: 'claude' });
+    await settle();
+
+    // extensionReady stands in for what the page cannot report; false here would refuse every browser start.
+    expect(h.host.startsPlanned.at(-1)).toMatchObject({
+      key,
+      agent: 'claude',
+      root,
+      workspaceRoot: root,
+      extensionReady: true,
+    });
+    expect(editor.inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+    expect(overlay.inbox.filter((m) => m.type === 'perform')).toEqual([]);
+  });
+
+  /** One card's lease cannot bound a page that clicks every card and agent in turn. */
+  it('holds page-asked starts to one at a time, across cards and agents', async () => {
+    const { h, editor, overlay, key } = await board();
+
+    h.hub.receive(overlay.client, { type: 'startSession', key, agent: 'claude' });
+    await settle();
+
+    expect(editor.inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+
+    h.hub.receive(overlay.client, { type: 'startSession', key, agent: 'codex' });
+    await settle();
+
+    expect(editor.inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+    expect(noticesOf(overlay.inbox).at(-1)).toBe('A session is already starting. Wait for its tab to open.');
+  });
+
+  /** The editor's own starts keep their per-card lease and are not held behind a page's (R42). */
+  it('does not hold an editor start behind a page start', async () => {
+    const { h, editor, overlay, key } = await board();
+
+    h.hub.receive(overlay.client, { type: 'startSession', key, agent: 'claude' });
+    await settle();
+
+    h.hub.receive(editor.client, { type: 'startSession', key, agent: 'codex', extensionReady: true });
+    await settle();
+
+    expect(editor.inbox.filter((m) => m.type === 'perform')).toHaveLength(2);
+  });
+
+  /** Archived is wider than unassigned: a status outside the active set archives an assigned card (R9). */
+  it('refuses a start on an archived card the developer is still assigned', async () => {
+    const root = join(home, 'project-1');
+    mkdirSync(root, { recursive: true });
+
+    const h = harness({}, {
+      fetch: async () => ({
+        ok: true,
+        value: { ...ISSUES, cards: [{ ...card(18941), status: '🏃 Testing' }], matched: 1, totalAssigned: 1 },
+      }),
+    });
+    const editor = connect(h, hello({ residentRoutes: ['reveal-here', 'start-session'], workspaceRoot: root }));
+
+    h.host.resident = ['reveal-here', 'start-session'];
+    // Finished, so R2 cannot outrank R9 and keep the card on the board.
+    h.agent.sessions = [fakeSession({ cwd: root, checkoutRoot: root, finished: true })];
+
+    const overlay = connect(h, hello({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [] }));
+
+    h.hub.receive(editor.client, { type: 'configure', config: h.config() });
+    await settle();
+    await settle();
+
+    const found = h.hub.snapshot().lanes.flatMap((lane) => lane.cards)[0]!;
+
+    // Named, so the refusal below cannot be the unassigned one wearing the archived lane.
+    expect(found.lane).toBe('archived');
+    expect(found.unassigned).not.toBe(true);
+    expect(found.checkout?.root).toBeDefined();
+
+    h.host.startPlan = { route: 'start-session', key: found.key, agent: 'claude', root, prompt: null };
+    h.hub.receive(overlay.client, { type: 'startSession', key: found.key, agent: 'claude' });
+    await settle();
+
+    expect(editor.inbox.filter((m) => m.type === 'perform')).toEqual([]);
+    expect(noticesOf(overlay.inbox).at(-1)).toBe(
+      'That card is archived, so the board will not start a session on it.',
+    );
+  });
+
+  it('refuses a start from a tab that is not watching', async () => {
+    const { h, editor, overlay, key } = await board({ watching: false });
+
+    h.hub.receive(overlay.client, { type: 'startSession', key, agent: 'claude' });
+    await settle();
+
+    expect(editor.inbox.filter((m) => m.type === 'perform')).toEqual([]);
+    expect(noticesOf(overlay.inbox).at(-1)).toBe('Open this project tab to start a session from the browser.');
+  });
+
+  it('withdraws the offer and refuses a start once the last editor leaves', async () => {
+    const { h, editor, overlay, key } = await board();
+
+    h.hub.disconnect(editor.client);
+    await settle();
+
+    expect(latest(overlay.inbox)).toMatchObject({ startable: [] });
+
+    h.hub.receive(overlay.client, { type: 'startSession', key, agent: 'claude' });
+    await settle();
+
+    expect(noticesOf(overlay.inbox).at(-1)).toBe(
+      'Ground Control is not running in an editor. Open the board in VS Code to start a session from here.',
+    );
   });
 });
 

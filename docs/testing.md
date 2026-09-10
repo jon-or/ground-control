@@ -92,7 +92,7 @@ Hide console application spawns with `windowsHide: true`, including fixture scri
 
 ## Client parity and presentation
 
-Both boards duplicate some rendering helpers because they cannot load workspace TypeScript packages at runtime. Keep matching literal tables in their suites for `sessionLabel`, `agentTitle`, `ago`, `LANE_TITLES`, phase words/titles, duration titles, triage labels, tooltip geometry/timing, and session-link construction where shared. Include fallback precedence and Windows path cases. Test a core helper there too only when core defines one.
+Both boards duplicate some rendering helpers because they cannot load workspace TypeScript packages at runtime. Keep matching literal tables in their suites for `sessionLabel`, `agentTitle`, `ago`, `LANE_TITLES`, phase words/titles, duration titles, triage labels, card action states and outcomes, session start items, tooltip geometry/timing, and session-link construction where shared. Pin shared wording literally on both sides: a `toContain` on one side lets that side's copy drift unnoticed. Include fallback precedence and Windows path cases. Test a core helper there too only when core defines one.
 
 Do not assert either board's stylesheet: colors, borders, weight, tint, font size, or CSS declarations. This prohibition includes regex and computed-style assertions. Inspect presentation visually. Computed style remains appropriate for behavioral effects on GitHub's own DOM, such as hiding the original assignee stack, and actual visibility/filter behavior; it must not become a way to pin decorative declarations.
 

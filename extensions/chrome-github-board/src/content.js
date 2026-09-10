@@ -98,6 +98,7 @@
     retriage: (key) => post({ type: 'retriage', key }),
     runAction: (key) => post({ type: 'runAction', key }),
     stopAction: (key) => post({ type: 'stopAction', key }),
+    startSession: (key, agent) => post({ type: 'startSession', key, agent }),
     openOptions: () => post({ type: 'openOptions' }),
     repaint: () => schedule(),
     watchLog: (open) => {

@@ -1,7 +1,7 @@
 import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SESSION_SCOPE, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions } from '@ground-control/core';
-import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
+import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { actionEnabled } from '@ground-control/automation';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
@@ -234,6 +234,9 @@ export class Hub {
   /** A stored configuration this hub would not run on. Shown until a client pushes one, which is what replaces it. */
   #stored: ReadFailure | null = null;
   #installedAt = 0;
+  /** When the one page-asked start in flight expires. One card's lease cannot bound a loop over every card. */
+  #browserStarting = 0;
+
   /** The first-dispatch warning owed to the first editor to connect, when a dispatch happened without one (R32). */
   #actionsOwed: string | null = null;
 
@@ -319,8 +322,13 @@ export class Hub {
     );
     this.#sendTo(hello.id, 'snapshot');
 
-    if (hello.hostId !== null && this.#actionsOwed !== null) {
-      this.#notifyActionsOnce(this.#actionsOwed);
+    if (hello.hostId !== null) {
+      // What a browser may be offered, and the warning owed to an editor, both turn on an editor connecting.
+      this.#resendBrowsers();
+
+      if (this.#actionsOwed !== null) {
+        this.#notifyActionsOnce(this.#actionsOwed);
+      }
     }
 
     this.#retime();
@@ -329,10 +337,37 @@ export class Hub {
   }
 
   disconnect(client: Client): void {
-    this.#clients.get(client.id)?.unwatchLog?.();
+    const leaving = this.#clients.get(client.id);
+
+    leaving?.unwatchLog?.();
     this.#clients.delete(client.id);
     this.#deps.log.info(`${client.id} disconnected; ${this.#clients.size} clients remain`, 'clients');
+
+    // Only the last editor leaving changes what a browser may be offered.
+    if (leaving !== undefined && leaving.hello.hostId !== null && !this.#anyEditor()) {
+      this.#resendBrowsers();
+    }
+
     this.#retime();
+  }
+
+  #anyEditor(): boolean {
+    return [...this.#clients.values()].some((candidate) => candidate.hello.hostId !== null);
+  }
+
+  /** Resend to browser clients, whose startable agents depend on which editors are connected (R36). */
+  #resendBrowsers(): void {
+    if (this.#disposed) {
+      return;
+    }
+
+    const base = this.snapshot();
+
+    for (const [id, candidate] of this.#clients) {
+      if (candidate.hello.hostId === null) {
+        this.#sendTo(id, 'changed', base);
+      }
+    }
   }
 
   receive(client: Client, message: ClientMessage): void {
@@ -508,12 +543,24 @@ export class Hub {
     }
   }
 
-  /** Start a user-requested session in the requesting window. Automatic action limits do not apply (R33); cards may have multiple sessions (R3). */
-  #startSession(client: Connected, key: string, agent: string, extensionReady: boolean): void {
+  /**
+   * Start a user-requested session. An editor starts in its own window; a browser has none, so the hub picks
+   * one (R42). Automatic action limits do not apply (R33); cards may have multiple sessions (R3).
+   */
+  #startSession(client: Connected, key: string, agent: string, extensionReady: boolean | undefined): void {
     const host = this.#hostFor(client.hello);
 
     if (host?.planStart === undefined) {
       client.send({ type: 'notice', level: 'warning', message: 'Starting a session requires a connected editor.' });
+
+      return;
+    }
+
+    const browser = client.hello.hostId === null;
+
+    // A hidden tab is not a developer asking, and R35 keeps background work off when nothing is watching.
+    if (browser && !client.watching) {
+      client.send({ type: 'notice', level: 'info', message: 'Open this project tab to start a session from the browser.' });
 
       return;
     }
@@ -545,6 +592,14 @@ export class Hub {
       return;
     }
 
+    // Archived is wider than unassigned: a closed issue, or one outside the active statuses, is archived
+    // while still assigned. R9 makes all of them read-only.
+    if (card.lane === 'archived') {
+      client.send({ type: 'notice', level: 'warning', message: 'That card is archived, so the board will not start a session on it.' });
+
+      return;
+    }
+
     // Deduplicate starts by card and agent until a session ID exists (M51). Different agents may start independently.
     const now = this.#deps.clock.now();
     const startKey = `${key}:${agent}`;
@@ -559,6 +614,30 @@ export class Hub {
       return;
     }
 
+    // The lease above bounds repeats of one card and agent. A page can click every card and every agent, and
+    // each start is a real editor tab and agent process, so hold page-asked starts to one at a time.
+    if (browser && this.#browserStarting > now) {
+      client.send({ type: 'notice', level: 'info', message: 'A session is already starting. Wait for its tab to open.' });
+
+      return;
+    }
+
+    // A browser start needs a window to run in: prefer a connected editor already on the checkout, the rule
+    // openCheckout uses for browser requests. An editor still starts in the window that asked (R42).
+    const performer = browser ? this.#residentFor('start-session', host.id, client, root) : client;
+
+    if (performer === undefined) {
+      client.send({
+        type: 'notice',
+        level: 'warning',
+        message: this.#anyEditor()
+          ? 'Reload this editor to start a session from a card.'
+          : 'Ground Control is not running in an editor. Open the board in VS Code to start a session from here.',
+      });
+
+      return;
+    }
+
     const template = this.#config.newSession.prompt;
     const plan = host.planStart({
       key,
@@ -566,27 +645,38 @@ export class Hub {
       root,
       // An empty prompt still starts a manual session; automated actions require a prompt (R39).
       prompt: template.trim().length === 0 ? null : fillTemplate(template, newSessionValues(card, root)),
-      workspaceRoot: client.hello.workspaceRoot,
-      extensionReady,
+      workspaceRoot: performer.hello.workspaceRoot,
+      // A page cannot observe an editor's extensions, so the performing window rechecks readiness (M51).
+      extensionReady: extensionReady ?? true,
     });
 
     if ('refusal' in plan) {
-      this.#deps.log.info(`${client.hello.id} could not start ${agent} for ${key}: ${plan.refusal}`, 'open');
+      this.#deps.log.info(`${client.hello.id} could not start a session for ${key}: ${plan.refusal}`, 'open');
       client.send({ type: 'notice', level: 'warning', message: plan.message, refusal: plan.refusal });
 
       return;
     }
 
     // Session starts require a resident client; an external process cannot invoke window commands (M26).
-    if (!host.residentRoutes.includes(plan.route) || !client.hello.residentRoutes.includes(plan.route)) {
+    if (!host.residentRoutes.includes(plan.route) || !performer.hello.residentRoutes.includes(plan.route)) {
       client.send({ type: 'notice', level: 'warning', message: 'Reload this editor to start a session from a card.' });
 
       return;
     }
 
     this.#starting.set(startKey, now + START_LEASE_MS);
-    this.#deps.log.info(`${client.hello.id} starting a ${agent} session in ${root} for ${key}`, 'open');
-    client.send({ type: 'perform', route: this.#profileRoute(plan) });
+
+    if (browser) {
+      this.#browserStarting = now + START_LEASE_MS;
+    }
+
+    this.#deps.log.info(
+      performer === client
+        ? `${client.hello.id} starting a ${agent} session in ${root} for ${key}`
+        : `${performer.hello.id} starting a ${agent} session in ${root} for ${key}, asked by ${client.hello.id}`,
+      'open',
+    );
+    performer.send({ type: 'perform', route: this.#profileRoute(plan) });
   }
 
   /** Validate the selected checkout against the card repository before saving it, so invalid selections report their cause. */
@@ -1893,6 +1983,24 @@ export class Hub {
     return configured.length === 1 ? configured[0] : undefined;
   }
 
+  /**
+   * Agents this client can have started. An editor performs its own starts, so it must hold the route; a
+   * browser cannot perform one at all and reports what a connected editor would start for it (R36, R42).
+   */
+  #startableFor(client: Connected): StartableAgent[] {
+    const offered = (): StartableAgent[] => [...(this.#hostFor(client.hello)?.startable?.() ?? [])];
+
+    if (client.hello.hostId !== null) {
+      return client.hello.residentRoutes.includes('start-session') ? offered() : [];
+    }
+
+    return [...this.#clients.values()].some(
+      (candidate) => candidate.hello.hostId !== null && candidate.hello.residentRoutes.includes('start-session'),
+    )
+      ? offered()
+      : [];
+  }
+
   /** Add host-specific opening capabilities and unacknowledged notices per client (R14, R25). */
   #sendTo(id: string, type: 'snapshot' | 'changed', base = this.snapshot()): void {
     const client = this.#clients.get(id);
@@ -1910,10 +2018,7 @@ export class Hub {
           base.lanes.flatMap((l) => l.cards).flatMap((c) => c.lastSession ?? []).filter((s) =>
             this.#deps.registries.agents.some((a) => a.id === s.agent && a.canResume !== undefined)),
         ) ?? [],
-        // Offer start actions only when this client can perform them; Chrome may resolve a host but cannot start sessions (R42).
-        startable: client.hello.residentRoutes.includes('start-session')
-          ? [...(this.#hostFor(client.hello)?.startable?.() ?? [])]
-          : [],
+        startable: this.#startableFor(client),
         hooks: this.#noticeFor(id),
         editor: { uriScheme: this.#editorScheme() },
       },

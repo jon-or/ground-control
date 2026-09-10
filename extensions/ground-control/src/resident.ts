@@ -484,8 +484,8 @@ async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: Sessi
 }
 
 /**
- * Recheck the workspace before starting: the agent uses this window directory, which may have changed since
- * hub planning (mechanics M51).
+ * Recheck the workspace and the agent extension before starting: the agent uses this window directory, which
+ * may have changed since hub planning, and a browser request states neither (mechanics M51).
  */
 async function startHere(agent: string, root: string, prompt: string | null): Promise<string | null> {
   const placement = placementOf(agent);
@@ -496,6 +496,12 @@ async function startHere(agent: string, root: string, prompt: string | null): Pr
 
   if (dirKey(boardRoot() ?? '') !== dirKey(root)) {
     return `This window is no longer on ${root}. Refresh the board and try again.`;
+  }
+
+  // A browser request carries no readiness, and this window is the one that needs the extension (M51).
+  // Last, because it can spend the activation timeout on a start the free checks above would have refused.
+  if (!(await agentExtensionReady(agent))) {
+    return `The ${agent} extension is not available. Install it, or reload the window if it already is.`;
   }
 
   const { command, args } = placement.start(prompt);

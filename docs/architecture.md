@@ -303,11 +303,11 @@ The authoritative message types are in [protocol.ts](../packages/core/src/protoc
 | `watching`, `refresh` | Visibility and refresh | Allowed |
 | `move` | Card key and valid lane | Allowed |
 | `open` | Session ID, extension readiness, optional handover flag | Use editor URI instead |
-| `retriage` | Explicit card classification | Refused |
-| `runAction`, `stopAction` | Dispatch or stop a card action | Refused |
+| `retriage` | Explicit card classification | Allowed, metered and watching-gated |
+| `runAction`, `stopAction` | Dispatch or stop a card action | Allowed; a start needs `actions.fromBrowser` |
 | `openCheckout` | Open a card's resolved checkout | Allowed |
 | `setCheckout` | Validate and save a selected folder | Refused |
-| `startSession` | Agent and card; root/prompt resolved by hub | Refused |
+| `startSession` | Agent and card; root, prompt, and window resolved by hub | Allowed, watching-gated |
 | `watchLog` | Subscribe or unsubscribe | Allowed |
 | `readDetail` | Read one card's conversation for display | Refused |
 

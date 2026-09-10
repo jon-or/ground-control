@@ -152,17 +152,33 @@ describe('what the browser may ask the hub for', () => {
     expect(bridgeAction({ type: 'openCheckout' })).toEqual({ refused: 'That card cannot be opened.' });
   });
 
-  // Reject page-supplied paths and agent starts by message name (R36, R42).
+  // Reject page-supplied paths by message name (R36, R41).
   it('refuses to choose a card’s folder, which is the one message that would carry a path', () => {
     expect(bridgeAction({ type: 'setCheckout', key: 'issue:17198', root: 'd:/anything' })).toEqual({
       refused: 'Choose card checkouts in VS Code.',
     });
   });
 
-  it('refuses to start a session on a card', () => {
-    expect(bridgeAction({ type: 'startSession', key: 'issue:17198', agent: 'claude', extensionReady: true })).toEqual({
-      refused: 'Start card sessions in VS Code.',
-    });
+  /** The page names a card and an agent; the hub resolves the checkout, the prompt, and the window (R42). */
+  it('forwards a session start, dropping the readiness and root a page cannot know', () => {
+    expect(
+      bridgeAction({
+        type: 'startSession',
+        key: 'issue:17198',
+        agent: 'claude',
+        extensionReady: true,
+        root: 'd:/anything',
+        prompt: 'do something else',
+      }),
+    ).toEqual({ send: { type: 'startSession', key: 'issue:17198', agent: 'claude' } });
+  });
+
+  it('refuses a start that does not name both a card and an agent', () => {
+    const refused = { refused: 'That session cannot be started.' };
+
+    expect(bridgeAction({ type: 'startSession', key: 'issue:17198' })).toEqual(refused);
+    expect(bridgeAction({ type: 'startSession', agent: 'claude' })).toEqual(refused);
+    expect(bridgeAction({ type: 'startSession', key: 'issue:17198', agent: 42 })).toEqual(refused);
   });
 
   it('refuses to read a conversation, because the overlay runs on the page that already shows it (R36, R43)', () => {

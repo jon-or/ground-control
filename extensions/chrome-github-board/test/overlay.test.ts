@@ -75,7 +75,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
       .flatMap((entry) => entry.sessions)
       .filter((entry) => entry.agent === 'claude')
       .map((entry) => entry.sessionId),
-    // A browser is resident in nothing, so it is offered no start at all (R42).
+    // What a connected editor can start for this board; none while no editor is connected (R36, R42).
     startable: [],
     hooks: null,
     failures: [],
@@ -86,7 +86,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   };
 }
 
-const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn() };
+const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn(), startSession: vi.fn() };
 
 interface State {
   snapshot: Snapshot | null;
@@ -1590,10 +1590,7 @@ describe('moving a card from the browser', () => {
     });
   });
 
-  /**
-   * Offer open-checkout only when a checkout exists. Folder selection and session starts require the editor
-   * (R41).
-   */
+  /** Offer open-checkout only when a checkout exists. Folder selection requires the editor (R41). */
   describe('the editor a card can be opened in', () => {
     function withCheckout(): Snapshot {
       return snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { checkout: CHECKOUT })] }] });
@@ -1654,8 +1651,8 @@ describe('moving a card from the browser', () => {
       expect(actions.openCheckout).not.toHaveBeenCalled();
     });
 
-    // The browser cannot start sessions and receives no startable capabilities.
-    it('offers no way to start a session, or to choose a folder, whatever the card carries', () => {
+    // Path selection is the one thing a page may never do, whatever else the menu offers (R41).
+    it('offers no way to choose a folder, whatever the card carries', () => {
       const shown = withCheckout();
 
       paint(document, state({ snapshot: shown }), NOW, actions);
@@ -1663,8 +1660,85 @@ describe('moving a card from the browser', () => {
 
       const labels = [...document.querySelectorAll('.gc-lanes button')].map((b) => b.textContent ?? '');
 
-      expect(labels.some((label) => label.includes('Start'))).toBe(false);
       expect(labels.some((label) => label.includes('folder'))).toBe(false);
+    });
+  });
+
+  /**
+   * One start item per agent the hub says an editor can start, worded as the editor board words them
+   * (`docs/testing.md` parity tables). A start needs a checkout, and a read-only card offers none (R9, R42).
+   */
+  describe('starting a session on a card', () => {
+    const STARTABLE = [
+      { agent: 'claude', takesPrompt: true },
+      { agent: 'codex', takesPrompt: false },
+    ];
+
+    function startable(over: Partial<LanedCard> = {}): Snapshot {
+      return snapshot({
+        lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { checkout: CHECKOUT, ...over })] }],
+        startable: STARTABLE,
+      });
+    }
+
+    function items(): HTMLElement[] {
+      return [...document.querySelectorAll<HTMLElement>('.gc-lanes button[data-action="start-session"]')];
+    }
+
+    function show(shown: Snapshot): void {
+      paint(document, state({ snapshot: shown }), NOW, actions);
+      clickOn('.gc-lane', shown);
+    }
+
+    it('offers one item per agent, naming the agent and the checkout it starts in', () => {
+      show(startable());
+
+      expect(items().map((item) => item.textContent)).toEqual(['Start Claude session', 'Start Codex session']);
+      expect(items()[0]!.title).toBe(`Open a new Claude session in ${CHECKOUT.root}, prefilled and unsent`);
+    });
+
+    /** Codex's start command takes no prompt, and the item says so rather than promising a prefill. */
+    it('says an agent that takes no prompt starts empty', () => {
+      show(startable());
+
+      expect(items()[1]!.title).toBe(
+        `Open a new Codex session in ${CHECKOUT.root}. Codex offers no way in that takes a prompt, so it starts empty`,
+      );
+    });
+
+    it('sends the card and the agent, and closes the menu', () => {
+      const shown = startable();
+
+      show(shown);
+      clickOn('.gc-lanes button[data-agent="codex"]', shown);
+
+      expect(actions.startSession).toHaveBeenCalledWith('issue-4501', 'codex');
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+    });
+
+    it('offers no start while the hub reports no editor that can perform one', () => {
+      show(snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { checkout: CHECKOUT })] }] }));
+
+      expect(items()).toHaveLength(0);
+    });
+
+    it('offers no start on a card with no checkout to start in', () => {
+      show(snapshot({ startable: STARTABLE }));
+
+      expect(items()).toHaveLength(0);
+    });
+
+    it('offers no start on an archived card, or one the developer is no longer assigned', () => {
+      show(snapshot({
+        lanes: [{ id: 'archived', title: 'Archived', cards: [card(4501, { checkout: CHECKOUT, lane: 'archived' })] }],
+        startable: STARTABLE,
+      }));
+
+      expect(items()).toHaveLength(0);
+
+      show(startable({ unassigned: true }));
+
+      expect(items()).toHaveLength(0);
     });
   });
 

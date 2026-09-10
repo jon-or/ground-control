@@ -109,6 +109,19 @@ describe('session scope at editor execution', () => {
     assert.equal(commands.length, 1, 'an authorized saved session must reach the editor command');
   });
 
+  /**
+   * A browser start carries no extension readiness, so the hub plans one assuming it and the window that
+   * performs the start is the one that has to check. This host has no Claude extension installed.
+   */
+  it('refuses a start whose agent extension is not in this window, running no command', async () => {
+    const plan = { route: 'start-session', key: 'issue:42', agent: 'claude', root: entry.boardRoot(), prompt: null };
+
+    const failure = await entry.performRoute(plan, async () => [], saved);
+
+    assert.match(failure, /The claude extension is not available/);
+    assert.equal(commands.length, 0, 'a start must not reach the editor command without its extension');
+  });
+
   it('refuses resume after history is hidden while the roster read is pending', async () => {
     let release;
     let reading;

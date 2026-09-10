@@ -89,8 +89,9 @@ export type ClientMessage =
   | { type: 'openCheckout'; key: string }
   // Editor-selected absolute folder, validated by the hub. Browser clients cannot supply paths.
   | { type: 'setCheckout'; key: string; root: string }
-  // Start the selected agent in this client window, checking current extension readiness.
-  | { type: 'startSession'; key: string; agent: string; extensionReady: boolean }
+  // Start the selected agent. An editor reports its own readiness; a browser cannot, so the performing
+  // window rechecks it (M51).
+  | { type: 'startSession'; key: string; agent: string; extensionReady?: boolean }
   // Subscribe to log reads and streaming, or unsubscribe. No reads occur without a subscriber.
   | { type: 'watchLog'; watching: boolean }
   // Read one card's conversation for display. Answered to the requesting client alone, never broadcast.

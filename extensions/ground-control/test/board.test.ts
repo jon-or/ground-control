@@ -2205,8 +2205,23 @@ describe("the card's own menu", () => {
     }));
     control()!.click();
 
-    expect(tipOf(items()[2])).toContain('prefilled and unsent');
-    expect(tipOf(items()[3])).toContain('no way in that takes a prompt');
+    // Pinned, not contained: the overlay pins the same two sentences (`docs/testing.md` parity tables).
+    expect(tipOf(items()[2])).toBe('Open a new Claude session in c:/work/18953-test, prefilled and unsent');
+    expect(tipOf(items()[3])).toBe(
+      'Open a new Codex session in c:/work/18953-test. Codex offers no way in that takes a prompt, so it starts empty',
+    );
+  });
+
+  /** Archived is wider than unassigned: a closed issue is archived while still assigned (R9). */
+  it('offers no start on an archived card', () => {
+    send(message({
+      lanes: lanes({ archived: [{ ...liveCard, lane: 'archived' }] }),
+      startable: [{ agent: 'claude', takesPrompt: true }],
+    }));
+    send({ type: 'showArchived', shown: true });
+    control()!.click();
+
+    expect(items().map((item) => item.textContent ?? '').filter((label) => label.includes('Start'))).toEqual([]);
   });
 
   it('sends only the selected card and agent', () => {

@@ -378,7 +378,7 @@ describe('what this window is told about starting a session on a card', () => {
    * Verify the window announces start-session and receives capabilities from the real host adapter. Package
    * tests cover agent ordering.
    */
-  it('is offered a start for the agent it places, rather than the empty list a browser gets', async () => {
+  it('is offered a start for the agent it places', async () => {
     const { startable } = await untilSnapshot(
       (s) => s.startable.length > 0,
       'no snapshot ever named an agent this window can start',

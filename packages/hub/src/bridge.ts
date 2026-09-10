@@ -63,8 +63,9 @@ export class FrameReader {
 export type BridgeMessage = HubMessage | { type: 'trouble'; message: string | null };
 
 /**
- * Allow refresh, visibility, lane moves, log subscriptions, checkout opening, classification requests, and
- * card actions (R36). Session opening uses editor URIs; configuration and path selection remain editor-only.
+ * Allow refresh, visibility, lane moves, log subscriptions, checkout opening, classification requests, card
+ * actions, and session starts (R36). Session opening uses editor URIs; configuration and path selection
+ * remain editor-only.
  * Classification and card actions spend the developer's resources, so the hub applies the same eligibility,
  * concurrency, and limit checks it applies to an editor request, and meters what a page can start.
  */
@@ -79,7 +80,7 @@ export function bridgeAction(raw: unknown): BridgeAction {
     return { refused: 'Invalid overlay message.' };
   }
 
-  const message = raw as { type?: unknown; key?: unknown; lane?: unknown; watching?: unknown };
+  const message = raw as { type?: unknown; key?: unknown; lane?: unknown; watching?: unknown; agent?: unknown };
 
   if (message.type === 'refresh') {
     return { send: { type: 'refresh' } };
@@ -126,13 +127,18 @@ export function bridgeAction(raw: unknown): BridgeAction {
       : { refused: 'That card cannot be opened.' };
   }
 
-  // Explicitly reject path selection (R41) and agent starts (R42), which require an editor.
+  // Explicitly reject path selection, which requires an editor (R41).
   if (message.type === 'setCheckout') {
     return { refused: 'Choose card checkouts in VS Code.' };
   }
 
+  // Forward the card key and agent. The hub resolves the checkout and picks the editor window that performs
+  // the start; readiness is omitted because a page cannot observe an editor's extensions (R42). The agent
+  // name is shaped like a registry id, so a page cannot spend requests on arbitrary strings.
   if (message.type === 'startSession') {
-    return { refused: 'Start card sessions in VS Code.' };
+    return typeof message.key === 'string' && typeof message.agent === 'string' && AGENT_ID.test(message.agent)
+      ? { send: { type: 'startSession', key: message.key, agent: message.agent } }
+      : { refused: 'That session cannot be started.' };
   }
 
   // The overlay already runs on the page that renders these conversations (R36).
@@ -164,6 +170,9 @@ export function redactForBrowser(message: BridgeMessage): BridgeMessage {
 }
 
 const ORIGIN = /an Origin header, .*$/;
+
+/** The shape of an agent registry id. Unknown ids are still refused by the hub, which holds the registry. */
+const AGENT_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 /** Register without a host or resident route capabilities. */
 export function bridgeHello(id: string, watching: boolean): ClientHello {

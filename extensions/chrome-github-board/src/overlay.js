@@ -9,8 +9,9 @@
  * @typedef {import('@ground-control/core').LanedCard} LanedCard
  * @typedef {import('@ground-control/core').Session} Session
  * @typedef {import('@ground-control/core').LaneId} LaneId
+ * @typedef {import('@ground-control/core').StartableAgent} StartableAgent
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, openOptions?: () => void }} Actions
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, openOptions?: () => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -1677,11 +1678,25 @@ function hasCardMenu(card) {
 }
 
 /**
+ * Agents that can be started for this card. The hub reports none to a browser with no connected editor, so
+ * the overlay offers a start only where one can run (R36). An archived or unassigned card is read-only
+ * (R9); the checkout a start needs is the menu section this list is read in.
+ *
+ * @param {Snapshot | null} snapshot
+ * @param {LanedCard} card
+ * @returns {readonly StartableAgent[]}
+ */
+function startableFor(snapshot, card) {
+  return card.lane !== 'archived' && card.unassigned !== true ? snapshot?.startable ?? [] : [];
+}
+
+/**
  * @param {Document} doc
  * @param {LanedCard} card
  * @param {Actions} actions
+ * @param {readonly StartableAgent[]} startable
  */
-function laneMenu(doc, card, actions) {
+function laneMenu(doc, card, actions, startable) {
   const lanes = movableLanes(card);
   const menu = popover(doc, lanes.length === 0 ? 'Actions' : 'Move to');
 
@@ -1707,9 +1722,10 @@ function laneMenu(doc, card, actions) {
     menu.appendChild(button);
   }
 
-  // Offer open-checkout only when a checkout exists. Folder selection and session starts require the editor
-  // (R41).
+  // Offer open-checkout only when a checkout exists. Folder selection still requires the editor (R41).
   if (card.checkout != null) {
+    const root = card.checkout.root;
+
     menu.appendChild(doc.createElement('hr'));
 
     const open = item(doc, 'Open in VS Code', () => {
@@ -1719,8 +1735,24 @@ function laneMenu(doc, card, actions) {
     });
 
     open.dataset.action = 'open-checkout';
-    open.title = `Open ${card.checkout.root} in VS Code`;
+    open.title = `Open ${root} in VS Code`;
     menu.appendChild(open);
+
+    // One item per startable agent, worded as the editor board words them (R42).
+    for (const { agent, takesPrompt } of startable) {
+      const start = item(doc, `Start ${agentTitle(agent)} session`, () => {
+        openMenu = null;
+        actions.startSession(card.key, agent);
+        actions.repaint();
+      });
+
+      start.dataset.action = 'start-session';
+      start.dataset.agent = agent;
+      start.title = takesPrompt
+        ? `Open a new ${agentTitle(agent)} session in ${root}, prefilled and unsent`
+        : `Open a new ${agentTitle(agent)} session in ${root}. ${agentTitle(agent)} offers no way in that takes a prompt, so it starts empty`;
+      menu.appendChild(start);
+    }
   }
 
   return menu;
@@ -2030,9 +2062,10 @@ function renderAttention(doc, element, head, card) {
  * @param {Actions} actions
  * @param {readonly string[]} openable
  * @param {boolean} canRequest
+ * @param {readonly StartableAgent[]} startable
  * @returns {Element[]} the lane menu and the chip it hangs from, when this is the card whose lanes are open
  */
-function renderBadge(doc, element, card, now, actions, openable, canRequest) {
+function renderBadge(doc, element, card, now, actions, openable, canRequest, startable) {
   const badge = doc.createElement('div');
 
   badge.className = BADGE_CLASS;
@@ -2089,7 +2122,7 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest) {
     return [];
   }
 
-  const menu = laneMenu(doc, card, actions);
+  const menu = laneMenu(doc, card, actions, startable);
 
   (doc.body ?? doc.documentElement).appendChild(menu);
   place(menu, lane);
@@ -2792,7 +2825,9 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
       renderActor(doc, element, card);
     }
 
-    open.push(...renderBadge(doc, element, card, now, actions, openable, canRequestTriage(state.snapshot, card)));
+    open.push(
+      ...renderBadge(doc, element, card, now, actions, openable, canRequestTriage(state.snapshot, card), startableFor(state.snapshot, card)),
+    );
     drawn.set(element, { sig: /** @type {string} */ (sig), badge: element.querySelector(`.${BADGE_CLASS}`) ?? element });
 
     badges += 1;
