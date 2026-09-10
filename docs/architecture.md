@@ -338,6 +338,19 @@ Use authenticated shutdown or `ground-control-hub --stop` for orderly exit. Forc
 
 The installed VSIX contains its own hub bundle. A repository build alone does not update it. Build, package, reinstall, and inspect the installed bundle when delivering executable changes; the developer chooses when to reload.
 
+### Development hubs
+
+Discovery identity is the home directory: the bootstrap directory, the `state-dir.json` pointer, `hub.json`, and the hub fingerprint all derive from it, and every client reads `os.homedir()`. A hub started for another home is therefore invisible to the installed extension and the browser bridge, and they cannot replace it. `groundControl.stateDirectory` does not isolate: it moves the state a home's clients share, and discovery still follows that home's pointer.
+
+The isolated workflow needs no production setting:
+
+- Hub alone: `node apps/hub/dist/main.js --home=<isolated home>` starts a hub with its own bootstrap and state directories and agent defaults under that home; `--inherit-agent-env` is the only way it reaches the launcher's real agent profiles. `--stop` with the same `--home` ends it. `npm run hub` targets the real home and is replaced by the next installed-extension activation, which is the behavior to avoid.
+- Editor: launch the extension development host with `USERPROFILE` and `HOME` set to the isolated home and `VSCODE_PORTABLE` set to a scratch directory, as [.vscode-test.mjs](../extensions/ground-control/.vscode-test.mjs) does. The portable directory keeps the test build from taking over the `vscode://` registration (M49); the home makes the extension write its bundle, hooks, and state under the isolated home and connect to the isolated hub. Set `CLAUDE_CONFIG_DIR` and `CODEX_HOME` under the same home so hook installation and history reads touch no real agent profile.
+- Browser: native-host registration is per user, so a browser always reaches the real home's bridge. The only isolated browser is the headless Playwright copy without `nativeMessaging` used by the Chrome integration tests; there is no isolated interactive browser path.
+- Protocol mismatches need no new handling: a development hub answers only clients of its own home, and installed clients keep their version checks and replacement rules against the real hub.
+
+A blanket setting that leaves incompatible installed clients on an old hub is not part of this; contributors who want a long-lived development hub use a separate home.
+
 ## Client rendering and diagnostics
 
 The VS Code panel owns display preferences such as archive visibility. Persist the standing archive choice in `globalState`; a temporarily empty archive does not overwrite it. The webview reports its rendered DOM through `drew`. If no report arrives within ten seconds of opening, display a script-start failure. Extension exports are read-only `snapshot`, `drew`, and `logs` accessors used by integration tests.
