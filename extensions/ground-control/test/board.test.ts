@@ -269,6 +269,17 @@ describe('board webview', () => {
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
   });
 
+  it('labels the issue author when the hub picked one', () => {
+    const issue = { ...liveCard.issue!, status: '⚒️ Dev', avatar: { ...liveCard.issue!.avatar!, login: 'dev-4', source: 'issue-author' as const } };
+
+    send(message({ lanes: lanes({ unstarted: [{ ...liveCard, issue }] }) }));
+
+    const avatar = document.querySelector<HTMLElement>('.card .avatar')!;
+
+    expect(avatar.getAttribute('aria-label')).toBe('dev-4, issue author');
+    expect(avatar.textContent).toContain('DE');
+  });
+
   it('names the issue on a card the developer is not assigned, and disables only the unlinked one', () => {
     send(
       message({

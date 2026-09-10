@@ -83,6 +83,8 @@ const searchNode = z.object({
   updatedAt: z.string(),
   issueType: z.object({ name: z.string(), color: z.string().nullable() }).nullable(),
   repository: z.object({ nameWithOwner: z.string() }),
+  // Older fixtures omit the issue author; a deleted account reads as null.
+  author: z.object({ login: z.string(), avatarUrl: z.string() }).nullable().default(null),
   assignees: z.object({
     nodes: z.array(z.object({ login: z.string(), avatarUrl: z.string().optional() })),
   }),

@@ -28,13 +28,17 @@ export function buildSearchQuery(cfg: GithubConfig, withProject: boolean): strin
   return parts.join(' ');
 }
 
-/** The pull request author while the status is a review status under the review-author policy; otherwise an assignee (R5). */
+/**
+ * The pull request author while the status is a review status, the issue author off review under the
+ * issue-author policy, and otherwise an assignee. An unavailable person falls through to the assignee (R5).
+ */
 function selectCardAvatar(
-  node: Pick<SearchNode, 'assignees' | 'pullRequests'>,
+  node: Pick<SearchNode, 'author' | 'assignees' | 'pullRequests'>,
   cfg: Pick<GithubConfig, 'logins' | 'reviewStatuses' | 'avatar'>,
   status: string | null,
 ): CardAvatar | null {
-  const inReview = cfg.avatar === 'review-author' && status !== null && cfg.reviewStatuses.includes(status);
+  const review = status !== null && cfg.reviewStatuses.includes(status);
+  const inReview = cfg.avatar !== 'assignee' && review;
   const pullRequest = inReview
     ? [...(node.pullRequests?.nodes ?? [])]
         .filter((pr) => pr.author)
@@ -43,6 +47,10 @@ function selectCardAvatar(
 
   if (pullRequest?.author) {
     return { login: pullRequest.author.login, url: pullRequest.author.avatarUrl, source: 'pull-request' };
+  }
+
+  if (cfg.avatar === 'issue-author' && !review && node.author) {
+    return { login: node.author.login, url: node.author.avatarUrl, source: 'issue-author' };
   }
 
   const assignees = new Map(node.assignees.nodes.map((actor) => [actor.login.toLowerCase(), actor]));

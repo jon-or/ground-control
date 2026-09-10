@@ -40,6 +40,9 @@ const TIP_ATTR = 'data-gc-tip';
 
 /** Mark replaced assignee figures so later scans can restore them. */
 const ACTOR_ATTR = 'data-gc-actor';
+
+/** Role words for avatars that replace GitHub's assignees; the editor board carries the same table. */
+const ACTOR_ROLES = { 'pull-request': 'pull request author', 'issue-author': 'issue author' };
 /** Set on the document root while the overlay preference turns animation off. */
 const MOTION_ATTR = 'data-gc-motion';
 
@@ -613,6 +616,18 @@ export function assigneeStackOf(card) {
 }
 
 /**
+ * The role words for an avatar that replaces GitHub's assignees, or null where the hub picked an assignee.
+ *
+ * @param {LanedCard} card
+ * @returns {string | null}
+ */
+function replacingRole(card) {
+  const source = card.issue?.avatar?.source;
+
+  return source === 'pull-request' || source === 'issue-author' ? ACTOR_ROLES[source] : null;
+}
+
+/**
  * Replace GitHub's assignee figure with the avatar selected by selectCardAvatar in @ground-control/github. Use
  * the shared selection so both clients identify the same person.
  *
@@ -622,9 +637,10 @@ export function assigneeStackOf(card) {
  */
 function renderActor(doc, element, card) {
   const actor = card.issue?.avatar;
+  const role = replacingRole(card);
   const figure = assigneeStackOf(element);
 
-  if (actor?.source !== 'pull-request' || figure === null) {
+  if (actor === null || actor === undefined || role === null || figure === null) {
     return;
   }
 
@@ -632,9 +648,9 @@ function renderActor(doc, element, card) {
 
   slot.className = ACTOR_CLASS;
   slot.textContent = actor.login.slice(0, 2).toUpperCase();
-  setTooltip(slot, `${actor.login} · pull request author`);
+  setTooltip(slot, `${actor.login} · ${role}`);
   slot.setAttribute('role', 'img');
-  setAccessibleName(slot, `${actor.login}, pull request author`);
+  setAccessibleName(slot, `${actor.login}, ${role}`);
 
   const image = doc.createElement('img');
 
@@ -2392,13 +2408,12 @@ function keptBadge(element, card, sig, replaceAvatars = true) {
     return null;
   }
 
-  const actor = card.issue?.avatar;
   const stack = assigneeStackOf(element);
   const replaced = stack?.querySelector(`.${ACTOR_CLASS}`) != null;
 
   // Check the avatar slot: GitHub can replace it while leaving the attribute that hides original assignees,
   // producing a blank area. A replacement the preference no longer wants is rebuilt so GitHub's figure comes back.
-  if (replaceAvatars ? actor?.source === 'pull-request' && !replaced : replaced || stack?.hasAttribute(ACTOR_ATTR) === true) {
+  if (replaceAvatars ? replacingRole(card) !== null && !replaced : replaced || stack?.hasAttribute(ACTOR_ATTR) === true) {
     return null;
   }
 

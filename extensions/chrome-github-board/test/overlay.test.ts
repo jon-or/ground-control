@@ -135,6 +135,7 @@ function cardElement(issueNumber: number): Element {
 
 const AUTHOR = { login: 'colleague', url: 'https://avatars.example.test/colleague.png', source: 'pull-request' } as const;
 const ASSIGNEE = { login: 'example-dev', url: 'https://avatars.example.test/example-dev.png', source: 'issue' } as const;
+const REPORTER = { login: 'reporter', url: 'https://avatars.example.test/reporter.png', source: 'issue-author' } as const;
 
 /** A card whose issue carries the actor the hub picked, which is the only input the swap has. */
 function actorCard(issueNumber: number, avatar: IssueCard['avatar']): LanedCard {
@@ -238,6 +239,31 @@ describe('swapping the assignee for the pull request author', () => {
     expect(actor.getAttribute('aria-label')).toBe('colleague, pull request author');
     // GitHub's own avatar is still in the tree — the swap hides it rather than destroying it, so it comes back.
     expect(stack.querySelector('img[data-testid="github-avatar"]')).not.toBeNull();
+  });
+
+  /** The hub applies the avatar policy; the overlay draws whichever person it picked. */
+  it('hides the assignees and draws the issue author the hub picked', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, REPORTER)) }), NOW, actions);
+
+    const stack = assigneeStackOf(cardElement(4501))!;
+    const actor = stack.querySelector<HTMLElement>('.gc-actor')!;
+
+    expect(stack.getAttribute('data-gc-actor')).toBe('reporter');
+    expect(stack.getAttribute('role')).toBe('presentation');
+    expect(actor.querySelector('img')!.getAttribute('src')).toBe(REPORTER.url);
+    expect(tipOf(actor)).toBe('reporter · issue author');
+    expect(actor.getAttribute('aria-label')).toBe('reporter, issue author');
+  });
+
+  it('redraws the slot when the hub switches from the pull request author to the issue author', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
+    paint(document, state({ snapshot: laneOf(actorCard(4501, REPORTER)) }), NOW, actions);
+
+    const actors = document.querySelectorAll<HTMLElement>('.gc-actor');
+
+    expect(actors).toHaveLength(1);
+    expect(actors[0]!.getAttribute('aria-label')).toBe('reporter, issue author');
+    expect(assigneeStackOf(cardElement(4501))!.getAttribute('data-gc-actor')).toBe('reporter');
   });
 
   /** The caption is the one thing a reader would still hear: it names the assignee the avatar no longer shows. */

@@ -7,6 +7,7 @@ const ISSUE_FIELDS = `
   number title url state updatedAt
   issueType{ name color }
   repository{ nameWithOwner }
+  author{ login avatarUrl(size:40) }
   assignees(first:10){ nodes{ login avatarUrl(size:40) } }
   pullRequests: closedByPullRequestsReferences(first:5){ nodes{
     number url state updatedAt isDraft reviewDecision

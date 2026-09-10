@@ -26,8 +26,11 @@ export interface SourceReading {
   needs: { detected: string[] } | null;
 }
 
-/** Whose face a card shows: the selected pull request's author while the status is a review status, or always the assignee. */
-export const AVATAR_POLICIES = ['review-author', 'assignee'] as const;
+/**
+ * Whose face a card shows. review-author and issue-author both show the selected pull request's author while the
+ * status is a review status, and differ on other statuses: the issue author, or the assignee.
+ */
+export const AVATAR_POLICIES = ['review-author', 'issue-author', 'assignee'] as const;
 export type AvatarPolicy = (typeof AVATAR_POLICIES)[number];
 
 /** Board policy a source needs to shape its cards; the hub derives it from board settings, not from source settings. */

@@ -26,7 +26,7 @@ export function knownIssueKey(repository: string, number: number): string {
   return `${repository}#${number}`;
 }
 
-const avatar = z.object({ login: z.string(), url: z.string(), source: z.enum(['pull-request', 'issue']) });
+const avatar = z.object({ login: z.string(), url: z.string(), source: z.enum(['pull-request', 'issue-author', 'issue']) });
 
 const pullRequest = z.object({
   number: z.number(),

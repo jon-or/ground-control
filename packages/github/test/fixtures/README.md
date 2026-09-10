@@ -9,7 +9,7 @@ Scrub recordings before saving them in this public repository.
 
 | File | Command or scenario |
 |---|---|
-| `avatars.json` | `$Q` with `cards` and `all` filtered by issue number; include a Dev Review card with differing assignee/PR author, plus a Dev card with an older linked PR |
+| `avatars.json` | `$Q` with `cards` and `all` filtered by issue number; include a Dev Review card with differing assignee/PR author, plus a Dev card with an older linked PR. Predates the issue `author` selection; tests derive it |
 | `project-mode.json` | `gh api graphql -f query="$Q" -f status=Status -f cards='repo:$REPO is:issue is:open assignee:$LOGIN project:$REPO_OWNER/$PROJECT' -f all='repo:$REPO is:issue is:open assignee:$LOGIN'` |
 | `not-on-project.json` | Same query with a project that excludes all assigned issues |
 | `paged-page1.json` | `-f cards='repo:$REPO is:issue is:open' -f all='…'`, nodes trimmed to 3 |

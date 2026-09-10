@@ -100,6 +100,7 @@ function anonymiseResponse(response, logins, owners = ownerMap()) {
     }
 
     for (const actor of [
+      ...(node.author ? [node.author] : []),
       ...(node.assignees?.nodes ?? []),
       ...(node.pullRequests?.nodes ?? []).map((pr) => pr.author).filter(Boolean),
     ]) {
@@ -125,6 +126,7 @@ function assertScrubbed(recorded, written, logins) {
       n.title === title(n.number) ? null : n.title,
       n.repository?.nameWithOwner === REPO ? null : n.repository?.nameWithOwner,
       ...(n.projectItems?.nodes ?? []).map((item) => recordedOwner(item.project)),
+      ...identifyingActorValues(n.author),
       ...(n.assignees?.nodes ?? []).flatMap(identifyingActorValues),
       ...(n.pullRequests?.nodes ?? []).flatMap((pr) => [
         pr.url?.startsWith(`https://github.com/${REPO}/`) ? null : pr.url,

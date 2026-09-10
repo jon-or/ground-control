@@ -152,6 +152,7 @@ describe('the cadences', () => {
 
   it('reads the avatar policy and falls back to the review author for anything else', () => {
     expect(accepted(config({ avatar: 'assignee' })).avatar).toBe('assignee');
+    expect(accepted(config({ avatar: 'issue-author' })).avatar).toBe('issue-author');
     expect(accepted({ ...config(), avatar: 'nobody' }).avatar).toBe('review-author');
     expect(accepted(config()).avatar).toBe('review-author');
   });

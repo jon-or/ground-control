@@ -175,10 +175,12 @@
             "type": "string",
             "enum": [
               "review-author",
+              "issue-author",
               "assignee"
             ],
             "enumDescriptions": [
               "The selected pull request's author while the status maps to the Review lane; otherwise the assignee.",
+              "The selected pull request's author while the status maps to the Review lane; otherwise the issue author.",
               "Always the assignee, preferring your configured identity."
             ],
             "default": "review-author",

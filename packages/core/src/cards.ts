@@ -44,5 +44,6 @@ export interface CardPullRequest {
 export interface CardAvatar {
   login: string;
   url: string;
-  source: 'pull-request' | 'issue';
+  /** Whose avatar this is: the selected PR's author, the issue's author, or an assignee (R5). */
+  source: 'pull-request' | 'issue-author' | 'issue';
 }

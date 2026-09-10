@@ -1176,6 +1176,9 @@ function pullRequestMark() {
   return svg;
 }
 
+/** Role words for the hub's avatar selection; the overlay carries the same table. */
+const AVATAR_ROLES = { 'pull-request': 'pull request author', 'issue-author': 'issue author', issue: 'issue assignee' };
+
 function avatar(actor, pool) {
   const available = pool.get(actor.url);
   const reused = available?.shift();
@@ -1196,7 +1199,7 @@ function avatar(actor, pool) {
     el.appendChild(image);
   }
 
-  const role = actor.source === 'pull-request' ? 'pull request author' : 'issue assignee';
+  const role = AVATAR_ROLES[actor.source] ?? 'issue assignee';
 
   setTooltip(el, `${actor.login} · ${role}`);
   el.setAttribute('role', 'img');

@@ -143,6 +143,60 @@ describe('fetchAssignedIssues', () => {
     expect(value.cards.find((c) => c.number === 19400)?.avatar).toMatchObject({ login: 'dev-2', source: 'issue' });
   });
 
+  /** Derive the issue author from the recording; the fixture predates its selection. */
+  function authored(author: { login: string; avatarUrl: string } | null) {
+    const response = structuredClone(fixture('avatars')) as {
+      data: { cards: { nodes: Array<{ number: number; author?: { login: string; avatarUrl: string } | null; pullRequests: { nodes: unknown[] } }> } };
+    };
+
+    for (const node of response.data.cards.nodes) {
+      node.author = author;
+    }
+
+    return response;
+  }
+
+  const REPORTER = { login: 'dev-4', avatarUrl: 'https://avatars.githubusercontent.com/dev-4?s=40' };
+
+  it('shows the issue author off review under the issue-author policy', async () => {
+    const value = await unwrap(config({ logins: ['dev-1'], avatar: 'issue-author' }), runnerOf(authored(REPORTER)));
+
+    expect(value.cards.find((c) => c.number === 18954)?.avatar).toEqual({
+      login: 'dev-4',
+      url: 'https://avatars.githubusercontent.com/dev-4?s=40',
+      source: 'issue-author',
+    });
+  });
+
+  it('keeps the pull request author on a review card under the issue-author policy', async () => {
+    const value = await unwrap(config({ logins: ['dev-2'], avatar: 'issue-author' }), runnerOf(authored(REPORTER)));
+
+    expect(value.cards.find((c) => c.number === 19400)?.avatar).toMatchObject({ login: 'dev-3', source: 'pull-request' });
+  });
+
+  it('keeps the assignee off review under the review-author policy', async () => {
+    const value = await unwrap(config({ logins: ['dev-1'] }), runnerOf(authored(REPORTER)));
+
+    expect(value.cards.find((c) => c.number === 18954)?.avatar).toMatchObject({ login: 'dev-1', source: 'issue' });
+  });
+
+  /** GitHub reports a deleted account as a null author. */
+  it('falls back to the assignee when the issue author is unavailable', async () => {
+    const value = await unwrap(config({ logins: ['dev-1'], avatar: 'issue-author' }), runnerOf(authored(null)));
+
+    expect(value.cards.find((c) => c.number === 18954)?.avatar).toMatchObject({ login: 'dev-1', source: 'issue' });
+  });
+
+  /** The review status keeps its own rule: a review card with no pull request shows the assignee, not the issue author. */
+  it('keeps the assignee on a review card with no pull request under the issue-author policy', async () => {
+    const response = authored(REPORTER);
+
+    response.data.cards.nodes.find((node) => node.number === 19400)!.pullRequests.nodes = [];
+    const value = await unwrap(config({ logins: ['dev-2'], avatar: 'issue-author' }), runnerOf(response));
+
+    expect(value.cards.find((c) => c.number === 19400)?.avatar).toMatchObject({ login: 'dev-2', source: 'issue' });
+  });
+
   it('names the pull request that would close the issue', async () => {
     const value = await unwrap(config({ logins: ['dev-2'] }), runnerOf(fixture('avatars')));
 

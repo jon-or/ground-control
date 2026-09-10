@@ -15,6 +15,13 @@ describe('ASSIGNED_ISSUES_QUERY', () => {
     }
   });
 
+  /** The parser defaults a missing issue author to null, which would silently disable the issue-author policy. */
+  it('asks the issue itself for its author', () => {
+    const outsidePullRequests = ASSIGNED_ISSUES_QUERY.replace(/closedByPullRequestsReferences[\s\S]*?\n  \}\}/, '');
+
+    expect(outsidePullRequests).toMatch(/\n  author\{ login avatarUrl\(size:40\) \}/);
+  });
+
   /** GraphQL cost depends on requested nodes: this commits selection costs 8 points at first:5 and 103 at first:100 (M48). Only one PR is displayed. */
   it('asks for five closing pull requests, not a hundred', () => {
     expect(ASSIGNED_ISSUES_QUERY).toContain('closedByPullRequestsReferences(first:5)');

@@ -54,7 +54,7 @@ These application settings configure the shared hub for both clients; Chrome has
 
 `boardStatuses` selects active project statuses; all others archive the card. Editing the list clears Returned marks and archived placements, including cards newly archived by the edit.
 
-`avatar` chooses whose face a card shows in both clients: `review-author` (default) shows the selected pull request's author while the status is mapped to the Review lane and the assignee otherwise; `assignee` always shows the assignee, preferring your configured identity.
+`avatar` chooses whose face a card shows in both clients. `review-author` (default) shows the selected pull request's author while the status is mapped to the Review lane, and the assignee otherwise. `issue-author` keeps that pull request author in review and shows the issue author on every other status. `assignee` always shows the assignee, preferring your configured identity. The assignee is shown wherever the chosen person is unavailable, such as a review card with no pull request or a deleted account.
 
 `animations` (default true) animates working borders, running session names, and tooltips on the editor board; off keeps the static dashed working border, state marks, and accessible names. The system reduced-motion preference disables animation regardless. In Chrome the same choice, and whether the overlay replaces GitHub's assignee avatars with the pull request author in review, live in **Overlay settings**, because Chrome has no shared settings and GitHub owns the DOM being restored.
 
