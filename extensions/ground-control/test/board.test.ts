@@ -89,6 +89,8 @@ function message(overrides: Partial<SnapshotMessage> = {}): SnapshotMessage {
     sessions: { count: 0, patternError: null, fetchedAt: '2026-09-01T20:00:01Z' },
     hooks: null,
     needs: null,
+    // A current hub always reports triage capability; controls are drawn only when it says they can run.
+    triage: { mode: 'manual', message: null, canRequest: true },
     fetchedAt: '2026-09-01T20:00:01Z',
     failures: [],
     stale: false,
@@ -1892,7 +1894,9 @@ describe('what GitHub says, and what the board adds', () => {
     const bare = { ...liveCard, sessions: [] };
 
     send(message({ lanes: lanes({ build: [bare] }) }));
-    expect(document.querySelector('.card-foot .badge')).toBeNull();
+    // An eligible unread card carries the reading control and no result yet (R38).
+    expect(document.querySelector('.card-foot .badge.triage-read')?.textContent).toBe('Read this card');
+    expect(document.querySelector('.card-foot .badge.triage')).toBeNull();
 
     send(message({ lanes: lanes({ build: [{ ...bare, triage: { state: 'running' } }] }) }));
     expect(document.querySelector('.card-foot .badge.triage-running')).not.toBeNull();
@@ -1912,7 +1916,19 @@ describe('what GitHub says, and what the board adds', () => {
     const foot = document.querySelector<HTMLElement>('.card-foot')!;
 
     expect(foot).not.toBeNull();
-    expect(foot.querySelector('.badge')).toBeNull();
+    expect(foot.querySelector('.badge.triage-read')?.textContent).toBe('Read this card');
+  });
+
+  it('draws an empty footer where the hub reports no classifier to read with', () => {
+    send(
+      message({
+        lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }),
+        triage: { mode: 'manual', message: null, canRequest: false },
+      }),
+    );
+
+    expect(document.querySelector('.card-foot')).not.toBeNull();
+    expect(document.querySelector('.card-foot .badge')).toBeNull();
   });
 
 });

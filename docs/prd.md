@@ -300,17 +300,17 @@ The explanation describes status and responsibility, not technical implementatio
 
 Mark triage stale when issue/PR evidence changes. Age alone does not invalidate it. Automatically reread only on eligibility or status changes; other changes mark it stale without spending another model call. Triage never moves a card.
 
-Run only while a board is visible or on an explicit editor request, with bounded concurrency, timeout, and retry backoff. Stop automatic retries after the retry budget. A failed classification leaves no result label; show the failure once above the board and retain a retry control. The overlay displays results but cannot request classification.
+Run only while a board is visible or on an explicit client request, with bounded concurrency, timeout, and retry backoff. Stop automatic retries after the retry budget. A failed classification leaves no result label; show the failure once above the board and retain a retry control. Either client can request classification; the hub applies the same eligibility, concurrency, and cooldown checks whichever asks.
 
-Eligible unread issues have an editor reading control. Completed triage has a separate reread control, accessible by keyboard and touch. Off mode removes classification controls while retaining results. Clicking the label or age to inspect its explanation must not start classification or spend usage.
+Eligible unread issues have a reading control in both clients. Completed triage has a separate reread control, accessible by keyboard and touch. Off mode removes classification controls while retaining results. Clicking the label or age to inspect its explanation must not start classification or spend usage.
 
 Triage defaults to manual requests; `triage.mode` also offers off and automatic. Explicit mode takes precedence over legacy `triage.enabled`; without an explicit mode, preserve explicit legacy true as automatic and false as off. Configurations without an explicit choice default to manual. Existing saved hub configurations retain their legacy mode until replaced by client configuration.
 
-Automatic attempts have a persisted rolling 24-hour limit, default 100 and configurable from 0 to 1000. Reserve before concurrent source reads; count failed and cancelled attempts. Manual requests are independent of this allowance. Unreadable or unsavable usage records pause automatic starts. Both clients display mode and limit state. Changing to manual cancels automatic readings; off cancels all readings. Cancellation does not consume per-card retry attempts.
+Automatic attempts have a persisted rolling 24-hour limit, default 100 and configurable from 0 to 1000. Reserve before concurrent source reads; count failed and cancelled attempts. An editor's manual requests are independent of this allowance; a browser request reserves against it and requires a visible project tab, because the per-card cooldown bounds one card rather than a caller working through every key. Unreadable or unsavable usage records pause automatic starts. Both clients display mode and limit state. Changing to manual cancels automatic readings; off cancels all readings. Cancellation does not consume per-card retry attempts.
 
 Triage sends issue/PR text, recent comments, identities, review information, and status/assignment history to the configured model service and uses the developer's allowance. Classifier sessions have no tools, MCP servers, developer settings, or saved conversation visible to the board.
 
-Only Claude currently provides classification. Report absent classifier or configured conversation source separately from missing/ineligible cards and disabled mode. Both clients display the missing capability and the editor removes request controls until it is restored. Do not announce model use or reserve automatic attempts without an available classifier and source. Removing required capability cancels pending readings while preserving prior results and session discovery.
+Only Claude currently provides classification. Report absent classifier or configured conversation source separately from missing/ineligible cards and disabled mode. Both clients display the missing capability and remove their request controls until it is restored. Do not announce model use or reserve automatic attempts without an available classifier and source. Removing required capability cancels pending readings while preserving prior results and session discovery.
 
 ### R39. Merge-upstream action
 
@@ -428,7 +428,7 @@ Keep browser snapshots only in memory for the current hub connection. After eith
 
 Native-host registration supports Google Chrome and Microsoft Edge, selected by `overlayBrowsers` with Chrome as the default. Enabling registers only the selected browsers and removes Ground Control's registrations for the others; disabling removes the selected browsers' registrations and keeps shared files another registration still needs; uninstall removes every registration Ground Control owns. Neither removes a registration made for another home. Unsupported browsers and platforms are reported as limitations.
 
-Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, request triage, open combined diffs, or read a card conversation (R43).
+Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, open combined diffs, or read a card conversation (R43).
 
 Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.
 

@@ -39,7 +39,7 @@ export interface Snapshot {
   startable: StartableAgent[];
   /** Activity-hook installation notice, when needed (R25). */
   hooks: { notice: string } | null;
-  /** Optional for older client snapshots. Shared triage policy; Chrome remains display-only. */
+  /** Optional for older client snapshots. Shared triage policy; `canRequest` gates the controls in both clients. */
   triage?: { mode: 'off' | 'manual' | 'automatic'; message: string | null; canRequest: boolean };
   /** The connected editor's URI scheme for browser session links; absent means `vscode` (R14). */
   editor?: { uriScheme: string };

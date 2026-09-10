@@ -86,7 +86,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   };
 }
 
-const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn() };
+const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), retriage: vi.fn() };
 
 interface State {
   snapshot: Snapshot | null;
@@ -105,6 +105,7 @@ beforeEach(() => {
   actions.repaint.mockReset();
   actions.watchLog.mockReset();
   actions.openCheckout.mockReset();
+  actions.retriage.mockReset();
   // The open lane list is module state, so a test that left one open would leak into the next.
   clear(document);
   // And the collapse outlives a tab on purpose, which means it outlives a test unless the storage goes with it.
@@ -2588,12 +2589,12 @@ describe('card triage (R38)', () => {
     expect(tipOf(mark())).toBe('Pick it up. Read 1m ago; card details have changed.');
   });
 
-  it('says a card could not be read, and offers no control — reading again is the editor own', () => {
+  it('says a card could not be read, and offers no control where the hub reports none', () => {
     show(card(4501, { sessions: [], triage: { state: 'failed', attempts: 2, exhausted: false } }));
 
     expect(mark()?.textContent).toBe('Not read');
     expect(mark()?.tagName).toBe('SPAN');
-    expect(tipOf(mark())).toBe('Triage failed. Retry from the card in VS Code.');
+    expect(tipOf(mark())).toBe('Triage failed.');
     expect(document.querySelector('.gc-triage-detail')).toBeNull();
   });
 
@@ -2602,9 +2603,7 @@ describe('card triage (R38)', () => {
     show(card(4501, { sessions: [], triage: { state: 'failed', attempts: 5, exhausted: true } }));
 
     expect(mark()?.textContent).toBe('Not read');
-    expect(tipOf(mark())).toBe(
-      'Triage failed after 5 attempts. Automatic retries stopped. Retry from the card in VS Code.',
-    );
+    expect(tipOf(mark())).toBe('Triage failed after 5 attempts. Automatic retries stopped.');
   });
 
   it('carries nothing on a card that has not been read', () => {
@@ -2614,7 +2613,8 @@ describe('card triage (R38)', () => {
     expect(document.querySelector('.gc-triage-detail')).toBeNull();
   });
 
-  it.each(['manual', 'off', 'automatic'] as const)('keeps triage display-only in %s mode', (mode) => {
+  /** Paint one card of each triage state and collect the marks and controls in document order. */
+  function marksFor(mode: 'manual' | 'off' | 'automatic', canRequest: boolean) {
     const cards = [
       card(4501, { sessions: [] }),
       card(4502, { sessions: [], triage: { state: 'failed', attempts: 2, exhausted: false } }),
@@ -2623,14 +2623,52 @@ describe('card triage (R38)', () => {
 
     paint(document, state({ snapshot: snapshot({
       lanes: [{ id: 'build', title: 'Build', cards }],
-      triage: { mode, message: null, canRequest: mode !== 'off' },
+      triage: { mode, message: null, canRequest },
     }) }), NOW, actions);
 
-    const marks = [...document.querySelectorAll('.gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"]')];
+    return [...document.querySelectorAll<HTMLElement>('.gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"], button.gc-read')];
+  }
+
+  it.each(['manual', 'automatic'] as const)('offers reading beside each result in %s mode', (mode) => {
+    expect(marksFor(mode, true).map((entry) => entry.textContent)).toEqual([
+      'Read this card',
+      'Not read',
+      'Develop',
+      'Read this card again',
+    ]);
+  });
+
+  it('removes the controls and keeps the results in off mode', () => {
+    const marks = marksFor('off', false);
 
     expect(marks.map((entry) => entry.textContent)).toEqual(['Not read', 'Develop']);
     expect(marks.every((entry) => entry.tagName === 'SPAN' && entry.querySelector('button, a') === null)).toBe(true);
-    expect([...document.querySelectorAll('button, a')].some((entry) => /Read this card|Retry triage/i.test(entry.textContent ?? ''))).toBe(false);
+  });
+
+  /** The hub reports no classifier or conversation source through canRequest, whatever the mode (R38). */
+  it('removes the controls when no classifier is available, even in automatic mode', () => {
+    expect(marksFor('automatic', false).map((entry) => entry.textContent)).toEqual(['Not read', 'Develop']);
+  });
+
+  it('sends the card key and nothing else, which is what makes it safe from a page', () => {
+    marksFor('manual', true);
+    document.querySelectorAll<HTMLElement>('button.gc-read')[0]!.click();
+
+    expect(actions.retriage).toHaveBeenCalledWith('issue-4501');
+  });
+
+  it('offers no reading on an archived or unassigned card, which is read-only', () => {
+    paint(document, state({ snapshot: snapshot({
+      lanes: [
+        { id: 'archived', title: 'Archived', cards: [card(4501, { sessions: [], lane: 'archived' })] },
+        { id: 'build', title: 'Build', cards: [card(4502, { sessions: [], unassigned: true })] },
+      ],
+      triage: { mode: 'manual', message: null, canRequest: true },
+    }) }), NOW, actions);
+
+    // Both cards drew a footer, so the absent control is a decision rather than a card that never rendered.
+    expect(document.querySelectorAll(`.${'gc-badge'}`)).toHaveLength(2);
+    expect(document.querySelectorAll('button.gc-read')).toHaveLength(0);
   });
 
   /** Verify literal triage labels against packages/board and both clients, which cannot share runtime imports. */

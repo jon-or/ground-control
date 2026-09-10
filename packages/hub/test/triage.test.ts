@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { bootstrapDirOf } from '@ground-control/core';
 import type {
@@ -256,7 +256,7 @@ function hubConfig(
 /** A watching client, which is what R35 makes triage conditional on. */
 function watch(hub: Hub, watching = true) {
   return hub.connect(
-    { id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching },
+    { id: 'board', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching },
     () => undefined,
   );
 }
@@ -566,6 +566,69 @@ describe('triage modes and automatic allowance', () => {
     await control.settle();
   });
 
+  /**
+   * The per-card cooldown bounds one card, not a caller working through every key, so a request that did not
+   * come from the developer's own editor is charged against the daily allowance (R33, R38).
+   */
+  it('charges a browser request against the daily allowance and refuses it at the cap', async () => {
+    const control = harness({}, [issue({ number: 1 }), issue({ number: 2 })]);
+    const notices: string[] = [];
+
+    control.hub.configure(hubConfig({ ...limits, mode: 'manual', dailyLimit: 1 }));
+    control.hub.connect(
+      { id: 'chrome', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true },
+      (message) => {
+        if (message.type === 'notice') notices.push(message.message);
+      },
+    );
+    await control.pass();
+
+    const cards = () => control.snapshot().lanes.flatMap((lane) => lane.cards);
+    const first = cards().find((card) => card.issueNumber === 1)!;
+
+    control.hub.receive({ id: 'chrome' }, { type: 'retriage', key: first.key });
+    await control.settle();
+
+    expect(control.contexts).toEqual([1]);
+    expect(JSON.parse(readFileSync(usagePath(), 'utf8'))).toHaveLength(1);
+
+    const second = cards().find((card) => card.issueNumber === 2)!;
+
+    control.hub.receive({ id: 'chrome' }, { type: 'retriage', key: second.key });
+    await control.settle();
+
+    expect(control.contexts).toEqual([1]);
+    expect(notices.at(-1)).toContain('daily limit');
+    control.hub.dispose();
+    await control.settle();
+  });
+
+  /** A hidden tab is not a developer asking, and R35 keeps background work off when nothing is watching. */
+  it('refuses a browser request from a tab that is not watching', async () => {
+    const control = harness();
+    const notices: string[] = [];
+
+    control.hub.configure(hubConfig({ ...limits, mode: 'manual' }));
+    watch(control.hub);
+    control.hub.connect(
+      { id: 'chrome', hostId: null, workspaceRoot: null, residentRoutes: [], watching: false },
+      (message) => {
+        if (message.type === 'notice') notices.push(message.message);
+      },
+    );
+    await control.pass();
+
+    control.hub.receive({ id: 'chrome' }, { type: 'retriage', key: keyOf(control) });
+    await control.settle();
+
+    expect(control.contexts).toEqual([]);
+    // Nothing was reserved, so the allowance file was never written.
+    expect(existsSync(usagePath())).toBe(false);
+    expect(notices.at(-1)).toBe('Open this project tab to read a card from the browser.');
+    control.hub.dispose();
+    await control.settle();
+  });
+
   it('retains failed attempts across restart without retrying at an exhausted cap', async () => {
     const control = harness();
     control.answer = { failure: { subject: 'claude', kind: 'classify-failed', message: 'failed', remedy: 'retry' } };
@@ -644,7 +707,7 @@ describe('classification capability', () => {
   it('refuses deliberate readings of archived issues', async () => {
     const control = harness({}, [issue({ status: 'Backlog' })]);
     const notices: string[] = [];
-    control.hub.connect({ id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+    control.hub.connect({ id: 'board', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
       if (message.type === 'notice') notices.push(message.message);
     });
     await control.pass();
@@ -658,7 +721,7 @@ describe('classification capability', () => {
     const control = harness();
     const notices: string[] = [];
     control.hub.configure({ ...hubConfig(limits), agents: [{ id: 'codex', path: 'codex-cli' }] });
-    control.hub.connect({ id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+    control.hub.connect({ id: 'board', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
       if (message.type === 'notice') notices.push(message.message);
     });
     await control.pass();
@@ -692,7 +755,7 @@ describe('classification capability', () => {
     const control = harness();
     control.hub.configure(hubConfig({ ...limits, mode: 'manual' }));
     const notices: string[] = [];
-    control.hub.connect({ id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+    control.hub.connect({ id: 'board', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
       if (message.type === 'notice') notices.push(message.message);
     });
     await control.pass();
@@ -739,7 +802,7 @@ describe('telling the developer what it is about to spend', () => {
     const told: string[] = [];
     const control = harness({}, [issue({ number: 1 }), issue({ number: 2 })]);
     control.hub.connect(
-      { id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true },
+      { id: 'board', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true },
       (m) => {
         if (m.type === 'notice') told.push(m.message);
       },
@@ -762,7 +825,7 @@ describe('telling the developer what it is about to spend', () => {
     const told: string[] = [];
     const control = harness({}, []);
     control.hub.connect(
-      { id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true },
+      { id: 'board', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true },
       (m) => {
         if (m.type === 'notice') told.push(m.message);
       },
@@ -836,7 +899,7 @@ describe('asking for a card again', () => {
     const told: string[] = [];
     const control = harness({}, [issue({ number: 1 }), issue({ number: 2 }), issue({ number: 3 })]);
     const client = control.hub.connect(
-      { id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true },
+      { id: 'board', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true },
       (m) => {
         if (m.type === 'notice') told.push(m.message);
       },
@@ -859,7 +922,7 @@ describe('asking for a card again', () => {
     const control = harness();
     const told: string[] = [];
     const client = control.hub.connect(
-      { id: 'board', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true },
+      { id: 'board', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true },
       (message) => {
         if (message.type === 'notice') {
           told.push(message.message);

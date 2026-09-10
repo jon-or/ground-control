@@ -95,6 +95,7 @@
     refresh: () => post({ type: 'refresh' }),
     move: (key, lane) => post({ type: 'move', key, lane }),
     openCheckout: (key) => post({ type: 'openCheckout', key }),
+    retriage: (key) => post({ type: 'retriage', key }),
     openOptions: () => post({ type: 'openOptions' }),
     repaint: () => schedule(),
     watchLog: (open) => {

@@ -403,8 +403,22 @@ export class Hub {
         return;
 
       case 'retriage': {
+        // A browser request is metered and requires a visible board: a hidden tab is not a developer asking,
+        // and R35 keeps background work off when nothing is watching.
+        const browser = connected.hello.hostId === null;
+
+        if (browser && !connected.watching) {
+          connected.send({
+            type: 'notice',
+            level: 'info',
+            message: 'Open this project tab to read a card from the browser.',
+          });
+
+          return;
+        }
+
         // Validate and rate-limit manual triage requests because classification uses paid resources.
-        const refused = this.#triage.retriage(this.snapshot().lanes, message.key);
+        const refused = this.#triage.retriage(this.snapshot().lanes, message.key, browser);
 
         if (refused) {
           connected.send({ type: 'notice', level: 'info', message: refused.message });

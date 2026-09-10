@@ -10,7 +10,7 @@
  * @typedef {import('@ground-control/core').Session} Session
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, openOptions?: () => void }} Actions
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, retriage: (key: string) => void, openOptions?: () => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -260,6 +260,8 @@ a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination {
   background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
 .gc-mark[data-mark="triaging"] { animation: gc-mark-pulse 1.8s ease-in-out infinite; }
 .gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
+/* Reading spends the developer's allowance, so it reads as a control rather than as one more label (R38). */
+.${BADGE_CLASS} button.gc-read { font-weight: 400; color: var(--fgColor-muted, #59636e); }
 /* Place action state beside triage with neutral styling; dispatched work does not imply attention (R39). */
 .gc-mark[data-mark="action"] { color: var(--fgColor-muted, #59636e); background: transparent;
   border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
@@ -2027,9 +2029,10 @@ function renderAttention(doc, element, head, card) {
  * @param {number} now
  * @param {Actions} actions
  * @param {readonly string[]} openable
+ * @param {boolean} canRequest
  * @returns {Element[]} the lane menu and the chip it hangs from, when this is the card whose lanes are open
  */
-function renderBadge(doc, element, card, now, actions, openable) {
+function renderBadge(doc, element, card, now, actions, openable, canRequest) {
   const badge = doc.createElement('div');
 
   badge.className = BADGE_CLASS;
@@ -2062,7 +2065,7 @@ function renderBadge(doc, element, card, now, actions, openable) {
   head.appendChild(lane);
 
   renderAttention(doc, element, head, card);
-  renderTriage(doc, head, card, now);
+  renderTriage(doc, head, card, now, actions, canRequest);
   renderAction(doc, head, card);
 
   for (const session of card.sessions) {
@@ -2096,47 +2099,71 @@ function renderBadge(doc, element, card, now, actions, openable) {
 }
 
 /**
+ * Whether this card can be classified from here. An archived or unassigned card is read-only (R9), and the hub
+ * reports through `canRequest` when no classifier or conversation source is available (R38).
+ *
+ * @param {Snapshot | null} snapshot
+ * @param {LanedCard} card
+ * @returns {boolean}
+ */
+function canRequestTriage(snapshot, card) {
+  return (
+    snapshot?.triage?.canRequest === true &&
+    card.issue != null &&
+    card.issueNumber !== null &&
+    card.lane !== 'archived' &&
+    card.unassigned !== true
+  );
+}
+
+/**
  * Display the triage action and age, with its explanation on hover (R38). Triage does not affect attention
- * styling. Retriage is editor-only; the browser bridge refuses it.
+ * styling. Reading spends the developer's model allowance, so its control is separate from the label that
+ * opens the explanation.
  *
  * @param {Document} doc
  * @param {HTMLElement} head
  * @param {LanedCard} card
  * @param {number} now
+ * @param {Actions} actions
+ * @param {boolean} canRequest
  */
-function renderTriage(doc, head, card, now) {
+function renderTriage(doc, head, card, now, actions, canRequest) {
   const triage = card.triage;
+  const readAgain = () => actions.retriage(card.key);
 
   if (!triage) {
-    return;
-  }
-
-  const mark = doc.createElement('span');
-
-  mark.className = 'gc-mark';
-  mark.dataset.mark = triage.state === 'done' ? 'triage' : 'triaging';
-  head.appendChild(mark);
-
-  if (triage.state === 'running') {
-    mark.textContent = 'Reading…';
-    setTooltip(mark, 'Identifying the next action.');
+    if (canRequest) {
+      head.appendChild(triageButton(doc, 'Read this card', 'Identify the next action. Uses model usage.', readAgain));
+    }
 
     return;
   }
 
-  // Retriage consumes model usage and is editor-only; the browser bridge refuses it (R38).
   if (triage.state === 'failed') {
-    // Same failure wording as the editor board; only the remedy differs.
+    // Same failure wording as the editor board; only the remedy differs where the browser cannot retry.
     const failure = triage.exhausted
       ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped.`
       : 'Triage failed.';
 
-    mark.textContent = 'Not read';
-    setTooltip(mark, `${failure} Retry from the card in VS Code.`);
+    head.appendChild(
+      canRequest
+        ? triageButton(doc, 'Not read', `${failure} Click to retry.`, readAgain)
+        : triageMark(doc, 'triage', 'Not read', failure),
+    );
 
     return;
   }
 
+  if (triage.state === 'running') {
+    head.appendChild(triageMark(doc, 'triaging', 'Reading…', 'Identifying the next action.'));
+
+    return;
+  }
+
+  const mark = triageMark(doc, 'triage', '', '');
+
+  head.appendChild(mark);
   mark.textContent = triageText(triage);
   mark.dataset.stale = String(triage.stale);
   setTooltip(
@@ -2155,6 +2182,57 @@ function renderTriage(doc, head, card, now) {
     age(ageLabel, moved, now);
     mark.append(' · ', ageLabel);
   }
+
+  // Keep the paid reread separate from the label, which only opens the explanation (R38).
+  if (canRequest) {
+    head.appendChild(triageButton(doc, 'Read this card again', 'Read this card again. Uses model usage.', readAgain));
+  }
+}
+
+/**
+ * @param {Document} doc
+ * @param {'triage' | 'triaging'} kind
+ * @param {string} text
+ * @param {string} title
+ * @returns {HTMLElement}
+ */
+function triageMark(doc, kind, text, title) {
+  const mark = doc.createElement('span');
+
+  mark.className = 'gc-mark';
+  mark.dataset.mark = kind;
+  mark.textContent = text;
+
+  if (title) {
+    setTooltip(mark, title);
+  }
+
+  return mark;
+}
+
+/**
+ * A control rather than a label, because pressing it spends the developer's model allowance (R38).
+ *
+ * @param {Document} doc
+ * @param {string} text
+ * @param {string} title
+ * @param {() => void} chosen
+ * @returns {HTMLElement}
+ */
+function triageButton(doc, text, title, chosen) {
+  const button = doc.createElement('button');
+
+  button.type = 'button';
+  button.className = 'gc-read';
+  button.textContent = text;
+  setTooltip(button, title);
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    chosen();
+  });
+
+  return button;
 }
 
 /** `landed` is a session-reported push, not independently verified completion (R39). */
@@ -2459,10 +2537,13 @@ let drawn = new WeakMap();
  *
  * @param {LanedCard} card
  * @param {readonly string[]} openable
+ * @param {boolean} canRequest
  * @returns {string}
  */
-function badgeSignature(card, openable) {
+function badgeSignature(card, openable, canRequest) {
   return JSON.stringify([
+    // A card that gains or loses the read control has to be rebuilt to stop offering it.
+    canRequest,
     // Include the card key because GitHub recycles nodes between issues and footer handlers capture card
     // identity.
     card.key,
@@ -2613,7 +2694,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
 
     const ref = issueRefOf(element);
     const card = ref === null ? undefined : index?.byRef.get(`${ref.repo}#${ref.number}`) ?? index?.byNumber.get(ref.number);
-    const sig = card === undefined ? null : badgeSignature(card, openable);
+    const sig = card === undefined ? null : badgeSignature(card, openable, canRequestTriage(state.snapshot, card));
     // Rebuild the card with an open lane menu because renderBadge must recreate the menu removed above.
     const kept = card === undefined || sig === null || openMenu === card.key ? null : keptBadge(element, card, sig, presentation.replaceAvatars);
 
@@ -2656,7 +2737,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
       renderActor(doc, element, card);
     }
 
-    open.push(...renderBadge(doc, element, card, now, actions, openable));
+    open.push(...renderBadge(doc, element, card, now, actions, openable, canRequestTriage(state.snapshot, card)));
     drawn.set(element, { sig: /** @type {string} */ (sig), badge: element.querySelector(`.${BADGE_CLASS}`) ?? element });
 
     badges += 1;

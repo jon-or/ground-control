@@ -227,7 +227,7 @@ The panel is modal: a scrim dims the board, and everything outside the panel is 
 
 `packages/board` interprets status and assignment timelines, derives actions from deterministic evidence, constructs prompts, and decides result freshness. `packages/hub` schedules reads and classification, persists results, and enforces budgets.
 
-New configurations default to manual triage. Normalize legacy enabled to automatic/off when mode is absent; explicit mode wins. The editor distinguishes an unset legacy key from an explicit choice before sending configuration. Snapshot triage state supplies mode, request capability, and an informational message to both clients; Chrome cannot send classification requests.
+New configurations default to manual triage. Normalize legacy enabled to automatic/off when mode is absent; explicit mode wins. The editor distinguishes an unset legacy key from an explicit choice before sending configuration. Snapshot triage state supplies mode, request capability, and an informational message to both clients. Either can request a classification; the hub validates the card and rate-limits the request, because the browser boundary decides who may ask, not whether the request is sound.
 
 The hub passes configured, accepted source IDs to the triage runner. Classification requires an enabled adapter with `classify` and an accepted source with `readContext`; registered but omitted/refused sources cannot provide it. Derive missing capability on every status read and distinguish it from missing/ineligible cards in manual refusals. Loss of capability cancels pending reads. No model-use announcement or usage reservation precedes capability resolution.
 
@@ -242,7 +242,7 @@ Two values have different purposes:
 
 Consecutive timeline changes by one identified actor within one minute form an instruction, dated at its first event. Ignore project-addition events with no previous status. Status and assignment changes can occur separately, so current status, previous status, and latest instruction time remain separate values.
 
-Where deterministic rules fix an action, send that action to the classifier and request the explanation. Otherwise request both. Default to two concurrent classifications with a 180-second fetch/classification budget; configuration permits 1–8 and 10–300 seconds. Restrict background classification to watched boards. Manual retriage is editor-only with a 30-second per-card cooldown. Failure retries wait 1, 2, 5, and 30 minutes, then stop after the fifth failure. Stored results carry a triage revision so a decision-rule change can invalidate incompatible readings.
+Where deterministic rules fix an action, send that action to the classifier and request the explanation. Otherwise request both. Default to two concurrent classifications with a 180-second fetch/classification budget; configuration permits 1–8 and 10–300 seconds. Restrict background classification to watched boards. Manual retriage has a 30-second per-card cooldown. A browser request also requires a watching client and reserves against the daily allowance, because the per-card cooldown bounds one card rather than a caller working through every key. Failure retries wait 1, 2, 5, and 30 minutes, then stop after the fifth failure. Stored results carry a triage revision so a decision-rule change can invalidate incompatible readings.
 
 ### Actions
 

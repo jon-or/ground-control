@@ -1354,7 +1354,7 @@ function card(boardCard, avatarPool, placeable) {
 
   // Keep triage separate from attention styling (R38).
   const triage = boardCard.triage;
-  const canRequest = board.triage?.canRequest !== false && issue && boardCard.issueNumber !== null &&
+  const canRequest = board.triage?.canRequest === true && issue && boardCard.issueNumber !== null &&
     boardCard.lane !== 'archived' && boardCard.unassigned !== true;
 
   const readAgain = () => vscode.postMessage({ type: 'retriage', key: boardCard.key });

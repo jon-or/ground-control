@@ -114,6 +114,21 @@ describe('what the browser may ask the hub for', () => {
     });
   });
 
+  /**
+   * Reading spends the developer's model allowance, so the page may ask but the hub decides: Triage.retriage
+   * applies the same eligibility, concurrency, and cooldown checks it applies to an editor request (R38).
+   */
+  it('forwards a classification request, carrying the card key and nothing else', () => {
+    expect(bridgeAction({ type: 'retriage', key: 'issue:17198' })).toEqual({
+      send: { type: 'retriage', key: 'issue:17198' },
+    });
+  });
+
+  it('refuses a retriage that does not name a card, rather than forwarding it', () => {
+    expect(bridgeAction({ type: 'retriage', key: 42 })).toEqual({ refused: 'That card cannot be read.' });
+    expect(bridgeAction({ type: 'retriage' })).toEqual({ refused: 'That card cannot be read.' });
+  });
+
   it('refuses an openCheckout that does not name a card, rather than forwarding it', () => {
     expect(bridgeAction({ type: 'openCheckout', key: 42 })).toEqual({ refused: 'That card cannot be opened.' });
     expect(bridgeAction({ type: 'openCheckout' })).toEqual({ refused: 'That card cannot be opened.' });

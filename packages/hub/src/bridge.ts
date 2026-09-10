@@ -63,8 +63,10 @@ export class FrameReader {
 export type BridgeMessage = HubMessage | { type: 'trouble'; message: string | null };
 
 /**
- * Allow refresh, visibility, lane moves, log subscriptions, and checkout opening (R36). Session opening uses
- * editor URIs. Configuration, classification, path selection, and starting/stopping work remain editor-only.
+ * Allow refresh, visibility, lane moves, log subscriptions, checkout opening, and classification requests
+ * (R36). Session opening uses editor URIs. Configuration, path selection, and starting or stopping work remain
+ * editor-only. A classification request spends the developer's model allowance, so the hub applies the same
+ * eligibility, concurrency, and cooldown checks it applies to an editor request.
  */
 export type BridgeAction = { send: ClientMessage } | { refused: string };
 
@@ -100,6 +102,13 @@ export function bridgeAction(raw: unknown): BridgeAction {
 
   if (message.type === 'open') {
     return { refused: 'Open sessions through their links in the overlay.' };
+  }
+
+  // Forward only the card key. Triage.retriage rejects an unknown or ineligible one and rate-limits the rest.
+  if (message.type === 'retriage') {
+    return typeof message.key === 'string'
+      ? { send: { type: 'retriage', key: message.key } }
+      : { refused: 'That card cannot be read.' };
   }
 
   // The overlay does not control card actions (R39).

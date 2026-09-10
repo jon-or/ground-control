@@ -82,7 +82,7 @@ export class TriageRunner {
     let message: string | null = null;
     if (mode === 'off') message = 'Card triage is off.';
     else if (capability !== null) message = `${capability.message} ${capability.remedy}`;
-    else if (mode === 'manual') message = 'Card triage is manual. Request a reading in VS Code.';
+    else if (mode === 'manual') message = 'Card triage is manual. Read a card from its own control.';
     else if (this.#usageFailed || count === null) message = 'Automatic triage paused because its usage record could not be read or saved. Repair triage-usage.json in the Ground Control state directory and restart the hub. Manual requests remain available.';
     else if (count.length >= (this.#settings.dailyLimit ?? 100)) message = 'Automatic triage limit reached for the rolling 24-hour window. Manual requests remain available.';
     return { mode, message, canRequest: mode !== 'off' && capability === null };
@@ -99,7 +99,7 @@ export class TriageRunner {
       subject: 'triage',
       kind: failure.kind,
       message: `A card could not be triaged: ${failure.message}`,
-      remedy: 'Previous triage results are retained. Use the card’s triage retry control in VS Code.',
+      remedy: 'Previous triage results are retained. Use the card’s triage retry control.',
     }));
   }
 
@@ -170,8 +170,12 @@ export class TriageRunner {
     }
   }
 
-  /** Validate and rate-limit manual card triage requests. */
-  retriage(lanes: readonly Lane[], key: string): ReadFailure | null {
+  /**
+   * Validate and rate-limit manual card triage requests. A metered request is charged against the rolling
+   * daily allowance: the per-card cooldown bounds one card, not a caller working through every key, and a
+   * request the developer did not make in their own editor needs a bound on total spend (R33, R38).
+   */
+  retriage(lanes: readonly Lane[], key: string, metered = false): ReadFailure | null {
     const asked = this.#asked.get(key) ?? 0;
     const now = this.#deps.now();
 
@@ -197,6 +201,16 @@ export class TriageRunner {
 
     if (now - asked < RETRIAGE_COOLDOWN_MS) {
       return refusal('triage-too-soon', 'That card was read a moment ago. Try again shortly.');
+    }
+
+    if (metered) {
+      const reserved = this.#usage.reserve(now, this.#settings.dailyLimit ?? 100);
+
+      if (reserved !== 'reserved') {
+        return reserved === 'exhausted'
+          ? refusal('triage-limit', 'Triage reached its daily limit. Read this card in VS Code.')
+          : refusal('triage-usage', 'Ground Control cannot record triage usage, so it will not start a reading.');
+      }
     }
 
     this.#asked.set(key, now);
