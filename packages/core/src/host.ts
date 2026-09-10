@@ -40,11 +40,14 @@ export type OpenRefusal =
   | 'no-agent'
   | 'checkout-elsewhere';
 
-/** Session surface: reveal tabs by ID; for sidebars, focus the window and identify the session. */
+/**
+ * Session surface: reveal tabs by ID; for sidebars, focus the window and identify the session. A resume's
+ * `worktree` is the checkout it must run in, present when `root` is the repository window instead (R43).
+ */
 export type OpenRoute =
   ({ agentHome?: string; resumeToken?: string } & (
-  | { route: 'resume-here'; session: HistoricalSession; root: string; expiresAt: number }
-  | { route: 'resume-elsewhere'; session: HistoricalSession; root: string; expiresAt: number; newWindow: boolean }
+  | { route: 'resume-here'; session: HistoricalSession; root: string; expiresAt: number; worktree?: string }
+  | { route: 'resume-elsewhere'; session: HistoricalSession; root: string; expiresAt: number; newWindow: boolean; worktree?: string }
   | { route: 'reveal-here'; session: Session; root: string }
   | { route: 'reveal-elsewhere'; session: Session; root: string }
   | { route: 'sidebar-here'; session: Session; root: string }

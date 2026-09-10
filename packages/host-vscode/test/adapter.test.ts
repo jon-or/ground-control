@@ -105,14 +105,14 @@ describe('what it reads the machine for', () => {
 
 describe('its configuration', () => {
   it('starts at the defaults a board spanning worktrees needs, with nothing a browser can set in motion', () => {
-    expect(makeVscodeHost().settings()).toEqual({ mayOpenWindow: true, uriScheme: 'vscode' });
+    expect(makeVscodeHost().settings()).toEqual({ mayOpenWindow: true, uriScheme: 'vscode', resumeWorktreesInRepositoryWindow: false });
   });
 
   it('takes what the developer set', () => {
     const host = makeVscodeHost();
 
-    expect(host.configure({ userDir: 'd:/portable/User', mayOpenWindow: false, uriScheme: 'vscode-insiders' })).toBeNull();
-    expect(host.settings()).toEqual({ userDir: 'd:/portable/User', mayOpenWindow: false, uriScheme: 'vscode-insiders' });
+    expect(host.configure({ userDir: 'd:/portable/User', mayOpenWindow: false, uriScheme: 'vscode-insiders', resumeWorktreesInRepositoryWindow: true })).toBeNull();
+    expect(host.settings()).toEqual({ userDir: 'd:/portable/User', mayOpenWindow: false, uriScheme: 'vscode-insiders', resumeWorktreesInRepositoryWindow: true });
   });
 
   it('uses defaults when configuration is absent', () => {

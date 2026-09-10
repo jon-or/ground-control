@@ -1,6 +1,7 @@
 import { basename, dirKey, sessionLabel } from '@ground-control/core';
 import type { CheckoutRequest, HostWindow, OpenOutcome, OpenPlan, OpenRequest, OpenRoute, Session, StartRequest, StartableAgent } from '@ground-control/core';
 import type { AgentPlacement } from './placements.js';
+import { repositoryWindowFor } from './worktree.js';
 
 /** Allow 120 seconds for new sessions to appear in VS Code storage, which flushes every 63 seconds (M21). */
 export const SETTLING_MS = 120_000;
@@ -53,11 +54,17 @@ function windowRoot(recorded: string | null, window: HostWindow): string | null 
   return only !== undefined && second === undefined ? only : null;
 }
 
+/** Host settings that change routing (R14, R43). */
+export interface OpenSettings {
+  mayOpenWindow: boolean;
+  resumeWorktreesInRepositoryWindow: boolean;
+}
+
 /** Route by window and surface. Opening a sidebar session as a tab would start a duplicate agent. */
 export function planOpen(
   request: OpenRequest,
   placements: Readonly<Record<string, AgentPlacement>>,
-  mayOpenWindow: boolean,
+  { mayOpenWindow, resumeWorktreesInRepositoryWindow }: OpenSettings,
 ): OpenPlan {
   const session = request.sessions.find((candidate) => candidate.sessionId === request.sessionId);
 
@@ -74,11 +81,17 @@ export function planOpen(
   if ((!session || session.finished) && historical?.sessionId === request.sessionId) {
     if (!(historical.agent in placements)) return { refusal: 'other-agent', message: `This editor cannot resume ${historical.agent} sessions.` };
     if (!request.extensionReady) return { refusal: 'no-extension', message: `Install or enable the ${historical.agent} extension to resume this session.` };
-    const here = request.workspaceRoot !== null && dirKey(request.workspaceRoot) === dirKey(historical.cwd);
-    if (!here && !mayOpenWindow) return { refusal: 'elsewhere-not-allowed', message: `Resuming this session needs a window on ${historical.cwd}. Allow other windows to continue.` };
-    const base = { session: historical, root: historical.cwd, expiresAt: request.now + 30_000 };
+    // Redirect the window, not the working directory: the session still runs in its own checkout (R43). A
+    // window already on that checkout resumes it directly (R14).
+    const inCheckout = request.workspaceRoot !== null && dirKey(request.workspaceRoot) === dirKey(historical.cwd);
+    const repository =
+      resumeWorktreesInRepositoryWindow && !inCheckout && historical.agent === 'claude' ? repositoryWindowFor(historical.cwd) : null;
+    const root = repository ?? historical.cwd;
+    const here = request.workspaceRoot !== null && dirKey(request.workspaceRoot) === dirKey(root);
+    if (!here && !mayOpenWindow) return { refusal: 'elsewhere-not-allowed', message: `Resuming this session needs a window on ${root}. Allow other windows to continue.` };
+    const base = { session: historical, root, expiresAt: request.now + 30_000, ...(repository === null ? {} : { worktree: historical.cwd }) };
     if (here) return { route: 'resume-here', ...base };
-    const matching = request.liveWindows?.filter((w) => w.folders.some((f) => dirKey(f) === dirKey(historical.cwd))) ?? [];
+    const matching = request.liveWindows?.filter((w) => w.folders.some((f) => dirKey(f) === dirKey(root))) ?? [];
     return { route: 'resume-elsewhere', ...base, newWindow: matching.length === 0 || matching.some((w) => w.folders.length !== 1) };
   }
 

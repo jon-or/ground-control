@@ -315,6 +315,14 @@
             "default": true,
             "order": 14,
             "markdownDescription": "Show session cards without a confirmed issue; hiding them does not stop discovery."
+          },
+          "groundControl.resumeWorktreesInRepositoryWindow": {
+            "scope": "application",
+            "type": "boolean",
+            "default": false,
+            "order": 15,
+            "markdownDescription": "Resume Claude worktree sessions in the repository's window; applies to worktrees under `.claude/worktrees`."
+
           }
         }
       },

@@ -358,7 +358,7 @@ claude-vscode.primaryEditor.open(sessionId?, prompt?)
 
 The per-extension-host `sessionPanels` map reveals an existing tab before transcript lookup. On a match it drops a supplied prompt and tells the developer to enter it manually. Otherwise an initial prompt prefills without submitting. The direct command does not perform the URI handler's session-ID validation; callers must validate.
 
-The panel's cwd comes from the window's first workspace folder. A saved session from another worktree did not open through the local command in the early probe. Through a URI, unresolved IDs instead produced new sessions in the focused window. A session that enters a worktree can retain its original editor window while reporting the new cwd.
+A saved session from another worktree did not open through the local command in the early probe. Through a URI, unresolved IDs instead produced new sessions in the focused window. A session that enters a worktree can retain its original editor window while reporting the new cwd.
 
 Claude's sidebar is not in `sessionPanels`. Opening its session as an editor tab produced two PIDs for one session ID. Another sidebar session whose transcript had moved to a worktree produced a new session in the window's original directory. Surface identity, not cwd alone, determines safe reveal behavior.
 
@@ -369,6 +369,41 @@ Tab titles start as `Claude Code` and change asynchronously through the webview.
 `claude-vscode.window.open` was inspected as creating a new panel and then moving it to a new window. `newConversation` sends a message to an existing panel. Their broader runtime behavior, and `reopenClosedSession`, remain uncharacterized.
 
 The official URI `vscode://anthropic.claude-code/open?session=<id>` calls primaryEditor.open. Four fires in the 2.1.258 probe showed focus-based routing: three produced a new session in the wrong window; the one immediately following `code <target-folder>` resumed the intended saved session. Routing did not locate the window by session ID. Focus can change between raise and URI delivery.
+
+### Claude session working directories
+
+**Record M52. Source inspection and runtime, 2026-09-09, Claude extension 2.1.266 and CLI 2.1.266, on an isolated profile driven by a command-inbox probe. Used by redirected resume.**
+
+The panel's working directory is per session, not per window. The webview sends `launch_claude` with a `cwd`; the host spawns the CLI with `--resume=<id>` and that directory as the child's cwd, falling back to the realpath of the window's first workspace folder when it is absent. Any absolute path is accepted: there is no check that it lies inside the workspace. `checkResumable` returns `other_folder` for a foreign cwd and treats the session as resumable rather than refusing. `additionalDirectories` deliberately omits a sibling worktree of the same repository, so such a session cannot reach the main checkout.
+
+Listing is the only gate. `buildSessionList` passes `includeWorktrees: false`, a literal with no setting behind it, so a window reads only the project directory of its own first folder. Every worktree has its own project directory. Opening a session ID absent from that list creates a new empty session in the window's own directory, which is the failure measured in M6 and M7.
+
+The listing function supports the opposite: with `includeWorktrees` true it runs `git worktree list --porcelain` in the window's folder and reads the project directory of every worktree, whatever its path. `buildSessionList` is its only caller, so the capability is unreachable from the panel and covers no layout that the flag being false does not.
+
+Supplying the entry removes the gate. With a transcript for the session present in the window's project directory, `primaryEditor.open(<id>)` resumed a worktree session inside a window on the repository: the panel showed the saved conversation and the banner "This session is in worktree", and the turn it then ran was written to the worktree's project directory with `cwd` set to the worktree.
+
+The worktree binding comes from `rs`, one pattern matching only paths ending in `.claude/worktrees/<name>`, applied to the entry's `cwd` (`relocatedCwd`, else head `cwd`). A session in a worktree at any other path lists and resumes, but with no binding, so it runs in the window's own folder. A relocation outside that layout is lost the same way on the next launch. The cwd filter drops an entry only when two paths share a slug, so a worktree cwd is kept; `isCurrentWorkspace` is unconditionally true in a repository window.
+
+Four ways to supply the entry were measured:
+
+| Entry in the window's project directory | Lists | Shows history | Runs in the worktree |
+|---|---|---|---|
+| None | No | — | — |
+| Copy of the transcript | Yes | Yes | Yes |
+| One line carrying `summary` and `cwd` | Yes | No | Yes |
+| Hard link to the transcript | Yes | Yes | Yes |
+
+The one-line entry renders empty because transcript lookup searches the window's own project directories before the worktree's, so the stub shadows the real file. A hard link avoids both that and staleness, and needs no elevation, but requires the same volume. For a worktree outside `.claude/worktrees`, a directory junction at `<repo>/.claude/worktrees/<name>` plus a copy whose `cwd` names the junction produced the binding and ran the session in the real worktree; the CLI resolves the junction, so transcripts stay in the real project directory and a session started through a junction records the resolved path.
+
+Redirecting the listing needs no entry at all. The project directory resolves through `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME`, memoized on both values, so a change takes effect on the next read. Both must be set, and the name must match `^[A-Za-z0-9_-]{1,64}$`; an override outside that is ignored in silence, leaving the window's own list. The name is the resolved path with every non-alphanumeric character replaced by a dash — the 200-character truncation with a hash suffix is unreachable under the 64-character limit.
+
+Setting both in the extension host, opening the session, and clearing them resumed a worktree session in a window on the repository: the panel showed the saved conversation and the worktree banner, a turn submitted there recorded the worktree as `cwd` with its branch as `gitBranch`, and no project directory was created for the repository. While set, `dO` reads the named directory and the window's own, so the window keeps listing its own sessions.
+
+The override is per extension host, not per panel, and `spawnClaude` passes `process.env` to the CLI, so any session launched while it is set writes to the named directory. Ground Control shares that host with the Claude extension, which is what makes assigning `process.env` sufficient.
+
+Version-fragile: the hardcoded `includeWorktrees: false`, the `rs` pattern, the two-directory read, and the environment memoization are all internal to a minified bundle. Recheck after upgrading the Claude extension.
+
+`claude-vscode.createWorktree` creates `<repo>/.claude/worktrees/<name>` on branch `worktree-<name>` and calls `vscode.openFolder` with `forceNewWindow: true`. One window per worktree is the extension's own behavior, and nothing in its UI offers an existing worktree.
 
 ### Window stores and process attribution
 

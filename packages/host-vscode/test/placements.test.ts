@@ -92,7 +92,7 @@ describe('the placement table', () => {
         now: codex.startedAt,
       },
       PLACEMENTS,
-      true,
+      { mayOpenWindow: true, resumeWorktreesInRepositoryWindow: false },
     );
 
     expect('refusal' in plan && plan.refusal).toBe('other-agent');

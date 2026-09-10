@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
+import { existsSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { dirKey, routeKey, sessionLabel } from '@ground-control/core';
 import type { HistoricalSession, OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
-import { PLACEMENTS, handOverUri, resumeRefusal, stagedUpdate, stagedUpdateRefusal, strayFrom, verifyOpen } from '@ground-control/host-vscode';
+import { PLACEMENTS, handOverUri, resumeRefusal, stagedUpdate, stagedUpdateRefusal, strayFrom, verifyOpen, worktreePointer } from '@ground-control/host-vscode';
 import type { AgentPlacement, CommandArg } from '@ground-control/host-vscode';
 import { spawnEnvironment } from '@ground-control/hub';
 import { routeAllowed, sessionAllowed } from './sessionScope.js';
@@ -51,9 +53,17 @@ function delay(ms: number): Promise<void> {
  * sanitized one — `VSCODE_NLS_CONFIG` and `VSCODE_CODE_CACHE_PATH` name the build this window runs, and `cli.js` hands whatever it was given to the editor it launches (M49).
  */
 function runCode(args: string[]): Promise<string | null> {
+  const env = spawnEnvironment();
+
+  // A launched window would inherit a held redirect for its whole life. Dropping the project directory alone
+  // disables it and keeps a configuration directory the developer set (R43).
+  if (pointing) {
+    delete env['CLAUDE_CODE_PROJECT_DIR_NAME'];
+  }
+
   return new Promise((resolve) => {
     execFile(process.execPath, [join(vscode.env.appRoot, 'out', 'cli.js'), ...args], {
-      env: spawnEnvironment(), windowsHide: true, timeout: 20_000,
+      env, windowsHide: true, timeout: 20_000,
     }, (error, _stdout, stderr) => resolve(error === null ? null : stderr.trim() || error.message));
   });
 }
@@ -171,17 +181,104 @@ function commandArg(arg: CommandArg): unknown {
   }
 }
 
+/** Hold the override past the tab so the panel reads the worktree's sessions, and no longer (M52). */
+const PROJECT_DIR_SETTLE_MS = 2000;
+
+function assign(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
+/** One redirect at a time: overlapping holds would restore each other's values and leak the override. */
+let pointing = false;
+
+/** Longer than a hold, which is bounded by the tab plus the settle delay. */
+const POINTER_WAIT_MS = 8000;
+
+const POINTER_BUSY = 'Another worktree session is still opening in this window. Refresh the board and try again.';
+
+/** Wait out a redirect rather than refusing: a resume has seconds of deadline to spend. */
+async function pointerFree(): Promise<boolean> {
+  for (let waited = 0; pointing && waited < POINTER_WAIT_MS; waited += POLL_MS) {
+    await delay(POLL_MS);
+  }
+
+  return !pointing;
+}
+
+/**
+ * Point Claude's project directory at a worktree so this window lists its session, and return how to put it
+ * back. The Claude extension shares this host and reads these on each list, by resolved path (M52).
+ */
+function pointAtWorktree(sessionId: string, worktree: string): { restore: () => void } | string {
+  // Callers wait for a hold, then await a roster read, so re-check before assigning.
+  if (pointing) {
+    return POINTER_BUSY;
+  }
+
+  let checkout;
+
+  try {
+    checkout = realpathSync(worktree);
+  } catch {
+    return `${worktree} is not readable. Its session cannot be resumed from another window.`;
+  }
+
+  const pointer = worktreePointer(sessionId, checkout, homedir(), process.env, existsSync);
+
+  if (typeof pointer === 'string') {
+    return pointer;
+  }
+
+  const previous = Object.fromEntries(Object.keys(pointer).map((name) => [name, process.env[name]]));
+
+  pointing = true;
+  Object.assign(process.env, pointer);
+
+  return {
+    restore: () => {
+      for (const [name, value] of Object.entries(previous)) {
+        assign(name, value);
+      }
+
+      pointing = false;
+    },
+  };
+}
+
 /**
  * Reveal through the agent command: Claude takes a session ID; Codex takes its custom-editor resource URI
- * (M44).
+ * (M44). `worktree` resumes a session whose checkout is not this window's folder (R43).
  */
-async function revealHere(session: { agent: string; sessionId: string }): Promise<string | null> {
+async function revealHere(session: { agent: string; sessionId: string }, worktree?: string): Promise<string | null> {
   const placement = placementOf(session.agent);
 
   if (placement === null) {
     return `Opening ${session.agent} sessions in VS Code is not supported.`;
   }
 
+  const pointer = worktree === undefined ? null : pointAtWorktree(session.sessionId, worktree);
+
+  if (typeof pointer === 'string') {
+    return pointer;
+  }
+
+  // Restore whatever the reveal does, including a throw before the command is built.
+  try {
+    return await reveal(session, placement, pointer !== null);
+  } finally {
+    pointer?.restore();
+  }
+}
+
+async function reveal(
+  session: { agent: string; sessionId: string },
+  placement: AgentPlacement,
+  redirected: boolean,
+): Promise<string | null> {
   const before = agentTabCount(placement);
   const { command, args } = placement.reveal(session.sessionId);
 
@@ -191,13 +288,21 @@ async function revealHere(session: { agent: string; sessionId: string }): Promis
     return `${command} failed: ${error instanceof Error ? error.message : String(error)}`;
   }
 
-  return (await watchForTab(before, placement)) === 'opened'
-    ? null
-    : `The ${session.agent} extension reported the session open but no tab appeared.`;
+  const outcome = await watchForTab(before, placement);
+
+  // The panel reads its list after the tab appears, so restoring at the tab is too early.
+  if (outcome === 'opened' && redirected) {
+    await delay(PROJECT_DIR_SETTLE_MS);
+  }
+
+  return outcome === 'opened' ? null : `The ${session.agent} extension reported the session open but no tab appeared.`;
 }
 
-/** Check the session location asynchronously after opening and report verified failures (mechanics M7). */
-async function confirmLanding(roster: Roster, root: string, before: readonly Session[], expectedSessionId?: string): Promise<void> {
+/**
+ * Check the session location asynchronously after opening and report verified failures (mechanics M7). `cwd`
+ * is where the session must run, which is the worktree rather than the window folder for a redirect (R43).
+ */
+async function confirmLanding(roster: Roster, cwd: string, before: readonly Session[], expectedSessionId?: string): Promise<void> {
   for (let waited = 0; waited < LANDING_TIMEOUT_MS; waited += LANDING_POLL_MS) {
     await delay(LANDING_POLL_MS);
 
@@ -210,12 +315,12 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
     }
 
     const resumed = expectedSessionId && now.find((s) => s.sessionId === expectedSessionId && !s.finished);
-    if (resumed && dirKey(resumed.cwd) === dirKey(root)) return;
+    if (resumed && dirKey(resumed.cwd) === dirKey(cwd)) return;
     const stray = strayFrom(before, now, expectedSessionId);
 
     if (stray) {
       void vscode.window.showErrorMessage(
-        `A session started in ${stray.cwd} instead of ${root} after focus changed. Close the new tab in ${stray.cwd}.`,
+        `A session started in ${stray.cwd} instead of ${cwd} after focus changed. Close the new tab in ${stray.cwd}.`,
       );
 
       return;
@@ -227,7 +332,7 @@ async function confirmLanding(roster: Roster, root: string, before: readonly Ses
 }
 
 /** Focus the target window before sending its URI, then verify the resulting session placement (mechanics M7). */
-async function revealElsewhere(roster: Roster, check: SessionChecker, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean; resumeToken?: string }): Promise<string | null> {
+async function revealElsewhere(roster: Roster, check: SessionChecker, session: Session | HistoricalSession, root: string, resume?: { expiresAt: number; newWindow: boolean; resumeToken?: string; worktree?: string }): Promise<string | null> {
   if (!sessionAllowed(session, resume !== undefined, root)) return SCOPE_REFUSAL;
   if (resume && Date.now() >= resume.expiresAt) return 'This resume request expired. Refresh the board and try again.';
 
@@ -266,7 +371,7 @@ async function revealElsewhere(roster: Roster, check: SessionChecker, session: S
 
   // Verify unexpected launches only with a successful baseline roster read.
   if (before !== null) {
-    void confirmLanding(roster, root, before, resume ? session.sessionId : undefined);
+    void confirmLanding(roster, resume?.worktree ?? root, before, resume ? session.sessionId : undefined);
   }
 
   return null;
@@ -294,14 +399,18 @@ async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: Sessi
   switch (plan.route) {
     case 'resume-here': {
       if (dirKey(boardRoot() ?? '') !== dirKey(plan.root)) return 'The workspace changed before this session could be resumed. Refresh the board.';
+      // Wait before the deadline check, so waiting cannot push the reveal past it.
+      if (plan.worktree !== undefined && !(await pointerFree())) {
+        return POINTER_BUSY;
+      }
       const before = await roster();
       const checked = await checkSession(plan.session, plan.root, true, check);
       if (checked) return checked;
       const refusal = resumeRefusal(plan.session.sessionId, before);
       if (refusal) return refusal;
       if (Date.now() >= plan.expiresAt) return 'This resume request expired. Refresh the board and try again.';
-      const failure = await revealHere(plan.session);
-      if (!failure && before !== null) void confirmLanding(roster, plan.root, before, plan.session.sessionId);
+      const failure = await revealHere(plan.session, plan.worktree);
+      if (!failure && before !== null) void confirmLanding(roster, plan.worktree ?? plan.root, before, plan.session.sessionId);
       return failure;
     }
 

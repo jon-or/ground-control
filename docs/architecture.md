@@ -256,6 +256,10 @@ Historical opening refreshes roster/history and calls `canResume`. A now-active 
 
 Cross-window routes raise a known target, check focus where needed, and then invoke Ground Control's handover URI for target profile validation. Handover requests cannot route onward to a third window. Unexpected session creation is checked against the roster captured for the request, not against arbitrary later activity.
 
+A redirected resume (R43) splits across three components. `host-vscode` decides eligibility in `repositoryWindowFor` and puts `worktree` on the route, which is the directory the session must run in and what landing checks compare against; `worktreePointer` returns the environment or a refusal. The resident owns the mutable part: it assigns those variables to the extension host it shares with the Claude extension, reveals, holds past the tab, and restores, under a module-level flag admitting one redirect at a time. `runCode` drops the project-directory variable while that flag is set, so a launched window inherits nothing.
+
+The window that receives the handover is the one that redirects, so a redirected resume depends on the reservation transfer above rather than on any route of its own.
+
 The resident launches its own `out/cli.js` through `Code.exe` in Node mode, with argument arrays and a sanitized environment. It checks the staged-update marker before launching. This check reduces duplicate-instance risk but does not detect every possible update state; see [mechanics](mechanics.md#vs-code-updates-and-window-launches).
 
 ### Checkout opening and new sessions

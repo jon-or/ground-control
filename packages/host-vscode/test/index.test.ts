@@ -28,9 +28,11 @@ describe('the package public surface', () => {
       'planStart',
       'primeWindows',
       'processesFrom',
+      'projectDirName',
       'readWindowStores',
       'readWindows',
       'repositoryRefusal',
+      'repositoryWindowFor',
       'resumeRefusal',
       'rootFrom',
       'sessionFromUri',
@@ -44,6 +46,7 @@ describe('the package public surface', () => {
       'uriSchemeOf',
       'verifyOpen',
       'windowForProcess',
+      'worktreePointer',
     ]);
   });
 });

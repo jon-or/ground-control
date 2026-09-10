@@ -43,7 +43,8 @@ function request(session: Session, over: Partial<OpenRequest> = {}): OpenRequest
   };
 }
 
-const decide = (req: OpenRequest, mayOpenWindow = true): OpenPlan => planOpen(req, PLACEMENTS, mayOpenWindow);
+const decide = (req: OpenRequest, mayOpenWindow = true, resumeWorktreesInRepositoryWindow = false): OpenPlan =>
+  planOpen(req, PLACEMENTS, { mayOpenWindow, resumeWorktreesInRepositoryWindow });
 
 function refusalOf(plan: OpenPlan): string | undefined {
   return 'refusal' in plan ? plan.refusal : undefined;
@@ -315,7 +316,7 @@ describe('planOpen routes by the surface holding the session', () => {
       workspaceRoot: live.cwd,
       extensionReady: true,
       now: away.startedAt + SETTLING_MS + 1,
-    }, PLACEMENTS, true);
+    }, PLACEMENTS, { mayOpenWindow: true, resumeWorktreesInRepositoryWindow: false });
 
     expect(routeOf(plan)).toBe('reveal-elsewhere');
     expect('session' in plan && plan.session.sessionId).toBe(away.sessionId);
@@ -400,6 +401,58 @@ describe('resuming historical sessions', () => {
     expect(refusalOf(decide(pastRequest({ extensionReady: false })))).toBe('no-extension');
     expect(refusalOf(decide(pastRequest({ historicalSession: { ...historicalSession, agent: 'other' } })))).toBe('other-agent');
   });
+  const worktreeSession = { ...historicalSession, cwd: 'd:/wtp/.claude/worktrees/w' };
+  const inWorktree = (over: Partial<OpenRequest> = {}) =>
+    pastRequest({ historicalSession: worktreeSession, workspaceRoot: 'd:/wtp', ...over });
+
+  it('resumes a worktree session in the repository window, keeping the worktree as its directory', () => {
+    expect(decide(inWorktree(), true, true)).toMatchObject({ route: 'resume-here', root: 'd:/wtp', worktree: worktreeSession.cwd });
+    expect(decide(inWorktree({ workspaceRoot: '/other' }), true, true)).toMatchObject({
+      route: 'resume-elsewhere',
+      root: 'd:/wtp',
+      worktree: worktreeSession.cwd,
+      newWindow: true,
+    });
+    // A window already on the repository is reused rather than opened again.
+    expect(decide(inWorktree({ workspaceRoot: '/other', liveWindows: [{ folders: ['d:/wtp'] }] }), true, true)).toMatchObject({ newWindow: false });
+  });
+
+  it('resumes in the worktree own window when that is the requesting one, rather than needing another (R14)', () => {
+    const plan = decide(inWorktree({ workspaceRoot: worktreeSession.cwd }), true, true);
+
+    expect(plan).toMatchObject({ route: 'resume-here', root: worktreeSession.cwd });
+    expect(plan).not.toHaveProperty('worktree');
+    // The same window must not be refused for lacking permission to open another one.
+    expect(routeOf(decide(inWorktree({ workspaceRoot: worktreeSession.cwd }), false, true))).toBe('resume-here');
+  });
+
+  it('opens a window on the worktree while the setting is off, which is the unredirected route', () => {
+    expect(decide(inWorktree())).toMatchObject({ route: 'resume-elsewhere', root: worktreeSession.cwd });
+    expect(decide(inWorktree())).not.toHaveProperty('worktree');
+  });
+
+  it('leaves checkouts Claude cannot bind alone, because a redirect would run them in the repository', () => {
+    const sibling = { ...historicalSession, cwd: 'd:/wtp.worktrees/w' };
+    expect(decide(pastRequest({ historicalSession: sibling, workspaceRoot: 'd:/wtp' }), true, true)).toMatchObject({
+      route: 'resume-elsewhere',
+      root: sibling.cwd,
+    });
+    // Only Claude resolves a session through its project directory; another agent keeps its own window.
+    const other = { ...worktreeSession, agent: 'codex' };
+    expect(decide(pastRequest({ historicalSession: other, workspaceRoot: 'd:/wtp' }), true, true)).toMatchObject({ root: other.cwd });
+  });
+
+  it('resumes a handed-over redirect in the window it reached, which the hub has matched to the transfer', () => {
+    expect(routeOf(decide(inWorktree({ handedOver: true }), true, true))).toBe('resume-here');
+  });
+
+  it('names the repository in the refusal when other windows are not allowed', () => {
+    const plan = decide(inWorktree({ workspaceRoot: '/other' }), false, true);
+
+    expect(refusalOf(plan)).toBe('elsewhere-not-allowed');
+    expect('message' in plan && plan.message).toContain('d:/wtp');
+  });
+
   it('reveals the live session when a historical card has become stale, including sidebar routing', () => {
     expect(routeOf(decide(pastRequest({ sessions: [live], surfaces: [sidebarIn(live, live.cwd)] })))).toBe('sidebar-here');
     expect(routeOf(decide(pastRequest({ sessions: [{ ...live, finished: true }] })))).toBe('resume-here');

@@ -83,6 +83,7 @@ describe('what this window pushes to the hub', () => {
     await settings().update('logs.rotateMegabytes', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('logs.keep', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('logs.dispatchRetentionDays', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('resumeWorktreesInRepositoryWindow', undefined, vscode.ConfigurationTarget.Global);
   });
 
   it('sends the log floor and retention settings in the units the hub keeps', async () => {
@@ -137,6 +138,14 @@ describe('what this window pushes to the hub', () => {
     await settings().update('github.projectOwner', 'their-org', vscode.ConfigurationTarget.Global);
     await settings().update('github.statusField', 'Stage', vscode.ConfigurationTarget.Global);
     await untilStored((c) => c.sources?.github?.projectOwner === 'their-org' && c.sources?.github?.statusField === 'Stage', 'the project settings never reached the hub');
+  });
+
+  /** The routing setting is read by the host adapter, so it must survive the hub's own configuration parse (R43). */
+  it('carries the repository-window resume setting to the editor host settings', async () => {
+    await untilStored((c) => c.hosts?.vscode?.resumeWorktreesInRepositoryWindow === false, 'the setting did not reach the hub as off');
+    await settings().update('resumeWorktreesInRepositoryWindow', true, vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.hosts?.vscode?.resumeWorktreesInRepositoryWindow === true, 'turning the setting on did not reach the hub');
+    await untilSnapshot((s) => !s.failures.some((f) => f.kind === 'bad-config'), 'the host refused its own settings');
   });
 
   /** Verify the host configuration structure reaches the hub without treating setting fields as host IDs. */

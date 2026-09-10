@@ -26,7 +26,7 @@ export const VSCODE_HOST_ID = 'vscode';
 
 /**
  * Host settings: the installation's User directory, permission to focus other windows (R14, R27), and the
- * distribution's URI scheme for browser links. Window opening defaults to enabled for worktree navigation.
+ * distribution's URI scheme for browser links. Window opening defaults on; the repository-window resume off.
  */
 const config = z
   .object({
@@ -34,6 +34,7 @@ const config = z
     mayOpenWindow: z.boolean().default(true),
     // Stable's scheme when an older client sends none; a malformed value could not be a registered scheme.
     uriScheme: z.string().regex(/^[a-z][a-z0-9+.-]*$/, 'Not a URI scheme.').default(DEFAULT_URI_SCHEME),
+    resumeWorktreesInRepositoryWindow: z.boolean().default(false),
   })
   .strict();
 
@@ -93,7 +94,10 @@ export function makeVscodeHost(placements: Readonly<Record<string, AgentPlacemen
 
     plan(request: OpenRequest): OpenPlan {
       // Apply window-opening permission in the host that owns the setting (R14).
-      return planOpen(request, placements, settings.mayOpenWindow);
+      return planOpen(request, placements, {
+        mayOpenWindow: settings.mayOpenWindow,
+        resumeWorktreesInRepositoryWindow: settings.resumeWorktreesInRepositoryWindow,
+      });
     },
 
     planCheckout(request: CheckoutRequest): OpenPlan {

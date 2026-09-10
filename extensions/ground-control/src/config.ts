@@ -195,6 +195,11 @@ export function mayOpenWindow(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('openWindowsForSessions', true);
 }
 
+/** Resume Claude worktree sessions in the repository's window instead of one window per worktree (R43). */
+export function resumeWorktreesInRepositoryWindow(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>('resumeWorktreesInRepositoryWindow', false);
+}
+
 /**
  * Derive User from globalStorageUri so portable and Insiders installs read their own state instead of the
  * default install.
@@ -214,7 +219,12 @@ export function sourceIds(): string[] {
 
 /** uriScheme is the running distribution's own (vscode, vscode-insiders, ...), so browser links reach this editor. */
 function vscodeSettings(userDir: string): Record<string, unknown> {
-  return { userDir, mayOpenWindow: mayOpenWindow(), uriScheme: vscode.env.uriScheme };
+  return {
+    userDir,
+    mayOpenWindow: mayOpenWindow(),
+    uriScheme: vscode.env.uriScheme,
+    resumeWorktreesInRepositoryWindow: resumeWorktreesInRepositoryWindow(),
+  };
 }
 
 /** Write application-scoped settings globally; VS Code rejects workspace overrides for shared board state (R9). */
