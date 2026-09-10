@@ -270,7 +270,31 @@ a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination {
 .${BADGE_CLASS} button.gc-act[data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
 .${BADGE_CLASS} button.gc-act[data-state="running"] { animation: gc-mark-pulse 1.8s ease-in-out infinite; }
 /* Style status age as part of the triage label. */
-.gc-triage-age { font-variant-numeric: tabular-nums; display: inline-block; min-width: 3ch; text-align: center; }
+.gc-triage-age { font-variant-numeric: tabular-nums; }
+.gc-mark[data-mark="triage"]:has(.gc-triage-end) { padding-inline-end: 4px; }
+/* Stack the reread over the age so revealing it leaves the label one width. The age stays in flow, which keeps
+   it on the same baseline as the words beside it; taking it out of flow drops it below them.
+   A slot holding neither reserves no width: off mode on a card with no status age draws an empty span. */
+.gc-triage-end:not(:empty) { position: relative; display: inline-block; min-width: 3ch; text-align: center; }
+/* Outrank the generic badge button, which draws the bordered pill the sibling controls use. */
+.${BADGE_CLASS} button.gc-triage-again { position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%); display: grid; place-items: center; width: 16px; height: 16px;
+  gap: 0; padding: 0; color: inherit; background: transparent; border: 0; border-radius: 50%;
+  cursor: pointer; visibility: hidden; }
+.gc-sync-mark { width: 11px; height: 11px; fill: currentColor; }
+/* Reveal on label hover or card focus: no change while passing over cards, and reachable by keyboard. */
+.gc-mark[data-mark="triage"]:hover .gc-triage-again,
+${CARD}:focus-within .gc-triage-again { visibility: visible; }
+.gc-mark[data-mark="triage"]:has(.gc-triage-again):hover .gc-triage-age,
+${CARD}:focus-within .gc-mark[data-mark="triage"]:has(.gc-triage-again) .gc-triage-age { visibility: hidden; }
+.${BADGE_CLASS} button.gc-triage-again:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
+.${BADGE_CLASS} button.gc-triage-again:focus-visible { outline: 2px solid var(--fgColor-accent, #0969da);
+  outline-offset: 1px; }
+/* Show age and the control side by side on touch screens, where there is no hover. */
+@media (hover: none), (pointer: coarse) {
+  .gc-triage-end:not(:empty) { display: inline-flex; gap: 4px; align-items: baseline; }
+  .${BADGE_CLASS} button.gc-triage-again { position: static; transform: none; visibility: visible; }
+}
 @keyframes gc-mark-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
@@ -348,6 +372,8 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   /* Use dot fill to distinguish live and ended sessions in forced colors. */
   .gc-dot { border-color: CanvasText; }
   .gc-dot[data-live="true"] { background: CanvasText; }
+  /* A forced button surface pairs with ButtonText, not the CanvasText the label around it uses. */
+  .${BADGE_CLASS} button.gc-triage-again { color: ButtonText; }
 }
 .${POPOVER_CLASS} { position: fixed; z-index: 100; min-width: 200px; max-width: 320px; padding: 4px 0;
   font-size: 12px; color: var(--fgColor-default, #1f2328);
@@ -2242,6 +2268,11 @@ function renderTriage(doc, head, card, now, actions, canRequest) {
     `${triage.detail} ${triage.stale ? `Read ${ago(now - triage.at)} ago; card details have changed.` : `Read ${ago(now - triage.at)} ago.`}`,
   );
 
+  // Alternate status age and the reread control in the same slot to preserve label width.
+  const end = doc.createElement('span');
+
+  end.className = 'gc-triage-end';
+
   // Display status age; put classification time and explanation in the tooltip. Status age is null outside
   // project boards because GitHub records no move timestamp.
   const moved = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
@@ -2251,13 +2282,47 @@ function renderTriage(doc, head, card, now, actions, canRequest) {
 
     ageLabel.className = 'gc-triage-age';
     age(ageLabel, moved, now);
-    mark.append(' · ', ageLabel);
+    end.appendChild(ageLabel);
+    // Only where there is an age to separate: a card off the project board carries the control and nothing before it.
+    mark.append(' · ');
   }
 
   // Keep the paid reread separate from the label, which only opens the explanation (R38).
   if (canRequest) {
-    head.appendChild(badgeButton(doc, 'gc-read', 'Read this card again', 'Read this card again. Uses model usage.', readAgain));
+    const again = doc.createElement('button');
+
+    again.type = 'button';
+    again.className = 'gc-triage-again';
+    again.draggable = false;
+    again.appendChild(syncMark(doc));
+    setAccessibleName(again, 'Read this card again');
+    setTooltip(again, 'Read this card again. Uses model usage.');
+    again.addEventListener('click', (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      readAgain();
+    });
+    end.appendChild(again);
   }
+
+  mark.appendChild(end);
+}
+
+/** Octicon `sync`, on the control that reads a card again. @param {Document} doc @returns {SVGElement} */
+function syncMark(doc) {
+  const svg = doc.createElementNS(SVG_NS, 'svg');
+  const path = doc.createElementNS(SVG_NS, 'path');
+
+  svg.setAttribute('class', 'gc-sync-mark');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  path.setAttribute(
+    'd',
+    'M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .655-.835ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z',
+  );
+  svg.appendChild(path);
+
+  return svg;
 }
 
 /**

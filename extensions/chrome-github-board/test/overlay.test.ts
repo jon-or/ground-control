@@ -2793,15 +2793,66 @@ describe('card triage (R38)', () => {
   it.each(['manual', 'automatic'] as const)('offers reading beside each result in %s mode', (mode) => {
     const marks = marksFor(mode, true);
 
-    expect(marks.map((entry) => entry.textContent)).toEqual([
-      'Read this card',
-      'Not read',
-      'Develop',
-      'Read this card again',
-    ]);
+    expect(marks.map((entry) => entry.textContent)).toEqual(['Read this card', 'Not read', 'Develop']);
+
+    // A completed reading carries its reread inside the label, where the editor board also puts it.
+    const again = marks[2]?.querySelector<HTMLElement>('.gc-triage-again');
+
+    expect(again?.getAttribute('aria-label')).toBe('Read this card again');
     // Both reads spend the allowance and both clients say so; pinned here and on the editor board.
     expect(tipOf(marks[0])).toBe('Identify the next action. Uses model usage.');
-    expect(tipOf(marks[3])).toBe('Read this card again. Uses model usage.');
+    expect(tipOf(again)).toBe('Read this card again. Uses model usage.');
+  });
+
+  /** Paint one read card with reading offered, the state that carries the label's own reread control. */
+  function showRead(entry: LanedCard) {
+    paint(document, state({ snapshot: snapshot({
+      lanes: [{ id: 'build', title: 'Build', cards: [entry] }],
+      triage: { mode: 'manual', message: null, canRequest: true },
+    }) }), NOW, actions);
+  }
+
+  const read = card(4503, {
+    sessions: [],
+    triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW, stale: false },
+  });
+
+  /** The age is what a card at rest carries, and the control stands in its place, so they share one slot. */
+  it('draws the reread and the status age into the same slot of the label', () => {
+    showRead(moved(read, '2026-09-04T19:00:00Z'));
+
+    const end = mark()!.querySelector('.gc-triage-end')!;
+
+    expect([...end.children].map((el) => el.className)).toEqual(['gc-triage-age', 'gc-triage-again']);
+  });
+
+  /** Keep the paid reread separate from opening the classification explanation (R38). */
+  it('requests reading only from the control, not from the label or age around it', () => {
+    showRead(moved(read, '2026-09-04T19:00:00Z'));
+
+    mark()!.click();
+    mark()!.querySelector<HTMLElement>('.gc-triage-age')!.click();
+    expect(actions.retriage).not.toHaveBeenCalled();
+
+    mark()?.querySelector<HTMLElement>('.gc-triage-again')?.click();
+    expect(actions.retriage).toHaveBeenCalledWith('issue-4503');
+  });
+
+  /** The control sits inside GitHub's own card, which drags and opens on click (R36). */
+  it('neither drags the card nor opens it when the reread is pressed', () => {
+    showRead(read);
+
+    const again = mark()!.querySelector<HTMLElement>('.gc-triage-again')!;
+    const opened = vi.fn();
+
+    expect(again.getAttribute('draggable')).toBe('false');
+    cardElement(4503).addEventListener('click', opened);
+
+    const press = again.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(opened).not.toHaveBeenCalled();
+    // GitHub opens the card from the link the badge sits inside, which a default press would follow.
+    expect(press).toBe(false);
   });
 
   it('removes the controls and keeps the results in off mode', () => {
