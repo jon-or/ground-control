@@ -112,6 +112,12 @@ describe('what this window pushes to the hub', () => {
     assert.strictEqual(editor.uriScheme, vscode.env.uriScheme);
   });
 
+  /** The test profile seeds an explicit agents setting, which is the migrated case: hooks install without a prompt. */
+  it('treats an explicit agents setting as a completed setup and installs hooks without asking', async () => {
+    await untilStored((c) => c.installActivity === true, 'a migrated install withheld hook installation');
+    assert.ok((await vscode.commands.getCommands(true)).includes('groundControl.runSetup'));
+  });
+
   it('sends the avatar policy to the hub', async () => {
     await untilStored((c) => c.avatar === 'review-author', 'the default avatar policy never reached the hub');
     await settings().update('avatar', 'assignee', vscode.ConfigurationTarget.Global);

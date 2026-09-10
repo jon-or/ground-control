@@ -44,6 +44,11 @@
         "category": "Ground Control"
       },
       {
+        "command": "groundControl.runSetup",
+        "title": "Run Setup",
+        "category": "Ground Control"
+      },
+      {
         "command": "groundControl.enableGithubOverlay",
         "title": "Enable GitHub Overlay",
         "category": "Ground Control"

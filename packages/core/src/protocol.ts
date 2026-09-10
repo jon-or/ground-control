@@ -114,4 +114,6 @@ export type BoardMessage =
   | { type: 'showArchived'; shown: boolean }
   // Editor presentation settings; the webview mirrors them as body data attributes for the stylesheet.
   | { type: 'presentation'; animations: boolean }
+  // First-run choices still owed; hooks and triage stay off until they are made (R26).
+  | { type: 'setup'; pending: boolean }
   | SnapshotMessage;

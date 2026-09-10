@@ -314,9 +314,9 @@ Implementation limits: run records are written after dispatch returns, so persis
 
 Target: show useful work on first run, detect available information, and ask once in place for what cannot be detected. Do not silently display an empty board when configuration is missing.
 
-Implementation gap: the repository defaults to empty, so first run still requires repository configuration. GitHub identity can be detected but must be selected by the developer. Whether the OwnerRez repository should ship as a default remains a product decision.
+A fresh install asks three questions when a board first opens: agents to show (detected ones preselected), session hook installation, and triage mode. Until they are answered, every activation path sends the hub a configuration with hooks, triage, and automatic actions off, so no agent settings are written and no model is called, while session discovery and GitHub reads continue; the board shows the unfinished setup and the command that resumes it. Cancelling keeps setup pending. An install with an explicit `agents`, hook, or triage setting, or a hub configuration stored with hooks on by an earlier version, counts as set up and is not asked; the choices are ordinary settings, editable later. The repository defaults to empty, so first run still requires repository configuration; GitHub identity can be detected but must be selected by the developer. Whether the OwnerRez repository should ship as a default remains a product decision.
 
-On activation by a board, command, restored board, or URI, install selected activity hooks with backups. The global and per-agent switches currently default to true; explicit first-run installation consent remains a setup gap. Preserve unrelated entries and refuse malformed settings. Merely installing the extension without activating it must not change agent settings.
+After setup, activation by a board, command, restored board, or URI installs the chosen activity hooks with backups. Preserve unrelated entries and refuse malformed settings. Merely installing the extension without activating it must not change agent settings.
 
 ### R27. Shared defaults and personal settings
 

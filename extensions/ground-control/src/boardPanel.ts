@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { agentOfSession, basename, sessionOf } from '@ground-control/core';
 import type { BoardMessage, CardCheckout, ClientMessage, LaneId, Snapshot } from '@ground-control/core';
-import { SECTION, readHubConfig, userDirOf } from './config.js';
+import { SECTION, userDirOf } from './config.js';
+import { configureHub, runSetup, setupPending } from './setup.js';
 import { promptForLogins } from './identity.js';
 import { client } from './hubClient.js';
 import type { HubClient } from './hubClient.js';
@@ -182,8 +183,23 @@ export class BoardPanel {
       this.#render(known);
     }
 
-    this.#client.configure(readHubConfig(this.#userDir));
+    configureHub(this.#client, this.#memento, this.#userDir);
     this.#client.watching(this.#visible);
+
+    // A board is where the developer is looking, so the first-run questions are asked here, not on bare activation.
+    if (setupPending(this.#memento)) {
+      this.#post({ type: 'setup', pending: true });
+      void runSetup(this.#memento, this.#client, this.#userDir).then((done) => {
+        if (done) {
+          this.setupResolved();
+        }
+      });
+    }
+  }
+
+  /** Clear the setup notice once the choices are recorded, from this board or from the command. */
+  setupResolved(): void {
+    this.#post({ type: 'setup', pending: false });
   }
 
   #tell(message: ClientMessage): void {

@@ -4,12 +4,13 @@ import { BoardPanel, VIEW_TYPE } from './boardPanel.js';
 import type { Drawn } from './boardPanel.js';
 import { bundlePathOf } from '@ground-control/hub';
 import { writeBundle } from './bundle.js';
-import { SECTION, readHubConfig, userDirOf } from './config.js';
+import { SECTION, userDirOf } from './config.js';
 import { disposeClient, startClient } from './hubClient.js';
 import { migrateLaneMemory } from './migrate.js';
 import { registerOverlayCommands } from './overlay.js';
 import { registerChangesCommand } from './changes.js';
 import { registerUriHandler } from './openUri.js';
+import { configureHub, runSetup } from './setup.js';
 import { boardLog, disposeChannels } from './logging.js';
 import { resolveStateDir } from '@ground-control/core';
 import type { Snapshot } from '@ground-control/core';
@@ -47,7 +48,7 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   // (R35).
   const client = startClient(home, bundle);
 
-  client.configure(readHubConfig(userDirOf(context)));
+  configureHub(client, context.globalState, userDirOf(context));
   void reconcileStateDirectory(home, client, true);
 
   context.subscriptions.push(
@@ -57,12 +58,19 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
         void reconcileStateDirectory(home, client);
       }
 
-      if (event.affectsConfiguration(SECTION)) {
-        client.configure(readHubConfig(userDirOf(context)), true);
+      if (event.affectsConfiguration(SECTION) && !configureHub(client, context.globalState, userDirOf(context), true)) {
+        // Another window may have finished setup; this board's notice must not outlive it.
+        BoardPanel.current?.setupResolved();
       }
     }),
     vscode.commands.registerCommand('groundControl.openBoard', () => {
       BoardPanel.show(context);
+    }),
+    // Repeatable: choices are ordinary settings, so running setup again rewrites them.
+    vscode.commands.registerCommand('groundControl.runSetup', async () => {
+      if (await runSetup(context.globalState, client, userDirOf(context))) {
+        BoardPanel.current?.setupResolved();
+      }
     }),
     // Allow toggling the hub log after its board closes.
     vscode.commands.registerCommand('groundControl.toggleHubLog', () => {

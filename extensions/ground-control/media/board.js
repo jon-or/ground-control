@@ -171,6 +171,8 @@ let streamingLogs = false;
 
 /** Archive visibility and count. Offer the toggle only when the archive contains cards. */
 let showArchived = false;
+/** First-run choices still owed; the notice stays until the extension says they are made. */
+let setupPending = false;
 /** Mirrors groundControl.animations; kept in webview state so a restored board does not flash the shimmer first. */
 let animations = true;
 
@@ -1737,6 +1739,10 @@ function draw(payload) {
     notice(payload.hooks.notice, null, false);
   }
 
+  if (setupPending) {
+    notice('Ground Control setup is not finished: session hooks and triage stay off until it is.', 'Run Ground Control: Run Setup.', false);
+  }
+
   if (payload.triage?.message) {
     notice(payload.triage.message, null, false);
   }
@@ -1812,6 +1818,16 @@ window.addEventListener('message', (event) => {
 
   if (message.type === 'logs') {
     paintLogs(message.streaming === true);
+    return;
+  }
+
+  if (message.type === 'setup') {
+    setupPending = message.pending === true;
+
+    if (board !== null) {
+      draw(board);
+    }
+
     return;
   }
 

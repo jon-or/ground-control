@@ -28,12 +28,12 @@ npm run package --workspace ground-control
 code --install-extension extensions/ground-control/ground-control-0.0.0.vsix --force
 ```
 
-1. Run **Ground Control: Open Board** in VS Code.
+1. Run **Ground Control: Open Board** in VS Code. On a fresh install the board asks three questions once: which agents to show, whether to install session hooks, and the triage mode. Until they are answered, sessions are still discovered and GitHub is read, but no hook is written, no model is called, and no automatic action runs, and the board says so. Cancel keeps the questions for the next board; **Ground Control: Run Setup** asks them again at any time.
 2. Set `groundControl.github.repo`; its default is empty.
 3. Select your GitHub identities when prompted, or set `groundControl.github.logins`.
 4. Review the project, status, branch-pattern, and agent settings. Team conventions have configurable defaults; explicit agent settings can disable Claude or select executable paths.
 
-Activation through a command, restored board, or URI starts the client and installs selected activity hooks with backups; the global and per-agent hook switches currently default to true. Configure them before activation to prevent installation; a first-run installation prompt is not yet implemented. Installation alone does not activate it. Ground Control trusts its own Codex hooks through Codex's API and preserves unrelated entries.
+An install that already holds an explicit `agents`, hook, or triage setting, or a hub configuration stored with hooks on by an earlier version, is treated as set up and is not asked. Activation through a command, restored board, or URI starts the client; hooks install with backups only after setup, and the global and per-agent hook switches record the choice. Installation alone does not activate it. Ground Control trusts its own Codex hooks through Codex's API and preserves unrelated entries.
 
 For the browser overlay, run **Ground Control: Enable GitHub Overlay** in VS Code, then load `extensions/chrome-github-board` unpacked at `chrome://extensions` or `edge://extensions`. `groundControl.overlayBrowsers` selects Google Chrome, Microsoft Edge, or both; the default is Chrome. **Ground Control: Disable GitHub Overlay** removes every registration Ground Control made. See the [overlay guide](extensions/chrome-github-board/README.md).
 

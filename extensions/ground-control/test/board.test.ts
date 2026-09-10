@@ -843,6 +843,19 @@ describe('reported activity', () => {
     expect(names.map((style) => style.animationName)).toEqual(['gc-shimmer', '', '']);
   });
 
+  it('says that setup is unfinished, names the command, and drops the notice once it is done', () => {
+    send(message());
+    send({ type: 'setup', pending: true });
+
+    const pending = Array.from(document.querySelectorAll('.notice')).find((held) => held.textContent?.includes('setup is not finished'));
+
+    expect(pending?.textContent).toContain('Run Setup');
+    expect(pending?.classList).not.toContain('error');
+
+    send({ type: 'setup', pending: false });
+    expect(Array.from(document.querySelectorAll('.notice')).some((held) => held.textContent?.includes('setup is not finished'))).toBe(false);
+  });
+
   /** With animation off the running row keeps its phase and name; only the shimmer goes (R6). */
   it('stops the shimmer when the developer turns animations off, and keeps the running row readable', () => {
     send({ type: 'presentation', animations: false });
