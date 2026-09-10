@@ -434,6 +434,8 @@ Session row accessible names share their phase and liveness words with the edito
 
 Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.
 
+These differences from the editor board are settled, not gaps. The overlay draws footers only inside GitHub's own issue cards, so it has no ad-hoc cards (R4), no selected pull-request chip (R5), no card counts or empty-state text (R10), no archive count or archive hiding (R9), and no excluded or truncated result notices (R1) — GitHub's page states its own membership and counts. It marks a stale read on its menu control rather than in words (R25), because the page has no board header to carry the sentence. Its menus answer Escape only, since GitHub's own keyboard handling owns the card. It moves lanes from a menu where the editor board drags, and it filters and pins one log panel where the editor uses two output channels: each follows the conventions of its host. GitHub's pull request is the combined diff (R37), and choosing a filesystem path stays in the editor (R41).
+
 ## Accuracy and diagnostics
 
 ### R24. State accuracy
