@@ -11,7 +11,7 @@
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {import('@ground-control/core').StartableAgent} StartableAgent
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, openOptions?: () => void }} Actions
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -67,7 +67,7 @@ const MOTION_ATTR = 'data-gc-motion';
 
 /** @typedef {import('./preferences.js').Presentation} Presentation */
 /** @type {Presentation} */
-const DEFAULT_PRESENTATION = { animations: true, replaceAvatars: true };
+const DEFAULT_PRESENTATION = { animations: true, replaceAvatars: true, cardRows: true };
 
 /**
  * Store the timestamp for each displayed duration so one timer updates all ages. Both clients use the same
@@ -380,14 +380,13 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   background: var(--overlay-bgColor, var(--bgColor-default, #ffffff));
   border: 1px solid var(--borderColor-default, #d0d7de); border-radius: 12px;
   box-shadow: var(--shadow-floating-small, 0 6px 18px 0 rgba(31, 35, 40, 0.12)); }
-.${POPOVER_CLASS} .gc-title { padding: 6px 12px; font-weight: 600; }
-.${POPOVER_CLASS} .gc-note { padding: 2px 12px 6px; color: var(--fgColor-muted, #59636e); }
+.${POPOVER_CLASS} .gc-title { padding: 6px 8px; font-weight: 600; }
+.${POPOVER_CLASS} .gc-note { padding: 2px 8px 6px; color: var(--fgColor-muted, #59636e); }
 .${POPOVER_CLASS} hr { margin: 4px 0; border: 0; border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); }
-.${POPOVER_CLASS} button[role] { display: flex; width: 100%; gap: 8px; align-items: center; padding: 6px 12px;
+.${POPOVER_CLASS} button[role] { display: flex; width: 100%; gap: 6px; align-items: center; padding: 6px 8px;
   font: inherit; text-align: left; background: none; border: 0; color: inherit; cursor: pointer; }
 .${POPOVER_CLASS} button[role]:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
-.${POPOVER_CLASS} .gc-tick { width: 16px; flex: none; }
-.${POPOVER_CLASS} .gc-actions { display: flex; justify-content: flex-end; padding: 4px 12px 8px; }
+.${POPOVER_CLASS} .gc-tick { width: 12px; flex: none; text-align: center; }
 [${HIDDEN_ATTR}] { display: none !important; }
 
 /*
@@ -894,7 +893,7 @@ export function agentIcon(doc, agent) {
  * Create a GitHub-style panel; position after insertion so measurements include its rendered width.
  *
  * @param {Document} doc
- * @param {string} title
+ * @param {string | null} title
  * @returns {HTMLElement}
  */
 function popover(doc, title) {
@@ -902,11 +901,13 @@ function popover(doc, title) {
 
   panel.className = POPOVER_CLASS;
 
-  const heading = doc.createElement('div');
+  if (title !== null) {
+    const heading = doc.createElement('div');
 
-  heading.className = 'gc-title';
-  heading.textContent = title;
-  panel.appendChild(heading);
+    heading.className = 'gc-title';
+    heading.textContent = title;
+    panel.appendChild(heading);
+  }
 
   return panel;
 }
@@ -915,13 +916,15 @@ function popover(doc, title) {
 const MARGIN = 8;
 
 /**
- * Measure after insertion. Align left edges, clamp horizontally, and flip above if needed. Reposition on each
- * scan.
+ * Measure after insertion. Align one edge with the anchor, clamp horizontally, and flip above if needed.
+ * Reposition on each scan.
  *
  * @param {HTMLElement} panel
  * @param {Element} anchor
+ * @param {'left' | 'right'} edge Which edges to line up: right where the anchor sits at the end of the filter
+ * bar and the room to grow into is back across it, left for a menu opened from a control inside a card.
  */
-function place(panel, anchor) {
+function place(panel, anchor, edge = 'left') {
   const view = panel.ownerDocument.defaultView;
   const rect = anchor.getBoundingClientRect();
   const panelBounds = panel.getBoundingClientRect();
@@ -930,9 +933,10 @@ function place(panel, anchor) {
 
   const below = rect.bottom + 4;
   const overflows = below + panelBounds.height > bottom - MARGIN;
+  const start = edge === 'right' ? rect.right - panelBounds.width : rect.left;
 
   panel.style.top = `${overflows ? Math.max(MARGIN, rect.top - 4 - panelBounds.height) : below}px`;
-  panel.style.left = `${Math.max(MARGIN, Math.min(rect.left, right - panelBounds.width - MARGIN))}px`;
+  panel.style.left = `${Math.max(MARGIN, Math.min(start, right - panelBounds.width - MARGIN))}px`;
 }
 
 /** Tooltip delay measured from GitHub: 120ms. */
@@ -1170,7 +1174,9 @@ function item(doc, text, chosen, tick) {
 
   const mark = doc.createElement('span');
 
+  // Reserve the tick's space on every item to align labels, and keep the glyph out of the item's own name.
   mark.className = 'gc-tick';
+  mark.setAttribute('aria-hidden', 'true');
   mark.textContent = tick ?? '';
   button.appendChild(mark);
 
@@ -1183,6 +1189,24 @@ function item(doc, text, chosen, tick) {
     event.preventDefault();
     chosen();
   });
+
+  return button;
+}
+
+/**
+ * A menu item that names one state and marks whether it holds. The mark is decorative, so the state reaches
+ * assistive technology through `aria-checked`, as the lane menu's chosen lane does.
+ *
+ * @param {Document} doc
+ * @param {string} text
+ * @param {() => void} chosen
+ * @param {boolean} checked
+ */
+function checkedItem(doc, text, chosen, checked) {
+  const button = item(doc, text, chosen, checked ? '✓' : '');
+
+  button.setAttribute('role', 'menuitemcheckbox');
+  button.setAttribute('aria-checked', String(checked));
 
   return button;
 }
@@ -1417,15 +1441,16 @@ function collapseButton(doc, host, actions) {
 }
 
 /**
- * Show snapshot age, installation status, and refresh in the menu. Display failures as visible notices (R25).
+ * Show snapshot age and installation status above the menu items. Display failures as visible notices (R25).
  *
  * @param {Document} doc
  * @param {State} state
  * @param {number} now
  * @param {Actions} actions
+ * @param {boolean} cardRows
  * @returns {HTMLElement | null}
  */
-export function renderMenu(doc, state, now, actions) {
+export function renderMenu(doc, state, now, actions, cardRows) {
   const host = menuHost(doc);
 
   if (host === null) {
@@ -1445,6 +1470,7 @@ export function renderMenu(doc, state, now, actions) {
     snapshot === null,
     snapshot?.hooks?.notice ?? null,
     isCollapsed(doc),
+    cardRows,
   ]);
 
   if (held !== null && held.dataset.sig === sig && held.parentElement === host) {
@@ -1458,7 +1484,7 @@ export function renderMenu(doc, state, now, actions) {
 
     // Read afresh even when nothing was rebuilt: the bar the panel hangs from moves with the window.
     if (panel !== null) {
-      place(/** @type {HTMLElement} */ (panel), /** @type {Element} */ (held.firstElementChild));
+      place(/** @type {HTMLElement} */ (panel), /** @type {Element} */ (held.firstElementChild), 'right');
     }
 
     return held;
@@ -1491,7 +1517,12 @@ export function renderMenu(doc, state, now, actions) {
     return holder;
   }
 
-  const panel = popover(doc, 'Ground Control');
+  // The panel carries no heading, so name it for assistive technology the way the lane and editor menus are.
+  const panel = popover(doc, null);
+
+  panel.setAttribute('role', 'menu');
+  panel.setAttribute('aria-label', 'Ground Control');
+
   const read = doc.createElement('div');
 
   read.className = 'gc-note';
@@ -1518,33 +1549,24 @@ export function renderMenu(doc, state, now, actions) {
 
   panel.appendChild(doc.createElement('hr'));
 
+  // A checked item keeps its label: flipping the verb as well would say the opposite of its own mark.
+  panel.appendChild(checkedItem(doc, 'Enable overlay', () => actions.showCardRows(!cardRows), cardRows));
+
   // Keep the infrequently used log action in the menu to conserve filter-bar width.
+  panel.appendChild(checkedItem(doc, 'Show log', () => setLogOpen(doc, !logOpen, actions), logOpen));
+
   panel.appendChild(
-    item(doc, logOpen ? 'Hide log' : 'Show log', () => setLogOpen(doc, !logOpen, actions), logOpen ? '✓' : ''),
+    item(doc, 'Refresh', () => {
+      panelOpen = false;
+      actions.refresh();
+      actions.repaint();
+    }),
   );
 
-  if (actions.openOptions) panel.appendChild(item(doc, 'Overlay settings', actions.openOptions));
-
-  panel.appendChild(doc.createElement('hr'));
-
-  const actionRow = doc.createElement('div');
-  const refresh = nativeButton(doc, host);
-
-  actionRow.className = 'gc-actions';
-  refresh.id = 'gc-refresh';
-  refresh.textContent = 'Refresh';
-  refresh.addEventListener('click', (event) => {
-    event.stopPropagation();
-    event.preventDefault();
-    panelOpen = false;
-    actions.refresh();
-    actions.repaint();
-  });
-  actionRow.appendChild(refresh);
-  panel.appendChild(actionRow);
+  if (actions.openOptions) panel.appendChild(item(doc, 'Settings', actions.openOptions));
 
   holder.appendChild(panel);
-  place(panel, button);
+  place(panel, button, 'right');
 
   return holder;
 }
@@ -2860,7 +2882,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     stale.remove();
   }
 
-  const menu = renderMenu(doc, state, now, actions);
+  const menu = renderMenu(doc, state, now, actions, presentation.cardRows);
   const log = renderLog(doc, actions);
 
   applyCollapse(doc);
@@ -2880,7 +2902,29 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
 
   const openable = state.snapshot?.openable ?? [];
 
-  for (const element of doc.querySelectorAll(CARD)) {
+  // With card rows turned off the menu, its log, and the collapsed header stay; only what the overlay put
+  // inside GitHub's cards goes, and GitHub's own assignee figures come back.
+  if (!presentation.cardRows) {
+    for (const element of doc.querySelectorAll(CARD)) {
+      scanned += 1;
+
+      for (const stale of element.querySelectorAll(`.${BADGE_CLASS}, .${ACTOR_CLASS}`)) {
+        stale.remove();
+      }
+
+      for (const figure of element.querySelectorAll(`[${ACTOR_ATTR}]`)) {
+        restoreActor(figure);
+      }
+
+      element.removeAttribute('data-gc-issue');
+      element.removeAttribute(ATTENTION_ATTR);
+    }
+
+    // The lane menu this names went with its card, and a stale key reopens it when the rows come back.
+    openMenu = null;
+  }
+
+  for (const element of presentation.cardRows ? doc.querySelectorAll(CARD) : []) {
     scanned += 1;
 
     const ref = issueRefOf(element);

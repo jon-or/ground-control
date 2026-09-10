@@ -13,7 +13,7 @@ There is no build step. The manifest's public key fixes the extension ID used by
 
 ## Preferences
 
-Open **Overlay settings** from the overlay menu, or **Extension options** from Chrome's extension details. **Enable overlay** defaults to on. **Allowed project URLs** accepts one HTTPS GitHub project URL per line; an empty list allows all supported projects. Organization and personal projects are distinct, and project numbers match exactly. View URLs and query strings normalize to their project URL.
+Open **Settings** from the overlay menu, or **Extension options** from Chrome's extension details. **Enable overlay** defaults to on. **Add triage and session rows to issue cards** also defaults to on and is the same choice the overlay menu offers as a checked **Enable overlay** item; with it off the menu, log, and header collapse remain. It is a separate setting from **Enable overlay**, which removes the overlay altogether. **Allowed project URLs** accepts one HTTPS GitHub project URL per line; an empty list allows all supported projects. Organization and personal projects are distinct, and project numbers match exactly. View URLs and query strings normalize to their project URL.
 
 Preferences use durable extension storage and apply across open tabs immediately. Disabled or disallowed pages remove the overlay, restore GitHub's header and assignee display, stop logs, and do not count as watchers or retain a hub connection. Hidden allowed project tabs can retain requested logs but do not start hub polling or automatic work. Invalid or unreadable preferences pause access until corrected.
 

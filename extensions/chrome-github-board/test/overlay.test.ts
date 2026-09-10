@@ -100,7 +100,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   };
 }
 
-const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn(), startSession: vi.fn() };
+const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn(), startSession: vi.fn(), showCardRows: vi.fn() };
 
 interface State {
   snapshot: Snapshot | null;
@@ -120,6 +120,7 @@ beforeEach(() => {
   actions.watchLog.mockReset();
   actions.openCheckout.mockReset();
   actions.retriage.mockReset();
+  actions.showCardRows.mockReset();
   actions.runAction.mockReset();
   actions.stopAction.mockReset();
   // The open lane list is module state, so a test that left one open would leak into the next.
@@ -298,7 +299,7 @@ describe('swapping the assignee for the pull request author', () => {
 
   /** The browser preference is the developer's; GitHub's own figure, role and caption come back when it is off. */
   it('restores the assignee figure when replacement is turned off, and never replaces while it stays off', () => {
-    const presentation = { animations: true, replaceAvatars: false };
+    const presentation = { animations: true, replaceAvatars: false, cardRows: true };
 
     paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
     expect(document.querySelector('.gc-actor')).not.toBeNull();
@@ -316,11 +317,60 @@ describe('swapping the assignee for the pull request author', () => {
     expect(document.querySelector('.gc-actor')).toBeNull();
   });
 
+  /** R36: what the overlay put inside GitHub's cards goes; GitHub's own markup and every overlay panel stay. */
+  it('takes its rows out of the cards while they are turned off, and restores what it took', () => {
+    const shown = state({ snapshot: laneOf(actorCard(4501, AUTHOR)) });
+
+    paint(document, shown, NOW, actions);
+    expect(document.querySelector('.gc-badge')).not.toBeNull();
+
+    const off = paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false });
+    const stack = assigneeStackOf(cardElement(4501))!;
+
+    expect(document.querySelector('.gc-badge')).toBeNull();
+    expect(document.querySelector('.gc-actor')).toBeNull();
+    expect(cardElement(4501).hasAttribute('data-gc-issue')).toBe(false);
+    expect(stack.hasAttribute('data-gc-actor')).toBe(false);
+    // GitHub's figure carries its own role and its avatars again, which the replacement had taken.
+    expect(stack.getAttribute('role')).not.toBe('presentation');
+    expect(getComputedStyle(stack.querySelector<HTMLElement>('[data-component="AvatarStack"]')!).display).not.toBe('none');
+    expect(off).toEqual({ scanned: 3, badges: 0, menu: true });
+  });
+
+  /** The rows are the only thing the choice reaches: the menu, its log, and the collapsed header are separate. */
+  it('leaves its own menu, log, and collapsed header standing while the rows are off', () => {
+    const shown = state({ snapshot: laneOf(actorCard(4501, AUTHOR)) });
+
+    paint(document, shown, NOW, actions);
+    setLogOpen(document, true, actions);
+    document.getElementById('gc-collapse')!.click();
+    paint(document, shown, NOW, actions);
+
+    const hidden = document.querySelectorAll('[data-gc-hidden]').length;
+
+    expect(hidden).toBeGreaterThan(0);
+
+    paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false });
+
+    expect(document.getElementById('gc-menu')).not.toBeNull();
+    expect(document.getElementById('gc-log')).not.toBeNull();
+    expect(document.querySelectorAll('[data-gc-hidden]')).toHaveLength(hidden);
+  });
+
+  it('draws the rows again when they are turned back on', () => {
+    const shown = state({ snapshot: laneOf(actorCard(4501, AUTHOR)) });
+
+    paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false });
+
+    expect(paint(document, shown, NOW, actions)).toEqual({ scanned: 3, badges: 1, menu: true });
+    expect(document.querySelector('.gc-badge')).not.toBeNull();
+  });
+
   it('marks the page for reduced motion while the preference is off and clears it when it returns', () => {
-    paint(document, state(), NOW, actions, { animations: false, replaceAvatars: true });
+    paint(document, state(), NOW, actions, { animations: false, replaceAvatars: true, cardRows: true });
     expect(document.documentElement.getAttribute('data-gc-motion')).toBe('reduced');
 
-    paint(document, state(), NOW, actions, { animations: true, replaceAvatars: true });
+    paint(document, state(), NOW, actions, { animations: true, replaceAvatars: true, cardRows: true });
     expect(document.documentElement.hasAttribute('data-gc-motion')).toBe(false);
   });
 
@@ -1066,9 +1116,13 @@ it('titles every lane the way the editor board titles it', () => {
 });
 
 describe('the menu in the board’s own filter bar', () => {
-  function open(): void {
+  function open(over: { openOptions?: () => void } = {}): void {
     document.querySelector<HTMLElement>('#gc-menu button')!.click();
-    paint(document, state(), NOW, actions);
+    paint(document, state(), NOW, { ...actions, ...over });
+  }
+
+  function items(): HTMLElement[] {
+    return [...document.querySelectorAll<HTMLElement>('#gc-menu .gc-popover button[role]')];
   }
 
   function panelText(): string {
@@ -1138,18 +1192,83 @@ describe('the menu in the board’s own filter bar', () => {
     expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('true');
   });
 
+  /**
+   * Log, refresh and settings in the editor board's order, behind the overlay-only row control R36 settles.
+   * The button already names the overlay, so the panel opens on its snapshot age rather than a heading.
+   */
+  it('lists the shared choices in the order the editor board lists them, behind its own', () => {
+    paint(document, state(), NOW, actions);
+    open({ openOptions: vi.fn() });
+
+    expect(items().map((entry) => entry.textContent)).toEqual(['✓Enable overlay', 'Show log', 'Refresh', 'Settings']);
+    expect(document.querySelector('#gc-menu .gc-popover')?.firstElementChild?.className).toBe('gc-note');
+  });
+
+  /** A page with no options to open still lists the rest, and Settings is the item that goes. */
+  it('drops Settings alone when the client cannot open options', () => {
+    paint(document, state(), NOW, actions);
+    open();
+
+    expect(items().map((entry) => entry.textContent)).toEqual(['✓Enable overlay', 'Show log', 'Refresh']);
+  });
+
+  /** One name, marked while it holds. The mark is decorative, so `aria-checked` is what carries the state. */
+  it('keeps its name and moves only its mark as the rows go off and on', () => {
+    paint(document, state(), NOW, actions);
+    open();
+
+    const shown = items()[0]!;
+
+    expect(shown.textContent).toBe('✓Enable overlay');
+    expect(shown.getAttribute('role')).toBe('menuitemcheckbox');
+    expect(shown.getAttribute('aria-checked')).toBe('true');
+    shown.click();
+    expect(actions.showCardRows).toHaveBeenCalledWith(false);
+
+    paint(document, state(), NOW, actions, { animations: true, replaceAvatars: true, cardRows: false });
+
+    const hidden = items()[0]!;
+
+    expect(hidden.textContent).toBe('Enable overlay');
+    expect(hidden.getAttribute('aria-checked')).toBe('false');
+    hidden.click();
+    expect(actions.showCardRows).toHaveBeenLastCalledWith(true);
+  });
+
+  /** The log item is checked the same way. Opening the log shuts the panel, so its mark is read on reopening. */
+  it('marks the log item while the log is open', () => {
+    paint(document, state(), NOW, actions);
+    open();
+
+    const log = items()[1]!;
+
+    expect(log.textContent).toBe('Show log');
+    expect(log.getAttribute('aria-checked')).toBe('false');
+    log.click();
+    open();
+
+    const opened = items()[1]!;
+
+    expect(opened.textContent).toBe('✓Show log');
+    expect(opened.getAttribute('aria-checked')).toBe('true');
+  });
+
+  /** Its own lane menu and the editor's name their panels; a panel with no heading needs the name spoken. */
+  it('names the panel for assistive technology, which no longer reads a heading', () => {
+    paint(document, state(), NOW, actions);
+    open();
+
+    const panel = document.querySelector('#gc-menu .gc-popover')!;
+
+    expect(panel.getAttribute('role')).toBe('menu');
+    expect(panel.getAttribute('aria-label')).toBe('Ground Control');
+  });
+
   it('asks the hub to read again, and closes', () => {
     paint(document, state(), NOW, actions);
     open();
 
-    const refresh = document.getElementById('gc-refresh')!;
-
-    // A button of GitHub's, not a line of text to click: the classes are the ones the bar's own buttons wear.
-    expect(refresh.className).toBe(
-      document.querySelector('[role="region"][aria-label="View filters"] button[data-component="Button"]')!.className,
-    );
-
-    refresh.click();
+    items().find((entry) => entry.textContent === 'Refresh')!.click();
     paint(document, state(), NOW, actions);
 
     expect(actions.refresh).toHaveBeenCalledTimes(1);
@@ -1354,17 +1473,18 @@ describe('where a panel hangs', () => {
     vi.restoreAllMocks();
   });
 
-  it('hangs under what opened it, left edges aligned', () => {
-    measured({ left: 300, bottom: 120, top: 90 }, { width: 260, height: 140 });
+  /** The board menu sits at the end of the filter bar, so its panel grows back across the bar, not past it. */
+  it('hangs under what opened it, right edges aligned', () => {
+    measured({ left: 300, right: 420, bottom: 120, top: 90 }, { width: 260, height: 140 });
     open();
 
     expect(panel().style.top).toBe('124px');
-    expect(panel().style.left).toBe('300px');
+    expect(panel().style.left).toBe('160px');
   });
 
   /** Verify right-edge overflow correction uses measured panel width. */
   it('shifts back from the window edge by no more than it has to', () => {
-    measured({ left: 900, bottom: 120, top: 90 }, { width: 260, height: 140 });
+    measured({ left: 900, right: 1020, bottom: 120, top: 90 }, { width: 260, height: 140 });
     open();
 
     expect(window.innerWidth).toBe(1024);
@@ -1372,10 +1492,20 @@ describe('where a panel hangs', () => {
   });
 
   it('flips above the anchor rather than off the bottom of the window', () => {
-    measured({ left: 300, top: 700, bottom: 740 }, { width: 260, height: 200 });
+    measured({ left: 300, right: 420, top: 700, bottom: 740 }, { width: 260, height: 200 });
     open();
 
     expect(panel().style.top).toBe('496px');
+  });
+
+  /** A lane menu hangs off a control inside a card, where the space to grow into is to the right. */
+  it('hangs a lane menu from the left edge of the control that opened it', () => {
+    measured({ left: 300, right: 420, bottom: 120, top: 90 }, { width: 260, height: 140 });
+    paint(document, state(), NOW, actions);
+    document.querySelector<HTMLElement>('.gc-lane')!.click();
+    paint(document, state(), NOW, actions);
+
+    expect(document.querySelector<HTMLElement>('.gc-lanes')!.style.left).toBe('300px');
   });
 });
 
@@ -2054,7 +2184,7 @@ describe('what a scan keeps', () => {
     const menu = document.getElementById('gc-menu');
     const item = document.querySelector('#gc-menu .gc-popover button[role]');
 
-    expect(item?.textContent).toContain('Show log');
+    expect(item?.textContent).toContain('Enable overlay');
 
     paint(document, shown, NOW + 1_000, actions);
 

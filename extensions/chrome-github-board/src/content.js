@@ -99,6 +99,7 @@
     runAction: (key) => post({ type: 'runAction', key }),
     stopAction: (key) => post({ type: 'stopAction', key }),
     startSession: (key, agent) => post({ type: 'startSession', key, agent }),
+    showCardRows: (shown) => showCardRows(shown),
     openOptions: () => post({ type: 'openOptions' }),
     repaint: () => schedule(),
     watchLog: (open) => {
@@ -107,6 +108,20 @@
       post({ type: 'logView', open });
     },
   };
+
+  /**
+   * Persist the card-row choice. `watchPreferences` delivers the write back and repaints, so nothing is held
+   * locally: a tab that cannot store the choice keeps drawing what it already draws. The write is the parsed
+   * object, so it also rewrites stored project URLs to their canonical form.
+   *
+   * @param {boolean} shown
+   */
+  function showCardRows(shown) {
+    // Spreading null would store a preferences object with no `enabled`, which parses as invalid and locks the
+    // developer out of the overlay until they correct it in options.
+    if (preferences === null) return;
+    void chrome.storage.local.set({ [policy.PREFERENCES_KEY]: { ...preferences, cardRows: shown } });
+  }
 
   function post(message) {
     if (message.type !== 'boardState' && !(message.type === 'logView' && message.open === false) && !eligible()) return;

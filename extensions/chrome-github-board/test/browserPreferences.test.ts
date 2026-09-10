@@ -231,12 +231,37 @@ it('holds the hub connection on a board it is not serving, so a login it does no
 });
 
 
+/** The menu writes durable storage, so the choice survives a reload and reaches every tab, not just this one. */
+it('stores the card-row choice from its menu, keeping the rest of the preferences', async () => {
+  const board = await pageAt();
+  await shown(board, true);
+  await emit();
+  await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
+
+  await board.locator('#gc-menu button').first().click();
+
+  const overlay = board.getByRole('menuitemcheckbox', { name: 'Enable overlay', exact: true });
+
+  await expect.poll(() => overlay.textContent()).toBe('✓Enable overlay');
+  await overlay.click();
+
+  await expect.poll(() => board.locator('.gc-badge').count()).toBe(0);
+  expect(await worker.evaluate('chrome.storage.local.get("preferences").then(held => held.preferences)'))
+    .toEqual({ enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: false });
+
+  // The menu stands while the rows are gone, which is what makes the choice reversible from the page.
+  await shown(board, true);
+  await expect.poll(() => overlay.textContent()).toBe('Enable overlay');
+  await overlay.click();
+  await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
+});
+
 it('saves accessible options, rejects invalid URLs, and preserves disabled startup after browser restart', async () => {
   const board = await pageAt();
   await shown(board, true);
   await board.locator('#gc-menu button').first().click();
   const opened = context.waitForEvent('page');
-  await board.getByRole('menuitem', { name: 'Overlay settings', exact: true }).click();
+  await board.getByRole('menuitem', { name: 'Settings', exact: true }).click();
   const settings = await opened;
   await settings.waitForURL(worker.url().replace('src/worker.js', 'options.html'));
   await expect.poll(() => settings.getByRole('status').textContent()).not.toBe('Loading preferences…');
@@ -251,13 +276,14 @@ it('saves accessible options, rejects invalid URLs, and preserves disabled start
   expect(await settings.getByLabel(/Animate working borders/).isChecked()).toBe(true);
   expect(await settings.getByLabel(/Replace assignee avatars/).isChecked()).toBe(true);
   expect(await settings.getByLabel(/Run only on boards filtered to my issues/).isChecked()).toBe(true);
+  expect(await settings.getByLabel(/Add triage and session rows to issue cards/).isChecked()).toBe(true);
   await settings.getByLabel(/Replace assignee avatars/).uncheck();
   await settings.getByLabel(/Run only on boards filtered to my issues/).uncheck();
   await settings.getByLabel('Enable overlay', { exact: true }).uncheck();
   await settings.getByRole('button', { name: 'Save', exact: true }).click();
   await shown(board, false);
   expect(await worker.evaluate('chrome.storage.local.get("preferences").then(held => held.preferences)'))
-    .toEqual({ enabled: false, projects: [BOARD], animations: true, replaceAvatars: false, filteredToMe: false });
+    .toEqual({ enabled: false, projects: [BOARD], animations: true, replaceAvatars: false, filteredToMe: false, cardRows: true });
 
   await context.close();
   await launch();
@@ -308,7 +334,7 @@ it('clears hidden tabs immediately, restores GitHub markup, unsubscribes logs, a
   await board.locator('#gc-collapse').click();
   await expect.poll(() => board.locator('[data-gc-hidden]').count()).toBeGreaterThan(0);
   await board.locator('#gc-menu button').first().click();
-  await board.getByRole('menuitem', { name: 'Show log', exact: true }).click();
+  await board.getByRole('menuitemcheckbox', { name: 'Show log', exact: true }).click();
   await expect.poll(() => worker.evaluate('probe.messages.filter(m => m.type === "watchLog").at(-1)?.watching')).toBe(true);
   await board.evaluate(() => {
     document.documentElement.dataset.testVisibility = 'hidden';
@@ -361,7 +387,7 @@ it('keeps disallowed ports ineligible through content and native reconnects', as
   await worker.evaluate('probe.oldDrop(); probe.oldEmit({ type: "notice", message: "stale native message" })');
   await emit();
   await allowed.locator('#gc-menu button').first().click();
-  await allowed.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await allowed.getByRole('menuitem', { name: 'Refresh', exact: true }).click();
   await expect.poll(() => worker.evaluate('probe.messages.filter(m => m.type === "refresh").length')).toBe(1);
   expect(await worker.evaluate('probe.deliveries.filter(d => d.message.message === "stale native message")')).toEqual([]);
   await shown(blocked, false);

@@ -183,7 +183,7 @@ describe('the overlay as Chrome loads it', () => {
     expect(await page.locator('#gc-log').count()).toBe(0);
 
     await page.locator('#gc-menu button').first().click();
-    await page.getByRole('menuitem', { name: 'Show log' }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Show log' }).click();
 
     const lines = page.locator('#gc-log-lines .gc-line');
 
@@ -213,7 +213,7 @@ describe('the overlay as Chrome loads it', () => {
 
     await page.locator('#gc-menu button').first().click();
 
-    const item = page.getByRole('menuitem', { name: 'Show log' });
+    const item = page.getByRole('menuitemcheckbox', { name: 'Show log' });
 
     await expect.poll(() => item.count(), { timeout: 20_000 }).toBe(1);
 
@@ -255,7 +255,7 @@ describe('the overlay as Chrome loads it', () => {
 
     const openTheLog = async () => {
       await page.locator('#gc-menu button').first().click();
-      await page.getByRole('menuitem', { name: 'Show log' }).click();
+      await page.getByRole('menuitemcheckbox', { name: 'Show log' }).click();
       await expect.poll(() => page.locator('#gc-log').count(), { timeout: 20_000 }).toBe(1);
     };
 

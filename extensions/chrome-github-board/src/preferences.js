@@ -5,7 +5,7 @@ export const PREFERENCES_KEY = 'preferences';
 /** Assignee logins the hub last reported, cached so the filter gate survives a reload with no connection. */
 export const LOGINS_KEY = 'logins';
 
-/** @typedef {{ enabled: boolean, projects: string[], animations: boolean, replaceAvatars: boolean, filteredToMe: boolean }} Preferences */
+/** @typedef {{ enabled: boolean, projects: string[], animations: boolean, replaceAvatars: boolean, filteredToMe: boolean, cardRows: boolean }} Preferences */
 /** @typedef {{ value: Preferences | null, error: string | null }} PreferenceState */
 
 /** Exact project identity, excluding view selection. @param {string} pathname */
@@ -32,7 +32,7 @@ export function projectUrl(raw) {
 
 /** Invalid durable data closes access until corrected in options. @param {unknown} raw @returns {PreferenceState} */
 export function parsePreferences(raw) {
-  if (raw === undefined) return { value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true }, error: null };
+  if (raw === undefined) return { value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true }, error: null };
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return invalid();
   const held = /** @type {Record<string, unknown>} */ (raw);
   if (typeof held.enabled !== 'boolean' || !Array.isArray(held.projects)) return invalid();
@@ -40,18 +40,19 @@ export function parsePreferences(raw) {
   const animations = held.animations === undefined ? true : held.animations;
   const replaceAvatars = held.replaceAvatars === undefined ? true : held.replaceAvatars;
   const filteredToMe = held.filteredToMe === undefined ? true : held.filteredToMe;
-  if (typeof animations !== 'boolean' || typeof replaceAvatars !== 'boolean' || typeof filteredToMe !== 'boolean') return invalid();
+  const cardRows = held.cardRows === undefined ? true : held.cardRows;
+  if (typeof animations !== 'boolean' || typeof replaceAvatars !== 'boolean' || typeof filteredToMe !== 'boolean' || typeof cardRows !== 'boolean') return invalid();
   const projects = held.projects.map(projectUrl);
   if (projects.some((project) => project === null)) return invalid();
-  return { value: { enabled: held.enabled, projects: [...new Set(/** @type {string[]} */ (projects))], animations, replaceAvatars, filteredToMe }, error: null };
+  return { value: { enabled: held.enabled, projects: [...new Set(/** @type {string[]} */ (projects))], animations, replaceAvatars, filteredToMe, cardRows }, error: null };
 }
 
-/** @typedef {{ animations: boolean, replaceAvatars: boolean }} Presentation */
+/** @typedef {{ animations: boolean, replaceAvatars: boolean, cardRows: boolean }} Presentation */
 
 /** What the overlay draws with; invalid or unread preferences fall back to the defaults, access is refused separately.
  * @param {Preferences | null} preferences @returns {Presentation} */
 export function presentationOf(preferences) {
-  return { animations: preferences?.animations ?? true, replaceAvatars: preferences?.replaceAvatars ?? true };
+  return { animations: preferences?.animations ?? true, replaceAvatars: preferences?.replaceAvatars ?? true, cardRows: preferences?.cardRows ?? true };
 }
 
 /** @returns {PreferenceState} */
