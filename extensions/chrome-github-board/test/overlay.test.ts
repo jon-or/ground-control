@@ -2513,7 +2513,18 @@ describe('card triage (R38)', () => {
 
     expect(mark()?.textContent).toBe('Not read');
     expect(mark()?.tagName).toBe('SPAN');
+    expect(tipOf(mark())).toBe('Triage failed. Retry from the card in VS Code.');
     expect(document.querySelector('.gc-triage-detail')).toBeNull();
+  });
+
+  /** Same failure wording as the editor board (docs/testing.md); only the remedy differs. */
+  it('reports the attempts behind a failure that stopped retrying', () => {
+    show(card(4501, { sessions: [], triage: { state: 'failed', attempts: 5, exhausted: true } }));
+
+    expect(mark()?.textContent).toBe('Not read');
+    expect(tipOf(mark())).toBe(
+      'Triage failed after 5 attempts. Automatic retries stopped. Retry from the card in VS Code.',
+    );
   });
 
   it('carries nothing on a card that has not been read', () => {

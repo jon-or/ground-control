@@ -2478,6 +2478,7 @@ describe('card triage (R38)', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 2, exhausted: false })] }) }));
 
     expect(chip()?.textContent).toBe('Not read');
+    expect(tipOf(chip())).toBe('Triage failed. Click to retry.');
 
     chip()?.click();
 
@@ -2487,7 +2488,8 @@ describe('card triage (R38)', () => {
   it('reports when automatic triage retries stop', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 5, exhausted: true })] }) }));
 
-    expect(tipOf(chip())).toContain('Automatic retries stopped');
+    // Literal because the overlay pins the same sentence; the remedy is the only half that may differ.
+    expect(tipOf(chip())).toBe('Triage failed after 5 attempts. Automatic retries stopped. Click to retry.');
   });
 
   it('keeps triage separate from attention colors', () => {

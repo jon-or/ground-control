@@ -2108,8 +2108,13 @@ function renderTriage(doc, head, card, now) {
 
   // Retriage consumes model usage and is editor-only; the browser bridge refuses it (R38).
   if (triage.state === 'failed') {
+    // Same failure wording as the editor board; only the remedy differs.
+    const failure = triage.exhausted
+      ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped.`
+      : 'Triage failed.';
+
     mark.textContent = 'Not read';
-    setTooltip(mark, 'Triage failed. Retry from the card in VS Code.');
+    setTooltip(mark, `${failure} Retry from the card in VS Code.`);
 
     return;
   }
