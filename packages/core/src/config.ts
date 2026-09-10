@@ -6,7 +6,7 @@ import type { ActionSettings } from './actions.js';
 import type { LaneId } from './board.js';
 import { LOG_FLOORS } from './log.js';
 import { DEFAULT_SESSION_SCOPE, sessionScopeSchema } from './sessionScope.js';
-import { AVATAR_POLICIES } from './source.js';
+import { DEFAULT_AVATAR_POLICY, OFF_REVIEW_AVATARS, REVIEW_AVATARS } from './source.js';
 import type { AvatarPolicy } from './source.js';
 import { agentHomeSchema } from './agentHomes.js';
 import type { SessionScope } from './sessionScope.js';
@@ -223,7 +223,14 @@ export const hubConfig = z.object({
   // A window under a minute would drop the hub between an editor reload and its reconnect.
   idleExitMs: bounded(DEFAULT_IDLE_EXIT_MS, IDLE_EXIT_FLOOR_MS, IDLE_EXIT_CEILING_MS),
   logs,
-  avatar: z.enum(AVATAR_POLICIES).catch('review-author').default('review-author'),
+  // The outer catch also absorbs the single string an older client wrote here.
+  avatar: z
+    .object({
+      review: z.enum(REVIEW_AVATARS).catch('pull-request-author').default('pull-request-author'),
+      offReview: z.enum(OFF_REVIEW_AVATARS).catch('assignee').default('assignee'),
+    })
+    .catch({ ...DEFAULT_AVATAR_POLICY })
+    .default({ ...DEFAULT_AVATAR_POLICY }),
   sessionScope: sessionScopeSchema.default(DEFAULT_SESSION_SCOPE),
   agentHomes: z.record(z.string(), agentHomeSchema).optional(),
   installActivity: z.boolean(),

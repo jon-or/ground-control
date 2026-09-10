@@ -20,7 +20,7 @@ export function config(over: Partial<GithubConfig> = {}): GithubConfig {
     cardSource: 'project',
     maxPages: 5,
     reviewStatuses: ['🔍 Dev Review'],
-    avatar: 'review-author',
+    avatar: { review: 'pull-request-author', offReview: 'assignee' },
     ...over,
   };
 }

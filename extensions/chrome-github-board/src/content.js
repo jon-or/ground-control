@@ -15,6 +15,10 @@
   /** @type {import('./preferences.js').Preferences | null} */
   let preferences = null;
   let identity = null;
+  /** @type {string[]} Assignee logins from the hub, cached by the worker; the viewer's own login is read per page. */
+  let logins = [];
+  /** The last filter decision, held while the developer is still typing in the filter box. */
+  let focused = false;
   let pageToken = 0;
   let replayed = false;
 
@@ -33,8 +37,26 @@
   let watchingLog = false;
   let reported = '';
 
-  function eligible() {
+  /** A project the preferences allow. The hub connection follows this, so the gate below can learn the logins. */
+  function onProject() {
     return policy !== null && policy.allowsProject(preferences, location.pathname);
+  }
+
+  function eligible() {
+    return onProject() && filteredToMe();
+  }
+
+  /**
+   * R36: with the preference on, the overlay runs only where the board's filter restricts it to the developer.
+   * The filter box holds unapplied keystrokes, so a focused box keeps the last decision rather than judging each one.
+   */
+  function filteredToMe() {
+    if (preferences?.filteredToMe !== true) return true;
+    if (document.activeElement === overlay.filterBox(document)) return focused;
+
+    focused = policy.filtersToMe(overlay.filterText(document), [overlay.viewerLogin(document), ...logins].filter(Boolean));
+
+    return focused;
   }
 
   // Policy changes must clear hidden tabs without waiting for a suspended animation frame.
@@ -58,12 +80,13 @@
   function report() {
     if (helpers === null || stopped) return;
     syncPage();
-    const board = eligible();
+    const board = onProject();
+    const watched = eligible();
     const visible = document.visibilityState === 'visible';
-    const next = `${location.pathname}:${board}:${visible}:${pageToken}`;
+    const next = `${location.pathname}:${board}:${watched}:${visible}:${pageToken}`;
     if (next === reported || port === null) return;
     reported = next;
-    post({ type: 'boardState', board, visible, pathname: location.pathname, token: pageToken });
+    post({ type: 'boardState', board, focused: watched, visible, pathname: location.pathname, token: pageToken });
   }
 
   const observer = new MutationObserver(() => schedule());
@@ -218,6 +241,10 @@
     connect();
     policy.watchPreferences(chrome.storage, (next) => {
       preferences = next.value;
+      schedule();
+    });
+    policy.watchLogins(chrome.storage, (next) => {
+      logins = next;
       schedule();
     });
     schedule();

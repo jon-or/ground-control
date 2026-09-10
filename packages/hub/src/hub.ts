@@ -172,7 +172,7 @@ export function realHubDeps(
 function boardPolicyOf(config: HubConfig): BoardPolicy {
   return {
     reviewStatuses: Object.entries(config.statusLanes).filter(([, lane]) => lane === 'review').map(([status]) => status).sort(),
-    avatar: config.avatar,
+    avatar: { ...config.avatar },
   };
 }
 
@@ -1632,6 +1632,7 @@ export class Hub {
         [...this.#readings.values()].some((reading) => reading.failure) ||
         (this.#sessions?.failures.length ?? 0) > 0,
       needs: this.#needs(),
+      owners: items?.owners ?? [],
       fetchedAt: new Date(now).toISOString(),
     };
   }

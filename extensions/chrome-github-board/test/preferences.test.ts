@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { allowsProject, parsePreferences, presentationOf, projectPath, projectUrl, watchPreferences } from '../src/preferences.js';
+import { allowsProject, filtersToMe, parseLogins, parsePreferences, presentationOf, projectPath, projectUrl, watchLogins, watchPreferences } from '../src/preferences.js';
 import type { PreferenceState } from '../src/preferences.js';
 
 describe('browser project preferences', () => {
   it.each(['/example/repo/issues/1', '/example/repo/pull/2', '/orgs/example/repositories', '/orgs/example/projects', '/', '/notifications'])('leaves non-project path %s unchanged', (path) => {
-    expect(allowsProject({ enabled: true, projects: [], animations: true, replaceAvatars: true }, path)).toBe(false);
+    expect(allowsProject({ enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true }, path)).toBe(false);
   });
 
   it('defaults an absent preference object to enabled on supported projects', () => {
     const state = parsePreferences(undefined);
-    expect(state).toEqual({ value: { enabled: true, projects: [], animations: true, replaceAvatars: true }, error: null });
+    expect(state).toEqual({ value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true }, error: null });
     expect(allowsProject(state.value, '/orgs/example/projects/3')).toBe(true);
     expect(allowsProject(state.value, '/example/repo/issues/3')).toBe(false);
   });
@@ -84,7 +84,7 @@ describe('preference loading', () => {
     expect(h.states).toEqual([]);
     h.resolve({ preferences: { enabled: false, projects: [] } });
     await h.settle();
-    expect(h.states).toEqual([{ value: { enabled: false, projects: [], animations: true, replaceAvatars: true }, error: null }]);
+    expect(h.states).toEqual([{ value: { enabled: false, projects: [], animations: true, replaceAvatars: true, filteredToMe: true }, error: null }]);
   });
 
   it('retains newer storage changes when the initial read returns late', async () => {
@@ -92,7 +92,7 @@ describe('preference loading', () => {
     h.change({ preferences: { newValue: { enabled: false, projects: [] } } });
     h.resolve({ preferences: { enabled: true, projects: [] } });
     await h.settle();
-    expect(h.states).toEqual([{ value: { enabled: false, projects: [], animations: true, replaceAvatars: true }, error: null }]);
+    expect(h.states).toEqual([{ value: { enabled: false, projects: [], animations: true, replaceAvatars: true, filteredToMe: true }, error: null }]);
   });
 
   it('ignores unrelated keys and storage areas', async () => {
@@ -119,7 +119,7 @@ describe('preference loading', () => {
     h.change({ preferences: { newValue: { enabled: true, projects: [] } } });
     h.reject(new Error('old read failed'));
     await h.settle();
-    expect(h.states).toEqual([{ value: { enabled: true, projects: [], animations: true, replaceAvatars: true }, error: null }]);
+    expect(h.states).toEqual([{ value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true }, error: null }]);
   });
 
   it('unsubscribes and ignores an initial read after disposal', async () => {
@@ -136,14 +136,14 @@ describe('preference loading', () => {
     h.resolve({ preferences: { enabled: false, projects: [] } });
     await h.settle();
     h.change({ preferences: { oldValue: { enabled: false, projects: [] } } });
-    expect(h.states.at(-1)).toEqual({ value: { enabled: true, projects: [], animations: true, replaceAvatars: true }, error: null });
+    expect(h.states.at(-1)).toEqual({ value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true }, error: null });
   });
 });
 
 describe('presentation preferences', () => {
   /** Preferences saved before these keys existed must keep working exactly as they did. */
-  it('keeps the defaults for a stored object that predates the presentation keys', () => {
-    expect(parsePreferences({ enabled: true, projects: [] }).value).toEqual({ enabled: true, projects: [], animations: true, replaceAvatars: true });
+  it('keeps the defaults for a stored object that predates the later keys', () => {
+    expect(parsePreferences({ enabled: true, projects: [] }).value).toEqual({ enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true });
   });
 
   it('reads the toggles and refuses a value of the wrong type', () => {
@@ -153,6 +153,73 @@ describe('presentation preferences', () => {
 
   it('draws with the defaults when preferences are unreadable, leaving access to the eligibility check', () => {
     expect(presentationOf(null)).toEqual({ animations: true, replaceAvatars: true });
-    expect(presentationOf({ enabled: true, projects: [], animations: false, replaceAvatars: true })).toEqual({ animations: false, replaceAvatars: true });
+    expect(presentationOf({ enabled: true, projects: [], animations: false, replaceAvatars: true, filteredToMe: true })).toEqual({ animations: false, replaceAvatars: true });
+  });
+});
+
+describe('the board filter that names the developer', () => {
+  const MINE = ['jon-or', 'jon-or-ai'];
+
+  it.each([
+    ['assignee:@me', []],
+    ['assignee:jon-or', MINE],
+    ['assignee:jon-or,jon-or-ai', MINE],
+    ['assignee:"jon-or",jon-or-ai', MINE],
+    ['label:bug assignee:@me is:open', []],
+    ['ASSIGNEE:JON-OR', MINE],
+    ['assignee:@me assignee:jon-or', MINE],
+  ])('accepts %s', (filter, logins) => {
+    expect(filtersToMe(filter, logins)).toBe(true);
+  });
+
+  it.each([
+    ['assignee:teammate', MINE],
+    ['assignee:jon-or,teammate', MINE],
+    // The quoted value must not end the qualifier: everything after the comma is still assigned to someone else.
+    ['assignee:"jon-or",teammate', MINE],
+    ['assignee:@me assignee:teammate', MINE],
+    ['label:bug', MINE],
+    ['', MINE],
+    ['no:assignee', MINE],
+    ['assignee:jon-or', []],
+  ])('refuses %s', (filter, logins) => {
+    expect(filtersToMe(filter, logins)).toBe(false);
+  });
+
+  /** A negated qualifier can only remove cards from a board already restricted to the developer. */
+  it('reads past a negated qualifier rather than refusing the board', () => {
+    expect(filtersToMe('assignee:@me -assignee:jon-or-ai', MINE)).toBe(true);
+    expect(filtersToMe('-assignee:teammate', MINE)).toBe(false);
+  });
+
+  it('has no filter to read when GitHub renders no filter box', () => {
+    expect(filtersToMe(null, MINE)).toBe(false);
+  });
+});
+
+describe('the cached hub logins', () => {
+  it('keeps only usable logins, whatever else is stored under the key', () => {
+    expect(parseLogins(['jon-or', '', 7, null, 'jon-or-ai'])).toEqual(['jon-or', 'jon-or-ai']);
+    expect(parseLogins('jon-or')).toEqual([]);
+    expect(parseLogins(undefined)).toEqual([]);
+  });
+
+  it('retains a newer change when the initial read returns late, as preferences do', async () => {
+    let resolve!: (held: Record<string, unknown>) => void;
+    const read = new Promise<Record<string, unknown>>((done) => { resolve = done; });
+    let listener: ((changes: Record<string, chrome.storage.StorageChange>, area: string) => void) | null = null;
+    const storage = {
+      local: { get: () => read },
+      onChanged: { addListener: (c: NonNullable<typeof listener>) => { listener = c; }, removeListener: () => { listener = null; } },
+    } as unknown as typeof chrome.storage;
+    const seen: string[][] = [];
+
+    watchLogins(storage, (logins) => seen.push(logins));
+    listener!({ logins: { newValue: ['jon-or-ai'] } as chrome.storage.StorageChange }, 'local');
+    resolve({ logins: [] });
+    await read;
+    await Promise.resolve();
+
+    expect(seen).toEqual([['jon-or-ai']]);
   });
 });

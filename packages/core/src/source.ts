@@ -26,12 +26,21 @@ export interface SourceReading {
   needs: { detected: string[] } | null;
 }
 
-/**
- * Whose face a card shows. review-author and issue-author both show the selected pull request's author while the
- * status is a review status, and differ on other statuses: the issue author, or the assignee.
- */
-export const AVATAR_POLICIES = ['review-author', 'issue-author', 'assignee'] as const;
-export type AvatarPolicy = (typeof AVATAR_POLICIES)[number];
+/** Whose face a review-status card shows. Off-review lanes have no pull request to name, so they use their own list. */
+export const REVIEW_AVATARS = ['pull-request-author', 'assignee'] as const;
+export type ReviewAvatar = (typeof REVIEW_AVATARS)[number];
+
+/** Whose face a card shows outside the review statuses: unstarted, plan, build, done, and icebox. */
+export const OFF_REVIEW_AVATARS = ['issue-author', 'assignee'] as const;
+export type OffReviewAvatar = (typeof OFF_REVIEW_AVATARS)[number];
+
+/** Whose face a card shows, chosen separately for review statuses and every other status (R5). */
+export interface AvatarPolicy {
+  review: ReviewAvatar;
+  offReview: OffReviewAvatar;
+}
+
+export const DEFAULT_AVATAR_POLICY: AvatarPolicy = { review: 'pull-request-author', offReview: 'assignee' };
 
 /** Board policy a source needs to shape its cards; the hub derives it from board settings, not from source settings. */
 export interface BoardPolicy {
@@ -41,7 +50,7 @@ export interface BoardPolicy {
 }
 
 /** Mirrors the review entry of the board package's DEFAULT_STATUS_LANES, which core cannot import. */
-export const DEFAULT_BOARD_POLICY: BoardPolicy = { reviewStatuses: ['🔍 Dev Review'], avatar: 'review-author' };
+export const DEFAULT_BOARD_POLICY: BoardPolicy = { reviewStatuses: ['🔍 Dev Review'], avatar: { ...DEFAULT_AVATAR_POLICY } };
 
 /** Work-source adapter selected by configuration and registry ID. */
 export interface WorkSource {

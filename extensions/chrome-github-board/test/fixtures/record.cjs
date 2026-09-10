@@ -3,7 +3,7 @@
 const { writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { chromium } = require('playwright');
-const { ASSIGNED, ASSIGNEE, AVATAR, COLUMNS, ISSUES, PROJECT, REPO, VIEWS, assertScrubbed, titles } = require('./anonymise.cjs');
+const { ASSIGNED, ASSIGNEE, AVATAR, COLUMNS, FILTER, ISSUES, PROJECT, REPO, VIEWS, assertScrubbed, titles } = require('./anonymise.cjs');
 
 /** GitHub's own public roadmap, in its board view. Public, so a recording needs no account of the developer's. */
 const SOURCE = 'https://github.com/orgs/github/projects/4247/views/21';
@@ -273,7 +273,13 @@ async function main() {
   // behavior depends on these ancestor relationships.
   let nav = captured.nav;
 
-  let html = `${captured.views}<div class="Board-module__boardContainer">${captured.bar}${captured.html}</div>`;
+  // Synthesize the filter input and the viewer's login rather than recording either: both name a real person.
+  const bar = captured.bar.replace(
+    /(aria-label="View filters"[^>]*>)/,
+    `$1<input id="filter-bar-component-input" type="text" placeholder="Filter by keyword or by field" value="${FILTER}">`,
+  );
+
+  let html = `${captured.views}<div class="Board-module__boardContainer">${bar}${captured.html}</div>`;
 
   for (const value of captured.recorded) {
     if (String(value).length > 2) {
@@ -284,7 +290,7 @@ async function main() {
 
   const document = [
     '<!doctype html>',
-    '<html lang="en"><head><meta charset="utf-8"><title>Project board</title></head>',
+    `<html lang="en"><head><meta charset="utf-8"><meta name="user-login" content="${ASSIGNEE}"><title>Project board</title></head>`,
     `<body>${nav}<div id="memex-project-view-root">${html}</div></body></html>`,
     '',
   ].join('\n');

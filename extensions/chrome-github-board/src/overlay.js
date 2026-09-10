@@ -20,6 +20,24 @@ export const BOARD_REGION = '#project-items-region';
 export const CARD = '[data-board-card-id]';
 export const COLUMN = '[data-board-column]';
 export const TOOLBAR = '[role="region"][aria-label="View filters"]';
+
+/**
+ * The filter box's current text, which holds a saved view's own filter as well as a typed one where the URL holds
+ * neither (mechanics M27). It is what the developer has typed, applied or not. @param {Document} doc
+ */
+export function filterText(doc) {
+  return filterBox(doc)?.value ?? null;
+}
+
+/** The filter box itself, so a caller can tell whether the developer is still typing in it. @param {Document} doc */
+export function filterBox(doc) {
+  return /** @type {HTMLInputElement | null} */ (doc.querySelector(`${TOOLBAR} #filter-bar-component-input`));
+}
+
+/** The signed-in login GitHub states on every page; empty when signed out. @param {Document} doc */
+export function viewerLogin(doc) {
+  return /** @type {HTMLMetaElement | null} */ (doc.querySelector('meta[name="user-login"]'))?.content || null;
+}
 export const PROJECT_NAV = '[role="navigation"][aria-label="Project"]';
 export const VIEW_TABS = 'nav[aria-label="Select view"]';
 

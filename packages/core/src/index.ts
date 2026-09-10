@@ -10,8 +10,8 @@ export type { CardCheckout, CheckoutReaders, CheckoutSource } from './checkout.j
 export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
 export { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_TRIAGE, IDLE_EXIT_CEILING_MS, IDLE_EXIT_FLOOR_MS, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, spawnable, triageMode } from './config.js';
 export type { HubConfig, LogSettings, NewSessionSettings, TriageSettings } from './config.js';
-export { AVATAR_POLICIES, DEFAULT_BOARD_POLICY } from './source.js';
-export type { AvatarPolicy, BoardPolicy } from './source.js';
+export { DEFAULT_AVATAR_POLICY, DEFAULT_BOARD_POLICY, OFF_REVIEW_AVATARS, REVIEW_AVATARS } from './source.js';
+export type { AvatarPolicy, BoardPolicy, OffReviewAvatar, ReviewAvatar } from './source.js';
 export { ACTION_REVISION, AUTOMATABLE_ACTIONS, EMPTY_ACTIONS, isAutomatable } from './actions.js';
 export type {
   ActionOutcome,

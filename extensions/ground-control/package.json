@@ -170,28 +170,41 @@
             "order": 2,
             "markdownDescription": "Map project statuses to initial lanes using the [placement rules](https://github.com/jon-or/ground-control/blob/master/README.md#board-settings)."
           },
-          "groundControl.avatar": {
+          "groundControl.avatar.review": {
             "scope": "application",
             "type": "string",
             "enum": [
-              "review-author",
-              "issue-author",
+              "pull-request-author",
               "assignee"
             ],
             "enumDescriptions": [
-              "The selected pull request's author while the status maps to the Review lane; otherwise the assignee.",
-              "The selected pull request's author while the status maps to the Review lane; otherwise the issue author.",
-              "Always the assignee, preferring your configured identity."
+              "The selected pull request's author, so a review card names who implemented the issue.",
+              "The assignee, preferring your configured identity."
             ],
-            "default": "review-author",
+            "default": "pull-request-author",
             "order": 3,
-            "markdownDescription": "Whose avatar a card shows, in both clients."
+            "markdownDescription": "Whose avatar a card shows while its status maps to the Review lane, in both clients."
+          },
+          "groundControl.avatar.offReview": {
+            "scope": "application",
+            "type": "string",
+            "enum": [
+              "assignee",
+              "issue-author"
+            ],
+            "enumDescriptions": [
+              "The assignee, preferring your configured identity.",
+              "The issue author, so a card names who reported the issue."
+            ],
+            "default": "assignee",
+            "order": 4,
+            "markdownDescription": "Whose avatar a card shows on every other status, in both clients."
           },
           "groundControl.animations": {
             "scope": "application",
             "type": "boolean",
             "default": true,
-            "order": 4,
+            "order": 5,
             "markdownDescription": "Animate working borders, running session names, and tooltips on the editor board. The system reduced-motion preference disables them regardless."
           },
           "groundControl.refreshIntervalSeconds": {
@@ -199,7 +212,7 @@
             "type": "number",
             "default": 300,
             "minimum": 30,
-            "order": 5,
+            "order": 6,
             "markdownDescription": "Seconds between issue refreshes while a board is visible."
           }
         }

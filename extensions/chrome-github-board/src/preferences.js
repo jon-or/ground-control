@@ -2,7 +2,10 @@
 /** Browser-local policy; shared hub settings remain in VS Code. */
 export const PREFERENCES_KEY = 'preferences';
 
-/** @typedef {{ enabled: boolean, projects: string[], animations: boolean, replaceAvatars: boolean }} Preferences */
+/** Assignee logins the hub last reported, cached so the filter gate survives a reload with no connection. */
+export const LOGINS_KEY = 'logins';
+
+/** @typedef {{ enabled: boolean, projects: string[], animations: boolean, replaceAvatars: boolean, filteredToMe: boolean }} Preferences */
 /** @typedef {{ value: Preferences | null, error: string | null }} PreferenceState */
 
 /** Exact project identity, excluding view selection. @param {string} pathname */
@@ -29,17 +32,18 @@ export function projectUrl(raw) {
 
 /** Invalid durable data closes access until corrected in options. @param {unknown} raw @returns {PreferenceState} */
 export function parsePreferences(raw) {
-  if (raw === undefined) return { value: { enabled: true, projects: [], animations: true, replaceAvatars: true }, error: null };
+  if (raw === undefined) return { value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true }, error: null };
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return invalid();
   const held = /** @type {Record<string, unknown>} */ (raw);
   if (typeof held.enabled !== 'boolean' || !Array.isArray(held.projects)) return invalid();
-  // Presentation keys arrived later; a stored object without them keeps the defaults, a wrong type is invalid.
+  // These keys arrived after the first release; a stored object without them keeps the defaults, a wrong type is invalid.
   const animations = held.animations === undefined ? true : held.animations;
   const replaceAvatars = held.replaceAvatars === undefined ? true : held.replaceAvatars;
-  if (typeof animations !== 'boolean' || typeof replaceAvatars !== 'boolean') return invalid();
+  const filteredToMe = held.filteredToMe === undefined ? true : held.filteredToMe;
+  if (typeof animations !== 'boolean' || typeof replaceAvatars !== 'boolean' || typeof filteredToMe !== 'boolean') return invalid();
   const projects = held.projects.map(projectUrl);
   if (projects.some((project) => project === null)) return invalid();
-  return { value: { enabled: held.enabled, projects: [...new Set(/** @type {string[]} */ (projects))], animations, replaceAvatars }, error: null };
+  return { value: { enabled: held.enabled, projects: [...new Set(/** @type {string[]} */ (projects))], animations, replaceAvatars, filteredToMe }, error: null };
 }
 
 /** @typedef {{ animations: boolean, replaceAvatars: boolean }} Presentation */
@@ -53,6 +57,35 @@ export function presentationOf(preferences) {
 /** @returns {PreferenceState} */
 function invalid() {
   return { value: null, error: 'Overlay preferences are invalid. Save valid preferences here to restore access.' };
+}
+
+/** A whole assignee qualifier, keeping quoted and comma-joined values together. A leading `-` negates it, so it does not match. */
+const ASSIGNEE = /(?:^|\s)assignee:((?:"[^"]*"|[^\s"])+)/gi;
+
+/**
+ * True when a board's filter restricts it to the developer: at least one assignee qualifier, every value naming
+ * `@me` or a known login (R36). Negated qualifiers only narrow a board, so they are ignored rather than refused.
+ *
+ * @param {string | null} filter @param {readonly string[]} logins
+ */
+export function filtersToMe(filter, logins) {
+  if (typeof filter !== 'string') return false;
+
+  const known = new Set(logins.map((login) => login.toLowerCase()));
+  let matched = false;
+
+  for (const [, raw] of filter.matchAll(ASSIGNEE)) {
+    const values = (raw ?? '').split(',').map((value) => value.replace(/"/g, '').trim().toLowerCase()).filter(Boolean);
+    if (values.length === 0 || !values.every((value) => value === '@me' || known.has(value))) return false;
+    matched = true;
+  }
+
+  return matched;
+}
+
+/** Read the logins the worker cached, ignoring anything else stored under the key. @param {unknown} raw */
+export function parseLogins(raw) {
+  return Array.isArray(raw) ? raw.filter((login) => typeof login === 'string' && login.length > 0) : [];
 }
 
 /** @param {Preferences | null} preferences @param {string} pathname */
@@ -81,6 +114,29 @@ export function watchPreferences(storage, changed) {
     if (active && started === revision) changed(parsePreferences(held[PREFERENCES_KEY]));
   }, () => {
     if (active && started === revision) changed({ value: null, error: 'Could not read overlay preferences. Reload this page or save your preferences again.' });
+  });
+  return () => { active = false; storage.onChanged.removeListener(listener); };
+}
+
+/** Follow the cached logins, keeping a newer change ahead of a slow initial read the way preferences do.
+ * @param {typeof chrome.storage} storage
+ * @param {(logins: string[]) => void} changed
+ */
+export function watchLogins(storage, changed) {
+  let revision = 0;
+  let active = true;
+  /** @param {Record<string, chrome.storage.StorageChange>} changes @param {string} area */
+  const listener = (changes, area) => {
+    if (!active || area !== 'local' || !Object.hasOwn(changes, LOGINS_KEY)) return;
+    revision++;
+    changed(parseLogins(changes[LOGINS_KEY]?.newValue));
+  };
+  storage.onChanged.addListener(listener);
+  const started = revision;
+  void (async () => storage.local.get(LOGINS_KEY))().then((held) => {
+    if (active && started === revision) changed(parseLogins(held[LOGINS_KEY]));
+  }, () => {
+    // An unreadable cache leaves the viewer's own login as the only identity; `@me` still matches.
   });
   return () => { active = false; storage.onChanged.removeListener(listener); };
 }

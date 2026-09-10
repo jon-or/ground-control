@@ -16,6 +16,9 @@ const ASSIGNED = [4501, 4502];
  * (docs/testing.md).
  */
 const ASSIGNEE = 'example-dev';
+
+/** The fixture is a board filtered to the viewer, the state the overlay is built for (R36). */
+const FILTER = `assignee:${ASSIGNEE}`;
 const AVATAR = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
 
 /** Neutral names for the two columns kept. The overlay reads neither; a recorded one would still name a real board. */
@@ -39,6 +42,7 @@ const ALLOWED = new Set([
   ...ISSUES.map((number) => `${REPO.split('/')[1]} #${number}`),
   'Project board',
   'Click a value to filter the view',
+  'Filter by keyword or by field',
   'Fields',
   'View',
   'View filters',
@@ -105,4 +109,4 @@ function assertScrubbed(html, recorded) {
   assertNoAbsolutePaths(html, []);
 }
 
-module.exports = { ASSIGNED, ASSIGNEE, AVATAR, COLUMNS, ISSUES, PROJECT, REPO, VIEWS, assertScrubbed, titles };
+module.exports = { ASSIGNED, ASSIGNEE, AVATAR, COLUMNS, FILTER, ISSUES, PROJECT, REPO, VIEWS, assertScrubbed, titles };

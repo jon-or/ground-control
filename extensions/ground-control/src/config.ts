@@ -4,8 +4,8 @@ import { boardStatuses, statusLanes } from '@ground-control/board';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubConfig } from '@ground-control/github';
-import { AUTOMATABLE_ACTIONS, AVATAR_POLICIES, LOG_FLOORS, diskReaders, idsFrom } from '@ground-control/core';
-import type { ActionSetting, AgentConfig, AutomatableAction, AvatarPolicy, HubConfig, LogFloor } from '@ground-control/core';
+import { AUTOMATABLE_ACTIONS, LOG_FLOORS, OFF_REVIEW_AVATARS, REVIEW_AVATARS, diskReaders, idsFrom } from '@ground-control/core';
+import type { ActionSetting, AgentConfig, AutomatableAction, AvatarPolicy, HubConfig, LogFloor, OffReviewAvatar, ReviewAvatar } from '@ground-control/core';
 import { defaultConfig, makeRegistries } from '@ground-control/hub';
 import { readSessionScope } from './sessionScope.js';
 import { editorAgentHomes } from './agentStorage.js';
@@ -58,7 +58,7 @@ export function readHubConfig(userDir: string): HubConfig {
     sources: Object.fromEntries(sourceIds().map((id) => [id, id === GITHUB_SOURCE_ID ? readConfig() : {}])),
     boardStatuses: readBoardStatuses(),
     statusLanes: statusLanes(cfg.get<unknown>('statusLanes')),
-    avatar: avatarPolicy(cfg.get<unknown>('avatar')),
+    avatar: avatarPolicy(cfg),
     refreshIntervalMs: refreshIntervalMs(),
     sessionIntervalMs: sessionIntervalMs(),
     logLevel: logFloor(cfg.get<unknown>('logLevel', 'info')),
@@ -162,8 +162,15 @@ function minutesToMs(value: unknown, fallback: number): number {
   return numberOr(value, fallback) * 60 * 1000;
 }
 
-function avatarPolicy(value: unknown): AvatarPolicy {
-  return (AVATAR_POLICIES as readonly unknown[]).includes(value) ? (value as AvatarPolicy) : 'review-author';
+function avatarPolicy(cfg: vscode.WorkspaceConfiguration): AvatarPolicy {
+  return {
+    review: oneOf(REVIEW_AVATARS, cfg.get<unknown>('avatar.review'), 'pull-request-author'),
+    offReview: oneOf(OFF_REVIEW_AVATARS, cfg.get<unknown>('avatar.offReview'), 'assignee'),
+  };
+}
+
+function oneOf<T extends ReviewAvatar | OffReviewAvatar>(allowed: readonly T[], value: unknown, fallback: T): T {
+  return (allowed as readonly unknown[]).includes(value) ? (value as T) : fallback;
 }
 
 function logFloor(value: unknown): LogFloor {

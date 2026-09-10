@@ -24,7 +24,7 @@ function config(over: Partial<HubConfig> = {}): Record<string, unknown> {
     refreshIntervalMs: 300_000,
     sessionIntervalMs: 30_000,
     idleExitMs: 1_800_000,
-    avatar: 'review-author',
+    avatar: { review: 'pull-request-author', offReview: 'assignee' },
     installActivity: true,
     ...over,
   };
@@ -150,11 +150,17 @@ describe('the cadences', () => {
     expect(accepted(config()).logs).toEqual({ rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 7 * 24 * 60 * 60 * 1000 });
   });
 
-  it('reads the avatar policy and falls back to the review author for anything else', () => {
-    expect(accepted(config({ avatar: 'assignee' })).avatar).toBe('assignee');
-    expect(accepted(config({ avatar: 'issue-author' })).avatar).toBe('issue-author');
-    expect(accepted({ ...config(), avatar: 'nobody' }).avatar).toBe('review-author');
-    expect(accepted(config()).avatar).toBe('review-author');
+  it('reads each side of the avatar policy and falls back per side', () => {
+    expect(accepted(config({ avatar: { review: 'assignee', offReview: 'issue-author' } })).avatar)
+      .toEqual({ review: 'assignee', offReview: 'issue-author' });
+    expect(accepted({ ...config(), avatar: { review: 'nobody', offReview: 'issue-author' } }).avatar)
+      .toEqual({ review: 'pull-request-author', offReview: 'issue-author' });
+    // A pull request author cannot be shown off review, and the single string an older client wrote is not a policy.
+    expect(accepted({ ...config(), avatar: { offReview: 'pull-request-author' } }).avatar)
+      .toEqual({ review: 'pull-request-author', offReview: 'assignee' });
+    expect(accepted({ ...config(), avatar: 'issue-author' }).avatar)
+      .toEqual({ review: 'pull-request-author', offReview: 'assignee' });
+    expect(accepted(config()).avatar).toEqual({ review: 'pull-request-author', offReview: 'assignee' });
   });
 
   it('accepts every floor the log levels offer', () => {

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { LOG_LIMIT, ago, agentIcon, appendLog, assigneeStackOf, cardsByIssue, clear, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText } from '../src/overlay.js';
+import { LOG_LIMIT, ago, agentIcon, appendLog, assigneeStackOf, cardsByIssue, clear, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText, viewerLogin } from '../src/overlay.js';
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
@@ -2797,5 +2797,24 @@ describe('the tooltip shape both boards share', () => {
 
   it.each(declarations)('pins %s at %s', (name, expected) => {
     expect(rule).toContain(`${name}: ${expected}`);
+  });
+});
+
+describe('what the page says about its filter and its viewer', () => {
+  it('reads the filter box GitHub renders and the login it states, from the recorded markup', () => {
+    document.documentElement.innerHTML = BOARD;
+
+    expect(filterText(document)).toBe('assignee:example-dev');
+    expect(filterBox(document)).toBe(document.getElementById('filter-bar-component-input'));
+    expect(viewerLogin(document)).toBe('example-dev');
+  });
+
+  /** A signed-out page carries the meta element with nothing in it; a page with no board carries no filter box. */
+  it('answers with nothing rather than an empty string when signed out or off a board', () => {
+    document.documentElement.innerHTML = '<head><meta name="user-login" content=""></head><body><p>Not a project board</p></body>';
+
+    expect(viewerLogin(document)).toBeNull();
+    expect(filterText(document)).toBeNull();
+    expect(filterBox(document)).toBeNull();
   });
 });

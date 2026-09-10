@@ -168,6 +168,69 @@ async function navigate(page: Page, url: string) {
   }, url);
 }
 
+/** Replace the board's filter and provoke the scan a GitHub navigation would. */
+async function filterBy(page: Page, filter: string) {
+  await page.evaluate((value) => {
+    const input = document.querySelector('[role="region"][aria-label="View filters"] input') as HTMLInputElement;
+    input.value = value;
+    document.dispatchEvent(new Event('turbo:load'));
+  }, filter);
+}
+
+it('runs only where the board filter names the developer, and hands GitHub its assignees back where it does not', async () => {
+  const board = await pageAt();
+
+  // The fixture board is filtered to its own viewer, whose login GitHub states on the page.
+  await shown(board, true);
+  await emit();
+  await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(1);
+
+  await filterBy(board, 'label:example');
+  await shown(board, false);
+  await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(0);
+  expect(await board.locator('figure').first().getAttribute('role')).toBe('group');
+
+  // `@me` needs no identity at all, so the gate works before the hub has ever answered.
+  await filterBy(board, 'assignee:@me');
+  await shown(board, true);
+
+  // A second login belongs to the developer only because the hub said so.
+  await filterBy(board, 'assignee:teammate-bot');
+  await shown(board, false);
+  await worker.evaluate(async () => {
+    await (globalThis as any).chrome.storage.local.set({ logins: ['teammate-bot'] });
+  });
+  await shown(board, true);
+
+  // A board naming someone else stays GitHub's, and turning the preference off gives every board back.
+  await filterBy(board, 'assignee:teammate-bot,someone-else');
+  await shown(board, false);
+  await worker.evaluate(async () => {
+    await (globalThis as any).chrome.storage.local.set({ preferences: { enabled: true, projects: [], filteredToMe: false } });
+  });
+  await shown(board, true);
+});
+
+it('holds the hub connection on a board it is not serving, so a login it does not know can still arrive', async () => {
+  const board = await pageAt();
+
+  // A login the page cannot resolve on its own: not `@me`, not the signed-in user. Only the hub knows it is mine.
+  await filterBy(board, 'assignee:teammate-bot');
+  await shown(board, false);
+  await expect.poll(() => worker.evaluate('probe.opens')).toBeGreaterThan(0);
+  expect(await worker.evaluate('probe.closes')).toBe(0);
+
+  await worker.evaluate((snapshot) => {
+    (globalThis as any).probe.emit({ type: 'snapshot', snapshot: { ...snapshot, owners: ['teammate-bot'] } });
+  }, reading);
+
+  await expect.poll(() => worker.evaluate('chrome.storage.local.get("logins").then(held => held.logins)'))
+    .toEqual(['teammate-bot']);
+  await shown(board, true);
+  await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(1);
+});
+
+
 it('saves accessible options, rejects invalid URLs, and preserves disabled startup after browser restart', async () => {
   const board = await pageAt();
   await shown(board, true);
@@ -187,12 +250,14 @@ it('saves accessible options, rejects invalid URLs, and preserves disabled start
   await settings.getByLabel('Allowed project URLs', { exact: true }).fill('https://github.com/orgs/EXAMPLE-ORG/projects/3/views/2?filter=test');
   expect(await settings.getByLabel(/Animate working borders/).isChecked()).toBe(true);
   expect(await settings.getByLabel(/Replace assignee avatars/).isChecked()).toBe(true);
+  expect(await settings.getByLabel(/Run only on boards filtered to my issues/).isChecked()).toBe(true);
   await settings.getByLabel(/Replace assignee avatars/).uncheck();
+  await settings.getByLabel(/Run only on boards filtered to my issues/).uncheck();
   await settings.getByLabel('Enable overlay', { exact: true }).uncheck();
   await settings.getByRole('button', { name: 'Save', exact: true }).click();
   await shown(board, false);
   expect(await worker.evaluate('chrome.storage.local.get("preferences").then(held => held.preferences)'))
-    .toEqual({ enabled: false, projects: [BOARD], animations: true, replaceAvatars: false });
+    .toEqual({ enabled: false, projects: [BOARD], animations: true, replaceAvatars: false, filteredToMe: false });
 
   await context.close();
   await launch();

@@ -47,10 +47,10 @@ describe('the GitHub entry in a pushed configuration', () => {
   it('takes the board policy from the hub, not from the client settings', () => {
     const { source: made, asked } = source();
 
-    made.configure({ repo: 'example-org/example-repo', logins: ['dev-1'] }, { reviewStatuses: ['Awaiting Review'], avatar: 'assignee' });
+    made.configure({ repo: 'example-org/example-repo', logins: ['dev-1'] }, { reviewStatuses: ['Awaiting Review'], avatar: { review: 'assignee', offReview: 'issue-author' } });
 
     return made.read().then(() => {
-      expect(asked[0]).toMatchObject({ reviewStatuses: ['Awaiting Review'], avatar: 'assignee' });
+      expect(asked[0]).toMatchObject({ reviewStatuses: ['Awaiting Review'], avatar: { review: 'assignee', offReview: 'issue-author' } });
     });
   });
 

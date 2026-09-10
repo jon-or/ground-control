@@ -47,6 +47,8 @@ export interface Snapshot {
   stale: boolean;
   /** Missing required settings, including detected identity suggestions. */
   needs: { logins: { detected: string[] } } | null;
+  /** Optional for older hubs. Configured assignee logins; the overlay matches them against a project's filter (R36). */
+  owners?: string[];
   /** Snapshot timestamp, not the last successful source-read time (R25). */
   fetchedAt: string;
 }

@@ -111,9 +111,9 @@ describe('configureSources', () => {
     const given: unknown[] = [];
     const fake: WorkSource = { id: 'fake', displayName: 'Fake', configure: (_raw: unknown, board?: BoardPolicy) => { given.push(board); return null; }, read: () => Promise.resolve({ items: null, failure: null, needs: null }) };
 
-    configureSources({ ...makeRegistries(), sources: [fake] }, { fake: {} }, { reviewStatuses: ['QA'], avatar: 'assignee' });
+    configureSources({ ...makeRegistries(), sources: [fake] }, { fake: {} }, { reviewStatuses: ['QA'], avatar: { review: 'assignee', offReview: 'issue-author' } });
 
-    expect(given).toEqual([{ reviewStatuses: ['QA'], avatar: 'assignee' }]);
+    expect(given).toEqual([{ reviewStatuses: ['QA'], avatar: { review: 'assignee', offReview: 'issue-author' } }]);
   });
 
   it('reports unknown source IDs', () => {

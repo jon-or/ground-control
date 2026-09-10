@@ -319,7 +319,7 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
     sessionIntervalMs: 30_000,
     idleExitMs: 1_800_000,
     logs: { rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 604_800_000 },
-    avatar: 'review-author',
+    avatar: { review: 'pull-request-author', offReview: 'assignee' },
     newSession: { prompt: '' },
     installActivity: false,
     triage: { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} },

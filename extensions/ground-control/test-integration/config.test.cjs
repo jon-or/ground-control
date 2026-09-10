@@ -77,7 +77,8 @@ describe('what this window pushes to the hub', () => {
     await settings().update('github.projectOwner', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('github.statusField', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('github.maxPages', undefined, vscode.ConfigurationTarget.Global);
-    await settings().update('avatar', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('avatar.review', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('avatar.offReview', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('idleExitMinutes', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('logLevel', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('logs.rotateMegabytes', undefined, vscode.ConfigurationTarget.Global);
@@ -119,10 +120,12 @@ describe('what this window pushes to the hub', () => {
     assert.ok((await vscode.commands.getCommands(true)).includes('groundControl.runSetup'));
   });
 
-  it('sends the avatar policy to the hub', async () => {
-    await untilStored((c) => c.avatar === 'review-author', 'the default avatar policy never reached the hub');
-    await settings().update('avatar', 'assignee', vscode.ConfigurationTarget.Global);
-    await untilStored((c) => c.avatar === 'assignee', 'the assignee policy never reached the hub');
+  it('sends both sides of the avatar policy to the hub', async () => {
+    await untilStored((c) => c.avatar?.review === 'pull-request-author' && c.avatar?.offReview === 'assignee',
+      'the default avatar policy never reached the hub');
+    await settings().update('avatar.offReview', 'issue-author', vscode.ConfigurationTarget.Global);
+    await untilStored((c) => c.avatar?.offReview === 'issue-author' && c.avatar?.review === 'pull-request-author',
+      'the issue-author side never reached the hub, or it moved the review side with it');
   });
 
   it('sends the idle exit window in milliseconds and lets the hub clamp it', async () => {

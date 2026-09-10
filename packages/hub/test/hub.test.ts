@@ -2247,10 +2247,10 @@ describe('what the hub writes down about itself', () => {
     const h = harness({}, { sources: [policy] });
     const { client } = connect(h);
 
-    h.hub.receive(client, { type: 'configure', config: h.config({ sources: { policy: {} }, statusLanes: { 'Awaiting Review': 'review', Building: 'build' }, avatar: 'assignee' }) });
+    h.hub.receive(client, { type: 'configure', config: h.config({ sources: { policy: {} }, statusLanes: { 'Awaiting Review': 'review', Building: 'build' }, avatar: { review: 'assignee', offReview: 'issue-author' } }) });
     await settle();
 
-    expect(policies.at(-1)).toEqual({ reviewStatuses: ['Awaiting Review'], avatar: 'assignee' });
+    expect(policies.at(-1)).toEqual({ reviewStatuses: ['Awaiting Review'], avatar: { review: 'assignee', offReview: 'issue-author' } });
   });
 
   // Log unchanged settings only at debug level.

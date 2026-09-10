@@ -29,8 +29,8 @@ export function buildSearchQuery(cfg: GithubConfig, withProject: boolean): strin
 }
 
 /**
- * The pull request author while the status is a review status, the issue author off review under the
- * issue-author policy, and otherwise an assignee. An unavailable person falls through to the assignee (R5).
+ * The person the policy names for the card's side of the review boundary, falling through to an assignee where
+ * that person is unavailable: a review card with no pull request, a deleted account (R5).
  */
 function selectCardAvatar(
   node: Pick<SearchNode, 'author' | 'assignees' | 'pullRequests'>,
@@ -38,18 +38,19 @@ function selectCardAvatar(
   status: string | null,
 ): CardAvatar | null {
   const review = status !== null && cfg.reviewStatuses.includes(status);
-  const inReview = cfg.avatar !== 'assignee' && review;
-  const pullRequest = inReview
-    ? [...(node.pullRequests?.nodes ?? [])]
-        .filter((pr) => pr.author)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-    : undefined;
+  const wanted = review ? cfg.avatar.review : cfg.avatar.offReview;
 
-  if (pullRequest?.author) {
-    return { login: pullRequest.author.login, url: pullRequest.author.avatarUrl, source: 'pull-request' };
+  if (wanted === 'pull-request-author') {
+    const pullRequest = [...(node.pullRequests?.nodes ?? [])]
+      .filter((pr) => pr.author)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+
+    if (pullRequest?.author) {
+      return { login: pullRequest.author.login, url: pullRequest.author.avatarUrl, source: 'pull-request' };
+    }
   }
 
-  if (cfg.avatar === 'issue-author' && !review && node.author) {
+  if (wanted === 'issue-author' && node.author) {
     return { login: node.author.login, url: node.author.avatarUrl, source: 'issue-author' };
   }
 

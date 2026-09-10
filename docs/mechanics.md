@@ -703,10 +703,14 @@ Recorded pages were GitHub's public roadmap (`github` project 4247, view 21) and
 | Issue link inside a card | Repository/issue association |
 | `[data-component="AvatarStack"]` | Assignee display |
 | `[role="region"][aria-label="View filters"]` | Filter toolbar |
+| The one `input` in that toolbar | Applied filter text |
+| `meta[name="user-login"]` | Signed-in login, empty when signed out |
 | `[role="navigation"][aria-label="Project"]` | Project title area |
 | `nav[aria-label="Select view"]` | View tabs |
 
 CSS-module class names carried build hashes. Use structural attributes for lookup. The visible card box was the drag handle's first child; placing a footer directly on the drag handle put it below the border. Header/view wrappers must be hidden as a whole to avoid empty space. Unsaved-filter Save/Discard wrappers were identified from their controls because no stable wrapper selector was found.
+
+Measured 2026-09-10 on the same roadmap view: the filter toolbar held exactly one input, `#filter-bar-component-input`. Its value carried a saved view's own filter (`label:shipped has:status -archive:<=@today`) while `location.search` was empty, so the URL cannot report a saved filter. Loading `?filterQuery=assignee%3A%40me+label%3Ashipped` put that text in the same input, and typing a filter rewrote the query to `?filterQuery=assignee%3Ajon-or%2Cjon-or-ai`, comma-separating multiple logins. Clearing the query with `pushState` left the input's value standing. Read the filter from the input, never the URL. The input's value changes as the developer types, before the filter is applied.
 
 The assignee stack and screen-reader caption share a figure. Hiding only the image left the old assignee announcement. CDP accessibility inspection confirmed that hiding the original figure's content removed caption/image/focus targets, while the replacement author image remained accessible. An empty figure needed presentation role. Do not add an avatar if the view omitted the assignee area.
 
