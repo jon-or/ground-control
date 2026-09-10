@@ -66,12 +66,8 @@ describe('phaseOf', () => {
     },
   );
 
-  it('reads an agent_completed notification as idle', () => {
-    expect(phaseOf(marker({ event: 'Notification', notificationType: 'agent_completed' }))).toBe('idle');
-  });
-
-  // The idle reminder requires no user decision and must not map to waiting.
-  it.each(['idle_prompt', 'auth_success', 'push_notification', null])(
+  // Idle reminders need no user decision, and agent_completed reports another job's finish (M20): neither maps to a phase.
+  it.each(['idle_prompt', 'auth_success', 'push_notification', 'agent_completed', null])(
     'claims nothing for a %s notification',
     (notificationType) => {
       expect(phaseOf(marker({ event: 'Notification', notificationType }))).toBeNull();

@@ -88,7 +88,7 @@ describe('installing', () => {
     expect(ours(hooks.PreToolUse)).toEqual([expect.objectContaining({ matcher: 'AskUserQuestion|ExitPlanMode' })]);
     expect(ours(hooks.Notification)).toEqual([
       expect.objectContaining({
-        matcher: 'permission_prompt|worker_permission_prompt|agent_needs_input|agent_completed',
+        matcher: 'permission_prompt|worker_permission_prompt|agent_needs_input',
       }),
     ]);
 
@@ -294,6 +294,18 @@ describe('what it must not disturb', () => {
     const stale = { hooks: { Stop: [{ hooks: [{ ...ourEntry, async: false }] }] } };
 
     expect(install(text(stale))).toMatchObject({ kind: 'write' });
+  });
+
+  // Existing installs carry the earlier matcher that included agent_completed.
+  it('replaces a board group whose matcher has changed', () => {
+    const matcher = 'permission_prompt|worker_permission_prompt|agent_needs_input|agent_completed';
+    const stale = { hooks: { Notification: [{ matcher, hooks: [ourEntry] }] } };
+    const plan = install(text(stale));
+
+    expect(plan).toMatchObject({ kind: 'write', removed: 1 });
+    expect(ours((written(plan).hooks as Record<string, unknown>).Notification)).toEqual([
+      { matcher: 'permission_prompt|worker_permission_prompt|agent_needs_input', hooks: [ourEntry] },
+    ]);
   });
 
   // PowerShell 5.1's Out-File and Notepad both write one, and the CLI reads such a file happily.

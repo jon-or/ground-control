@@ -30,7 +30,7 @@ export type ActivityMarker = z.infer<typeof activityMarker>;
 /** Tools that wait for a user decision (R6). */
 const WAITING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
-/** `Notification` also reports completion and idle events; only these types require user input (M20). */
+/** `Notification` also reports other jobs' completion and idle reminders; only these types require user input (M20). */
 const WAITING_NOTIFICATIONS = new Set(['permission_prompt', 'worker_permission_prompt', 'agent_needs_input']);
 
 /** Return the reported phase, or null for unsupported events (R24). */
@@ -54,11 +54,7 @@ export function phaseOf(marker: ActivityMarker): ActivityPhase | null {
       return marker.toolName !== null && WAITING_TOOLS.has(marker.toolName) ? 'waiting' : null;
 
     case 'Notification':
-      if (marker.notificationType !== null && WAITING_NOTIFICATIONS.has(marker.notificationType)) {
-        return 'waiting';
-      }
-
-      return marker.notificationType === 'agent_completed' ? 'idle' : null;
+      return marker.notificationType !== null && WAITING_NOTIFICATIONS.has(marker.notificationType) ? 'waiting' : null;
 
     // Pending background tasks keep the phase running after Stop.
     case 'Stop':

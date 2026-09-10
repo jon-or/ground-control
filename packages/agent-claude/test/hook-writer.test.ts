@@ -16,6 +16,7 @@ interface Payload {
   agent_id?: string;
   background_tasks?: unknown[];
   cwd?: string;
+  prompt?: string;
 }
 
 const payloads = fixture('hook-payloads') as Payload[];
@@ -99,27 +100,74 @@ describe('the activity writer', () => {
     expect(markerFor('turning')).toMatchObject({ event: 'Stop', turnAt: prompt.turnAt });
   });
 
-  /** Scheduled work without a prompt must start a new duration instead of reusing an earlier turn timestamp. */
-  it.each([
-    ['a stop with nothing left in flight', { hook_event_name: 'Stop', background_tasks: [] }],
-    ['an agent_completed notification', { hook_event_name: 'Notification', notification_type: 'agent_completed' }],
-  ])('ends the stretch on %s, and starts a new one where work resumes', (_case, ending) => {
-    const id = `ending-${ending.hook_event_name}`;
+  /** Work resumed after a completed turn must start a new duration instead of reusing an earlier turn timestamp. */
+  it('ends the stretch on a stop with nothing left in flight, and starts a new one where work resumes', () => {
+    run(JSON.stringify({ session_id: 'ending', hook_event_name: 'UserPromptSubmit', prompt: 'recorded' }));
 
-    run(JSON.stringify({ session_id: id, hook_event_name: 'UserPromptSubmit' }));
+    const first = markerFor('ending') as { turnAt: number };
 
-    const first = markerFor(id) as { turnAt: number };
+    run(JSON.stringify({ session_id: 'ending', hook_event_name: 'Stop', background_tasks: [] }));
 
-    run(JSON.stringify({ ...ending, session_id: id }));
+    expect(markerFor('ending')).toMatchObject({ turnAt: null });
 
-    expect(markerFor(id)).toMatchObject({ turnAt: null });
+    run(JSON.stringify({ session_id: 'ending', hook_event_name: 'PostToolBatch' }));
 
-    run(JSON.stringify({ session_id: id, hook_event_name: 'PostToolBatch' }));
-
-    const resumed = markerFor(id) as { at: number; turnAt: number };
+    const resumed = markerFor('ending') as { at: number; turnAt: number };
 
     expect(resumed.turnAt).toBe(resumed.at);
     expect(resumed.turnAt).not.toBe(first.turnAt);
+  });
+
+  /**
+   * Harness input arrives as UserPromptSubmit. The task-notification prefix was observed in a 2.1.266 print-mode
+   * session waiting on a background subagent; all cases here are derived from the CLI's prompt prefixes (M20).
+   */
+  it.each([
+    ['a background subagent result', '<task-notification>\n<task-id>ab95c88fac23a6c88</task-id>\n<status>completed</status>'],
+    ['a poll event', '<event kind="repl-eval" at="2026-09-09T00:00:00.000Z">eval #1 settled</event>'],
+    ['a system reminder', '<system-reminder>\n[SYSTEM NOTIFICATION - NOT USER INPUT]\nrecorded\n</system-reminder>'],
+    ['a queued notification', '[SYSTEM NOTIFICATION - NOT USER INPUT]\nExactly 1 notification was queued'],
+    ['a scheduled prompt', '[SCHEDULED TASK - AUTOMATED FIRING OF A CONFIGURED PROMPT]\nrecorded'],
+    ['an indented notification', '  \n<task-notification>'],
+  ])('keeps the stretch when %s arrives as a prompt', (name, prompt) => {
+    const id = `harness-${name.replace(/\W+/g, '-')}`;
+
+    run(JSON.stringify({ session_id: id, hook_event_name: 'UserPromptSubmit', prompt: 'recorded' }));
+
+    const typed = markerFor(id) as { turnAt: number };
+
+    run(JSON.stringify({ session_id: id, hook_event_name: 'Stop', background_tasks: [{}] }));
+    run(JSON.stringify({ session_id: id, hook_event_name: 'UserPromptSubmit', prompt }));
+
+    expect(markerFor(id)).toMatchObject({ event: 'UserPromptSubmit', turnAt: typed.turnAt });
+
+    run(JSON.stringify({ session_id: id, hook_event_name: 'PostToolBatch' }));
+
+    expect(markerFor(id)).toMatchObject({ turnAt: typed.turnAt });
+  });
+
+  it('starts the stretch when harness input wakes a session with no turn in progress', () => {
+    run(JSON.stringify({ session_id: 'woken', hook_event_name: 'UserPromptSubmit', prompt: 'recorded' }));
+    run(JSON.stringify({ session_id: 'woken', hook_event_name: 'Stop', background_tasks: [] }));
+    run(JSON.stringify({ session_id: 'woken', hook_event_name: 'UserPromptSubmit', prompt: '<task-notification>' }));
+
+    const woken = markerFor('woken') as { at: number; turnAt: number };
+
+    expect(woken.turnAt).toBe(woken.at);
+  });
+
+  it('restarts the stretch on a typed prompt that merely mentions a harness prefix', () => {
+    run(JSON.stringify({ session_id: 'mention', hook_event_name: 'UserPromptSubmit', prompt: 'recorded' }));
+
+    const first = markerFor('mention') as { turnAt: number };
+
+    run(JSON.stringify({ session_id: 'mention', hook_event_name: 'Stop', background_tasks: [{}] }));
+    run(JSON.stringify({ session_id: 'mention', hook_event_name: 'UserPromptSubmit', prompt: 'why did <task-notification> reset?' }));
+
+    const second = markerFor('mention') as { at: number; turnAt: number };
+
+    expect(second.turnAt).toBe(second.at);
+    expect(second.turnAt).not.toBe(first.turnAt);
   });
 
   it('ends the stretch on a session start that is not a compact', () => {

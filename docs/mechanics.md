@@ -102,10 +102,13 @@ Common fields are `session_id`, `transcript_path`, and `cwd`; optional fields in
 | `SessionStart.source` | `startup`, `resume`, `clear`, `compact`, `fork`; compact can occur mid-turn |
 | `Stop.background_tasks` | Distinguishes a completed turn from waiting for background work |
 | `SessionEnd.reason` | `clear`, `resume`, `logout`, `prompt_input_exit`, `other` |
-| `Notification` | Includes completion, idle reminders, authentication, and permission/input requests; not uniformly waiting |
+| `Notification` | Includes other jobs' completion, idle reminders, authentication, and permission/input requests; not uniformly waiting |
 | `PermissionDenied` | Human denial; a settings deny rule instead produced PreToolUse and PostToolBatch |
+| `UserPromptSubmit.prompt` | Typed text, or harness input: the CLI runs this hook for background-task results, poll events, session notices, and scheduled prompts |
 
-Notification types found in the binary were `permission_prompt`, `worker_permission_prompt`, `agent_needs_input`, `idle_prompt`, `agent_completed`, `elicitation_complete`, `elicitation_response`, `auth_success`, `push_notification`, and `computer_use_exit`.
+Notification types found in the binary were `permission_prompt`, `worker_permission_prompt`, `agent_needs_input`, `idle_prompt`, `agent_completed`, `elicitation_complete`, `elicitation_response`, `auth_success`, `push_notification`, and `computer_use_exit`. Source inspection of 2.1.266 (2026-09-09) found `agent_completed` emitted by the background-job view when a watched job's band changes to completed; it names the other job and says nothing about the receiving session's turn. The board does not install it.
+
+A 2.1.266 print-mode session that launched a background subagent (2026-09-09) recorded `Stop` with one background task, the subagent's `SubagentStop`, then `UserPromptSubmit` on the parent with `prompt` beginning `<task-notification>` and no `agent_id`, then `Stop` with none. No `Notification` fired. The payload builder spreads common fields, `hook_event_name`, `prompt`, and `session_title`; the CLI's internal prompt source (`user`, `system`, `sdk`, `loop_wakeup`, `schedule_wakeup`) is not included. Harness input is recognisable only by prompt text: `<task-notification>`, `<event ` (poll events such as REPL settles and session notices), `<system-reminder>`, `[SYSTEM NOTIFICATION - NOT USER INPUT]`, and `[SCHEDULED TASK - AUTOMATED FIRING OF A CONFIGURED PROMPT]`. A loop wakeup resubmits the stored prompt verbatim and is indistinguishable from typing.
 
 Matchers inspect different fields:
 
@@ -131,7 +134,7 @@ The marker retains event fields plus a turn anchor:
  "toolName":"Bash","reason":null,"backgroundTasks":0}
 ```
 
-`at` is the hook writer's timestamp, not a source-provided event sequence. `turnAt` begins at UserPromptSubmit, survives events within the turn, and clears at completion or a new non-compact session start. Work resumed without a prompt uses its first event. Phase mapping belongs in `phase.ts`; the writer only records event data and maintains the turn anchor.
+`at` is the hook writer's timestamp, not a source-provided event sequence. `turnAt` begins at a typed UserPromptSubmit, survives events within the turn including harness-input UserPromptSubmit, and clears at a Stop with no background tasks or a new non-compact session start. Work resumed without a typed prompt uses its first event. Phase mapping belongs in `phase.ts`; the writer only records event data and maintains the turn anchor.
 
 Asynchronous writers can arrive out of order. Comparing marker timestamps limits delayed writes but cannot recover source order when an earlier event starts its hook later. No payload sequence/timestamp was found. Turn-start and turn-end races can temporarily retain or clear the wrong anchor. A 60-second future tolerance bounds clock-step behavior; it does not solve event ordering.
 

@@ -49,6 +49,18 @@ export function markerPathOf(stateDir: string, sessionId: string): string {
 export const FUTURE_TOLERANCE_MS = 60_000;
 
 /**
+ * Prompt prefixes the CLI uses for input it delivers itself: task notifications, poll events, system
+ * reminders, and scheduled prompts (M20). Such UserPromptSubmit events do not start a turn.
+ */
+export const HARNESS_PROMPT_PREFIXES: readonly string[] = [
+  '<task-notification>',
+  '<event ',
+  '<system-reminder>',
+  '[SYSTEM NOTIFICATION - NOT USER INPUT]',
+  '[SCHEDULED TASK - AUTOMATED FIRING OF A CONFIGURED PROMPT]',
+];
+
+/**
  * Bundle the standalone writer as a string for installation and subprocess tests. Record payload fields; keep
  * phase mapping in the extension.
  */
@@ -61,6 +73,7 @@ import { join } from 'node:path';
 ${HOOK_STATE_DIR_SOURCE}
 
 const DIR = join(stateDir(), '${ACTIVITY_DIR}');
+const HARNESS_PROMPT_PREFIXES = ${JSON.stringify(HARNESS_PROMPT_PREFIXES)};
 
 try {
   const payload = JSON.parse(readFileSync(0, 'utf8'));
@@ -97,13 +110,17 @@ try {
       const backgroundTasks = Array.isArray(payload.background_tasks) ? payload.background_tasks.length : 0;
       let turnAt = prior && typeof prior.turnAt === 'number' ? prior.turnAt : null;
 
-      // Preserve turn start across tool events so the running duration does not reset after each batch.
-      if (event === 'UserPromptSubmit') {
+      // Subagent results, background settles, session notices, and scheduled prompts also arrive as
+      // UserPromptSubmit. The payload has no source field, so recognise them by the CLI's prompt prefixes.
+      const prompt = typeof payload.prompt === 'string' ? payload.prompt.trimStart() : '';
+      const typed = event === 'UserPromptSubmit' && !HARNESS_PROMPT_PREFIXES.some((prefix) => prompt.startsWith(prefix));
+
+      // Only a typed prompt starts the turn; tool events and harness input keep the running duration.
+      if (typed) {
         turnAt = now;
       } else if (
         // Clear turn start after completion or a new session start.
         (event === 'Stop' && backgroundTasks === 0) ||
-        (event === 'Notification' && payload.notification_type === 'agent_completed') ||
         (event === 'SessionStart' && payload.source !== 'compact')
       ) {
         turnAt = null;

@@ -38,7 +38,8 @@ const HOOK_EVENTS: readonly (readonly [event: string, alternatives: string[] | n
   ['PermissionDenied', null],
   ['PreToolUse', ['AskUserQuestion', 'ExitPlanMode']],
   ['Elicitation', null],
-  ['Notification', ['permission_prompt', 'worker_permission_prompt', 'agent_needs_input', 'agent_completed']],
+  // agent_completed reports another job finishing to the session watching it, not this session's turn (M20).
+  ['Notification', ['permission_prompt', 'worker_permission_prompt', 'agent_needs_input']],
   ['Stop', null],
   ['SessionEnd', null],
 ];

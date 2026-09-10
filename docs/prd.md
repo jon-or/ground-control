@@ -82,7 +82,7 @@ State marks use three meanings: working, waiting for the developer, and idle/unk
 
 Animate the name of a working live session. Respect reduced motion and forced colors. Session names are more prominent than agent marks and durations.
 
-Durations use one unit, rounded down: seconds, minutes, hours, days, or weeks. Update once per second without rereading the machine. A running duration starts at the prompt that began the turn; other phases start at the reporting event. For work resumed without a prompt, use the first observed event. This duration includes waiting within the turn; it is not CPU time. Hover explains the phase, time basis, exact timestamp, and last observation without duplicating the name.
+Durations use one unit, rounded down: seconds, minutes, hours, days, or weeks. Update once per second without rereading the machine. A running duration starts at the user's prompt that began the turn and continues through tool calls, subagent results, background-task notifications, and permission prompts; other phases start at the reporting event. For work resumed without a user prompt, use the first observed event. This duration includes waiting within the turn; it is not CPU time. Hover explains the phase, time basis, exact timestamp, and last observation without duplicating the name.
 
 The card itself is not clickable. Titles, chips, and session rows have their own controls and hover feedback. Overflow menus contain secondary actions; hide unavailable items. Reveal card menus on hover, keyboard focus, and devices without hover. Keep current state when rebuilding an open menu.
 
