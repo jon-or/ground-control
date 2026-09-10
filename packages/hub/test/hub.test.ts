@@ -1528,13 +1528,13 @@ describe('the activity signal', () => {
     ]);
   });
 
-  /** Acknowledge explicit changes even when no write is needed. */
-  it('acknowledges unchanged activity settings', async () => {
+  /** Acknowledge an explicit hook-setting change even when it needs no write. */
+  it('acknowledges hook settings that changed without needing a write', async () => {
     const h = harness();
     const { client, inbox } = connect(h);
 
     h.hub.receive(client, { type: 'configure', config: h.config() });
-    h.hub.receive(client, { type: 'configure', config: h.config(), acknowledge: true });
+    h.hub.receive(client, { type: 'configure', config: h.config({ sessionHooks: { fake: true } }), acknowledge: true });
     await settle();
 
     expect(inbox.filter((message) => message.type === 'notice')).toEqual([
@@ -1545,12 +1545,54 @@ describe('the activity signal', () => {
     const second = connect(off);
 
     off.hub.receive(second.client, { type: 'configure', config: off.config({ installActivity: false }) });
-    off.hub.receive(second.client, { type: 'configure', config: off.config({ installActivity: false }), acknowledge: true });
+    off.hub.receive(second.client, { type: 'configure', config: off.config({ installActivity: false, sessionHooks: { fake: true } }), acknowledge: true });
     await settle();
 
     expect(second.inbox.filter((message) => message.type === 'notice')).toEqual([
       { type: 'notice', level: 'info', message: 'Session activity hooks are already absent.' },
     ]);
+  });
+
+  /** Every editor setting is restated on change; only the change that reconciled hooks may report hook state (R34). */
+  it('reports nothing when an acknowledged change leaves the hook settings alone', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    h.hub.receive(client, { type: 'configure', config: h.config({ logLevel: 'debug' }), acknowledge: true });
+    await settle();
+
+    expect(inbox.filter((message) => message.type === 'notice')).toEqual([]);
+    expect(h.installs).toEqual(['install']);
+  });
+
+  /** The installation result is kept for the hub's life, so a settled write must not be re-announced (R25). */
+  it('does not repeat an earlier installation for a change that leaves the hook settings alone', async () => {
+    const h = harness();
+    h.activity = { wanted: 'install', plan: 'write', added: 2, removed: 0, failure: null };
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+    h.hub.receive(client, { type: 'configure', config: h.config({ logLevel: 'debug' }), acknowledge: true });
+    await settle();
+
+    expect(inbox.filter((message) => message.type === 'notice')).toEqual([]);
+    expect(h.installs).toEqual(['install']);
+  });
+
+  it('reports rejected settings for a change that leaves the hook settings alone', async () => {
+    const h = harness();
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    h.hub.receive(client, { type: 'configure', config: { ...h.config(), agents: 'not a list' } as unknown as HubConfig, acknowledge: true });
+    await settle();
+
+    const notices = inbox.filter((message) => message.type === 'notice');
+
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ level: 'error', message: expect.stringContaining('agents') });
   });
 
   it('answers with the reason when the install refused, rather than claiming it happened', async () => {

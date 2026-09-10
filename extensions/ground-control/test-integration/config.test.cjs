@@ -85,6 +85,41 @@ describe('what this window pushes to the hub', () => {
     await settings().update('logs.keep', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('logs.dispatchRetentionDays', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('resumeWorktreesInRepositoryWindow', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('sessionHooks.claude', undefined, vscode.ConfigurationTarget.Global);
+  });
+
+  /** Every setting in the section is restated to the hub on any change; only the change that reconciled hooks may report hook state (R34). */
+  it('reports hook state for a hook setting and says nothing for the others', async () => {
+    // Activation installs this window's hooks, so the standing installation result is a write, which must not be re-announced.
+    await untilStored((c) => c.installActivity === true, 'hooks were never installed for this window');
+
+    const informed = vscode.window.showInformationMessage;
+    const failed = vscode.window.showErrorMessage;
+    const said = [];
+
+    vscode.window.showInformationMessage = (message) => (said.push(message), Promise.resolve(undefined));
+    vscode.window.showErrorMessage = (message) => (said.push(message), Promise.resolve(undefined));
+
+    try {
+      await settings().update('logLevel', 'warn', vscode.ConfigurationTarget.Global);
+      await untilStored((c) => c.logLevel === 'warn', 'the log floor never reached the hub');
+
+      await settings().update('sessionHooks.claude', false, vscode.ConfigurationTarget.Global);
+      await untilStored((c) => c.sessionHooks?.claude === false, 'turning the agent\'s hooks off never reached the hub');
+
+      // Notices arrive in order on one connection, so the acknowledged removal proves any log-floor notice would already be here.
+      const deadline = Date.now() + 20_000;
+      const hooks = () => said.filter((m) => m.includes('hooks'));
+
+      for (; !hooks().some((m) => m.includes('removed')); await new Promise((done) => setTimeout(done, 100))) {
+        assert.ok(Date.now() < deadline, `turning the agent's hooks off was not acknowledged; said: ${said.join(' | ')}`);
+      }
+
+      assert.strictEqual(hooks().length, 1, `a setting that reconciled no hooks reported hook state too: ${hooks().join(' | ')}`);
+    } finally {
+      vscode.window.showInformationMessage = informed;
+      vscode.window.showErrorMessage = failed;
+    }
   });
 
   it('sends the log floor and retention settings in the units the hub keeps', async () => {

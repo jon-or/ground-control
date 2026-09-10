@@ -176,6 +176,12 @@ function boardPolicyOf(config: HubConfig): BoardPolicy {
   };
 }
 
+/** The result of accepted settings. hooksReconciled is false when the change reconciled no hooks, so it has no hook state to report. */
+export interface Configured {
+  activity: ActivityState | null;
+  hooksReconciled: boolean;
+}
+
 /**
  * Coordinate source/agent reads, activity observation, local lane placement, and client snapshots. Poll only
  * while a board is watched. Local lane changes do not update GitHub item state (R7, R35).
@@ -340,11 +346,16 @@ export class Hub {
         }
 
         // Report rejected setting changes even when no board is open (R34).
-        connected.send(
-          resynced
-            ? { type: 'notice', ...activityAcknowledgement(resynced) }
-            : { type: 'notice', level: 'error', message: this.#configFailures[0]?.message ?? 'The board could not read those settings.' },
-        );
+        if (resynced === null) {
+          connected.send({ type: 'notice', level: 'error', message: this.#configFailures[0]?.message ?? 'The board could not read those settings.' });
+
+          return;
+        }
+
+        // Acknowledge only the change that reconciled hooks; every other setting is restated here too (R34).
+        if (resynced.hooksReconciled && resynced.activity) {
+          connected.send({ type: 'notice', ...activityAcknowledgement(resynced.activity) });
+        }
 
         return;
       }
@@ -673,8 +684,8 @@ export class Hub {
 
   // — configuration —
 
-  /** Apply client settings even without an open board so activity removal takes effect (R34). Return the installation result, or null if unchanged. */
-  configure(raw: unknown): ActivityState | null {
+  /** Apply client settings even without an open board so activity removal takes effect (R34). Return the installation result, or null if the settings were rejected. */
+  configure(raw: unknown): Configured | null {
     const parsed = parseHubConfig(raw);
 
     // Reject the entire configuration to avoid mixing clients' settings, including executable paths.
@@ -793,7 +804,7 @@ export class Hub {
       void this.refresh(reason);
     }
 
-    return resynced;
+    return { activity: resynced, hooksReconciled: changed };
   }
 
   /** Configure each adapter and report unknown IDs (R25). */
