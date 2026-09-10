@@ -2,7 +2,7 @@
 
 Adds local lane, triage, and session information to matching issue cards on GitHub Projects. Uses the same hub snapshot as the VS Code board. Displays phase, duration, attention, failures, and freshness.
 
-Session links open the connected editor in its own URI scheme, so an Insiders developer's links open Insiders; without a connected editor the last reported scheme applies, and `vscode` is the default. Checkout opening requires a connected editor. The overlay can move local lanes and read logs; it cannot start or stop work, request classification, select filesystem paths, or open combined diffs. See [R36](../../docs/prd.md#r36-github-overlay).
+Session links open the connected editor in its own URI scheme, so an Insiders developer's links open Insiders; without a connected editor the last reported scheme applies, and `vscode` is the default. Checkout opening requires a connected editor. The overlay can move local lanes, read cards, run and stop card actions, and read logs; it cannot start sessions, select filesystem paths, or open combined diffs. See [R36](../../docs/prd.md#r36-github-overlay).
 
 ## Loading
 

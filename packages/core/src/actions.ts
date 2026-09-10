@@ -45,6 +45,11 @@ export interface ActionSettings {
    * permitting manual requests. Pending dispatches are not reserved against this limit.
    */
   dailyLimit: number;
+  /**
+   * Whether the GitHub overlay may start a card action. Off by default: a limit the developer set for their
+   * own requests is not consent for a web page to spend it (R32).
+   */
+  fromBrowser: boolean;
   /** Timeout for a dispatched session to appear on the roster. */
   resultTimeoutMs: number;
   actions: Partial<Record<AutomatableAction, ActionSetting>>;

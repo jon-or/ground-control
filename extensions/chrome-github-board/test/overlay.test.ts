@@ -86,7 +86,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   };
 }
 
-const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), retriage: vi.fn() };
+const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn() };
 
 interface State {
   snapshot: Snapshot | null;
@@ -106,6 +106,8 @@ beforeEach(() => {
   actions.watchLog.mockReset();
   actions.openCheckout.mockReset();
   actions.retriage.mockReset();
+  actions.runAction.mockReset();
+  actions.stopAction.mockReset();
   // The open lane list is module state, so a test that left one open would leak into the next.
   clear(document);
   // And the collapse outlives a tab on purpose, which means it outlives a test unless the storage goes with it.
@@ -2460,23 +2462,48 @@ describe('card actions (R39)', () => {
   const at = Date.UTC(2026, 8, 1, 19, 0, 0);
   const show = (entry: LanedCard) =>
     paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
-  const mark = () => document.querySelector<HTMLElement>('.gc-mark[data-mark="action"]');
+  const mark = () => document.querySelector<HTMLElement>('.gc-mark[data-mark="action"], button.gc-act');
   const acting = (action: NonNullable<LanedCard['action']>): LanedCard => card(4501, { sessions: [], action });
 
-  it('reports a running action without offering to stop it, which only the editor can do', () => {
+  it('stops a running action, warning that its changes may be incomplete', () => {
     show(acting({ state: 'running', action: 'merge-upstream', since: at }));
 
     expect(mark()?.textContent).toBe('Working…');
-    expect(mark()?.tagName).toBe('SPAN');
-    expect(mark()?.querySelector('button, a')).toBeNull();
-    expect(tipOf(mark())).toBe('Merge upstream is running. Stop it from the card in VS Code.');
+    expect(tipOf(mark())).toBe(
+      'Merge upstream is running. Click to stop. Changes remain in the checkout and may be incomplete.',
+    );
+
+    mark()!.click();
+
+    expect(actions.stopAction).toHaveBeenCalledWith('issue-4501');
   });
 
+  // Left out rather than drawn to refuse, which is the rule every other control here follows.
   it('carries a refusal and its reason, with nothing to press', () => {
     show(acting({ state: 'refused', action: 'merge-upstream', reason: 'The pull request is a draft.' }));
 
     expect(mark()?.textContent).toBe('Not run');
+    expect(mark()?.tagName).toBe('SPAN');
     expect(tipOf(mark())).toBe('The pull request is a draft.');
+  });
+
+  it('offers to run an action the board could take, and sends the card key when pressed', () => {
+    show(acting({ state: 'available', action: 'merge-upstream' }));
+
+    expect(mark()?.textContent).toBe('Run merge upstream');
+    expect(tipOf(mark())).toBe('Start Merge upstream in this card\u2019s checkout.');
+
+    mark()!.click();
+
+    expect(actions.runAction).toHaveBeenCalledWith('issue-4501');
+  });
+
+  it('offers to run a finished action again', () => {
+    show(acting({ state: 'done', action: 'merge-upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at }));
+
+    mark()!.click();
+
+    expect(actions.runAction).toHaveBeenCalledWith('issue-4501');
   });
 
   /** Verify the same literal outcome words against board.js, which cannot share a runtime import. */
@@ -2490,13 +2517,7 @@ describe('card actions (R39)', () => {
 
     expect(mark()?.textContent).toBe(text);
     expect(mark()?.dataset.outcome).toBe(outcome);
-    expect(tipOf(mark())).toBe(`${detail} Run merge upstream again from the card in VS Code.`);
-  });
-
-  it('draws nothing for an action it could only offer', () => {
-    show(acting({ state: 'available', action: 'merge-upstream' }));
-
-    expect(document.querySelectorAll('.gc-head .gc-mark')).toHaveLength(0);
+    expect(tipOf(mark())).toBe(`${detail} Click to run Merge upstream again.`);
   });
 
   it('carries nothing on a card with no action at all', () => {

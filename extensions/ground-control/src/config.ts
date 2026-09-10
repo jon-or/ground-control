@@ -110,6 +110,7 @@ export function readActions(): HubConfig['actions'] {
     permissionMode: cfg.get<string>('actions.permissionMode', 'auto'),
     concurrency: number('actions.concurrency', 1),
     dailyLimit: number('actions.dailyLimit', 10),
+    fromBrowser: cfg.get<boolean>('actions.fromBrowser', false) === true,
     // Minutes in settings, milliseconds in the hub, the way every other interval here is.
     resultTimeoutMs: number('actions.resultMinutes', 30) * 60 * 1000,
     // Omit empty prompts so the board does not offer actions that can only refuse.

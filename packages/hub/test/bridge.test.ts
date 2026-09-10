@@ -100,11 +100,24 @@ describe('what the browser may ask the hub for', () => {
   });
 
   /** Reject browser requests that start unattended work (R39). */
-  it('refuses to start or stop work on a card', () => {
-    const refused = { refused: 'Start or stop card actions in VS Code.' };
+  /**
+   * Actions.runAction and stopAction apply every R39 safety check and limit; the hub additionally requires a
+   * watching browser client and a positive daily limit before starting one.
+   */
+  it('forwards a card action, carrying the card key and nothing else', () => {
+    expect(bridgeAction({ type: 'runAction', key: 'issue:17198' })).toEqual({
+      send: { type: 'runAction', key: 'issue:17198' },
+    });
+    expect(bridgeAction({ type: 'stopAction', key: 'issue:17198' })).toEqual({
+      send: { type: 'stopAction', key: 'issue:17198' },
+    });
+  });
 
-    expect(bridgeAction({ type: 'runAction', key: 'issue:17198' })).toEqual(refused);
-    expect(bridgeAction({ type: 'stopAction', key: 'issue:17198' })).toEqual(refused);
+  it('refuses a card action that does not name a card, rather than forwarding it', () => {
+    const refused = { refused: 'That card action cannot be run.' };
+
+    expect(bridgeAction({ type: 'runAction', key: 42 })).toEqual(refused);
+    expect(bridgeAction({ type: 'stopAction' })).toEqual(refused);
   });
 
   /** Forward only the card key; the hub resolves its checkout path (R41). */

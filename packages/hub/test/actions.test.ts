@@ -327,6 +327,7 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
       permissionMode: 'manual',
       concurrency: 1,
       dailyLimit: 10,
+      fromBrowser: false,
       // Keep the registration timeout beyond normal test clock advances; timeout tests override it.
       resultTimeoutMs: 14_400_000,
       actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge {base} {branch} {issue} --single' } },
@@ -335,13 +336,86 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
   };
 }
 
-function watch(control: Control, watching = true): void {
-  control.hub.connect({ id: 'board-1', hostId: null, workspaceRoot: null, residentRoutes: [], watching }, (message) => {
+function watch(control: Control, watching = true, hostId: string | null = 'vscode'): void {
+  control.hub.connect({ id: 'board-1', hostId, workspaceRoot: null, residentRoutes: [], watching }, (message) => {
     if (message.type === 'notice') {
       control.notices.push(message.message);
     }
   });
 }
+
+/**
+ * A page may ask, but the developer decides. `fromBrowser` is separate from the daily limit because a limit
+ * set for the developer's own requests is not consent for a web page to spend it (R32, R39).
+ */
+describe('a card action asked for from the browser', () => {
+  // Zero disables automatic starts and permits manual ones, so only the browser message can dispatch here.
+  async function browser(control: Control, over: Partial<HubConfig['actions']> = {}, watching = true) {
+    control.hub.configure(config({ dailyLimit: 0, ...over }));
+    watch(control, watching, null);
+    await control.pass();
+
+    // Automatic dispatch must not be what these assertions see; only the browser message may start a run.
+    expect(control.dispatched).toHaveLength(0);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+  }
+
+  it('starts one where the developer turned browser starts on', async () => {
+    const control = harness({}, [issue()]);
+
+    await browser(control, { fromBrowser: true });
+
+    expect(control.dispatched).toHaveLength(1);
+  });
+
+  it('refuses a start from a tab that is not watching', async () => {
+    const control = harness({}, [issue()]);
+
+    await browser(control, { fromBrowser: true }, false);
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.notices.at(-1)).toBe('Open this project tab to run a card action from the browser.');
+  });
+
+  /** A limit the developer set for their own requests is not consent for a page to spend it. */
+  it('refuses a start the developer has not turned on', async () => {
+    const control = harness({}, [issue()]);
+
+    await browser(control, { fromBrowser: false });
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.notices.at(-1)).toBe(
+      'Turn on groundControl.actions.fromBrowser to run a card action from the browser.',
+    );
+  });
+
+  /** An editor click is itself the opt-in for a disabled action; a page's click is not (R32). */
+  it('refuses a start for an action turned off in Settings', async () => {
+    const control = harness({}, [issue()]);
+
+    await browser(control, {
+      fromBrowser: true,
+      actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge' } },
+    });
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.notices.at(-1)).toBe('That card action is turned off in Settings.');
+  });
+
+  it('stops a run without the start gates, because refusing a stop could strand it', async () => {
+    const control = harness({}, [issue()]);
+
+    await browser(control, { fromBrowser: true });
+    expect(control.dispatched).toHaveLength(1);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'stopAction', key: control.key() });
+    await control.settle();
+
+    expect(control.notices.at(-1)).not.toContain('fromBrowser');
+  });
+});
 
 describe('dispatching a card action', () => {
   /** An active session prevents unattended dispatch into the same checkout. */

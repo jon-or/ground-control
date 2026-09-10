@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_SESSION_SCOPE, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions } from '@ground-control/core';
 import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
+import { actionEnabled } from '@ground-control/automation';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { IssueLookup } from './issueLookup.js';
 import { makeIssueStore } from './issueStore.js';
@@ -428,6 +429,18 @@ export class Hub {
       }
 
       case 'runAction': {
+        // A browser start needs its own opt-in, a visible board, and an action the developer left enabled.
+        // An editor click is itself the opt-in (R32); a page's is not, so it cannot start a disabled action.
+        if (connected.hello.hostId === null) {
+          const refusal = this.#browserStartRefusal(connected, message.key);
+
+          if (refusal !== null) {
+            connected.send({ type: 'notice', level: 'info', message: refusal });
+
+            return;
+          }
+        }
+
         // Manual actions require fresh context and the same safety checks as automatic actions.
         if (!this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === message.key))) {
           this.#scopeRefusal(connected);
@@ -443,6 +456,13 @@ export class Hub {
       }
 
       case 'stopAction':
+        // Scope the stop the way the run is scoped: an out-of-scope card must not be probed by key.
+        if (!this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === message.key))) {
+          this.#scopeRefusal(connected);
+
+          return;
+        }
+
         void this.#actions.stopAction(message.key).then((refused) => {
           if (refused) {
             connected.send({ type: 'notice', level: 'warning', message: this.#scopeMessage(refused.message) });
@@ -1579,6 +1599,27 @@ export class Hub {
     };
   }
 
+  /**
+   * Why a browser start cannot run, or null when it may. The overlay's opt-in is separate from the daily
+   * limit, because a limit the developer set for their own requests is not consent for a page to spend it.
+   */
+  #browserStartRefusal(client: Connected, key: string): string | null {
+    if (!client.watching) {
+      return 'Open this project tab to run a card action from the browser.';
+    }
+
+    if (!this.#config.actions.fromBrowser) {
+      return 'Turn on groundControl.actions.fromBrowser to run a card action from the browser.';
+    }
+
+    const action = this.#lanes(true).flatMap((lane) => lane.cards).find((card) => card.key === key)?.action;
+
+    // An editor click is itself the opt-in for a disabled action (R32); a page's click is not.
+    return action !== undefined && actionEnabled(action.action, this.#config.actions)
+      ? null
+      : 'That card action is turned off in Settings.';
+  }
+
   #scopeRefusal(client: Connected): void {
     client.send({ type: 'notice', level: 'warning', message: 'This session or checkout is not available under the current session settings.' });
   }
@@ -1897,9 +1938,16 @@ export class Hub {
       return;
     }
 
+    const clients = [...this.#clients.values()];
+
+    // Spend the one warning only where an editor can show it; a transient overlay toast is not delivery.
+    if (!clients.some((client) => client.hello.hostId !== null)) {
+      return;
+    }
+
     this.#deps.marks.write({ ...this.#deps.marks.read(), actionsToldAt: this.#deps.clock.now() });
 
-    for (const client of this.#clients.values()) {
+    for (const client of clients) {
       client.send({ type: 'notice', level: 'warning', message: this.#scopeMessage(message) });
     }
   }

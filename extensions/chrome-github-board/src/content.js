@@ -96,6 +96,8 @@
     move: (key, lane) => post({ type: 'move', key, lane }),
     openCheckout: (key) => post({ type: 'openCheckout', key }),
     retriage: (key) => post({ type: 'retriage', key }),
+    runAction: (key) => post({ type: 'runAction', key }),
+    stopAction: (key) => post({ type: 'stopAction', key }),
     openOptions: () => post({ type: 'openOptions' }),
     repaint: () => schedule(),
     watchLog: (open) => {

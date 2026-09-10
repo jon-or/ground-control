@@ -488,6 +488,13 @@
             "order": 7,
             "markdownDescription": "Maximum action starts per rolling 24 hours; zero allows only manual starts."
           },
+          "groundControl.actions.fromBrowser": {
+            "scope": "application",
+            "type": "boolean",
+            "default": false,
+            "order": 8,
+            "markdownDescription": "Let the GitHub overlay start a card action."
+          },
           "groundControl.actions.resultMinutes": {
             "scope": "application",
             "type": "number",

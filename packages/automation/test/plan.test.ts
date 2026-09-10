@@ -16,6 +16,7 @@ function settings(over: Partial<ActionSettings> = {}): ActionSettings {
     permissionMode: 'manual',
     concurrency: 1,
     dailyLimit: 10,
+    fromBrowser: false,
     resultTimeoutMs: 1_800_000,
     actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge {base} {branch} {issue} --single' } },
     ...over,

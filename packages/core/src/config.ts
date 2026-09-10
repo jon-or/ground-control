@@ -174,6 +174,7 @@ export const DEFAULT_ACTIONS: ActionSettings = {
   permissionMode: 'auto',
   concurrency: 1,
   dailyLimit: 10,
+  fromBrowser: false,
   resultTimeoutMs: 30 * 60 * 1000,
   actions: {},
 };
@@ -195,6 +196,8 @@ const actions = z.object({
     .number()
     .finite()
     .transform((n) => Math.min(ACTION_DAILY_CEILING, Math.max(0, Math.trunc(n)))),
+  // Absent from a configuration written before browser starts existed, which must not enable them.
+  fromBrowser: z.boolean().catch(false).default(false),
   resultTimeoutMs: z
     .number()
     .finite()

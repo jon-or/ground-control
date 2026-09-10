@@ -249,7 +249,7 @@ function hubConfig(
     newSession: { prompt: '' },
     installActivity: false,
     triage,
-    actions: { permissionMode: 'manual', concurrency: 1, dailyLimit: 0, resultTimeoutMs: 1_800_000, actions: {} },
+    actions: { permissionMode: 'manual', concurrency: 1, dailyLimit: 0, fromBrowser: false, resultTimeoutMs: 1_800_000, actions: {} },
   };
 }
 

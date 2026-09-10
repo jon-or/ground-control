@@ -330,13 +330,15 @@ Bound automatic work by:
 - No automatic repeat after a successful outcome, even if its push changed the head.
 - Durable run records; a failed write prevents further dispatch.
 
-An explicit manual request can bypass automatic eligibility history and cooldowns, but not safety checks, the required prompt, or concurrency limits. A positive daily limit also applies to manual requests; zero disables automatic starts while allowing manual requests.
+An explicit manual request can bypass automatic eligibility history and cooldowns, but not safety checks, the required prompt, or concurrency limits. A browser request bypasses neither the action's own enablement nor `actions.fromBrowser`. A positive daily limit also applies to manual requests; zero disables automatic starts while allowing manual requests.
 
-Track the dispatched process as an ordinary session, identify it as board-started, and notify the developer on the first dispatch. A detached Claude row attaches in a terminal at its checkout; closing the terminal leaves it running. The overlay can attach through the editor link. It displays running, refused, and completed action states but cannot start or stop work, and shows nothing for an action it could only offer, which the card's triage result already names.
+Track the dispatched process as an ordinary session, identify it as board-started, and notify the developer on the first dispatch. A detached Claude row attaches in a terminal at its checkout; closing the terminal leaves it running. The overlay can attach through the editor link, and displays and controls action state like the editor board. `actions.fromBrowser` defaults to false and gates every browser start; a browser start also requires a visible project tab and an action the developer left enabled, because an editor click is itself the opt-in for a disabled action and a page's click is not. A browser stop has no gate: refusing one could strand a run.
 
 Read an outcome and explanation from the run's designated result file. Clear the previous file before starting; if that fails, do not dispatch. Missing output means stopped short. This is a session-reported outcome, not independently verified stage completion: it changes no lane or GitHub status.
 
 Stopping a run warns that work in progress may be incomplete. Do not reset a partially merged checkout. Report a failed stop and keep the control available. Automatic repair of failing checks and general conflict resolution are not additional actions.
+
+A browser request repeats what a manual request already permits: it can start an action on a card that already landed, up to the daily limit, and a refused start spends a source read without spending that limit.
 
 Implementation limits: run records are written after dispatch returns, so persistence failure can leave an already started process unrecorded. Concurrent starts can exceed the remaining daily allowance because pending requests do not reserve it. Failed attempts count toward that allowance and can include a process whose ID could not be read. Codex stop authorization is lost on hub restart, even though the action record remains. These gaps require implementation work to meet the intended dispatch and recovery guarantees.
 
@@ -428,7 +430,7 @@ Keep browser snapshots only in memory for the current hub connection. After eith
 
 Native-host registration supports Google Chrome and Microsoft Edge, selected by `overlayBrowsers` with Chrome as the default. Enabling registers only the selected browsers and removes Ground Control's registrations for the others; disabling removes the selected browsers' registrations and keeps shared files another registration still needs; uninstall removes every registration Ground Control owns. Neither removes a registration made for another home. Unsupported browsers and platforms are reported as limitations.
 
-Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions/actions, stop actions, open combined diffs, or read a card conversation (R43).
+Session links can launch VS Code even with no editor client connected. Checkout opening requires a connected editor to resolve and perform the request. The overlay cannot choose filesystem paths, start sessions, open combined diffs, or read a card conversation (R43).
 
 Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.
 

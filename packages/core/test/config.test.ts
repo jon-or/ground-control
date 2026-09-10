@@ -330,6 +330,8 @@ describe('what the board may do on its own', () => {
       permissionMode: 'auto',
       concurrency: 1,
       dailyLimit: 10,
+      // A configuration written before browser starts existed must not enable them.
+      fromBrowser: false,
       resultTimeoutMs: 1_800_000,
       actions: {},
     });
@@ -348,6 +350,7 @@ describe('what the board may do on its own', () => {
       permissionMode: 'bypassPermissions',
       concurrency: 2,
       dailyLimit: 5,
+      fromBrowser: false,
       resultTimeoutMs: 600_000,
       actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge' } },
     });

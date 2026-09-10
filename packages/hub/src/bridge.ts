@@ -63,10 +63,10 @@ export class FrameReader {
 export type BridgeMessage = HubMessage | { type: 'trouble'; message: string | null };
 
 /**
- * Allow refresh, visibility, lane moves, log subscriptions, checkout opening, and classification requests
- * (R36). Session opening uses editor URIs. Configuration, path selection, and starting or stopping work remain
- * editor-only. A classification request spends the developer's model allowance, so the hub applies the same
- * eligibility, concurrency, and cooldown checks it applies to an editor request.
+ * Allow refresh, visibility, lane moves, log subscriptions, checkout opening, classification requests, and
+ * card actions (R36). Session opening uses editor URIs; configuration and path selection remain editor-only.
+ * Classification and card actions spend the developer's resources, so the hub applies the same eligibility,
+ * concurrency, and limit checks it applies to an editor request, and meters what a page can start.
  */
 export type BridgeAction = { send: ClientMessage } | { refused: string };
 
@@ -111,9 +111,12 @@ export function bridgeAction(raw: unknown): BridgeAction {
       : { refused: 'That card cannot be read.' };
   }
 
-  // The overlay does not control card actions (R39).
+  // Forward only the card key. Actions.runAction and stopAction apply every R39 safety check and limit, and
+  // the hub additionally requires the browser opt-in before starting one.
   if (message.type === 'runAction' || message.type === 'stopAction') {
-    return { refused: 'Start or stop card actions in VS Code.' };
+    return typeof message.key === 'string'
+      ? { send: { type: message.type, key: message.key } }
+      : { refused: 'That card action cannot be run.' };
   }
 
   // Forward only the card key; the hub resolves the checkout path. Page-selected paths remain prohibited (R41).

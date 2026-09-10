@@ -10,7 +10,7 @@
  * @typedef {import('@ground-control/core').Session} Session
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, retriage: (key: string) => void, openOptions?: () => void }} Actions
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, openOptions?: () => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -263,17 +263,17 @@ a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination {
 /* Reading spends the developer's allowance, so it reads as a control rather than as one more label (R38). */
 .${BADGE_CLASS} button.gc-read { font-weight: 400; color: var(--fgColor-muted, #59636e); }
 /* Place action state beside triage with neutral styling; dispatched work does not imply attention (R39). */
-.gc-mark[data-mark="action"] { color: var(--fgColor-muted, #59636e); background: transparent;
-  border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
-.gc-mark[data-mark="action"][data-outcome="landed"] { color: var(--fgColor-success, #1a7f37); }
-.gc-mark[data-mark="action"][data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
-.gc-mark[data-mark="action"][data-state="running"] { animation: gc-mark-pulse 1.8s ease-in-out infinite; }
+.gc-mark[data-mark="action"], .${BADGE_CLASS} button.gc-act { color: var(--fgColor-muted, #59636e);
+  background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
+.${BADGE_CLASS} button.gc-act[data-outcome="landed"] { color: var(--fgColor-success, #1a7f37); }
+.${BADGE_CLASS} button.gc-act[data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
+.${BADGE_CLASS} button.gc-act[data-state="running"] { animation: gc-mark-pulse 1.8s ease-in-out infinite; }
 /* Style status age as part of the triage label. */
 .gc-triage-age { font-variant-numeric: tabular-nums; display: inline-block; min-width: 3ch; text-align: center; }
 @keyframes gc-mark-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
-  .gc-mark[data-mark="action"][data-state="running"] { animation: none; opacity: 0.7; }
+  .${BADGE_CLASS} button.gc-act[data-state="running"] { animation: none; opacity: 0.7; }
 }
 /* Use Primer foreground tokens to match session dots and editor chart colors (mechanics M38). */
 ${CARD}[${ATTENTION_ATTR}] { outline: 1px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
@@ -2066,7 +2066,7 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest) {
 
   renderAttention(doc, element, head, card);
   renderTriage(doc, head, card, now, actions, canRequest);
-  renderAction(doc, head, card);
+  renderAction(doc, head, card, actions);
 
   for (const session of card.sessions) {
     badge.appendChild(sessionRow(doc, session, now, openable));
@@ -2134,7 +2134,7 @@ function renderTriage(doc, head, card, now, actions, canRequest) {
 
   if (!triage) {
     if (canRequest) {
-      head.appendChild(triageButton(doc, 'Read this card', 'Identify the next action. Uses model usage.', readAgain));
+      head.appendChild(badgeButton(doc, 'gc-read', 'Read this card', 'Identify the next action. Uses model usage.', readAgain));
     }
 
     return;
@@ -2148,7 +2148,7 @@ function renderTriage(doc, head, card, now, actions, canRequest) {
 
     head.appendChild(
       canRequest
-        ? triageButton(doc, 'Not read', `${failure} Click to retry.`, readAgain)
+        ? badgeButton(doc, 'gc-read', 'Not read', `${failure} Click to retry.`, readAgain)
         : triageMark(doc, 'triage', 'Not read', failure),
     );
 
@@ -2185,7 +2185,7 @@ function renderTriage(doc, head, card, now, actions, canRequest) {
 
   // Keep the paid reread separate from the label, which only opens the explanation (R38).
   if (canRequest) {
-    head.appendChild(triageButton(doc, 'Read this card again', 'Read this card again. Uses model usage.', readAgain));
+    head.appendChild(badgeButton(doc, 'gc-read', 'Read this card again', 'Read this card again. Uses model usage.', readAgain));
   }
 }
 
@@ -2211,19 +2211,22 @@ function triageMark(doc, kind, text, title) {
 }
 
 /**
- * A control rather than a label, because pressing it spends the developer's model allowance (R38).
+ * A control rather than a label, because pressing it spends the developer's model allowance or dispatches an
+ * agent. These controls live in github.com's DOM, so a page script can dispatch a click at one; the hub, not
+ * this listener, is what bounds what such a click can cause (R32, R38, R39).
  *
  * @param {Document} doc
+ * @param {string} className
  * @param {string} text
  * @param {string} title
  * @param {() => void} chosen
  * @returns {HTMLElement}
  */
-function triageButton(doc, text, title, chosen) {
+function badgeButton(doc, className, text, title, chosen) {
   const button = doc.createElement('button');
 
   button.type = 'button';
-  button.className = 'gc-read';
+  button.className = className;
   button.textContent = text;
   setTooltip(button, title);
   button.addEventListener('click', (event) => {
@@ -2244,41 +2247,93 @@ const ACTION_OUTCOMES = {
 };
 
 /**
- * Report a dispatched card action without offering to change it: starting and stopping are editor-only, and
- * the browser bridge refuses both (R39). `available` draws nothing, because the overlay cannot start it and
- * the triage mark beside it already names the same action.
+ * Render a dispatched card action's state and its control (R39). A refusal has none: it needs a configuration
+ * or card change, not a press.
  *
  * @param {Document} doc
  * @param {HTMLElement} head
  * @param {LanedCard} card
+ * @param {Actions} actions
  */
-function renderAction(doc, head, card) {
+function renderAction(doc, head, card, actions) {
   const action = card.action;
 
-  if (!action || action.state === 'available') {
+  if (!action) {
     return;
   }
 
   const label = TRIAGE_LABELS[action.action] ?? action.action;
+
+  if (action.state === 'refused') {
+    head.appendChild(actionMark(doc, 'Not run', action.reason));
+
+    return;
+  }
+
+  if (action.state === 'running') {
+    // Explain before stopping: an interrupted merge may leave conflicts for the developer to resolve (R39).
+    head.appendChild(
+      actionButton(doc, 'running', 'Working…', `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`, () =>
+        actions.stopAction(card.key),
+      ),
+    );
+
+    return;
+  }
+
+  if (action.state === 'available') {
+    head.appendChild(
+      actionButton(doc, 'available', `Run ${label.toLowerCase()}`, `Start ${label} in this card\u2019s checkout.`, () =>
+        actions.runAction(card.key),
+      ),
+    );
+
+    return;
+  }
+
+  const outcome = ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (action.outcome)] ?? ACTION_OUTCOMES.failed;
+  const done = actionButton(doc, 'done', outcome, `${action.detail} Click to run ${label} again.`, () =>
+    actions.runAction(card.key),
+  );
+
+  done.dataset.outcome = action.outcome;
+  head.appendChild(done);
+}
+
+/**
+ * A refusal states a condition rather than offering a press; it clears on a configuration or card change.
+ *
+ * @param {Document} doc
+ * @param {string} text
+ * @param {string} title
+ * @returns {HTMLElement}
+ */
+function actionMark(doc, text, title) {
   const mark = doc.createElement('span');
 
   mark.className = 'gc-mark';
   mark.dataset.mark = 'action';
-  mark.dataset.state = action.state;
+  mark.dataset.state = 'refused';
+  mark.textContent = text;
+  setTooltip(mark, title);
 
-  if (action.state === 'running') {
-    mark.textContent = 'Working…';
-    setTooltip(mark, `${label} is running. Stop it from the card in VS Code.`);
-  } else if (action.state === 'refused') {
-    mark.textContent = 'Not run';
-    setTooltip(mark, action.reason);
-  } else {
-    mark.textContent = ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (action.outcome)] ?? ACTION_OUTCOMES.failed;
-    mark.dataset.outcome = action.outcome;
-    setTooltip(mark, `${action.detail} Run ${label.toLowerCase()} again from the card in VS Code.`);
-  }
+  return mark;
+}
 
-  head.appendChild(mark);
+/**
+ * @param {Document} doc
+ * @param {string} state
+ * @param {string} text
+ * @param {string} title
+ * @param {() => void} chosen
+ * @returns {HTMLElement}
+ */
+function actionButton(doc, state, text, title, chosen) {
+  const button = badgeButton(doc, 'gc-act', text, title, chosen);
+
+  button.dataset.state = state;
+
+  return button;
 }
 
 /**
