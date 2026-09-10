@@ -1110,6 +1110,11 @@ describe('reported activity', () => {
       'Time in this turn, from its prompt when recorded. Last event: PostToolBatch.',
     );
     expect(tipOf(state)).not.toContain('working');
+
+    // The other variant, which the overlay pins and this suite did not, so neither string can drift alone.
+    const idle = sendCard([withPhase('idle')]).querySelector<HTMLElement>('.state')!;
+
+    expect(tipOf(idle)).toBe('Time since the phase was reported. Last event: PostToolBatch.');
   });
 
   /** Describe phase and liveness in dot tooltips, with matching literal expectations in both clients. */
@@ -1394,12 +1399,18 @@ describe('lanes', () => {
     sessions: [],
   };
 
+  /**
+   * The literal titles, in order. Both clients duplicate this map because neither can import core at
+   * runtime, so an expectation computed from the constant would agree with any drift (`docs/testing.md`).
+   */
+  const LANE_NAMES = ['Unstarted', 'Plan', 'Build', 'Review', 'Done', 'Icebox'] as const;
+
   it('renders every lane the payload carries, with its count — R10', () => {
     send(message({ lanes: lanes({ plan: [planCard] }) }));
 
     const rendered = Array.from(document.querySelectorAll<HTMLElement>('.lane h2 .lane-name')).map((h) => h.textContent);
 
-    expect(rendered).toEqual(LANE_ORDER.filter((id) => id !== 'archived').map((id) => LANE_TITLES[id]));
+    expect(rendered).toEqual([...LANE_NAMES]);
     expect(laneEl('plan')?.querySelector('.lane-count')?.textContent).toBe('1');
     expect(laneEl('unstarted')?.querySelector('.lane-count')?.textContent).toBe('0');
     expect(laneEl('plan')?.querySelectorAll('.card')).toHaveLength(1);
@@ -2032,6 +2043,8 @@ describe("the card's own menu", () => {
     expect(menu()!.getAttribute('role')).toBe('menu');
     expect(menu()!.getAttribute('aria-label')).toBe('Actions for Cached counts do not update');
     expect(items().map((item) => item.textContent)).toEqual(['View changes', 'Open in VS Code']);
+    // The overlay pins the same sentence; a toContain on either side would let that side's copy drift.
+    expect(tipOf(items()[1])).toBe(`Open ${liveCard.checkout!.root} in VS Code`);
     expect(tipOf(items()[0])).toBe("Open this card's commits and uncommitted changes in one editor");
     // The first item takes the focus, so the menu can be driven from where the control left the keyboard.
     expect(document.activeElement).toBe(items()[0]);
@@ -2257,6 +2270,20 @@ describe("the card's own menu", () => {
     send({ type: 'showArchived', shown: true });
     control()!.click();
 
+    // Named against an open menu: a menu that never opened has no start item either.
+    expect(items().length).toBeGreaterThan(0);
+    expect(items().map((item) => item.textContent ?? '').filter((label) => label.includes('Start'))).toEqual([]);
+  });
+
+  /** The other half of the same guard, which the archived case cannot stand in for (R9). */
+  it('offers no start on a card the developer is no longer assigned', () => {
+    send(message({
+      lanes: lanes({ build: [{ ...liveCard, unassigned: true }] }),
+      startable: [{ agent: 'claude', takesPrompt: true }],
+    }));
+    control()!.click();
+
+    expect(items().length).toBeGreaterThan(0);
     expect(items().map((item) => item.textContent ?? '').filter((label) => label.includes('Start'))).toEqual([]);
   });
 
@@ -2604,7 +2631,7 @@ describe('card triage (R38)', () => {
     const again = chip()!.querySelector<HTMLButtonElement>('button.triage-again')!;
 
     expect(again.getAttribute('aria-label')).toBe('Read this card again');
-    expect(tipOf(again)).toBe('Read this card again.');
+    expect(tipOf(again)).toBe('Read this card again. Uses model usage.');
     again.click();
 
     expect(sent()).toEqual([{ type: 'retriage', key: 'issue:18953' }]);
@@ -2638,6 +2665,7 @@ describe('card actions (R39)', () => {
     send(message({ lanes: lanes({ unstarted: [acting({ state: 'available', action: 'merge-upstream' })] }) }));
 
     expect(chip()?.textContent).toBe('Run merge upstream');
+    expect(tipOf(chip())).toBe('Start Merge upstream in this card’s checkout.');
     chip()?.click();
 
     expect(sent()).toContainEqual({ type: 'runAction', key: 'issue:18953' });

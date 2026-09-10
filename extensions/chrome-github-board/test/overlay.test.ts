@@ -2,7 +2,21 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, cardsByIssue, clear, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText, viewerLogin } from '../src/overlay.js';
+import { LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, cardsByIssue, clear, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText, viewerLogin } from '../src/overlay.js';
+
+/**
+ * The literal lane titles, matching the table in the editor board's suite. Both clients duplicate the map
+ * because neither can import core at runtime (`docs/testing.md` parity tables).
+ */
+const LANE_NAMES: Record<string, string> = {
+  unstarted: 'Unstarted',
+  plan: 'Plan',
+  build: 'Build',
+  review: 'Review',
+  done: 'Done',
+  icebox: 'Icebox',
+  archived: 'Archived',
+};
 
 /** The board GitHub actually serves, recorded and scrubbed. Its three cards are issues 4501, 4502 and 4503. */
 const BOARD = readFileSync(join(__dirname, 'fixtures', 'project-board.html'), 'utf8');
@@ -1047,6 +1061,10 @@ describe('the footer on a card', () => {
   });
 });
 
+it('titles every lane the way the editor board titles it', () => {
+  expect(LANE_TITLES).toEqual(LANE_NAMES);
+});
+
 describe('the menu in the board’s own filter bar', () => {
   function open(): void {
     document.querySelector<HTMLElement>('#gc-menu button')!.click();
@@ -1629,8 +1647,8 @@ describe('moving a card from the browser', () => {
 
       const open = document.querySelector<HTMLElement>('.gc-lanes button[data-action="open-checkout"]');
 
-      expect(open?.textContent).toContain('Open in VS Code');
-      expect(open?.title).toContain(CHECKOUT.root);
+      expect(open?.textContent).toBe('Open in VS Code');
+      expect(open?.title).toBe(`Open ${CHECKOUT.root} in VS Code`);
     });
 
     it('sends the card and nothing else, which is what makes it safe from a page', () => {
@@ -1753,16 +1771,22 @@ describe('moving a card from the browser', () => {
       expect(items()).toHaveLength(0);
     });
 
-    it('offers no start on an archived card, or one the developer is no longer assigned', () => {
+    /** Count against an open menu: a closed one has no items either, and would satisfy this by accident. */
+    it('offers no start on an archived card', () => {
       show(snapshot({
         lanes: [{ id: 'archived', title: 'Archived', cards: [card(4501, { checkout: CHECKOUT, lane: 'archived' })] }],
         startable: STARTABLE,
       }));
 
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(1);
       expect(items()).toHaveLength(0);
+    });
 
+    /** Archived is wider than unassigned, so the archived case above cannot stand in for this one (R9). */
+    it('offers no start on a card the developer is no longer assigned', () => {
       show(startable({ unassigned: true }));
 
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(1);
       expect(items()).toHaveLength(0);
     });
   });
@@ -2767,12 +2791,17 @@ describe('card triage (R38)', () => {
   }
 
   it.each(['manual', 'automatic'] as const)('offers reading beside each result in %s mode', (mode) => {
-    expect(marksFor(mode, true).map((entry) => entry.textContent)).toEqual([
+    const marks = marksFor(mode, true);
+
+    expect(marks.map((entry) => entry.textContent)).toEqual([
       'Read this card',
       'Not read',
       'Develop',
       'Read this card again',
     ]);
+    // Both reads spend the allowance and both clients say so; pinned here and on the editor board.
+    expect(tipOf(marks[0])).toBe('Identify the next action. Uses model usage.');
+    expect(tipOf(marks[3])).toBe('Read this card again. Uses model usage.');
   });
 
   it('removes the controls and keeps the results in off mode', () => {

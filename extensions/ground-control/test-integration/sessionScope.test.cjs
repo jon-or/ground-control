@@ -122,6 +122,44 @@ describe('session scope at editor execution', () => {
     assert.equal(commands.length, 0, 'a start must not reach the editor command without its extension');
   });
 
+  /**
+   * The recheck the hub delegates to the performing window, because a page request states no workspace
+   * (M51). It runs before the extension check, so a drifted window is refused without an activation wait.
+   */
+  it('refuses a start whose window has moved off the checkout, running no command', async () => {
+    const plan = { route: 'start-session', key: 'issue:42', agent: 'claude', root: 'd:/not-this-window', prompt: null };
+
+    const failure = await entry.performRoute(plan, async () => [], saved);
+
+    assert.match(failure, /This window is no longer on d:\/not-this-window/);
+    assert.equal(commands.length, 0, 'a start must not reach the editor command from the wrong folder');
+  });
+
+  /**
+   * The half the package tests cannot reach: turning a placement into a real editor call. `{kind:'absent'}`
+   * must arrive as `undefined` and `{kind:'text'}` must unwrap to the prompt (M51).
+   */
+  it('starts in this window with the placement arguments the editor command expects', async () => {
+    const extensions = vscode.extensions.getExtension;
+
+    vscode.extensions.getExtension = (id) =>
+      String(id).toLowerCase() === 'anthropic.claude-code'
+        ? { isActive: true, activate: async () => undefined }
+        : extensions(id);
+
+    try {
+      const plan = { route: 'start-session', key: 'issue:42', agent: 'claude', root: entry.boardRoot(), prompt: 'Fix the paging' };
+      const failure = await entry.performRoute(plan, async () => [], saved);
+
+      assert.match(failure, /test command observed/, 'the start must reach the editor command');
+      assert.equal(commands.length, 1);
+      // The absent session slot becomes undefined rather than an object, and the prompt arrives unwrapped.
+      assert.deepEqual(commands[0], ['claude-vscode.primaryEditor.open', undefined, 'Fix the paging']);
+    } finally {
+      vscode.extensions.getExtension = extensions;
+    }
+  });
+
   it('refuses resume after history is hidden while the roster read is pending', async () => {
     let release;
     let reading;

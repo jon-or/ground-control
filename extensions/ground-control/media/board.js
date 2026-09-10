@@ -1439,7 +1439,7 @@ function card(boardCard, avatarPool, placeable) {
       again.draggable = false;
       again.appendChild(syncMark());
       setAccessibleName(again, 'Read this card again');
-      setTooltip(again, 'Read this card again.');
+      setTooltip(again, 'Read this card again. Uses model usage.');
       again.addEventListener('click', (event) => {
         event.stopPropagation();
         readAgain();

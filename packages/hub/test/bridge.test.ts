@@ -181,6 +181,22 @@ describe('what the browser may ask the hub for', () => {
     expect(bridgeAction({ type: 'startSession', key: 'issue:17198', agent: 42 })).toEqual(refused);
   });
 
+  /**
+   * The agent name is the one page-supplied string that reaches a hub log line and an editor notice, so it
+   * is held to the shape of a registry id rather than to being a string at all.
+   */
+  it('refuses an agent name no registry could hold', () => {
+    const refused = { refused: 'That session cannot be started.' };
+    const key = 'issue:17198';
+
+    expect(bridgeAction({ type: 'startSession', key, agent: 'Claude' })).toEqual(refused);
+    expect(bridgeAction({ type: 'startSession', key, agent: 'claude code' })).toEqual(refused);
+    expect(bridgeAction({ type: 'startSession', key, agent: '../claude' })).toEqual(refused);
+    expect(bridgeAction({ type: 'startSession', key, agent: 'claude\nstarting a fake session' })).toEqual(refused);
+    expect(bridgeAction({ type: 'startSession', key, agent: 'a'.repeat(33) })).toEqual(refused);
+    expect(bridgeAction({ type: 'startSession', key, agent: '' })).toEqual(refused);
+  });
+
   it('refuses to read a conversation, because the overlay runs on the page that already shows it (R36, R43)', () => {
     expect(bridgeAction({ type: 'readDetail', key: 'issue:17198', subject: 'issue' })).toEqual({
       refused: 'Read issues and pull requests on GitHub itself.',
