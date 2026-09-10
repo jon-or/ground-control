@@ -402,7 +402,31 @@ function agentMark(agent) {
   return svg;
 }
 
-/** The dot color indicates phase and its fill indicates a live session. Its accessible name states both. */
+/**
+ * What the dot conveys by color and fill, in words: the phase, then whether the session is still running.
+ * "live" rather than "open", because a row's own name ends in what a click on it opens.
+ */
+function dotWords(phase, live) {
+  return `${PHASE_WORDS[phase] ?? 'no state reported'}, ${live ? 'live' : 'ended'}`;
+}
+
+/**
+ * What a row states about its session. A row name replaces everything inside it, so it must state what the
+ * row shows: the observed phase, else the word the agent reported, else that there is none (R24).
+ */
+function rowWords(session) {
+  const reported = session.details.state ?? session.details.status;
+
+  return session.activity || typeof reported !== 'string' || reported.length === 0
+    ? dotWords(session.activity?.phase, !session.finished)
+    : `${reported}, ${session.finished ? 'ended' : 'live'}`;
+}
+
+/**
+ * The dot color indicates phase and its fill indicates a live session. Its own name states both, which is
+ * what an unreachable row reads; a reachable row carries the same words in its own name, because an
+ * aria-label there replaces everything inside it (R2).
+ */
 function sessionDot(phase, live, title = dotTitle(phase, live)) {
   const el = document.createElement('span');
 
@@ -411,7 +435,7 @@ function sessionDot(phase, live, title = dotTitle(phase, live)) {
   el.dataset.live = String(live);
   el.setAttribute('role', 'img');
   // Expose the state through both an accessible name and a tooltip.
-  setAccessibleName(el, `${PHASE_WORDS[phase] ?? 'no state reported'}, ${live ? 'open' : 'ended'}`);
+  setAccessibleName(el, dotWords(phase, live));
   setTooltip(el, title);
 
   return el;
@@ -438,9 +462,9 @@ function sessionLine(session) {
   label.className = 'session-label';
   label.textContent = name;
 
-  // The row names the agent because a name on the mark inside it would never be read: an aria-label here
-  // replaces the row's contents (R2).
-  const named = `${name}, ${agentTitle(session.agent)}`;
+  // The row states the agent and the dot's words because a name inside it would never be read: an
+  // aria-label here replaces the row's contents (R2).
+  const named = `${name}, ${agentTitle(session.agent)}, ${rowWords(session)}`;
 
   // Keep activity details on the state tooltip; the row label already identifies the session.
   if (reachable) {
@@ -550,7 +574,10 @@ function historyLine(session) {
   setTooltip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
 
   if (reachable) {
-    setAccessibleName(el, `${label.textContent}, ${agentTitle(session.agent)} - resume this session`);
+    setAccessibleName(
+      el,
+      `${label.textContent}, ${agentTitle(session.agent)}, ${dotWords(mark?.phase, false)} - resume this session`,
+    );
   }
 
   // Apply the retained phase to the row and dot; retainedMark maps running to idle after process exit.

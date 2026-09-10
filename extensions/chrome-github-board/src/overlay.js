@@ -545,7 +545,36 @@ export function agentTitle(agent) {
 }
 
 /**
- * The dot color indicates phase and its fill indicates a live session. Its accessible name states both.
+ * What the dot conveys by color and fill, in words: the phase, then whether the session is still running.
+ * "live" rather than "open", because a row's own name ends in what a click on it opens.
+ *
+ * @param {string | undefined} phase
+ * @param {boolean} live
+ * @returns {string}
+ */
+function dotWords(phase, live) {
+  return `${PHASE_WORDS[phase ?? ''] ?? 'no state reported'}, ${live ? 'live' : 'ended'}`;
+}
+
+/**
+ * What a row states about its session. A row name replaces everything inside it, so it must state what the
+ * row shows: the observed phase, else the word the agent reported, else that there is none (R24).
+ *
+ * @param {Session} session
+ * @returns {string}
+ */
+function rowWords(session) {
+  const reported = session.details.state ?? session.details.status;
+
+  return session.activity || typeof reported !== 'string' || reported.length === 0
+    ? dotWords(session.activity?.phase, !session.finished)
+    : `${reported}, ${session.finished ? 'ended' : 'live'}`;
+}
+
+/**
+ * The dot color indicates phase and its fill indicates a live session. Its own name states both, which is
+ * what an unreachable row reads; a reachable row carries the same words in its own name, because an
+ * aria-label there replaces everything inside it (R2, R24).
  *
  * @param {Document} doc
  * @param {string | undefined} phase
@@ -561,7 +590,7 @@ function sessionDot(doc, phase, live, title = dotTitle(phase, live)) {
   el.dataset.live = String(live);
   el.setAttribute('role', 'img');
   // Expose the state through both an accessible name and a tooltip.
-  el.setAttribute('aria-label', `${PHASE_WORDS[phase ?? ''] ?? 'no state reported'}, ${live ? 'open' : 'ended'}`);
+  el.setAttribute('aria-label', dotWords(phase, live));
   setTooltip(el, title);
 
   return el;
@@ -1904,7 +1933,14 @@ function sessionRow(doc, session, now, openable) {
     setTooltip(state, stateTitle(session.activity));
   }
 
-  row.setAttribute('aria-label', `${name}, ${agentTitle(session.agent)} — ${destinationWords(reachable, attachId)}.`);
+  // Name only a row a reader can act on. An inert row is a span, which prohibits a name, and its marks
+  // already state the agent and the phase (R2).
+  if (reachable) {
+    row.setAttribute(
+      'aria-label',
+      `${name}, ${agentTitle(session.agent)}, ${rowWords(session)} — ${destinationWords(reachable, attachId)}.`,
+    );
+  }
 
   // Italic names identify board-dispatched runs.
   if (attachId !== null) {
@@ -1965,10 +2001,12 @@ function historyRow(doc, session, now, openable) {
   age(state, mark ? mark.at : session.updatedAt, now);
   // Put the exact timestamp on the duration tooltip, using the same time as the displayed age.
   setTooltip(state, `${reachable ? 'Resume this session in VS Code.' : 'Historical session.'} ${mark ? `Last seen ${new Date(mark.at).toLocaleString()}` : `Last saved ${new Date(session.updatedAt).toLocaleString()}`}.`);
-  row.setAttribute(
-    'aria-label',
-    `${name.textContent}, ${agentTitle(session.agent)} — ${reachable ? 'resume this session in VS Code' : 'historical session'}.`,
-  );
+  if (reachable) {
+    row.setAttribute(
+      'aria-label',
+      `${name.textContent}, ${agentTitle(session.agent)}, ${dotWords(mark?.phase, false)} — resume this session in VS Code.`,
+    );
+  }
   row.append(name, state);
 
   // Saved sessions must resume in the editor; there is no process to attach to.

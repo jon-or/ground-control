@@ -403,7 +403,7 @@ describe('board webview', () => {
     expect(label.tagName).toBe('SPAN');
     // The accessible name describes opening the session; the visible label needs no duplicate tooltip.
     expect(tipOf(row)).toBe('');
-    expect(row.getAttribute('aria-label')).toBe('cache-remediation, Claude - open this session');
+    expect(row.getAttribute('aria-label')).toBe('cache-remediation, Claude, editing tests, live - open this session');
     expect(getComputedStyle(row).cursor).toBe('pointer');
     // Override native button colors to match session text contrast across clients (mechanics M38).
     expect(getComputedStyle(label).color).toBe('var(--vscode-foreground)');
@@ -428,7 +428,7 @@ describe('board webview', () => {
     const row = document.querySelector<HTMLElement>('.session')!;
 
     expect(row.tagName).toBe('BUTTON');
-    expect(row.getAttribute('aria-label')).toBe('merge-upstream, Claude - attach to this run in a terminal');
+    expect(row.getAttribute('aria-label')).toBe('merge-upstream, Claude, no state reported, live - attach to this run in a terminal');
 
     row.click();
 
@@ -689,7 +689,7 @@ describe('board webview', () => {
     expect(mark.getAttribute('aria-label')).toBe('claude');
     expect(mark.querySelector('title')).toBeNull();
     expect(document.querySelector('.session')!.getAttribute('aria-label')).toBe(
-      'cache-remediation, Claude - open this session',
+      'cache-remediation, Claude, editing tests, live - open this session',
     );
   });
 
@@ -706,7 +706,7 @@ describe('board webview', () => {
     expect(mark.getAttribute('aria-label')).toBe('codex');
     expect(document.querySelector('.session .agent')?.textContent).toBe('');
     expect(document.querySelector('.session')!.getAttribute('aria-label')).toBe(
-      'cache-remediation, Codex - open this session',
+      'cache-remediation, Codex, editing tests, live - open this session',
     );
   });
 
@@ -735,7 +735,7 @@ describe('board webview', () => {
     expect(document.querySelector('.session .agent-mark')).toBeNull();
     expect(document.querySelector('.session .agent')?.textContent).toBe('gemini');
     expect(document.querySelector('.session')!.getAttribute('aria-label')).toBe(
-      'cache-remediation, Gemini - open this session',
+      'cache-remediation, Gemini, editing tests, live - open this session',
     );
   });
 
@@ -946,8 +946,8 @@ describe('reported activity', () => {
     );
 
     expect(Array.from(card.querySelectorAll('.dot')).map((el) => el.getAttribute('aria-label'))).toEqual([
-      'waiting for input, open',
-      'running, open',
+      'waiting for input, live',
+      'running, live',
     ]);
   });
 
@@ -961,9 +961,9 @@ describe('reported activity', () => {
 
   /** Expose phase and liveness through the dot accessible name as well as color and fill. */
   it.each([
-    ['running', false, 'running, open'],
-    ['waiting', false, 'waiting for input, open'],
-    ['idle', false, 'idle, open'],
+    ['running', false, 'running, live'],
+    ['waiting', false, 'waiting for input, live'],
+    ['idle', false, 'idle, live'],
     ['idle', true, 'idle, ended'],
   ] as const)('names a %s session, finished %s, on the mark a reader can hear', (phase, finished, named) => {
     const row = sendCard([{ ...withPhase(phase), finished }]).querySelector<HTMLElement>('.session')!;
@@ -975,6 +975,35 @@ describe('reported activity', () => {
     expect(dot.dataset['live']).toBe(String(!finished));
     expect(dot.getAttribute('aria-label')).toBe(named);
     expect(dot.getAttribute('role')).toBe('img');
+
+    // The dot's own name is never read on a reachable row: an aria-label there replaces everything inside
+    // it, so the row states the same words itself (R2).
+    expect(row.getAttribute('aria-label')).toBe(`cache-remediation, Claude, ${named} - open this session`);
+  });
+
+  /**
+   * A row name replaces everything inside it, including the word the agent reported, so the name has to
+   * follow the same precedence the row renders (R24).
+   */
+  it('names the word the agent reported where no hook observed a phase', () => {
+    const row = sendCard([{ ...session, activity: null }]).querySelector('.session')!;
+
+    expect(row.querySelector('.state')!.textContent).toBe('editing tests');
+    expect(row.getAttribute('aria-label')).toBe('cache-remediation, Claude, editing tests, live - open this session');
+  });
+
+  it('prefers the observed phase over the word the agent reported', () => {
+    const row = sendCard([withPhase('running')]).querySelector('.session')!;
+
+    expect(row.getAttribute('aria-label')).toBe('cache-remediation, Claude, running, live - open this session');
+  });
+
+  it('reports no state only where the row shows none either', () => {
+    const row = sendCard([{ ...session, activity: null, details: {} }]).querySelector('.session')!;
+
+    expect(row.querySelector('.state')).toBeNull();
+    // Emptying details also drops the CLI's name for the session, so the label falls back to the branch.
+    expect(row.getAttribute('aria-label')).toBe('18953-cache-remediation, Claude, no state reported, live - open this session');
   });
 
   // A row the board has no phase for still gets a mark: an absent one would read as a row with nothing to report.
@@ -982,7 +1011,7 @@ describe('reported activity', () => {
     const dot = sendCard([{ ...session, activity: null }]).querySelector<HTMLElement>('.dot')!;
 
     expect(dot.dataset['phase']).toBe('none');
-    expect(dot.getAttribute('aria-label')).toBe('no state reported, open');
+    expect(dot.getAttribute('aria-label')).toBe('no state reported, live');
   });
 
   it('offers the title as a control only where there is an issue to open', () => {
@@ -1675,7 +1704,7 @@ describe('the agent display name', () => {
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, agent }] }] }) }));
 
     expect(document.querySelector('.session')!.getAttribute('aria-label')).toBe(
-      `cache-remediation, ${titled} - open this session`,
+      `cache-remediation, ${titled}, editing tests, live - open this session`,
     );
   });
 });
@@ -1772,6 +1801,13 @@ describe('historical rows', () => {
     expect(row.querySelector('.state')?.textContent).toBe('5m');
     expect(tipOf(row.querySelector('.state'))).toContain('Last seen');
     expect(tipOf(row.querySelector('.state'))).toContain(new Date(at).toLocaleString());
+
+    // A resumable row states the retained phase itself; its dot's name would be replaced by the row's (R2).
+    send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], lastSession: retained }] }), openable: [lastSession.sessionId] }));
+
+    expect(document.querySelector('button.historical')!.getAttribute('aria-label')).toBe(
+      `Past attempt, Claude, ${drawn === 'waiting' ? 'waiting for input' : 'idle'}, ended - resume this session`,
+    );
   });
 
   /** A snapshot an older hub cached, or one whose fields were redefined: the cast is what lets a shape the current type forbids be rendered. */
@@ -1814,7 +1850,7 @@ it('makes a historical title openable when the host offers it, including after a
   expect(button.querySelector('.destination')?.getAttribute('data-destination')).toBe('editor');
   button.click(); expect(sent()).toEqual([{ type: 'openSession', sessionId: 'past' }]);
   expect(tipOf(button)).toBe('');
-  expect(button.getAttribute('aria-label')).toBe('Past attempt, Claude - resume this session');
+  expect(button.getAttribute('aria-label')).toBe('Past attempt, Claude, no state reported, ended - resume this session');
   expect(tipOf(button.querySelector('.state'))).toContain('Resume this session');
   send(message({ lanes: lanes({ build: [pastCard] }), openable: [] }));
   expect(document.querySelector('button.historical')).toBeNull();

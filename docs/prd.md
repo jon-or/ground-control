@@ -78,7 +78,7 @@ A card must show its stage, sessions, activity, attention, and relevant ages wit
 
 The footer remains present when empty. Cards and page use the same base tone; lanes are recessed and footers have a small contrasting tint. Borders distinguish cards when theme backgrounds coincide.
 
-State marks use three meanings: working, waiting for the developer, and idle/unknown as applicable. Filled marks represent live sessions; outlines represent saved sessions. Provide accessible names for information conveyed by color and fill. Only the session responsible for card attention uses the card's attention color; do not recolor or embolden that session's name to repeat the same signal.
+State marks use three meanings: working, waiting for the developer, and idle/unknown as applicable. Filled marks represent live sessions; outlines represent saved sessions. Provide accessible names for information conveyed by color and fill. A row that is itself a control carries those names in its own accessible name, because a name there replaces everything inside it, and states what the row shows: the observed phase, else the word the agent reported, else that there is none. An inert row carries no name of its own and is read from its marks. Only the session responsible for card attention uses the card's attention color; do not recolor or embolden that session's name to repeat the same signal.
 
 Animate the name of a working live session. Respect reduced motion and forced colors. Session names are more prominent than agent marks and durations.
 
@@ -430,7 +430,7 @@ Keep browser snapshots only in memory for the current hub connection. After eith
 
 Native-host registration supports Google Chrome and Microsoft Edge, selected by `overlayBrowsers` with Chrome as the default. Enabling registers only the selected browsers and removes Ground Control's registrations for the others; disabling removes the selected browsers' registrations and keeps shared files another registration still needs; uninstall removes every registration Ground Control owns. Neither removes a registration made for another home. Unsupported browsers and platforms are reported as limitations.
 
-Session links can launch VS Code even with no editor client connected. Opening a checkout and starting a session require a connected editor to resolve and perform the request, and the overlay offers a start only for agents such an editor reports. The overlay cannot choose filesystem paths, open combined diffs, or read a card conversation (R43).
+Session row accessible names share their phase and liveness words with the editor board and differ only in naming their destination: the overlay says a session opens “in VS Code” and punctuates the name as a sentence, because the reader is not in the editor. Session links can launch VS Code even with no editor client connected. Opening a checkout and starting a session require a connected editor to resolve and perform the request, and the overlay offers a start only for agents such an editor reports. The overlay cannot choose filesystem paths, open combined diffs, or read a card conversation (R43).
 
 Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.
 

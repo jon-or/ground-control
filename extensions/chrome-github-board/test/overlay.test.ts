@@ -890,7 +890,7 @@ describe('the footer on a card', () => {
     expect(chip.firstElementChild!.className).toBe('gc-dot');
     // Put activity details on the state tooltip; the row label already identifies the session.
     expect(tipOf(chip)).toBe('');
-    expect(chip.getAttribute('aria-label')).toBe('Working on it, Claude — open this session in VS Code.');
+    expect(chip.getAttribute('aria-label')).toBe('Working on it, Claude, waiting for input, live — open this session in VS Code.');
     // The phase is the mark's; the duration says only what it counts, or the row would say the same thing twice.
     expect(tipOf(chip.querySelector('.gc-dot'))).toBe('Waiting for your input.');
     expect(tipOf(chip.querySelector('.gc-state'))).toBe(
@@ -902,9 +902,9 @@ describe('the footer on a card', () => {
 
   /** Expose phase and liveness through the dot accessible name as well as color and fill. */
   it.each([
-    ['running', false, 'var(--fgColor-success, #1a7f37)', 'running, open'],
-    ['waiting', false, 'var(--fgColor-attention, #9a6700)', 'waiting for input, open'],
-    ['idle', false, '', 'idle, open'],
+    ['running', false, 'var(--fgColor-success, #1a7f37)', 'running, live'],
+    ['waiting', false, 'var(--fgColor-attention, #9a6700)', 'waiting for input, live'],
+    ['idle', false, '', 'idle, live'],
     ['idle', true, '', 'idle, ended'],
   ] as const)('marks a %s session, finished %s, in its own colour and fill', (phase, finished, colour, named) => {
     paint(
@@ -936,6 +936,28 @@ describe('the footer on a card', () => {
     expect(dot.dataset.live).toBe(String(!finished));
     expect(dot.getAttribute('aria-label')).toBe(named);
     expect(dot.getAttribute('role')).toBe('img');
+
+    // The dot's own name is never read on a reachable row: an aria-label there replaces everything inside
+    // it, so the row states the same words itself (R2).
+    expect(document.querySelector('.gc-session')!.getAttribute('aria-label')).toBe(
+      `Working on it, Claude, ${named} — open this session in VS Code.`,
+    );
+  });
+
+  /**
+   * A row name replaces everything inside it, including the word the agent reported, so the name has to
+   * follow the same precedence the row renders (R24).
+   */
+  it.each([
+    [{ activity: null, details: { state: 'editing tests' } }, 'editing tests, live'],
+    [{ details: { state: 'editing tests' } }, 'waiting for input, live'],
+    [{ activity: null }, 'no state reported, live'],
+  ] as const)('states what the row shows, not the phase alone', (over, said) => {
+    paint(document, state({ snapshot: laneOf(card(4501, { sessions: [session(over)] })) }), NOW, actions);
+
+    expect(document.querySelector('.gc-session')!.getAttribute('aria-label')).toBe(
+      `Working on it, Claude, ${said} — open this session in VS Code.`,
+    );
   });
 
   /** Describe phase and liveness in dot tooltips, with matching literal expectations in both clients. */
@@ -977,7 +999,9 @@ describe('the footer on a card', () => {
     expect(chip.querySelector('svg')).not.toBeNull();
     expect(chip.querySelector('.gc-agent')).toBeNull();
     expect(agentIcon(document, 'codex')?.getAttribute('data-agent')).toBe('codex');
-    expect(chip.getAttribute('aria-label')).toBe('Working on it, Codex — cannot open this session in VS Code.');
+    // Unreachable, so the row has no name of its own and the mark's is the one read (R2).
+    expect(chip.hasAttribute('aria-label')).toBe(false);
+    expect(chip.querySelector('svg')!.getAttribute('aria-label')).toBe('codex');
   });
 
   /** Key logo fill by agent so the monochrome OpenAI logo does not inherit Claude brand orange. */
@@ -1003,7 +1027,8 @@ describe('the footer on a card', () => {
     expect(chip.querySelector('svg')).toBeNull();
     expect(chip.querySelector('.gc-agent')!.textContent).toBe('gemini');
     expect(agentIcon(document, 'gemini')).toBeNull();
-    expect(chip.getAttribute('aria-label')).toBe('Working on it, Gemini — cannot open this session in VS Code.');
+    // No mark to name, so the written agent name is what the unnamed row reads (R2).
+    expect(chip.hasAttribute('aria-label')).toBe(false);
   });
 
   /**
@@ -1018,7 +1043,7 @@ describe('the footer on a card', () => {
 
     expect(mark.getAttribute('role')).toBe('img');
     expect(mark.getAttribute('aria-label')).toBe('claude');
-    expect(chip.getAttribute('aria-label')).toBe('Working on it, Claude — open this session in VS Code.');
+    expect(chip.getAttribute('aria-label')).toBe('Working on it, Claude, waiting for input, live — open this session in VS Code.');
   });
 });
 
@@ -2370,7 +2395,10 @@ describe('going to a session from the browser', () => {
 
     expect(chip.tagName).toBe('SPAN');
     expect(chip.getAttribute('href')).toBeNull();
-    expect(chip.getAttribute('aria-label')).toContain('cannot open this session in VS Code');
+    // A span prohibits an accessible name, so the row carries none and is read from its own marks (R2).
+    expect(chip.hasAttribute('aria-label')).toBe(false);
+    expect(chip.querySelector('.gc-dot')!.getAttribute('aria-label')).toBe('waiting for input, live');
+    expect(chip.querySelector('svg.gc-agent-icon')!.getAttribute('aria-label')).toBe('claude');
   });
 
   it('offers a link only for the sessions the hub named', () => {
@@ -2472,6 +2500,20 @@ describe('historical session rows', () => {
     expect(row.querySelector('.gc-state')!.textContent).toBe('5m');
     expect(tipOf(row.querySelector('.gc-state'))).toContain('Last seen');
     expect(tipOf(row.querySelector('.gc-state'))).toContain(new Date(at).toLocaleString());
+
+    // A resumable row states the retained phase itself; its dot's name would be replaced by the row's (R2).
+    const entry = card(4501, { sessions: [], lastSession: { ...lastSession, retained: { phase, event: 'PreToolUse', at } } });
+
+    paint(
+      document,
+      state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [SESSION_ID] }) }),
+      NOW,
+      actions,
+    );
+
+    expect(document.querySelector('.gc-historical')!.getAttribute('aria-label')).toBe(
+      `Past attempt, Claude, ${drawn === 'waiting' ? 'waiting for input' : 'idle'}, ended — resume this session in VS Code.`,
+    );
   });
 
   /** Include retained activity in the footer signature; duration updates must preserve its observation timestamp. */
@@ -2525,7 +2567,7 @@ it('links historical rows through the same VS Code handler without opening the G
   const link = document.querySelector<HTMLAnchorElement>('a.gc-historical')!;
   expect(link.href).toBe(`vscode://groundcontrol.ground-control/open?session=${SESSION_ID}&agent=claude`);
   expect(link.draggable).toBe(false);
-  expect(link.getAttribute('aria-label')).toBe('Past attempt, Claude — resume this session in VS Code.');
+  expect(link.getAttribute('aria-label')).toBe('Past attempt, Claude, no state reported, ended — resume this session in VS Code.');
   expect(tipOf(link.querySelector('.gc-state'))).toContain('Resume this session');
   const parentClick = vi.fn(); link.parentElement!.addEventListener('click', parentClick);
   link.addEventListener('click', (event) => event.preventDefault()); link.click();
