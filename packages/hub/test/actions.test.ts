@@ -349,71 +349,144 @@ function watch(control: Control, watching = true, hostId: string | null = 'vscod
  * set for the developer's own requests is not consent for a web page to spend it (R32, R39).
  */
 describe('a card action asked for from the browser', () => {
-  // Zero disables automatic starts and permits manual ones, so only the browser message can dispatch here.
-  async function browser(control: Control, over: Partial<HubConfig['actions']> = {}, watching = true) {
-    control.hub.configure(config({ dailyLimit: 0, ...over }));
-    watch(control, watching, null);
+  const LIMIT_REACHED = 'Card action limit reached for the last 24 hours.';
+  const SCOPED = 'This session or checkout is not available under the current session settings.';
+
+  /**
+   * Let the board spend its own automatic run and settle it first. `alreadyRun` then holds automatic
+   * dispatch, so a second dispatch can only have come from the browser message.
+   */
+  async function primed(over: Partial<HubConfig['actions']> = {}, watching = true): Promise<Control> {
+    const control = harness({}, [issue()]);
+
+    control.hub.configure(config(over));
+    watch(control, true, null);
     await control.pass();
+    await control.appear();
+    await control.finish();
 
-    // Automatic dispatch must not be what these assertions see; only the browser message may start a run.
-    expect(control.dispatched).toHaveLength(0);
+    expect(control.dispatched).toHaveLength(1);
 
-    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
-    await control.settle();
+    if (!watching) {
+      watch(control, false, null);
+    }
+
+    return control;
+  }
+
+  function ask(control: Control, type: 'runAction' | 'stopAction' = 'runAction', key = control.key()) {
+    control.hub.receive({ id: 'board-1' }, { type, key });
+
+    return control.settle();
   }
 
   it('starts one where the developer turned browser starts on', async () => {
-    const control = harness({}, [issue()]);
+    const control = await primed({ fromBrowser: true });
 
-    await browser(control, { fromBrowser: true });
+    await ask(control);
 
-    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched).toHaveLength(2);
   });
 
   it('refuses a start from a tab that is not watching', async () => {
-    const control = harness({}, [issue()]);
+    const control = await primed({ fromBrowser: true }, false);
 
-    await browser(control, { fromBrowser: true }, false);
+    await ask(control);
 
-    expect(control.dispatched).toHaveLength(0);
+    expect(control.dispatched).toHaveLength(1);
     expect(control.notices.at(-1)).toBe('Open this project tab to run a card action from the browser.');
   });
 
   /** A limit the developer set for their own requests is not consent for a page to spend it. */
   it('refuses a start the developer has not turned on', async () => {
-    const control = harness({}, [issue()]);
+    const control = await primed({ fromBrowser: false });
 
-    await browser(control, { fromBrowser: false });
+    await ask(control);
 
-    expect(control.dispatched).toHaveLength(0);
+    expect(control.dispatched).toHaveLength(1);
     expect(control.notices.at(-1)).toBe(
       'Turn on groundControl.actions.fromBrowser to run a card action from the browser.',
     );
+  });
+
+  /**
+   * Zero means no automatic starts and manual ones from an editor (R39). A page inherits no such exemption:
+   * without a positive limit nothing would bound how many agents it can dispatch.
+   */
+  it('refuses a start with no daily allowance, which would leave the page unbounded', async () => {
+    const control = harness({}, [issue()]);
+
+    control.hub.configure(config({ fromBrowser: true, dailyLimit: 0 }));
+    watch(control, true, null);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(0);
+
+    await ask(control);
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.notices.at(-1)).toBe(
+      'Set groundControl.actions.dailyLimit above zero to run a card action from the browser.',
+    );
+  });
+
+  it('meters the page against the daily allowance the board itself spends', async () => {
+    const control = await primed({ fromBrowser: true, dailyLimit: 1 });
+
+    await ask(control);
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.notices.at(-1)).toBe(LIMIT_REACHED);
   });
 
   /** An editor click is itself the opt-in for a disabled action; a page's click is not (R32). */
   it('refuses a start for an action turned off in Settings', async () => {
     const control = harness({}, [issue()]);
 
-    await browser(control, {
-      fromBrowser: true,
-      actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge' } },
-    });
+    control.hub.configure(config({ fromBrowser: true, actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge' } } }));
+    watch(control, true, null);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(0);
+
+    await ask(control);
 
     expect(control.dispatched).toHaveLength(0);
     expect(control.notices.at(-1)).toBe('That card action is turned off in Settings.');
   });
 
   it('stops a run without the start gates, because refusing a stop could strand it', async () => {
-    const control = harness({}, [issue()]);
+    const control = await primed({ fromBrowser: false });
 
-    await browser(control, { fromBrowser: true });
-    expect(control.dispatched).toHaveLength(1);
-
-    control.hub.receive({ id: 'board-1' }, { type: 'stopAction', key: control.key() });
-    await control.settle();
+    await ask(control, 'stopAction');
 
     expect(control.notices.at(-1)).not.toContain('fromBrowser');
+  });
+
+  /** A hidden tab is not a developer asking, and interrupting a run leaves the checkout part-merged (R39). */
+  it('refuses a stop from a tab that is not watching', async () => {
+    const control = await primed({ fromBrowser: true }, false);
+
+    await ask(control, 'stopAction');
+
+    expect(control.notices.at(-1)).toBe('Open this project tab to stop a card action from the browser.');
+  });
+
+  /**
+   * Scope the page's stop so an out-of-scope card cannot be probed by key. The editor's stop stays
+   * unconditional: a card the session scope hides could otherwise be left running with no way to stop it.
+   */
+  it('scope-refuses an unknown key from the page but not from the editor', async () => {
+    const control = await primed({ fromBrowser: true });
+
+    await ask(control, 'stopAction', 'issue:absent');
+
+    expect(control.notices.at(-1)).toBe(SCOPED);
+
+    watch(control, true, 'vscode');
+    await ask(control, 'stopAction', 'issue:absent');
+
+    expect(control.notices.at(-1)).not.toBe(SCOPED);
   });
 });
 
@@ -534,6 +607,30 @@ describe('dispatching a card action', () => {
   });
 
   /** Failed dispatches must not consume the first-run notice. */
+  /**
+   * The hub serves Chrome with no editor open, so a browser-only run would otherwise spend the one R32
+   * warning on nobody. Hold it instead: it is the warning that says an agent may edit and push.
+   */
+  it('holds the first-dispatch warning until an editor can show it', async () => {
+    const control = harness({}, [issue()]);
+    const overlay: string[] = [];
+
+    control.hub.connect({ id: 'overlay', hostId: null, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+      if (message.type === 'notice') overlay.push(message.message);
+    });
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(overlay.filter((notice) => notice.includes('Started merge-upstream for'))).toEqual([]);
+
+    watch(control);
+
+    const said = control.notices.filter((notice) => notice.includes('Started merge-upstream for'));
+
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain('may edit and push');
+  });
+
   it('does not announce failed dispatches', async () => {
     const control = harness();
     control.dispatch = {

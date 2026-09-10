@@ -501,7 +501,7 @@
             "default": 30,
             "minimum": 1,
             "maximum": 240,
-            "order": 8,
+            "order": 9,
             "markdownDescription": "Minutes to wait for a dispatched session to appear before marking it lost."
           }
         }

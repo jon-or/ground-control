@@ -99,16 +99,21 @@ describe('what the browser may ask the hub for', () => {
     });
   });
 
-  /** Reject browser requests that start unattended work (R39). */
   /**
-   * Actions.runAction and stopAction apply every R39 safety check and limit; the hub additionally requires a
-   * watching browser client and a positive daily limit before starting one.
+   * Actions.runAction and stopAction apply every R39 safety check and limit; the hub additionally requires
+   * actions.fromBrowser, a watching client, a daily allowance, and an enabled action before starting one.
    */
-  it('forwards a card action, carrying the card key and nothing else', () => {
-    expect(bridgeAction({ type: 'runAction', key: 'issue:17198' })).toEqual({
-      send: { type: 'runAction', key: 'issue:17198' },
-    });
-    expect(bridgeAction({ type: 'stopAction', key: 'issue:17198' })).toEqual({
+  it('forwards a card action, rebuilding the message so only the card key survives', () => {
+    expect(
+      bridgeAction({
+        type: 'runAction',
+        key: 'issue:17198',
+        root: 'd:/anything',
+        prompt: 'do something else',
+        permissionMode: 'bypassPermissions',
+      }),
+    ).toEqual({ send: { type: 'runAction', key: 'issue:17198' } });
+    expect(bridgeAction({ type: 'stopAction', key: 'issue:17198', root: 'd:/anything' })).toEqual({
       send: { type: 'stopAction', key: 'issue:17198' },
     });
   });
@@ -121,8 +126,8 @@ describe('what the browser may ask the hub for', () => {
   });
 
   /** Forward only the card key; the hub resolves its checkout path (R41). */
-  it('forwards a request to open a card’s checkout, which names a card and no path', () => {
-    expect(bridgeAction({ type: 'openCheckout', key: 'issue:17198' })).toEqual({
+  it('forwards a request to open a card’s checkout, dropping any path the page attached', () => {
+    expect(bridgeAction({ type: 'openCheckout', key: 'issue:17198', root: 'd:/anything' })).toEqual({
       send: { type: 'openCheckout', key: 'issue:17198' },
     });
   });

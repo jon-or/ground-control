@@ -124,7 +124,7 @@ The board reports `pushed` as Merged and missing output as stopped short; it doe
 
 `actions.permissionMode` defaults to Claude's `auto`. Claude's `manual` and `acceptEdits` modes can wait for approval in unattended runs; `dontAsk` denies operations needing approval, `plan` cannot write, and `bypassPermissions` disables permission checks. Codex supports only `plan`, `dontAsk`, and `bypassPermissions`. Unsupported agent/mode combinations refuse before reading card context or dispatching; unknown modes reject configuration. Ground Control never substitutes broader permissions.
 
-A positive `actions.dailyLimit` applies to both automatic and manual starts over a rolling 24 hours; zero disables automatic starts but permits manual starts. `actions.resultMinutes` limits the wait for a dispatched session to appear, not the duration of its work.
+A positive `actions.dailyLimit` applies to both automatic and manual starts over a rolling 24 hours; zero disables automatic starts but permits manual starts from an editor. `actions.fromBrowser` defaults to off; turning it on lets the GitHub overlay start a card action, which also needs a visible project tab, an enabled action, and a positive `actions.dailyLimit`. Stopping a run needs no setting. `actions.resultMinutes` limits the wait for a dispatched session to appear, not the duration of its work.
 
 ## Background process and logs
 

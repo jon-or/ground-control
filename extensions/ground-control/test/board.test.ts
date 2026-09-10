@@ -2649,7 +2649,9 @@ describe('card actions (R39)', () => {
       send(message({ lanes: lanes({ unstarted: [acting(action)] }) }));
 
       expect(chip()?.textContent).toBe(text);
-      expect(tipOf(chip())).toContain(action.detail);
+      // Pinned, not contained: the overlay pins the same sentence, and a drift caught on one side only is
+      // how the two clients stop matching (`docs/testing.md` parity tables).
+      expect(tipOf(chip())).toBe(`${action.detail} Click to run Merge upstream again.`);
     });
   }
 

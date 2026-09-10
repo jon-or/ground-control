@@ -234,6 +234,9 @@ export class Hub {
   /** A stored configuration this hub would not run on. Shown until a client pushes one, which is what replaces it. */
   #stored: ReadFailure | null = null;
   #installedAt = 0;
+  /** The first-dispatch warning owed to the first editor to connect, when a dispatch happened without one (R32). */
+  #actionsOwed: string | null = null;
+
   #disposed = false;
   readonly #triage: TriageRunner;
   readonly #actions: ActionRunner;
@@ -315,6 +318,11 @@ export class Hub {
       'clients',
     );
     this.#sendTo(hello.id, 'snapshot');
+
+    if (hello.hostId !== null && this.#actionsOwed !== null) {
+      this.#notifyActionsOnce(this.#actionsOwed);
+    }
+
     this.#retime();
 
     return { id: hello.id };
@@ -429,10 +437,12 @@ export class Hub {
       }
 
       case 'runAction': {
-        // A browser start needs its own opt-in, a visible board, and an action the developer left enabled.
-        // An editor click is itself the opt-in (R32); a page's is not, so it cannot start a disabled action.
+        const projected = this.#lanes(true);
+
+        // A browser start needs its own opt-in, a visible board, a daily allowance, and an action the
+        // developer left enabled. An editor click is itself the opt-in (R32); a page's is not.
         if (connected.hello.hostId === null) {
-          const refusal = this.#browserStartRefusal(connected, message.key);
+          const refusal = this.#browserStartRefusal(connected, projected, message.key);
 
           if (refusal !== null) {
             connected.send({ type: 'notice', level: 'info', message: refusal });
@@ -442,7 +452,7 @@ export class Hub {
         }
 
         // Manual actions require fresh context and the same safety checks as automatic actions.
-        if (!this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === message.key))) {
+        if (!projected.some((lane) => lane.cards.some((card) => card.key === message.key))) {
           this.#scopeRefusal(connected);
           return;
         }
@@ -456,11 +466,21 @@ export class Hub {
       }
 
       case 'stopAction':
-        // Scope the stop the way the run is scoped: an out-of-scope card must not be probed by key.
-        if (!this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === message.key))) {
-          this.#scopeRefusal(connected);
+        // Stopping needs no opt-in: refusing one could strand a run, and the editor's stop stays
+        // unconditional. A page's stop is still bounded, because a hidden tab and an out-of-scope key are
+        // both ways to reach a run the developer is not looking at.
+        if (connected.hello.hostId === null) {
+          if (!connected.watching) {
+            connected.send({ type: 'notice', level: 'info', message: 'Open this project tab to stop a card action from the browser.' });
 
-          return;
+            return;
+          }
+
+          if (!this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === message.key))) {
+            this.#scopeRefusal(connected);
+
+            return;
+          }
         }
 
         void this.#actions.stopAction(message.key).then((refused) => {
@@ -1603,7 +1623,7 @@ export class Hub {
    * Why a browser start cannot run, or null when it may. The overlay's opt-in is separate from the daily
    * limit, because a limit the developer set for their own requests is not consent for a page to spend it.
    */
-  #browserStartRefusal(client: Connected, key: string): string | null {
+  #browserStartRefusal(client: Connected, projected: readonly Lane[], key: string): string | null {
     if (!client.watching) {
       return 'Open this project tab to run a card action from the browser.';
     }
@@ -1612,7 +1632,13 @@ export class Hub {
       return 'Turn on groundControl.actions.fromBrowser to run a card action from the browser.';
     }
 
-    const action = this.#lanes(true).flatMap((lane) => lane.cards).find((card) => card.key === key)?.action;
+    // Zero exempts a developer's own manual request from the allowance (R39). A page inherits no exemption:
+    // without a positive limit nothing would bound how many agents it can dispatch.
+    if (this.#config.actions.dailyLimit <= 0) {
+      return 'Set groundControl.actions.dailyLimit above zero to run a card action from the browser.';
+    }
+
+    const action = projected.flatMap((lane) => lane.cards).find((card) => card.key === key)?.action;
 
     // An editor click is itself the opt-in for a disabled action (R32); a page's click is not.
     return action !== undefined && actionEnabled(action.action, this.#config.actions)
@@ -1941,10 +1967,14 @@ export class Hub {
     const clients = [...this.#clients.values()];
 
     // Spend the one warning only where an editor can show it; a transient overlay toast is not delivery.
+    // Hold it rather than drop it: a browser-only hub can dispatch for hours before an editor connects.
     if (!clients.some((client) => client.hello.hostId !== null)) {
+      this.#actionsOwed = message;
+
       return;
     }
 
+    this.#actionsOwed = null;
     this.#deps.marks.write({ ...this.#deps.marks.read(), actionsToldAt: this.#deps.clock.now() });
 
     for (const client of clients) {
