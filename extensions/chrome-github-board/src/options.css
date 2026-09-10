@@ -6,7 +6,10 @@ form { margin: 28px 0; }
 label { display: block; font-weight: 600; margin-top: 18px; }
 .toggle { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
 input[type=checkbox] { width: 18px; height: 18px; }
-textarea { box-sizing: border-box; width: 100%; margin-top: 8px; padding: 12px; font: 14px/1.5 ui-monospace, monospace; border: 1px solid GrayText; border-radius: 6px; resize: vertical; }
+textarea { box-sizing: border-box; width: 100%; margin-top: 8px; padding: 6px 10px; font: inherit; color: CanvasText; background: Canvas; border: 1px solid light-dark(#8c959f, #6e7681); border-radius: 4px; resize: vertical; }
+textarea::placeholder { color: GrayText; }
+/* A field shows focus by its border, the way a browser's own inputs do; the offset ring stays for buttons and links. */
+textarea:focus-visible { outline: none; border-color: Highlight; box-shadow: 0 0 0 1px Highlight; }
 button { padding: 8px 22px; font: inherit; border: 1px solid GrayText; border-radius: 6px; cursor: pointer; }
 #projects-help { color: GrayText; margin-top: 6px; }
 #error { color: light-dark(#a01919, #ffb4ab); }
