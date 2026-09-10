@@ -251,13 +251,20 @@ a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination {
 /* Keep triage styling neutral so it does not imply session attention (R38). Fade stale results. */
 .gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"] { color: var(--fgColor-muted, #59636e);
   background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
-.gc-mark[data-mark="triaging"] { animation: gc-triage-pulse 1.8s ease-in-out infinite; }
+.gc-mark[data-mark="triaging"] { animation: gc-mark-pulse 1.8s ease-in-out infinite; }
 .gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
+/* Place action state beside triage with neutral styling; dispatched work does not imply attention (R39). */
+.gc-mark[data-mark="action"] { color: var(--fgColor-muted, #59636e); background: transparent;
+  border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
+.gc-mark[data-mark="action"][data-outcome="landed"] { color: var(--fgColor-success, #1a7f37); }
+.gc-mark[data-mark="action"][data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
+.gc-mark[data-mark="action"][data-state="running"] { animation: gc-mark-pulse 1.8s ease-in-out infinite; }
 /* Style status age as part of the triage label. */
 .gc-triage-age { font-variant-numeric: tabular-nums; display: inline-block; min-width: 3ch; text-align: center; }
-@keyframes gc-triage-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes gc-mark-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
+  .gc-mark[data-mark="action"][data-state="running"] { animation: none; opacity: 0.7; }
 }
 /* Use Primer foreground tokens to match session dots and editor chart colors (mechanics M38). */
 ${CARD}[${ATTENTION_ATTR}] { outline: 1px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
@@ -2046,6 +2053,7 @@ function renderBadge(doc, element, card, now, actions, openable) {
 
   renderAttention(doc, element, head, card);
   renderTriage(doc, head, card, now);
+  renderAction(doc, head, card);
 
   for (const session of card.sessions) {
     badge.appendChild(sessionRow(doc, session, now, openable));
@@ -2139,6 +2147,51 @@ function renderTriage(doc, head, card, now) {
   }
 }
 
+/** `landed` is a session-reported push, not independently verified completion (R39). */
+const ACTION_OUTCOMES = {
+  landed: 'Merged',
+  halted: 'Stopped short',
+  failed: 'Did not run',
+  stopped: 'Stopped',
+};
+
+/**
+ * Report a dispatched card action without offering to change it: starting and stopping are editor-only, and
+ * the browser bridge refuses both (R39). `available` draws nothing, because the overlay cannot start it and
+ * the triage mark beside it already names the same action.
+ *
+ * @param {Document} doc
+ * @param {HTMLElement} head
+ * @param {LanedCard} card
+ */
+function renderAction(doc, head, card) {
+  const action = card.action;
+
+  if (!action || action.state === 'available') {
+    return;
+  }
+
+  const label = TRIAGE_LABELS[action.action] ?? action.action;
+  const mark = doc.createElement('span');
+
+  mark.className = 'gc-mark';
+  mark.dataset.mark = 'action';
+  mark.dataset.state = action.state;
+
+  if (action.state === 'running') {
+    mark.textContent = 'Working…';
+    setTooltip(mark, `${label} is running. Stop it from the card in VS Code.`);
+  } else if (action.state === 'refused') {
+    mark.textContent = 'Not run';
+    setTooltip(mark, action.reason);
+  } else {
+    mark.textContent = ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (action.outcome)] ?? ACTION_OUTCOMES.failed;
+    mark.dataset.outcome = action.outcome;
+    setTooltip(mark, `${action.detail} Run ${label.toLowerCase()} again from the card in VS Code.`);
+  }
+
+  head.appendChild(mark);
+}
 
 /**
  * Match the worker log buffer limit so an incoming backlog is retained. This file cannot import worker state;
@@ -2407,6 +2460,7 @@ function badgeSignature(card, openable) {
     card.returned,
     card.attention,
     card.triage,
+    card.action,
     card.issue?.statusChangedAt ?? null,
     card.issue?.avatar ?? null,
     // Session links carry the editor's scheme, so a changed scheme rebuilds the footer.

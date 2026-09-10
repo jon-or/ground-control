@@ -332,7 +332,7 @@ Bound automatic work by:
 
 An explicit manual request can bypass automatic eligibility history and cooldowns, but not safety checks, the required prompt, or concurrency limits. A positive daily limit also applies to manual requests; zero disables automatic starts while allowing manual requests.
 
-Track the dispatched process as an ordinary session, identify it as board-started, and notify the developer on the first dispatch. A detached Claude row attaches in a terminal at its checkout; closing the terminal leaves it running. The overlay can attach through the editor link but cannot start or stop work, and does not display action outcomes.
+Track the dispatched process as an ordinary session, identify it as board-started, and notify the developer on the first dispatch. A detached Claude row attaches in a terminal at its checkout; closing the terminal leaves it running. The overlay can attach through the editor link. It displays running, refused, and completed action states but cannot start or stop work, and shows nothing for an action it could only offer, which the card's triage result already names.
 
 Read an outcome and explanation from the run's designated result file. Clear the previous file before starting; if that fails, do not dispatch. Missing output means stopped short. This is a session-reported outcome, not independently verified stage completion: it changes no lane or GitHub status.
 

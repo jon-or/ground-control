@@ -997,11 +997,12 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 }
 
 /* Keep triage neutral: classification does not imply session attention (R38). */
-.badge.triage-running {
-  animation: triage-pulse 1.8s ease-in-out infinite;
+.badge.triage-running,
+.badge.action-running[data-running] {
+  animation: mark-pulse 1.8s ease-in-out infinite;
 }
 
-@keyframes triage-pulse {
+@keyframes mark-pulse {
   0%,
   100% {
     opacity: 0.45;
@@ -1103,7 +1104,8 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .badge.triage-running {
+  .badge.triage-running,
+  .badge.action-running[data-running] {
     animation: none;
     opacity: 0.7;
   }

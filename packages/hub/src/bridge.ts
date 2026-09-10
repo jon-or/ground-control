@@ -102,7 +102,7 @@ export function bridgeAction(raw: unknown): BridgeAction {
     return { refused: 'Open sessions through their links in the overlay.' };
   }
 
-  // The overlay neither controls card actions nor renders their outcomes (R39).
+  // The overlay does not control card actions (R39).
   if (message.type === 'runAction' || message.type === 'stopAction') {
     return { refused: 'Start or stop card actions in VS Code.' };
   }

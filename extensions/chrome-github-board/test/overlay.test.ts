@@ -2436,6 +2436,67 @@ it('links historical rows through the same VS Code handler without opening the G
   expect(parentClick).not.toHaveBeenCalled();
 });
 
+describe('card actions (R39)', () => {
+  const at = Date.UTC(2026, 8, 1, 19, 0, 0);
+  const show = (entry: LanedCard) =>
+    paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
+  const mark = () => document.querySelector<HTMLElement>('.gc-mark[data-mark="action"]');
+  const acting = (action: NonNullable<LanedCard['action']>): LanedCard => card(4501, { sessions: [], action });
+
+  it('reports a running action without offering to stop it, which only the editor can do', () => {
+    show(acting({ state: 'running', action: 'merge-upstream', since: at }));
+
+    expect(mark()?.textContent).toBe('Working…');
+    expect(mark()?.tagName).toBe('SPAN');
+    expect(mark()?.querySelector('button, a')).toBeNull();
+    expect(tipOf(mark())).toBe('Merge upstream is running. Stop it from the card in VS Code.');
+  });
+
+  it('carries a refusal and its reason, with nothing to press', () => {
+    show(acting({ state: 'refused', action: 'merge-upstream', reason: 'The pull request is a draft.' }));
+
+    expect(mark()?.textContent).toBe('Not run');
+    expect(tipOf(mark())).toBe('The pull request is a draft.');
+  });
+
+  /** Verify the same literal outcome words against board.js, which cannot share a runtime import. */
+  it.each([
+    ['landed', 'Merged', 'Merged master.'],
+    ['halted', 'Stopped short', 'Conflicts in Booking.cs.'],
+    ['failed', 'Did not run', 'Claude Code was not found.'],
+    ['stopped', 'Stopped', 'Stopped by you.'],
+  ] as const)('reads a %s run as "%s"', (outcome, text, detail) => {
+    show(acting({ state: 'done', action: 'merge-upstream', outcome, detail, at }));
+
+    expect(mark()?.textContent).toBe(text);
+    expect(mark()?.dataset.outcome).toBe(outcome);
+    expect(tipOf(mark())).toBe(`${detail} Run merge upstream again from the card in VS Code.`);
+  });
+
+  it('draws nothing for an action it could only offer', () => {
+    show(acting({ state: 'available', action: 'merge-upstream' }));
+
+    expect(document.querySelectorAll('.gc-head .gc-mark')).toHaveLength(0);
+  });
+
+  it('carries nothing on a card with no action at all', () => {
+    show(card(4501, { sessions: [] }));
+
+    expect(mark()).toBeNull();
+  });
+
+  /** The footer is cached by signature, so a state change has to rebuild it or the old outcome would stand. */
+  it('repaints the footer when the action changes state', () => {
+    show(acting({ state: 'running', action: 'merge-upstream', since: at }));
+
+    expect(mark()?.textContent).toBe('Working…');
+
+    show(acting({ state: 'done', action: 'merge-upstream', outcome: 'landed', detail: 'Merged master.', at }));
+
+    expect(mark()?.textContent).toBe('Merged');
+  });
+});
+
 describe('card triage (R38)', () => {
   const show = (entry: LanedCard) =>
     paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
