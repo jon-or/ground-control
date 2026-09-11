@@ -23,6 +23,9 @@ const activityMarker = z.object({
   toolName: z.string().nullable(),
   reason: z.string().nullable(),
   backgroundTasks: z.number(),
+  /** StopFailure's error kind and text. Default to null for older markers. */
+  error: z.string().nullable().default(null),
+  errorMessage: z.string().nullable().default(null),
 });
 
 export type ActivityMarker = z.infer<typeof activityMarker>;
@@ -59,6 +62,10 @@ export function phaseOf(marker: ActivityMarker): ActivityPhase | null {
     // Pending background tasks keep the phase running after Stop.
     case 'Stop':
       return marker.backgroundTasks > 0 ? 'running' : 'idle';
+
+    // The turn ended on an API error; Stop does not fire for it (M55).
+    case 'StopFailure':
+      return 'failed';
 
     default:
       return null;
@@ -105,7 +112,12 @@ export function readActivity(
   const phase = phaseOf(marker.data);
 
   // `phaseOf` returns null for a null event, so a known phase implies a named event.
-  return phase === null
-    ? null
-    : { phase, since: sinceOf(phase, marker.data), at: marker.data.at, event: marker.data.event as string };
+  if (phase === null) {
+    return null;
+  }
+
+  const activity: SessionActivity = { phase, since: sinceOf(phase, marker.data), at: marker.data.at, event: marker.data.event as string };
+
+  // The CLI sends "unknown" when it cannot classify the error, so a failed marker without a kind gets the same word.
+  return phase === 'failed' ? { ...activity, error: { kind: marker.data.error ?? 'unknown', message: marker.data.errorMessage } } : activity;
 }

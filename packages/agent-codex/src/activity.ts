@@ -13,7 +13,7 @@ export function makeCodexActivity(env: NodeJS.ProcessEnv | (() => NodeJS.Process
     settingsPath: (home) => codexHooksPathOf(home, typeof env === 'function' ? env() : env),
     watchDir: activityDirOf,
     read: (readers, sessionId, now) => readActivity(readers.stateDir, readers.home, sessionId, readers.readText, now,
-      typeof env === 'function' ? env() : env),
+      typeof env === 'function' ? env() : env, readers.readTail),
     writer: { path: hookPathOf, source: HOOK_SOURCE },
   };
 }

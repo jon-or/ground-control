@@ -2,7 +2,7 @@
 
 This document records experiments and source inspections relevant to Ground Control. Some support implemented features; others establish options or constraints for future work. A successful experiment is not a claim that the product implements it. Product scope is in the [requirements](prd.md), and current use is described in [architecture](architecture.md).
 
-Record IDs retain the experiment identifiers M1–M54, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
+Record IDs retain the experiment identifiers M1–M55, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
 
 Code references use these M IDs rather than the former numbered sections. A record grouped under a topic keeps its original ID. Source inspections of Ground Control distinguish current implementation from the external experiment; they do not re-verify the measured CLI or editor version.
 
@@ -855,6 +855,20 @@ Use only terminal errors to explain failure; an earlier transient error may have
 For a future recovery policy, observe runtime queue restoration before redispatching. The tool output suggested SendMessage could continue an existing agent, but a dead agent was absent from ListAgents after print-mode resume; restoration of a specific dead agent through SendMessage was not established. Reconstruct and redispatch only when continuation is unavailable and outstanding work is confirmed.
 
 Direct recovery should target depth-one children, letting parents manage nested work. A progress digest can prevent repeated side effects, but is not an idempotence guarantee. Checkpointed output allows completed subtasks to be skipped more reliably than conversational reconstruction.
+
+### Turns that end on an error
+
+**Record M55. Source inspection and files, 2026-09-10, Claude CLI 2.1.266 and Codex 0.153.4 (`rust-v0.153.4` source). Used by the failed phase (R6).**
+
+Neither CLI runs its `Stop` hook when a turn ends on an API error, so a marker left at a running event described a session that had stopped. A Codex session on this machine stayed at `UserPromptSubmit` for four hours after its rollout had recorded `usage_limit_exceeded`.
+
+Claude fires `StopFailure` instead of `Stop` when the query loop returns `api_error`, and also for prompt-too-long and an exhausted malformed-tool-call retry. It is skipped inside subagent context, so it always carries the parent session ID. Its payload adds `error`, `error_details`, and `last_assistant_message`, the last being the text the CLI shows, for example `You've hit your session limit · resets 12:10pm (America/New_York)`. `error` is the matcher input and takes `authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `billing_error`, `rate_limit`, `overloaded`, `invalid_request`, `model_not_found`, `server_error`, `unknown`, or `max_output_tokens`; the CLI treats `overloaded` and `server_error` as transient. The default hook timeout is 120 seconds and exit 2 does not block it. The board installs it without a matcher and clears the turn anchor on it.
+
+Retries happen before that: a 529 is retried up to ten times with backoff, tens of seconds per attempt near the end, and no hook fires meanwhile. Each retry is written to the transcript as `{"type":"system","subtype":"api_error","retryAttempt","maxRetries","retryInMs"}`; 33 local transcripts held them. The final failure is an assistant record with `isApiErrorMessage`, `error`, `apiErrorStatus`, and for a limit `quotaLimits.resetsAt` in epoch seconds. The board does not read these; the hook payload carries the text but not the reset time.
+
+Codex has twelve hook events and no failure event. In `core/src/session/turn.rs` the error branch emits `EventMsg::Error`, breaks, and never reaches `run_turn_stop_hooks`. The rollout policy in `rollout/src/policy.rs` does not persist `Error` or `StreamError`, but does persist `TurnComplete`, serialized as `"type":"task_complete"` (alias `turn_complete`) under `event_msg`, with `error: { message, codex_error_info }` filled from the turn's terminal error in `core/src/tasks/mod.rs`. `TurnAborted` is persisted with `interrupted`, `replaced`, `review_ended`, or `budget_limited`. `codex_error_info` is an externally tagged enum: a bare string for unit variants (`usage_limit_exceeded`, `rate_limit_exceeded`, `server_overloaded`, `internal_server_error`, `context_window_exceeded`, `unauthorized`, `bad_request`, `sandbox_error`, `other`, …) and `{ variant: fields }` for those carrying an HTTP status (`http_connection_failed`, `response_stream_connection_failed`, `response_stream_disconnected`, `response_too_many_failed_attempts`). `message` is the text Codex shows, with a local time and no zone: `…try again at Sep 16th, 2026 7:40 AM.` The Codex `Stop` hook runs before `TurnComplete` is emitted, so a `task_complete` seen against a still-running marker means the hook was lost, and the board reads it as idle.
+
+The Codex reader tails the rollout for a running marker only: 64 kB from the end, newest record first, matching the marker's `turnId`. Rollout writes do not change the marker, so the hub sees the failure on its next session poll or marker batch rather than at once.
 
 ### Usage limits and transient model failures
 

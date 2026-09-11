@@ -48,6 +48,9 @@ export function markerPathOf(stateDir: string, sessionId: string): string {
  */
 export const FUTURE_TOLERANCE_MS = 60_000;
 
+/** Longest error text a marker keeps. */
+export const ERROR_MESSAGE_LIMIT = 500;
+
 /**
  * Prompt prefixes the CLI uses for input it delivers itself: task notifications, poll events, system
  * reminders, and scheduled prompts (M20). Such UserPromptSubmit events do not start a turn.
@@ -107,6 +110,7 @@ try {
       }
 
       const event = typeof payload.hook_event_name === 'string' ? payload.hook_event_name : null;
+      const failed = event === 'StopFailure';
       const backgroundTasks = Array.isArray(payload.background_tasks) ? payload.background_tasks.length : 0;
       let turnAt = prior && typeof prior.turnAt === 'number' ? prior.turnAt : null;
 
@@ -119,8 +123,9 @@ try {
       if (typed) {
         turnAt = now;
       } else if (
-        // Clear turn start after completion or a new session start.
+        // Clear turn start after completion, failure, or a new session start.
         (event === 'Stop' && backgroundTasks === 0) ||
+        failed ||
         (event === 'SessionStart' && payload.source !== 'compact')
       ) {
         turnAt = null;
@@ -146,6 +151,9 @@ try {
           toolName: typeof payload.tool_name === 'string' ? payload.tool_name : null,
           reason: typeof payload.reason === 'string' ? payload.reason : null,
           backgroundTasks,
+          error: failed && typeof payload.error === 'string' ? payload.error : null,
+          // Stop also carries last_assistant_message; only the failure's is the error text.
+          errorMessage: failed && typeof payload.last_assistant_message === 'string' ? payload.last_assistant_message.slice(0, ${ERROR_MESSAGE_LIMIT}) : null,
         }),
       );
 

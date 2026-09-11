@@ -1066,6 +1066,42 @@ describe('the footer on a card', () => {
     expect(tipOf(document.querySelector('.gc-dot'))).toBe(said);
   });
 
+  /** A failed turn outranks the other marks on the card; the row says which error, in the agent's own words (R6). */
+  it('marks the card red when a turn ended on an error, and says the error on the mark', () => {
+    const waiting = session({ sessionId: 's-1', activity: { phase: 'waiting', since: NOW - 1_000, at: NOW - 1_000, event: 'PermissionRequest' } });
+    const failed = session({
+      sessionId: 's-2',
+      activity: {
+        phase: 'failed',
+        since: NOW - 2_000,
+        at: NOW - 2_000,
+        event: 'StopFailure',
+        error: { kind: 'rate_limit', message: "You've hit your session limit · resets 12:10pm (America/New_York)" },
+      },
+    });
+
+    paint(document, state({ snapshot: laneOf(card(4501, { sessions: [waiting, failed], attention: 'failed' })) }), NOW, actions);
+
+    // Rows keep snapshot order, so the failed session is the second row.
+    const row = document.querySelectorAll<HTMLElement>('.gc-session')[1]!;
+
+    expect(document.querySelector(`[data-gc-issue="${REPO}#4501"]`)!.getAttribute('data-gc-attention')).toBe('failed');
+    expect(row.dataset.phase).toBe('failed');
+    expect(row.querySelector('.gc-dot')?.getAttribute('data-phase')).toBe('failed');
+    expect(row.querySelector('.gc-dot')?.getAttribute('aria-label')).toBe('failed, live');
+    expect(tipOf(row.querySelector('.gc-dot'))).toBe(
+      "The turn ended on an error: rate limit. You've hit your session limit · resets 12:10pm (America/New_York)",
+    );
+  });
+
+  it('says the error is unclassified when the agent gave no kind, and that the session ended when it has', () => {
+    const bare = session({ activity: { phase: 'failed', since: NOW - 2_000, at: NOW - 2_000, event: 'StopFailure' }, finished: true });
+
+    paint(document, state({ snapshot: laneOf(card(4501, { sessions: [bare] })) }), NOW, actions);
+
+    expect(tipOf(document.querySelector('.gc-dot'))).toBe('The turn ended on an error: unknown. The session has since ended.');
+  });
+
   it('says the mark means nothing has reported, where nothing has', () => {
     paint(document, state({ snapshot: laneOf(card(4501, { sessions: [session({ activity: null })] })) }), NOW, actions);
 
@@ -2771,10 +2807,12 @@ describe('historical session rows', () => {
     ['waiting', 'waiting', 'waiting for your input'],
     ['idle', 'idle', 'completed its turn'],
     ['running', 'idle', 'before completing its turn'],
+    ['failed', 'failed', 'ended on an error: overloaded. API Error: 529 Overloaded. The session has since ended.'],
   ] as const)('outlines a %s reading kept past the process as %s, and says which on hover', (phase, drawn, said) => {
     const at = NOW - 300_000;
+    const error = { kind: 'overloaded', message: 'API Error: 529 Overloaded.' };
 
-    show(card(4501, { sessions: [], lastSession: { ...lastSession, retained: { phase, event: 'PreToolUse', at } } }));
+    show(card(4501, { sessions: [], lastSession: { ...lastSession, retained: { phase, event: 'PreToolUse', at, ...(phase === 'failed' ? { error } : {}) } } }));
 
     const row = document.querySelector<HTMLElement>('.gc-historical')!;
 
@@ -2800,7 +2838,7 @@ describe('historical session rows', () => {
     );
 
     expect(document.querySelector('.gc-historical')!.getAttribute('aria-label')).toBe(
-      `Past attempt, Claude, ${drawn === 'waiting' ? 'waiting for input' : 'idle'}, ended — resume this session in VS Code.`,
+      `Past attempt, Claude, ${drawn === 'waiting' ? 'waiting for input' : drawn}, ended — resume this session in VS Code.`,
     );
   });
 

@@ -30,7 +30,13 @@ export interface HistoricalSession {
   retained?: RetainedActivity;
 }
 
-export type ActivityPhase = 'running' | 'waiting' | 'idle';
+export type ActivityPhase = 'running' | 'waiting' | 'idle' | 'failed';
+
+/** Why a turn failed: the agent's error kind (rate_limit, overloaded, usage_limit_exceeded, …) and its user-facing text. */
+export interface ActivityError {
+  kind: string;
+  message: string | null;
+}
 
 /** Retained activity after the process disappears; invalidated by explicit finish or card departure (R6, R9). */
 export interface RetainedActivity {
@@ -38,6 +44,8 @@ export interface RetainedActivity {
   /** The hook event the phase came from, and epoch milliseconds of that event — what the reading is dated against. */
   event: string;
   at: number;
+  /** Present for a failed phase. */
+  error?: ActivityError;
 }
 
 /** Last observed activity phase and start time, not a guarantee of current state (mechanics M20). */
@@ -52,6 +60,8 @@ export interface SessionActivity {
   at: number;
   /** The hook event the phase came from, so a card can say what it saw. */
   event: string;
+  /** Present for a failed phase. */
+  error?: ActivityError;
 }
 
 export interface Session {

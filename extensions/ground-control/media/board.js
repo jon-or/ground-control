@@ -481,7 +481,7 @@ function sessionLine(session) {
     );
   }
 
-  el.append(sessionDot(session.activity?.phase, !session.finished), agent, label);
+  el.append(sessionDot(session.activity?.phase, !session.finished, failureTitle(session.activity, !session.finished)), agent, label);
 
   // Italic names identify board-dispatched runs.
   if (attachId !== null) {
@@ -526,16 +526,35 @@ function sessionLine(session) {
 }
 
 /**
+ * The dot tooltip for a failed turn: the error kind and the agent's own text. Undefined for every other phase,
+ * so the dot falls back to its phase description.
+ */
+function failureTitle(activity, live) {
+  if (!activity || activity.phase !== 'failed') return undefined;
+
+  const kind = activity.error && typeof activity.error.kind === 'string' ? activity.error.kind : 'unknown';
+  const message = activity.error && typeof activity.error.message === 'string' ? ` ${activity.error.message}` : '';
+
+  const described = `The turn ended on an error: ${kind.replace(/_/g, ' ')}.${message}`;
+
+  return live ? described : `${described} The session has since ended.`;
+}
+
+/**
  * Render retained activity with its timestamp and explanation. Map running to idle because the process ended.
  * `retainedPhase` in packages/board/src/lanes.ts determines card attention from the same observation.
  */
 function retainedMark(retained) {
   if (!retained || typeof retained.at !== 'number' || typeof retained.event !== 'string') return undefined;
 
-  const eventDescription = `Last seen at the ${retained.event} hook.`;
+  const eventDescription = `Last event: ${retained.event}.`;
 
   if (retained.phase === 'waiting') {
     return { phase: 'waiting', at: retained.at, title: `The session ended while waiting for your input. ${eventDescription}` };
+  }
+
+  if (retained.phase === 'failed') {
+    return { phase: 'failed', at: retained.at, title: `${failureTitle(retained, false)} ${eventDescription}` };
   }
 
   if (retained.phase === 'running') {
@@ -600,12 +619,13 @@ function historyLine(session) {
   return el;
 }
 
-const PHASE_WORDS = { running: 'running', waiting: 'waiting for input', idle: 'idle' };
+const PHASE_WORDS = { running: 'running', waiting: 'waiting for input', idle: 'idle', failed: 'failed' };
 
 const PHASE_TITLES = {
   running: 'Turn in progress.',
   waiting: 'Waiting for your input.',
   idle: 'Last reported state: turn complete.',
+  failed: 'The turn ended on an error.',
 };
 
 /** Accessible phase and liveness description. */

@@ -60,7 +60,7 @@ Activity has two timestamps:
 - `since`: the duration anchor, including the original prompt for an active turn.
 - `at`: the event observation timestamp, used to compare retained state with card departure.
 
-An activity signal supplies settings-edit plans, paths, a reader, and optionally a writer script. The hub performs installation and filesystem operations. A missing signal produces no phase; it must not manufacture idle state.
+An activity signal supplies settings-edit plans, paths, a reader, and optionally a writer script. The hub performs installation and filesystem operations. A missing signal produces no phase; it must not manufacture idle state. Phases are running, waiting, idle, and failed; a failed activity carries the error kind and message. Claude's failed phase comes from its `StopFailure` marker. Codex's comes from the rollout: a running marker with a turn ID makes the reader tail the transcript for that turn's `task_complete` or `turn_aborted` record, which the hub's session poll picks up because rollout writes do not touch the marker.
 
 Classification and dispatch have different contracts. Classification suppresses tools, settings, transcripts, and visible session state. Dispatch loads the developer's working context, produces an ordinary session, and must be stoppable. Claude dispatch returns a short ID that the hub resolves against a subsequent roster; it cannot choose the session ID in advance.
 
@@ -161,7 +161,7 @@ History reads follow a complete successful roster read and are serialized with i
 
 Deduplicate saved sessions by `(agent, sessionId)` and newest modification time; exclude active identities. Choose a matching saved session by recency, with stable identity tie-breaks. Stable historical rows remain during successful refreshes; just-ended sessions wait for fresh history. Failed roster reads suppress history.
 
-`status.json` retains observations from live sessions before their markers disappear. An explicit finished state removes any retained observation. Replace an observation when its phase or work interval changes; do not rewrite it on every heartbeat in the same interval. Attach retained state to a matching historical session or to a live session with no current phase. Discard observations older than the card's departure timestamp. Render retained running as Your turn, never as a running process. Prune only after complete roster and history reads establish that the session is absent from both.
+`status.json` retains observations from live sessions before their markers disappear. An explicit finished state removes any retained observation. Replace an observation when its phase or work interval changes; do not rewrite it on every heartbeat in the same interval. Attach retained state to a matching historical session or to a live session with no current phase. Discard observations older than the card's departure timestamp. Render retained running as Your turn, never as a running process; retained waiting and failed keep their phase and error. Prune only after complete roster and history reads establish that the session is absent from both.
 
 Retained state is display evidence only. It is not input for triage or action authorization. An unwatched hub cannot retain events it did not observe.
 

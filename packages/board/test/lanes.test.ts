@@ -587,6 +587,11 @@ describe('a reading kept past its own process', () => {
     expect(cardOf(held('idle')).attention).toBe('your-turn');
   });
 
+  it('keeps a failure a session ended on, because the error still needs a decision', () => {
+    expect(cardOf(held('failed')).attention).toBe('failed');
+    expect(retainedPhase({ phase: 'failed', event: 'StopFailure', at: 1, error: { kind: 'rate_limit', message: null } })).toBe('failed');
+  });
+
   /**
    * The process is gone, so the work stopped mid-turn — which is the developer's move, and `idle`'s answer rather
    * than a fourth state.
@@ -599,7 +604,7 @@ describe('a reading kept past its own process', () => {
   });
 
   /** Discard activity from before the latest departure when a card returns (R9). */
-  it.each(['waiting', 'idle', 'running'] as const)('drops a %s reading the card has since outlived', (phase) => {
+  it.each(['waiting', 'idle', 'running', 'failed'] as const)('drops a %s reading the card has since outlived', (phase) => {
     const card = cardOf(held(phase, AWAY_AT - 1_000), remember({}, ['issue:18954']));
 
     expect(card.attention).toBeNull();
@@ -618,6 +623,7 @@ describe('a reading kept past its own process', () => {
     const parked = remember({ 'issue:18954': 'done' });
 
     expect(cardOf(held('idle'), parked).attention).toBeNull();
+    expect(cardOf(held('failed'), parked).attention).toBeNull();
     expect(cardOf(held('waiting'), parked).attention).toBe('blocked');
   });
 
@@ -952,6 +958,22 @@ describe('attentionOf', () => {
 
   it('reads blocked over a finished turn when one card carries both', () => {
     expect(attentionOf([withPhase('idle'), withPhase('waiting')], 'build')).toBe('blocked');
+  });
+
+  it('reads a failed turn over every other mark on the card', () => {
+    expect(attentionOf([withPhase('failed')], 'build')).toBe('failed');
+    expect(attentionOf([withPhase('waiting'), withPhase('failed')], 'build')).toBe('failed');
+    expect(attentionOf([withPhase('running'), withPhase('idle'), withPhase('failed')], 'build')).toBe('failed');
+    expect(attentionOf([withPhase('waiting')], 'build', { phase: 'failed', event: 'StopFailure', at: 1 })).toBe('failed');
+  });
+
+  it('reads a finished agent as failed no more than it reads one as blocked', () => {
+    expect(attentionOf([withPhase('failed', { finished: true })], 'build')).toBeNull();
+  });
+
+  it.each(['done', 'icebox', 'archived'] as const)('asks nothing of a failed turn in %s, and blocked still shows there', (id) => {
+    expect(attentionOf([withPhase('failed')], id)).toBeNull();
+    expect(attentionOf([withPhase('failed'), withPhase('waiting')], id)).toBe('blocked');
   });
 
   it.each(['unstarted', 'plan', 'build', 'review'] as const)('asks for the developer in %s', (id) => {

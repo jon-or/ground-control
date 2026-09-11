@@ -45,7 +45,16 @@ function observed(session: Session, retained: ReadonlyMap<string, RetainedActivi
 
   return retainedActivity === undefined
     ? session
-    : { ...session, activity: { phase: retainedPhase(retainedActivity), since: retainedActivity.at, at: retainedActivity.at, event: retainedActivity.event } };
+    : {
+        ...session,
+        activity: {
+          phase: retainedPhase(retainedActivity),
+          since: retainedActivity.at,
+          at: retainedActivity.at,
+          event: retainedActivity.event,
+          ...(retainedActivity.error ? { error: retainedActivity.error } : {}),
+        },
+      };
 }
 
 /**

@@ -144,7 +144,7 @@ export const LANE_SHAPES = {
 };
 
 /** @type {Record<string, string>} */
-const PHASE_WORDS = { running: 'running', waiting: 'waiting for input', idle: 'idle' };
+const PHASE_WORDS = { running: 'running', waiting: 'waiting for input', idle: 'idle', failed: 'failed' };
 
 /**
  * Copy TRIAGE_LABELS from packages/board because this script cannot import workspace packages. Both client
@@ -169,6 +169,7 @@ const PHASE_TITLES = {
   running: 'Turn in progress.',
   waiting: 'Waiting for your input.',
   idle: 'Last reported state: turn complete.',
+  failed: 'The turn ended on an error.',
 };
 
 /**
@@ -290,6 +291,7 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-dot[data-live="true"] { background: var(--gc-dot, var(--fgColor-muted, #59636e)); }
 .gc-dot[data-phase="running"] { --gc-dot: var(--fgColor-success, #1a7f37); }
 .gc-dot[data-phase="waiting"] { --gc-dot: var(--fgColor-attention, #9a6700); }
+.gc-dot[data-phase="failed"] { --gc-dot: var(--fgColor-danger, #d1242f); }
 .${BADGE_CLASS} svg { flex: none; }
 .gc-agent { flex: none; }
 /*
@@ -322,7 +324,7 @@ a.gc-session:hover .gc-state, a.gc-session:focus-visible .gc-state { display: no
 a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination { display: inline-block; }
 /* Returned rides with the type and pull request pills, so the footer holds only controls. In the field list it
    sets no text size, so it reads at the size of the pills beside it. */
-.gc-returned { display: inline-flex; align-items: center; flex: none; padding: 0 6px; border-radius: 999px;
+.gc-returned { display: inline-flex; align-items: center; flex: none; padding: 0 6px; border-radius: 999px; font-size: 12px;
   list-style: none; color: var(--fgColor-severe, #bc4c00);
   border: 1px solid color-mix(in srgb, var(--fgColor-severe, #bc4c00) 45%, transparent);
   background: color-mix(in srgb, var(--fgColor-severe, #bc4c00) 10%, transparent); }
@@ -343,6 +345,9 @@ span.gc-returned { margin-left: 6px; font-size: 11px; line-height: 18px; font-we
 ${CARD}[${ATTENTION_ATTR}] { outline: 1px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
   border-radius: 6px; }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--fgColor-accent, #0969da); }
+/* A failed turn outranks every other outline (R6). */
+${CARD}[${ATTENTION_ATTR}="failed"] { outline-color: var(--fgColor-danger, #d1242f);
+  background: color-mix(in srgb, var(--fgColor-danger, #d1242f) 7%, transparent); }
 
 /* Distinguish running sessions with a faded, dashed green border, separate from attention states (R6). */
 ${CARD}[${ATTENTION_ATTR}="running"] { outline-style: dashed;
@@ -1969,7 +1974,7 @@ function sessionRow(doc, session, now, openable) {
     row.setAttribute('draggable', 'false');
   }
 
-  row.appendChild(sessionDot(doc, session.activity?.phase, !session.finished));
+  row.appendChild(sessionDot(doc, session.activity?.phase, !session.finished, failureTitle(session.activity, !session.finished)));
 
   const icon = agentIcon(doc, session.agent);
 
@@ -2102,19 +2107,41 @@ function historyRow(doc, session, now, openable) {
 }
 
 /**
+ * The dot tooltip for a failed turn: the error kind and the agent's own text. Undefined for every other phase,
+ * so the dot falls back to its phase description.
+ *
+ * @param {{ phase?: string, error?: { kind?: unknown, message?: unknown } } | null | undefined} activity
+ * @param {boolean} live
+ * @returns {string | undefined}
+ */
+function failureTitle(activity, live) {
+  if (!activity || activity.phase !== 'failed') return undefined;
+
+  const kind = activity.error && typeof activity.error.kind === 'string' ? activity.error.kind : 'unknown';
+  const message = activity.error && typeof activity.error.message === 'string' ? ` ${activity.error.message}` : '';
+  const described = `The turn ended on an error: ${kind.replace(/_/g, ' ')}.${message}`;
+
+  return live ? described : `${described} The session has since ended.`;
+}
+
+/**
  * Render retained activity with its timestamp and explanation. Map running to idle because the process ended.
  * `retainedPhase` in packages/board/src/lanes.ts determines card attention from the same observation.
  *
- * @param {{ phase?: string, event?: unknown, at?: unknown } | undefined} retained
+ * @param {{ phase?: string, event?: unknown, at?: unknown, error?: { kind?: unknown, message?: unknown } } | undefined} retained
  * @returns {{ phase: string, at: number, title: string } | undefined}
  */
 function retainedMark(retained) {
   if (!retained || typeof retained.at !== 'number' || typeof retained.event !== 'string') return undefined;
 
-  const eventDescription = `Last seen at the ${retained.event} hook.`;
+  const eventDescription = `Last event: ${retained.event}.`;
 
   if (retained.phase === 'waiting') {
     return { phase: 'waiting', at: retained.at, title: `The session ended while waiting for your input. ${eventDescription}` };
+  }
+
+  if (retained.phase === 'failed') {
+    return { phase: 'failed', at: retained.at, title: `${failureTitle(retained, false)} ${eventDescription}` };
   }
 
   if (retained.phase === 'running') {

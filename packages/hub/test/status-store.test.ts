@@ -15,6 +15,7 @@ beforeEach(() => {
 afterEach(() => dispose());
 
 const WAITING: RetainedActivity = { phase: 'waiting', event: 'PreToolUse', at: 5_000 };
+const FAILED: RetainedActivity = { phase: 'failed', event: 'StopFailure', at: 5_000, error: { kind: 'rate_limit', message: 'resets 12:10pm' } };
 
 function session(over: Partial<Session> = {}): Session {
   return {
@@ -62,6 +63,16 @@ describe('the status store', () => {
     expect(makeStatusStore(home).read()).toEqual(new Map([['claude:a-session', WAITING]]));
   });
 
+  it('round trips a failure with the error it carries, and reads one saved without an error', () => {
+    makeStatusStore(home).write(new Map([['claude:a-session', FAILED], ['codex:b-session', { phase: 'failed', event: 'task_complete', at: 6_000 }]]));
+
+    const read = makeStatusStore(home).read();
+
+    expect(read.get('claude:a-session')).toEqual(FAILED);
+    expect(read.get('codex:b-session')).toEqual({ phase: 'failed', event: 'task_complete', at: 6_000 });
+    expect(read.get('codex:b-session')).not.toHaveProperty('error');
+  });
+
   it('returns empty state for invalid JSON', () => {
     mkdirSync(home, { recursive: true });
     writeFileSync(statusPathOf(home), '{ not json');
@@ -84,6 +95,12 @@ describe('what a roster read retains', () => {
 
     expect(retaining(new Map(), [live])).toEqual(new Map([['claude:a-session', WAITING]]));
     expect(statusKeyOf(live)).toBe('claude:a-session');
+  });
+
+  it('keeps the error a failed reading carries', () => {
+    const live = session({ activity: { phase: 'failed', since: 5_000, at: 5_000, event: 'StopFailure', error: FAILED.error! } });
+
+    expect(retaining(new Map(), [live]).get('claude:a-session')).toEqual(FAILED);
   });
 
   /** Compare archive times against event timestamps, not turn start times. */

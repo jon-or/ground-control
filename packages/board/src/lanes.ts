@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { LANE_ORDER, LANE_TITLES } from '@ground-control/core';
-import type { Attention, Lane, LaneId, LanedCard, RetainedActivity } from '@ground-control/core';
+import type { ActivityPhase, Attention, Lane, LaneId, LanedCard, RetainedActivity } from '@ground-control/core';
 import type { BoardCard, IssueCard, Session } from './types.js';
 
 export { LANE_ORDER, LANE_TITLES };
@@ -108,30 +108,35 @@ export function readMemory(stored: unknown, statuses: readonly string[], now: nu
 }
 
 
-/** Lanes that suppress idle and running attention. */
+/** Lanes that suppress failed, idle, and running attention. */
 const SETTLED_LANES: readonly LaneId[] = ['done', 'icebox', 'archived'];
 
-/** Retained running activity renders as idle because its process ended. Retained waiting still requires input. */
-export function retainedPhase(retained: RetainedActivity): 'waiting' | 'idle' {
-  return retained.phase === 'waiting' ? 'waiting' : 'idle';
+/**
+ * Retained running activity renders as idle because its process ended. Retained waiting still requires input,
+ * and a retained failure still needs a decision.
+ */
+export function retainedPhase(retained: RetainedActivity): 'waiting' | 'idle' | 'failed' {
+  return retained.phase === 'waiting' || retained.phase === 'failed' ? retained.phase : 'idle';
 }
 
 /**
- * Rank card attention as blocked, your-turn, then running; no observed phase means no attention. Include
+ * Rank card attention as failed, blocked, your-turn, then running; no observed phase means no attention. Include
  * retained session state after lane departure rules have invalidated older observations. Finished sessions do
- * not retain blocked attention (R6, R24).
+ * not retain failed or blocked attention. Settled lanes keep only blocked (R6, R24).
  */
 export function attentionOf(sessions: readonly Session[], lane: LaneId, retained?: RetainedActivity): Attention | null {
-  // Ignore waiting activity for sessions explicitly reported as finished.
-  if (sessions.some((session) => session.activity?.phase === 'waiting' && !session.finished)) {
+  const settled = SETTLED_LANES.includes(lane);
+  const live = (phase: ActivityPhase) => sessions.some((session) => session.activity?.phase === phase && !session.finished);
+
+  if (!settled && (live('failed') || (retained && retainedPhase(retained) === 'failed'))) {
+    return 'failed';
+  }
+
+  if (live('waiting') || (retained && retainedPhase(retained) === 'waiting')) {
     return 'blocked';
   }
 
-  if (retained && retainedPhase(retained) === 'waiting') {
-    return 'blocked';
-  }
-
-  if (SETTLED_LANES.includes(lane)) {
+  if (settled) {
     return null;
   }
 
@@ -139,8 +144,7 @@ export function attentionOf(sessions: readonly Session[], lane: LaneId, retained
     return 'your-turn';
   }
 
-  // Ignore running activity for sessions explicitly reported as finished.
-  return sessions.some((session) => session.activity?.phase === 'running' && !session.finished) ? 'running' : null;
+  return live('running') ? 'running' : null;
 }
 
 function authoredByDeveloper(login: string | null, logins: readonly string[]): boolean {

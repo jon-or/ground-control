@@ -93,6 +93,7 @@ export type {
   AgentConfig,
   HistoricalSession,
   ReadFailure,
+  ActivityError,
   RetainedActivity,
   Session,
   SessionActivity,

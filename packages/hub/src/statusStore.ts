@@ -10,9 +10,10 @@ export function statusKeyOf(session: Pick<Session, 'agent' | 'sessionId'>): stri
 }
 
 const entry = z.object({
-  phase: z.enum(['running', 'waiting', 'idle']),
+  phase: z.enum(['running', 'waiting', 'idle', 'failed']),
   event: z.string(),
   at: z.number(),
+  error: z.object({ kind: z.string(), message: z.string().nullable() }).optional(),
 });
 
 const stored = z.object({ entries: z.record(z.string(), entry).default({}) });
@@ -37,7 +38,9 @@ export function makeStatusStore(stateDir: string): StatusStore {
       try {
         const parsed = stored.safeParse(JSON.parse(text));
 
-        return new Map(Object.entries(parsed.success ? parsed.data.entries : {}));
+        return new Map(
+          Object.entries(parsed.success ? parsed.data.entries : {}).map(([key, { error, ...rest }]) => [key, error ? { ...rest, error } : rest]),
+        );
       } catch {
         return new Map();
       }
@@ -84,7 +87,7 @@ export function retaining(
     const held = next.get(key);
 
     if (held?.phase !== activity.phase || held.at < activity.since) {
-      next.set(key, { phase: activity.phase, event: activity.event, at: activity.at });
+      next.set(key, { phase: activity.phase, event: activity.event, at: activity.at, ...(activity.error ? { error: activity.error } : {}) });
     }
   }
 

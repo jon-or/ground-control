@@ -72,7 +72,7 @@ function toSession(marker: ActivityMarker, cwd: string, title: string | null, de
     repository: link.repository,
     issueNumber: link.issueNumber,
     transcriptWrittenAt: marker.transcriptPath === null ? null : deps.mtime(marker.transcriptPath),
-    activity: activityOf(marker),
+    activity: activityOf(marker, deps.readTail),
     // `SessionEnd` removes the marker, so roster entries have not reported completion (R24).
     finished: false,
     // `codex exec` has no attach command; open plans resume dispatched threads.

@@ -34,8 +34,8 @@ export interface BoardCard {
   unassigned?: true;
 }
 
-/** Card border state, in priority order: blocked, your-turn, running (R6). */
-export type Attention = 'blocked' | 'your-turn' | 'running';
+/** Card border state, in priority order: failed, blocked, your-turn, running (R6). */
+export type Attention = 'failed' | 'blocked' | 'your-turn' | 'running';
 
 export interface LanedCard extends BoardCard {
   lane: LaneId;

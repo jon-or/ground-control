@@ -20,6 +20,8 @@ function marker(over: Partial<ActivityMarker> = {}): ActivityMarker {
     toolName: null,
     reason: null,
     backgroundTasks: 0,
+    error: null,
+    errorMessage: null,
     ...over,
   };
 }
@@ -82,6 +84,11 @@ describe('phaseOf', () => {
     expect(phaseOf(marker({ event: 'Stop', backgroundTasks: 0 }))).toBe('idle');
   });
 
+  it('reads a stop failure as failed, whatever the error kind', () => {
+    expect(phaseOf(marker({ event: 'StopFailure', error: 'rate_limit' }))).toBe('failed');
+    expect(phaseOf(marker({ event: 'StopFailure', error: null }))).toBe('failed');
+  });
+
   it('claims nothing for an event it has never seen', () => {
     expect(phaseOf(marker({ event: 'PreModelSwitch' }))).toBeNull();
     expect(phaseOf(marker({ event: null }))).toBeNull();
@@ -102,6 +109,25 @@ describe('readActivity', () => {
       at,
       event: 'PostToolBatch',
     });
+  });
+
+  it('carries the error kind and the agent text on a failed turn, and counts from the failure', () => {
+    const text = 'API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment.';
+
+    expect(reads(marker({ event: 'StopFailure', at, turnAt: at - 600_000, error: 'overloaded', errorMessage: text }))).toEqual({
+      phase: 'failed',
+      since: at,
+      at,
+      event: 'StopFailure',
+      error: { kind: 'overloaded', message: text },
+    });
+  });
+
+  it('names an unclassified failure the way the CLI does, and reads a marker written before the error fields existed', () => {
+    const { error: _kind, errorMessage: _text, ...older } = marker({ event: 'StopFailure', at });
+
+    expect(reads(older)?.error).toEqual({ kind: 'unknown', message: null });
+    expect(reads(marker({ event: 'PostToolBatch', at }))?.error).toBeUndefined();
   });
 
   // Tool-batch events must not reset running duration.

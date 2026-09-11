@@ -337,7 +337,13 @@ main.dragging .lane-idle {
   border-radius: var(--gc-radius);
 }
 
-/* Preserve attention borders and tint on hover. */
+/* Preserve attention borders and tint on hover. A failed turn outranks every other border (R6). */
+.card[data-attention='failed'],
+.card[data-attention='failed']:hover {
+  border-color: var(--vscode-charts-red);
+  background: color-mix(in srgb, var(--vscode-charts-red) 7%, var(--vscode-editor-background));
+}
+
 .card[data-attention='blocked'],
 .card[data-attention='blocked']:hover {
   border-color: var(--vscode-charts-yellow);
@@ -609,6 +615,10 @@ main.dragging .lane-idle {
 
 .dot[data-phase='waiting'] {
   --gc-dot: var(--vscode-charts-yellow);
+}
+
+.dot[data-phase='failed'] {
+  --gc-dot: var(--vscode-charts-red);
 }
 
 /* Use Claude brand orange and the muted row color for the monochrome OpenAI logo. */

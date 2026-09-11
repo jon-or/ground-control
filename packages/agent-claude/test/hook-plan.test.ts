@@ -57,6 +57,7 @@ const EVENTS = [
   'Elicitation',
   'Notification',
   'Stop',
+  'StopFailure',
   'SessionEnd',
 ];
 

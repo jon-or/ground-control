@@ -17,6 +17,8 @@ interface Payload {
   background_tasks?: unknown[];
   cwd?: string;
   prompt?: string;
+  error?: string;
+  last_assistant_message?: string;
 }
 
 const payloads = fixture('hook-payloads') as Payload[];
@@ -116,6 +118,39 @@ describe('the activity writer', () => {
 
     expect(resumed.turnAt).toBe(resumed.at);
     expect(resumed.turnAt).not.toBe(first.turnAt);
+  });
+
+  /**
+   * StopFailure replaces Stop when the turn ends on an API error; its payload is shaped from the 2.1.266 hook
+   * schema (M55), so this is a constructed input rather than a recording.
+   */
+  it('ends the stretch on a stop failure and keeps the error kind and text', () => {
+    run(JSON.stringify({ session_id: 'failing', hook_event_name: 'UserPromptSubmit', prompt: 'recorded' }));
+    run(JSON.stringify({
+      session_id: 'failing',
+      hook_event_name: 'StopFailure',
+      error: 'rate_limit',
+      last_assistant_message: "You've hit your session limit · resets 12:10pm (America/New_York)",
+    }));
+
+    expect(markerFor('failing')).toMatchObject({
+      event: 'StopFailure',
+      turnAt: null,
+      error: 'rate_limit',
+      errorMessage: "You've hit your session limit · resets 12:10pm (America/New_York)",
+    });
+  });
+
+  it('keeps no error off a plain stop, whose last assistant message is the reply and not an error', () => {
+    run(JSON.stringify({ session_id: 'replying', hook_event_name: 'Stop', background_tasks: [], last_assistant_message: 'Done.' }));
+
+    expect(markerFor('replying')).toMatchObject({ event: 'Stop', error: null, errorMessage: null });
+  });
+
+  it('bounds the error text it keeps', () => {
+    run(JSON.stringify({ session_id: 'verbose', hook_event_name: 'StopFailure', error: 'unknown', last_assistant_message: 'x'.repeat(2_000) }));
+
+    expect((markerFor('verbose') as { errorMessage: string }).errorMessage).toHaveLength(500);
   });
 
   /**

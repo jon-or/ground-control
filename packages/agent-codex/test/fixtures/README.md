@@ -13,3 +13,5 @@ Capture real sessions in an isolated `CODEX_HOME`. `codex exec` can produce hook
 7. From this directory, run `node record.js <captured.ndjson>`. Supply one raw payload per line in capture order.
 
 The recorder scrubs values, checks that no original values or absolute paths survive, and requires all seven events. Unknown fields stop recording for review. General policy is in [testing.md](../../../../docs/testing.md#recording-and-scrubbing).
+
+`rollout-turn-end.json` holds the last three records of a rollout whose turn ended on a usage limit, recorded 2026-09-10 with `codex-cli 0.153.4` and scrubbed by hand: the turn id is replaced and nothing else is changed. See [mechanics M55](../../../../docs/mechanics.md#turns-that-end-on-an-error).

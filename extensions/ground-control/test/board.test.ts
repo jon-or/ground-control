@@ -852,7 +852,7 @@ describe('board webview', () => {
 });
 
 describe('reported activity', () => {
-  const withPhase = (phase: 'running' | 'waiting' | 'idle', since = Date.now(), over: Partial<Session> = {}) => ({
+  const withPhase = (phase: 'running' | 'waiting' | 'idle' | 'failed', since = Date.now(), over: Partial<Session> = {}) => ({
     ...session,
     ...over,
     activity: { phase, since, at: since, event: 'PostToolBatch' },
@@ -948,6 +948,36 @@ describe('reported activity', () => {
       'waiting for input, live',
       'running, live',
     ]);
+  });
+
+  /** A failed turn outranks the other marks on the card; the row says which error, in the agent's own words (R6). */
+  it('marks the card red when a turn ended on an error, and says the error on the mark', () => {
+    const failed = {
+      ...withPhase('failed', Date.now(), { sessionId: 's-2' }),
+      activity: {
+        phase: 'failed' as const,
+        since: 1,
+        at: 1,
+        event: 'StopFailure',
+        error: { kind: 'rate_limit', message: "You've hit your session limit · resets 12:10pm (America/New_York)" },
+      },
+    };
+    const card = sendCard([withPhase('waiting'), failed], 'failed');
+    const row = card.querySelector<HTMLElement>('[data-session-id="s-2"]')!;
+
+    expect(card.dataset.attention).toBe('failed');
+    expect(row.dataset.phase).toBe('failed');
+    expect(row.querySelector<HTMLElement>('.dot')?.dataset['phase']).toBe('failed');
+    expect(row.querySelector('.dot')?.getAttribute('aria-label')).toBe('failed, live');
+    expect(tipOf(row.querySelector('.dot'))).toBe(
+      "The turn ended on an error: rate limit. You've hit your session limit · resets 12:10pm (America/New_York)",
+    );
+  });
+
+  it('says the error is unclassified when the agent gave no kind, and that the session ended when it has', () => {
+    const bare = sendCard([{ ...withPhase('failed'), finished: true }]);
+
+    expect(tipOf(bare.querySelector('.dot'))).toBe('The turn ended on an error: unknown. The session has since ended.');
   });
 
   it('marks nothing when the board asked nothing of the developer', () => {
@@ -1842,9 +1872,11 @@ describe('historical rows', () => {
     ['waiting', 'waiting', 'waiting for your input'],
     ['idle', 'idle', 'completed its turn'],
     ['running', 'idle', 'before completing its turn'],
+    ['failed', 'failed', 'ended on an error: overloaded. API Error: 529 Overloaded. The session has since ended.'],
   ] as const)('outlines a %s reading kept past the process as %s, and says which on hover', (phase, drawn, said) => {
     const at = Date.now() - 300_000;
-    const retained = { ...lastSession, retained: { phase, event: 'PreToolUse', at } };
+    const error = { kind: 'overloaded', message: 'API Error: 529 Overloaded.' };
+    const retained = { ...lastSession, retained: { phase, event: 'PreToolUse', at, ...(phase === 'failed' ? { error } : {}) } };
 
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], lastSession: retained }] }) }));
 
@@ -1865,7 +1897,7 @@ describe('historical rows', () => {
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [], lastSession: retained }] }), openable: [lastSession.sessionId] }));
 
     expect(document.querySelector('button.historical')!.getAttribute('aria-label')).toBe(
-      `Past attempt, Claude, ${drawn === 'waiting' ? 'waiting for input' : 'idle'}, ended - resume this session`,
+      `Past attempt, Claude, ${drawn === 'waiting' ? 'waiting for input' : drawn}, ended - resume this session`,
     );
   });
 

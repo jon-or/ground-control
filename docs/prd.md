@@ -146,18 +146,21 @@ The overlay does not offer this: it runs on the page that already renders these 
 
 | Condition | Card indication |
 |---|---|
-| Session waiting for permission, an answer, or approval | Needs you; highest priority |
+| Session's turn ended on an error: a usage or rate limit, an overloaded or failing model service, or a request the service refused | Failed; highest priority |
+| Session waiting for permission, an answer, or approval | Needs you |
 | Session completed a turn but is still open | Your turn |
 | Live session working, with neither attention condition | Dashed working border, no attention tint |
 | Agent explicitly reports the session finished | No session attention |
 
-Attention uses the card border, a tint, and the responsible row's state mark. Working borders animate; reduced motion, from the system preference or the editor's `animations` setting, retains a static dashed border. Activity changes do not reorder cards.
+Attention uses the card border, a tint, and the responsible row's state mark. Failed is red, Needs you yellow, Your turn blue, and working a dashed green border. Working borders animate; reduced motion, from the system preference or the editor's `animations` setting, retains a static dashed border. Activity changes do not reorder cards.
+
+A failed row's state mark names the error kind in the agent's own vocabulary and carries the agent's text on hover, which for a limit includes the reset time the agent stated. Claude reports the failure through its `StopFailure` hook; Codex has no such hook, so the board reads the turn's terminal record from its rollout ([mechanics](mechanics.md#turns-that-end-on-an-error) M55). Retries before the failure are not shown as failed: the row stays working until the agent gives up.
 
 Implementation gap: the idle-attention branch does not exclude explicitly finished sessions. A finished session with idle activity can still produce Your turn outside Done, Icebox, and Archived. The intended rule is no session attention after an explicit finish.
 
-Retain the last observed activity after a process disappears. Retained waiting still needs the developer; retained running becomes Your turn because the process is gone. Retain by session identity, not by card. Age does not clear it. An issue's departure from active membership invalidates observations older than that departure (R9).
+Retain the last observed activity after a process disappears. Retained waiting still needs the developer; retained failed still shows the failure; retained running becomes Your turn because the process is gone. Retain by session identity, not by card. Age does not clear it. An issue's departure from active membership invalidates observations older than that departure (R9).
 
-Done, Icebox, and Archived suppress Your turn and the working border. Needs you remains visible in every lane.
+Done, Icebox, and Archived suppress Failed, Your turn, and the working border. Needs you remains visible in every lane.
 
 ## Lanes and membership
 

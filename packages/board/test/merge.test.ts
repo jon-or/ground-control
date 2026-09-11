@@ -277,6 +277,20 @@ describe('latest historical session fallback', () => {
     expect(phaseOf('idle')).toBe('idle');
   });
 
+  it('gives a live session with no current reading the failure it was kept with, error included', () => {
+    const base = { ...sessions[0]!, agent: 'claude', sessionId: 'live-three', issueNumber: 42, repository: 'github.com/org/repo', finished: false, activity: null };
+    const error = { kind: 'overloaded', message: 'API Error: 529 Overloaded.' };
+    const kept = new Map([['claude:live-three', { phase: 'failed' as const, event: 'StopFailure', at: 20, error }]]);
+
+    expect(mergeBoard([issue], [{ ...base }], [], new Map(), kept)[0]?.sessions[0]?.activity).toEqual({
+      phase: 'failed',
+      since: 20,
+      at: 20,
+      event: 'StopFailure',
+      error,
+    });
+  });
+
   it('preserves retained activity on historical sessions', () => {
     const retained = new Map([['claude:old', { phase: 'waiting' as const, event: 'PreToolUse', at: 20 }]]);
 
