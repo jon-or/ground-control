@@ -258,6 +258,35 @@ main.stale {
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 
+/* The lane pictogram reinforces the heading, which keeps its name (R45). */
+.lane-mark {
+  flex: none;
+  align-self: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lane-mark[data-lane='plan'] {
+  color: var(--vscode-charts-purple);
+}
+
+.lane-mark[data-lane='build'] {
+  color: var(--vscode-charts-blue);
+}
+
+.lane-mark[data-lane='review'] {
+  color: var(--vscode-charts-yellow);
+}
+
+.lane-mark[data-lane='done'] {
+  color: var(--vscode-charts-green);
+}
+
 .lane-name {
   min-width: 0;
   overflow: hidden;
@@ -358,19 +387,12 @@ main.dragging .lane-idle {
   margin-inline-start: auto;
 }
 
-/*
- * Tint the session footer over card hover and attention colors. Cancel padding to align with all three card
- * edges.
- */
+/* Cancel padding to align with all three card edges; each block inside carries its own. */
 .card-foot {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.15rem;
   margin: 0 -0.75rem -0.6rem;
-  padding: 0.4rem 0.75rem 0.45rem;
-  /* 1.09:1 against the card in Dark Modern and 1.07:1 in Light Modern, against GitHub's own 1.09 and 1.07. */
-  background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
   /* The theme's panel border is barely a shade off the card, so the rule is mixed from the foreground like the tint. */
   border-top: 1px solid var(--gc-edge);
   border-radius: 0 0 calc(var(--gc-radius) - 1px) calc(var(--gc-radius) - 1px);
@@ -475,12 +497,8 @@ main.dragging .lane-idle {
   cursor: pointer;
 }
 
-.card-open:disabled {
-  cursor: default;
-}
-
 /* Underline title text as the issue-open affordance, excluding the full-width button whitespace. */
-.card-open:hover:not(:disabled) .title {
+.card-open:hover .title {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -801,7 +819,7 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 
   .card-menu,
   #board-menu,
-  .triage-again {
+  .tool {
     color: ButtonText;
   }
 
@@ -942,29 +960,16 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 }
 
 /*
- * Use neutral outlines for reference and triage chips; attention colors belong to R6 indicators. Only the PR
- * glyph uses its state color. Keep this after the link hover rule so hover does not fill the chip.
+ * Use a neutral outline for the reference chip; attention colors belong to R6 indicators. Only the PR glyph
+ * uses its state color. Keep this after the link hover rule so hover does not fill the chip.
  */
-.badge.pull-request,
-.badge.triage,
-.badge.triage-running,
-.badge.triage-failed {
+.badge.pull-request {
   color: var(--vscode-descriptionForeground);
   background: transparent;
   border-color: color-mix(in srgb, var(--vscode-foreground) 30%, transparent);
 }
 
-/* Use normal font weight for triage text. */
-.badge.triage,
-.badge.triage-running,
-.badge.triage-failed {
-  font-weight: 400;
-}
-
-/* Exclude triage-running from button styling because it is noninteractive. */
-.badge.pull-request:hover,
-.badge.triage:hover,
-.badge.triage-failed:hover {
+.badge.pull-request:hover {
   color: var(--vscode-foreground);
   background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
   border-color: color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
@@ -996,12 +1001,6 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   border-radius: var(--gc-radius);
 }
 
-/* Keep triage neutral: classification does not imply session attention (R38). */
-.badge.triage-running,
-.badge.action-running[data-running] {
-  animation: mark-pulse 1.8s ease-in-out infinite;
-}
-
 @keyframes mark-pulse {
   0%,
   100% {
@@ -1012,113 +1011,238 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   }
 }
 
-/* Style status age as part of the triage label. */
-.triage-age {
-  min-width: 3ch;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
+@keyframes text-pulse {
+  0%,
+  100% {
+    color: color-mix(in srgb, var(--vscode-descriptionForeground) 45%, transparent);
+  }
+  50% {
+    color: var(--vscode-descriptionForeground);
+  }
+}
+
+/* Command bar -------------------------------------------------------------- */
+
+/*
+ * One line: what to do, and a right edge that carries the age until the bar is pointed at (R45). The bar runs
+ * to the footer edges; its padding restores the inset the negative margin removed, so the age stays on the
+ * session duration edge.
+ */
+.cmdbar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.875rem;
+  padding: 0 0.75rem;
 }
 
 /*
- * Keep the triage label separate from its paid refresh control. Stack age and refresh in one grid cell to
- * preserve width, showing age when the chip is inactive.
+ * Tint the session rows over card hover and attention colors: 1.09:1 against the card in Dark Modern and
+ * 1.07:1 in Light Modern, against GitHub's own 1.09 and 1.07.
  */
-.badge.triage {
-  padding-inline-end: 0.25rem;
+.card-sessions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15rem;
+  padding: 0.35rem 0.75rem 0.45rem;
+  background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+  border-radius: 0 0 calc(var(--gc-radius) - 1px) calc(var(--gc-radius) - 1px);
 }
 
-.triage-end {
+/* A card with no session has nothing to tint; an empty band under the bar states nothing. */
+.card-sessions:empty {
+  display: none;
+}
+
+/* The verdict is the only element that shrinks, so a long qualifier truncates instead of moving a control. */
+.verdict {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.verdict .note {
+  font-weight: 400;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Fade classifications made from older card content with color: an opacity layer drops subpixel antialiasing. */
+.verdict[data-stale='true'] {
+  color: var(--vscode-descriptionForeground);
+}
+
+.verdict[data-stale='true'] .note {
+  color: color-mix(in srgb, var(--vscode-descriptionForeground) 65%, transparent);
+}
+
+.verdict[data-state='triaging'] .note,
+.verdict[data-outcome='running'] .note {
+  animation: text-pulse 1.8s ease-in-out infinite;
+}
+
+.verdict[data-outcome='landed'] .note {
+  color: var(--vscode-charts-green);
+}
+
+.verdict[data-outcome='halted'] .note {
+  color: var(--vscode-charts-orange);
+}
+
+/*
+ * One right-edge slot painted twice: the age at rest, the controls while the bar is pointed at or focused.
+ * Both are flush right, so the controls take no width and run lands above the session duration.
+ */
+.tail {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 4.8rem;
+  height: 1.5rem;
+}
+
+.card-age {
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-foreground);
+  transition: opacity 0.1s ease;
+}
+
+.tools {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+}
+
+.cmdbar:hover .card-age,
+.cmdbar:focus-within .card-age {
+  opacity: 0;
+}
+
+.cmdbar:hover .tools,
+.cmdbar:focus-within .tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tool {
   display: grid;
   place-items: center;
-}
-
-.triage-end > * {
-  grid-area: 1 / 1;
-}
-
-.triage-again {
-  display: grid;
-  place-items: center;
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
-  color: inherit;
+  color: var(--vscode-descriptionForeground);
   background: transparent;
   border: 0;
-  border-radius: 50%;
+  border-radius: 4px;
   cursor: pointer;
-  /* Hide the inactive grid control completely so it cannot receive pointer events. */
-  visibility: hidden;
 }
 
-/*
- * Reveal refresh on chip hover or card focus. This avoids changes while passing over cards and makes the
- * control reachable by keyboard.
- */
-.badge.triage:hover .triage-again,
-.card:focus-within .triage-again {
-  visibility: visible;
-}
-
-.badge.triage:has(.triage-again):hover .triage-age,
-.card:focus-within .badge.triage:has(.triage-again) .triage-age {
-  visibility: hidden;
-}
-
-/* Show age and refresh side by side on touch screens. */
-@media (hover: none), (pointer: coarse) {
-  .triage-end {
-    display: inline-flex;
-    gap: 0.25rem;
-  }
-
-  .triage-end > * {
-    grid-area: auto;
-  }
-
-  .triage-again {
-    visibility: visible;
-  }
-}
-
-.triage-again:hover {
+/* Read against the footer tint rather than the card, which is a step lighter than the ground behind it. */
+.tool:hover:not([aria-disabled='true']) {
   color: var(--vscode-foreground);
-  background: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
 }
 
-.triage-again:focus-visible {
+.tool[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.tool[data-outcome='landed'] {
+  color: var(--vscode-charts-green);
+}
+
+.tool[data-outcome='halted'] {
+  color: var(--vscode-charts-orange);
+}
+
+.tool[data-state='running'] {
+  color: var(--vscode-foreground);
+  animation: mark-pulse 1.8s ease-in-out infinite;
+}
+
+.tool:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 1px;
+  outline-offset: -1px;
 }
 
-.sync-mark {
-  width: 0.7rem;
-  height: 0.7rem;
+.tool svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.tool .vscode-mark {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.vscode-mark .vscode {
+  fill: var(--vscode-charts-blue);
+}
+
+.run-mark {
   fill: currentColor;
 }
 
-/* Fade classifications made from older card content. */
-.badge.triage[data-stale='true'] {
-  opacity: 0.6;
-  border-style: dashed;
+.sync-mark {
+  fill: currentColor;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .badge.triage-running,
-  .badge.action-running[data-running] {
-    animation: none;
-    opacity: 0.7;
+/* Nothing can hover on a touch screen, so lay the controls out in flow and drop the age they would cover. */
+@media (hover: none), (pointer: coarse) {
+  .tail {
+    min-width: 0;
+  }
+
+  .card-age {
+    display: none;
+  }
+
+  .tools {
+    position: static;
+    opacity: 1;
+    pointer-events: auto;
   }
 }
 
-body[data-motion='reduced'] .badge.triage-running {
-  animation: none;
-  opacity: 0.7;
+@media (prefers-reduced-motion: reduce) {
+  .verdict[data-state='triaging'] .note,
+  .verdict[data-outcome='running'] .note {
+    animation: none;
+  }
+
+  .tool[data-state='running'] {
+    animation: none;
+  }
+
+  .card-age,
+  .tools {
+    transition: none;
+  }
 }
 
-/* A card the board tried and could not read. No words about why — that is one line above the lanes (R25). */
-.badge.triage-failed {
-  border-style: dashed;
+body[data-motion='reduced'] .verdict[data-state='triaging'] .note,
+body[data-motion='reduced'] .verdict[data-outcome='running'] .note {
+  animation: none;
+}
+
+body[data-motion='reduced'] .tool[data-state='running'] {
+  animation: none;
 }
 
 /* Match GitHub tooltip geometry (mechanics M35) with editor hover-widget colors. */

@@ -169,6 +169,6 @@ describe('reviving a stored board', () => {
     await revive({ payload: checkoutPayload(CURRENT), showArchived: false });
 
     expect(document.querySelectorAll('.card')).toHaveLength(1);
-    expect(document.querySelector('.title')?.textContent).toBe('18953-cache-remediation');
+    expect(document.querySelector('.verdict')?.textContent).toBe('18953-cache-remediation');
   });
 });

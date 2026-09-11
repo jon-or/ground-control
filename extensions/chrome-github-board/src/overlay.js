@@ -118,6 +118,31 @@ export const LANE_TITLES = {
   archived: 'Archived',
 };
 
+/**
+ * One stroke-only pictogram per lane, drawn in a 16px box. The editor board carries the same table; both
+ * client suites verify parity (docs/testing.md).
+ *
+ * @type {Record<LaneId, [string, Record<string, string>][]>}
+ */
+export const LANE_SHAPES = {
+  unstarted: [['circle', { cx: '8', cy: '8', r: '6', 'stroke-dasharray': '2.6 2.6' }]],
+  plan: [['path', { d: 'M3 4h10M3 8h10M3 12h6' }]],
+  build: [['path', { d: 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4', 'stroke-width': '1.7' }]],
+  review: [
+    ['circle', { cx: '7', cy: '7', r: '4.2' }],
+    ['path', { d: 'M10.2 10.2 14 14' }],
+  ],
+  done: [
+    ['circle', { cx: '8', cy: '8', r: '6' }],
+    ['path', { d: 'M5.2 8.2 7.2 10.4 10.9 5.9', 'stroke-width': '1.7' }],
+  ],
+  icebox: [['path', { d: 'M8 2v12M2.8 5 13.2 11M13.2 5 2.8 11' }]],
+  archived: [
+    ['rect', { x: '2.2', y: '4.6', width: '11.6', height: '8', rx: '1.2' }],
+    ['path', { d: 'M2.2 7.2h11.6M6.4 9.8h3.2' }],
+  ],
+};
+
 /** @type {Record<string, string>} */
 const PHASE_WORDS = { running: 'running', waiting: 'waiting for input', idle: 'idle' };
 
@@ -137,18 +162,6 @@ const TRIAGE_LABELS = {
   'merge-upstream': 'Merge upstream',
   other: 'Other',
 };
-
-/**
- * How a triaged card reads, the same on both boards.
- *
- * @param {{ action: string, qualifier: string | null }} triage
- * @returns {string}
- */
-export function triageText(triage) {
-  const label = TRIAGE_LABELS[triage.action] ?? triage.action;
-
-  return triage.qualifier ? `${label} · ${triage.qualifier}` : label;
-}
 
 /** @type {Record<string, string>} */
 /** @type {Record<string, string>} */
@@ -198,17 +211,70 @@ ${COLUMN} { margin-right: -1px !important;
   background-position: left top, right top !important; background-size: 1px 100%, 1px 100% !important;
   background-image: linear-gradient(to bottom, var(--borderColor-default, #d0d7de), transparent),
     linear-gradient(to bottom, var(--borderColor-default, #d0d7de), transparent) !important; }
-.${BADGE_CLASS} { display: flex; flex-direction: column; align-items: stretch; gap: 1px; margin: 8px 0 -12px;
-  padding: 5px 6px 6px; border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 0 0 5px 5px;
-  background: var(--bgColor-muted, #f6f8fa); }
-.${BADGE_CLASS} .gc-head { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 3px; }
-.${BADGE_CLASS} button {
-  font: inherit; font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px;
-  display: inline-flex; align-items: center; gap: 3px;
-  border: 1px solid var(--borderColor-default, #d0d7de); background: var(--bgColor-default, #ffffff);
-  color: var(--fgColor-default, #1f2328); cursor: pointer; }
-.${BADGE_CLASS} button:hover:not(:disabled) { background: var(--bgColor-neutral-muted, #eaeef2); }
-.${BADGE_CLASS} button:disabled { cursor: default; }
+.${BADGE_CLASS} { display: flex; flex-direction: column; align-items: stretch; margin: 8px 0 -12px;
+  border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 0 0 5px 5px; }
+/* One line: lane mark, what to do, and a right edge that carries the age until the bar is pointed at. It keeps
+   the card's own ground, and the session rows under it carry the footer tint. */
+.${BADGE_CLASS} .gc-cmdbar { display: flex; gap: 6px; align-items: center; min-height: 30px; padding: 0 12px 0 6px; }
+.gc-sessions { display: flex; flex-direction: column; align-items: stretch; gap: 1px; padding: 3px 6px 6px;
+  border-radius: 0 0 5px 5px; background: var(--bgColor-muted, #f6f8fa); }
+/* A card with no session has nothing to tint; an empty band under the bar states nothing. */
+.gc-sessions:empty { display: none; }
+.${BADGE_CLASS} .gc-cmdbar button { border: 0; border-radius: 4px; background: transparent; padding: 0;
+  cursor: pointer; }
+.${BADGE_CLASS} button.gc-lane { display: inline-flex; box-sizing: border-box; flex: none; align-items: center;
+  justify-content: center; width: 24px; height: 24px; line-height: 0;
+  border: 1px solid var(--borderColor-default, #d0d7de); border-radius: 5px;
+  background: var(--bgColor-default, #ffffff); color: var(--fgColor-default, #1f2328); }
+.${BADGE_CLASS} button.gc-lane:hover:not([aria-disabled="true"]) {
+  background: var(--bgColor-neutral-muted, #eaeef2); }
+.gc-lane-mark { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round; }
+.gc-lane-mark[data-lane="plan"] { color: var(--fgColor-done, #8250df); }
+.gc-lane-mark[data-lane="build"] { color: var(--fgColor-accent, #0969da); }
+.gc-lane-mark[data-lane="review"] { color: var(--fgColor-attention, #9a6700); }
+.gc-lane-mark[data-lane="done"] { color: var(--fgColor-success, #1a7f37); }
+.gc-lane-mark[data-lane="unstarted"], .gc-lane-mark[data-lane="icebox"], .gc-lane-mark[data-lane="archived"] {
+  color: var(--fgColor-muted, #59636e); }
+/* The verdict is the only element that shrinks, so a long qualifier truncates instead of moving a control. */
+.gc-verdict { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; color: var(--fgColor-default, #1f2328); font-weight: 500; }
+.gc-verdict .gc-note { color: var(--fgColor-muted, #59636e); font-weight: 400; }
+.gc-verdict[data-stale="true"] { color: var(--fgColor-muted, #59636e); }
+.gc-verdict[data-stale="true"] .gc-note { color: color-mix(in srgb, var(--fgColor-muted, #59636e) 65%, transparent); }
+.gc-verdict[data-state="triaging"] .gc-note, .gc-verdict[data-outcome="running"] .gc-note {
+  animation: gc-text-pulse 1.8s ease-in-out infinite; }
+.gc-verdict[data-outcome="landed"] .gc-note { color: var(--fgColor-success, #1a7f37); }
+.gc-verdict[data-outcome="halted"] .gc-note { color: var(--fgColor-attention, #9a6700); }
+/* One right-edge slot painted twice: the age at rest, the controls while the bar is pointed at or focused.
+   Both are flush right, so the controls cost no width and run lands where the age was. */
+.gc-tail { position: relative; display: flex; flex: none; align-items: center; justify-content: flex-end;
+  min-width: 78px; height: 24px; }
+.gc-tail .gc-age { font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 600;
+  color: var(--fgColor-default, #1f2328); transition: opacity 0.1s ease; }
+.gc-tools { position: absolute; right: -4px; top: 0; display: flex; align-items: center; gap: 2px; opacity: 0;
+  pointer-events: none; transition: opacity 0.1s ease; }
+.${BADGE_CLASS} button.gc-tool { display: grid; place-items: center; width: 24px; height: 24px;
+  color: var(--fgColor-muted, #59636e); }
+.${BADGE_CLASS} button.gc-tool:hover:not([aria-disabled="true"]) { background: var(--bgColor-neutral-muted, #eaeef2);
+  color: var(--fgColor-default, #1f2328); }
+.${BADGE_CLASS} button.gc-tool[aria-disabled="true"] { cursor: default; opacity: 0.5; }
+.${BADGE_CLASS} button.gc-tool[data-outcome="landed"] { color: var(--fgColor-success, #1a7f37); }
+.${BADGE_CLASS} button.gc-tool[data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
+.${BADGE_CLASS} button.gc-tool[data-state="running"] { color: var(--fgColor-default, #1f2328);
+  animation: gc-mark-pulse 1.8s ease-in-out infinite; }
+.gc-tool svg { width: 16px; height: 16px; }
+.gc-tool svg.gc-vscode-mark { width: 14px; height: 14px; }
+.gc-cmdbar:hover .gc-age, .gc-cmdbar:focus-within .gc-age { opacity: 0; }
+.gc-cmdbar:hover .gc-tools, .gc-cmdbar:focus-within .gc-tools { opacity: 1; pointer-events: auto; }
+.${BADGE_CLASS} button.gc-tool:focus-visible, .${BADGE_CLASS} button.gc-lane:focus-visible {
+  outline: 2px solid var(--fgColor-accent, #0969da); outline-offset: -1px; }
+/* Nothing can hover on a touch screen, so lay the controls out in flow and drop the age they would cover. */
+@media (hover: none), (pointer: coarse) {
+  .gc-tail { min-width: 0; }
+  .gc-tail .gc-age { display: none; }
+  .gc-tools { position: static; opacity: 1; pointer-events: auto; }
+}
 /* Session rows share the card footer; omit individual borders. */
 .${BADGE_CLASS} .gc-session {
   display: flex; box-sizing: border-box; width: 100%; align-items: center; gap: 5px;
@@ -254,51 +320,24 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-vscode { fill: var(--fgColor-accent, #0969da); stroke: none; }
 a.gc-session:hover .gc-state, a.gc-session:focus-visible .gc-state { display: none; }
 a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination { display: inline-block; }
-.gc-mark { font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 9px; font-weight: 600;
-  color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-severe-emphasis, #bc4c00); }
-/* Keep triage styling neutral so it does not imply session attention (R38). Fade stale results. */
-.gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"] { color: var(--fgColor-muted, #59636e);
-  background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
-.gc-mark[data-mark="triaging"] { animation: gc-mark-pulse 1.8s ease-in-out infinite; }
-.gc-mark[data-mark="triage"][data-stale="true"] { border-style: dashed; opacity: 0.65; }
-/* Reading spends the developer's allowance, so it reads as a control rather than as one more label (R38). */
-.${BADGE_CLASS} button.gc-read { font-weight: 400; color: var(--fgColor-muted, #59636e); }
-/* Place action state beside triage with neutral styling; dispatched work does not imply attention (R39). */
-.gc-mark[data-mark="action"], .${BADGE_CLASS} button.gc-act { color: var(--fgColor-muted, #59636e);
-  background: transparent; border: 1px solid var(--borderColor-muted, #d1d9e0); font-weight: 400; }
-.${BADGE_CLASS} button.gc-act[data-outcome="landed"] { color: var(--fgColor-success, #1a7f37); }
-.${BADGE_CLASS} button.gc-act[data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
-.${BADGE_CLASS} button.gc-act[data-state="running"] { animation: gc-mark-pulse 1.8s ease-in-out infinite; }
-/* Style status age as part of the triage label. */
-.gc-triage-age { font-variant-numeric: tabular-nums; }
-.gc-mark[data-mark="triage"]:has(.gc-triage-end) { padding-inline-end: 4px; }
-/* Stack the reread over the age so revealing it leaves the label one width. The age stays in flow, which keeps
-   it on the same baseline as the words beside it; taking it out of flow drops it below them.
-   A slot holding neither reserves no width: off mode on a card with no status age draws an empty span. */
-.gc-triage-end:not(:empty) { position: relative; display: inline-block; min-width: 3ch; text-align: center; }
-/* Outrank the generic badge button, which draws the bordered pill the sibling controls use. */
-.${BADGE_CLASS} button.gc-triage-again { position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%); display: grid; place-items: center; width: 16px; height: 16px;
-  gap: 0; padding: 0; color: inherit; background: transparent; border: 0; border-radius: 50%;
-  cursor: pointer; visibility: hidden; }
-.gc-sync-mark { width: 11px; height: 11px; fill: currentColor; }
-/* Reveal on label hover or card focus: no change while passing over cards, and reachable by keyboard. */
-.gc-mark[data-mark="triage"]:hover .gc-triage-again,
-${CARD}:focus-within .gc-triage-again { visibility: visible; }
-.gc-mark[data-mark="triage"]:has(.gc-triage-again):hover .gc-triage-age,
-${CARD}:focus-within .gc-mark[data-mark="triage"]:has(.gc-triage-again) .gc-triage-age { visibility: hidden; }
-.${BADGE_CLASS} button.gc-triage-again:hover { background: var(--bgColor-neutral-muted, #eaeef2); }
-.${BADGE_CLASS} button.gc-triage-again:focus-visible { outline: 2px solid var(--fgColor-accent, #0969da);
-  outline-offset: 1px; }
-/* Show age and the control side by side on touch screens, where there is no hover. */
-@media (hover: none), (pointer: coarse) {
-  .gc-triage-end:not(:empty) { display: inline-flex; gap: 4px; align-items: baseline; }
-  .${BADGE_CLASS} button.gc-triage-again { position: static; transform: none; visibility: visible; }
-}
+/* Returned rides with the type and pull request pills, so the footer holds only controls. In the field list it
+   sets no text size, so it reads at the size of the pills beside it. */
+.gc-returned { display: inline-flex; align-items: center; flex: none; padding: 0 6px; border-radius: 999px;
+  list-style: none; color: var(--fgColor-severe, #bc4c00);
+  border: 1px solid color-mix(in srgb, var(--fgColor-severe, #bc4c00) 45%, transparent);
+  background: color-mix(in srgb, var(--fgColor-severe, #bc4c00) 10%, transparent); }
+/* The header line carries the issue number rather than pills, so the label reads smaller and tighter there. */
+span.gc-returned { margin-left: 6px; font-size: 11px; line-height: 18px; font-weight: 500; border-radius: 9px; }
+.gc-sync-mark { fill: currentColor; }
 @keyframes gc-mark-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes gc-text-pulse {
+  0%, 100% { color: color-mix(in srgb, var(--fgColor-muted, #59636e) 45%, transparent); }
+  50% { color: var(--fgColor-muted, #59636e); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
-  .${BADGE_CLASS} button.gc-act[data-state="running"] { animation: none; opacity: 0.7; }
+  .gc-verdict[data-state="triaging"] .gc-note, .gc-verdict[data-outcome="running"] .gc-note { animation: none; }
+  .${BADGE_CLASS} button.gc-tool[data-state="running"] { animation: none; }
+  .gc-tail .gc-age, .gc-tools { transition: none; }
 }
 /* Use Primer foreground tokens to match session dots and editor chart colors (mechanics M38). */
 ${CARD}[${ATTENTION_ATTR}] { outline: 1px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
@@ -360,7 +399,9 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
 [${MOTION_ATTR}="reduced"] .gc-session[data-phase="running"] .gc-name {
   background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
 [${MOTION_ATTR}="reduced"] ${CARD}[${ATTENTION_ATTR}="running"] { animation: none; }
-[${MOTION_ATTR}="reduced"] .gc-mark[data-mark="triaging"] { animation: none; opacity: 0.7; }
+[${MOTION_ATTR}="reduced"] .gc-verdict[data-state="triaging"] .gc-note,
+[${MOTION_ATTR}="reduced"] .gc-verdict[data-outcome="running"] .gc-note { animation: none; }
+[${MOTION_ATTR}="reduced"] .${BADGE_CLASS} button.gc-tool[data-state="running"] { animation: none; }
 
 /* Restore text color when forced colors suppress the gradient. */
 @media (forced-colors: active) {
@@ -373,7 +414,7 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   .gc-dot { border-color: CanvasText; }
   .gc-dot[data-live="true"] { background: CanvasText; }
   /* A forced button surface pairs with ButtonText, not the CanvasText the label around it uses. */
-  .${BADGE_CLASS} button.gc-triage-again { color: ButtonText; }
+  .${BADGE_CLASS} button.gc-tool, .${BADGE_CLASS} button.gc-lane { color: ButtonText; }
 }
 .${POPOVER_CLASS} { position: fixed; z-index: 100; min-width: 200px; max-width: 320px; padding: 4px 0;
   font-size: 12px; color: var(--fgColor-default, #1f2328);
@@ -1746,12 +1787,13 @@ function movableLanes(card) {
 }
 
 /**
- * Whether the lane chip has a menu to open. An archived card without a checkout has nothing to offer.
+ * Whether the lane chip has a menu to open: a lane to move to, or a session to start. An archived card has neither.
  *
  * @param {LanedCard} card
+ * @param {readonly StartableAgent[]} startable
  */
-function hasCardMenu(card) {
-  return movableLanes(card).length > 0 || card.checkout != null;
+function hasCardMenu(card, startable) {
+  return movableLanes(card).length > 0 || (card.checkout != null && startable.length > 0);
 }
 
 /**
@@ -1775,7 +1817,7 @@ function startableFor(snapshot, card) {
  */
 function laneMenu(doc, card, actions, startable) {
   const lanes = movableLanes(card);
-  const menu = popover(doc, lanes.length === 0 ? 'Actions' : 'Move to');
+  const menu = popover(doc, 'Move to');
 
   menu.classList.add('gc-lanes');
   menu.setAttribute('role', 'menu');
@@ -1799,21 +1841,11 @@ function laneMenu(doc, card, actions, startable) {
     menu.appendChild(button);
   }
 
-  // Offer open-checkout only when a checkout exists. Folder selection still requires the editor (R41).
-  if (card.checkout != null) {
+  // A start needs a checkout; the bar opens it (R45), and folder selection stays in the editor (R41).
+  if (card.checkout != null && startable.length > 0) {
     const root = card.checkout.root;
 
     menu.appendChild(doc.createElement('hr'));
-
-    const open = item(doc, 'Open in VS Code', () => {
-      openMenu = null;
-      actions.openCheckout(card.key);
-      actions.repaint();
-    });
-
-    open.dataset.action = 'open-checkout';
-    open.title = `Open ${root} in VS Code`;
-    menu.appendChild(open);
 
     // One item per startable agent, worded as the editor board words them (R42).
     for (const { agent, takesPrompt } of startable) {
@@ -2109,25 +2141,68 @@ function stateTitle(activity) {
 }
 
 /**
- * Set attention on the GitHub card for border and session-dot styling. Session rows already identify the
- * affected session (R6).
+ * The card's own field list, which GitHub draws under the title with the type, status and pull request pills.
+ * A card carrying none has no such list, and the header box stands in for it (mechanics M27).
+ *
+ * @param {Element} element
+ * @returns {Element | null}
+ */
+function labelRow(element) {
+  return element.querySelector('ul[aria-label="Fields"]');
+}
+
+/**
+ * The header row holding the issue number. GitHub keeps the assignees in the box after it, so take the last box
+ * that carries no avatars (mechanics M27).
+ *
+ * @param {Element} element
+ * @returns {Element | null}
+ */
+function headerPills(element) {
+  const row = element.querySelector('[id^="board-card-header-title-"]')?.parentElement;
+  const boxes = Array.from(row?.parentElement?.children ?? []).filter(
+    (box) => box.querySelector('[data-component="AvatarStack"]') === null,
+  );
+
+  return boxes[boxes.length - 1] ?? null;
+}
+
+/**
+ * Returned states the card, not its work, so it rides in GitHub's own field list with the type and pull request
+ * pills rather than in the footer, which holds only controls (R45). Those nodes are GitHub's, redrawn on its
+ * own schedule, so this runs on every paint and not only when the footer is rebuilt (mechanics M27).
  *
  * @param {Document} doc
  * @param {Element} element
- * @param {HTMLElement} head
- * @param {LanedCard} card
+ * @param {LanedCard | undefined} card
  */
-function renderAttention(doc, element, head, card) {
-  if (card.returned) {
-    const mark = doc.createElement('span');
+function renderReturned(doc, element, card) {
+  element.querySelector('.gc-returned')?.remove();
 
-    mark.className = 'gc-mark';
-    mark.dataset.mark = 'returned';
-    mark.textContent = 'Returned';
-    setTooltip(mark, 'This card returned to you.');
-    head.appendChild(mark);
+  const fields = labelRow(element);
+  const pills = fields ?? headerPills(element);
+
+  if (card?.returned !== true || pills === null) {
+    return;
   }
 
+  // GitHub's field list holds one label per list item; the header box holds inline text.
+  const mark = doc.createElement(fields ? 'li' : 'span');
+
+  mark.className = 'gc-returned';
+  mark.textContent = 'Returned';
+  setTooltip(mark, 'This card returned to you.');
+  pills.appendChild(mark);
+}
+
+/**
+ * Set attention on the GitHub card for border and session-dot styling. Session rows already identify the
+ * affected session (R6).
+ *
+ * @param {Element} element
+ * @param {LanedCard} card
+ */
+function renderAttention(element, card) {
   if (card.attention === null) {
     element.removeAttribute(ATTENTION_ATTR);
 
@@ -2156,20 +2231,23 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest, sta
 
   badge.className = BADGE_CLASS;
 
-  // The lane and the card's own marks share one line; the sessions each get a line of their own under it.
+  // The lane, what to do, and the controls share one line; the sessions each get a line of their own under it.
   const head = doc.createElement('div');
 
-  head.className = 'gc-head';
+  head.className = 'gc-cmdbar';
   badge.appendChild(head);
 
   const lane = doc.createElement('button');
+  const laneTitle = LANE_TITLES[card.lane] ?? card.lane;
 
   lane.type = 'button';
   lane.className = 'gc-lane';
-  lane.textContent = LANE_TITLES[card.lane] ?? card.lane;
+  lane.appendChild(laneMark(doc, card.lane));
+  setAccessibleName(lane, `Lane: ${laneTitle}`);
 
-  if (hasCardMenu(card)) {
+  if (hasCardMenu(card, startable)) {
     lane.setAttribute('aria-haspopup', 'menu');
+    setTooltip(lane, `${laneTitle} — change lane`);
     lane.addEventListener('click', (event) => {
       event.stopPropagation();
       event.preventDefault();
@@ -2178,21 +2256,27 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest, sta
       actions.repaint();
     });
   } else {
-    lane.disabled = true;
+    setTooltip(lane, laneTitle);
+    lane.setAttribute('aria-disabled', 'true');
   }
 
   head.appendChild(lane);
 
-  renderAttention(doc, element, head, card);
-  renderTriage(doc, head, card, now, actions, canRequest);
-  renderAction(doc, head, card, actions);
+  renderAttention(element, card);
+  head.appendChild(verdict(doc, card, now));
+  head.appendChild(tail(doc, card, now, actions, canRequest));
+
+  const rows = doc.createElement('div');
+
+  rows.className = 'gc-sessions';
+  badge.appendChild(rows);
 
   for (const session of card.sessions) {
-    badge.appendChild(sessionRow(doc, session, now, openable));
+    rows.appendChild(sessionRow(doc, session, now, openable));
   }
   if (!card.sessions.some((session) => !session.finished)) {
     const historical = historyRow(doc, card.lastSession, now, openable);
-    if (historical) badge.appendChild(historical);
+    if (historical) rows.appendChild(historical);
   }
 
   // Inside the card's own bordered box, so the footer reads as a line of the card rather than a chip dropped under it.
@@ -2200,7 +2284,7 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest, sta
 
   // A card archived since the menu opened can lose every item. Clear the selection rather than hold one that
   // would reopen on its own if the card returned.
-  if (openMenu === card.key && !hasCardMenu(card)) {
+  if (openMenu === card.key && !hasCardMenu(card, startable)) {
     openMenu = null;
   }
 
@@ -2236,164 +2320,72 @@ function canRequestTriage(snapshot, card) {
 }
 
 /**
- * Display the triage action and age, with its explanation on hover (R38). Triage does not affect attention
- * styling. Reading spends the developer's model allowance, so its control is separate from the label that
- * opens the explanation.
+ * What to do with this card, as one line of text: the triage action, then either the dispatched action's state
+ * or the triage qualifier (R38, R39). The full explanation stays in the tooltip.
  *
  * @param {Document} doc
- * @param {HTMLElement} head
  * @param {LanedCard} card
  * @param {number} now
- * @param {Actions} actions
- * @param {boolean} canRequest
+ * @returns {HTMLElement}
  */
-function renderTriage(doc, head, card, now, actions, canRequest) {
+function verdict(doc, card, now) {
+  const held = doc.createElement('span');
   const triage = card.triage;
-  const readAgain = () => actions.retriage(card.key);
+
+  held.className = 'gc-verdict';
 
   if (!triage) {
-    if (canRequest) {
-      head.appendChild(badgeButton(doc, 'gc-read', 'Read this card', 'Identify the next action. Uses model usage.', readAgain));
-    }
-
-    return;
-  }
-
-  if (triage.state === 'failed') {
+    held.textContent = 'Not read';
+    setTooltip(held, 'This card has not been read.');
+  } else if (triage.state === 'failed') {
     // Same failure wording as the editor board; only the remedy differs where the browser cannot retry.
-    const failure = triage.exhausted
-      ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped.`
-      : 'Triage failed.';
-
-    head.appendChild(
-      canRequest
-        ? badgeButton(doc, 'gc-read', 'Not read', `${failure} Click to retry.`, readAgain)
-        : triageMark(doc, 'triage', 'Not read', failure),
+    held.textContent = 'Not read';
+    setTooltip(
+      held,
+      triage.exhausted ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped.` : 'Triage failed.',
     );
-
-    return;
+  } else if (triage.state === 'running') {
+    held.dataset.state = 'triaging';
+    held.appendChild(note(doc, 'Reading…'));
+    setTooltip(held, 'Identifying the next action.');
+  } else {
+    held.textContent = TRIAGE_LABELS[triage.action] ?? triage.action;
+    held.dataset.stale = String(triage.stale);
+    setTooltip(
+      held,
+      `${triage.detail} ${triage.stale ? `Read ${ago(now - triage.at)} ago; card details have changed.` : `Read ${ago(now - triage.at)} ago.`}`,
+    );
   }
 
-  if (triage.state === 'running') {
-    head.appendChild(triageMark(doc, 'triaging', 'Reading…', 'Identifying the next action.'));
+  // A dispatched run is the newer fact about the same work, so it takes the qualifier's place until it clears.
+  const state = actionState(card.action);
 
-    return;
+  if (state) {
+    held.dataset.outcome = state.outcome;
+    held.append(' · ');
+    held.appendChild(note(doc, state.text));
+  } else if (triage?.state === 'done' && triage.qualifier) {
+    held.append(' · ');
+    held.appendChild(note(doc, triage.qualifier));
   }
 
-  const mark = triageMark(doc, 'triage', '', '');
-
-  head.appendChild(mark);
-  mark.textContent = triageText(triage);
-  mark.dataset.stale = String(triage.stale);
-  setTooltip(
-    mark,
-    `${triage.detail} ${triage.stale ? `Read ${ago(now - triage.at)} ago; card details have changed.` : `Read ${ago(now - triage.at)} ago.`}`,
-  );
-
-  // Alternate status age and the reread control in the same slot to preserve label width.
-  const end = doc.createElement('span');
-
-  end.className = 'gc-triage-end';
-
-  // Display status age; put classification time and explanation in the tooltip. Status age is null outside
-  // project boards because GitHub records no move timestamp.
-  const moved = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
-
-  if (Number.isFinite(moved)) {
-    const ageLabel = doc.createElement('span');
-
-    ageLabel.className = 'gc-triage-age';
-    age(ageLabel, moved, now);
-    end.appendChild(ageLabel);
-    // Only where there is an age to separate: a card off the project board carries the control and nothing before it.
-    mark.append(' · ');
-  }
-
-  // Keep the paid reread separate from the label, which only opens the explanation (R38).
-  if (canRequest) {
-    const again = doc.createElement('button');
-
-    again.type = 'button';
-    again.className = 'gc-triage-again';
-    again.draggable = false;
-    again.appendChild(syncMark(doc));
-    setAccessibleName(again, 'Read this card again');
-    setTooltip(again, 'Read this card again. Uses model usage.');
-    again.addEventListener('click', (event) => {
-      event.stopPropagation();
-      event.preventDefault();
-      readAgain();
-    });
-    end.appendChild(again);
-  }
-
-  mark.appendChild(end);
-}
-
-/** Octicon `sync`, on the control that reads a card again. @param {Document} doc @returns {SVGElement} */
-function syncMark(doc) {
-  const svg = doc.createElementNS(SVG_NS, 'svg');
-  const path = doc.createElementNS(SVG_NS, 'path');
-
-  svg.setAttribute('class', 'gc-sync-mark');
-  svg.setAttribute('viewBox', '0 0 16 16');
-  svg.setAttribute('aria-hidden', 'true');
-  path.setAttribute(
-    'd',
-    'M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .655-.835ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z',
-  );
-  svg.appendChild(path);
-
-  return svg;
+  return held;
 }
 
 /**
- * @param {Document} doc
- * @param {'triage' | 'triaging'} kind
- * @param {string} text
- * @param {string} title
- * @returns {HTMLElement}
- */
-function triageMark(doc, kind, text, title) {
-  const mark = doc.createElement('span');
-
-  mark.className = 'gc-mark';
-  mark.dataset.mark = kind;
-  mark.textContent = text;
-
-  if (title) {
-    setTooltip(mark, title);
-  }
-
-  return mark;
-}
-
-/**
- * A control rather than a label, because pressing it spends the developer's model allowance or dispatches an
- * agent. These controls live in github.com's DOM, so a page script can dispatch a click at one; the hub, not
- * this listener, is what bounds what such a click can cause (R32, R38, R39).
+ * The muted half of the verdict: the qualifier, or the dispatched state that displaces it.
  *
  * @param {Document} doc
- * @param {string} className
  * @param {string} text
- * @param {string} title
- * @param {() => void} chosen
  * @returns {HTMLElement}
  */
-function badgeButton(doc, className, text, title, chosen) {
-  const button = doc.createElement('button');
+function note(doc, text) {
+  const held = doc.createElement('span');
 
-  button.type = 'button';
-  button.className = className;
-  button.textContent = text;
-  setTooltip(button, title);
-  button.addEventListener('click', (event) => {
-    event.stopPropagation();
-    event.preventDefault();
-    chosen();
-  });
+  held.className = 'gc-note';
+  held.textContent = text;
 
-  return button;
+  return held;
 }
 
 /** `landed` is a session-reported push, not independently verified completion (R39). */
@@ -2405,93 +2397,289 @@ const ACTION_OUTCOMES = {
 };
 
 /**
- * Render a dispatched card action's state and its control (R39). A refusal has none: it needs a configuration
- * or card change, not a press.
+ * The word a dispatched action puts in the verdict, and the color it takes. An action waiting to be run states
+ * nothing: its control is the whole message.
+ *
+ * @param {LanedCard['action']} action
+ * @returns {{ text: string, outcome: string } | null}
+ */
+function actionState(action) {
+  if (!action || action.state === 'available') {
+    return null;
+  }
+
+  if (action.state === 'running') {
+    return { text: 'Working…', outcome: 'running' };
+  }
+
+  if (action.state === 'refused') {
+    return { text: 'Not run', outcome: 'refused' };
+  }
+
+  return {
+    text: ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (action.outcome)] ?? ACTION_OUTCOMES.failed,
+    outcome: action.outcome,
+  };
+}
+
+/**
+ * The bar's right edge, painted twice in one slot: the status age at rest, the controls while the bar is
+ * pointed at or focused. Both are flush right, so the controls take no width from the verdict and the run
+ * control lands on the age's edge (R45).
  *
  * @param {Document} doc
- * @param {HTMLElement} head
+ * @param {LanedCard} card
+ * @param {number} now
+ * @param {Actions} actions
+ * @param {boolean} canRequest
+ * @returns {HTMLElement}
+ */
+function tail(doc, card, now, actions, canRequest) {
+  const held = doc.createElement('span');
+  const tools = doc.createElement('span');
+
+  held.className = 'gc-tail';
+  tools.className = 'gc-tools';
+
+  // Status age is null outside project boards because GitHub records no move timestamp.
+  const moved = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
+
+  if (Number.isFinite(moved)) {
+    const ageLabel = doc.createElement('span');
+
+    ageLabel.className = 'gc-age';
+    age(ageLabel, moved, now);
+    held.appendChild(ageLabel);
+  }
+
+  if (canRequest) {
+    // Hovering to reach this control is what hides the age, so a card already read has the control state it (R45).
+    const read = card.triage?.state === 'done' ? card.triage : null;
+    const name = read ? 'Read this card again' : 'Read this card';
+    const detail = read
+      ? `Read this card again. Last read ${ago(now - read.at)} ago. Uses model usage.`
+      : 'Identify the next action. Uses model usage.';
+
+    tools.appendChild(toolButton(doc, name, detail, syncMark(doc), () => actions.retriage(card.key)));
+  }
+
+  if (card.checkout != null) {
+    const root = card.checkout.root;
+
+    tools.appendChild(
+      toolButton(doc, 'Open in VS Code', `Open ${root} in VS Code`, vscodeMark(doc), () => actions.openCheckout(card.key)),
+    );
+  }
+
+  const run = runButton(doc, card, actions);
+
+  if (run) {
+    tools.appendChild(run);
+  }
+
+  held.appendChild(tools);
+
+  return held;
+}
+
+/**
+ * The card's own action, as one control (R39). Running stops it, because an interrupted merge leaves changes
+ * to resolve; a refusal states its condition and takes no press.
+ *
+ * @param {Document} doc
  * @param {LanedCard} card
  * @param {Actions} actions
+ * @returns {HTMLButtonElement | null}
  */
-function renderAction(doc, head, card, actions) {
+function runButton(doc, card, actions) {
   const action = card.action;
 
   if (!action) {
-    return;
+    return null;
   }
 
   const label = TRIAGE_LABELS[action.action] ?? action.action;
 
-  if (action.state === 'refused') {
-    head.appendChild(actionMark(doc, 'Not run', action.reason));
-
-    return;
-  }
-
   if (action.state === 'running') {
-    // Explain before stopping: an interrupted merge may leave conflicts for the developer to resolve (R39).
-    head.appendChild(
-      actionButton(doc, 'running', 'Working…', `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`, () =>
-        actions.stopAction(card.key),
-      ),
+    const stop = toolButton(
+      doc,
+      `Stop ${label.toLowerCase()}`,
+      `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
+      stopMark(doc),
+      () => actions.stopAction(card.key),
     );
 
-    return;
+    stop.classList.add('gc-run');
+    stop.dataset.state = 'running';
+
+    return stop;
   }
 
-  if (action.state === 'available') {
-    head.appendChild(
-      actionButton(doc, 'available', `Run ${label.toLowerCase()}`, `Start ${label} in this card\u2019s checkout.`, () =>
-        actions.runAction(card.key),
-      ),
-    );
+  if (action.state === 'refused') {
+    const refused = toolButton(doc, `Cannot run ${label.toLowerCase()}`, action.reason, playMark(doc), null);
 
-    return;
+    refused.classList.add('gc-run');
+    refused.setAttribute('aria-disabled', 'true');
+
+    return refused;
   }
 
-  const outcome = ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (action.outcome)] ?? ACTION_OUTCOMES.failed;
-  const done = actionButton(doc, 'done', outcome, `${action.detail} Click to run ${label} again.`, () =>
-    actions.runAction(card.key),
-  );
+  const title =
+    action.state === 'done' ? `${action.detail} Click to run ${label} again.` : `Start ${label} in this card’s checkout.`;
+  const run = toolButton(doc, `Run ${label.toLowerCase()}`, title, playMark(doc), () => actions.runAction(card.key));
 
-  done.dataset.outcome = action.outcome;
-  head.appendChild(done);
+  run.classList.add('gc-run');
+
+  if (action.state === 'done') {
+    run.dataset.outcome = action.outcome;
+  }
+
+  return run;
 }
 
 /**
- * A refusal states a condition rather than offering a press; it clears on a configuration or card change.
+ * A control rather than a label, because pressing it spends the developer's model allowance or dispatches an
+ * agent. These controls live in github.com's DOM, so a page script can dispatch a click at one; the hub, not
+ * this listener, is what bounds what such a click can cause (R32, R38, R39).
  *
  * @param {Document} doc
- * @param {string} text
+ * @param {string} name
  * @param {string} title
- * @returns {HTMLElement}
+ * @param {SVGElement} mark
+ * @param {(() => void) | null} chosen a control that only states a condition takes no press
+ * @returns {HTMLButtonElement}
  */
-function actionMark(doc, text, title) {
-  const mark = doc.createElement('span');
+function toolButton(doc, name, title, mark, chosen) {
+  const button = doc.createElement('button');
 
-  mark.className = 'gc-mark';
-  mark.dataset.mark = 'action';
-  mark.dataset.state = 'refused';
-  mark.textContent = text;
-  setTooltip(mark, title);
+  button.type = 'button';
+  button.className = 'gc-tool';
+  button.draggable = false;
+  button.appendChild(mark);
+  setAccessibleName(button, name);
+  setTooltip(button, title);
+  // A glyph says none of this, and the name replaces what is inside the button rather than adding to it, so
+  // the sentence the tooltip carries is set past `setAccessibleName` as the description.
+  button.setAttribute('aria-description', title);
 
-  return mark;
+  if (chosen === null) {
+    return button;
+  }
+
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    chosen();
+  });
+
+  return button;
 }
 
 /**
  * @param {Document} doc
- * @param {string} state
- * @param {string} text
- * @param {string} title
- * @param {() => void} chosen
- * @returns {HTMLElement}
+ * @param {string} viewBox
+ * @returns {SVGElement}
  */
-function actionButton(doc, state, text, title, chosen) {
-  const button = badgeButton(doc, 'gc-act', text, title, chosen);
+function markSvg(doc, viewBox) {
+  const svg = doc.createElementNS(SVG_NS, 'svg');
 
-  button.dataset.state = state;
+  svg.setAttribute('viewBox', viewBox);
+  svg.setAttribute('aria-hidden', 'true');
 
-  return button;
+  return svg;
+}
+
+/**
+ * The lane's pictogram, which carries the lane where the chip has no room for its name (R45).
+ *
+ * @param {Document} doc
+ * @param {LaneId} lane
+ * @returns {SVGElement}
+ */
+function laneMark(doc, lane) {
+  const svg = markSvg(doc, '0 0 16 16');
+
+  svg.setAttribute('class', 'gc-lane-mark');
+  svg.setAttribute('data-lane', lane);
+
+  for (const [name, attributes] of LANE_SHAPES[lane] ?? []) {
+    const shape = doc.createElementNS(SVG_NS, name);
+
+    for (const [attribute, value] of Object.entries(attributes)) {
+      shape.setAttribute(attribute, value);
+    }
+
+    svg.appendChild(shape);
+  }
+
+  return svg;
+}
+
+/** Octicon `sync`, on the control that reads a card again. @param {Document} doc @returns {SVGElement} */
+function syncMark(doc) {
+  const svg = markSvg(doc, '0 0 16 16');
+  const path = doc.createElementNS(SVG_NS, 'path');
+
+  svg.setAttribute('class', 'gc-sync-mark');
+  path.setAttribute(
+    'd',
+    'M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .655-.835ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z',
+  );
+  svg.appendChild(path);
+
+  return svg;
+}
+
+/**
+ * The product mark, because the control opens VS Code itself rather than code in general (R45).
+ *
+ * @param {Document} doc
+ * @returns {SVGElement}
+ */
+function vscodeMark(doc) {
+  const svg = markSvg(doc, '0 0 24 24');
+  const path = doc.createElementNS(SVG_NS, 'path');
+
+  svg.setAttribute('class', 'gc-vscode-mark');
+  path.setAttribute('class', 'gc-vscode');
+  path.setAttribute('d', VSCODE_MARK);
+  svg.appendChild(path);
+
+  return svg;
+}
+
+/**
+ * @param {Document} doc
+ * @returns {SVGElement}
+ */
+function playMark(doc) {
+  const svg = markSvg(doc, '0 0 16 16');
+  const path = doc.createElementNS(SVG_NS, 'path');
+
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute('d', 'M4.25 2.3a.75.75 0 0 1 1.14-.64l8.1 5.7a.75.75 0 0 1 0 1.28l-8.1 5.7a.75.75 0 0 1-1.14-.64Z');
+  svg.appendChild(path);
+
+  return svg;
+}
+
+/**
+ * @param {Document} doc
+ * @returns {SVGElement}
+ */
+function stopMark(doc) {
+  const svg = markSvg(doc, '0 0 16 16');
+  const rect = doc.createElementNS(SVG_NS, 'rect');
+
+  rect.setAttribute('fill', 'currentColor');
+  rect.setAttribute('x', '3.5');
+  rect.setAttribute('y', '3.5');
+  rect.setAttribute('width', '9');
+  rect.setAttribute('height', '9');
+  rect.setAttribute('rx', '1.5');
+  svg.appendChild(rect);
+
+  return svg;
 }
 
 /**
@@ -2719,7 +2907,7 @@ export function clear(doc) {
   // Clear per-card state and open menus when leaving the board.
   drawn = new WeakMap();
 
-  for (const element of doc.querySelectorAll(`.${BADGE_CLASS}, .${POPOVER_CLASS}, .${ACTOR_CLASS}`)) {
+  for (const element of doc.querySelectorAll(`.${BADGE_CLASS}, .${POPOVER_CLASS}, .${ACTOR_CLASS}, .gc-returned`)) {
     element.remove();
   }
 
@@ -2908,7 +3096,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     for (const element of doc.querySelectorAll(CARD)) {
       scanned += 1;
 
-      for (const stale of element.querySelectorAll(`.${BADGE_CLASS}, .${ACTOR_CLASS}`)) {
+      for (const stale of element.querySelectorAll(`.${BADGE_CLASS}, .${ACTOR_CLASS}, .gc-returned`)) {
         stale.remove();
       }
 
@@ -2932,6 +3120,8 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     const sig = card === undefined ? null : badgeSignature(card, openable, canRequestTriage(state.snapshot, card));
     // Rebuild the card with an open lane menu because renderBadge must recreate the menu removed above.
     const kept = card === undefined || sig === null || openMenu === card.key ? null : keptBadge(element, card, sig, presentation.replaceAvatars);
+
+    renderReturned(doc, element, card);
 
     if (kept === null) {
       for (const stale of element.querySelectorAll(`.${BADGE_CLASS}, .${ACTOR_CLASS}`)) {

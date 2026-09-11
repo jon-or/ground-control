@@ -73,7 +73,7 @@ A card must show its stage, sessions, activity, attention, and relevant ages wit
 | Area | Content |
 |---|---|
 | Header | Repository, issue number, title, type/status labels, selected pull request, avatar, overflow menu |
-| Footer | Triage result and session rows; visually and accessibly separated from GitHub's fields |
+| Footer | Command bar (R45) and session rows; visually and accessibly separated from GitHub's fields |
 | Session row | State mark, agent mark, truncated name, duration |
 
 The footer remains present when empty. Cards and page use the same base tone; lanes are recessed and footers have a small contrasting tint. Borders distinguish cards when theme backgrounds coincide.
@@ -95,6 +95,30 @@ Select the most recently updated open closing pull request; if none is open, sel
 `avatar.review` and `avatar.offReview` select whose face a card shows in both clients, one setting per side of the review boundary, so a review card can name who implemented the issue while every other card names who reported it. `avatar.review` takes `pull-request-author`, the default, or `assignee`. `avatar.offReview` takes `assignee`, the default, or `issue-author`; a pull request author is not offered there because the unstarted, plan, and icebox lanes have no pull request to name. Each side falls through to an assignee wherever its person is unavailable, such as a review card with no pull request or a deleted account, and the preferred assignee is the developer's configured identity. Label the role. The review statuses come from the lane mapping, so custom status names need no second list. The overlay replaces GitHub's assignee display only where an author should replace it and an assignee area already exists; otherwise leave GitHub's display intact, which makes `assignee` on either side a no-op for that side in the browser and a visible choice on the editor board.
 
 Issue and pull-request controls resolve their addresses from source data; a guessed issue number is not sufficient to construct a link. What an unmodified click on those controls does is R43.
+
+### R45. Card command bar
+
+The footer's first line is one command bar: the card's lane, what to do about it, and the controls that act on it, in a single row that never wraps.
+
+| Slot | At rest | While the bar is pointed at or focused |
+|---|---|---|
+| Lane (overlay) | Pictogram, in the lane's colour, on a button edge that opens the lane menu | unchanged |
+| Verdict | Triage action, then the dispatched action's state or the triage qualifier | unchanged |
+| Tail | Time in the current status, right-aligned | Reread, open checkout, run — run on the edge |
+
+The verdict is the only element that shrinks: a long qualifier truncates it rather than moving a control. The tail is one slot painted two ways, so revealing the controls changes no width and the run control lands where the age was, above the session duration below it. Reveal keys on the bar, not the card, so passing over a title arms nothing. Controls stay in the tab order while hidden and appear on keyboard focus; where the device cannot hover, the tail lays the controls out and drops the age.
+
+Each lane has one pictogram and one colour, identical in both clients. The overlay's chip has room for the mark alone and names its lane in its accessible name and tooltip; the editor board's cards already sit in their lane, so its bar has no lane slot and its lane headings take the mark beside their name instead. A card with no issue (R4) has no conversation to open and nothing to read, so it draws no title line; the branch name its sessions work on stands in the verdict slot, and the bar's controls are where every card has them.
+
+The open-checkout control lives in the bar only. Menus carry what the bar does not: the editor board's card menu offers the changes and session starts, and the overlay's lane chip opens a menu only where there is a lane to move to or a session to start.
+
+The bar runs to the footer's own edges with square corners and keeps the card's ground, including any hover or attention tint on it; the session rows under it carry the footer tint, and their band is not drawn at all on a card with no session. Glyphs are drawn on their own even pixel grid inside an even control, because an odd glyph centres on a half pixel and blurs. Nothing in the bar fades by layer opacity: a faded verdict and a pulsing state change colour, since an opacity layer renders the text inside it without subpixel antialiasing.
+
+Hovering the bar hides the age, and hovering is how the reread is reached, so the reread states the age it covers. A control the bar reveals is reachable by keyboard and states what pressing it costs in its accessible description, because its glyph says none of that; a control that only states a condition, such as a refusal, stays reachable and refuses the press rather than removing itself from the page.
+
+Returned states the card rather than its work, so it is a label in the card's own label row under the title rather than a mark in the bar, on both clients. The overlay joins GitHub's field list under the title and falls back to the card header line on a card carrying no field of its own, because GitHub owns and redraws both (mechanics M27). The row leads with the pull request, then the type and the status, so the card most in need of attention states its pull request first.
+
+The run control carries the card's action (R39): it starts an available action, stops a running one, repeats a finished one, and is present but inert for a refusal. Its accessible name and tooltip name the action, because one glyph serves every triage. While an action is dispatched its state displaces the triage qualifier in the verdict, which is the newer fact about the same work.
 
 ### R43. Reading a conversation
 
@@ -296,13 +320,13 @@ Read status and assignment events alongside comments. Consecutive changes by the
 
 Use the developer's own submitted reviews, comments, and replies to distinguish initial review from follow-up. Reviews by other people or bots do not establish a prior round for the developer. Ignore draft reviews. Do not use `reviewDecision` as triage evidence; lane arrival uses it separately (R8).
 
-The explanation describes status and responsibility, not technical implementation. Address the developer as “you”; use colleagues' first names, profile-name overrides, or logins as fallback. Do not invent counts from a partial conversation. Other covers waiting with no identified action. The label is visible; the explanation and classification time are on hover. The label's adjacent age is time in the current status.
+The explanation describes status and responsibility, not technical implementation. Address the developer as “you”; use colleagues' first names, profile-name overrides, or logins as fallback. Do not invent counts from a partial conversation. Other covers waiting with no identified action. The action is visible; the explanation and classification time are on hover. The age beside it is time in the current status (R45).
 
 Mark triage stale when issue/PR evidence changes. Age alone does not invalidate it. Automatically reread only on eligibility or status changes; other changes mark it stale without spending another model call. Triage never moves a card.
 
-Run only while a board is visible or on an explicit client request, with bounded concurrency, timeout, and retry backoff. Stop automatic retries after the retry budget. A failed classification leaves no result label; show the failure once above the board and retain a retry control. Either client can request classification; the hub applies the same eligibility, concurrency, and cooldown checks whichever asks.
+Run only while a board is visible or on an explicit client request, with bounded concurrency, timeout, and retry backoff. Stop automatic retries after the retry budget. A failed classification reads as not read, with the reason on hover; show the failure once above the board and retain a retry control. Either client can request classification; the hub applies the same eligibility, concurrency, and cooldown checks whichever asks.
 
-Eligible unread issues have a reading control in both clients. Completed triage has a separate reread control, accessible by keyboard and touch. Off mode removes classification controls while retaining results. Clicking the label or age to inspect its explanation must not start classification or spend usage.
+Eligible cards carry one reading control in both clients, whether or not they have been read (R45). It is accessible by keyboard and touch. Off mode removes classification controls while retaining results. Clicking the verdict or age to inspect its explanation must not start classification or spend usage.
 
 Triage defaults to manual requests; `triage.mode` also offers off and automatic. Explicit mode takes precedence over legacy `triage.enabled`; without an explicit mode, preserve explicit legacy true as automatic and false as off. Configurations without an explicit choice default to manual. Existing saved hub configurations retain their legacy mode until replaced by client configuration.
 
@@ -434,7 +458,7 @@ Session row accessible names share their phase and liveness words with the edito
 
 Offer a persistent option to collapse GitHub's project title, view tabs, and unsaved-filter controls. Reduce inter-column spacing and retain theme-appropriate dividers. Persist the collapse choice across boards and reloads.
 
-These differences from the editor board are settled, not gaps. The overlay draws footers only inside GitHub's own issue cards, so it has no ad-hoc cards (R4), no selected pull-request chip (R5), no card counts or empty-state text (R10), and no archive count or archive hiding (R9) — GitHub's page states its own membership and counts. It marks a stale read on its menu control rather than in words (R25), because the page has no board header to carry the sentence. Its menus answer no keys, and Escape closes only a tooltip, because GitHub's own keyboard handling owns the card; the editor board answers Escape and arrows on its menus. It moves lanes from a menu where the editor board drags, and it filters and pins one log panel where the editor uses two output channels: each follows the conventions of its host. Its board menu right-aligns to its control as the editor's menus do, but a lane menu aligns left, because it hangs from a control inside a card with the room to grow to its right. GitHub's pull request is the combined diff (R37), and choosing a filesystem path stays in the editor (R41).
+These differences from the editor board are settled, not gaps. The overlay draws footers only inside GitHub's own issue cards, so it has no ad-hoc cards (R4), no selected pull-request chip (R5), no card counts or empty-state text (R10), and no archive count or archive hiding (R9) — GitHub's page states its own membership and counts. It marks a stale read on its menu control rather than in words (R25), because the page has no board header to carry the sentence. Its menus answer no keys, and Escape closes only a tooltip, because GitHub's own keyboard handling owns the card; the editor board answers Escape and arrows on its menus. Its lane chip carries the pictogram alone where the editor board's lane heading has room for the name beside it. It moves lanes from a menu where the editor board drags, and it filters and pins one log panel where the editor uses two output channels: each follows the conventions of its host. Its board menu right-aligns to its control as the editor's menus do, but a lane menu aligns left, because it hangs from a control inside a card with the room to grow to its right. GitHub's pull request is the combined diff (R37), and choosing a filesystem path stays in the editor (R41).
 
 ## Accuracy and diagnostics
 

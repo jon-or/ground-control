@@ -738,11 +738,48 @@ const TRIAGE_LABELS = {
   other: 'Other',
 };
 
-/** Format triage labels consistently across clients. */
-function triageText(triage) {
-  const label = TRIAGE_LABELS[triage.action] ?? triage.action;
+/**
+ * One stroke-only pictogram per lane, drawn in a 16px box. The Chrome overlay carries the same table; both
+ * client suites verify parity (docs/testing.md).
+ */
+const LANE_SHAPES = {
+  unstarted: [['circle', { cx: '8', cy: '8', r: '6', 'stroke-dasharray': '2.6 2.6' }]],
+  plan: [['path', { d: 'M3 4h10M3 8h10M3 12h6' }]],
+  build: [['path', { d: 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4', 'stroke-width': '1.7' }]],
+  review: [
+    ['circle', { cx: '7', cy: '7', r: '4.2' }],
+    ['path', { d: 'M10.2 10.2 14 14' }],
+  ],
+  done: [
+    ['circle', { cx: '8', cy: '8', r: '6' }],
+    ['path', { d: 'M5.2 8.2 7.2 10.4 10.9 5.9', 'stroke-width': '1.7' }],
+  ],
+  icebox: [['path', { d: 'M8 2v12M2.8 5 13.2 11M13.2 5 2.8 11' }]],
+  archived: [
+    ['rect', { x: '2.2', y: '4.6', width: '11.6', height: '8', rx: '1.2' }],
+    ['path', { d: 'M2.2 7.2h11.6M6.4 9.8h3.2' }],
+  ],
+};
 
-  return triage.qualifier ? `${label} · ${triage.qualifier}` : label;
+/** The lane's pictogram, in the lane color. The heading keeps its name, so this reinforces rather than replaces. */
+function laneMark(lane) {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'lane-mark');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.dataset.lane = lane;
+
+  for (const [name, attributes] of LANE_SHAPES[lane] ?? []) {
+    const shape = document.createElementNS(SVG, name);
+
+    for (const [attribute, value] of Object.entries(attributes)) {
+      shape.setAttribute(attribute, value);
+    }
+
+    svg.appendChild(shape);
+  }
+
+  return svg;
 }
 
 /** Map GitHub color names to theme chart colors for legibility in light and dark themes. */
@@ -762,49 +799,283 @@ const PR_COLORS = { OPEN: 'GREEN', MERGED: 'PURPLE', CLOSED: 'RED' };
 
 /** `landed` is a session-reported push, not independently verified completion (R39). */
 const ACTION_OUTCOMES = {
-  landed: { text: 'Merged', color: 'GREEN' },
-  halted: { text: 'Stopped short', color: 'ORANGE' },
-  failed: { text: 'Did not run', color: 'GRAY' },
-  stopped: { text: 'Stopped', color: 'GRAY' },
+  landed: 'Merged',
+  halted: 'Stopped short',
+  failed: 'Did not run',
+  stopped: 'Stopped',
 };
 
 /**
- * Render action states (R39): run, stop, refusal, or result. Refusals have no click handler because they
- * require a configuration or card change.
+ * What to do with this card, as one line of text: the triage action, then either the dispatched action's state
+ * or the triage qualifier (R38, R39). The full explanation stays in the tooltip.
  */
-function actionChip(action, key) {
-  const label = TRIAGE_LABELS[action.action] ?? action.action;
+function verdict(boardCard) {
+  const held = document.createElement('span');
+  const triage = boardCard.triage;
 
-  if (action.state === 'running') {
-    // Explain before stopping: an interrupted merge may leave conflicts for the developer to resolve or abort
-    // (R39).
-    const chip = badge(
-      'action-running',
-      'Working…',
-      'GRAY',
-      `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
-      () => vscode.postMessage({ type: 'stopAction', key }),
+  held.className = 'verdict';
+
+  if (!triage) {
+    held.textContent = 'Not read';
+    setTooltip(held, 'This card has not been read.');
+  } else if (triage.state === 'failed') {
+    held.textContent = 'Not read';
+    setTooltip(
+      held,
+      triage.exhausted ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped.` : 'Triage failed.',
     );
-    chip.dataset.running = 'true';
-
-    return chip;
+  } else if (triage.state === 'running') {
+    held.dataset.state = 'triaging';
+    held.appendChild(note('Reading…'));
+    setTooltip(held, 'Identifying the next action.');
+  } else {
+    held.textContent = TRIAGE_LABELS[triage.action] ?? triage.action;
+    held.dataset.stale = String(triage.stale);
+    setTooltip(
+      held,
+      `${triage.detail} ${
+        triage.stale
+          ? `Read ${ago(Date.now() - triage.at)} ago; card details have changed.`
+          : `Read ${ago(Date.now() - triage.at)} ago.`
+      }`,
+    );
   }
 
-  if (action.state === 'done') {
-    const outcome = ACTION_OUTCOMES[action.outcome] ?? ACTION_OUTCOMES.failed;
+  // A dispatched run is the newer fact about the same work, so it takes the qualifier's place until it clears.
+  const state = actionState(boardCard.action);
 
-    return badge('action-done', outcome.text, outcome.color, `${action.detail} Click to run ${label} again.`, () =>
-      vscode.postMessage({ type: 'runAction', key }),
-    );
+  if (state) {
+    held.dataset.outcome = state.outcome;
+    held.append(' · ');
+    held.appendChild(note(state.text));
+  } else if (triage?.state === 'done' && triage.qualifier) {
+    held.append(' · ');
+    held.appendChild(note(triage.qualifier));
+  }
+
+  return held;
+}
+
+/** A card with no issue has nothing to read, so the verdict names the branch its sessions are working on. */
+function branchVerdict(boardCard) {
+  const held = document.createElement('span');
+
+  held.className = 'verdict';
+  held.textContent = cardTitle(boardCard);
+
+  return held;
+}
+
+/** The muted half of the verdict: the qualifier, or the dispatched state that displaces it. */
+function note(text) {
+  const held = document.createElement('span');
+
+  held.className = 'note';
+  held.textContent = text;
+
+  return held;
+}
+
+/**
+ * The word a dispatched action puts in the verdict, and the color it takes. An action waiting to be run states
+ * nothing: its control is the whole message.
+ */
+function actionState(action) {
+  if (!action || action.state === 'available') {
+    return null;
+  }
+
+  if (action.state === 'running') {
+    return { text: 'Working…', outcome: 'running' };
   }
 
   if (action.state === 'refused') {
-    return badge('action-refused', 'Not run', 'GRAY', action.reason);
+    return { text: 'Not run', outcome: 'refused' };
   }
 
-  return badge('action', `Run ${label.toLowerCase()}`, 'GRAY', `Start ${label} in this card’s checkout.`, () =>
-    vscode.postMessage({ type: 'runAction', key }),
+  return { text: ACTION_OUTCOMES[action.outcome] ?? ACTION_OUTCOMES.failed, outcome: action.outcome };
+}
+
+/**
+ * The bar's right edge, painted twice in one slot: the status age at rest, the controls while the bar is
+ * pointed at or focused. Both are flush right, so the controls take no width from the verdict and the run
+ * control lands on the age's edge, above the session duration (R45).
+ */
+function tail(boardCard, canRequest) {
+  const held = document.createElement('span');
+
+  held.className = 'tail';
+
+  // Status age is null outside project boards because GitHub records no move timestamp.
+  const moved = boardCard.issue?.statusChangedAt ? Date.parse(boardCard.issue.statusChangedAt) : NaN;
+
+  if (Number.isFinite(moved)) {
+    const ageLabel = document.createElement('span');
+
+    ageLabel.className = 'card-age';
+    age(ageLabel, moved);
+    held.appendChild(ageLabel);
+  }
+
+  const tools = document.createElement('span');
+
+  tools.className = 'tools';
+
+  if (canRequest) {
+    // Hovering to reach this control is what hides the age, so a card already read has the control state it (R45).
+    const read = boardCard.triage?.state === 'done';
+    const name = read ? 'Read this card again' : 'Read this card';
+    const detail = read
+      ? `Read this card again. Last read ${ago(Date.now() - boardCard.triage.at)} ago. Uses model usage.`
+      : 'Identify the next action. Uses model usage.';
+
+    tools.appendChild(toolButton(name, detail, syncMark(), () => vscode.postMessage({ type: 'retriage', key: boardCard.key })));
+  }
+
+  if (hasCheckout(boardCard)) {
+    tools.appendChild(
+      toolButton('Open in VS Code', `Open ${boardCard.checkout.root} in VS Code`, vscodeMark(), () =>
+        vscode.postMessage({ type: 'openCheckout', key: boardCard.key }),
+      ),
+    );
+  }
+
+  const run = runButton(boardCard);
+
+  if (run) {
+    tools.appendChild(run);
+  }
+
+  held.appendChild(tools);
+
+  return held;
+}
+
+/**
+ * The card's own action, as one control (R39). Running stops it, because an interrupted merge leaves changes
+ * to resolve; a refusal states its condition and takes no press.
+ */
+function runButton(boardCard) {
+  const action = boardCard.action;
+
+  if (!action) {
+    return null;
+  }
+
+  const label = TRIAGE_LABELS[action.action] ?? action.action;
+
+  if (action.state === 'running') {
+    const stop = toolButton(
+      `Stop ${label.toLowerCase()}`,
+      `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
+      stopMark(),
+      () => vscode.postMessage({ type: 'stopAction', key: boardCard.key }),
+    );
+
+    stop.classList.add('run');
+    stop.dataset.state = 'running';
+
+    return stop;
+  }
+
+  if (action.state === 'refused') {
+    const refused = toolButton(`Cannot run ${label.toLowerCase()}`, action.reason, playMark(), null);
+
+    refused.classList.add('run');
+    refused.setAttribute('aria-disabled', 'true');
+
+    return refused;
+  }
+
+  const title =
+    action.state === 'done' ? `${action.detail} Click to run ${label} again.` : `Start ${label} in this card’s checkout.`;
+  const run = toolButton(`Run ${label.toLowerCase()}`, title, playMark(), () =>
+    vscode.postMessage({ type: 'runAction', key: boardCard.key }),
   );
+
+  run.classList.add('run');
+
+  if (action.state === 'done') {
+    run.dataset.outcome = action.outcome;
+  }
+
+  return run;
+}
+
+/**
+ * A control rather than a label: pressing it spends the developer's model allowance or dispatches an agent.
+ * A control that only states a condition takes no press, so `onPress` is null there.
+ */
+function toolButton(name, title, mark, onPress) {
+  const button = document.createElement('button');
+
+  button.type = 'button';
+  button.className = 'tool';
+  button.draggable = false;
+  button.appendChild(mark);
+  setAccessibleName(button, name);
+  setTooltip(button, title);
+  // A glyph says none of this, and the name replaces what is inside the button rather than adding to it, so
+  // the sentence the tooltip carries is set past `setAccessibleName` as the description.
+  button.setAttribute('aria-description', title);
+
+  if (onPress === null) {
+    return button;
+  }
+
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onPress();
+  });
+
+  return button;
+}
+
+/** The product mark, because the control opens VS Code itself rather than code in general (R45). */
+function vscodeMark() {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'vscode-mark');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const path = document.createElementNS(SVG, 'path');
+  path.setAttribute('class', 'vscode');
+  path.setAttribute('d', VSCODE_MARK);
+  svg.appendChild(path);
+
+  return svg;
+}
+
+function playMark() {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'run-mark');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const path = document.createElementNS(SVG, 'path');
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute('d', 'M4.25 2.3a.75.75 0 0 1 1.14-.64l8.1 5.7a.75.75 0 0 1 0 1.28l-8.1 5.7a.75.75 0 0 1-1.14-.64Z');
+  svg.appendChild(path);
+
+  return svg;
+}
+
+function stopMark() {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'run-mark');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const rect = document.createElementNS(SVG, 'rect');
+  rect.setAttribute('fill', 'currentColor');
+  rect.setAttribute('x', '3.5');
+  rect.setAttribute('y', '3.5');
+  rect.setAttribute('width', '9');
+  rect.setAttribute('height', '9');
+  rect.setAttribute('rx', '1.5');
+  svg.appendChild(rect);
+
+  return svg;
 }
 
 function badge(kind, text, color, title, onOpen) {
@@ -835,12 +1106,6 @@ function cardActions(boardCard) {
       label: 'View changes',
       hint: "Open this card's commits and uncommitted changes in one editor",
       run: () => vscode.postMessage({ type: 'openChanges', key: boardCard.key }),
-    });
-
-    actions.push({
-      label: 'Open in VS Code',
-      hint: `Open ${boardCard.checkout.root} in VS Code`,
-      run: () => vscode.postMessage({ type: 'openCheckout', key: boardCard.key }),
     });
 
     // Offer one start action per available agent. Archived cards are read-only (R9), which is wider than
@@ -1295,13 +1560,7 @@ function card(boardCard, avatarPool, placeable) {
   const badges = document.createElement('span');
   badges.className = 'badges github';
   badges.setAttribute('role', 'group');
-  badges.setAttribute('aria-label', 'GitHub labels');
-
-  // Give the Ground Control footer its own accessible group name.
-  const marks = document.createElement('span');
-  marks.className = 'badges marks';
-  marks.setAttribute('role', 'group');
-  marks.setAttribute('aria-label', 'Board status');
+  badges.setAttribute('aria-label', 'Labels');
 
   meta.appendChild(number);
 
@@ -1315,41 +1574,29 @@ function card(boardCard, avatarPool, placeable) {
 
   el.appendChild(meta);
 
-  const open = document.createElement('button');
-  open.type = 'button';
-  open.className = 'card-open';
-
-  const title = document.createElement('span');
-  title.className = 'title';
-  title.textContent = cardTitle(boardCard);
-
-  open.appendChild(title);
-
+  // A card with no issue has no conversation to open; its branch name titles it from the command bar instead (R45).
   if (issue) {
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'card-open';
+
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = issue.title;
+
+    open.appendChild(title);
     open.addEventListener('click', (event) => openIssueFrom(event, boardCard, open));
-  } else {
-    open.disabled = true;
+    el.appendChild(open);
   }
 
-  el.appendChild(open);
   el.appendChild(badges);
 
   // Render a footer on every card for consistent layout, including cards with no sessions or triage yet.
   const foot = document.createElement('div');
   foot.className = 'card-foot';
-  foot.appendChild(marks);
   el.appendChild(foot);
 
-  if (issue?.type) {
-    // Avoid repeating badge labels on hover; expose PR state in the accessible name.
-    badges.appendChild(badge('type', issue.type, issue.typeColor, null));
-  }
-
-  if (issue?.status) {
-    // Remove the project status emoji; the badge already marks status.
-    badges.appendChild(badge('status', statusLabel(issue.status), issue.statusColor, null));
-  }
-
+  // Avoid repeating badge labels on hover; expose PR state in the accessible name.
   if (issue?.pullRequest) {
     const pr = badge(
       'pull-request',
@@ -1368,6 +1615,15 @@ function card(boardCard, avatarPool, placeable) {
     badges.appendChild(pr);
   }
 
+  if (issue?.type) {
+    badges.appendChild(badge('type', issue.type, issue.typeColor, null));
+  }
+
+  if (issue?.status) {
+    // Remove the project status emoji; the badge already marks status.
+    badges.appendChild(badge('status', statusLabel(issue.status), issue.statusColor, null));
+  }
+
   // Attention changes the card border/tint and matching session state mark. Session text keeps its normal color
   // and weight. The mark's accessible name identifies the state without relying on color (R6).
   if (boardCard.attention) {
@@ -1377,94 +1633,40 @@ function card(boardCard, avatarPool, placeable) {
   if (boardCard.returned) {
     const mark = badge('returned', 'Returned', 'ORANGE');
     setTooltip(mark, 'This card returned to you.');
-    marks.appendChild(mark);
+    badges.appendChild(mark);
   }
 
-  // Keep triage separate from attention styling (R38).
-  const triage = boardCard.triage;
-  const canRequest = board.triage?.canRequest === true && issue && boardCard.issueNumber !== null &&
-    boardCard.lane !== 'archived' && boardCard.unassigned !== true;
+  // Keep triage separate from attention styling (R38). One line states what to do; the controls that act on it
+  // take the age's place at the right edge while the bar is pointed at (R45).
+  const canRequest =
+    board.triage?.canRequest === true &&
+    issue &&
+    boardCard.issueNumber !== null &&
+    boardCard.lane !== 'archived' &&
+    boardCard.unassigned !== true;
 
-  const readAgain = () => vscode.postMessage({ type: 'retriage', key: boardCard.key });
+  // Give the Ground Control footer's first line its own accessible group name.
+  const cmdbar = document.createElement('div');
 
-  if (triage?.state === 'running') {
-    marks.appendChild(badge('triage-running', 'Reading…', 'GRAY', 'Identifying the next action.'));
-  } else if (triage?.state === 'failed') {
-    // Report failures once above the lanes (R25), with a retry control on the affected card.
-    marks.appendChild(
-      badge(
-        'triage-failed',
-        'Not read',
-        'GRAY',
-        (triage.exhausted
-          ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped.`
-          : 'Triage failed.') + (canRequest ? ' Click to retry.' : ''),
-        canRequest ? readAgain : undefined,
-      ),
-    );
-  } else if (triage?.state === 'done') {
-    // Use neutral triage styling and put the full explanation in its tooltip to keep cards compact.
-    const read = triage.stale
-      ? `Read ${ago(Date.now() - triage.at)} ago; card details have changed.`
-      : `Read ${ago(Date.now() - triage.at)} ago.`;
-    const chip = badge('triage', triageText(triage), 'GRAY', `${triage.detail} ${read}`);
+  cmdbar.className = 'cmdbar';
+  cmdbar.setAttribute('role', 'group');
+  cmdbar.setAttribute('aria-label', 'Board status');
+  cmdbar.appendChild(issue ? verdict(boardCard) : branchVerdict(boardCard));
+  cmdbar.appendChild(tail(boardCard, canRequest === true));
+  foot.appendChild(cmdbar);
 
-    chip.dataset.stale = String(triage.stale);
+  // Session rows live in their own block, so the footer drops the tint where there is nothing to show.
+  const rows = document.createElement('div');
 
-    // Alternate status age and refresh in the same slot to preserve chip width.
-    const end = document.createElement('span');
-
-    end.className = 'triage-end';
-
-    // Display status age; put classification time and explanation in the tooltip. Status age is null outside
-    // project boards because GitHub records no move timestamp.
-    const moved = issue?.statusChangedAt ? Date.parse(issue.statusChangedAt) : NaN;
-
-    if (Number.isFinite(moved)) {
-      const ageLabel = document.createElement('span');
-
-      ageLabel.className = 'triage-age';
-      age(ageLabel, moved);
-      end.appendChild(ageLabel);
-      // Only where there is an age to separate: a card off the project board carries the control and nothing before it.
-      chip.append(' · ');
-    }
-
-    if (canRequest) {
-      // Keep paid retriage separate from opening the explanation.
-      const again = document.createElement('button');
-
-      again.type = 'button';
-      again.className = 'triage-again';
-      again.draggable = false;
-      again.appendChild(syncMark());
-      setAccessibleName(again, 'Read this card again');
-      setTooltip(again, 'Read this card again. Uses model usage.');
-      again.addEventListener('click', (event) => {
-        event.stopPropagation();
-        readAgain();
-      });
-      end.appendChild(again);
-    }
-    chip.appendChild(end);
-    marks.appendChild(chip);
-  } else if (board.triage?.canRequest === true && canRequest) {
-    marks.appendChild(badge('triage-read', 'Read this card', 'GRAY', 'Identify the next action. Uses model usage.', readAgain));
-  }
-
-  // Place action state beside triage with neutral styling; dispatched work does not imply attention (R39).
-  const action = boardCard.action;
-
-  if (action) {
-    marks.appendChild(actionChip(action, boardCard.key));
-  }
+  rows.className = 'card-sessions';
+  foot.appendChild(rows);
 
   for (const session of boardCard.sessions) {
-    foot.appendChild(sessionLine(session));
+    rows.appendChild(sessionLine(session));
   }
   if (!boardCard.sessions.some((session) => !session.finished)) {
     const historical = historyLine(boardCard.lastSession);
-    if (historical) foot.appendChild(historical);
+    if (historical) rows.appendChild(historical);
   }
 
   // The lane is the developer's own placement, so a card carries its own way to move. Alt+arrow is the same move from
@@ -1486,7 +1688,8 @@ function card(boardCard, avatarPool, placeable) {
       endDrag();
     });
 
-    if (open.disabled) {
+    // With no title control to land on, the card itself takes the focus so Alt+arrow still reaches it.
+    if (!issue) {
       el.tabIndex = 0;
     }
 
@@ -1550,7 +1753,7 @@ function laneShell(lane) {
   const count = document.createElement('span');
   count.className = 'badge lane-count';
 
-  header.append(name, count);
+  header.append(laneMark(lane.id), name, count);
 
   const list = document.createElement('div');
   list.className = 'lane-cards';

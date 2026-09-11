@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, cardsByIssue, clear, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, triageText, viewerLogin } from '../src/overlay.js';
+import { LANE_SHAPES, LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, cardsByIssue, clear, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, viewerLogin } from '../src/overlay.js';
 
 /**
  * The literal lane titles, matching the table in the editor board's suite. Both clients duplicate the map
@@ -529,7 +529,7 @@ describe('the tooltip', () => {
     vi.advanceTimersByTime(120);
 
     expect(avatar.textContent).toBe('CO');
-    expect(lane.textContent).toBe('Build');
+    expect(lane.querySelector<HTMLElement>('.gc-lane-mark')!.dataset.lane).toBe('build');
   });
 
   it('closes when the pointer leaves, and on Escape', () => {
@@ -587,11 +587,17 @@ describe('the tooltip', () => {
   });
 
   /** A reader says the name, then the description. The same words in both is the board saying it twice. */
-  it('never gives one element both a name and a description', () => {
+  /**
+   * A reader says the name, then the description. The same words in both is the board saying it twice, so an
+   * element carries a description only where it says something the name does not: a glyph control names the
+   * action and describes what pressing it costs (R45).
+   */
+  it('never repeats a name in a description', () => {
     const both = [...document.querySelectorAll('[aria-description]')].filter((el) => el.hasAttribute('aria-label'));
 
-    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual([]);
-    // The avatar is the one that would: it is named for a reader and its tooltip says the same thing.
+    expect(both.every((el) => el.getAttribute('aria-description') !== el.getAttribute('aria-label'))).toBe(true);
+    expect(both.every((el) => el.classList.contains('gc-tool'))).toBe(true);
+    // The avatar is the one that would repeat itself: named for a reader, and its tooltip says the same thing.
     expect(document.querySelector('.gc-actor')!.getAttribute('aria-label')).toBe('colleague, pull request author');
     expect(document.querySelector('.gc-actor')!.hasAttribute('aria-description')).toBe(false);
   });
@@ -620,14 +626,14 @@ describe('the tooltip', () => {
       actions,
     );
 
-    const mark = document.querySelector('.gc-mark[data-mark="triage"]')!;
+    const mark = document.querySelector('.gc-lane')!;
 
     hover(mark);
     vi.advanceTimersByTime(120);
 
     mark
-      .querySelector('.gc-triage-age')!
-      .dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: mark.firstChild }));
+      .querySelector('.gc-lane-mark')!
+      .dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: mark }));
 
     expect(open()).toBe('true');
   });
@@ -918,12 +924,16 @@ describe('the footer on a card', () => {
     expect(box().lastElementChild).toBe(badges()[0]);
   });
 
-  it('names the lane the board has the card in', () => {
+  it('names the lane the board has the card in, as a pictogram the chip states in words', () => {
     const only = snapshot({ lanes: [{ id: 'review', title: 'Review', cards: [card(4501, { lane: 'review' })] }] });
 
     paint(document, state({ snapshot: only }), NOW, actions);
 
-    expect(badges()[0]!.querySelector('.gc-lane')?.textContent).toBe('Review');
+    const lane = badges()[0]!.querySelector<HTMLElement>('.gc-lane')!;
+
+    expect(lane.getAttribute('aria-label')).toBe('Lane: Review');
+    expect(tipOf(lane)).toBe('Review — change lane');
+    expect(lane.querySelector<HTMLElement>('.gc-lane-mark')!.dataset.lane).toBe('review');
   });
 
   /** Put each session on a separate line to prevent inline chips from clipping names. */
@@ -938,8 +948,19 @@ describe('the footer on a card', () => {
 
     const badge = badges()[0]!;
 
-    expect(badge.querySelector('.gc-lane')!.parentElement!.className).toBe('gc-head');
-    expect([...badge.children].map((el) => el.className)).toEqual(['gc-head', 'gc-session', 'gc-session']);
+    expect(badge.querySelector('.gc-lane')!.parentElement!.className).toBe('gc-cmdbar');
+    expect([...badge.children].map((el) => el.className)).toEqual(['gc-cmdbar', 'gc-sessions']);
+    expect([...badge.querySelector('.gc-sessions')!.children].map((el) => el.className)).toEqual([
+      'gc-session',
+      'gc-session',
+    ]);
+  });
+
+  /** The band under the bar carries the footer tint, so a card with no session must not draw an empty one. */
+  it('leaves the session block empty on a card nobody has worked on, for the stylesheet to drop', () => {
+    paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [] })] }] }) }), NOW, actions);
+
+    expect(badges()[0]!.querySelector('.gc-sessions')!.childElementCount).toBe(0);
   });
 
   it('marks a Claude session with Claude’s own mark, names it, and marks the phase ahead of it', () => {
@@ -1111,8 +1132,60 @@ describe('the footer on a card', () => {
   });
 });
 
+/**
+ * The literal lane pictograms, matching the table in the other client's suite. Both clients duplicate the map
+ * because neither can import the other at runtime, so an expectation computed from the constant would agree
+ * with any drift (`docs/testing.md`).
+ */
+const LANE_MARKS: Record<string, [string, Record<string, string>][]> = {
+  unstarted: [['circle', { cx: '8', cy: '8', r: '6', 'stroke-dasharray': '2.6 2.6' }]],
+  plan: [['path', { d: 'M3 4h10M3 8h10M3 12h6' }]],
+  build: [['path', { d: 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4', 'stroke-width': '1.7' }]],
+  review: [
+    ['circle', { cx: '7', cy: '7', r: '4.2' }],
+    ['path', { d: 'M10.2 10.2 14 14' }],
+  ],
+  done: [
+    ['circle', { cx: '8', cy: '8', r: '6' }],
+    ['path', { d: 'M5.2 8.2 7.2 10.4 10.9 5.9', 'stroke-width': '1.7' }],
+  ],
+  icebox: [['path', { d: 'M8 2v12M2.8 5 13.2 11M13.2 5 2.8 11' }]],
+  archived: [
+    ['rect', { x: '2.2', y: '4.6', width: '11.6', height: '8', rx: '1.2' }],
+    ['path', { d: 'M2.2 7.2h11.6M6.4 9.8h3.2' }],
+  ],
+};
+
+/** Read one drawn pictogram back as the table that produced it. */
+function drawnMark(svg: Element | null): [string, Record<string, string>][] {
+  return Array.from(svg?.children ?? []).map((shape) => [
+    shape.tagName,
+    Object.fromEntries(Array.from(shape.attributes).map((entry) => [entry.name, entry.value])),
+  ]);
+}
+
 it('titles every lane the way the editor board titles it', () => {
   expect(LANE_TITLES).toEqual(LANE_NAMES);
+});
+
+/** The pictogram is the lane on this client, so its geometry is product wording rather than decoration. */
+it('draws every lane the way the editor board draws it', () => {
+  expect(LANE_SHAPES).toEqual(LANE_MARKS);
+});
+
+it('puts each lane pictogram on the card the board has in that lane', () => {
+  // The recorded page carries three cards, so three lanes are what a paint can put a pictogram on.
+  const shown = ['unstarted', 'review', 'icebox'] as const;
+  const board = snapshot({
+    lanes: shown.map((id, at) => ({ id, title: LANE_TITLES[id]!, cards: [card(4501 + at, { lane: id, sessions: [] })] })),
+  });
+
+  paint(document, state({ snapshot: board }), NOW, actions);
+
+  const drawn = [...document.querySelectorAll<HTMLElement>('.gc-lane-mark')];
+
+  expect(drawn.map((el) => el.dataset.lane)).toEqual([...shown]);
+  expect(drawnMark(drawn[1]!)).toEqual(LANE_MARKS['review']);
 });
 
 describe('the menu in the board’s own filter bar', () => {
@@ -1700,27 +1773,20 @@ describe('moving a card from the browser', () => {
       });
     }
 
-    it('offers no lane to move it to, and still opens its checkout', () => {
+    /** The menu moves and starts, and an archived card does neither; its checkout still opens from the bar. */
+    it('opens no menu, and still opens its checkout from the bar', () => {
       const shown = archived({ checkout: CHECKOUT });
-
-      paint(document, state({ snapshot: shown }), NOW, actions);
-      clickOn('.gc-lane', shown);
-
-      expect(document.querySelectorAll('.gc-lanes button[data-lane]')).toHaveLength(0);
-      expect(document.querySelector('.gc-lanes button[data-action="open-checkout"]')).not.toBeNull();
-      expect(document.querySelector('.gc-lanes .gc-title')?.textContent).toBe('Actions');
-    });
-
-    it('does not open a menu at all when it has no checkout either', () => {
-      const shown = archived();
 
       paint(document, state({ snapshot: shown }), NOW, actions);
       document.querySelector<HTMLElement>('.gc-lane')!.click();
       paint(document, state({ snapshot: shown }), NOW, actions);
 
       expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
-      expect(document.querySelector<HTMLButtonElement>('.gc-lane')!.disabled).toBe(true);
-      expect(document.querySelector('.gc-lane')!.hasAttribute('aria-haspopup')).toBe(false);
+      expect(document.querySelector<HTMLElement>('.gc-lane')!.getAttribute('aria-disabled')).toBe('true');
+      expect(document.querySelector<HTMLElement>('.gc-lane')!.hasAttribute('aria-haspopup')).toBe(false);
+      // Still reachable, because the pictogram is the only thing naming the lane here.
+      expect(tipOf(document.querySelector('.gc-lane'))).toBe('Archived');
+      expect(document.querySelector('.gc-tool[aria-label="Open in VS Code"]')).not.toBeNull();
     });
 
     it('closes an open menu when the card is archived under it', () => {
@@ -1748,65 +1814,55 @@ describe('moving a card from the browser', () => {
       expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
     });
 
-    it('closes the menu when the only item left is a checkout that disappears', () => {
-      const held = archived({ checkout: CHECKOUT });
+    it('closes the menu when the card is archived under it', () => {
+      const held = snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { checkout: CHECKOUT })] }] });
 
       paint(document, state({ snapshot: held }), NOW, actions);
       clickOn('.gc-lane', held);
 
       expect(document.querySelectorAll('.gc-lanes')).toHaveLength(1);
 
-      paint(document, state({ snapshot: archived() }), NOW, actions);
+      paint(document, state({ snapshot: archived({ checkout: CHECKOUT }) }), NOW, actions);
 
       expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
-      expect(document.querySelector<HTMLButtonElement>('.gc-lane')!.disabled).toBe(true);
+      expect(document.querySelector<HTMLElement>('.gc-lane')!.getAttribute('aria-disabled')).toBe('true');
+      expect(document.querySelector<HTMLElement>('.gc-lane')!.hasAttribute('aria-haspopup')).toBe(false);
+      // Still reachable, because the pictogram is the only thing naming the lane here.
+      expect(tipOf(document.querySelector('.gc-lane'))).toBe('Archived');
     });
   });
 
-  /** Offer open-checkout only when a checkout exists. Folder selection requires the editor (R41). */
+  /** Open-checkout is a bar control on a card with a checkout (R45). Folder selection requires the editor (R41). */
   describe('the editor a card can be opened in', () => {
     function withCheckout(): Snapshot {
       return snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { checkout: CHECKOUT })] }] });
     }
 
-    it('offers the checkout to open, under the lanes, on a card that has one', () => {
-      const shown = withCheckout();
+    const open = () => document.querySelector<HTMLButtonElement>('.gc-tool[aria-label="Open in VS Code"]');
 
-      paint(document, state({ snapshot: shown }), NOW, actions);
-      clickOn('.gc-lane', shown);
+    it('offers the checkout to open from the bar, and sends the card and nothing else', () => {
+      paint(document, state({ snapshot: withCheckout() }), NOW, actions);
 
-      const open = document.querySelector<HTMLElement>('.gc-lanes button[data-action="open-checkout"]');
-
-      expect(open?.textContent).toBe('Open in VS Code');
-      expect(open?.title).toBe(`Open ${CHECKOUT.root} in VS Code`);
-    });
-
-    it('sends the card and nothing else, which is what makes it safe from a page', () => {
-      const shown = withCheckout();
-
-      paint(document, state({ snapshot: shown }), NOW, actions);
-      clickOn('.gc-lane', shown);
-      clickOn('.gc-lanes button[data-action="open-checkout"]', shown);
+      expect(tipOf(open())).toBe(`Open ${CHECKOUT.root} in VS Code`);
+      open()!.click();
 
       expect(actions.openCheckout).toHaveBeenCalledWith('issue-4501');
-      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
     });
 
     // Left out rather than drawn to refuse, which is the rule every other control here follows.
-    it('offers nothing to open on a card with no checkout', () => {
+    it('offers nothing to open on a card with no checkout, in the bar or the menu', () => {
       paint(document, state(), NOW, actions);
       click('.gc-lane');
 
+      expect(open()).toBeNull();
       expect(document.querySelectorAll('.gc-lanes button')).toHaveLength(6);
-      expect(document.querySelector('.gc-lanes button[data-action="open-checkout"]')).toBeNull();
     });
 
-    it('removes excluded session details and an already-open checkout menu on projection changes', () => {
+    it('removes excluded session details and the open control on projection changes', () => {
       const shown = withCheckout();
       paint(document, state({ snapshot: shown }), NOW, actions);
-      clickOn('.gc-lane', shown);
       expect(document.querySelectorAll('.gc-session')).toHaveLength(1);
-      expect(document.querySelector('.gc-lanes button[data-action="open-checkout"]')).not.toBeNull();
+      expect(open()).not.toBeNull();
       expect(document.body.innerHTML).toContain(CHECKOUT.root);
 
       const projected = laneOf(card(4501, {
@@ -1816,7 +1872,7 @@ describe('moving a card from the browser', () => {
       paint(document, state({ snapshot: projected }), NOW, actions);
 
       expect(document.querySelectorAll('.gc-session')).toHaveLength(0);
-      expect(document.querySelector('.gc-lanes button[data-action="open-checkout"]')).toBeNull();
+      expect(open()).toBeNull();
       expect(document.body.innerHTML).not.toContain(CHECKOUT.root);
       expect(document.body.innerHTML).not.toContain(SESSION_ID);
       expect(document.body.innerHTML).not.toContain(session().cwd);
@@ -1901,15 +1957,15 @@ describe('moving a card from the browser', () => {
       expect(items()).toHaveLength(0);
     });
 
-    /** Count against an open menu: a closed one has no items either, and would satisfy this by accident. */
+    /** With no lane to move to either, the chip opens nothing. */
     it('offers no start on an archived card', () => {
       show(snapshot({
         lanes: [{ id: 'archived', title: 'Archived', cards: [card(4501, { checkout: CHECKOUT, lane: 'archived' })] }],
         startable: STARTABLE,
       }));
 
-      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(1);
-      expect(items()).toHaveLength(0);
+      expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+      expect(document.querySelector('.gc-lane')!.hasAttribute('aria-haspopup')).toBe(false);
     });
 
     /** Archived is wider than unassigned, so the archived case above cannot stand in for this one (R9). */
@@ -2304,7 +2360,7 @@ describe('card attention', () => {
 
     expect(row.dataset.phase).toBe('waiting');
     expect(row.querySelector('.gc-state')!.textContent).toBe('2m');
-    expect(badges()[0]!.querySelector('.gc-mark')).toBeNull();
+    expect(document.querySelector('.gc-returned')).toBeNull();
   });
 
   it('paints only the row a your-turn card is about, and leaves the working one lit instead', () => {
@@ -2332,23 +2388,101 @@ describe('card attention', () => {
     paint(document, state({ snapshot: marked(null) }), NOW, actions);
 
     expect(document.querySelector('[data-gc-attention]')).toBeNull();
-    expect(badges()[0]!.querySelector('.gc-mark')).toBeNull();
+    expect(document.querySelector('.gc-returned')).toBeNull();
   });
 
-  it('marks returned cards', () => {
+  /** Returned states the card, not its work, so it rides in the card header line with its pills (R45). */
+  it('marks returned cards in the card header, and takes the mark off again', () => {
     paint(document, state({ snapshot: marked(null, { returned: true }) }), NOW, actions);
 
-    const mark = badges()[0]!.querySelector<HTMLElement>('.gc-mark')!;
+    const mark = cardElement(4501).querySelector<HTMLElement>('.gc-returned')!;
 
     expect(mark.textContent).toBe('Returned');
-    expect(mark.dataset.mark).toBe('returned');
+    expect(tipOf(mark)).toBe('This card returned to you.');
+    // In GitHub's own markup above the title rather than in the footer this board draws.
+    expect(badges()[0]!.querySelector('.gc-returned')).toBeNull();
+
+    paint(document, state({ snapshot: marked(null, { returned: false }) }), NOW, actions);
+
+    expect(document.querySelector('.gc-returned')).toBeNull();
+  });
+
+  /**
+   * The label lives in GitHub's own header rather than in the retained footer, so it is written on every paint:
+   * a header GitHub redraws under an unchanged footer would otherwise lose it for good (mechanics M27).
+   */
+  it('writes the returned label again after GitHub redraws the header under an unchanged footer', () => {
+    const shown = marked(null, { returned: true });
+
+    paint(document, state({ snapshot: shown }), NOW, actions);
+
+    const footer = cardElement(4501).querySelector(`.${'gc-badge'}`);
+
+    cardElement(4501).querySelector('.gc-returned')!.remove();
+    paint(document, state({ snapshot: shown }), NOW, actions);
+
+    expect(cardElement(4501).querySelector('.gc-returned')?.textContent).toBe('Returned');
+    // The footer itself was retained, which is the case that would have skipped the label.
+    expect(cardElement(4501).querySelector(`.${'gc-badge'}`)).toBe(footer);
+  });
+
+  it('takes the returned label off a card the snapshot stops carrying', () => {
+    paint(document, state({ snapshot: marked(null, { returned: true }) }), NOW, actions);
+    paint(document, state({ snapshot: snapshot({ lanes: [] }) }), NOW, actions);
+
+    expect(document.querySelector('.gc-returned')).toBeNull();
+  });
+
+  /**
+   * GitHub draws the type, status and pull request pills as list items in a `ul[aria-label="Fields"]` after
+   * the title link's box, and the label joins them there as a list item of its own (mechanics M27).
+   */
+  it('joins the field list GitHub draws under the title', () => {
+    const title = cardElement(4501).querySelector('[id^="board-card-title-"]')!;
+    const fields = document.createElement('ul');
+    const label = document.createElement('li');
+
+    fields.setAttribute('aria-label', 'Fields');
+    label.textContent = 'Bug';
+    fields.appendChild(label);
+    title.parentElement!.parentElement!.after(fields);
+
+    paint(document, state({ snapshot: marked(null, { returned: true }) }), NOW, actions);
+
+    const mark = cardElement(4501).querySelector('.gc-returned')!;
+
+    expect(mark.tagName).toBe('LI');
+    expect(mark.parentElement).toBe(fields);
+    expect(mark.previousElementSibling).toBe(label);
+  });
+
+  /** A card carrying no field of its own has no such list, so the header line stands in for it. */
+  it('falls back to the header line on a card with no labels', () => {
+    paint(document, state({ snapshot: marked(null, { returned: true }) }), NOW, actions);
+
+    const mark = cardElement(4501).querySelector('.gc-returned')!;
+
+    expect(mark.tagName).toBe('SPAN');
+    expect(mark.previousElementSibling!.id).toBe('board-card-header-title-24501');
+  });
+
+  it('takes the returned label off with the rest of the card rows', () => {
+    paint(document, state({ snapshot: marked(null, { returned: true }) }), NOW, actions, {
+      animations: true,
+      replaceAvatars: true,
+      cardRows: false,
+    });
+
+    expect(document.querySelector('.gc-returned')).toBeNull();
   });
 
   it('leaves nothing of itself on the page after a clear', () => {
-    paint(document, state({ snapshot: marked('blocked') }), NOW, actions);
+    paint(document, state({ snapshot: marked('blocked', { returned: true }) }), NOW, actions);
     clear(document);
 
     expect(document.querySelector('[data-gc-attention]')).toBeNull();
+    // The label sits in GitHub's own header, so the footer sweep alone would leave it behind.
+    expect(document.querySelector('.gc-returned')).toBeNull();
   });
 });
 
@@ -2732,13 +2866,17 @@ describe('card actions (R39)', () => {
   const at = Date.UTC(2026, 8, 1, 19, 0, 0);
   const show = (entry: LanedCard) =>
     paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
-  const mark = () => document.querySelector<HTMLElement>('.gc-mark[data-mark="action"], button.gc-act');
+  /** The run control, which the bar reveals in the age's place. */
+  const mark = () => document.querySelector<HTMLButtonElement>('button.gc-run');
+  /** What the bar says while an action is dispatched: the state displaces the triage qualifier. */
+  const said = () => document.querySelector<HTMLElement>('.gc-verdict .gc-note')?.textContent;
   const acting = (action: NonNullable<LanedCard['action']>): LanedCard => card(4501, { sessions: [], action });
 
   it('stops a running action, warning that its changes may be incomplete', () => {
     show(acting({ state: 'running', action: 'merge-upstream', since: at }));
 
-    expect(mark()?.textContent).toBe('Working…');
+    expect(said()).toBe('Working…');
+    expect(mark()?.getAttribute('aria-label')).toBe('Stop merge upstream');
     expect(tipOf(mark())).toBe(
       'Merge upstream is running. Click to stop. Changes remain in the checkout and may be incomplete.',
     );
@@ -2752,15 +2890,17 @@ describe('card actions (R39)', () => {
   it('carries a refusal and its reason, with nothing to press', () => {
     show(acting({ state: 'refused', action: 'merge-upstream', reason: 'The pull request is a draft.' }));
 
-    expect(mark()?.textContent).toBe('Not run');
-    expect(mark()?.tagName).toBe('SPAN');
+    expect(said()).toBe('Not run');
+    expect(mark()?.getAttribute('aria-disabled')).toBe('true');
+    // Reachable, or the reason it refuses could not be read.
+    expect(mark()?.getAttribute('aria-description')).toBe('The pull request is a draft.');
     expect(tipOf(mark())).toBe('The pull request is a draft.');
   });
 
   it('offers to run an action the board could take, and sends the card key when pressed', () => {
     show(acting({ state: 'available', action: 'merge-upstream' }));
 
-    expect(mark()?.textContent).toBe('Run merge upstream');
+    expect(mark()?.getAttribute('aria-label')).toBe('Run merge upstream');
     expect(tipOf(mark())).toBe('Start Merge upstream in this card\u2019s checkout.');
 
     mark()!.click();
@@ -2785,8 +2925,9 @@ describe('card actions (R39)', () => {
   ] as const)('reads a %s run as "%s"', (outcome, text, detail) => {
     show(acting({ state: 'done', action: 'merge-upstream', outcome, detail, at }));
 
-    expect(mark()?.textContent).toBe(text);
+    expect(said()).toBe(text);
     expect(mark()?.dataset.outcome).toBe(outcome);
+    expect(document.querySelector<HTMLElement>('.gc-verdict')?.dataset.outcome).toBe(outcome);
     expect(tipOf(mark())).toBe(`${detail} Click to run Merge upstream again.`);
   });
 
@@ -2800,18 +2941,20 @@ describe('card actions (R39)', () => {
   it('repaints the footer when the action changes state', () => {
     show(acting({ state: 'running', action: 'merge-upstream', since: at }));
 
-    expect(mark()?.textContent).toBe('Working…');
+    expect(said()).toBe('Working…');
 
     show(acting({ state: 'done', action: 'merge-upstream', outcome: 'landed', detail: 'Merged master.', at }));
 
-    expect(mark()?.textContent).toBe('Merged');
+    expect(said()).toBe('Merged');
   });
 });
 
 describe('card triage (R38)', () => {
   const show = (entry: LanedCard) =>
     paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
-  const mark = () => document.querySelector<HTMLElement>('.gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"]');
+  const mark = () => document.querySelector<HTMLElement>('.gc-verdict');
+  /** The reread control, which stands where the age does until the bar is pointed at. */
+  const again = () => document.querySelector<HTMLButtonElement>('.gc-tool[aria-label^="Read this card"]');
   /** The status moved at `at`, which is a different time from the reading's — a test must not pass on the wrong one. */
   const moved = (entry: LanedCard, at: string): LanedCard => ({ ...entry, issue: { ...entry.issue!, statusChangedAt: at } });
 
@@ -2819,9 +2962,9 @@ describe('card triage (R38)', () => {
     show(card(4501, { sessions: [], triage: { state: 'running' } }));
 
     expect(mark()?.textContent).toBe('Reading…');
+    expect(mark()?.dataset.state).toBe('triaging');
     // R36 keeps colour for the two things that want the developer, and being read is neither.
     expect(document.querySelector(`[${'data-gc-attention'}]`)).toBeNull();
-    expect(document.querySelector('.gc-triage-detail')).toBeNull();
   });
 
   it('names the action, ages the status beside it, and holds the sentence and the reading age on hover', () => {
@@ -2832,11 +2975,10 @@ describe('card triage (R38)', () => {
       }), new Date(NOW - 2 * 86_400_000).toISOString()),
     );
 
-    // Display status age on the chip; keep classification time and explanation in the tooltip.
-    expect(mark()?.textContent).toBe('QA failure · 2d');
-    expect(mark()?.querySelector('.gc-triage-age')?.textContent).toBe('2d');
+    // Display status age at the bar's right edge; keep classification time and explanation in the tooltip.
+    expect(mark()?.textContent).toBe('QA failure');
+    expect(document.querySelector('.gc-tail .gc-age')?.textContent).toBe('2d');
     expect(tipOf(mark())).toBe('Safari still shows an empty second page. Read 1h ago.');
-    expect(document.querySelector('.gc-triage-detail')).toBeNull();
   });
 
   // A card the project board records no move for — one off the board — carries the action and nothing after it.
@@ -2849,7 +2991,7 @@ describe('card triage (R38)', () => {
     );
 
     expect(mark()?.textContent).toBe('QA failure');
-    expect(mark()?.querySelector('.gc-triage-age')).toBeNull();
+    expect(document.querySelector('.gc-age')).toBeNull();
   });
 
   it('advances the status age where it stands, on the same clock as a session duration', () => {
@@ -2860,7 +3002,7 @@ describe('card triage (R38)', () => {
       }), new Date(NOW - 3_600_000).toISOString()),
     );
 
-    const age = document.querySelector<HTMLElement>('.gc-triage-age')!;
+    const age = document.querySelector<HTMLElement>('.gc-age')!;
 
     tickDurations(document, NOW + 3_600_000);
 
@@ -2884,9 +3026,8 @@ describe('card triage (R38)', () => {
     show(card(4501, { sessions: [], triage: { state: 'failed', attempts: 2, exhausted: false } }));
 
     expect(mark()?.textContent).toBe('Not read');
-    expect(mark()?.tagName).toBe('SPAN');
     expect(tipOf(mark())).toBe('Triage failed.');
-    expect(document.querySelector('.gc-triage-detail')).toBeNull();
+    expect(again()).toBeNull();
   });
 
   /** Same failure wording as the editor board (docs/testing.md); only the remedy differs. */
@@ -2897,11 +3038,11 @@ describe('card triage (R38)', () => {
     expect(tipOf(mark())).toBe('Triage failed after 5 attempts. Automatic retries stopped.');
   });
 
-  it('carries nothing on a card that has not been read', () => {
+  it('says so on a card that has not been read', () => {
     show(card(4501, { sessions: [] }));
 
-    expect(mark()).toBeNull();
-    expect(document.querySelector('.gc-triage-detail')).toBeNull();
+    expect(mark()?.textContent).toBe('Not read');
+    expect(tipOf(mark())).toBe('This card has not been read.');
   });
 
   /** Paint one card of each triage state and collect the marks and controls in document order. */
@@ -2917,21 +3058,26 @@ describe('card triage (R38)', () => {
       triage: { mode, message: null, canRequest },
     }) }), NOW, actions);
 
-    return [...document.querySelectorAll<HTMLElement>('.gc-mark[data-mark="triage"], .gc-mark[data-mark="triaging"], button.gc-read')];
+    return [...document.querySelectorAll<HTMLElement>('.gc-verdict')];
   }
 
   it.each(['manual', 'automatic'] as const)('offers reading beside each result in %s mode', (mode) => {
     const marks = marksFor(mode, true);
 
-    expect(marks.map((entry) => entry.textContent)).toEqual(['Read this card', 'Not read', 'Develop']);
+    expect(marks.map((entry) => entry.textContent)).toEqual(['Not read', 'Not read', 'Develop']);
 
-    // A completed reading carries its reread inside the label, where the editor board also puts it.
-    const again = marks[2]?.querySelector<HTMLElement>('.gc-triage-again');
+    const reads = [...document.querySelectorAll<HTMLElement>('.gc-tool[aria-label^="Read this card"]')];
 
-    expect(again?.getAttribute('aria-label')).toBe('Read this card again');
+    // Every card carries the control, whatever it has been read as.
+    expect(reads.map((entry) => entry.getAttribute('aria-label'))).toEqual([
+      'Read this card',
+      'Read this card',
+      'Read this card again',
+    ]);
     // Both reads spend the allowance and both clients say so; pinned here and on the editor board.
-    expect(tipOf(marks[0])).toBe('Identify the next action. Uses model usage.');
-    expect(tipOf(again)).toBe('Read this card again. Uses model usage.');
+    expect(tipOf(reads[0])).toBe('Identify the next action. Uses model usage.');
+    // Hovering to reach the control is what hides the age, so the control states it for a card already read.
+    expect(tipOf(reads[2])).toBe('Read this card again. Last read 0s ago. Uses model usage.');
   });
 
   /** Paint one read card with reading offered, the state that carries the label's own reread control. */
@@ -2947,13 +3093,38 @@ describe('card triage (R38)', () => {
     triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW, stale: false },
   });
 
-  /** The age is what a card at rest carries, and the control stands in its place, so they share one slot. */
-  it('draws the reread and the status age into the same slot of the label', () => {
+  /** The age is what the bar carries at rest, and the controls stand in its place, so they share one slot. */
+  it('stacks the status age and the controls in one right-edge slot', () => {
     showRead(moved(read, '2026-09-04T19:00:00Z'));
 
-    const end = mark()!.querySelector('.gc-triage-end')!;
+    const tail = document.querySelector('.gc-cmdbar > .gc-tail')!;
 
-    expect([...end.children].map((el) => el.className)).toEqual(['gc-triage-age', 'gc-triage-again']);
+    expect([...tail.children].map((el) => el.className)).toEqual(['gc-age', 'gc-tools']);
+    expect([...tail.querySelectorAll('.gc-tool')].map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Read this card again',
+    ]);
+  });
+
+  /** The worktree the card has, one press away, named for what it opens rather than for code in general. */
+  it('opens the checkout from the bar, in the order read, open, run', () => {
+    showRead({
+      ...moved(read, '2026-09-04T19:00:00Z'),
+      checkout: { root: 'c:/work/4503', source: 'session', only: true },
+      action: { state: 'available', action: 'merge-upstream' },
+    });
+
+    const tools = [...document.querySelectorAll<HTMLButtonElement>('.gc-tail .gc-tool')];
+
+    expect(tools.map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Read this card again',
+      'Open in VS Code',
+      'Run merge upstream',
+    ]);
+    expect(tipOf(tools[1])).toBe('Open c:/work/4503 in VS Code');
+
+    tools[1]!.click();
+
+    expect(actions.openCheckout).toHaveBeenCalledWith('issue-4503');
   });
 
   /** Keep the paid reread separate from opening the classification explanation (R38). */
@@ -2961,10 +3132,11 @@ describe('card triage (R38)', () => {
     showRead(moved(read, '2026-09-04T19:00:00Z'));
 
     mark()!.click();
-    mark()!.querySelector<HTMLElement>('.gc-triage-age')!.click();
+    document.querySelector<HTMLElement>('.gc-age')!.click();
     expect(actions.retriage).not.toHaveBeenCalled();
+    expect(mark()?.tagName).toBe('SPAN');
 
-    mark()?.querySelector<HTMLElement>('.gc-triage-again')?.click();
+    again()!.click();
     expect(actions.retriage).toHaveBeenCalledWith('issue-4503');
   });
 
@@ -2972,13 +3144,13 @@ describe('card triage (R38)', () => {
   it('neither drags the card nor opens it when the reread is pressed', () => {
     showRead(read);
 
-    const again = mark()!.querySelector<HTMLElement>('.gc-triage-again')!;
+    const control = again()!;
     const opened = vi.fn();
 
-    expect(again.getAttribute('draggable')).toBe('false');
+    expect(control.getAttribute('draggable')).toBe('false');
     cardElement(4503).addEventListener('click', opened);
 
-    const press = again.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const press = control.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     expect(opened).not.toHaveBeenCalled();
     // GitHub opens the card from the link the badge sits inside, which a default press would follow.
@@ -2988,18 +3160,19 @@ describe('card triage (R38)', () => {
   it('removes the controls and keeps the results in off mode', () => {
     const marks = marksFor('off', false);
 
-    expect(marks.map((entry) => entry.textContent)).toEqual(['Not read', 'Develop']);
-    expect(marks.every((entry) => entry.tagName === 'SPAN' && entry.querySelector('button, a') === null)).toBe(true);
+    expect(marks.map((entry) => entry.textContent)).toEqual(['Not read', 'Not read', 'Develop']);
+    expect(document.querySelectorAll('.gc-tool[aria-label^="Read this card"]')).toHaveLength(0);
   });
 
   /** The hub reports no classifier or conversation source through canRequest, whatever the mode (R38). */
   it('removes the controls when no classifier is available, even in automatic mode', () => {
-    expect(marksFor('automatic', false).map((entry) => entry.textContent)).toEqual(['Not read', 'Develop']);
+    expect(marksFor('automatic', false).map((entry) => entry.textContent)).toEqual(['Not read', 'Not read', 'Develop']);
+    expect(document.querySelectorAll('.gc-tool[aria-label^="Read this card"]')).toHaveLength(0);
   });
 
   it('sends the card key and nothing else, which is what makes it safe from a page', () => {
     marksFor('manual', true);
-    document.querySelectorAll<HTMLElement>('button.gc-read')[0]!.click();
+    document.querySelectorAll<HTMLElement>('.gc-tool[aria-label^="Read this card"]')[0]!.click();
 
     expect(actions.retriage).toHaveBeenCalledWith('issue-4501');
   });
@@ -3015,7 +3188,7 @@ describe('card triage (R38)', () => {
 
     // Both cards drew a footer, so the absent control is a decision rather than a card that never rendered.
     expect(document.querySelectorAll(`.${'gc-badge'}`)).toHaveLength(2);
-    expect(document.querySelectorAll('button.gc-read')).toHaveLength(0);
+    expect(document.querySelectorAll('.gc-tool[aria-label^="Read this card"]')).toHaveLength(0);
   });
 
   /** Verify literal triage labels against packages/board and both clients, which cannot share runtime imports. */
@@ -3034,7 +3207,14 @@ describe('card triage (R38)', () => {
   ];
 
   it.each(rows)('draws %s/%s as "%s"', (action, qualifier, expected) => {
-    expect(triageText({ action, qualifier })).toBe(expected);
+    show(
+      card(4501, {
+        sessions: [],
+        triage: { state: 'done', action: action as never, qualifier: qualifier as never, detail: 'x', at: NOW, stale: false },
+      }),
+    );
+
+    expect(document.querySelector('.gc-verdict')?.textContent).toBe(expected);
   });
 });
 
@@ -3320,7 +3500,7 @@ describe('the age attribute both boards share', () => {
   const AGE_ROWS: [string, string, number, string][] = [
     ['a session state', '.gc-state', 125_000, '2m'],
     ['a saved session', '.gc-historical .gc-state', 60_000, '1m'],
-    ['the age of a status', '.gc-triage-age', 10_800_000, '3h'],
+    ['the age of a status', '.gc-age', 10_800_000, '3h'],
     ["the reading's own age", '#gc-menu .gc-popover [data-gc-since]', 90_000, '1m'],
   ];
 

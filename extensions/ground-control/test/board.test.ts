@@ -284,7 +284,7 @@ describe('board webview', () => {
     expect(avatar.textContent).toContain('DE');
   });
 
-  it('names the issue on a card the developer is not assigned, and disables only the unlinked one', () => {
+  it('names the issue on a card the developer is not assigned, and titles the unlinked one from its bar', () => {
     send(
       message({
         lanes: lanes({
@@ -317,31 +317,30 @@ describe('board webview', () => {
     );
 
     const cards = Array.from(document.querySelectorAll<HTMLElement>('.card'));
-    const opens = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-open'));
 
     expect(cards).toHaveLength(2);
-    expect(opens[0]?.disabled).toBe(false);
+    expect(cards[0]?.querySelector('.card-open')).not.toBeNull();
     expect(cards[0]?.textContent).toContain('Guest portal drops rows past the first page');
-    expect(opens[1]?.disabled).toBe(true);
-    expect(cards[1]?.textContent).toContain('18953-cache-remediation');
+    expect(cards[1]?.querySelector('.card-open')).toBeNull();
+    expect(cards[1]?.querySelector('.verdict')?.textContent).toContain('18953-cache-remediation');
     expect(cards[1]?.querySelector('.state')?.textContent).toBe('working');
   });
 
-  it('badges the type before the status, then the pull request, in GitHub own colours', () => {
+  it('badges the pull request before the type, then the status, in GitHub own colours', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
     const badges = Array.from(document.querySelectorAll<HTMLElement>('.badges.github .badge'));
 
     expect(badges.map((b) => b.className.replace('badge ', ''))).toEqual([
+      'pull-request link',
       'type',
       'status',
-      'pull-request link',
     ]);
-    expect(badges[0]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-red)');
-    expect(badges[1]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
-    expect(badges[2]?.textContent).toBe('#19403');
-    expect(badges[2]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-green)');
-    expect(badges[2]?.querySelector('.pr-mark')).not.toBeNull();
+    expect(badges[0]?.textContent).toBe('#19403');
+    expect(badges[0]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-green)');
+    expect(badges[0]?.querySelector('.pr-mark')).not.toBeNull();
+    expect(badges[1]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-red)');
+    expect(badges[2]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
   });
 
   it('opens the issue from its number and the pull request from its badge', () => {
@@ -582,7 +581,7 @@ describe('board webview', () => {
     expect(number.textContent).toBe('example-repo');
     // Display repository owner without the host prefix used for identity.
     expect(tipOf(number)).toBe('example-org/example-repo');
-    expect(card.querySelector('.title')?.textContent).toBe('master');
+    expect(card.querySelector('.verdict')?.textContent).toBe('master');
     expect(labels).toEqual(['reading logs', 'drafting notes']);
   });
 
@@ -608,7 +607,7 @@ describe('board webview', () => {
 
     expect(number.textContent).toBe('ground-control');
     expect(tipOf(number)).toBe('ground-control');
-    expect(card.querySelector('.title')?.textContent).toBe('master');
+    expect(card.querySelector('.verdict')?.textContent).toBe('master');
   });
 
   it('counts the sessions on a card whose work is under no checkout at all', () => {
@@ -639,7 +638,7 @@ describe('board webview', () => {
     expect(number.tagName).toBe('SPAN');
     expect(number.textContent).toBe('session');
     expect(tipOf(number)).toBe('');
-    expect(card.querySelector('.title')?.textContent).toBe('scratch');
+    expect(card.querySelector('.verdict')?.textContent).toBe('scratch');
   });
 
   /** Display repository beside issue number, matching GitHub and distinguishing cards across repositories. */
@@ -1017,10 +1016,10 @@ describe('reported activity', () => {
   it('offers the title as a control only where there is an issue to open', () => {
     send(message({ lanes: lanes({ build: [liveCard, { ...liveCard, key: 'session:x', issueNumber: null, issue: null }] }) }));
 
-    const [withIssue, without] = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-open'));
+    const [withIssue, without] = Array.from(document.querySelectorAll<HTMLElement>('.card'));
 
-    expect(withIssue!.disabled).toBe(false);
-    expect(without!.disabled).toBe(true);
+    expect(withIssue!.querySelector('.card-open')).not.toBeNull();
+    expect(without!.querySelector('.card-open')).toBeNull();
   });
 
   /** The card uses the highest-priority attention state; only the corresponding session row uses that color. */
@@ -1405,6 +1404,38 @@ describe('lanes', () => {
    */
   const LANE_NAMES = ['Unstarted', 'Plan', 'Build', 'Review', 'Done', 'Icebox'] as const;
 
+  /**
+   * The literal lane pictograms, matching the table in the other client's suite. Both clients duplicate the map
+   * because neither can import the other at runtime, so an expectation computed from the constant would agree
+   * with any drift (`docs/testing.md`).
+   */
+  const LANE_MARKS: Record<string, [string, Record<string, string>][]> = {
+    unstarted: [['circle', { cx: '8', cy: '8', r: '6', 'stroke-dasharray': '2.6 2.6' }]],
+    plan: [['path', { d: 'M3 4h10M3 8h10M3 12h6' }]],
+    build: [['path', { d: 'M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4', 'stroke-width': '1.7' }]],
+    review: [
+      ['circle', { cx: '7', cy: '7', r: '4.2' }],
+      ['path', { d: 'M10.2 10.2 14 14' }],
+    ],
+    done: [
+      ['circle', { cx: '8', cy: '8', r: '6' }],
+      ['path', { d: 'M5.2 8.2 7.2 10.4 10.9 5.9', 'stroke-width': '1.7' }],
+    ],
+    icebox: [['path', { d: 'M8 2v12M2.8 5 13.2 11M13.2 5 2.8 11' }]],
+    archived: [
+      ['rect', { x: '2.2', y: '4.6', width: '11.6', height: '8', rx: '1.2' }],
+      ['path', { d: 'M2.2 7.2h11.6M6.4 9.8h3.2' }],
+    ],
+  };
+
+  /** Read one drawn pictogram back as the table that produced it. */
+  function drawnMark(svg: Element | null): [string, Record<string, string>][] {
+    return Array.from(svg?.children ?? []).map((shape) => [
+      shape.tagName,
+      Object.fromEntries(Array.from(shape.attributes).map((entry) => [entry.name, entry.value])),
+    ]);
+  }
+
   it('renders every lane the payload carries, with its count — R10', () => {
     send(message({ lanes: lanes({ plan: [planCard] }) }));
 
@@ -1414,6 +1445,23 @@ describe('lanes', () => {
     expect(laneEl('plan')?.querySelector('.lane-count')?.textContent).toBe('1');
     expect(laneEl('unstarted')?.querySelector('.lane-count')?.textContent).toBe('0');
     expect(laneEl('plan')?.querySelectorAll('.card')).toHaveLength(1);
+  });
+
+  /** The heading keeps its name here, so the pictogram reinforces it; the overlay's chip has only the mark. */
+  it('marks every lane heading with the pictogram the overlay draws', () => {
+    // Archived draws only behind its toggle, and its pictogram is the one no visible lane would cover.
+    send(message({ lanes: lanes({ plan: [planCard], archived: [{ ...planCard, key: 'issue:1', lane: 'archived' }] }) }));
+
+    toggleArchived();
+
+    const drawn = Array.from(document.querySelectorAll<HTMLElement>('.lane h2 .lane-mark'));
+
+    expect(drawn.map((el) => el.dataset.lane)).toEqual([
+      'unstarted', 'plan', 'build', 'review', 'done', 'icebox', 'archived',
+    ]);
+    expect(drawn.map((el) => drawnMark(el))).toEqual(drawn.map((el) => LANE_MARKS[el.dataset.lane ?? '']));
+    // Before the name, which the heading still carries.
+    expect(drawn[1]!.nextElementSibling?.className).toBe('lane-name');
   });
 
   it('says a lane is empty rather than leaving a blank column', () => {
@@ -1489,7 +1537,7 @@ describe('lanes', () => {
 
     const card = document.querySelector<HTMLElement>('.card')!;
 
-    expect(card.querySelector('.card-foot .badges.marks .returned')?.textContent).toBe('Returned');
+    expect(card.querySelector('.badges.github .returned')?.textContent).toBe('Returned');
     expect(tipOf(card.querySelector('.card-open'))).toBe('');
     expect(tipOf(card)).toBe('');
   });
@@ -1662,7 +1710,7 @@ describe('lanes', () => {
     expect(sent()).toEqual([]);
   });
 
-  it('keeps a card with no issue reachable from a keyboard, since its open button is disabled', () => {
+  it('keeps a card with no issue reachable from a keyboard, since it has no open button', () => {
     const adHoc: LanedCard = {
       key: 'session:c:/work/18953-cache-remediation',
       issue: null,
@@ -1678,7 +1726,7 @@ describe('lanes', () => {
 
     const card = document.querySelector<HTMLElement>('.card')!;
 
-    expect(card.querySelector<HTMLButtonElement>('.card-open')!.disabled).toBe(true);
+    expect(card.querySelector('.card-open')).toBeNull();
     expect(card.tabIndex).toBe(0);
 
     card.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true }));
@@ -1876,8 +1924,8 @@ describe('what GitHub says, and what the board adds', () => {
     ['type', '.badges.github'],
     ['status', '.badges.github'],
     ['pull-request', '.badges.github'],
-    ['returned', '.card-foot .badges.marks'],
-    ['triage', '.card-foot .badges.marks'],
+    ['returned', '.badges.github'],
+    ['verdict', '.card-foot .cmdbar'],
   ];
 
   function full(): void {
@@ -1926,12 +1974,21 @@ describe('what GitHub says, and what the board adds', () => {
     expect(document.querySelector(`${where} .${kind}`)).not.toBeNull();
   });
 
+  /** The band under the bar carries the footer tint, so a card with no session must not draw an empty one. */
+  it('leaves the session block empty on a card nobody has worked on, for the stylesheet to drop', () => {
+    const { lastSession: _saved, ...bare } = liveCard;
+
+    send(message({ lanes: lanes({ build: [{ ...bare, sessions: [] }] }) }));
+
+    expect(document.querySelector('.card-foot .card-sessions')!.childElementCount).toBe(0);
+  });
+
   it('carries the reading sentence and every session row inside the footer, never above it', () => {
     full();
 
     const foot = document.querySelector<HTMLElement>('.card-foot')!;
 
-    expect(tipOf(foot.querySelector('.badge.triage'))).toContain('Answer the naming notes.');
+    expect(tipOf(foot.querySelector('.verdict'))).toContain('Answer the naming notes.');
     expect(foot.querySelectorAll('.session')).toHaveLength(1);
     expect(document.querySelectorAll('.card > .session')).toHaveLength(0);
   });
@@ -1941,19 +1998,19 @@ describe('what GitHub says, and what the board adds', () => {
     const bare = { ...liveCard, sessions: [] };
 
     send(message({ lanes: lanes({ build: [bare] }) }));
-    // An eligible unread card carries the reading control and no result yet (R38).
-    expect(document.querySelector('.card-foot .badge.triage-read')?.textContent).toBe('Read this card');
-    expect(document.querySelector('.card-foot .badge.triage')).toBeNull();
+    // An eligible unread card says so and carries the reading control (R38).
+    expect(document.querySelector('.card-foot .verdict')?.textContent).toBe('Not read');
+    expect(document.querySelector('.card-foot .tool[aria-label^="Read this card"]')).not.toBeNull();
 
     send(message({ lanes: lanes({ build: [{ ...bare, triage: { state: 'running' } }] }) }));
-    expect(document.querySelector('.card-foot .badge.triage-running')).not.toBeNull();
+    expect(document.querySelector<HTMLElement>('.card-foot .verdict')?.dataset.state).toBe('triaging');
 
     send(message({ lanes: lanes({ build: [{ ...bare, triage }] }) }));
-    expect(document.querySelector('.card-foot .badge.triage')?.textContent).toBe('Answer review · followup');
-    expect(tipOf(document.querySelector('.card-foot .badge.triage'))).toContain('Answer the naming notes.');
+    expect(document.querySelector('.card-foot .verdict')?.textContent).toBe('Answer review · followup');
+    expect(tipOf(document.querySelector('.card-foot .verdict'))).toContain('Answer the naming notes.');
 
     send(message({ lanes: lanes({ build: [{ ...bare, triage, action: { state: 'available', action: 'merge-upstream' } }] }) }));
-    expect(document.querySelector('.card-foot .badge.action')?.textContent).toBe('Run merge upstream');
+    expect(document.querySelector('.card-foot .tool[aria-label="Run merge upstream"]')).not.toBeNull();
   });
 
   // Settled: the footer is where this board's controls go, so it is drawn on a card that has nothing in it yet.
@@ -1963,7 +2020,8 @@ describe('what GitHub says, and what the board adds', () => {
     const foot = document.querySelector<HTMLElement>('.card-foot')!;
 
     expect(foot).not.toBeNull();
-    expect(foot.querySelector('.badge.triage-read')?.textContent).toBe('Read this card');
+    expect(foot.querySelector('.verdict')?.textContent).toBe('Not read');
+    expect(foot.querySelector('.tool[aria-label^="Read this card"]')).not.toBeNull();
   });
 
   it('draws an empty footer where the hub reports no classifier to read with', () => {
@@ -1974,8 +2032,8 @@ describe('what GitHub says, and what the board adds', () => {
       }),
     );
 
-    expect(document.querySelector('.card-foot')).not.toBeNull();
-    expect(document.querySelector('.card-foot .badge')).toBeNull();
+    expect(document.querySelector('.card-foot .verdict')?.textContent).toBe('Not read');
+    expect(document.querySelector('.tool[aria-label^="Read this card"]')).toBeNull();
   });
 
 });
@@ -2035,6 +2093,36 @@ describe("the card's own menu", () => {
     expect(menu()!.getAttribute('aria-label')).toBe('Actions for example-repo master');
   });
 
+  /** A checkout card has nothing to read, so the bar's verdict names its branch and the title line is not drawn. */
+  it('titles a card with no issue from its command bar, with the controls where every card has them', () => {
+    const adHoc: LanedCard = {
+      key: 'session:github.com/example-org/example-repo#master',
+      issue: null,
+      issueNumber: null,
+      lane: 'build',
+      returned: false,
+      attention: null,
+      reason: 'Ad-hoc work with no issue.',
+      sessions: [{ ...session, ...checkout }],
+      checkout: { root: 'c:/work/example-repo', source: 'session', only: true },
+      action: { state: 'available', action: 'merge-upstream' },
+    };
+
+    send(message({ lanes: lanes({ build: [adHoc] }), triage: { mode: 'manual', message: null, canRequest: true } }));
+
+    const card = document.querySelector<HTMLElement>('.card')!;
+
+    expect(card.querySelector('.card-open')).toBeNull();
+    expect(card.querySelector('.cmdbar .verdict')?.textContent).toBe('master');
+    expect(tipOf(card.querySelector('.verdict'))).toBe('');
+    expect(card.querySelector('.card-age')).toBeNull();
+    // No issue to read, so no read control, whatever the mode; the checkout and the action still have theirs.
+    expect(Array.from(card.querySelectorAll('.cmdbar .tail .tool')).map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Open in VS Code',
+      'Run merge upstream',
+    ]);
+  });
+
   it('opens on a click and offers the changes the card has, closing again on a second one', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
     control()!.click();
@@ -2042,9 +2130,7 @@ describe("the card's own menu", () => {
     expect(control()!.getAttribute('aria-expanded')).toBe('true');
     expect(menu()!.getAttribute('role')).toBe('menu');
     expect(menu()!.getAttribute('aria-label')).toBe('Actions for Cached counts do not update');
-    expect(items().map((item) => item.textContent)).toEqual(['View changes', 'Open in VS Code']);
-    // The overlay pins the same sentence; a toContain on either side would let that side's copy drift.
-    expect(tipOf(items()[1])).toBe(`Open ${liveCard.checkout!.root} in VS Code`);
+    expect(items().map((item) => item.textContent)).toEqual(['View changes']);
     expect(tipOf(items()[0])).toBe("Open this card's commits and uncommitted changes in one editor");
     // The first item takes the focus, so the menu can be driven from where the control left the keyboard.
     expect(document.activeElement).toBe(items()[0]);
@@ -2077,7 +2163,7 @@ describe("the card's own menu", () => {
   });
 
   it('walks its items with the arrow keys, wrapping at either end', () => {
-    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    send(message({ lanes: lanes({ build: [liveCard] }), startable: [{ agent: 'claude', takesPrompt: true }] }));
     control()!.click();
 
     menu()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
@@ -2238,12 +2324,7 @@ describe("the card's own menu", () => {
     }));
     control()!.click();
 
-    expect(items().map((item) => item.textContent)).toEqual([
-      'View changes',
-      'Open in VS Code',
-      'Start Claude session',
-      'Start Codex session',
-    ]);
+    expect(items().map((item) => item.textContent)).toEqual(['View changes', 'Start Claude session', 'Start Codex session']);
   });
 
   // Codex new-panel commands accept no prompt; the menu must disclose this when a prompt is configured (M51).
@@ -2255,8 +2336,8 @@ describe("the card's own menu", () => {
     control()!.click();
 
     // Pinned, not contained: the overlay pins the same two sentences (`docs/testing.md` parity tables).
-    expect(tipOf(items()[2])).toBe('Open a new Claude session in c:/work/18953-test, prefilled and unsent');
-    expect(tipOf(items()[3])).toBe(
+    expect(tipOf(items()[1])).toBe('Open a new Claude session in c:/work/18953-test, prefilled and unsent');
+    expect(tipOf(items()[2])).toBe(
       'Open a new Codex session in c:/work/18953-test. Codex offers no way in that takes a prompt, so it starts empty',
     );
   });
@@ -2290,7 +2371,7 @@ describe("the card's own menu", () => {
   it('sends only the selected card and agent', () => {
     send(message({ lanes: lanes({ build: [liveCard] }), startable: [{ agent: 'claude', takesPrompt: true }] }));
     control()!.click();
-    items()[2]!.click();
+    items()[1]!.click();
 
     expect(sent()).toEqual([{ type: 'startSession', key: liveCard.key, agent: 'claude' }]);
   });
@@ -2311,7 +2392,7 @@ describe("the card's own menu", () => {
     send(message({ lanes: lanes({ build: [liveCard] }), startable: [] }));
     control()!.click();
 
-    expect(items().map((item) => item.textContent)).toEqual(['View changes', 'Open in VS Code']);
+    expect(items().map((item) => item.textContent)).toEqual(['View changes']);
   });
 
   it('reanchors menus on rebuild and closes them on card removal', () => {
@@ -2345,7 +2426,12 @@ describe('card triage (R38)', () => {
   }
 
   function chip(): HTMLElement | null {
-    return document.querySelector<HTMLElement>('.badge.triage, .badge.triage-running, .badge.triage-failed');
+    return document.querySelector<HTMLElement>('.verdict');
+  }
+
+  /** The reread control, which stands where the age does until the bar is pointed at. */
+  function again(): HTMLButtonElement | null {
+    return document.querySelector<HTMLButtonElement>('.tool[aria-label^="Read this card"]');
   }
 
   it('shows triage progress without attention styling', () => {
@@ -2354,7 +2440,7 @@ describe('card triage (R38)', () => {
     expect(chip()?.textContent).toBe('Reading…');
     // R6's channels are for the two things that want the developer. Being read is not one of them.
     expect(document.querySelector<HTMLElement>('.card')?.dataset['attention']).toBeUndefined();
-    expect(document.querySelector('.triage-again')).toBeNull();
+    expect(chip()?.dataset['state']).toBe('triaging');
   });
 
   /** Display status age on the chip and classification time in its tooltip. */
@@ -2384,8 +2470,8 @@ describe('card triage (R38)', () => {
       );
 
       // 2d is the status move; the reading itself was an hour ago, and saying that here would be the wrong number.
-      expect(chip()?.textContent).toBe('Answer review · followup · 2d');
-      expect(chip()?.querySelector('.triage-age')?.textContent).toBe('2d');
+      expect(chip()?.textContent).toBe('Answer review · followup');
+      expect(document.querySelector('.tail .card-age')?.textContent).toBe('2d');
       expect(tipOf(chip())).toBe('Answer the naming notes on the paging fix. Read 1h ago.');
       expect(chip()?.dataset['stale']).toBe('false');
     } finally {
@@ -2402,7 +2488,7 @@ describe('card triage (R38)', () => {
     );
 
     expect(chip()?.textContent).toBe('Develop');
-    expect(chip()?.querySelector('.triage-age')).toBeNull();
+    expect(document.querySelector('.card-age')).toBeNull();
   });
 
   it('advances the status age where it stands, on the clock the durations run on', () => {
@@ -2423,12 +2509,12 @@ describe('card triage (R38)', () => {
         }),
       );
 
-      const age = document.querySelector<HTMLElement>('.triage-age')!;
+      const age = document.querySelector<HTMLElement>('.card-age')!;
 
       vi.setSystemTime(new Date('2026-09-06T21:00:00Z'));
       tick?.();
 
-      expect(document.querySelector('.triage-age')).toBe(age);
+      expect(document.querySelector('.card-age')).toBe(age);
       expect(age.textContent).toBe('3h');
     } finally {
       vi.useRealTimers();
@@ -2464,11 +2550,11 @@ describe('card triage (R38)', () => {
     }
   });
 
-  it('omits triage for unclassified cards', () => {
+  it('says so for unclassified cards', () => {
     send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
 
-    expect(chip()).toBeNull();
-    expect(document.querySelector('.triage-again')).toBeNull();
+    expect(chip()?.textContent).toBe('Not read');
+    expect(tipOf(chip())).toBe('This card has not been read.');
   });
 
   it('requests an initial reading in manual mode', () => {
@@ -2477,9 +2563,9 @@ describe('card triage (R38)', () => {
       lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }),
     }));
 
-    const read = document.querySelector<HTMLButtonElement>('button.triage-read')!;
+    const read = again()!;
 
-    expect(read.textContent).toBe('Read this card');
+    expect(chip()?.textContent).toBe('Not read');
     expect(tipOf(read)).toContain('model usage');
     expect(sent()).toEqual([]);
     read.click();
@@ -2503,18 +2589,18 @@ describe('card triage (R38)', () => {
     }
 
     expect(document.querySelectorAll('.card')).toHaveLength(1);
-    expect(document.querySelector('.triage-read')).toBeNull();
+    expect(again()).toBeNull();
   });
 
   it('redraws initial request controls when triage is turned off and on', () => {
     const shown = lanes({ unstarted: [{ ...liveCard, sessions: [] }] });
 
     send(message({ lanes: shown, triage: { mode: 'manual', message: null, canRequest: true } }));
-    expect(document.querySelector('button.triage-read')).not.toBeNull();
+    expect(again()).not.toBeNull();
     send(message({ lanes: shown, triage: { mode: 'off', message: null, canRequest: false } }));
-    expect(document.querySelector('.triage-read')).toBeNull();
+    expect(again()).toBeNull();
     send(message({ lanes: shown, triage: { mode: 'automatic', message: null, canRequest: true } }));
-    document.querySelector<HTMLButtonElement>('button.triage-read')!.click();
+    again()!.click();
     expect(sent()).toEqual([{ type: 'retriage', key: 'issue:18953' }]);
   });
 
@@ -2527,7 +2613,7 @@ describe('card triage (R38)', () => {
     toggleArchived();
     expect(chip()).not.toBeNull();
     expect(chip()?.textContent).toContain(triage.state === 'done' ? 'Develop' : 'Not read');
-    expect(document.querySelector('.triage-again, .triage-read')).toBeNull();
+    expect(again()).toBeNull();
     api.postMessage.mockClear();
     chip()?.click();
     expect(sent()).toEqual([]);
@@ -2541,11 +2627,10 @@ describe('card triage (R38)', () => {
     const shown = lanes({ unstarted: [triaged(triage)] });
 
     send(message({ lanes: shown, triage: { mode: 'manual', message: null, canRequest: true } }));
-    expect(document.querySelector('button.triage-failed, button.triage-again')).not.toBeNull();
+    expect(again()).not.toBeNull();
     send(message({ lanes: shown, triage: { mode: 'off', message: null, canRequest: false } }));
     expect(chip()?.textContent).toBe(triage.state === 'done' ? 'Develop' : 'Not read');
-    expect(document.querySelector('button.triage-failed, .triage-again, .triage-read')).toBeNull();
-    expect(tipOf(chip())).not.toContain('Click to retry');
+    expect(again()).toBeNull();
     chip()?.click();
     expect(sent()).toEqual([]);
   });
@@ -2572,9 +2657,9 @@ describe('card triage (R38)', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 2, exhausted: false })] }) }));
 
     expect(chip()?.textContent).toBe('Not read');
-    expect(tipOf(chip())).toBe('Triage failed. Click to retry.');
+    expect(tipOf(chip())).toBe('Triage failed.');
 
-    chip()?.click();
+    again()!.click();
 
     expect(sent()).toContainEqual({ type: 'retriage', key: 'issue:18953' });
   });
@@ -2582,8 +2667,8 @@ describe('card triage (R38)', () => {
   it('reports when automatic triage retries stop', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'failed', attempts: 5, exhausted: true })] }) }));
 
-    // Literal because the overlay pins the same sentence; the remedy is the only half that may differ.
-    expect(tipOf(chip())).toBe('Triage failed after 5 attempts. Automatic retries stopped. Click to retry.');
+    // Literal because the overlay pins the same sentence.
+    expect(tipOf(chip())).toBe('Triage failed after 5 attempts. Automatic retries stopped.');
   });
 
   it('keeps triage separate from attention colors', () => {
@@ -2594,11 +2679,12 @@ describe('card triage (R38)', () => {
     );
 
     // `your-turn` is BLUE and `blocked` is YELLOW; a reading must read as neither at a glance.
-    expect(chip()?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
+    expect(chip()?.dataset['outcome']).toBeUndefined();
+    expect(document.querySelector<HTMLElement>('.card')?.dataset['attention']).toBeUndefined();
   });
 
-  /** The age is what a card at rest carries, and the control stands in its place: one cell, so the chip is one width. */
-  it('draws the control and the age into one cell of the chip', () => {
+  /** The age is what the bar carries at rest, and the controls stand in its place: one slot, one width. */
+  it('stacks the age and the controls in one right-edge slot', () => {
     send(
       message({
         lanes: lanes({
@@ -2609,9 +2695,13 @@ describe('card triage (R38)', () => {
       }),
     );
 
-    const end = chip()!.querySelector('.triage-end')!;
+    const tail = document.querySelector('.cmdbar > .tail')!;
 
-    expect(Array.from(end.children).map((el) => el.className)).toEqual(['triage-age', 'triage-again']);
+    expect(Array.from(tail.children).map((el) => el.className)).toEqual(['card-age', 'tools']);
+    expect(Array.from(tail.querySelectorAll('.tool')).map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Read this card again',
+      'Open in VS Code',
+    ]);
   });
 
   /** Keep the paid retriage action separate from opening the classification explanation. */
@@ -2623,16 +2713,12 @@ describe('card triage (R38)', () => {
     );
 
     chip()?.click();
-    chip()?.querySelector<HTMLElement>('.triage-age')?.click();
+    document.querySelector<HTMLElement>('.card-age')?.click();
 
     expect(sent()).toEqual([]);
-    expect(chip()?.tagName).toBe('SPAN');
-
-    const again = chip()!.querySelector<HTMLButtonElement>('button.triage-again')!;
-
-    expect(again.getAttribute('aria-label')).toBe('Read this card again');
-    expect(tipOf(again)).toBe('Read this card again. Uses model usage.');
-    again.click();
+    // Hovering to reach the control is what hides the age, so the control states it.
+    expect(tipOf(again())).toMatch(/^Read this card again\. Last read .+ ago\. Uses model usage\.$/);
+    again()!.click();
 
     expect(sent()).toEqual([{ type: 'retriage', key: 'issue:18953' }]);
   });
@@ -2644,7 +2730,7 @@ describe('card triage (R38)', () => {
       }),
     );
 
-    expect(chip()?.querySelector('.triage-again')?.getAttribute('draggable')).toBe('false');
+    expect(again()?.getAttribute('draggable')).toBe('false');
   });
 });
 
@@ -2655,16 +2741,20 @@ describe('card actions (R39)', () => {
     return { ...liveCard, sessions: [], action };
   }
 
-  function chip(): HTMLElement | null {
-    return document.querySelector<HTMLElement>(
-      '.badge.action, .badge.action-running, .badge.action-done, .badge.action-refused',
-    );
+  /** The run control, which the bar reveals in the age's place. */
+  function chip(): HTMLButtonElement | null {
+    return document.querySelector<HTMLButtonElement>('.tool.run');
+  }
+
+  /** What the bar says while an action is dispatched: the state displaces the triage qualifier. */
+  function said(): string | undefined {
+    return document.querySelector<HTMLElement>('.verdict .note')?.textContent ?? undefined;
   }
 
   it('offers to run an action the board could take, and sends the card key when pressed', () => {
     send(message({ lanes: lanes({ unstarted: [acting({ state: 'available', action: 'merge-upstream' })] }) }));
 
-    expect(chip()?.textContent).toBe('Run merge upstream');
+    expect(chip()?.getAttribute('aria-label')).toBe('Run merge upstream');
     expect(tipOf(chip())).toBe('Start Merge upstream in this card’s checkout.');
     chip()?.click();
 
@@ -2674,12 +2764,13 @@ describe('card actions (R39)', () => {
   it('offers stop for a running action', () => {
     send(message({ lanes: lanes({ unstarted: [acting({ state: 'running', action: 'merge-upstream', since: at })] }) }));
 
-    expect(chip()?.textContent).toBe('Working…');
+    expect(said()).toBe('Working…');
+    expect(chip()?.getAttribute('aria-label')).toBe('Stop merge upstream');
     chip()?.click();
 
     expect(sent()).toContainEqual({ type: 'stopAction', key: 'issue:18953' });
-    // Keep dispatched-work styling neutral; it does not imply session attention.
-    expect(chip()?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
+    // Keep dispatched work out of R6's channels; it does not imply session attention.
+    expect(document.querySelector<HTMLElement>('.card')?.dataset['attention']).toBeUndefined();
   });
 
   it('removes scoped-out session details while keeping the running action stoppable', () => {
@@ -2698,7 +2789,7 @@ describe('card actions (R39)', () => {
     expect(document.body.innerHTML).not.toContain(liveCard.checkout!.root);
     expect(document.body.innerHTML).not.toContain('cache-remediation');
     expect(document.body.textContent).toContain(liveCard.issue!.title);
-    expect(chip()?.textContent).toBe('Working…');
+    expect(said()).toBe('Working…');
     chip()?.click();
     expect(sent()).toContainEqual({ type: 'stopAction', key: liveCard.key });
   });
@@ -2727,7 +2818,8 @@ describe('card actions (R39)', () => {
     it(`reads a ${action.outcome} run as "${text}", carrying what it said about itself`, () => {
       send(message({ lanes: lanes({ unstarted: [acting(action)] }) }));
 
-      expect(chip()?.textContent).toBe(text);
+      expect(said()).toBe(text);
+      expect(document.querySelector<HTMLElement>('.verdict')?.dataset['outcome']).toBe(action.outcome);
       // Pinned, not contained: the overlay pins the same sentence, and a drift caught on one side only is
       // how the two clients stop matching (`docs/testing.md` parity tables).
       expect(tipOf(chip())).toBe(`${action.detail} Click to run Merge upstream again.`);
@@ -2752,9 +2844,11 @@ describe('card actions (R39)', () => {
       }),
     );
 
-    expect(chip()?.textContent).toBe('Not run');
+    expect(said()).toBe('Not run');
     expect(tipOf(chip())).toBe('It merges into a feature branch.');
-    expect(chip()?.tagName).toBe('SPAN');
+    expect(chip()?.getAttribute('aria-disabled')).toBe('true');
+    // Reachable, or the reason it refuses could not be read.
+    expect(chip()?.getAttribute('aria-description')).toBe('It merges into a feature branch.');
   });
 
   it('omits absent card actions', () => {
@@ -2808,7 +2902,7 @@ describe('triage labels read the same on every board', () => {
       }),
     );
 
-    expect(document.querySelector('.badge.triage')?.firstChild?.textContent).toBe(expected);
+    expect(document.querySelector('.verdict')?.textContent).toBe(expected);
   });
 });
 
@@ -3037,14 +3131,19 @@ describe('the tooltip', () => {
     expect(document.querySelector('[aria-describedby]')).toBeNull();
   });
 
-  /** A reader says the name, then the description. The same words in both is the board saying it twice. */
-  it('never gives one element both a name and a description', () => {
+  /**
+   * A reader says the name, then the description. The same words in both is the board saying it twice, so an
+   * element carries a description only where it says something the name does not: a glyph control names the
+   * action and describes what pressing it costs (R45).
+   */
+  it('never repeats a name in a description', () => {
     const both = Array.from(document.querySelectorAll('[aria-description]')).filter((el) =>
       el.hasAttribute('aria-label'),
     );
 
-    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual([]);
-    // The avatar is the one that would: it is named for a reader and its tooltip says the same thing.
+    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual(['Read this card', 'Open in VS Code']);
+    expect(both.every((el) => el.getAttribute('aria-description') !== el.getAttribute('aria-label'))).toBe(true);
+    // The avatar is the one that would repeat itself: named for a reader, and its tooltip says the same thing.
     expect(document.querySelector('.avatar')!.getAttribute('aria-label')).toBe('dev-2, pull request author');
     expect(document.querySelector('.avatar')!.hasAttribute('aria-description')).toBe(false);
   });
@@ -3058,7 +3157,7 @@ describe('the tooltip', () => {
 
   /** Keep tooltips open when moving between children of their anchor. */
   it('keeps tooltips open across anchor children', () => {
-    // The reading is the chip that carries a tooltip and holds children of its own: an age, and a control.
+    // The verdict carries a tooltip and holds a child of its own: the qualifier.
     send(
       message({
         lanes: lanes({
@@ -3066,20 +3165,18 @@ describe('the tooltip', () => {
             {
               ...liveCard,
               sessions: [],
-              triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: Date.now(), stale: false },
+              triage: { state: 'done', action: 'develop', qualifier: 'followup', detail: 'Pick it up.', at: Date.now(), stale: false },
             },
           ],
         }),
       }),
     );
 
-    const chip = document.querySelector('.badge.triage')!;
+    const chip = document.querySelector('.verdict')!;
 
     hover(chip);
     vi.advanceTimersByTime(120);
-    chip
-      .querySelector('.triage-again')!
-      .dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: chip.firstChild }));
+    chip.querySelector('.note')!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: chip }));
 
     expect(open()).toBe('true');
   });
@@ -3189,7 +3286,7 @@ describe('the age attribute both boards share', () => {
   const rows: [string, string, number, string][] = [
     ['a session state', '.state', 125_000, '2m'],
     ['a saved session', '.historical .state', 60_000, '1m'],
-    ['the age of a status', '.triage-age', 10_800_000, '3h'],
+    ['the age of a status', '.card-age', 10_800_000, '3h'],
   ];
 
   it.each(rows)('marks %s and reads it %s', (kind, selector, ms, expected) => {

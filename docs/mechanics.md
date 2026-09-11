@@ -714,12 +714,17 @@ Recorded pages were GitHub's public roadmap (`github` project 4247, view 21) and
 | `[data-board-column]` | Column and name |
 | `[data-board-card-id]` | Project item and drag handle |
 | Issue link inside a card | Repository/issue association |
+| `[id^="board-card-title-"]` | Card title |
+| `ul[aria-label="Fields"]` | Card field list of type, status, label and pull request pills, where the returned label goes (R45) |
+| `[id^="board-card-header-title-"]` | Card header line, which holds the returned label on a card with no labels |
 | `[data-component="AvatarStack"]` | Assignee display |
 | `[role="region"][aria-label="View filters"]` | Filter toolbar |
 | The one `input` in that toolbar | Applied filter text |
 | `meta[name="user-login"]` | Signed-in login, empty when signed out |
 | `[role="navigation"][aria-label="Project"]` | Project title area |
 | `nav[aria-label="Select view"]` | View tabs |
+
+Re-measured 2026-09-10 on the same roadmap view: GitHub draws the type, status, label and pull request pills as `li` items in a `ul[aria-label="Fields"]`, a sibling of the box holding the header and title link, not a sibling of the title link itself. The returned label joins that list as a list item; a card carrying no field has no such list, and the label falls back as a `span` to the header box holding the number, taken as the last box carrying no `[data-component="AvatarStack"]`. The list is `display: flex` with a 4px gap and wrapping. It carries the text size its tokens use, measured 14px over an 18.2px line height, so the returned label sets no size of its own there; the tokens measured 20px high at weight 400 with pill radius. GitHub owns those nodes and redraws them, so the label is written on every paint rather than with the retained footer.
 
 CSS-module class names carried build hashes. Use structural attributes for lookup. The visible card box was the drag handle's first child; placing a footer directly on the drag handle put it below the border. Header/view wrappers must be hidden as a whole to avoid empty space. Unsaved-filter Save/Discard wrappers were identified from their controls because no stable wrapper selector was found.
 
@@ -782,6 +787,10 @@ Theme state is on the document element: `data-color-mode`, `data-light-theme`, a
 | `--fgColor-attention` | #9a6700 | #d29922 |
 | `--borderColor-default` | #d1d9e0 | #3d444d |
 | `--bgColor-default` | #ffffff | #0d1117 |
+| `--bgColor-muted` | #f6f8fa | #151b23 |
+| `--bgColor-neutral-muted` | #818b981f | #656c7633 |
+
+Measured 2026-09-10: `--bgColor-neutral-muted` is translucent in both schemes, so it darkens a light ground and lightens a dark one. The overlay hovers every control on it, matching the editor board's `toolbar.hoverBackground`. An opaque `--bgColor-default` hover reads as a darker well over the dark card footer, whose ground is `--bgColor-muted`.
 
 A session name mixed 55% default text over muted, approximately #394047 light/#c5ccd3 dark, close to the recorded VS Code Light/Dark Modern foregrounds. Attention outlines use foreground tokens rather than emphasis background tokens.
 
