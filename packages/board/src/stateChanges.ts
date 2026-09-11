@@ -30,8 +30,12 @@ export interface TriageInstruction {
   handedOver: boolean;
 }
 
+function hasLogin(logins: readonly string[], login: string): boolean {
+  return logins.some((known) => known.toLowerCase() === login.toLowerCase());
+}
+
 function isDeveloperLogin(login: string | null, logins: readonly string[]): boolean {
-  return login !== null && logins.some((developerLogin) => developerLogin.toLowerCase() === login.toLowerCase());
+  return login !== null && hasLogin(logins, login);
 }
 
 /**
@@ -79,11 +83,12 @@ export function collapseStateChanges(events: readonly TriageStateEvent[]): Triag
       last.to = event.status.to;
     }
 
-    if (event.assigned !== null) {
+    // A linked account resolves to the same login as its target, so one group can name a login twice (R28).
+    if (event.assigned !== null && !hasLogin(last.assigned, event.assigned)) {
       last.assigned.push(event.assigned);
     }
 
-    if (event.unassigned !== null) {
+    if (event.unassigned !== null && !hasLogin(last.unassigned, event.unassigned)) {
       last.unassigned.push(event.unassigned);
     }
   }

@@ -3,9 +3,6 @@ import { TRIAGE_LABELS } from './triage.js';
 import { collapseStateChanges, foldInstruction, liveComments } from './stateChanges.js';
 import type { TriageInstruction, TriageStateChange } from './stateChanges.js';
 
-/** Display-name overrides by login. */
-export type NameOverrides = Readonly<Record<string, string>>;
-
 /**
  * Replace the CLI system prompt to reduce classification cost (mechanics M31). Both schemas share this prompt; the
  * schema determines whether an action is requested.
@@ -59,15 +56,14 @@ function isDeveloperLogin(login: string | null, logins: readonly string[]): bool
   return login !== null && logins.some((developerLogin) => developerLogin.toLowerCase() === login.toLowerCase());
 }
 
-/** Use the first word of the name override, profile name, or login, in that order. */
-export function nameOf(login: string | null, profile: string | null, names: NameOverrides): string {
-  const override = login === null ? undefined : names[login] ?? names[login.toLowerCase()];
-  const displayName = (override ?? profile ?? login ?? '').trim();
+/** Use the first word of the profile name, or the login. */
+export function nameOf(login: string | null, profile: string | null): string {
+  const displayName = (profile ?? login ?? '').trim();
 
   return displayName === '' ? 'someone' : displayName.split(SPACES)[0]!;
 }
 
-function commentAuthor(comment: TriageComment, logins: readonly string[], names: NameOverrides): string {
+function commentAuthor(comment: TriageComment, logins: readonly string[]): string {
   // Explain GitHub NONE association so the classifier can distinguish outside testers from colleagues.
   const association =
     comment.authorAssociation === null || comment.authorAssociation === 'NONE'
@@ -75,31 +71,31 @@ function commentAuthor(comment: TriageComment, logins: readonly string[], names:
       : `, ${comment.authorAssociation.toLowerCase()}`;
 
   // Identify developer comments as "you" to distinguish asked from received questions.
-  const author = isDeveloperLogin(comment.author, logins) ? 'you' : nameOf(comment.author, comment.authorName, names);
+  const author = isDeveloperLogin(comment.author, logins) ? 'you' : nameOf(comment.author, comment.authorName);
 
   return `${author}${association}`;
 }
 
-function comments(list: readonly TriageComment[], logins: readonly string[], names: NameOverrides): string {
+function comments(list: readonly TriageComment[], logins: readonly string[]): string {
   return list.length === 0
     ? NO_TEXT
-    : list.map((comment) => `- ${commentAuthor(comment, logins, names)} on ${comment.createdAt}:\n  ${comment.body}`).join('\n');
+    : list.map((comment) => `- ${commentAuthor(comment, logins)} on ${comment.createdAt}:\n  ${comment.body}`).join('\n');
 }
 
 /** Format the state-change actor, using "you" for the developer. */
-function actorOf(change: { actor: string | null; actorName: string | null }, logins: readonly string[], names: NameOverrides): string {
-  return isDeveloperLogin(change.actor, logins) ? 'you' : nameOf(change.actor, change.actorName, names);
+function actorOf(change: { actor: string | null; actorName: string | null }, logins: readonly string[]): string {
+  return isDeveloperLogin(change.actor, logins) ? 'you' : nameOf(change.actor, change.actorName);
 }
 
 /** Marked state-change summary for distinguishing instructions from comments. */
-function stateLine(change: TriageStateChange, logins: readonly string[], names: NameOverrides): string {
+function stateLine(change: TriageStateChange, logins: readonly string[]): string {
   const parts: string[] = [];
 
   if (change.to !== null) {
     parts.push(change.from === null || change.from === '' ? `set the status to ${change.to}` : `moved the status ${change.from} → ${change.to}`);
   }
 
-  const assignees = change.assigned.map((login) => (isDeveloperLogin(login, logins) ? 'you' : nameOf(login, null, names)));
+  const assignees = change.assigned.map((login) => (isDeveloperLogin(login, logins) ? 'you' : nameOf(login, null)));
 
   if (assignees.length > 0) {
     parts.push(`assigned to ${assignees.join(' and ')}`);
@@ -108,15 +104,15 @@ function stateLine(change: TriageStateChange, logins: readonly string[], names: 
   const unassigned = change.unassigned.filter((login) => !change.assigned.includes(login));
 
   if (unassigned.length > 0) {
-    parts.push(`unassigned ${unassigned.map((login) => (isDeveloperLogin(login, logins) ? 'you' : nameOf(login, null, names))).join(' and ')}`);
+    parts.push(`unassigned ${unassigned.map((login) => (isDeveloperLogin(login, logins) ? 'you' : nameOf(login, null))).join(' and ')}`);
   }
 
-  return `► ${actorOf(change, logins, names)} on ${change.at}: ${parts.join(', ') || 'changed its state'}`;
+  return `► ${actorOf(change, logins)} on ${change.at}: ${parts.join(', ') || 'changed its state'}`;
 }
 
 /** Summarize the latest state instruction and actor. */
-function instructionLine(instruction: TriageInstruction, status: string | null, logins: readonly string[], names: NameOverrides): string {
-  const actor = actorOf(instruction, logins, names);
+function instructionLine(instruction: TriageInstruction, status: string | null, logins: readonly string[]): string {
+  const actor = actorOf(instruction, logins);
   const currentStatus = status ?? NO_TEXT;
   const moved = instruction.from === null || instruction.from === '' ? `status ${currentStatus}` : `status ${instruction.from} → ${currentStatus}`;
 
@@ -129,7 +125,6 @@ function instructionLine(instruction: TriageInstruction, status: string | null, 
 export function buildTriagePrompt(
   context: TriageContext,
   now: number,
-  names: NameOverrides = {},
   settled: TriageAction | null = null,
 ): string {
   const changes = collapseStateChanges(context.stateEvents);
@@ -139,9 +134,9 @@ export function buildTriagePrompt(
   const activity = [
     ...context.comments.map((comment) => ({
       at: comment.createdAt,
-      line: `- ${commentAuthor(comment, context.logins, names)} on ${comment.createdAt}:\n  ${comment.body}`,
+      line: `- ${commentAuthor(comment, context.logins)} on ${comment.createdAt}:\n  ${comment.body}`,
     })),
-    ...changes.map((change) => ({ at: change.at, line: stateLine(change, context.logins, names) })),
+    ...changes.map((change) => ({ at: change.at, line: stateLine(change, context.logins) })),
   ]
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
     .map((entry) => entry.line);
@@ -156,7 +151,7 @@ export function buildTriagePrompt(
 
   if (instruction !== null) {
     lines.push(
-      instructionLine(instruction, context.status, context.logins, names),
+      instructionLine(instruction, context.status, context.logins),
       currentComments.length === 0
         ? 'No issue comments since this change. Earlier comments are background.'
         : 'Only comments since this change remain open.',
@@ -184,15 +179,15 @@ export function buildTriagePrompt(
   lines.push(
     '',
     `PULL REQUEST #${pr.number}: ${pr.title}`,
-    `Opened by: ${isDeveloperLogin(pr.author, context.logins) ? 'you' : nameOf(pr.author, pr.authorName, names)}`,
+    `Opened by: ${isDeveloperLogin(pr.author, context.logins) ? 'you' : nameOf(pr.author, pr.authorName)}`,
     `State: ${pr.state}${pr.isDraft ? ' (draft)' : ''}`,
-    `Requested reviewers: ${pr.reviewRequests.map((r) => displayName(r.login, r.name, context.logins, names)).join(', ') || NO_TEXT}`,
-    `Reviews submitted: ${pr.reviews.map((r) => `${displayName(r.author, r.authorName, context.logins, names)} ${r.state}`).join('; ') || NO_TEXT}`,
+    `Requested reviewers: ${pr.reviewRequests.map((r) => displayName(r.login, r.name, context.logins)).join(', ') || NO_TEXT}`,
+    `Reviews submitted: ${pr.reviews.map((r) => `${displayName(r.author, r.authorName, context.logins)} ${r.state}`).join('; ') || NO_TEXT}`,
     '',
     pr.body || NO_TEXT,
     '',
     'Recent pull request comments (the most recent few, oldest first):',
-    comments(pr.comments, context.logins, names),
+    comments(pr.comments, context.logins),
     '',
     'Unresolved review threads (the most recent few):',
     unresolved.length === 0
@@ -200,7 +195,7 @@ export function buildTriagePrompt(
       : // Numbered because joined flat, three threads read as one thread with three comments: whether a reviewer is
         // still waiting on one thing or on several is what separates a loose end from a round that has to be worked.
         unresolved
-          .map((thread, n) => `Thread ${n + 1}:\n${comments(thread.comments, context.logins, names)}`)
+          .map((thread, n) => `Thread ${n + 1}:\n${comments(thread.comments, context.logins)}`)
           .join('\n'),
   );
 
@@ -220,6 +215,6 @@ function finish(lines: string[], settled: TriageAction | null): string {
 }
 
 /** Format PR identities, using "you" for the developer. */
-function displayName(login: string | null, profile: string | null, logins: readonly string[], names: NameOverrides): string {
-  return isDeveloperLogin(login, logins) ? 'you' : nameOf(login, profile, names);
+function displayName(login: string | null, profile: string | null, logins: readonly string[]): string {
+  return isDeveloperLogin(login, logins) ? 'you' : nameOf(login, profile);
 }

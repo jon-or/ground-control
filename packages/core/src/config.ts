@@ -75,7 +75,7 @@ export interface NewSessionSettings {
   prompt: string;
 }
 
-/** Triage enablement, concurrency, timeout, and display names. */
+/** Triage enablement, concurrency, and timeout. */
 export interface TriageSettings {
   enabled: boolean;
   /** Empty uses the classifier default; absent preserves a legacy AgentConfig model. */
@@ -88,8 +88,6 @@ export interface TriageSettings {
   concurrency: number;
   /** Combined source-read and classification timeout. */
   timeoutMs: number;
-  /** Display-name overrides by login. */
-  names: Record<string, string>;
 }
 
 /** Configured command name or path, validated before process launch. */
@@ -143,7 +141,7 @@ const TRIAGE_TIMEOUT_FLOOR_MS = 10_000;
 const TRIAGE_TIMEOUT_CEILING_MS = 300_000;
 const TRIAGE_CONCURRENCY_CEILING = 8;
 
-export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, mode: 'manual', dailyLimit: 100, concurrency: 2, timeoutMs: 180_000, names: {} };
+export const DEFAULT_TRIAGE: TriageSettings = { enabled: true, mode: 'manual', dailyLimit: 100, concurrency: 2, timeoutMs: 180_000 };
 
 export function triageMode(settings: TriageSettings): 'off' | 'manual' | 'automatic' {
   return settings.mode ?? (settings.enabled ? 'automatic' : 'off');
@@ -159,8 +157,6 @@ const triage = z.object({
     .number()
     .finite()
     .transform((ms) => Math.min(TRIAGE_TIMEOUT_CEILING_MS, Math.max(TRIAGE_TIMEOUT_FLOOR_MS, ms))),
-  // Invalid or missing display-name overrides default to an empty map.
-  names: z.record(z.string(), z.string()).catch({}).default({}),
 }).transform((settings) => {
   const mode = settings.mode ?? (settings.enabled ? 'automatic' : 'off');
   return { ...settings, mode, enabled: mode !== 'off' };

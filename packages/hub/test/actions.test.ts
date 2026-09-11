@@ -324,7 +324,7 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
     avatar: { review: 'pull-request-author', offReview: 'assignee' },
     newSession: { prompt: '' },
     installActivity: false,
-    triage: { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} },
+    triage: { enabled: true, concurrency: 2, timeoutMs: 60_000 },
     actions: {
       permissionMode: 'manual',
       concurrency: 1,

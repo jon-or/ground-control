@@ -178,23 +178,6 @@ describe('building the prompt', () => {
     expect(prompt).toContain('dev-3, member');
   });
 
-  it('takes a name override above the profile, since an agent account profile names the agent', () => {
-    const over = { 'dev-2': 'Chris' };
-    const prompt = buildTriagePrompt(context({ comments: [comment('dev-2', 'One.', 'MEMBER', 'Friday')] }), NOW, over);
-
-    expect(prompt).toContain('Chris, member');
-    expect(prompt).not.toContain('Friday');
-    // Matched however the login is cased, the way every other login comparison here is.
-    expect(buildTriagePrompt(context({ comments: [comment('DEV-2', 'One.')] }), NOW, over)).toContain('Chris, member');
-  });
-
-  it('never lets an override rename the developer, who is you whatever anybody calls them', () => {
-    const prompt = buildTriagePrompt(context({ comments: [comment('dev-1', 'Mine.')] }), NOW, { 'dev-1': 'Chris' });
-
-    expect(prompt).toContain('you, member');
-    expect(prompt).not.toContain('Chris');
-  });
-
   it('carries an author association, so a tester reads differently from a colleague', () => {
     expect(buildTriagePrompt(context(), NOW)).toContain('dev-2, contributor');
   });
@@ -363,8 +346,18 @@ describe('building the prompt', () => {
     expect(prompt).toContain('you last changed its state on');
   });
 
+  it('says assigned to you once where the developer and their linked bot were assigned in one act', () => {
+    const prompt = buildTriagePrompt(
+      context({ stateEvents: [assigned('2026-09-04T13:00:00Z', 'dev-2', 'dev-1'), assigned('2026-09-04T13:00:04Z', 'dev-2', 'dev-1')] }),
+      NOW,
+    );
+
+    expect(prompt).toContain('► dev-2 on 2026-09-04T13:00:00Z: assigned to you\n');
+    expect(prompt).not.toContain('you and you');
+  });
+
   it('tells the model the action where the evidence settled one, and asks for it where it did not', () => {
-    expect(buildTriagePrompt(context(), NOW, {}, 'review-others')).toContain(
+    expect(buildTriagePrompt(context(), NOW, 'review-others')).toContain(
       'The action is already decided: review-others — Review their PR. Write one sentence explaining that action.',
     );
     expect(buildTriagePrompt(context(), NOW)).toContain('Answer with the action and the sentence.');

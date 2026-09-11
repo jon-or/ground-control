@@ -81,7 +81,7 @@ export interface TriageComment {
   createdAt: string;
 }
 
-/** Display identity; retain its ID for name overrides. */
+/** Display identity: the login the prompt falls back to when the profile has no name. */
 export interface TriageActor {
   /** Their login, or a team's slug. */
   login: string;

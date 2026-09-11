@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { boardStatuses, statusLanes } from '@ground-control/board';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
-import type { CardSource, GithubConfig } from '@ground-control/github';
+import type { CardSource, GithubSettings } from '@ground-control/github';
 import { AUTOMATABLE_ACTIONS, LOG_FLOORS, OFF_REVIEW_AVATARS, REVIEW_AVATARS, diskReaders, idsFrom } from '@ground-control/core';
 import type { ActionSetting, AgentConfig, AutomatableAction, AvatarPolicy, HubConfig, LogFloor, OffReviewAvatar, ReviewAvatar } from '@ground-control/core';
 import { defaultConfig, makeRegistries } from '@ground-control/hub';
@@ -21,7 +21,7 @@ export function splitLogins(value: string): string[] {
 }
 
 /** Client source settings; the hub adds the board policy (review statuses, avatar) when it configures the source. */
-export function readConfig(): Omit<GithubConfig, 'reviewStatuses' | 'avatar'> {
+export function readConfig(): GithubSettings {
   const cfg = vscode.workspace.getConfiguration(SECTION);
 
   return {
@@ -34,6 +34,8 @@ export function readConfig(): Omit<GithubConfig, 'reviewStatuses' | 'avatar'> {
     cardSource: cfg.get<CardSource>('cardSource', 'project'),
     // The source refuses values outside 1–10 with a visible failure rather than reading an unbounded search.
     maxPages: numberOr(cfg.get<unknown>('github.maxPages'), 5),
+    // The source checks each entry and reports the ones it drops, so send the object as configured.
+    linkedAccounts: cfg.get<Record<string, unknown>>('github.linkedAccounts', {}) ?? {},
   };
 }
 
@@ -143,13 +145,6 @@ export function readTriage(): HubConfig['triage'] {
     concurrency: number('triage.concurrency', 2),
     // Seconds in settings, milliseconds in the hub, the way every other interval here is.
     timeoutMs: number('triage.timeoutSeconds', 180) * 1000,
-    // Discard non-string names before sending configuration; one invalid entry would cause the hub to reject
-    // all triage settings.
-    names: Object.fromEntries(
-      Object.entries(cfg.get<Record<string, unknown>>('triage.names', {}) ?? {}).flatMap(([login, name]) =>
-        typeof name === 'string' && name.trim() !== '' ? [[login, name.trim()] as const] : [],
-      ),
-    ),
   };
 }
 

@@ -230,7 +230,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
 
 /** What a client pushes. Every test but one runs on this; that one turns triage off. */
 function hubConfig(
-  triage: HubConfig['triage'] = { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} },
+  triage: HubConfig['triage'] = { enabled: true, concurrency: 2, timeoutMs: 60_000 },
   statusLanes: HubConfig['statusLanes'] = {},
 ): HubConfig {
   return {
@@ -355,7 +355,7 @@ describe('reading a card that arrives', () => {
 
   it.each([['classifier-model', 'classifier-model'], ['', null]] as const)('uses explicit triage model %j independently of legacy and action models', async (model, expected) => {
     const control = harness();
-    const configured = hubConfig({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: {}, model });
+    const configured = hubConfig({ enabled: true, concurrency: 2, timeoutMs: 60_000, model });
     control.hub.configure({ ...configured, actions: { ...configured.actions, model: 'coding-model' } });
     watch(control.hub);
     await control.hub.refresh('asked');
@@ -363,17 +363,6 @@ describe('reading a card that arrives', () => {
 
     expect(control.classified).toHaveLength(1);
     expect(control.classified[0]?.model).toBe(expected);
-  });
-
-  it('applies configured display names to the prompt', () => {
-    const control = harness();
-    control.hub.configure(hubConfig({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: { buildfriday: 'Chris' } }));
-    watch(control.hub);
-
-    return control.hub.refresh('asked').then(control.settle).then(() => {
-      expect(control.classified[0]?.prompt).toContain('Chris, member');
-      expect(control.classified[0]?.prompt).not.toContain('Friday');
-    });
   });
 
   it('shows triage in progress', async () => {
@@ -400,7 +389,7 @@ describe('reading a card that arrives', () => {
   it('skips triage when disabled', async () => {
     const control = harness();
     watch(control.hub);
-    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 60_000, names: {} }));
+    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 60_000 }));
 
     await control.hub.refresh('asked');
     await control.settle();
@@ -514,7 +503,7 @@ describe('classification cancellation', () => {
 
     expect(triageOf(control.snapshot())).toEqual({ state: 'running' });
 
-    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 120_000, names: {} }));
+    control.hub.configure(hubConfig({ enabled: false, concurrency: 2, timeoutMs: 120_000 }));
     await control.settle();
 
     // Do not count settings-triggered cancellations toward the retry limit.
@@ -524,7 +513,7 @@ describe('classification cancellation', () => {
 });
 
 describe('triage modes and automatic allowance', () => {
-  const limits = { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} };
+  const limits = { enabled: true, concurrency: 2, timeoutMs: 60_000 };
   const usagePath = () => join(stateDir, 'triage-usage.json');
   const keyOf = (control: Control) => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
 
@@ -703,7 +692,7 @@ describe('triage modes and automatic allowance', () => {
 });
 
 describe('classification capability', () => {
-  const limits = { enabled: true, mode: 'automatic' as const, concurrency: 2, timeoutMs: 60_000, names: {} };
+  const limits = { enabled: true, mode: 'automatic' as const, concurrency: 2, timeoutMs: 60_000 };
   const keyOf = (control: Control) => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key;
 
   it('refuses deliberate readings of archived issues', async () => {

@@ -79,6 +79,16 @@
             "order": 2,
             "markdownDescription": "Comma-separated GitHub usernames whose assigned issues appear on the board."
           },
+          "groundControl.github.linkedAccounts": {
+            "scope": "application",
+            "type": "object",
+            "default": {},
+            "additionalProperties": {
+              "type": "string"
+            },
+            "order": 3,
+            "markdownDescription": "Show one account's activity as another's: each key is a username to hide and its value the username to show instead, with that account's name and avatar, for example `{ \"my-bot\": \"me\" }`. A key in `#groundControl.github.logins#` makes its value count as you."
+          },
           "groundControl.cardSource": {
             "scope": "application",
             "type": "string",
@@ -91,7 +101,7 @@
               "All open assigned issues in the repository."
             ],
             "default": "project",
-            "order": 3,
+            "order": 4,
             "enumItemLabels": [
               "Project",
               "All Assigned Issues"
@@ -101,21 +111,21 @@
             "scope": "application",
             "type": "number",
             "default": 3,
-            "order": 4,
+            "order": 5,
             "markdownDescription": "Project number used when Card Source is Project."
           },
           "groundControl.github.projectOwner": {
             "scope": "application",
             "type": "string",
             "default": "",
-            "order": 5,
+            "order": 6,
             "markdownDescription": "Organization or user that owns the project. Empty uses the repository owner."
           },
           "groundControl.github.statusField": {
             "scope": "application",
             "type": "string",
             "default": "Status",
-            "order": 6,
+            "order": 7,
             "markdownDescription": "Single-select project field read as card status. Only the built-in `Status` field records changes on the issue timeline, which triage reads; other fields supply the current value only."
           },
           "groundControl.github.maxPages": {
@@ -124,7 +134,7 @@
             "default": 5,
             "minimum": 1,
             "maximum": 10,
-            "order": 7,
+            "order": 8,
             "markdownDescription": "Pages of up to 100 assigned issues read per refresh. Each page is one GitHub API request; the board reports when more issues match than were read."
           }
         }
@@ -390,16 +400,6 @@
             "default": "claude-sonnet-5",
             "order": 2,
             "markdownDescription": "Full Claude model name used to classify cards."
-          },
-          "groundControl.triage.names": {
-            "scope": "application",
-            "type": "object",
-            "default": {},
-            "additionalProperties": {
-              "type": "string"
-            },
-            "order": 3,
-            "markdownDescription": "Map GitHub usernames to display names, overriding their profiles."
           },
           "groundControl.triage.concurrency": {
             "scope": "application",

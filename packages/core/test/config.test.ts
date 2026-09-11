@@ -235,28 +235,21 @@ describe('triage settings', () => {
   it('defaults a configuration written before triage existed, rather than refusing it', () => {
     const parsed = parseHubConfig(config());
 
-    expect('config' in parsed && parsed.config.triage).toEqual({ enabled: true, mode: 'manual', dailyLimit: 100, concurrency: 2, timeoutMs: 180_000, names: {} });
+    expect('config' in parsed && parsed.config.triage).toEqual({ enabled: true, mode: 'manual', dailyLimit: 100, concurrency: 2, timeoutMs: 180_000 });
   });
 
   it('takes what a client asked for', () => {
-    expect(triageOf({ enabled: false, concurrency: 4, timeoutMs: 90_000, names: { buildfriday: 'Chris' } })).toEqual({
+    expect(triageOf({ enabled: false, concurrency: 4, timeoutMs: 90_000 })).toEqual({
       enabled: false,
       mode: 'off',
       dailyLimit: 100,
       concurrency: 4,
       timeoutMs: 90_000,
-      names: { buildfriday: 'Chris' },
     });
   });
 
-  it('reads a names map that is not one as none, rather than costing the whole configuration', () => {
-    // Invalid display-name overrides must not invalidate the full configuration.
-    expect(triageOf({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: 'buildfriday=Chris' })).toMatchObject({ names: {} });
-    expect(triageOf({ enabled: true, concurrency: 2, timeoutMs: 60_000, names: { buildfriday: 7 } })).toMatchObject({ names: {} });
-  });
-
   it('preserves absent triage models, trims explicit models, and rejects malformed values', () => {
-    const settings = { enabled: true, concurrency: 2, timeoutMs: 60_000, names: {} };
+    const settings = { enabled: true, concurrency: 2, timeoutMs: 60_000 };
     expect(triageOf(settings)).not.toHaveProperty('model');
     expect(triageOf({ ...settings, model: '  classifier-model  ' })).toMatchObject({ model: 'classifier-model' });
     expect(triageOf({ ...settings, model: ' ' })).toMatchObject({ model: '' });
@@ -270,7 +263,6 @@ describe('triage settings', () => {
       dailyLimit: 100,
       concurrency: 1,
       timeoutMs: 10_000,
-      names: {},
     });
     expect(triageOf({ enabled: true, concurrency: 500, timeoutMs: 9_999_999 })).toEqual({
       enabled: true,
@@ -278,7 +270,6 @@ describe('triage settings', () => {
       dailyLimit: 100,
       concurrency: 8,
       timeoutMs: 300_000,
-      names: {},
     });
   });
 

@@ -60,7 +60,7 @@ export class TriageRunner {
   readonly #usage: TriageUsage;
   #usageFailed = false;
 
-  #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 180_000, names: {} };
+  #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 180_000 };
   /** Use the same status mapping as lane assignment (R38). */
   #statusLanes: Readonly<Record<string, LaneId>> = {};
   #agentPaths = new Map<string, { path: string; model: string | null }>();
@@ -341,7 +341,7 @@ export class TriageRunner {
       sessionId,
       model: due.model,
       systemPrompt: TRIAGE_SYSTEM_PROMPT,
-      prompt: buildTriagePrompt(reading.context, this.#deps.now(), this.#settings.names, settled),
+      prompt: buildTriagePrompt(reading.context, this.#deps.now(), settled),
       schema: triageJsonSchema(settled),
       // Run outside project directories to avoid loading repository settings.
       cwd: triageCwd(this.#deps.stateDir),

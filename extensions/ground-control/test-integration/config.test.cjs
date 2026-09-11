@@ -77,6 +77,7 @@ describe('what this window pushes to the hub', () => {
     await settings().update('github.projectOwner', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('github.statusField', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('github.maxPages', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('github.linkedAccounts', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('avatar.review', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('avatar.offReview', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('idleExitMinutes', undefined, vscode.ConfigurationTarget.Global);
@@ -176,6 +177,13 @@ describe('what this window pushes to the hub', () => {
     await settings().update('github.projectOwner', 'their-org', vscode.ConfigurationTarget.Global);
     await settings().update('github.statusField', 'Stage', vscode.ConfigurationTarget.Global);
     await untilStored((c) => c.sources?.github?.projectOwner === 'their-org' && c.sources?.github?.statusField === 'Stage', 'the project settings never reached the hub');
+  });
+
+  /** The hub checks each link itself, so the object goes as written, one bad entry and all (R28). */
+  it('sends the linked accounts to the hub as configured', async () => {
+    await untilStored((c) => JSON.stringify(c.sources?.github?.linkedAccounts) === '{}', 'the default linked accounts never reached the hub');
+    await settings().update('github.linkedAccounts', { 'dev-1-bot': 'dev-1', 'odd': 7 }, vscode.ConfigurationTarget.Global);
+    await untilStored((c) => JSON.stringify(c.sources?.github?.linkedAccounts) === '{"dev-1-bot":"dev-1","odd":7}', 'the linked accounts never reached the hub');
   });
 
   /** The routing setting is read by the host adapter, so it must survive the hub's own configuration parse (R43). */

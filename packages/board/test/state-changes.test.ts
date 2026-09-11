@@ -53,6 +53,19 @@ describe('collapsing what happened to a card', () => {
     });
   });
 
+  it('names a login once in an act, since a linked account arrives already reading as its target', () => {
+    // The developer and their bot assigned in one act both resolve to dev-1 before the events reach here.
+    const changes = collapseStateChanges([
+      assigned('2026-09-04T17:46:29Z', 'dev-5', 'dev-1'),
+      assigned('2026-09-04T17:46:30Z', 'dev-5', 'DEV-1'),
+      unassigned('2026-09-04T17:46:31Z', 'dev-5', 'dev-6'),
+      unassigned('2026-09-04T17:46:32Z', 'dev-5', 'dev-6'),
+    ]);
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ assigned: ['dev-1'], unassigned: ['dev-6'] });
+  });
+
   it('keeps different actors in separate state changes', () => {
     const changes = collapseStateChanges([
       moved('2026-09-04T13:53:36Z', 'dev-3', '⚒️ Dev', '🔍 Dev Review'),
