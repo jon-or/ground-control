@@ -64,6 +64,14 @@ const ACTOR_ATTR = 'data-gc-actor';
 
 /** Role words for avatars that replace GitHub's assignees; the editor board carries the same table. */
 const ACTOR_ROLES = { 'pull-request': 'pull request author', 'issue-author': 'issue author' };
+
+/**
+ * The login GitHub recorded, after the name of the account shown in its place; the editor board says it the same way (R28).
+ * @param {string | undefined} aliasOf
+ */
+function asAlias(aliasOf) {
+  return aliasOf ? ` (as ${aliasOf})` : '';
+}
 /** Set on the document root while the overlay preference turns animation off. */
 const MOTION_ATTR = 'data-gc-motion';
 
@@ -805,9 +813,9 @@ function renderActor(doc, element, card) {
 
   slot.className = ACTOR_CLASS;
   slot.textContent = actor.login.slice(0, 2).toUpperCase();
-  setTooltip(slot, `${actor.login} · ${role}`);
+  setTooltip(slot, `${actor.login} · ${role}${asAlias(actor.aliasOf)}`);
   slot.setAttribute('role', 'img');
-  setAccessibleName(slot, `${actor.login}, ${role}`);
+  setAccessibleName(slot, `${actor.login}, ${role}${asAlias(actor.aliasOf)}`);
 
   const image = doc.createElement('img');
 

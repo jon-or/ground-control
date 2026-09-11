@@ -284,6 +284,19 @@ describe('board webview', () => {
     expect(avatar.textContent).toContain('DE');
   });
 
+  /** A face standing in for a linked account names the account GitHub recorded on hover and to a screen reader (R28). */
+  it('says whose activity a linked account is showing, in the tooltip and the accessible name alike', () => {
+    const issue = { ...liveCard.issue!, avatar: { ...liveCard.issue!.avatar!, login: 'dev-1', aliasOf: 'dev-1-bot' } };
+
+    send(message({ lanes: lanes({ unstarted: [{ ...liveCard, issue }] }) }));
+
+    const avatar = document.querySelector<HTMLElement>('.card .avatar')!;
+
+    expect(tipOf(avatar)).toBe('dev-1 · pull request author (as dev-1-bot)');
+    expect(avatar.getAttribute('aria-label')).toBe('dev-1, pull request author (as dev-1-bot)');
+    expect(avatar.hasAttribute('title')).toBe(false);
+  });
+
   it('names the issue on a card the developer is not assigned, and titles the unlinked one from its bar', () => {
     send(
       message({
@@ -3611,6 +3624,34 @@ describe('the conversation panel', () => {
     expect(row.querySelector('.detail-activity-who')!.textContent).toBe('dev-4');
     expect(row.textContent).toContain('added the bug label');
     expect(panel()!.querySelectorAll('.detail-comment')).toHaveLength(1);
+  });
+
+  /** The running text names the account shown; the one GitHub recorded is on hover and in the description (R28). */
+  it('marks every name that stands in for a linked account, and leaves the others unmarked', () => {
+    openPanel();
+    answer({
+      author: 'dev-1',
+      authorAliasOf: 'dev-1-bot',
+      branches: { base: 'main', head: 'topic' },
+      events: [post({ author: 'dev-1', aliasOf: 'dev-1-bot' }), post({ author: 'dev-2' }), note({ actor: 'dev-1', aliasOf: 'dev-1-bot', summary: 'assigned dev-1' })],
+    });
+
+    const [opening, linked, plain] = Array.from(panel()!.querySelectorAll<HTMLElement>('.detail-author'));
+    const who = panel()!.querySelector<HTMLElement>('.detail-activity-who')!;
+    const summary = panel()!.querySelector<HTMLElement>('.detail-summary strong')!;
+
+    expect(opening!.textContent).toBe('dev-1');
+    expect(tipOf(opening)).toBe('as dev-1-bot');
+    expect(opening!.getAttribute('aria-description')).toBe('as dev-1-bot');
+    expect(tipOf(linked)).toBe('as dev-1-bot');
+    expect(plain!.textContent).toBe('dev-2');
+    expect(tipOf(plain)).toBe('');
+    expect(plain!.hasAttribute('aria-description')).toBe(false);
+    expect(who.textContent).toBe('dev-1');
+    expect(tipOf(who)).toBe('as dev-1-bot');
+    expect(summary.textContent).toBe('dev-1');
+    expect(tipOf(summary)).toBe('as dev-1-bot');
+    expect(panel()!.querySelector('[title]')).toBeNull();
   });
 
   it('folds a long run of state changes so it does not bury the conversation, while still holding them', () => {

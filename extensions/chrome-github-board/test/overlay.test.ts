@@ -259,6 +259,17 @@ describe('swapping the assignee for the pull request author', () => {
     expect(stack.querySelector('img[data-testid="github-avatar"]')).not.toBeNull();
   });
 
+  /** A face standing in for a linked account names the account GitHub recorded on hover and to a screen reader (R28). */
+  it('says whose activity a linked account is showing, in the tooltip and the accessible name alike', () => {
+    paint(document, state({ snapshot: laneOf(actorCard(4501, { ...AUTHOR, login: 'dev-1', aliasOf: 'dev-1-bot' })) }), NOW, actions);
+
+    const actor = assigneeStackOf(cardElement(4501))!.querySelector<HTMLElement>('.gc-actor')!;
+
+    expect(tipOf(actor)).toBe('dev-1 · pull request author (as dev-1-bot)');
+    expect(actor.getAttribute('aria-label')).toBe('dev-1, pull request author (as dev-1-bot)');
+    expect(actor.hasAttribute('title')).toBe(false);
+  });
+
   /** The hub applies the avatar policy; the overlay draws whichever person it picked. */
   it('hides the assignees and draws the issue author the hub picked', () => {
     paint(document, state({ snapshot: laneOf(actorCard(4501, REPORTER)) }), NOW, actions);

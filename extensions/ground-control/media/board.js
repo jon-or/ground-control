@@ -1589,6 +1589,11 @@ function pullRequestMark() {
 /** Role words for the hub's avatar selection; the overlay carries the same table. */
 const AVATAR_ROLES = { 'pull-request': 'pull request author', 'issue-author': 'issue author', issue: 'issue assignee' };
 
+/** The login GitHub recorded, after the name of the account shown in its place; the overlay says it the same way (R28). */
+function asAlias(aliasOf) {
+  return aliasOf ? ` (as ${aliasOf})` : '';
+}
+
 function avatar(actor, pool) {
   const available = pool.get(actor.url);
   const reused = available?.shift();
@@ -1611,9 +1616,9 @@ function avatar(actor, pool) {
 
   const role = AVATAR_ROLES[actor.source] ?? 'issue assignee';
 
-  setTooltip(el, `${actor.login} · ${role}`);
+  setTooltip(el, `${actor.login} · ${role}${asAlias(actor.aliasOf)}`);
   el.setAttribute('role', 'img');
-  setAccessibleName(el, `${actor.login}, ${role}`);
+  setAccessibleName(el, `${actor.login}, ${role}${asAlias(actor.aliasOf)}`);
 
   return el;
 }
@@ -2588,6 +2593,13 @@ function detailBody(post) {
   return fold;
 }
 
+/** A name standing in for a linked account says so on hover and to a screen reader, never in the running text (R28). */
+function describeAlias(el, aliasOf) {
+  if (aliasOf) {
+    setTooltip(el, `as ${aliasOf}`);
+  }
+}
+
 /** `{who} {did} {when}`, with the edit mark GitHub hangs after the time. */
 function detailByline(post, did) {
   const parts = [];
@@ -2595,6 +2607,7 @@ function detailByline(post, did) {
   const who = document.createElement('strong');
   who.className = 'detail-author';
   who.textContent = post.author ?? 'someone';
+  describeAlias(who, post.aliasOf);
   parts.push(who);
 
   const said = document.createElement('span');
@@ -2738,6 +2751,7 @@ function detailActivityRow(event, subject) {
   const who = document.createElement('span');
   who.className = 'detail-activity-who';
   who.textContent = event.actor ?? 'someone';
+  describeAlias(who, event.aliasOf);
   row.appendChild(who);
 
   const said = document.createElement('span');
@@ -2973,6 +2987,7 @@ function detailSummary(detail) {
 
   const who = document.createElement('strong');
   who.textContent = detail.author ?? 'someone';
+  describeAlias(who, detail.authorAliasOf);
   summary.append(
     who,
     String(detail.state).toUpperCase() === 'MERGED' ? ' merged ' : ' wants to merge ',
@@ -3099,6 +3114,7 @@ function paintDetail(opening) {
         {
           kind: 'comment',
           author: detail.author,
+          aliasOf: detail.authorAliasOf,
           avatarUrl: detail.authorAvatarUrl,
           bodyHtml: detail.bodyHtml.trim() === '' ? '<p><em>No description provided.</em></p>' : detail.bodyHtml,
           createdAt: detail.createdAt,
