@@ -292,6 +292,13 @@ function basename(dir) {
   return parts[parts.length - 1] ?? dir;
 }
 
+/** Two spellings of one directory, the way the hub's own `dirKey` compares them: separators and case set aside. */
+function sameDir(a, b) {
+  const key = (dir) => dir.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+
+  return key(a) === key(b);
+}
+
 /** Prefer title, CLI name, short ID, then checkout basename. Both client suites verify this precedence. */
 function sessionLabel(session) {
   return session.title ?? session.details.name ?? session.details.shortId ?? basename(session.cwd);
@@ -825,6 +832,9 @@ const ACTION_OUTCOMES = {
   stopped: 'Stopped',
 };
 
+/** A worktree run's outcomes: landing it is making the worktree, not a merge (R46). */
+const CREATION_OUTCOMES = { ...ACTION_OUTCOMES, landed: 'Created' };
+
 /**
  * What to do with this card, as one line of text: the triage action, then either the dispatched action's state
  * or the triage qualifier (R38, R39). The full explanation stays in the tooltip.
@@ -906,7 +916,8 @@ function actionState(action) {
   }
 
   if (action.state === 'running') {
-    return { text: 'Working…', outcome: 'running' };
+    // The worktree the action needs is still being made; the action itself has not started (R46).
+    return { text: action.stage === 'worktree' ? 'Creating worktree…' : 'Working…', outcome: 'running' };
   }
 
   if (action.state === 'refused') {
@@ -954,10 +965,16 @@ function tail(boardCard, canRequest) {
 
   if (hasCheckout(boardCard)) {
     tools.appendChild(
-      toolButton('Open in VS Code', `Open ${boardCard.checkout.root} in VS Code`, vscodeMark(), () =>
+      toolButton('Open in VS Code', openCheckoutHint(boardCard), vscodeMark(), () =>
         vscode.postMessage({ type: 'openCheckout', key: boardCard.key }),
       ),
     );
+  }
+
+  const create = createWorktreeButton(boardCard);
+
+  if (create) {
+    tools.appendChild(create);
   }
 
   const run = runButton(boardCard);
@@ -987,7 +1004,9 @@ function runButton(boardCard) {
   if (action.state === 'running') {
     const stop = toolButton(
       `Stop ${label.toLowerCase()}`,
-      `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
+      action.stage === 'worktree'
+        ? `${label} is waiting for its worktree, which a session is creating. Click to stop.`
+        : `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
       stopMark(),
       () => vscode.postMessage({ type: 'stopAction', key: boardCard.key }),
     );
@@ -1008,7 +1027,11 @@ function runButton(boardCard) {
   }
 
   const title =
-    action.state === 'done' ? `${action.detail} Click to run ${label} again.` : `Start ${label} in this card’s checkout.`;
+    action.state === 'done'
+      ? `${action.detail} Click to run ${label} again.`
+      : boardCard.creation
+        ? `Create a worktree for this card, then start ${label} in it.`
+        : `Start ${label} in this card’s worktree.`;
   const run = toolButton(`Run ${label.toLowerCase()}`, title, playMark(), () =>
     vscode.postMessage({ type: 'runAction', key: boardCard.key }),
   );
@@ -1039,16 +1062,88 @@ function toolButton(name, title, mark, onPress) {
   // the sentence the tooltip carries is set past `setAccessibleName` as the description.
   button.setAttribute('aria-description', title);
 
-  if (onPress === null) {
-    return button;
-  }
-
+  // A control that takes no press still swallows the click, or it would reach the card behind it.
   button.addEventListener('click', (event) => {
     event.stopPropagation();
-    onPress();
+    onPress?.();
   });
 
   return button;
+}
+
+/**
+ * What opening the checkout opens. A checkout that is the issue's worktree says so, naming the branch, or the
+ * directory for a detached HEAD (R46). Both clients build the same sentence.
+ */
+function openCheckoutHint(boardCard) {
+  const { checkout, worktree } = boardCard;
+
+  if (worktree && sameDir(worktree.root, checkout.root)) {
+    return `Open the worktree on ${worktree.branch ?? basename(worktree.root)} at ${checkout.root} in VS Code`;
+  }
+
+  return `Open ${checkout.root} in VS Code`;
+}
+
+/**
+ * The worktree control on a card with no worktree (R46): the offer to make one, why none can be made, the run
+ * making one, which the same control stops, or how the last run ended. Both clients build the same name and hint.
+ */
+function createWorktreeButton(boardCard) {
+  const creation = boardCard.creation;
+
+  if (!creation) {
+    return null;
+  }
+
+  if (creation.state === 'running') {
+    const stop = toolButton(
+      'Stop creating the worktree',
+      'A session is creating a worktree for this issue. Click to stop it. What it made so far stays.',
+      worktreeMark(),
+      () => vscode.postMessage({ type: 'stopAction', key: boardCard.key }),
+    );
+
+    stop.dataset.state = 'running';
+
+    return stop;
+  }
+
+  if (creation.state === 'refused') {
+    const refused = toolButton('Cannot create a worktree', creation.reason, worktreeMark(), null);
+
+    refused.setAttribute('aria-disabled', 'true');
+
+    return refused;
+  }
+
+  const title =
+    creation.state === 'done'
+      ? `${CREATION_OUTCOMES[creation.outcome] ?? CREATION_OUTCOMES.failed}: ${creation.detail} Click to try again.`
+      : 'No worktree for this issue. Run the worktree prompt to create one.';
+  const create = toolButton('Create a worktree for this issue', title, worktreeMark(), () =>
+    vscode.postMessage({ type: 'createWorktree', key: boardCard.key }),
+  );
+
+  if (creation.state === 'done') {
+    create.dataset.outcome = creation.outcome;
+  }
+
+  return create;
+}
+
+function worktreeMark() {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'worktree-mark');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const path = document.createElementNS(SVG, 'path');
+  path.setAttribute('d', 'M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z');
+
+  svg.appendChild(path);
+
+  return svg;
 }
 
 /** The product mark, because the control opens VS Code itself rather than code in general (R45). */
@@ -1141,9 +1236,9 @@ function cardActions(boardCard) {
     }
   }
 
-  // Offer checkout selection only for issues without a session-derived checkout, which takes precedence over
-  // manual selection.
-  const picked = boardCard.checkout == null || boardCard.checkout.source === 'remembered';
+  // Offer checkout selection unless a session settled it: a pick outranks a discovered worktree, so a card
+  // showing one must still be able to take a pick.
+  const picked = boardCard.checkout?.source !== 'session';
 
   if (boardCard.issue != null && picked) {
     actions.push({
@@ -1807,6 +1902,10 @@ function signature(boardCard) {
     // card only the root, and an assignment dropped from a card already archived changes neither.
     boardCard.checkout?.root ?? null,
     boardCard.checkout?.source ?? null,
+    // The open tooltip names the worktree's branch; the worktree control states the offer, the run, or its outcome.
+    boardCard.worktree?.root ?? null,
+    boardCard.worktree?.branch ?? null,
+    boardCard.creation ?? null,
     boardCard.unassigned ?? false,
     startable.length,
     boardCard.lastSession,

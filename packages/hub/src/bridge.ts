@@ -127,6 +127,14 @@ export function bridgeAction(raw: unknown): BridgeAction {
       : { refused: 'That card cannot be opened.' };
   }
 
+  // Forward only the card key. A worktree run is a dispatch, so the hub applies the browser opt-in and the
+  // limits it applies to runAction (R46).
+  if (message.type === 'createWorktree') {
+    return typeof message.key === 'string'
+      ? { send: { type: 'createWorktree', key: message.key } }
+      : { refused: 'That card cannot have a worktree created for it.' };
+  }
+
   // Explicitly reject path selection, which requires an editor (R41).
   if (message.type === 'setCheckout') {
     return { refused: 'Choose card checkouts in VS Code.' };

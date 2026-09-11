@@ -52,7 +52,8 @@ function harness(over: Partial<ActionSettings> = {}, enabled = configured) {
   mkdirSync(checkout);
   const lanes: Lane[] = [{ id: 'build', title: 'Build', cards: [{
     key: 'issue:1', issueNumber: 1, lane: 'build', returned: false, attention: null, reason: '', sessions: [],
-    checkout: { root: checkout, source: 'session', only: true },
+    checkout: { root: checkout, source: 'worktree', only: true },
+    worktree: { root: checkout, branch: '1-fix', only: true },
     triage: { state: 'done', action: 'merge-upstream', qualifier: null, detail: 'Merge main.', at: 1, stale: false },
     issue: { number: 1, title: 'Merge upstream', url: 'https://github.com/example/repo/issues/1', type: null, typeColor: null,
       status: 'Dev', statusColor: null, statusChangedAt: null, assignees: ['developer'], avatar: null, pullRequest: null, updatedAt: '' },
@@ -61,8 +62,9 @@ function harness(over: Partial<ActionSettings> = {}, enabled = configured) {
   const runner = new ActionRunner({
     stateDir: home, agents, sources: [source], store, log: captureLog().log, now: () => 1000,
     changed: () => {}, announce: () => {}, notify: (message) => notices.push(message),
+    clones: () => [], linkWorktree: () => null,
   });
-  runner.configure(settings, enabled);
+  runner.configure(settings, enabled, { prompt: '' });
   const settle = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
   return {
     runner, agents, calls, notices, store, settings, lanes, settle,
@@ -175,7 +177,7 @@ describe('action agent and model preferences', () => {
     await h.request();
     expect(h.reads).toBe(1);
     expect(h.calls).toEqual([]);
-    h.runner.configure({ ...h.settings, agent: 'codex', permissionMode: 'dontAsk' }, configured);
+    h.runner.configure({ ...h.settings, agent: 'codex', permissionMode: 'dontAsk' }, configured, { prompt: '' });
     release();
     await h.settle();
     expect(h.calls).toEqual([]);

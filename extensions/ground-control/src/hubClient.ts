@@ -221,7 +221,9 @@ export class HubClient {
 
         void (message.level === 'error'
           ? vscode.window.showErrorMessage(message.message)
-          : vscode.window.showInformationMessage(message.message));
+          : message.level === 'warning'
+            ? vscode.window.showWarningMessage(message.message)
+            : vscode.window.showInformationMessage(message.message));
 
         return;
     }

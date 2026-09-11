@@ -104,13 +104,13 @@ The footer's first line is one command bar: the card's lane, what to do about it
 |---|---|---|
 | Lane (overlay) | Pictogram, in the lane's colour, on a button edge that opens the lane menu | unchanged |
 | Verdict | Triage action, then the dispatched action's state or the triage qualifier | unchanged |
-| Tail | Time in the current status, right-aligned | Reread, open checkout, run — run on the edge |
+| Tail | Time in the current status, right-aligned | Reread, open checkout, create worktree (R46), run — run on the edge |
 
 The verdict is the only element that shrinks: a long qualifier truncates it rather than moving a control. The tail is one slot painted two ways, so revealing the controls changes no width and the run control lands where the age was, above the session duration below it. Reveal keys on the bar, not the card, so passing over a title arms nothing. Controls stay in the tab order while hidden and appear on keyboard focus; where the device cannot hover, the tail lays the controls out and drops the age.
 
 Each lane has one pictogram and one colour, identical in both clients. The overlay's chip has room for the mark alone and names its lane in its accessible name and tooltip; the editor board's cards already sit in their lane, so its bar has no lane slot and its lane headings take the mark beside their name instead. A card with no issue (R4) has no conversation to open and nothing to read, so it draws no title line; the branch name its sessions work on stands in the verdict slot, and the bar's controls are where every card has them.
 
-The open-checkout control lives in the bar only. Menus carry what the bar does not: the editor board's card menu offers the changes and session starts, and the overlay's lane chip opens a menu only where there is a lane to move to or a session to start.
+The open-checkout and create-worktree controls live in the bar only. Menus carry what the bar does not: the editor board's card menu offers the changes and session starts, and the overlay's lane chip opens a menu only where there is a lane to move to or a session to start.
 
 The bar runs to the footer's own edges with square corners and keeps the card's ground, including any hover or attention tint on it; the session rows under it carry the footer tint, and their band is not drawn at all on a card with no session. Glyphs are drawn on their own even pixel grid inside an even control, because an odd glyph centres on a half pixel and blurs. Nothing in the bar fades by layer opacity: a faded verdict and a pulsing state change colour, since an opacity layer renders the text inside it without subpixel antialiasing.
 
@@ -269,7 +269,7 @@ Client filtering must not hide conflicts from internal safety checks or make new
 
 ### R37. Combined changes
 
-From a card's verified checkout, open one diff showing branch commits and uncommitted changes together, from merge base to disk. Use a session-derived or explicitly selected checkout (R41); do not guess from an issue number or branch name.
+From a card's verified checkout, open one diff showing branch commits and uncommitted changes together, from merge base to disk. Use a checkout R41 resolved: a session directory, an explicit pick, or the issue's worktree (R46). Never guess a directory from an issue number or branch name alone.
 
 If no merge base is available, show uncommitted changes and state that limitation in the title. State truncation and identify the selected checkout when several qualify. Do not change Git configuration or branches to inspect work. Refuse a repository mismatch.
 
@@ -277,9 +277,9 @@ Opening this view adds the repository to the window's Source Control list until 
 
 ### R41. Open or select a checkout
 
-Open an editor window on the card's checkout without starting an agent. Resolve the directory from a session that ran there, otherwise from a folder the developer selected for the card.
+Open an editor window on the card's checkout without starting an agent. Resolve the directory from a session that ran there, otherwise from a folder the developer selected for the card, otherwise from the issue's worktree (R46).
 
-Never infer a checkout merely because its remote matches the issue's repository. Several worktrees can share that remote. The editor's folder picker validates the selected directory against the card's repository and remembers it per card and machine.
+Never infer a checkout merely because its remote matches the issue's repository. Several worktrees can share that remote. A worktree a provisioning run recorded for the card, or a working tree whose branch or directory names the issue, is a different signal and does qualify, ranked below both a session and a pick. The editor's folder picker validates the selected directory against the card's repository and remembers it per card and machine.
 
 Offer only readable directories; skip a deleted session checkout if another qualifying one exists. Preserve saved picks while their cards are absent, but do not offer a pick that no longer validates.
 
@@ -295,9 +295,25 @@ Refuse, naming the cause, rather than resuming a session that would run in the w
 
 Two limitations are accepted. A repository opened as a saved `.code-workspace` reports that file as its root, so a routed resume does not recognize the window it reached; plain resume has the same shape, and opening the repository as a folder is the supported arrangement. A session the developer sends in another tab of that window during the redirect is recorded against the worktree; the redirect is held for as little as the reveal allows.
 
+### R46. A card's worktree, and the run that makes one
+
+Every card action works in the card's worktree: the directory an unattended agent edits is one the developer or a run made for that issue, never a directory guessed from a session that happened to link. Where the card has none, the action is not refused; a worktree run goes first, and the action follows in the worktree it reports. The developer sets a card's worktree by working in one, or by running the worktree prompt; the board never runs git itself.
+
+**What a worktree is.** A working tree of a clone of the card's repository: the clone's main tree, or any worktree git registers under the clone's shared git directory. It is the card's where a provisioning run reported it and the hub recorded that, else where its branch name, or failing that its directory name, yields the issue number through `branchIssuePattern`. Search the clones the hub already knows — live and saved session directories, remembered picks, recorded worktrees, connected editor window folders — plus any absolute path in `repositoryRoots`; a relative configured path is ignored rather than resolved, because the hub's working directory is not the editor's. Report a worktree only where its directory reads back: a registration outlives the directory it names ([mechanics](mechanics.md#worktree-registrations) M56). Where an issue has several, the recorded one is the card's, else the first by path; its checkout is then not the only one, which R37 states. A recorded worktree that git no longer registers, or that belongs to another repository, is inert. Session scope hides an excluded worktree exactly as it hides an excluded checkout, in both clients.
+
+**The worktree run.** `worktree.prompt` is the developer's prompt for the session that makes a worktree: their own script or slash command, naming the branch, the directory, and whatever setup the repository needs. It runs with the action agent, model, and permission mode, from the clone's main tree, or its git directory where it has none, and it takes `{issue}`, `{repo}`, `{title}`, `{url}`, `{clone}`, and `{resultPath}`. It ends by writing the result file with `outcome` `ready`, `worktree` as the absolute path it made, and `detail`; `halted` with `detail` says why not. The hub records the path only where git registers it as a working tree of a clone of the card's repository and scope admits it; a path that fails either check halts the run with the reason. The prompt chooses the branch name; the hub does not read it. The prompt must be idempotent — a retry after a run that made the worktree and then failed must find it, finish, and report the same path — and must ask nothing when it runs unattended.
+
+**Refusals.** Refuse, naming the setting, rather than guess: no prompt; no clone of the repository the hub knows; more than one, which `repositoryRoots` narrows; a card with no issue to name a branch after; an archived or unassigned card, which is read-only (R9). Each refusal is shown on the worktree control, and on the run control where an action would need the worktree.
+
+**The chain.** An action on a card with no worktree dispatches the worktree run with the action recorded as what follows. When the run reports a worktree, the action starts in it, reading its own fresh context, as the same attempt: one request is one dispatch against the daily limit and one concurrency slot throughout. A run that halts, fails, or is stopped ends the chain; the action is not started, and the card shows the action as done with the run's reason. Retrying an action on a card whose earlier run did make the worktree runs the action alone. While the run is on, the verdict says the worktree is being created and the run control stops it; a worktree run asked for on its own shows on the worktree control, which stops it, and leaves the action offerable. The session the run is, tracked like any dispatched session (R39), starts in the clone rather than the issue's directory, so it appears on an ad-hoc card of the clone rather than on the issue's card.
+
+**The worktree control.** Where the card has an issue and no worktree, one further tail control, between open-checkout and run in both clients, runs the worktree prompt alone, so a developer can provision before starting anything. It states the offer, the refusal, the run in progress, or how the last run ended. Where the worktree is the card's checkout (R41), the open-checkout control opens it and its tooltip says so, naming the branch, or the directory where HEAD is detached; there is no second open control. Both clients state the worktree and offer the run. A page's request is a dispatch, so it is bounded exactly as a page-asked action is (R39): the browser opt-in, a visible project tab, and a positive daily limit.
+
+Implementation limits: a worktree run asked for on its own does not open the worktree when it ends; the open-checkout control does. The run before an action opens nothing either; the action's own session is what runs there. Recorded worktrees are never pruned; a record git no longer registers is ignored, not removed. A worktree session scope hides still exists, so the card offers to make one and the run then halts on the scope check rather than being refused first.
+
 ### R42. Start a session
 
-Offer one start item per supported agent on a card with a checkout, except an archived or unassigned card, which is read-only (R9). An editor starts in the window that asked. A browser has no window of its own, so the hub starts in a connected editor on that checkout, and requires a visible project tab and no other page-asked start in flight. For another checkout, direct the developer to open it first.
+Offer one start item per supported agent on a card with a checkout, except an archived or unassigned card, which is read-only (R9). A start does not provision: a card with no checkout takes a pick (R41) or the worktree control (R46) first. An editor starts in the window that asked. A browser has no window of its own, so the hub starts in a connected editor on that checkout, and requires a visible project tab and no other page-asked start in flight. For another checkout, direct the developer to open it first.
 
 The `newSession.prompt` setting defaults to empty. Substitute `{issue}`, `{repo}`, `{title}`, `{url}`, and `{checkout}`; leave unknown placeholders unchanged. Prefill without submitting. Claude accepts the prompt; Codex's available start command opens a bare session, which its menu item states.
 
@@ -341,13 +357,13 @@ Only Claude currently provides classification. Report absent classifier or confi
 
 ### R39. Merge-upstream action
 
-The only implemented unattended card action merges a PR's base branch into its head. It is disabled by default and requires a developer-supplied prompt. Supply issue, repository, PR, branches, and checkout facts to that prompt; do not define the repository's build, test, push, or commenting policy.
+The only implemented unattended card action merges a PR's base branch into its head. It is disabled by default and requires a developer-supplied prompt. Supply issue, repository, PR, branches, and worktree facts to that prompt; do not define the repository's build, test, push, or commenting policy. `{checkout}` is the worktree the run works in.
 
 `actions.agent` selects `auto`, `claude`, or `codex` independently of session discovery; explicit selection requires that enabled adapter to support dispatch. Auto preserves registry order among enabled dispatchers. `actions.model` selects the coding model, with empty using the CLI default. `triage.model` affects classification only. Older saved configurations inherit `AgentConfig.model` only when the corresponding model field is absent; an explicit empty field clears inheritance. The current editor sends separate model fields, ending accidental classification-model inheritance for actions.
 
-Automatic eligibility comes from triage identifying a requested merge. A manual editor control can run or retry that candidate even when automatic dispatch is disabled; it cannot create a merge candidate on an unrelated card. Before dispatch, reread the PR and apply all safety checks and configured limits.
+Automatic eligibility comes from triage identifying a requested merge. A manual editor control can run or retry that candidate even when automatic dispatch is disabled; it cannot create a merge candidate on an unrelated card. Before dispatch, reread the PR and apply all safety checks and configured limits. An automatic run on a card with no worktree runs the worktree prompt first (R46), so enabling the action is also consent to provision for it.
 
-Refuse drafts, other people's PRs, closed/merged PRs, disallowed lanes, active work on the card, missing session-derived checkouts, and stacked PRs whose base is not the repository's default branch. A manually selected checkout alone cannot authorize unattended edits. If merge is not a candidate action, show neither a merge control nor an irrelevant refusal.
+Refuse drafts, other people's PRs, closed/merged PRs, disallowed lanes, active work on the card, and stacked PRs whose base is not the repository's default branch. The run works in the card's worktree (R46); a card with none and no worktree prompt is refused, and a manually selected checkout or a session directory that is not the issue's worktree does not authorize unattended edits. If merge is not a candidate action, show neither a merge control nor an irrelevant refusal.
 
 Bound automatic work by:
 

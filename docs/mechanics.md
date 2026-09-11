@@ -2,7 +2,7 @@
 
 This document records experiments and source inspections relevant to Ground Control. Some support implemented features; others establish options or constraints for future work. A successful experiment is not a claim that the product implements it. Product scope is in the [requirements](prd.md), and current use is described in [architecture](architecture.md).
 
-Record IDs retain the experiment identifiers M1–M55, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
+Record IDs retain the experiment identifiers M1–M56, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
 
 Code references use these M IDs rather than the former numbered sections. A record grouped under a topic keeps its original ID. Source inspections of Ground Control distinguish current implementation from the external experiment; they do not re-verify the measured CLI or editor version.
 
@@ -870,6 +870,18 @@ Codex has twelve hook events and no failure event. In `core/src/session/turn.rs`
 
 The Codex reader tails the rollout for a running marker only: 64 kB from the end, newest record first, matching the marker's `turnId`. Rollout writes do not change the marker, so the hub sees the failure on its next session poll or marker batch rather than at once.
 
+### Worktree registrations
+
+**Record M56. Filesystem inspection and git 2.53.0 runs, 2026-09-10, Windows 11. Used by worktree discovery (R46).**
+
+Every linked worktree of a clone has a directory under the clone's shared git directory at `worktrees/<name>`, holding at least `gitdir`, `HEAD`, and `commondir`. `gitdir` names the worktree's own `.git` file, so the worktree root is that path's parent: `D:/git/ground-control.worktrees/history-log/.git` for a worktree at `D:/git/ground-control.worktrees/history-log`. With `worktree.useRelativePaths` set, git 2.53 wrote `../../../../rel/.git` instead, relative to the registration directory, and `commondir` is `../..` in either case. `HEAD` holds `ref: refs/heads/<branch>`, or a commit id for a detached HEAD. A locked worktree also has a `locked` file and is still a worktree. All of this reads as text; no git process is needed.
+
+The main working tree has no entry here; its branch is the shared git directory's own `HEAD`. The scan lists it first, so a clone whose checked-out branch names the issue is that issue's worktree.
+
+Registration and directory disagree in both directions, so neither alone establishes a worktree. On the measurement date this clone had 3 registrations, 2 under `ground-control.worktrees/` and 1 under `.claude/worktrees/`, while `.claude/worktrees/` held 5 directories, 4 of them with no `.git` file. Deleting a worktree's directory left its registration in place; `git worktree list --porcelain` reported it `prunable`. Take the registrations as the candidate list and require the directory to read back.
+
+`git worktree add` writes `gitdir` with the path git resolved rather than the path given: a directory named `D--git-...` on the command line was registered as `d--git-...`. A path a provisioning run reports is therefore looked up by key, and the registered spelling is what the hub records.
+
 ### Usage limits and transient model failures
 
 **Record M15. Historical-file analysis, baseline 2026-09-01. Future recovery input; not an induced rate-limit test.**
@@ -962,7 +974,7 @@ Control messages included rename, notify_when_idle, and peer_message_status. A c
 | Usage-limit outcome | Exit status and complete scheduled resume at an actual reset |
 | TRX failure/crash cases | Actual outcome strings, error/aborted counters, and skip policy |
 | Automated reviewer reliability | Repeated runs on one diff under verified isolated configuration |
-| Checkout provisioning | End-to-end creation of a worktree and local IIS site in an isolated experiment |
+| Checkout provisioning | A worktree prompt that also provisions a local IIS site, run under the board (M56, R46 cover reading worktrees and the run itself) |
 | Project write-back | A controlled status write through the future workflow implementation |
 | Hooks in already-running sessions | Establish whether settings changes are adopted without restart |
 | Hook ordering and async delivery | Source event sequencing, exact matcher behavior per event, and payload delivery on async entries |

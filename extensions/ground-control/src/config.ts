@@ -54,6 +54,8 @@ export function readHubConfig(userDir: string): HubConfig {
     agents,
     agentHomes: editorAgentHomes(),
     branchIssuePattern: cfg.get<string>('branchIssuePattern', '^(\\d+)-'),
+    repositoryRoots: cfg.get<string[]>('repositoryRoots', []),
+    worktree: { prompt: cfg.get<string>('worktree.prompt', '') },
     hosts: Object.fromEntries(hostIds().map((id) => [id, id === VSCODE_HOST_ID ? vscodeSettings(userDir) : {}])),
     sources: Object.fromEntries(sourceIds().map((id) => [id, id === GITHUB_SOURCE_ID ? readConfig() : {}])),
     boardStatuses: readBoardStatuses(),

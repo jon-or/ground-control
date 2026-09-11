@@ -1,7 +1,8 @@
 import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_SESSION_SCOPE, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions } from '@ground-control/core';
-import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
+import { CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions, worktreeIndex } from '@ground-control/core';
+import type { WorktreeScan } from '@ground-control/board';
+import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { actionEnabled } from '@ground-control/automation';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
@@ -12,7 +13,7 @@ import type { ActivityState } from './activityInstall.js';
 import type { LaneStore } from './lanes.js';
 import { ActionRunner } from './actions.js';
 import { makeActionStore } from './actionStore.js';
-import { makeCheckoutStore } from './checkoutStore.js';
+import { makeCheckoutStore, makeWorktreeStore } from './checkoutStore.js';
 import type { CheckoutStore } from './checkoutStore.js';
 import type { ActionStore } from './actionStore.js';
 import { TriageRunner } from './triage.js';
@@ -56,6 +57,8 @@ export interface HubDeps {
   status: StatusStore;
   /** Persisted user-selected checkouts for cards without sessions. */
   checkouts: CheckoutStore;
+  /** The worktree each provisioning run reported, by card key (R46). */
+  worktrees: CheckoutStore;
   /** Persisted client settings, also used when Chrome starts the hub. */
   settings: SettingsStore;
   /** Write hub.log and stream entries to subscribed clients. */
@@ -105,6 +108,9 @@ const START_LEASE_MS = 10_000;
 /** Suppress duplicate checkout opens while the code process starts. */
 const OPEN_LEASE_MS = 3_000;
 
+/** How long a clone list serves repeated lane computations before the roots are scanned again. */
+const CLONES_MEMO_MS = 1_000;
+
 /** Bound one detail read so a slow source cannot hold a client's request open. A long conversation reads in pages. */
 const DETAIL_TIMEOUT_MS = 60_000;
 
@@ -152,6 +158,7 @@ export function realHubDeps(
   issues: IssueStore = makeIssueStore(stateDir),
   status: StatusStore = makeStatusStore(stateDir),
   checkouts: CheckoutStore = makeCheckoutStore(stateDir),
+  worktrees: CheckoutStore = makeWorktreeStore(stateDir),
 ): HubDeps {
   return {
     clock: REAL_CLOCK,
@@ -166,6 +173,7 @@ export function realHubDeps(
     issues,
     status,
     checkouts,
+    worktrees,
     settings,
     log,
     syncActivity: (regs, wanted, where, state, enabled) => syncActivity(regs.agents, wanted, where, state, false, enabled),
@@ -220,6 +228,7 @@ export class Hub {
   readonly #starting = new Map<string, number>();
   /** In-flight checkout opens keyed by card across clients. */
   readonly #opening = new Map<string, number>();
+  #clonesMemo: { key: string; at: number; clones: Clone[] } | null = null;
   #sourcesInFlight: Promise<void> | undefined;
   #sessionsInFlight: Promise<void> | undefined;
   #lastReadAt = 0;
@@ -289,16 +298,18 @@ export class Hub {
       now: () => deps.clock.now(),
       changed: () => this.#broadcast(),
       announce: (message) => this.#notifyActionsOnce(message),
+      clones: () => this.#clones(),
+      linkWorktree: (key, root) => this.#linkWorktree(key, root),
       // Broadcast manual action refusals because the runner does not identify the requesting client (R25).
       notify: (message, kind) => {
         const safe = ['action-permission-unsupported', 'action-agent-unavailable', 'action-settings-changed', 'not-a-merge',
-          'action-unavailable', 'session-running', 'no-checkout', 'no-prompt', 'no-default-branch', 'no-pull-request', 'already-run'].includes(kind ?? '');
+          'action-unavailable', 'session-running', 'no-worktree', 'no-clone', 'worktree-unavailable', 'no-prompt', 'no-default-branch', 'no-pull-request', 'already-run'].includes(kind ?? '');
         for (const client of this.#clients.values()) {
           client.send({ type: 'notice', level: 'info', message: safe ? message : this.#scopeMessage(message) });
         }
       },
     });
-    this.#actions.configure(this.#config.actions, this.#config.agents);
+    this.#actions.configure(this.#config.actions, this.#config.agents, this.#config.worktree);
     this.#issues = new IssueLookup({
       store: deps.issues,
       sources: () => this.#enabledSources(),
@@ -525,6 +536,32 @@ export class Hub {
         });
 
         return;
+
+      case 'createWorktree': {
+        // A worktree run is a dispatch like any action, so a page's request is bounded the same way (R32, R46).
+        if (connected.hello.hostId === null) {
+          const refusal = this.#browserDispatchRefusal(connected);
+
+          if (refusal !== null) {
+            connected.send({ type: 'notice', level: 'info', message: refusal });
+
+            return;
+          }
+        }
+
+        if (!this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === message.key))) {
+          this.#scopeRefusal(connected);
+          return;
+        }
+
+        const refused = this.#actions.createWorktree(this.#lanes(false), message.key);
+
+        if (refused) {
+          connected.send({ type: 'notice', level: 'info', message: refused.message });
+        }
+
+        return;
+      }
 
       case 'openCheckout':
         void this.#openCheckout(connected, message.key);
@@ -966,7 +1003,7 @@ export class Hub {
     this.#deps.log.setLevel(this.#config.logLevel);
     // Sweep with the current retention on every settings application, so a shortened retention applies without restart.
     pruneMarkers(this.#deps.registries.agents, this.#deps.stateDir, this.#deps.clock.now(), this.#config.logs.dispatchRetentionMs);
-    this.#actions?.configure(this.#config.actions, this.#config.agents);
+    this.#actions?.configure(this.#config.actions, this.#config.agents, this.#config.worktree);
 
     const refused = configureSources(this.#deps.registries, this.#config.sources, boardPolicyOf(this.#config));
 
@@ -1714,6 +1751,22 @@ export class Hub {
    * limit, because a limit the developer set for their own requests is not consent for a page to spend it.
    */
   #browserStartRefusal(client: Connected, projected: readonly Lane[], key: string): string | null {
+    const refusal = this.#browserDispatchRefusal(client);
+
+    if (refusal !== null) {
+      return refusal;
+    }
+
+    const action = projected.flatMap((lane) => lane.cards).find((card) => card.key === key)?.action;
+
+    // An editor click is itself the opt-in for a disabled action (R32); a page's click is not.
+    return action !== undefined && actionEnabled(action.action, this.#config.actions)
+      ? null
+      : 'That card action is turned off in Settings.';
+  }
+
+  /** What every page-asked dispatch needs: a visible tab, the browser opt-in, and a positive daily allowance (R39). */
+  #browserDispatchRefusal(client: Connected): string | null {
     if (!client.watching) {
       return 'Open this project tab to run a card action from the browser.';
     }
@@ -1728,12 +1781,92 @@ export class Hub {
       return 'Set groundControl.actions.dailyLimit above zero to run a card action from the browser.';
     }
 
-    const action = projected.flatMap((lane) => lane.cards).find((card) => card.key === key)?.action;
+    return null;
+  }
 
-    // An editor click is itself the opt-in for a disabled action (R32); a page's click is not.
-    return action !== undefined && actionEnabled(action.action, this.#config.actions)
-      ? null
-      : 'That card action is turned off in Settings.';
+  /**
+   * Clones to search for worktrees (R46). The hub keeps no repository list, so the roots come from directories it
+   * already knows, plus the setting for a repository it has never seen.
+   */
+  #worktreeScan(): WorktreeScan {
+    const roots = new Set<string>();
+
+    for (const session of this.#sessions?.sessions ?? []) {
+      if (session.checkoutRoot !== null) roots.add(session.checkoutRoot);
+    }
+    // History records only the working directory; the scan resolves the checkout above it.
+    for (const session of this.#history) roots.add(session.cwd);
+    for (const root of Object.values(this.#deps.checkouts.read())) roots.add(root);
+    // A recorded worktree names its own clone, so a clone reached only through one is still searched.
+    for (const root of Object.values(this.#deps.worktrees.read())) roots.add(root);
+    for (const client of this.#clients.values()) {
+      if (client.hello.workspaceRoot !== null) roots.add(client.hello.workspaceRoot);
+    }
+    // Ignore a relative configured path rather than resolving it: the hub's working directory is not the editor's.
+    for (const root of this.#config.repositoryRoots) {
+      if (isAbsolute(root)) roots.add(root);
+    }
+
+    return { roots: [...roots], pattern: compilePattern(this.#config.branchIssuePattern).pattern, recorded: this.#deps.worktrees.read() };
+  }
+
+  /** The clones the scan roots belong to, kept for a second: `#lanes` runs several times per broadcast over the same roots. */
+  #clones(): Clone[] {
+    const roots = this.#worktreeScan().roots;
+    const key = roots.join('\n');
+    const now = this.#deps.clock.now();
+
+    if (this.#clonesMemo !== null && this.#clonesMemo.key === key && now - this.#clonesMemo.at < CLONES_MEMO_MS) {
+      return this.#clonesMemo.clones;
+    }
+
+    const clones = clonesOf(roots, this.#readers());
+
+    this.#clonesMemo = { key, at: now, clones };
+
+    return clones;
+  }
+
+  /**
+   * Record the worktree a run reported for a card (R46), once git registers the directory in a clone of the
+   * card's repository and scope admits it. The reason is returned where it cannot be recorded.
+   */
+  #linkWorktree(key: string, reported: string): string | null {
+    const card = this.#lanes(false).flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+    const wanted = card?.issue == null ? null : repositoryKey(card.issue.url);
+
+    if (wanted === null) {
+      return 'The card left the board before its worktree was recorded.';
+    }
+
+    if (!isAbsolute(reported)) {
+      return `The run reported "${reported}", which is not an absolute path.`;
+    }
+
+    const root = normalize(reported);
+
+    if (!this.#rootAllowed(root)) {
+      return `The run reported ${root}, which the session settings exclude.`;
+    }
+
+    // The reported directory is scanned as a root itself, so a worktree in a clone the hub never saw still registers.
+    const found = worktreeIndex([...this.#worktreeScan().roots, root], this.#readers(), null).byRoot.get(dirKey(root));
+
+    if (found === undefined) {
+      return `The run reported ${root}, which git does not register as a working tree.`;
+    }
+
+    if (found.repository !== wanted) {
+      return `The run reported ${root}, which is not a working tree of ${card?.issue?.repository ?? wanted}.`;
+    }
+
+    if (!this.#deps.worktrees.write(key, found.root)) {
+      return `Could not record ${root} as the card's worktree. Check write access to the hub directory.`;
+    }
+
+    this.#deps.log.info(`${key}: worktree recorded at ${found.root}`, 'actions');
+
+    return null;
   }
 
   #scopeRefusal(client: Connected): void {
@@ -1769,12 +1902,12 @@ export class Hub {
       boardStatuses: this.#config.boardStatuses, statusLanes: this.#config.statusLanes, logins: items?.owners ?? [],
     }, this.#memory());
     const checked = withCheckouts(withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now()),
-      this.#deps.checkouts.read(), this.#readers()).map((lane) => ({ ...lane, cards: lane.cards.map((card) => {
-        if (card.checkout && !this.#rootAllowed(card.checkout.root)) {
-          const { checkout: _checkout, ...rest } = card;
-          return rest;
-        }
-        return card;
+      this.#deps.checkouts.read(), this.#readers(), this.#worktreeScan()).map((lane) => ({ ...lane, cards: lane.cards.map((card) => {
+        const result = { ...card };
+        // Scope hides a directory wherever it appears, or an excluded worktree would still be named and openable.
+        if (result.checkout && !this.#rootAllowed(result.checkout.root)) delete result.checkout;
+        if (result.worktree && !this.#rootAllowed(result.worktree.root)) delete result.worktree;
+        return result;
       }) }));
     const lanes = this.#actions.decorate(checked);
     if (!projected) return lanes;
@@ -1792,15 +1925,22 @@ export class Hub {
       if (restrictedSessionScope(scope)) {
         if (result.action?.state === 'done') result.action = { ...result.action, detail: 'Action finished. Session details are hidden by session scope.' };
         if (result.action?.state === 'refused') result.action = { ...result.action, reason: 'This action is unavailable under the current session settings or safety checks.' };
+        // A worktree run's detail names the directory it made, and a refusal names the clones it found.
+        if (result.creation?.state === 'done') result.creation = { ...result.creation, detail: 'The worktree run finished. Session details are hidden by session scope.' };
+        if (result.creation?.state === 'refused') result.creation = { ...result.creation, reason: 'A worktree cannot be made under the current session settings.' };
       }
       return result;
     }) }));
     const present = new Set(shown.flatMap((lane) => lane.cards).map((card) => card.key));
     for (const run of Object.values(this.#deps.actions.read().runs)) {
       if (run.outcome !== 'running' || present.has(run.key)) continue;
+      // A worktree run shows as the action it precedes; one asked for alone shows on the worktree control (R46).
+      const action = run.action === CREATE_WORKTREE ? run.next : run.action;
       shown.find((lane) => lane.id === 'build')?.cards.push({
         key: run.key, issue: null, issueNumber: null, sessions: [], lane: 'build', returned: false,
-        attention: null, reason: 'Ground Control action is running.', action: { state: 'running', action: run.action, since: run.startedAt },
+        attention: null, reason: 'Ground Control action is running.',
+        ...(action === undefined ? {} : { action: { state: 'running', action, since: run.startedAt, ...(run.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : {}) } }),
+        ...(run.action === CREATE_WORKTREE ? { creation: { state: 'running', since: run.startedAt } } : {}),
       });
     }
     return shown;

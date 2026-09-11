@@ -100,7 +100,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   };
 }
 
-const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn(), startSession: vi.fn(), showCardRows: vi.fn() };
+const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), createWorktree: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn(), startSession: vi.fn(), showCardRows: vi.fn() };
 
 interface State {
   snapshot: Snapshot | null;
@@ -119,6 +119,7 @@ beforeEach(() => {
   actions.repaint.mockReset();
   actions.watchLog.mockReset();
   actions.openCheckout.mockReset();
+  actions.createWorktree.mockReset();
   actions.retriage.mockReset();
   actions.showCardRows.mockReset();
   actions.runAction.mockReset();
@@ -2939,7 +2940,7 @@ describe('card actions (R39)', () => {
     show(acting({ state: 'available', action: 'merge-upstream' }));
 
     expect(mark()?.getAttribute('aria-label')).toBe('Run merge upstream');
-    expect(tipOf(mark())).toBe('Start Merge upstream in this card\u2019s checkout.');
+    expect(tipOf(mark())).toBe('Start Merge upstream in this card\u2019s worktree.');
 
     mark()!.click();
 
@@ -3612,5 +3613,158 @@ describe('what the page says about its filter and its viewer', () => {
     expect(viewerLogin(document)).toBeNull();
     expect(filterText(document)).toBeNull();
     expect(filterBox(document)).toBeNull();
+  });
+});
+
+/**
+ * R46: the open control says when the checkout is the issue's worktree, and one further control, offered where
+ * the hub says the card has none, makes one. The board builds the same sentences, so both are pinned here and there.
+ */
+describe('the worktree in the bar', () => {
+  const at = Date.UTC(2026, 8, 1, 19, 0, 0);
+  // Branch and directory differ, so an implementation that used either one alone fails a test below.
+  const WORKTREE = { root: 'd:/work/wt/4501-badge', branch: '4501-inbox-badge', only: true };
+  const AS_CHECKOUT = { root: WORKTREE.root, source: 'worktree' as const, only: true };
+
+  const show = (over: Partial<LanedCard>) =>
+    paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [], ...over })] }], openable: [] }) }), NOW, actions);
+  const open = () => document.querySelector<HTMLButtonElement>('.gc-tail .gc-tool[aria-label="Open in VS Code"]');
+  const create = () => document.querySelector<HTMLButtonElement>('.gc-tail .gc-tool[aria-label="Create a worktree for this issue"]');
+  const run = () => document.querySelector<HTMLButtonElement>('button.gc-run');
+  const said = () => document.querySelector<HTMLElement>('.gc-verdict .gc-note')?.textContent;
+
+  it('says the checkout it opens is the worktree, naming the branch', () => {
+    show({ worktree: WORKTREE, checkout: AS_CHECKOUT });
+
+    expect(tipOf(open())).toBe('Open the worktree on 4501-inbox-badge at d:/work/wt/4501-badge in VS Code');
+    expect(create()).toBeNull();
+  });
+
+  it('names the directory where HEAD is detached and there is no branch', () => {
+    show({ worktree: { ...WORKTREE, branch: null }, checkout: AS_CHECKOUT });
+
+    expect(tipOf(open())).toBe('Open the worktree on 4501-badge at d:/work/wt/4501-badge in VS Code');
+  });
+
+  it('reads the two spellings of one directory as the same one', () => {
+    show({ worktree: WORKTREE, checkout: { ...AS_CHECKOUT, root: 'D:\\work\\wt\\4501-badge' } });
+
+    expect(tipOf(open())).toContain('the worktree on 4501-inbox-badge');
+  });
+
+  it('says nothing of the worktree when the checkout is another directory', () => {
+    show({ worktree: WORKTREE, checkout: { root: 'd:/work/repo', source: 'session', only: false } });
+
+    expect(tipOf(open())).toBe('Open d:/work/repo in VS Code');
+  });
+
+  // The hub decides where the offer is made: a card it sends without `creation` has no control, whatever else it carries.
+  it('offers to create one only where the hub offers it, and asks the hub on press', () => {
+    show({});
+
+    expect(create()).toBeNull();
+
+    show({ creation: { state: 'available' } });
+
+    expect(tipOf(create())).toBe('No worktree for this issue. Run the worktree prompt to create one.');
+
+    create()!.click();
+
+    expect(actions.createWorktree).toHaveBeenCalledWith('issue-4501');
+  });
+
+  it('states why none can be made, and takes no press', () => {
+    show({ creation: { state: 'refused', reason: 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.' } });
+
+    const refused = document.querySelector<HTMLButtonElement>('.gc-tail .gc-tool[aria-label="Cannot create a worktree"]')!;
+
+    expect(tipOf(refused)).toBe('No worktree for this issue. Set groundControl.worktree.prompt so one can be created.');
+    expect(refused.getAttribute('aria-disabled')).toBe('true');
+
+    // The press must neither ask nor reach GitHub's card behind the control, which would open the issue.
+    const reached = vi.fn();
+
+    document.body.addEventListener('click', reached);
+    refused.click();
+
+    expect(actions.createWorktree).not.toHaveBeenCalled();
+    expect(reached).not.toHaveBeenCalled();
+  });
+
+  it('says the worktree is being made while the run is on, and stops it on press', () => {
+    show({ creation: { state: 'running', since: at } });
+
+    const busy = document.querySelector<HTMLButtonElement>('.gc-tail .gc-tool[aria-label="Stop creating the worktree"]')!;
+
+    expect(tipOf(busy)).toBe('A session is creating a worktree for this issue. Click to stop it. What it made so far stays.');
+    expect(busy.dataset.state).toBe('running');
+    expect(create()).toBeNull();
+
+    busy.click();
+
+    expect(actions.stopAction).toHaveBeenCalledWith('issue-4501');
+    expect(actions.createWorktree).not.toHaveBeenCalled();
+  });
+
+  it('says how the last run ended, and offers to try again', () => {
+    show({ creation: { state: 'done', outcome: 'halted', detail: 'The run ended without reporting a worktree.', at } });
+
+    expect(tipOf(create())).toBe('Stopped short: The run ended without reporting a worktree. Click to try again.');
+    expect(create()!.dataset.outcome).toBe('halted');
+
+    create()!.click();
+
+    expect(actions.createWorktree).toHaveBeenCalledWith('issue-4501');
+  });
+
+  it('says the run control will make the worktree first where the card has none', () => {
+    show({ creation: { state: 'available' }, action: { state: 'available', action: 'merge-upstream' } });
+
+    expect(tipOf(run())).toBe('Create a worktree for this card, then start Merge upstream in it.');
+
+    show({ worktree: WORKTREE, checkout: AS_CHECKOUT, action: { state: 'available', action: 'merge-upstream' } });
+
+    expect(tipOf(run())).toBe('Start Merge upstream in this card\u2019s worktree.');
+    expect(create()).toBeNull();
+  });
+
+  it('says the action is at its worktree stage, and stops from either control', () => {
+    show({ creation: { state: 'running', since: at }, action: { state: 'running', action: 'merge-upstream', since: at, stage: 'worktree' } });
+
+    expect(said()).toBe('Creating worktree…');
+    expect(run()?.getAttribute('aria-label')).toBe('Stop merge upstream');
+    expect(tipOf(run())).toBe('Merge upstream is waiting for its worktree, which a session is creating. Click to stop.');
+
+    run()!.click();
+
+    expect(actions.stopAction).toHaveBeenCalledWith('issue-4501');
+  });
+
+  // The badge is rebuilt only when its signature changes, so each worktree state has to be in the signature.
+  it('rebuilds the badge as the worktree is offered, made, and gone', () => {
+    const badge = () => document.querySelector<HTMLElement>('.gc-badge')!;
+
+    show({ creation: { state: 'available' } });
+    const offered = badge();
+
+    show({ creation: { state: 'running', since: at } });
+    const pending = badge();
+
+    expect(pending).not.toBe(offered);
+    expect(create()).toBeNull();
+
+    show({ worktree: WORKTREE, checkout: AS_CHECKOUT });
+    const made = badge();
+
+    expect(made).not.toBe(pending);
+    expect(tipOf(open())).toContain('the worktree on 4501-inbox-badge');
+
+    show({ worktree: { ...WORKTREE, branch: '4501-renamed' }, checkout: AS_CHECKOUT });
+
+    expect(tipOf(open())).toContain('the worktree on 4501-renamed');
+
+    show({ creation: { state: 'available' } });
+
+    expect(create()).not.toBeNull();
   });
 });

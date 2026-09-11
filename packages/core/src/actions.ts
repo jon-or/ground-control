@@ -12,6 +12,12 @@ export function isAutomatable(action: TriageAction): action is AutomatableAction
   return (AUTOMATABLE_ACTIONS as readonly string[]).includes(action);
 }
 
+/** The run that makes a card's worktree (R46). Not a triage action: it is asked for, or prepended to one. */
+export const CREATE_WORKTREE = 'create-worktree';
+
+/** Anything the board dispatches as a session: a card action, or the worktree run that precedes one. */
+export type DispatchedAction = AutomatableAction | typeof CREATE_WORKTREE;
+
 /** Action enablement and prompt. Missing settings or an empty prompt disable automatic runs (R32). */
 export interface ActionSetting {
   enabled: boolean;
@@ -62,7 +68,9 @@ export interface ActionSettings {
  */
 export interface ActionRun {
   key: string;
-  action: AutomatableAction;
+  action: DispatchedAction;
+  /** The action a worktree run was prepended to, dispatched in the worktree once it is reported (R46). */
+  next?: AutomatableAction | undefined;
   /** Action-rule revision; older runs do not block a new dispatch. */
   revision: number;
   evidence: string;
@@ -96,13 +104,15 @@ export interface ActionRefusalRecord {
 }
 
 /**
- * Session-written result used to settle an action; not independent verification.
+ * Session-written result used to settle an action; not independent verification. A worktree run reports
+ * `ready` and the absolute path of the worktree it made (R46).
  */
 export interface ActionReport {
-  outcome: 'pushed' | 'halted';
+  outcome: 'pushed' | 'halted' | 'ready';
   detail: string;
   /** Optional report path for display. */
   auditPath?: string | undefined;
+  worktree?: string | undefined;
 }
 
 /**
@@ -132,5 +142,16 @@ export const ACTION_REVISION = 2;
 export type CardAction =
   | { state: 'available'; action: AutomatableAction }
   | { state: 'refused'; action: AutomatableAction; reason: string }
-  | { state: 'running'; action: AutomatableAction; since: number }
+  /** `stage` is `worktree` while the run that precedes the action is still making the worktree (R46). */
+  | { state: 'running'; action: AutomatableAction; since: number; stage?: 'worktree' }
   | { state: 'done'; action: AutomatableAction; outcome: ActionOutcome; detail: string; at: number };
+
+/**
+ * The worktree control's state on a card with no worktree (R46). Absent where the card has one, has no issue, or
+ * is read-only. Running and done describe the worktree run itself, whether asked for alone or before an action.
+ */
+export type WorktreeCreation =
+  | { state: 'available' }
+  | { state: 'refused'; reason: string }
+  | { state: 'running'; since: number }
+  | { state: 'done'; outcome: ActionOutcome; detail: string; at: number };

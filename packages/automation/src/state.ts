@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ACTION_REVISION, AUTOMATABLE_ACTIONS } from '@ground-control/core';
+import { ACTION_REVISION, AUTOMATABLE_ACTIONS, CREATE_WORKTREE } from '@ground-control/core';
 import type {
   ActionOutcome,
   ActionRefusalRecord,
@@ -9,6 +9,7 @@ import type {
   AutomatableAction,
   CardAction,
   Lane,
+  WorktreeCreation,
 } from '@ground-control/core';
 
 /** Rolling dispatch-count window, preserved across hub restarts. */
@@ -19,7 +20,8 @@ export const ACTION_GATE_MS = 30 * 60 * 1000;
 
 const actionRun = z.object({
   key: z.string(),
-  action: z.enum(AUTOMATABLE_ACTIONS),
+  action: z.enum([...AUTOMATABLE_ACTIONS, CREATE_WORKTREE]),
+  next: z.enum(AUTOMATABLE_ACTIONS).optional(),
   revision: z.number(),
   evidence: z.string(),
   startedAt: z.number(),
@@ -82,11 +84,15 @@ export function readActionState(stored: unknown): ActionState {
   };
 }
 
-/** Session-reported outcome. `pushed` maps to landed; completion is not independently verified (R39). */
+/**
+ * Session-reported outcome. `pushed` maps to landed; completion is not independently verified (R39). A worktree
+ * run reports `ready` with the worktree's path (R46).
+ */
 const actionReport = z.object({
-  outcome: z.enum(['pushed', 'halted']),
+  outcome: z.enum(['pushed', 'halted', 'ready']),
   detail: z.string().min(1),
   auditPath: z.string().optional(),
+  worktree: z.string().min(1).optional(),
 });
 
 /** Parse the session result file, or return null for invalid data. */
@@ -104,7 +110,8 @@ export function readActionReport(stored: unknown): ActionReport | null {
 export function alreadyRun(state: ActionState, key: string, evidence: string): boolean {
   const run = state.runs[key];
 
-  if (run === undefined || run.revision !== ACTION_REVISION || run.outcome === 'failed') {
+  // A worktree run has no PR evidence and is not the action; the action after it reads its own (R46).
+  if (run === undefined || run.revision !== ACTION_REVISION || run.outcome === 'failed' || run.action === CREATE_WORKTREE) {
     return false;
   }
 
@@ -126,16 +133,20 @@ export function dispatchesInWindow(state: ActionState, now: number): number {
   return state.dispatches.filter((at) => now - at < DISPATCH_WINDOW_MS).length;
 }
 
-/** Record the attempt and timestamp regardless of its outcome. */
-export function withDispatch(state: ActionState, run: ActionRun, now: number): ActionState {
+/**
+ * Record the attempt and timestamp regardless of its outcome. A run that continues one already counted — the
+ * action after its worktree run — is not counted again: one request is one attempt against the daily limit.
+ */
+export function withDispatch(state: ActionState, run: ActionRun, now: number, counted = true): ActionState {
   const refusals = { ...state.refusals };
   delete refusals[run.key];
+  const dispatches = state.dispatches.filter((at) => now - at < DISPATCH_WINDOW_MS);
 
   return {
     runs: { ...state.runs, [run.key]: run },
     refusals,
     gates: { ...state.gates, [run.key]: now + ACTION_GATE_MS },
-    dispatches: [...state.dispatches.filter((at) => now - at < DISPATCH_WINDOW_MS), now],
+    dispatches: counted ? [...dispatches, now] : dispatches,
   };
 }
 
@@ -208,7 +219,8 @@ export function nextActionState(
 
 /**
  * Select action display state: running/completed result, refusal, then availability. Availability allows a
- * manual request even when automatic dispatch is disabled.
+ * manual request even when automatic dispatch is disabled. A worktree run shows as the action it precedes; one
+ * asked for alone shows on the worktree control instead (`worktreeCreationOf`), and the action stays offerable.
  */
 export function cardActionOf(
   state: ActionState,
@@ -217,18 +229,25 @@ export function cardActionOf(
   offerRefusal: string | null,
 ): CardAction | undefined {
   const run = state.runs[key];
+  // A worktree run stands for the action it precedes while running, and where it ended short of the action; one
+  // that linked its worktree is over, and the action's own record or refusal follows.
+  const shown = run === undefined || run.action !== CREATE_WORKTREE
+    ? run
+    : run.next === undefined || run.outcome === 'landed' ? undefined : { ...run, action: run.next };
 
-  if (run !== undefined && run.outcome === 'running') {
-    return { state: 'running', action: run.action, since: run.startedAt };
+  if (shown !== undefined && shown.outcome === 'running') {
+    return shown.action === CREATE_WORKTREE
+      ? undefined
+      : { state: 'running', action: shown.action, since: shown.startedAt, ...(run?.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : {}) };
   }
 
-  if (run !== undefined) {
+  if (shown !== undefined && shown.action !== CREATE_WORKTREE) {
     return {
       state: 'done',
-      action: run.action,
-      outcome: run.outcome,
-      detail: run.detail,
-      at: run.endedAt ?? run.startedAt,
+      action: shown.action,
+      outcome: shown.outcome,
+      detail: shown.detail,
+      at: shown.endedAt ?? shown.startedAt,
     };
   }
 
@@ -243,4 +262,22 @@ export function cardActionOf(
   }
 
   return offerRefusal === null ? { state: 'available', action } : { state: 'refused', action, reason: offerRefusal };
+}
+
+/**
+ * The worktree control's state on a card with no worktree (R46): the run making one, its outcome where it made
+ * none, else the offer or its refusal. The caller omits it where the card has a worktree or is read-only.
+ */
+export function worktreeCreationOf(state: ActionState, key: string, offerRefusal: string | null): WorktreeCreation {
+  const run = state.runs[key];
+
+  if (run?.action === CREATE_WORKTREE && run.outcome === 'running') {
+    return { state: 'running', since: run.startedAt };
+  }
+
+  if (run?.action === CREATE_WORKTREE) {
+    return { state: 'done', outcome: run.outcome, detail: run.detail, at: run.endedAt ?? run.startedAt };
+  }
+
+  return offerRefusal === null ? { state: 'available' } : { state: 'refused', reason: offerRefusal };
 }

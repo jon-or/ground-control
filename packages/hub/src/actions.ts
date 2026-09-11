@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { ACTION_REVISION, DEFAULT_ACTIONS, fillTemplate, isAutomatable } from '@ground-control/core';
-import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, CardCheckout, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource } from '@ground-control/core';
+import { ACTION_REVISION, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, fillTemplate, isAutomatable, repositoryKey } from '@ground-control/core';
+import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, Clone, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource, WorktreeSettings } from '@ground-control/core';
 import {
   actionEnabled,
   alreadyRun,
@@ -17,6 +17,8 @@ import {
   withOutcome,
   withRefusal,
   withSession,
+  worktreeCreationOf,
+  worktreePromptValues,
 } from '@ground-control/automation';
 import type { ActionPlan, ActionRefusal } from '@ground-control/automation';
 import { read } from './fs.js';
@@ -40,14 +42,27 @@ export interface ActionDeps {
   notify(message: string, kind?: string): void;
   /** Recheck the full roster and current checkout authorization after asynchronous source reads. */
   currentCard?(key: string): LanedCard | undefined;
+  /** The clones the hub knows, where a worktree run starts (R46). */
+  clones(): readonly Clone[];
+  /** Record the worktree a run reported for the card once git registers it in the card's repository; else why not. */
+  linkWorktree(key: string, root: string): string | null;
 }
 
 /** Time allowed for the CLI to print its dispatch ID (M33). */
 const DISPATCH_TIMEOUT_MS = 60_000;
 
-/** Require a checkout used by a session for unattended edits (R39). User-selected folders allow only manual starts (R41, R42). */
-function sessionCheckout(card: LanedCard): CardCheckout | null {
-  return card.checkout?.source === 'session' ? card.checkout : null;
+/** A card with an issue, which a worktree run needs to name the branch after. */
+type IssueCard = LanedCard & { issueNumber: number; issue: NonNullable<LanedCard['issue']> };
+
+function hasIssue(card: LanedCard): card is IssueCard {
+  return card.issue !== null && card.issueNumber !== null;
+}
+
+/** How a run was asked for: by a click, by the automatic check, or as the action after its worktree run. */
+interface Request {
+  asked: boolean;
+  /** The worktree run already counted this request against the daily limit and cleared its record. */
+  chained: boolean;
 }
 
 /** Run supported card actions without changing lane placement. Outcomes come from session reports (R39). */
@@ -58,6 +73,7 @@ export class ActionRunner {
   readonly #stopping = new Set<string>();
   /** Disable automatic dispatch until a client supplies settings. */
   #settings: ActionSettings = { ...DEFAULT_ACTIONS, dailyLimit: 0 };
+  #worktree: WorktreeSettings = DEFAULT_WORKTREE;
   #agentPaths = new Map<string, { path: string; model: string | null }>();
   /** Settings used to authorize pending context reads. Changed settings require a fresh request. */
   #configuration = '';
@@ -70,10 +86,11 @@ export class ActionRunner {
     this.#deps = deps;
   }
 
-  configure(settings: ActionSettings, agents: readonly { id: string; path: string; model?: string | undefined }[]): void {
+  configure(settings: ActionSettings, agents: readonly { id: string; path: string; model?: string | undefined }[], worktree: WorktreeSettings): void {
     this.#settings = settings;
+    this.#worktree = worktree;
     this.#agentPaths = new Map(agents.map((agent) => [agent.id, { path: agent.path, model: agent.model ?? null }]));
-    this.#configuration = JSON.stringify([settings, agents]);
+    this.#configuration = JSON.stringify([settings, agents, worktree]);
   }
 
   /** Card keys with running actions, used for display and duplicate prevention. */
@@ -154,8 +171,8 @@ export class ActionRunner {
         return;
       }
 
-      for (const key of this.#due(lanes)) {
-        void this.#run(key, lanes, false);
+      for (const card of this.#due(lanes)) {
+        void this.#run(card.key, card, { asked: false, chained: false });
       }
     } finally {
       this.#considering = false;
@@ -181,6 +198,15 @@ export class ActionRunner {
    * positive daily limits. A zero daily limit disables automatic starts only (R32, R39).
    */
   runAction(lanes: readonly Lane[], key: string): ReadFailure | null {
+    return this.#request(lanes, key, false);
+  }
+
+  /** Make the card's worktree without an action after it (R46). Bounded like a manual action: it is one. */
+  createWorktree(lanes: readonly Lane[], key: string): ReadFailure | null {
+    return this.#request(lanes, key, true);
+  }
+
+  #request(lanes: readonly Lane[], key: string, worktreeOnly: boolean): ReadFailure | null {
     if (this.#disposed) {
       return refusal('action-stopping', 'The board is shutting down.');
     }
@@ -204,7 +230,13 @@ export class ActionRunner {
       return refusal('action-daily-limit', 'Card action limit reached for the last 24 hours.');
     }
 
-    void this.#run(key, lanes, true);
+    const card = lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+
+    if (worktreeOnly) {
+      void this.#runWorktree(key, card, { asked: true, chained: false });
+    } else {
+      void this.#run(key, card, { asked: true, chained: false });
+    }
 
     return null;
   }
@@ -263,23 +295,37 @@ export class ActionRunner {
     }
   }
 
-  /** Display stored outcomes and refusals, then available manual actions regardless of automatic enablement. */
+  /**
+   * Display stored outcomes and refusals, then available manual actions regardless of automatic enablement, and
+   * the worktree control's state on a card that has none (R46).
+   */
   decorate(lanes: readonly Lane[]): Lane[] {
     const state = this.#deps.store.read();
+    const clones = this.#deps.clones();
 
     return lanes.map((lane) => ({
       ...lane,
       cards: lane.cards.map((card): LanedCard => {
         const action = actionOf(card);
-        const decorated = cardActionOf(state, card.key, action, this.#offerRefusal(action, card));
+        const decorated = cardActionOf(state, card.key, action, this.#offerRefusal(action, card, clones));
+        const creation = this.#creatable(card) ? worktreeCreationOf(state, card.key, this.#worktreeRefusal(card, clones)) : undefined;
 
-        return decorated === undefined ? card : { ...card, action: decorated };
+        return {
+          ...card,
+          ...(decorated === undefined ? {} : { action: decorated }),
+          ...(creation === undefined ? {} : { creation }),
+        };
       }),
     }));
   }
 
+  /** Creating needs an issue to name the branch after; archived and unassigned cards are read-only (R9). */
+  #creatable(card: LanedCard): card is IssueCard {
+    return hasIssue(card) && card.worktree === undefined && card.unassigned !== true && card.lane !== 'archived';
+  }
+
   /** Report action refusals that require no GitHub read. */
-  #offerRefusal(action: AutomatableAction | null, card: LanedCard): string | null {
+  #offerRefusal(action: AutomatableAction | null, card: LanedCard, clones: readonly Clone[]): string | null {
     if (action === null) {
       return null;
     }
@@ -289,8 +335,12 @@ export class ActionRunner {
       return 'This card has an active session.';
     }
 
-    if (sessionCheckout(card) === null) {
-      return 'No checkout from a previous session is available for this card.';
+    if (card.worktree === undefined) {
+      const refused = hasIssue(card) ? this.#worktreeRefusal(card, clones) : 'This card has no issue to make a worktree for.';
+
+      if (refused !== null) {
+        return refused;
+      }
     }
 
     return promptFor(action, this.#settings) === null
@@ -298,11 +348,22 @@ export class ActionRunner {
       : null;
   }
 
+  /** Why no worktree run can start for the card: no prompt, or no single clone of its repository (R46). */
+  #worktreeRefusal(card: IssueCard, clones: readonly Clone[]): string | null {
+    if (this.#worktree.prompt.trim() === '') {
+      return 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.';
+    }
+
+    const found = cloneFor(card, clones);
+
+    return 'refusal' in found ? found.refusal : null;
+  }
+
   /**
    * Select enabled candidate actions with no active run and an expired read gate. Check alreadyRun only after
    * fetching fresh evidence, so a changed head can permit retry after a halted run.
    */
-  #due(lanes: readonly Lane[]): string[] {
+  #due(lanes: readonly Lane[]): LanedCard[] {
     const state = this.#deps.store.read();
     const now = this.#deps.now();
     const free = this.#settings.concurrency - this.#busy();
@@ -311,7 +372,8 @@ export class ActionRunner {
       return [];
     }
 
-    const due: string[] = [];
+    const clones = this.#deps.clones();
+    const due: LanedCard[] = [];
 
     for (const lane of lanes) {
       for (const card of lane.cards) {
@@ -323,12 +385,12 @@ export class ActionRunner {
           actionEnabled(action, this.#settings) &&
           state.runs[card.key]?.outcome !== 'running' &&
           !this.#inFlight.has(card.key) &&
-          // Wait for session history before checking GitHub; an early no-checkout refusal would delay an eligible card.
-          sessionCheckout(card) !== null &&
+          // Wait for a worktree, or the means to make one, before checking GitHub; an early refusal would delay an eligible card.
+          (card.worktree !== undefined || (hasIssue(card) && this.#worktreeRefusal(card, clones) === null)) &&
           card.sessions.length === 0 &&
           gateOpen(state, card.key, now)
         ) {
-          due.push(card.key);
+          due.push(card);
         }
       }
     }
@@ -342,6 +404,7 @@ export class ActionRunner {
     // Finished background sessions remain listed (M33); presence alone would prevent completion.
     const live = new Set(sessions.filter((session) => !session.finished).map((session) => session.sessionId));
     const cards = new Map(lanes.flatMap((lane) => lane.cards).map((card) => [card.key, card]));
+    const continued: string[] = [];
     let next = state;
 
     for (const [key, run] of Object.entries(state.runs)) {
@@ -378,12 +441,27 @@ export class ActionRunner {
         continue;
       }
 
-      next = this.#settled(next, key);
+      if (run.action === CREATE_WORKTREE) {
+        const made = this.#settledWorktree(next, key);
+
+        next = made.state;
+
+        if (made.linked && run.next !== undefined) {
+          continued.push(key);
+        }
+      } else {
+        next = this.#settled(next, key);
+      }
     }
 
     if (next !== state) {
       this.#write(next);
       this.#deps.changed();
+    }
+
+    // The action the worktree run preceded starts now, in the worktree the card carries after the write above.
+    for (const key of continued) {
+      void this.#run(key, this.#deps.currentCard?.(key), { asked: false, chained: true });
     }
   }
 
@@ -408,43 +486,52 @@ export class ActionRunner {
     );
   }
 
+  /**
+   * Settle a worktree run from its result file (R46). Landed means the reported path is now the card's
+   * worktree; a path git does not register, or one outside scope, halts the run with the reason.
+   */
+  #settledWorktree(state: ActionState, key: string): { state: ActionState; linked: boolean } {
+    const report = readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)));
+    const now = this.#deps.now();
+
+    if (report?.outcome !== 'ready' || report.worktree === undefined) {
+      this.#deps.log.info(`${key}: no worktree reported`, 'actions');
+      const detail = report?.outcome === 'halted' ? report.detail : 'The run ended without reporting a worktree.';
+
+      return { state: withOutcome(state, key, 'halted', detail, now), linked: false };
+    }
+
+    const refused = this.#deps.linkWorktree(key, report.worktree);
+
+    if (refused !== null) {
+      this.#deps.log.warn(`${key}: reported worktree ${report.worktree} not linked: ${refused}`, 'actions');
+
+      return { state: withOutcome(state, key, 'halted', refused, now), linked: false };
+    }
+
+    this.#deps.log.info(`${key}: worktree ${report.worktree} reported`, 'actions');
+
+    return { state: withOutcome(state, key, 'landed', `Created ${report.worktree}. ${report.detail}`, now), linked: true };
+  }
+
   /** Read fresh context, validate, then dispatch or record the refusal. */
-  async #run(key: string, lanes: readonly Lane[], asked: boolean): Promise<void> {
+  async #run(key: string, card: LanedCard | undefined, request: Request): Promise<void> {
     const controller = new AbortController();
     this.#inFlight.set(key, controller);
 
     try {
       const configuration = this.#configuration;
-      let card = lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
       const source = this.#deps.sources.find((candidate) => candidate.readContext !== undefined);
-      const selected = this.#settings.agent ?? 'auto';
-      const agent = this.#deps.agents.find(
-        (candidate) => candidate.dispatch !== undefined && this.#agentPaths.has(candidate.id) && (selected === 'auto' || candidate.id === selected),
-      );
-      const configured = agent ? this.#agentPaths.get(agent.id) : undefined;
+      const agent = this.#agent();
 
       if (card?.issue == null || source === undefined) {
-        this.#refuse(key, asked, { kind: 'action-unavailable', message: 'The board cannot act on that card.' });
+        this.#refuse(key, request, { kind: 'action-unavailable', message: 'The board cannot act on that card.' });
 
         return;
       }
 
-      if (agent === undefined || configured === undefined) {
-        this.#refuse(key, asked, {
-          kind: 'action-agent-unavailable',
-          message: selected === 'auto'
-            ? 'No enabled agent supports card actions. Enable a supported agent in groundControl.agents.'
-            : `The selected action agent "${selected}" is not enabled or cannot dispatch. Enable it in groundControl.agents or change groundControl.actions.agent.`,
-        });
-
-        return;
-      }
-
-      if (!agent.dispatchPermissions?.includes(this.#settings.permissionMode)) {
-        this.#refuse(key, asked, {
-          kind: 'action-permission-unsupported',
-          message: `${agent.displayName} cannot use "${this.#settings.permissionMode}" for card actions. Set groundControl.actions.permissionMode to a supported mode (${agent.dispatchPermissions?.join(', ') || 'none declared'}) or change groundControl.actions.agent.`,
-        });
+      if ('refusal' in agent) {
+        this.#refuse(key, request, agent.refusal);
 
         return;
       }
@@ -453,7 +540,7 @@ export class ActionRunner {
       const action = actionOf(card);
 
       if (action === null) {
-        this.#refuse(key, asked, { kind: 'not-a-merge', message: 'This card has no merge-upstream action.' });
+        this.#refuse(key, request, { kind: 'not-a-merge', message: 'This card has no merge-upstream action.' });
 
         return;
       }
@@ -462,18 +549,18 @@ export class ActionRunner {
 
       if (this.#deps.currentCard) card = this.#deps.currentCard(key);
       if (controller.signal.aborted || card === undefined) {
-        this.#refuse(key, asked, { kind: 'action-unavailable', message: 'This card is no longer available. Nothing was started.' });
+        this.#refuse(key, request, { kind: 'action-unavailable', message: 'This card is no longer available. Nothing was started.' });
         return;
       }
 
       if (configuration !== this.#configuration) {
-        this.#refuse(key, asked, { kind: 'action-settings-changed', message: 'Action settings changed while reading the card. Retry with the current settings.' });
+        this.#refuse(key, request, { kind: 'action-settings-changed', message: 'Action settings changed while reading the card. Retry with the current settings.' });
 
         return;
       }
 
       if (reading.context === null) {
-        this.#refuse(key, asked, {
+        this.#refuse(key, request, {
           kind: 'context-empty',
           message: reading.failure?.message ?? 'The card could not be read, so nothing was started.',
         });
@@ -486,19 +573,19 @@ export class ActionRunner {
         context: reading.context,
         lane: card.lane,
         liveSessions: card.sessions.length,
-        checkout: sessionCheckout(card),
         settings: this.#settings,
       });
 
       if (!decision.ok) {
-        this.#refuse(key, asked, decision.refusal);
+        this.#refuse(key, request, decision.refusal);
 
         return;
       }
 
-      // Check persisted runs separately from fresh context. Manual retries bypass this check and retain the previous outcome.
-      if (!asked && alreadyRun(this.#deps.store.read(), key, decision.plan.evidence)) {
-        this.#refuse(key, asked, {
+      // Check persisted runs separately from fresh context. Manual retries bypass this check and retain the
+      // previous outcome; a chained run follows its own worktree run's record.
+      if (!request.asked && !request.chained && alreadyRun(this.#deps.store.read(), key, decision.plan.evidence)) {
+        this.#refuse(key, request, {
           kind: 'already-run',
           message: 'This action already ran for the card’s current state.',
         });
@@ -506,10 +593,21 @@ export class ActionRunner {
         return;
       }
 
-      await this.#dispatch(key, decision.plan, agent, configured, controller.signal, asked);
+      // The action needs a worktree to work in (R46). Without one, the worktree run goes first and this action after.
+      if (card.worktree === undefined) {
+        if (!hasIssue(card)) {
+          this.#refuse(key, request, { kind: 'action-unavailable', message: 'This card is no longer available. Nothing was started.' });
+        } else {
+          await this.#dispatchWorktree(key, card, action, agent, controller.signal, request);
+        }
+
+        return;
+      }
+
+      await this.#dispatch(key, decision.plan, card.worktree.root, agent, controller.signal, request);
     } catch (error: unknown) {
       // Record adapter exceptions as refusals so subsequent broadcasts respect retry limits.
-      this.#refuse(key, asked, {
+      this.#refuse(key, request, {
         kind: 'action-crashed',
         message: error instanceof Error ? error.message : String(error),
       });
@@ -519,18 +617,81 @@ export class ActionRunner {
     }
   }
 
+  /** A worktree run asked for on its own (R46): no context read, since the run's prompt reads what it needs. */
+  async #runWorktree(key: string, card: LanedCard | undefined, request: Request): Promise<void> {
+    const controller = new AbortController();
+    this.#inFlight.set(key, controller);
+
+    try {
+      const agent = this.#agent();
+
+      if (card === undefined || !this.#creatable(card)) {
+        this.#refuse(key, request, { kind: 'worktree-unavailable', message: 'The board cannot make a worktree for that card.' });
+
+        return;
+      }
+
+      if ('refusal' in agent) {
+        this.#refuse(key, request, agent.refusal);
+
+        return;
+      }
+
+      await this.#dispatchWorktree(key, card, undefined, agent, controller.signal, request);
+    } catch (error: unknown) {
+      this.#refuse(key, request, {
+        kind: 'action-crashed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.#inFlight.delete(key);
+      this.#deps.changed();
+    }
+  }
+
+  /** The dispatching agent the settings select, checked for a permission mode it accepts. */
+  #agent(): { agent: AgentAdapter; configured: { path: string; model: string | null } } | { refusal: ActionRefusal } {
+    const selected = this.#settings.agent ?? 'auto';
+    const agent = this.#deps.agents.find(
+      (candidate) => candidate.dispatch !== undefined && this.#agentPaths.has(candidate.id) && (selected === 'auto' || candidate.id === selected),
+    );
+    const configured = agent ? this.#agentPaths.get(agent.id) : undefined;
+
+    if (agent === undefined || configured === undefined) {
+      return {
+        refusal: {
+          kind: 'action-agent-unavailable',
+          message: selected === 'auto'
+            ? 'No enabled agent supports card actions. Enable a supported agent in groundControl.agents.'
+            : `The selected action agent "${selected}" is not enabled or cannot dispatch. Enable it in groundControl.agents or change groundControl.actions.agent.`,
+        },
+      };
+    }
+
+    if (!agent.dispatchPermissions?.includes(this.#settings.permissionMode)) {
+      return {
+        refusal: {
+          kind: 'action-permission-unsupported',
+          message: `${agent.displayName} cannot use "${this.#settings.permissionMode}" for card actions. Set groundControl.actions.permissionMode to a supported mode (${agent.dispatchPermissions?.join(', ') || 'none declared'}) or change groundControl.actions.agent.`,
+        },
+      };
+    }
+
+    return { agent, configured };
+  }
+
   async #dispatch(
     key: string,
     plan: ActionPlan,
-    agent: AgentAdapter,
-    configured: { path: string; model: string | null },
+    checkout: string,
+    { agent, configured }: { agent: AgentAdapter; configured: { path: string; model: string | null } },
     signal: AbortSignal,
-    asked: boolean,
+    request: Request,
   ): Promise<void> {
     const template = promptFor(plan.action, this.#settings);
 
     if (template === null) {
-      this.#refuse(key, asked, {
+      this.#refuse(key, request, {
         kind: 'no-prompt',
         message: `Set a prompt for ${plan.action} before starting it.`,
       });
@@ -541,7 +702,7 @@ export class ActionRunner {
     const reportPath = actionReportPathOf(this.#deps.stateDir, key);
 
     if (!clearReport(reportPath)) {
-      this.#refuse(key, asked, {
+      this.#refuse(key, request, {
         kind: 'report-unclearable',
         message: `Could not clear the previous result at ${reportPath}. No new run was started.`,
       });
@@ -551,9 +712,9 @@ export class ActionRunner {
 
     const outcome = await agent.dispatch!({
       path: configured.path,
-      prompt: fillTemplate(template, promptValues(plan, reportPath)),
-      name: dispatchName(plan),
-      cwd: plan.checkout,
+      prompt: fillTemplate(template, promptValues(plan, checkout, reportPath)),
+      name: dispatchName(plan.action, plan.issueNumber),
+      cwd: checkout,
       permissionMode: this.#settings.permissionMode,
       model: this.#settings.model === undefined ? configured.model : this.#settings.model || null,
       timeoutMs: DISPATCH_TIMEOUT_MS,
@@ -566,7 +727,7 @@ export class ActionRunner {
     if ('failure' in outcome) {
       this.#deps.log.warn(`${key}: ${plan.action} could not be started: ${outcome.failure.message}`, 'actions');
     } else {
-      this.#deps.log.info(`${key}: started ${plan.action} as ${outcome.shortId} in ${plan.checkout}`, 'actions');
+      this.#deps.log.info(`${key}: started ${plan.action} as ${outcome.shortId} in ${checkout}`, 'actions');
     }
 
     this.#write(
@@ -583,17 +744,110 @@ export class ActionRunner {
           sessionId: null,
           shortId: failed ? '' : outcome.shortId,
           outcome: failed ? 'failed' : 'running',
-          detail: failed ? outcome.failure.message : `Working in ${plan.checkout}.`,
+          detail: failed ? outcome.failure.message : `Working in ${checkout}.`,
         },
         now,
+        !request.chained,
       ),
     );
 
     // Announce only successful starts so a failed dispatch does not consume the one-time notice.
     if (!failed) {
       this.#deps.announce(
-        `Started ${plan.action} for #${plan.issueNumber} in ${plan.checkout}. ` +
+        `Started ${plan.action} for #${plan.issueNumber} in ${checkout}. ` +
           'The agent may edit and push changes. Disable future automatic runs in groundControl.actions.',
+      );
+    }
+  }
+
+  /**
+   * Start the worktree prompt in the card's clone (R46). `next` is the action that follows once the run reports
+   * the worktree; the record carries it so settling knows what to start.
+   */
+  async #dispatchWorktree(
+    key: string,
+    card: IssueCard,
+    next: AutomatableAction | undefined,
+    { agent, configured }: { agent: AgentAdapter; configured: { path: string; model: string | null } },
+    signal: AbortSignal,
+    request: Request,
+  ): Promise<void> {
+    const template = this.#worktree.prompt.trim();
+
+    if (template === '') {
+      this.#refuse(key, request, {
+        kind: 'no-worktree',
+        message: 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.',
+      });
+
+      return;
+    }
+
+    const clone = cloneFor(card, this.#deps.clones());
+
+    if ('refusal' in clone) {
+      this.#refuse(key, request, { kind: 'no-clone', message: clone.refusal });
+
+      return;
+    }
+
+    const reportPath = actionReportPathOf(this.#deps.stateDir, key);
+
+    if (!clearReport(reportPath)) {
+      this.#refuse(key, request, {
+        kind: 'report-unclearable',
+        message: `Could not clear the previous result at ${reportPath}. No new run was started.`,
+      });
+
+      return;
+    }
+
+    const outcome = await agent.dispatch!({
+      path: configured.path,
+      prompt: fillTemplate(template, worktreePromptValues(card, clone.cwd, reportPath)),
+      name: dispatchName(CREATE_WORKTREE, card.issueNumber),
+      cwd: clone.cwd,
+      permissionMode: this.#settings.permissionMode,
+      model: this.#settings.model === undefined ? configured.model : this.#settings.model || null,
+      timeoutMs: DISPATCH_TIMEOUT_MS,
+      signal,
+    });
+
+    const now = this.#deps.now();
+    const failed = 'failure' in outcome;
+
+    if ('failure' in outcome) {
+      this.#deps.log.warn(`${key}: ${CREATE_WORKTREE} could not be started: ${outcome.failure.message}`, 'actions');
+    } else {
+      this.#deps.log.info(`${key}: started ${CREATE_WORKTREE} as ${outcome.shortId} in ${clone.cwd}${next === undefined ? '' : `, then ${next}`}`, 'actions');
+    }
+
+    this.#write(
+      withDispatch(
+        this.#deps.store.read(),
+        {
+          key,
+          action: CREATE_WORKTREE,
+          ...(next === undefined ? {} : { next }),
+          revision: ACTION_REVISION,
+          // A worktree run has no PR head to key on; the action after it reads its own fresh evidence.
+          evidence: '',
+          startedAt: now,
+          endedAt: failed ? now : null,
+          agent: agent.id,
+          sessionId: null,
+          shortId: failed ? '' : outcome.shortId,
+          outcome: failed ? 'failed' : 'running',
+          detail: failed ? outcome.failure.message : `Creating a worktree from ${clone.cwd}.`,
+        },
+        now,
+      ),
+    );
+
+    if (!failed) {
+      this.#deps.announce(
+        `Started a worktree run for #${card.issueNumber} in ${clone.cwd}. ` +
+          'The agent may create branches and directories. Disable future automatic runs in groundControl.actions.',
       );
     }
   }
@@ -602,8 +856,8 @@ export class ActionRunner {
    * Persist automatic refusals and their retry gates. Return manual refusals as notices without closing the
    * next attempt's gate; manual validation completes asynchronously after the click (R25).
    */
-  #refuse(key: string, asked: boolean, refused: ActionRefusal): void {
-    if (asked) {
+  #refuse(key: string, request: Request, refused: ActionRefusal): void {
+    if (request.asked) {
       this.#deps.notify(refused.message, refused.kind);
 
       return;
@@ -618,6 +872,27 @@ function actionOf(card: LanedCard): AutomatableAction | null {
   const reading = card.triage?.state === 'done' ? card.triage.action : null;
 
   return reading !== null && isAutomatable(reading) ? reading : null;
+}
+
+/**
+ * The one clone of the card's repository a worktree run starts in: its main working tree, or its git directory
+ * where it has none. Several clones need the developer to narrow the list (R46).
+ */
+function cloneFor(card: IssueCard, clones: readonly Clone[]): { cwd: string } | { refusal: string } {
+  const wanted = repositoryKey(card.issue.url);
+  const named = card.issue.repository ?? wanted;
+  const found = clones.filter((clone) => clone.repository === wanted);
+  const [clone] = found;
+
+  if (clone === undefined) {
+    return { refusal: `Ground Control has no clone of ${named}. Open one in an editor window, or add it to groundControl.repositoryRoots.` };
+  }
+
+  if (found.length > 1) {
+    return { refusal: `Ground Control knows ${found.length} clones of ${named} and cannot choose between them. Narrow groundControl.repositoryRoots.` };
+  }
+
+  return { cwd: clone.root ?? clone.commonDir };
 }
 
 function refusal(kind: string, message: string): ReadFailure {

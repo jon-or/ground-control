@@ -1,5 +1,6 @@
+import { commonDirOf, gitDirOf } from './gitDir.js';
 import type { ReadText } from './machine.js';
-import { isAbsolute, join, normalize, parent } from './paths.js';
+import { join, normalize, parent } from './paths.js';
 
 /** HTTPS and SSH remotes, and issue URLs, compared without credentials or a transport-specific spelling. */
 export function repositoryKey(value: string): string | null {
@@ -32,21 +33,31 @@ function configValue(raw: string): string | null {
   return quoted ? null : result.trim();
 }
 
+/**
+ * Origin identity recorded in a git directory. Null where the config names no usable origin, and undefined
+ * where it has no config at all, which is what tells a caller to keep searching.
+ */
+export function repositoryAt(configDir: string, read: ReadText): string | null | undefined {
+  const config = read(join(configDir, 'config'));
+
+  if (config === null) {
+    return undefined;
+  }
+
+  const origin = config.match(/^\s*\[remote\s+"origin"\]\s*\r?\n([^\[]*)/m)?.[1];
+  const raw = origin?.match(/^\s*url\s*=\s*(.*?)\s*$/m)?.[1];
+  const url = raw ? configValue(raw) : null;
+
+  return url ? repositoryKey(url) : null;
+}
+
 /** A worktree shares its remote configuration through commondir. HEAD is deliberately never read. */
 export function repositoryOf(cwd: string, read: ReadText): string | null {
   let dir: string | null = normalize(cwd);
   while (dir) {
-    const dotGit = join(dir, '.git');
-    const pointer = read(dotGit)?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
-    const gitDir = pointer ? (isAbsolute(pointer) ? normalize(pointer) : join(dir, pointer)) : dotGit;
-    const common = read(join(gitDir, 'commondir'))?.trim();
-    const configDir = common ? (isAbsolute(common) ? normalize(common) : join(gitDir, common)) : gitDir;
-    const config = read(join(configDir, 'config'));
-    if (config !== null) {
-      const origin = config.match(/^\s*\[remote\s+"origin"\]\s*\r?\n([^\[]*)/m)?.[1];
-      const raw = origin?.match(/^\s*url\s*=\s*(.*?)\s*$/m)?.[1];
-      const url = raw ? configValue(raw) : null;
-      return url ? repositoryKey(url) : null;
+    const found = repositoryAt(commonDirOf(gitDirOf(dir, read), read), read);
+    if (found !== undefined) {
+      return found;
     }
     dir = parent(dir);
   }

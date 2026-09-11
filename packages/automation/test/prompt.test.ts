@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dispatchName, promptValues } from '../src/prompt.js';
+import { dispatchName, promptValues, worktreePromptValues } from '../src/prompt.js';
 import { fillTemplate } from '@ground-control/core';
 import type { ActionPlan } from '../src/plan.js';
 
@@ -11,10 +11,9 @@ const PLAN: ActionPlan = {
   pullRequest: 4021,
   branch: '17198-channel-mapping',
   base: 'master',
-  checkout: 'd:/work/repo.worktrees/17198-channel-mapping',
 };
 
-const VALUES = promptValues(PLAN, 'C:/Users/dev/.claude/ground-control/runs/issue-17198.json');
+const VALUES = promptValues(PLAN, 'd:/work/repo.worktrees/17198-channel-mapping', 'C:/Users/dev/.claude/ground-control/runs/issue-17198.json');
 
 describe('dispatch prompt values', () => {
   it('fills prompts from action context', () => {
@@ -53,6 +52,30 @@ describe('dispatch prompt values', () => {
 
 describe('what a dispatched session is called', () => {
   it('names the board, the action and the issue, so it is told from work the developer started', () => {
-    expect(dispatchName(PLAN)).toBe('ground-control · merge-upstream · #17198');
+    expect(dispatchName(PLAN.action, PLAN.issueNumber)).toBe('ground-control · merge-upstream · #17198');
+  });
+
+  it('names a worktree run the same way, so it is told from the action it precedes', () => {
+    expect(dispatchName('create-worktree', 17198)).toBe('ground-control · create-worktree · #17198');
+  });
+});
+
+describe('worktree prompt values', () => {
+  const card = {
+    issueNumber: 17198,
+    issue: { title: 'Channel mapping drops the last row', url: 'https://github.com/example-org/example-repo/issues/17198', repository: 'example-org/example-repo' },
+  };
+  const values = worktreePromptValues(card, 'd:/work/repo', 'C:/Users/dev/.claude/ground-control/runs/issue-17198.json');
+
+  it('defines and fills every supported placeholder', () => {
+    expect(Object.keys(values)).toEqual(['issue', 'repo', 'title', 'url', 'clone', 'resultPath']);
+    expect(fillTemplate('/init-worktree {issue} --report {resultPath} in {clone} for {repo}: {title} {url}', values)).toBe(
+      '/init-worktree 17198 --report C:/Users/dev/.claude/ground-control/runs/issue-17198.json in d:/work/repo ' +
+        'for example-org/example-repo: Channel mapping drops the last row https://github.com/example-org/example-repo/issues/17198',
+    );
+  });
+
+  it('fills an empty repository where the card names none', () => {
+    expect(worktreePromptValues({ ...card, issue: { title: 't', url: 'u' } }, 'd:/work/repo', 'r').repo).toBe('');
   });
 });

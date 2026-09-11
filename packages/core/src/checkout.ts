@@ -1,8 +1,9 @@
 import { dirKey } from './paths.js';
 import { repositoryKey, repositoryOf } from './repository.js';
 import type { BoardCard } from './board.js';
-import type { ListDir, ReadText } from './machine.js';
+import type { CheckoutReaders } from './machine.js';
 import type { Session } from './types.js';
+import type { CardWorktree } from './worktrees.js';
 
 /** Latest activity timestamp for ordering sessions, not evidence of liveness. */
 function activeAt(session: Session): number {
@@ -29,22 +30,16 @@ function ranked(card: Pick<BoardCard, 'sessions' | 'lastSession'>): string[] {
 }
 
 /**
- * A recorded session directory or a developer-selected folder. Matching remotes alone cannot identify a checkout
- * because worktrees share remote configuration (R37).
+ * A recorded session directory, a developer-selected folder, or the worktree for the card's issue. Matching
+ * remotes alone cannot identify a checkout because worktrees share remote configuration (R37).
  */
-export type CheckoutSource = 'session' | 'remembered';
+export type CheckoutSource = 'session' | 'remembered' | 'worktree';
 
 /** Resolved checkout passed to an `OpenRoute`. */
 export interface CardCheckout {
   root: string;
   source: CheckoutSource;
   only: boolean;
-}
-
-/** Filesystem readers for directory access and repository identity. */
-export interface CheckoutReaders {
-  listDir: ListDir;
-  readText: ReadText;
 }
 
 /**
@@ -56,30 +51,33 @@ function reachable(root: string, readers: CheckoutReaders): boolean {
 }
 
 /**
- * Prefer a readable session checkout, then a saved folder that still matches the issue repository. Return null
- * when neither qualifies.
+ * Prefer a readable session checkout, then a saved folder that still matches the issue repository, then the
+ * issue's worktree. An explicit pick outranks a discovered worktree (R41). Null when none qualifies.
  */
 export function checkoutFor(
   card: Pick<BoardCard, 'sessions' | 'lastSession' | 'issue'>,
   remembered: string | undefined,
   readers: CheckoutReaders,
+  worktree: CardWorktree | null = null,
 ): CardCheckout | null {
   // Check all ranked directories so a deleted worktree does not hide another session checkout.
   const dirs = ranked(card).filter((dir) => reachable(dir, readers));
   const [root] = dirs;
 
-  if (root !== undefined) {
-    return { root, source: 'session', only: new Set(dirs.map(dirKey)).size < 2 };
-  }
+  // A worktree the card did not select still qualifies, so a caller must say which directory it used. The one
+  // passed in is the first of its issue's, so a second worktree counts even when the chosen directory is this one.
+  const alone = (chosen: string): boolean => worktree === null || (worktree.only && dirKey(worktree.root) === dirKey(chosen));
 
-  if (remembered === undefined || !reachable(remembered, readers)) {
-    return null;
+  if (root !== undefined) {
+    return { root, source: 'session', only: new Set(dirs.map(dirKey)).size < 2 && alone(root) };
   }
 
   const issue = card.issue;
   const wanted = issue === null ? null : repositoryKey(issue.url);
 
-  return wanted !== null && repositoryOf(remembered, readers.readText) === wanted
-    ? { root: remembered, source: 'remembered', only: true }
-    : null;
+  if (remembered !== undefined && reachable(remembered, readers) && wanted !== null && repositoryOf(remembered, readers.readText) === wanted) {
+    return { root: remembered, source: 'remembered', only: alone(remembered) };
+  }
+
+  return worktree === null ? null : { root: worktree.root, source: 'worktree', only: worktree.only };
 }

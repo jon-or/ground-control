@@ -9,7 +9,7 @@ import { configPathOf, installLockPathOf } from '../src/paths.js';
 import { syncActivity } from '../src/activityInstall.js';
 import { Hub } from '../src/hub.js';
 import { makeActionStore } from '../src/actionStore.js';
-import { makeCheckoutStore } from '../src/checkoutStore.js';
+import { makeCheckoutStore, makeWorktreeStore } from '../src/checkoutStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
@@ -63,7 +63,7 @@ function harness(options: { env?: Record<string, string>; stored?: boolean; lega
   }
   const hub = new Hub({ home, stateDir, registries, clock: clock.clock, log: captureLog().log, watch: () => ({ dispose() {} }),
     lanes: makeLaneStore(stateDir), marks: makeMarkStore(stateDir), triage: makeTriageStore(stateDir), actions: makeActionStore(stateDir),
-    issues: makeIssueStore(stateDir), status: makeStatusStore(stateDir), checkouts: makeCheckoutStore(stateDir),
+    issues: makeIssueStore(stateDir), status: makeStatusStore(stateDir), checkouts: makeCheckoutStore(stateDir), worktrees: makeWorktreeStore(stateDir),
     settings: { read: store.read, write(next) { if (options.failSave) throw new Error('denied'); store.write(next); config = next; } },
     syncActivity: (regs, wanted, where, state, enabled) => syncActivity(regs.agents, wanted, where, state, false, enabled),
   });

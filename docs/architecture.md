@@ -190,6 +190,7 @@ Threading: `home` locates agent defaults, agent settings, and hook writers; `sta
 | `triage-usage.json` | Automatic attempt timestamps for the rolling 24-hour limit |
 | `actions.json` | Runs, retry delays, authorization evidence and daily ledger |
 | `checkouts.json` | Explicit checkout picks by card |
+| `worktrees.json` | The worktree each provisioning run reported, by card (R46) |
 | `issues.json` | Cached issue metadata and confirmed missing issues |
 | `runs/` | Session-written action outcomes |
 | `hub-marks.json` | Installation and announcement state |
@@ -248,7 +249,9 @@ Where deterministic rules fix an action, send that action to the classifier and 
 
 `packages/automation` decides whether a candidate may run. `ActionRunner` handles fresh context, dispatch, session tracking, stop, and persistence. The implemented action is `merge-upstream`; mergeability is not fetched to invent requests.
 
-The card must already have a merge-upstream candidate; a manual request cannot choose a different action. Fresh PR data supplies head commit, branches, ownership, and state for authorization. Only a session-derived checkout qualifies; an explicit checkout pick is insufficient for unattended work. The runner selects the first configured dispatch-capable adapter in registry order, currently Claude before Codex, rather than the card's previous agent. Both registered dispatch adapters also implement stop; the runner assumes this pairing when selecting by dispatch capability.
+The card must already have a merge-upstream candidate; a manual request cannot choose a different action. Fresh PR data supplies head commit, branches, ownership, and state for authorization. The run works in the card's worktree (R46); `planAction` states the PR facts and the runner supplies the directory, so a card with no worktree passes the PR checks and then provisions rather than being refused. The runner selects the first configured dispatch-capable adapter in registry order, currently Claude before Codex, rather than the card's previous agent. Both registered dispatch adapters also implement stop; the runner assumes this pairing when selecting by dispatch capability.
+
+**Worktree runs.** `CREATE_WORKTREE` is a `DispatchedAction`, not a triage action: `ActionRun.action` takes it, and `ActionRun.next` names the action it precedes, or nothing for one asked for alone. `#dispatchWorktree` fills `worktree.prompt` with `worktreePromptValues` and dispatches it from the clone `cloneFor` picks out of `ActionDeps.clones()` — the hub's `clonesOf` over `#worktreeScan` roots — refusing where there is no clone or more than one. `#settle` routes a `create-worktree` run to `#settledWorktree`, which reads the same result file, requires `ready` with `worktree`, and calls `ActionDeps.linkWorktree`; the hub's `#linkWorktree` normalizes the path, checks scope, indexes the reported directory as a root itself so a clone never seen before still registers, requires the entry's repository to be the card's, and writes `worktrees.json`. A linked run with `next` re-enters `#run` as a chained request, which `withDispatch` does not count again; `alreadyRun` ignores worktree runs, which carry no PR evidence. `cardActionOf` shows a chained worktree run as its `next` action running at `stage: 'worktree'`, and one that ended short of the action as that action done; a linked run, or one with no `next`, never reaches `card.action`. `worktreeCreationOf` gives the worktree control its state, and `decorate` puts it on `card.creation` only for a card with an issue, no worktree, and not read-only. The worktree session starts in the clone, so it links to an ad-hoc card of the clone, not the issue's card; `#settle` finds it by short id like any dispatched session.
 
 Concurrency counts tracked runs as well as dispatches in progress. Defaults are one concurrent run, ten dispatch attempts per rolling 24 hours, and 30 minutes for a dispatched session to appear on the roster. Configuration permits concurrency 1–4, daily limit 0–50, and appearance timeout 1 minute–4 hours. The appearance timeout does not limit the duration of a visible running session.
 
@@ -280,7 +283,9 @@ The resident launches its own `out/cli.js` through `Code.exe` in Node mode, with
 
 ### Checkout opening and new sessions
 
-`checkoutFor` chooses a readable session checkout, then a valid explicit pick. It never chooses by repository match alone. `setCheckout` accepts an absolute folder from the editor picker and validates repository identity.
+`checkoutFor` chooses a readable session checkout, then a valid explicit pick, then the issue's worktree. It never chooses by repository match alone. `setCheckout` accepts an absolute folder from the editor picker and validates repository identity.
+
+`clonesOf` in `core` resolves the distinct clones a set of directories belong to; `worktreesOf` lists one clone's main tree and its registrations under the shared git directory; `worktreeIndex` keys every working tree by `dirKey` and, through `branchIssuePattern`, by repository and issue number; `worktreeFor` picks one card's entry, preferring the root `worktrees.json` records for the card when the index still holds it in the card's repository. `withCheckouts` builds the index once per lane computation behind the same read cache the checkout pass uses, and puts `worktree` on the card independently of `checkout`. The hub assembles the clones to search in `#worktreeScan` from session checkout roots, historical session directories, remembered picks, recorded worktrees, connected client workspace roots, and `repositoryRoots`; it holds no repository list of its own. Scope strips `worktree` alongside `checkout`. Git metadata is read from disk; the project runs no git process.
 
 `planCheckout` reuses a live single-folder window or requests a new one. Browser requests can be performed by a connected editor on that root or another compatible editor; no connected performer yields a specific refusal. Include client hello roots in window discovery so windows running no agent are considered.
 
@@ -306,6 +311,7 @@ The authoritative message types are in [protocol.ts](../packages/core/src/protoc
 | `retriage` | Explicit card classification | Allowed, metered and watching-gated |
 | `runAction`, `stopAction` | Dispatch or stop a card action | Allowed; a start needs `actions.fromBrowser` |
 | `openCheckout` | Open a card's resolved checkout | Allowed |
+| `createWorktree` | Run the worktree prompt for the card alone (R46) | Allowed; needs `actions.fromBrowser`, like a start |
 | `setCheckout` | Validate and save a selected folder | Refused |
 | `startSession` | Agent and card; root, prompt, and window resolved by hub | Allowed, watching-gated |
 | `watchLog` | Subscribe or unsubscribe | Allowed |

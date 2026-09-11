@@ -8,8 +8,9 @@ A personal board for assigned GitHub issues and local Claude Code and Codex sess
 - Organize work in local lanes shared across clients. Moving a card does not change its GitHub status.
 - Reveal or resume sessions, attach to Claude background jobs, open checkouts, and inspect combined changes in VS Code.
 - Start an editor session at a card's checkout. Claude accepts an unsent prompt; Codex opens a bare session.
+- See on a card whether it has a worktree for its issue, and run your own worktree prompt to make one — on its own, or before a card action that needs it.
 - Classify the next action from issue and pull-request context on request; automatic triage requires opt-in.
-- Run a requested merge-upstream action using your prompt. Automatic dispatch is disabled by default; [R39](docs/prd.md#r39-merge-upstream-action) describes checks and implementation limits.
+- Run a requested merge-upstream action using your prompt, in the card's worktree. Automatic dispatch is disabled by default; [R39](docs/prd.md#r39-merge-upstream-action) describes checks and implementation limits.
 
 Working lanes are Unstarted, Plan, Build, Review, Done, and Icebox. Archived contains work outside the configured membership set. [Arrival rules](docs/prd.md#r8-arrival-and-manual-placement) determine placement until you move a card.
 
@@ -72,6 +73,20 @@ Hook changes preserve unrelated agent settings, hooks, and Codex trust entries, 
 
 `newSession.prompt` prefills Claude's composer without submitting. It accepts `{issue}`, `{repo}`, `{title}`, `{url}`, and `{checkout}`; unknown placeholders remain unchanged. Empty prompts and new Codex sessions start without a prompt.
 
+`branchIssuePattern` reads the issue number from a branch or directory name. Its first capture group must be the digits. It links both sessions and worktrees.
+
+### Worktree settings
+
+A card's worktree is a working tree of a clone of its repository: the one a worktree run reported, or one whose branch or directory names the issue. The board finds them in the clones it already knows — clones you have open in an editor, have run a session in, or have picked as a card's folder — and in any absolute path listed in `repositoryRoots`; relative and blank entries are ignored. Every card action runs in the card's worktree.
+
+`worktree.prompt` is your prompt for the session that makes one. It runs with the action agent, model, and permission mode, from the clone's main tree, and accepts `{issue}`, `{repo}`, `{title}`, `{url}`, `{clone}`, and `{resultPath}`. A card action on a card with no worktree runs it first and then the action in the worktree it reports, as one attempt against the daily limit; the create-worktree control in the card's bar runs it alone. The session must write JSON to `{resultPath}` with `outcome` `ready`, `worktree` as the absolute path it made, and `detail`, or `halted` with `detail`, for example:
+
+```json
+{"outcome": "ready", "worktree": "D:/git/repo.worktrees/17198-channel-mapping", "detail": "Branched from origin/master and built."}
+```
+
+The board records the path only where git registers it as a working tree of a clone of the card's repository; the prompt chooses the branch name. Write the prompt to be idempotent — a retry after a run that made the worktree and then failed must find it and report the same path — and to ask nothing, since it runs unattended. An empty prompt refuses both the control and any action on a card with no worktree. Exactly one known clone of the card's repository is required.
+
 ### Agent storage
 
 Set `CLAUDE_CONFIG_DIR` or `CODEX_HOME` before starting VS Code to select a custom agent profile. Both require absolute paths without surrounding whitespace. POSIX paths containing literal backslashes are unsupported. Invalid values are reported rather than replaced with defaults. Unset values use `~/.claude` and `~/.codex`. These existing agent variables control discovery, history, hooks, trust, and Ground Control's CLI launches. They do not move Ground Control's own state.
@@ -108,27 +123,27 @@ Switching to manual cancels automatic readings; switching off cancels all readin
 
 ### Action settings
 
-Setting `actions.merge-upstream.prompt` enables the manual merge control on eligible cards, even with automatic merging disabled. The agent runs in the card's observed checkout and may push changes. Automatic starts also require `actions.merge-upstream.enabled`.
+Setting `actions.merge-upstream.prompt` enables the manual merge control on eligible cards, even with automatic merging disabled. The agent runs in the card's worktree and may push changes; a card with no worktree gets one from `worktree.prompt` first. Automatic starts also require `actions.merge-upstream.enabled`.
 
 `actions.agent` chooses `auto`, `claude`, or `codex`; auto preserves registry order, Claude before Codex, among enabled agents that can dispatch. An explicit selection must also be enabled in `agents`. Both agents can remain available for discovery while card actions use one of them.
 
 `actions.model` selects the coding model; empty uses that CLI's default. `triage.model` affects classification only. Saved hub configurations from older clients inherit each agent's legacy `model` only while the corresponding new model field is absent; an explicit empty field clears that inheritance. The current VS Code client sends both fields, so upgrades stop using the classification model for actions unless it is also set in `actions.model`.
 
-Merge prompts accept `{issue}`, `{repo}`, `{pr}`, `{branch}`, `{base}`, `{checkout}`, and `{resultPath}`. A prompt beginning with `/` invokes a slash command. The session must write JSON to `{resultPath}` with `outcome` (`pushed` or `halted`), `detail`, and optionally `auditPath`, for example:
+Merge prompts accept `{issue}`, `{repo}`, `{pr}`, `{branch}`, `{base}`, `{checkout}` (the worktree), and `{resultPath}`. A prompt beginning with `/` invokes a slash command. The session must write JSON to `{resultPath}` with `outcome` (`pushed` or `halted`), `detail`, and optionally `auditPath`, for example:
 
 ```json
 {"outcome": "pushed", "detail": "Merged the base branch and pushed.", "auditPath": "merge-audit.md"}
 ```
 
-The board reports `pushed` as Merged and missing output as stopped short; it does not independently verify the merge on GitHub. Stacked PRs and cards without a session-derived checkout are refused. See [merge action requirements](docs/prd.md#r39-merge-upstream-action).
+The board reports `pushed` as Merged and missing output as stopped short; it does not independently verify the merge on GitHub. Stacked PRs, and cards with no worktree and no worktree prompt, are refused. See [merge action requirements](docs/prd.md#r39-merge-upstream-action).
 
 `actions.permissionMode` defaults to Claude's `auto`. Claude's `manual` and `acceptEdits` modes can wait for approval in unattended runs; `dontAsk` denies operations needing approval, `plan` cannot write, and `bypassPermissions` disables permission checks. Codex supports only `plan`, `dontAsk`, and `bypassPermissions`. Unsupported agent/mode combinations refuse before reading card context or dispatching; unknown modes reject configuration. Ground Control never substitutes broader permissions.
 
-A positive `actions.dailyLimit` applies to both automatic and manual starts over a rolling 24 hours; zero disables automatic starts but permits manual starts from an editor. `actions.fromBrowser` defaults to off; turning it on lets the GitHub overlay start a card action, which also needs a visible project tab, an enabled action, and a positive `actions.dailyLimit`. Stopping a run needs no setting. `actions.resultMinutes` limits the wait for a dispatched session to appear, not the duration of its work.
+A positive `actions.dailyLimit` applies to both automatic and manual starts over a rolling 24 hours; zero disables automatic starts but permits manual starts from an editor. `actions.fromBrowser` defaults to off; turning it on lets the GitHub overlay start a card action or a worktree run; either also needs a visible project tab and a positive `actions.dailyLimit`, and an action must be enabled. Stopping a run needs no setting. `actions.resultMinutes` limits the wait for a dispatched session to appear, not the duration of its work.
 
 ### Settings this guide does not cover
 
-Every setting is described in the Settings editor under Ground Control. The ones with no paragraph here are `refreshIntervalSeconds` and `sessionRefreshSeconds` (poll intervals), `branchIssuePattern` (how a branch name yields an issue number), `openWindowsForSessions` and `resumeWorktreesInRepositoryWindow` (which window a session opens in), `triage.names`, `triage.concurrency` and `triage.timeoutSeconds`, `actions.concurrency`, `github.ghPath`, and the `hosts` and `sources` objects.
+Every setting is described in the Settings editor under Ground Control. The ones with no paragraph here are `refreshIntervalSeconds` and `sessionRefreshSeconds` (poll intervals), `openWindowsForSessions` and `resumeWorktreesInRepositoryWindow` (which window a session opens in), `triage.names`, `triage.concurrency` and `triage.timeoutSeconds`, `actions.concurrency`, `github.ghPath`, and the `hosts` and `sources` objects.
 
 ## Background process and logs
 

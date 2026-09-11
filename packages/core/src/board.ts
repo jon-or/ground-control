@@ -1,7 +1,8 @@
-import type { CardAction } from './actions.js';
+import type { CardAction, WorktreeCreation } from './actions.js';
 import type { CardCheckout } from './checkout.js';
 import type { IssueCard } from './cards.js';
 import type { CardTriage } from './triage.js';
+import type { CardWorktree } from './worktrees.js';
 import type { HistoricalSession, Session } from './types.js';
 
 export type LaneId = 'unstarted' | 'plan' | 'build' | 'review' | 'done' | 'icebox' | 'archived';
@@ -50,6 +51,10 @@ export interface LanedCard extends BoardCard {
   action?: CardAction;
   /** Resolved checkout, when available. */
   checkout?: CardCheckout;
+  /** The worktree for this card's issue, independent of which checkout was resolved (R46). */
+  worktree?: CardWorktree;
+  /** The offer to make a worktree, or the run making one; absent where the card has one or is read-only (R46). */
+  creation?: WorktreeCreation;
 }
 
 export interface Lane {

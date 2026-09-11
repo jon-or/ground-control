@@ -87,6 +87,8 @@ export type ClientMessage =
   | { type: 'stopAction'; key: string }
   // Open the hub-resolved checkout. The requesting root comes from client hello.
   | { type: 'openCheckout'; key: string }
+  // Run the worktree prompt for the card, then open the worktree it reports (R46).
+  | { type: 'createWorktree'; key: string }
   // Editor-selected absolute folder, validated by the hub. Browser clients cannot supply paths.
   | { type: 'setCheckout'; key: string; root: string }
   // Start the selected agent. An editor reports its own readiness; a browser cannot, so the performing

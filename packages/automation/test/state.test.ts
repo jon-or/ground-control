@@ -13,6 +13,7 @@ import {
   readActionState,
   running,
   withDispatch,
+  worktreeCreationOf,
   withOutcome,
   withRefusal,
   withSession,
@@ -105,6 +106,17 @@ describe('action reports', () => {
     expect(readActionReport({ outcome: 'landed', detail: 'x' })).toBe(null);
     expect(readActionReport({ outcome: 'pushed', detail: '' })).toBe(null);
     expect(readActionReport(null)).toBe(null);
+  });
+
+  // A worktree run reports where it made the worktree; the path is what the hub records (R46).
+  it('reads a worktree report with its path, and rejects one naming no path worth recording', () => {
+    expect(readActionReport({ outcome: 'ready', detail: 'Built.', worktree: 'd:/work/wt/refund' })).toEqual({
+      outcome: 'ready',
+      detail: 'Built.',
+      worktree: 'd:/work/wt/refund',
+    });
+    expect(readActionReport({ outcome: 'ready', detail: 'Built.', worktree: '' })).toBe(null);
+    expect(readActionReport({ outcome: 'ready', detail: 'Built.' })).toEqual({ outcome: 'ready', detail: 'Built.' });
   });
 });
 
@@ -311,5 +323,96 @@ describe('what a card says about its action', () => {
       detail: 'Conflicts.',
       at: NOW + 5,
     });
+  });
+
+  // The worktree run before an action is that action's first stage; one asked for alone is not an action at all (R46).
+  describe('while a worktree run is on the card', () => {
+    const making = (next?: 'merge-upstream') => withDispatch(EMPTY_ACTIONS, run({ action: 'create-worktree', ...(next === undefined ? {} : { next }) }), NOW);
+
+    it('shows the action it precedes as running, at its worktree stage', () => {
+      expect(cardActionOf(making('merge-upstream'), 'issue:17198', 'merge-upstream', null)).toEqual({
+        state: 'running',
+        action: 'merge-upstream',
+        since: NOW,
+        stage: 'worktree',
+      });
+    });
+
+    it('leaves the action offerable while a worktree run asked for alone is running', () => {
+      expect(cardActionOf(making(), 'issue:17198', 'merge-upstream', null)).toEqual({ state: 'available', action: 'merge-upstream' });
+      expect(cardActionOf(making(), 'issue:17198', null, null)).toBeUndefined();
+    });
+
+    it('reports a worktree run that ended short of the action as that action, done', () => {
+      const state = withOutcome(making('merge-upstream'), 'issue:17198', 'halted', 'No worktree reported.', NOW + 5);
+
+      expect(cardActionOf(state, 'issue:17198', null, null)).toEqual({
+        state: 'done',
+        action: 'merge-upstream',
+        outcome: 'halted',
+        detail: 'No worktree reported.',
+        at: NOW + 5,
+      });
+    });
+
+    // The action's own record or refusal follows a linked run; showing the action as done would claim it ran.
+    it('says nothing about a worktree run that linked its worktree, whatever it preceded', () => {
+      const state = withOutcome(making('merge-upstream'), 'issue:17198', 'landed', 'Created d:/wt.', NOW + 5);
+
+      expect(cardActionOf(state, 'issue:17198', 'merge-upstream', null)).toEqual({ state: 'available', action: 'merge-upstream' });
+      expect(cardActionOf(withRefusal(state, 'issue:17198', { kind: 'k', message: 'Draft.' }, NOW + 6), 'issue:17198', 'merge-upstream', null)).toEqual({
+        state: 'refused',
+        action: 'merge-upstream',
+        reason: 'Draft.',
+      });
+    });
+
+    it('says nothing about a finished worktree run that preceded no action', () => {
+      const state = withOutcome(making(), 'issue:17198', 'halted', 'No worktree reported.', NOW + 5);
+
+      expect(cardActionOf(state, 'issue:17198', 'merge-upstream', null)).toEqual({ state: 'available', action: 'merge-upstream' });
+    });
+  });
+});
+
+describe('what a card says about making its worktree', () => {
+  const making = withDispatch(EMPTY_ACTIONS, run({ action: 'create-worktree', next: 'merge-upstream' }), NOW);
+
+  it('offers to make one, or says why it cannot', () => {
+    expect(worktreeCreationOf(EMPTY_ACTIONS, 'issue:17198', null)).toEqual({ state: 'available' });
+    expect(worktreeCreationOf(EMPTY_ACTIONS, 'issue:17198', 'No prompt.')).toEqual({ state: 'refused', reason: 'No prompt.' });
+  });
+
+  it('shows the run making one, whether asked for alone or before an action', () => {
+    expect(worktreeCreationOf(making, 'issue:17198', null)).toEqual({ state: 'running', since: NOW });
+  });
+
+  it('shows how the last run ended, over any refusal', () => {
+    const state = withOutcome(making, 'issue:17198', 'halted', 'No worktree reported.', NOW + 5);
+
+    expect(worktreeCreationOf(state, 'issue:17198', 'No prompt.')).toEqual({ state: 'done', outcome: 'halted', detail: 'No worktree reported.', at: NOW + 5 });
+  });
+
+  it('says nothing about an action run, which is not a worktree run', () => {
+    expect(worktreeCreationOf(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', null)).toEqual({ state: 'available' });
+  });
+});
+
+describe('what a worktree run leaves for the action after it', () => {
+  it('never blocks the action: a worktree run has no PR evidence, whatever its outcome', () => {
+    const linked = withOutcome(withDispatch(EMPTY_ACTIONS, run({ action: 'create-worktree', next: 'merge-upstream' }), NOW), 'issue:17198', 'landed', 'Created.', NOW + 5);
+
+    expect(alreadyRun(linked, 'issue:17198', '17198|4021|abc')).toBe(false);
+    expect(alreadyRun(withOutcome(linked, 'issue:17198', 'halted', 'No worktree.', NOW + 5), 'issue:17198', '17198|4021|abc')).toBe(false);
+  });
+});
+
+describe('what a chained run costs', () => {
+  it('counts the action after a worktree run as no new attempt', () => {
+    const first = withDispatch(EMPTY_ACTIONS, run({ action: 'create-worktree', next: 'merge-upstream' }), NOW);
+    const second = withDispatch(first, run(), NOW + 60_000, false);
+
+    expect(second.dispatches).toEqual([NOW]);
+    expect(second.runs['issue:17198']?.action).toBe('merge-upstream');
   });
 });

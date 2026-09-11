@@ -95,6 +95,7 @@
     refresh: () => post({ type: 'refresh' }),
     move: (key, lane) => post({ type: 'move', key, lane }),
     openCheckout: (key) => post({ type: 'openCheckout', key }),
+    createWorktree: (key) => post({ type: 'createWorktree', key }),
     retriage: (key) => post({ type: 'retriage', key }),
     runAction: (key) => post({ type: 'runAction', key }),
     stopAction: (key) => post({ type: 'stopAction', key }),

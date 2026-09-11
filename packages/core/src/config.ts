@@ -20,6 +20,13 @@ export interface HubConfig {
   agentHomes?: Record<string, string> | undefined;
   /** Matches an issue number in a branch or directory name. The team's convention, so it ships as a default. */
   branchIssuePattern: string;
+  /**
+   * Extra clones to scan for worktrees (R46), added to the roots sessions and editor windows already supply.
+   * Needed only for a repository the hub has never otherwise seen.
+   */
+  repositoryRoots: string[];
+  /** The prompt that makes a card's worktree (R46). */
+  worktree: WorktreeSettings;
   hosts: Record<string, unknown>;
   sources: Record<string, unknown>;
   boardStatuses: string[];
@@ -50,6 +57,14 @@ export interface LogSettings {
   kept: number;
   /** Age after which <agent>-dispatch-<id>.log files are deleted. */
   dispatchRetentionMs: number;
+}
+
+/**
+ * Prompt for the session that creates a card's worktree, run from the clone with the action agent (R46). Empty
+ * disables creation, and an action on a card with no worktree is refused rather than started.
+ */
+export interface WorktreeSettings {
+  prompt: string;
 }
 
 /**
@@ -209,6 +224,10 @@ const actions = z.object({
     .default({}),
 });
 
+export const DEFAULT_WORKTREE: WorktreeSettings = { prompt: '' };
+
+const worktree = z.object({ prompt: z.string().catch('').default('') });
+
 export const DEFAULT_NEW_SESSION: NewSessionSettings = { prompt: '' };
 
 // Preserve prompt text as entered; it does not start work automatically.
@@ -217,6 +236,10 @@ const newSession = z.object({ prompt: z.string().catch('').default('') });
 export const hubConfig = z.object({
   agents: z.array(z.object({ id: z.string().min(1), path: spawnable, model: z.string().min(1).optional() })),
   branchIssuePattern: z.string(),
+  // Absent from a configuration written by a client that predates worktree discovery. One blank entry drops
+  // itself, not the list.
+  repositoryRoots: z.array(z.unknown()).catch([]).default([]).transform((roots) => roots.filter((root): root is string => typeof root === 'string' && root.trim() !== '')),
+  worktree: worktree.default(DEFAULT_WORKTREE),
   hosts: z.record(z.string(), z.unknown()),
   sources: z.record(z.string(), z.unknown()),
   boardStatuses: z.array(z.string()),

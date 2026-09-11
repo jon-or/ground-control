@@ -46,6 +46,7 @@ type Inbound =
   | { type: 'attachSession'; sessionId: string }
   | { type: 'openChanges'; key: string }
   | { type: 'openCheckout'; key: string }
+  | { type: 'createWorktree'; key: string }
   | { type: 'chooseCheckout'; key: string }
   | { type: 'startSession'; key: string; agent: string }
   | { type: 'toggleLogs' }
@@ -304,6 +305,11 @@ export class BoardPanel {
 
       case 'openCheckout':
         this.#tell({ type: 'openCheckout', key: msg.key });
+
+        return;
+
+      case 'createWorktree':
+        this.#tell({ type: 'createWorktree', key: msg.key });
 
         return;
 

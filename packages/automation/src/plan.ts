@@ -1,7 +1,6 @@
 import type {
   ActionSettings,
   AutomatableAction,
-  CardCheckout,
   LaneId,
   TriageContext,
 } from '@ground-control/core';
@@ -13,7 +12,7 @@ export interface ActionRefusal {
   message: string;
 }
 
-/** Validated dispatch facts from fresh context. */
+/** Validated dispatch facts from fresh context. The directory the run works in is the card's worktree (R46). */
 export interface ActionPlan {
   action: AutomatableAction;
   evidence: string;
@@ -24,7 +23,6 @@ export interface ActionPlan {
   branch: string;
   /** Verified repository default branch to merge from. */
   base: string;
-  checkout: string;
 }
 
 export type ActionDecision = { ok: true; plan: ActionPlan } | { ok: false; refusal: ActionRefusal };
@@ -47,13 +45,12 @@ export interface PlanInput {
   lane: LaneId;
   /** Refuse unattended actions while any session is already on the card (R39). */
   liveSessions: number;
-  checkout: CardCheckout | null;
   settings: ActionSettings;
 }
 
 /** Check fresh context for dispatch eligibility. Return the first, most specific refusal. */
 export function planAction(input: PlanInput): ActionDecision {
-  const { action, context, lane, liveSessions, checkout } = input;
+  const { action, context, lane, liveSessions } = input;
   const pr = context.pullRequest;
 
   if (INACTIVE_LANES.includes(lane)) {
@@ -96,11 +93,6 @@ export function planAction(input: PlanInput): ActionDecision {
     return refuse('session-running', 'This card has an active session.');
   }
 
-  // The caller must supply a session-derived checkout; a manual folder pick does not authorize unattended edits (R37, R39).
-  if (checkout === null) {
-    return refuse('no-checkout', 'No checkout from a previous session is available for this card.');
-  }
-
   return {
     ok: true,
     plan: {
@@ -111,7 +103,6 @@ export function planAction(input: PlanInput): ActionDecision {
       pullRequest: pr.number,
       branch: pr.headRefName,
       base: pr.baseRefName,
-      checkout: checkout.root,
     },
   };
 }

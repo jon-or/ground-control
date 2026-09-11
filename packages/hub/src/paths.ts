@@ -67,6 +67,11 @@ export function checkoutsPathOf(stateDir: string): string {
   return `${stateDir}/checkouts.json`;
 }
 
+/** The worktree each provisioning run reported, by card key (R46). */
+export function worktreesPathOf(stateDir: string): string {
+  return `${stateDir}/worktrees.json`;
+}
+
 /** Shared card action history and dispatch timestamps (R39). */
 export function actionsPathOf(stateDir: string): string {
   return `${stateDir}/actions.json`;

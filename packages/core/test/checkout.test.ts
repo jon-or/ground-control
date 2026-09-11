@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { checkoutFor } from '../src/checkout.js';
-import type { CheckoutReaders } from '../src/checkout.js';
+import type { CheckoutReaders } from '../src/machine.js';
 import type { IssueCard } from '../src/cards.js';
 import type { HistoricalSession, Session } from '../src/types.js';
 
@@ -257,5 +257,49 @@ describe('the checkout a card can be opened in', () => {
     const loose = session({ cwd: 'd:/scratch', checkoutRoot: null });
 
     expect(checkoutFor({ sessions: [loose], issue: null }, undefined, machine(['d:/scratch']))?.root).toBe('d:/scratch');
+  });
+
+  // A discovered worktree is the last resort: it is inferred, while a pick and a session are recorded (R46).
+  describe('and its worktree', () => {
+    const FOUND = { root: 'd:/work/wt/19002-refund-window', branch: '19002-refund-window', only: true };
+
+    it('is the worktree where nothing has run and nothing was picked', () => {
+      expect(checkoutFor({ sessions: [], issue: issue() }, undefined, machine([]), FOUND)).toEqual({
+        root: FOUND.root,
+        source: 'worktree',
+        only: true,
+      });
+    });
+
+    it('prefers a session directory to the worktree', () => {
+      expect(checkoutFor({ sessions: [session()], issue: issue() }, undefined, machine([WORKTREE]), FOUND)?.source).toBe('session');
+    });
+
+    it('prefers the developer’s pick to the worktree', () => {
+      const readers = machine([PICKED], originOf(PICKED, 'git@github.com:Org/Repo.git'));
+
+      expect(checkoutFor({ sessions: [], issue: issue() }, PICKED, readers, FOUND)?.source).toBe('remembered');
+    });
+
+    it('says a session checkout is not the only one when a separate worktree also qualifies', () => {
+      expect(checkoutFor({ sessions: [session()], issue: issue() }, undefined, machine([WORKTREE]), FOUND)?.only).toBe(false);
+    });
+
+    it('says the checkout is the only one when the session ran in the worktree itself', () => {
+      const inside = { ...FOUND, root: WORKTREE };
+
+      expect(checkoutFor({ sessions: [session()], issue: issue() }, undefined, machine([WORKTREE]), inside)?.only).toBe(true);
+    });
+
+    // The index hands over the first worktree of the issue; a session in that one still has a second to choose from.
+    it('says a session in the first of two worktrees is not the only checkout', () => {
+      const first = { ...FOUND, root: WORKTREE, only: false };
+
+      expect(checkoutFor({ sessions: [session()], issue: issue() }, undefined, machine([WORKTREE]), first)?.only).toBe(false);
+    });
+
+    it('carries the worktree’s own ambiguity through when it is the checkout', () => {
+      expect(checkoutFor({ sessions: [], issue: issue() }, undefined, machine([]), { ...FOUND, only: false })?.only).toBe(false);
+    });
   });
 });

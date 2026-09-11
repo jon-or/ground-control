@@ -152,6 +152,18 @@ describe('what the browser may ask the hub for', () => {
     expect(bridgeAction({ type: 'openCheckout' })).toEqual({ refused: 'That card cannot be opened.' });
   });
 
+  /** A worktree run is a dispatch; the hub applies the browser opt-in and the limits it applies to runAction (R46). */
+  it('forwards a request to make a card’s worktree, carrying the card key and nothing else', () => {
+    expect(bridgeAction({ type: 'createWorktree', key: 'issue:17198', prompt: 'ignored' })).toEqual({
+      send: { type: 'createWorktree', key: 'issue:17198' },
+    });
+  });
+
+  it('refuses a createWorktree that does not name a card, rather than forwarding it', () => {
+    expect(bridgeAction({ type: 'createWorktree', key: 42 })).toEqual({ refused: 'That card cannot have a worktree created for it.' });
+    expect(bridgeAction({ type: 'createWorktree' })).toEqual({ refused: 'That card cannot have a worktree created for it.' });
+  });
+
   // Reject page-supplied paths by message name (R36, R41).
   it('refuses to choose a card’s folder, which is the one message that would carry a path', () => {
     expect(bridgeAction({ type: 'setCheckout', key: 'issue:17198', root: 'd:/anything' })).toEqual({

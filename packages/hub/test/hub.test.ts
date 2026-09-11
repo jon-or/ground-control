@@ -8,7 +8,7 @@ import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeTriageStore } from '../src/triageStore.js';
-import { makeCheckoutStore } from '../src/checkoutStore.js';
+import { makeCheckoutStore, makeWorktreeStore } from '../src/checkoutStore.js';
 import { makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeStatusStore } from '../src/statusStore.js';
@@ -196,7 +196,7 @@ function harness(
     lanes: makeLaneStore(stateDir),
     marks: makeMarkStore(stateDir),
     triage: makeTriageStore(stateDir),
-    checkouts: makeCheckoutStore(stateDir),
+    checkouts: makeCheckoutStore(stateDir), worktrees: makeWorktreeStore(stateDir),
     actions: makeActionStore(stateDir),
     issues: makeIssueStore(stateDir),
     status: makeStatusStore(stateDir),

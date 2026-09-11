@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { makeClaudeAdapter } from '@ground-control/agent-claude';
 import { killOnMachine, makeCodexAdapter, makeMachineStarter, makeTrustOnMachine, pidAliveOnMachine } from '@ground-control/agent-codex';
 import { DEFAULT_BOARD_STATUSES, DEFAULT_STATUS_LANES } from '@ground-control/board';
-import { DEFAULT_ACTIONS, DEFAULT_AVATAR_POLICY, DEFAULT_BOARD_POLICY, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_SESSION_SCOPE, DEFAULT_TRIAGE, bootstrapDirOf } from '@ground-control/core';
+import { DEFAULT_ACTIONS, DEFAULT_AVATAR_POLICY, DEFAULT_BOARD_POLICY, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_SESSION_SCOPE, DEFAULT_TRIAGE, DEFAULT_WORKTREE, bootstrapDirOf } from '@ground-control/core';
 import type { BoardPolicy } from '@ground-control/core';
 import type { AgentAdapter, HostAdapter, HubConfig, Logger, MachineReaders, ReadFailure, WorkSource } from '@ground-control/core';
 import { makeGithubSource } from '@ground-control/github';
@@ -71,6 +71,8 @@ export function defaultConfig(registries: Registries, readers: MachineReaders): 
       .filter((agent) => agent.enabledByDefault(readers))
       .map((agent) => ({ id: agent.id, path: agent.defaultPath })),
     branchIssuePattern: BRANCH_ISSUE_PATTERN,
+    repositoryRoots: [],
+    worktree: { ...DEFAULT_WORKTREE },
     hosts: Object.fromEntries(registries.hosts.map((host) => [host.id, {}])),
     // Create unconfigured sources so browser-only startup reports missing settings (R25).
     sources: Object.fromEntries(registries.sources.map((source) => [source.id, {}])),

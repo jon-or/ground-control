@@ -4,7 +4,7 @@ import { ACTION_REVISION, DEFAULT_SESSION_SCOPE, bootstrapDirOf, parseHubConfig 
 import type { HistoricalSession, HubConfig, HubMessage, IssueCard, ReadFailure, Session, SessionScope, Snapshot, WorkSource } from '@ground-control/core';
 import { Hub } from '../src/hub.js';
 import { makeActionStore } from '../src/actionStore.js';
-import { makeCheckoutStore } from '../src/checkoutStore.js';
+import { makeCheckoutStore, makeWorktreeStore } from '../src/checkoutStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
@@ -119,7 +119,7 @@ function harness(options: {
   const hub = new Hub({
     home, stateDir, registries, clock: clock.clock, log: logs.log, watch: () => ({ dispose() {} }),
     lanes: makeLaneStore(stateDir), marks: makeMarkStore(stateDir), triage: makeTriageStore(stateDir), actions,
-    checkouts: makeCheckoutStore(stateDir), issues: makeIssueStore(stateDir), status: makeStatusStore(stateDir),
+    checkouts: makeCheckoutStore(stateDir), worktrees: makeWorktreeStore(stateDir), issues: makeIssueStore(stateDir), status: makeStatusStore(stateDir),
     settings: { read: () => ({ config }), write: (next) => { config = next; } },
     syncActivity: (_registries, wanted) => ({ wanted, plan: 'up-to-date', added: 0, failure: null }),
   });

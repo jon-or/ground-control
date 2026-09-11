@@ -1209,6 +1209,10 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   fill: currentColor;
 }
 
+.worktree-mark {
+  fill: currentColor;
+}
+
 .sync-mark {
   fill: currentColor;
 }

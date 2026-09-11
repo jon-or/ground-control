@@ -254,40 +254,50 @@
             "order": 3,
             "markdownDescription": "Regular expression whose first capture group extracts the issue number from a branch or directory name."
           },
+          "groundControl.repositoryRoots": {
+            "scope": "application",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "order": 4,
+            "markdownDescription": "Absolute paths to extra clones to scan for worktrees. Clones you have open in an editor, have run a session in, or have picked as a card's folder are scanned already; add one here only for a repository Ground Control has never seen. Relative and blank entries are ignored."
+          },
           "groundControl.newSession.prompt": {
             "scope": "application",
             "type": "string",
             "default": "",
             "editPresentation": "multilineText",
-            "order": 4,
+            "order": 5,
             "markdownDescription": "Unsent prompt for new Claude sessions, with [card placeholders](https://github.com/jon-or/ground-control/blob/master/README.md#session-settings)."
           },
           "groundControl.installSessionHooks": {
             "scope": "application",
             "type": "boolean",
             "default": true,
-            "order": 5,
+            "order": 6,
             "markdownDescription": "Allow selected session hooks; turning this off removes Ground Control hooks for every agent."
           },
           "groundControl.sessionHooks.claude": {
             "scope": "application",
             "type": "boolean",
             "default": true,
-            "order": 6,
+            "order": 7,
             "markdownDescription": "Install Claude activity hooks when Claude and Install Session Hooks are enabled."
           },
           "groundControl.sessionHooks.codex": {
             "scope": "application",
             "type": "boolean",
             "default": true,
-            "order": 7,
+            "order": 8,
             "markdownDescription": "Install Codex activity hooks when Codex and Install Session Hooks are enabled; disabling reduces live session discovery."
           },
           "groundControl.openWindowsForSessions": {
             "scope": "application",
             "type": "boolean",
             "default": true,
-            "order": 8,
+            "order": 9,
             "markdownDescription": "Allow opening sessions to focus another VS Code window or open a new one."
           },
           "groundControl.sessions.includeRepositories": {
@@ -295,7 +305,7 @@
             "type": "array",
             "items": { "type": "string" },
             "default": [],
-            "order": 9,
+            "order": 10,
             "markdownDescription": "Repositories to show, combined with directory includes using the [session scope rules](https://github.com/jon-or/ground-control/blob/master/README.md#session-scope)."
           },
           "groundControl.sessions.excludeRepositories": {
@@ -303,7 +313,7 @@
             "type": "array",
             "items": { "type": "string" },
             "default": [],
-            "order": 10,
+            "order": 11,
             "markdownDescription": "Repositories to hide; exclusions override includes and also hide sessions whose repository is unknown."
           },
           "groundControl.sessions.includeDirectories": {
@@ -311,7 +321,7 @@
             "type": "array",
             "items": { "type": "string" },
             "default": [],
-            "order": 11,
+            "order": 12,
             "markdownDescription": "Absolute directories and descendants to show, combined with repository includes."
           },
           "groundControl.sessions.excludeDirectories": {
@@ -319,28 +329,28 @@
             "type": "array",
             "items": { "type": "string" },
             "default": [],
-            "order": 12,
+            "order": 13,
             "markdownDescription": "Absolute directories and descendants to hide, overriding includes."
           },
           "groundControl.sessions.showHistory": {
             "scope": "application",
             "type": "boolean",
             "default": true,
-            "order": 13,
+            "order": 14,
             "markdownDescription": "Show saved session rows; hiding them does not stop underlying safety reads."
           },
           "groundControl.sessions.showAdHoc": {
             "scope": "application",
             "type": "boolean",
             "default": true,
-            "order": 14,
+            "order": 15,
             "markdownDescription": "Show session cards without a confirmed issue; hiding them does not stop discovery."
           },
           "groundControl.resumeWorktreesInRepositoryWindow": {
             "scope": "application",
             "type": "boolean",
             "default": false,
-            "order": 15,
+            "order": 16,
             "markdownDescription": "Resume Claude worktree sessions in the repository's window; applies to worktrees under `.claude/worktrees`."
 
           }
@@ -418,18 +428,26 @@
         "title": "Actions",
         "order": 5,
         "properties": {
+          "groundControl.worktree.prompt": {
+            "scope": "application",
+            "type": "string",
+            "default": "",
+            "editPresentation": "multilineText",
+            "order": 1,
+            "markdownDescription": "Prompt for the session that creates a card's worktree, run from the card's clone with the action agent. A card action on a card with no worktree runs this first, then the action in the worktree it reports; the create-worktree control runs it alone. Empty refuses both. See the [placeholders and result format](https://github.com/jon-or/ground-control/blob/master/README.md#worktree-settings)."
+          },
           "groundControl.actions.merge-upstream.enabled": {
             "scope": "application",
             "type": "boolean",
             "default": false,
-            "order": 1,
+            "order": 2,
             "markdownDescription": "Automatically run the configured merge prompt when triage identifies a request to merge upstream."
           },
           "groundControl.actions.merge-upstream.prompt": {
             "scope": "application",
             "type": "string",
             "default": "",
-            "order": 2,
+            "order": 3,
             "markdownDescription": "Prompt for merge sessions that may push changes, following the [prompt and result format](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings)."
           },
           "groundControl.actions.agent": {
@@ -437,14 +455,14 @@
             "type": "string",
             "default": "auto",
             "enum": ["auto", "claude", "codex"],
-            "order": 3,
+            "order": 4,
             "markdownDescription": "Agent for card actions; auto selects the first enabled dispatcher, Claude before Codex."
           },
           "groundControl.actions.model": {
             "scope": "application",
             "type": "string",
             "default": "",
-            "order": 4,
+            "order": 5,
             "markdownDescription": "Model for card actions; empty uses the selected CLI default independently of triage."
           },
           "groundControl.actions.permissionMode": {
@@ -459,7 +477,7 @@
               "plan",
               "bypassPermissions"
             ],
-            "order": 5,
+            "order": 6,
             "markdownDescription": "Permissions for action sessions, subject to [agent support](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings).",
             "enumDescriptions": [
               "Automatic permission checks (Claude only).",
@@ -476,7 +494,7 @@
             "default": 1,
             "minimum": 1,
             "maximum": 4,
-            "order": 6,
+            "order": 7,
             "markdownDescription": "Maximum actions running at once."
           },
           "groundControl.actions.dailyLimit": {
@@ -485,15 +503,15 @@
             "default": 10,
             "minimum": 0,
             "maximum": 50,
-            "order": 7,
+            "order": 8,
             "markdownDescription": "Maximum action starts per rolling 24 hours; zero allows only manual starts from the editor, and blocks starts from the GitHub overlay."
           },
           "groundControl.actions.fromBrowser": {
             "scope": "application",
             "type": "boolean",
             "default": false,
-            "order": 8,
-            "markdownDescription": "Let the GitHub overlay start a card action."
+            "order": 9,
+            "markdownDescription": "Let the GitHub overlay start a card action or a worktree run."
           },
           "groundControl.actions.resultMinutes": {
             "scope": "application",
@@ -501,7 +519,7 @@
             "default": 30,
             "minimum": 1,
             "maximum": 240,
-            "order": 9,
+            "order": 10,
             "markdownDescription": "Minutes to wait for a dispatched session to appear before marking it lost."
           }
         }

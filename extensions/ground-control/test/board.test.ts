@@ -2787,7 +2787,7 @@ describe('card actions (R39)', () => {
     send(message({ lanes: lanes({ unstarted: [acting({ state: 'available', action: 'merge-upstream' })] }) }));
 
     expect(chip()?.getAttribute('aria-label')).toBe('Run merge upstream');
-    expect(tipOf(chip())).toBe('Start Merge upstream in this card’s checkout.');
+    expect(tipOf(chip())).toBe('Start Merge upstream in this card’s worktree.');
     chip()?.click();
 
     expect(sent()).toContainEqual({ type: 'runAction', key: 'issue:18953' });
@@ -3958,5 +3958,172 @@ describe('reading conversations turned off', () => {
 
     expect(document.getElementById('detail')).toBeNull();
     expect(document.getElementById('lanes')!.hasAttribute('inert')).toBe(false);
+  });
+});
+
+/**
+ * R46: the open control says when the checkout is the issue's worktree, and one further control, offered where
+ * the hub says the card has none, makes one. The overlay builds the same sentences, so both are pinned here and there.
+ */
+describe('the worktree in the bar', () => {
+  // Branch and directory differ, so an implementation that used either one alone fails a test below.
+  const WORKTREE = { root: 'd:/work/wt/18941-badge', branch: '18941-inbox-badge', only: true };
+  const AS_CHECKOUT = { root: WORKTREE.root, source: 'worktree' as const, only: true };
+  const at = Date.UTC(2026, 8, 1, 19, 0, 0);
+
+  const open = () => document.querySelector<HTMLButtonElement>('.tools .tool[aria-label="Open in VS Code"]');
+  const create = () => document.querySelector<HTMLButtonElement>('.tools .tool[aria-label="Create a worktree for this issue"]');
+  const run = () => document.querySelector<HTMLButtonElement>('.tool.run');
+  const said = () => document.querySelector<HTMLElement>('.verdict .note')?.textContent ?? undefined;
+
+  function show(over: Partial<LanedCard>): void {
+    send(message({ lanes: lanes({ unstarted: [{ ...liveCard, ...over }] }) }));
+  }
+
+  it('says the checkout it opens is the worktree, naming the branch', () => {
+    show({ worktree: WORKTREE, checkout: AS_CHECKOUT });
+
+    expect(tipOf(open())).toBe('Open the worktree on 18941-inbox-badge at d:/work/wt/18941-badge in VS Code');
+    expect(create()).toBeNull();
+  });
+
+  it('names the directory where HEAD is detached and there is no branch', () => {
+    show({ worktree: { ...WORKTREE, branch: null }, checkout: AS_CHECKOUT });
+
+    expect(tipOf(open())).toBe('Open the worktree on 18941-badge at d:/work/wt/18941-badge in VS Code');
+  });
+
+  it('reads the two spellings of one directory as the same one', () => {
+    show({ worktree: WORKTREE, checkout: { ...AS_CHECKOUT, root: 'D:\\work\\wt\\18941-badge' } });
+
+    expect(tipOf(open())).toContain('the worktree on 18941-inbox-badge');
+  });
+
+  // The checkout is somewhere else, so the tooltip must not claim it is the worktree.
+  it('says nothing of the worktree when the checkout is another directory', () => {
+    show({ worktree: WORKTREE });
+
+    expect(tipOf(open())).toBe(`Open ${liveCard.checkout!.root} in VS Code`);
+  });
+
+  // The hub decides where the offer is made: a card it sends without `creation` has no control, whatever else it carries.
+  it('offers to create one only where the hub offers it, and asks the hub on press', () => {
+    show({});
+
+    expect(create()).toBeNull();
+
+    show({ creation: { state: 'available' } });
+
+    expect(tipOf(create())).toBe('No worktree for this issue. Run the worktree prompt to create one.');
+    expect(create()!.closest('.cmdbar .tail')).not.toBeNull();
+
+    create()!.click();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'createWorktree', key: liveCard.key });
+  });
+
+  it('states why none can be made, and takes no press', () => {
+    show({ creation: { state: 'refused', reason: 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.' } });
+
+    const refused = document.querySelector<HTMLButtonElement>('.tools .tool[aria-label="Cannot create a worktree"]')!;
+
+    expect(tipOf(refused)).toBe('No worktree for this issue. Set groundControl.worktree.prompt so one can be created.');
+    expect(refused.getAttribute('aria-disabled')).toBe('true');
+
+    // The press must neither ask nor reach the card behind the control.
+    const reached = vi.fn();
+
+    document.body.addEventListener('click', reached);
+    refused.click();
+
+    expect(api.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'createWorktree' }));
+    expect(reached).not.toHaveBeenCalled();
+  });
+
+  // A worktree run takes a while; the same control says so meanwhile, and a press stops it rather than asking again.
+  it('says the worktree is being made while the run is on, and stops it on press', () => {
+    show({ creation: { state: 'running', since: at } });
+
+    const busy = document.querySelector<HTMLButtonElement>('.tools .tool[aria-label="Stop creating the worktree"]')!;
+
+    expect(tipOf(busy)).toBe('A session is creating a worktree for this issue. Click to stop it. What it made so far stays.');
+    expect(busy.dataset.state).toBe('running');
+    expect(create()).toBeNull();
+
+    busy.click();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'stopAction', key: liveCard.key });
+    expect(api.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'createWorktree' }));
+  });
+
+  it('says how the last run ended, and offers to try again', () => {
+    show({ creation: { state: 'done', outcome: 'halted', detail: 'The run ended without reporting a worktree.', at } });
+
+    expect(tipOf(create())).toBe('Stopped short: The run ended without reporting a worktree. Click to try again.');
+    expect(create()!.dataset.outcome).toBe('halted');
+
+    create()!.click();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'createWorktree', key: liveCard.key });
+  });
+
+  // The action before its worktree exists is one press: the run control says it will make the worktree first.
+  it('says the run control will make the worktree first where the card has none', () => {
+    show({ creation: { state: 'available' }, action: { state: 'available', action: 'merge-upstream' } });
+
+    expect(tipOf(run())).toBe('Create a worktree for this card, then start Merge upstream in it.');
+
+    show({ worktree: WORKTREE, checkout: AS_CHECKOUT, action: { state: 'available', action: 'merge-upstream' } });
+
+    expect(tipOf(run())).toBe('Start Merge upstream in this card’s worktree.');
+    expect(create()).toBeNull();
+  });
+
+  it('says the action is at its worktree stage, and stops from either control', () => {
+    show({ creation: { state: 'running', since: at }, action: { state: 'running', action: 'merge-upstream', since: at, stage: 'worktree' } });
+
+    expect(said()).toBe('Creating worktree…');
+    expect(run()?.getAttribute('aria-label')).toBe('Stop merge upstream');
+    expect(tipOf(run())).toBe('Merge upstream is waiting for its worktree, which a session is creating. Click to stop.');
+
+    run()!.click();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'stopAction', key: liveCard.key });
+  });
+
+  // The card is rebuilt only when its signature changes, so each worktree state has to be in the signature.
+  it('rebuilds the card as the worktree is offered, made, and gone', () => {
+    const cardOf = () => document.querySelector<HTMLElement>('.card')!;
+
+    show({ creation: { state: 'available' } });
+    const offered = cardOf();
+
+    show({ creation: { state: 'running', since: at } });
+    const pending = cardOf();
+
+    expect(pending).not.toBe(offered);
+    expect(create()).toBeNull();
+
+    show({ worktree: WORKTREE, checkout: AS_CHECKOUT });
+    const made = cardOf();
+
+    expect(made).not.toBe(pending);
+    expect(tipOf(open())).toContain('the worktree on 18941-inbox-badge');
+
+    show({ worktree: { ...WORKTREE, branch: '18941-renamed' }, checkout: AS_CHECKOUT });
+
+    expect(tipOf(open())).toContain('the worktree on 18941-renamed');
+
+    show({ creation: { state: 'available' } });
+
+    expect(create()).not.toBeNull();
+  });
+
+  // A pick outranks a discovered worktree (R46), so the card that resolved to one must still be able to take a pick.
+  it('still offers checkout selection on a card whose checkout came from a worktree', () => {
+    show({ sessions: [], worktree: WORKTREE, checkout: AS_CHECKOUT });
+    document.querySelector<HTMLButtonElement>('.card-menu')!.click();
+
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button')).map((item) => item.textContent)).toContain('Change folder…');
   });
 });

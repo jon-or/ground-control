@@ -22,7 +22,7 @@ import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
-import { makeCheckoutStore } from '../src/checkoutStore.js';
+import { makeCheckoutStore, makeWorktreeStore } from '../src/checkoutStore.js';
 import { makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeStatusStore } from '../src/statusStore.js';
@@ -213,7 +213,7 @@ function harness(over: Partial<HubDeps> = {}, cards: IssueCard[] = [issue()]): C
     lanes: makeLaneStore(stateDir),
     marks: makeMarkStore(stateDir),
     triage: makeTriageStore(stateDir),
-    checkouts: makeCheckoutStore(stateDir),
+    checkouts: makeCheckoutStore(stateDir), worktrees: makeWorktreeStore(stateDir),
     actions: makeActionStore(stateDir),
     issues: makeIssueStore(stateDir),
     status: makeStatusStore(stateDir),
@@ -236,6 +236,8 @@ function hubConfig(
   return {
     agents: [{ id: 'claude', path: 'claude-cli', model: 'claude-haiku-4-5-20251001' }],
     branchIssuePattern: '^(\d+)-',
+    repositoryRoots: [],
+    worktree: { prompt: '' },
     hosts: {},
     logLevel: 'info',
     sources: { github: { repo: 'example-org/example-repo', logins: ['dev-1'] } },

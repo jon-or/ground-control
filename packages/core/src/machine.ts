@@ -14,6 +14,12 @@ export type ListDir = (path: string) => string[] | null;
 /** Read the last bytes of a file as text, or null on failure. Bounds recurring reads of large transcripts. */
 export type ReadTail = (path: string, bytes: number) => string | null;
 
+/** Filesystem readers for directory access and repository identity. */
+export interface CheckoutReaders {
+  listDir: ListDir;
+  readText: ReadText;
+}
+
 /** Injected filesystem and clock readers. Each adapter handles its own CLI transport. */
 export interface MachineReaders {
   readText: ReadText;

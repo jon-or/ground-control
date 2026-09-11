@@ -24,24 +24,23 @@ import { Hub } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
-import { makeCheckoutStore } from '../src/checkoutStore.js';
+import { makeCheckoutStore, makeWorktreeStore } from '../src/checkoutStore.js';
 import { makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeStatusStore } from '../src/statusStore.js';
 import { actionReportPathOf } from '../src/paths.js';
-import { captureLog, fakeClock, fakeSession, reportingAgent, tempHome } from './helpers.js';
+import { captureLog, cloneAt, fakeClock, fakeSession, reportingAgent, tempHome, worktreeAt } from './helpers.js';
 
 let home: string;
 let stateDir: string;
 let dispose: () => void;
-/** Use a readable directory for checkout validation and dispatch. */
+/** A clone on the issue's branch: the worktree an action works in, which a session or saved session names (R46). */
 let CHECKOUT: string;
 
 beforeEach(() => {
   ({ home, dispose } = tempHome());
   stateDir = bootstrapDirOf(home);
-  CHECKOUT = join(home, '17198-channel-mapping');
-  mkdirSync(CHECKOUT, { recursive: true });
+  CHECKOUT = cloneAt(join(home, '17198-channel-mapping').replace(/\\/g, '/'), '17198-channel-mapping');
 });
 
 afterEach(() => dispose());
@@ -53,6 +52,7 @@ function issue(over: Partial<IssueCard> = {}): IssueCard {
   return {
     number: 17198,
     title: 'Channel mapping drops rows past the first page',
+    repository: 'example-org/example-repo',
     type: 'Bug',
     typeColor: 'RED',
     url: 'https://github.com/example-org/example-repo/issues/17198',
@@ -291,7 +291,7 @@ function harness(
     lanes: makeLaneStore(stateDir),
     marks: makeMarkStore(stateDir),
     triage: makeTriageStore(stateDir),
-    checkouts: makeCheckoutStore(stateDir),
+    checkouts: makeCheckoutStore(stateDir), worktrees: makeWorktreeStore(stateDir),
     // Reads still work; only the write fails, which is the shape a locked or full disk actually takes.
     actions: { read: () => store.read(), write: (state) => (control.storeBroken ? false : store.write(state)) },
     issues: makeIssueStore(stateDir),
@@ -310,6 +310,8 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
   return {
     agents: [{ id: 'claude', path: 'claude-cli' }],
     branchIssuePattern: '^(\\d+)-',
+    repositoryRoots: [],
+    worktree: { prompt: '' },
     hosts: {},
     logLevel: 'info',
     sources: { github: { repo: 'example-org/example-repo', logins: ['dev-1'] } },
@@ -754,7 +756,8 @@ describe('what the board refuses to act on', () => {
     expect(control.notices).toContain('This card has no merge-upstream action.');
   });
 
-  it('refuses a card with no checkout, without spending a read to find that out', async () => {
+  // An action works in the card's worktree; with none and no prompt to make one there is nothing to start (R46).
+  it('refuses a card with no worktree and no prompt to make one, without spending a read to find that out', async () => {
     const control = harness();
     control.history = [];
     watch(control);
@@ -766,12 +769,12 @@ describe('what the board refuses to act on', () => {
     expect(control.cardAction()).toEqual({
       state: 'refused',
       action: 'merge-upstream',
-      reason: 'No checkout from a previous session is available for this card.',
+      reason: 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.',
     });
   });
 
-  /** Manual checkout selection permits opening and manual starts (R41, R42). Unattended actions require a checkout from session history (R39). */
-  it('refuses a card whose only checkout is a folder the developer picked, never having run there', async () => {
+  /** A pick permits opening and manual starts (R41, R42). An action needs the issue's worktree, which a clone on another branch is not (R46). */
+  it('refuses a card whose only checkout is a folder the developer picked that is not the issue’s worktree', async () => {
     const control = harness();
     control.history = [];
     watch(control);
@@ -793,7 +796,7 @@ describe('what the board refuses to act on', () => {
     expect(control.cardAction()).toEqual({
       state: 'refused',
       action: 'merge-upstream',
-      reason: 'No checkout from a previous session is available for this card.',
+      reason: 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.',
     });
   });
 
@@ -987,7 +990,7 @@ describe('the developer asking by hand', () => {
     release();
     await control.settle();
     expect(control.dispatched).toEqual([]);
-    expect(control.notices).toContain('No checkout from a previous session is available for this card.');
+    expect(control.notices).toContain('No worktree for this issue. Set groundControl.worktree.prompt so one can be created.');
     control.hub.dispose();
   });
 
@@ -1132,5 +1135,282 @@ describe('the developer asking by hand', () => {
     expect(control.stopped).toEqual(['46af2ac8']);
     expect(control.cardAction()).toMatchObject({ state: 'running' });
     expect(control.notices.some((notice) => notice.includes('no job matching'))).toBe(true);
+  });
+});
+
+/**
+ * An action works in the card's worktree. Where the card has none, the worktree prompt runs first from the
+ * card's clone, reports where it made one, and the action follows in it (R46).
+ */
+describe('making the worktree an action needs', () => {
+  const PROMPT = 'Make a worktree for #{issue} ({title}) from {clone}, then write {resultPath}';
+  let CLONE: string;
+
+  beforeEach(() => {
+    CLONE = cloneAt(join(home, 'repo').replace(/\\/g, '/'), 'master');
+  });
+
+  /**
+   * A card with no worktree: no saved session names one, and the clone is on another branch. The action is
+   * left to the developer's click unless a test is about the automatic path.
+   */
+  function bare(over: Partial<HubConfig['actions']> = { actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge {base} {branch} {issue} --single' } } }, prompt = PROMPT): Control {
+    const control = harness(over);
+    control.history = [];
+    control.hub.configure({ ...config(over), repositoryRoots: [CLONE], worktree: { prompt } });
+    watch(control);
+
+    return control;
+  }
+
+  const MANUAL: Partial<HubConfig['actions']> = { actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge {base} {branch} {issue} --single' } } };
+
+  const card = (control: Control) => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]!;
+
+  /** What the worktree run made: registered in the clone under a name that says nothing about the issue. */
+  function made(): string {
+    return worktreeAt(CLONE, join(home, 'repo.worktrees', 'refund').replace(/\\/g, '/'), 'refund-window');
+  }
+
+  it('offers to make a worktree on a card that has none, and says why it cannot where the prompt is unset', async () => {
+    const control = bare(MANUAL, '');
+    await control.pass();
+
+    expect(card(control).worktree).toBeUndefined();
+    expect(card(control).creation).toEqual({ state: 'refused', reason: 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.' });
+
+    control.hub.configure({ ...config(MANUAL), repositoryRoots: [CLONE], worktree: { prompt: PROMPT } });
+    await control.pass();
+
+    expect(card(control).creation).toEqual({ state: 'available' });
+    expect(card(control).action).toEqual({ state: 'available', action: 'merge-upstream' });
+  });
+
+  it('offers nothing where the card already has its worktree', async () => {
+    const control = harness();
+    control.hub.configure({ ...config(), worktree: { prompt: PROMPT } });
+    watch(control);
+    await control.pass();
+
+    expect(card(control).worktree).toEqual({ root: CHECKOUT, branch: '17198-channel-mapping', only: true });
+    expect(card(control).creation).toBeUndefined();
+  });
+
+  it('runs the worktree prompt from the clone before the action, with the card’s facts filled in', async () => {
+    const control = bare();
+    await control.pass();
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched[0]).toMatchObject({
+      cwd: CLONE,
+      name: 'ground-control · create-worktree · #17198',
+      prompt: `Make a worktree for #17198 (Channel mapping drops rows past the first page) from ${CLONE}, then write ${actionReportPathOf(stateDir, control.key())}`,
+    });
+    expect(control.cardAction()).toEqual({ state: 'running', action: 'merge-upstream', since: control.clock.clock.now(), stage: 'worktree' });
+    expect(card(control).creation).toEqual({ state: 'running', since: control.clock.clock.now() });
+  });
+
+  it('records the worktree the run reports, then starts the action in it as the same attempt', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    await control.appear();
+
+    const worktree = made();
+    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    await control.finish();
+    await control.settle();
+
+    expect(card(control).worktree).toEqual({ root: worktree, branch: 'refund-window', only: true });
+    expect(makeWorktreeStore(stateDir).read()).toEqual({ [control.key()]: worktree });
+    expect(control.dispatched).toHaveLength(2);
+    expect(control.dispatched[1]).toMatchObject({ cwd: worktree, prompt: '/or-merge master 17198-channel-mapping 17198 --single' });
+    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge-upstream' });
+    expect(control.cardAction()).not.toHaveProperty('stage');
+    // One request, one attempt: the worktree run and the action it precedes share the daily allowance.
+    expect(makeActionStore(stateDir).read().dispatches).toHaveLength(1);
+  });
+
+  it('halts, and starts no action, where the run reports a directory git does not register', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    await control.appear();
+
+    const stray = join(home, 'elsewhere').replace(/\\/g, '/');
+    mkdirSync(stray);
+    control.report({ outcome: 'ready', detail: 'Built.', worktree: stray });
+    await control.finish();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(card(control).worktree).toBeUndefined();
+    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge-upstream', outcome: 'halted', detail: `The run reported ${stray}, which git does not register as a working tree.` });
+    expect(card(control).creation).toMatchObject({ state: 'done', outcome: 'halted' });
+  });
+
+  it('halts where the run ends without reporting a worktree', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    await control.appear();
+    await control.finish();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'halted', detail: 'The run ended without reporting a worktree.' });
+  });
+
+  it('refuses a worktree of another repository, however the run got there', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    await control.appear();
+
+    const other = cloneAt(join(home, 'other').replace(/\\/g, '/'), '17198-channel-mapping', 'https://github.com/example-org/other.git');
+    control.report({ outcome: 'ready', detail: 'Built.', worktree: other });
+    await control.finish();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'halted', detail: `The run reported ${other}, which is not a working tree of example-org/example-repo.` });
+  });
+
+  it('makes the worktree alone when asked, and starts no action after it', async () => {
+    const control = bare();
+    await control.pass();
+
+    control.hub.receive({ id: 'board-1' }, { type: 'createWorktree', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched[0]).toMatchObject({ cwd: CLONE, name: 'ground-control · create-worktree · #17198' });
+    // The action stays offerable: the worktree run is not the action, and the run control must not say it is.
+    expect(control.cardAction()).toEqual({ state: 'available', action: 'merge-upstream' });
+    expect(card(control).creation).toEqual({ state: 'running', since: control.clock.clock.now() });
+
+    await control.appear();
+    const worktree = made();
+    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    await control.finish();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(card(control).worktree?.root).toBe(worktree);
+    expect(card(control).creation).toBeUndefined();
+    expect(card(control).checkout).toEqual({ root: worktree, source: 'worktree', only: true });
+  });
+
+  // A landed worktree run must not read as the action having run, or the automatic path would never start it.
+  it('starts the automatic action after a worktree made on its own, as a new attempt', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'createWorktree', key: control.key() });
+    await control.settle();
+    await control.appear();
+    const worktree = made();
+    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    await control.finish();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+
+    control.hub.configure({ ...config(), repositoryRoots: [CLONE], worktree: { prompt: PROMPT } });
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(2);
+    expect(control.dispatched[1]).toMatchObject({ cwd: worktree, prompt: '/or-merge master 17198-channel-mapping 17198 --single' });
+    expect(makeActionStore(stateDir).read().dispatches).toHaveLength(2);
+  });
+
+  it('shows the refusal, not the action as done, where the action after a linked run is refused', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    await control.appear();
+    const worktree = made();
+    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    // The PR went draft while the worktree was being made, so the fresh read refuses the action.
+    control.pr = { isDraft: true };
+    await control.finish();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(card(control).worktree?.root).toBe(worktree);
+    expect(control.cardAction()).toEqual({ state: 'refused', action: 'merge-upstream', reason: 'Pull request #4021 is a draft.' });
+  });
+
+  it('refuses to make a worktree where the hub knows no clone of the repository', async () => {
+    const control = bare();
+    control.hub.configure({ ...config(MANUAL), repositoryRoots: [], worktree: { prompt: PROMPT } });
+    await control.pass();
+
+    expect(card(control).creation).toEqual({
+      state: 'refused',
+      reason: 'Ground Control has no clone of example-org/example-repo. Open one in an editor window, or add it to groundControl.repositoryRoots.',
+    });
+
+    control.hub.receive({ id: 'board-1' }, { type: 'createWorktree', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched).toEqual([]);
+    expect(control.notices).toContain('Ground Control has no clone of example-org/example-repo. Open one in an editor window, or add it to groundControl.repositoryRoots.');
+  });
+
+  it('refuses to choose between two clones of the repository', async () => {
+    const control = bare();
+    const second = cloneAt(join(home, 'repo-2').replace(/\\/g, '/'), 'master');
+    control.hub.configure({ ...config(), repositoryRoots: [CLONE, second], worktree: { prompt: PROMPT } });
+    await control.pass();
+
+    expect(card(control).creation).toEqual({
+      state: 'refused',
+      reason: 'Ground Control knows 2 clones of example-org/example-repo and cannot choose between them. Narrow groundControl.repositoryRoots.',
+    });
+  });
+
+  it('stops the worktree run like any run, and the action it preceded does not start', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    control.hub.receive({ id: 'board-1' }, { type: 'stopAction', key: control.key() });
+    await control.settle();
+
+    expect(control.stopped).toEqual(['46af2ac8']);
+    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge-upstream', outcome: 'stopped' });
+    expect(card(control).creation).toMatchObject({ state: 'done', outcome: 'stopped' });
+
+    await control.pass();
+    expect(control.dispatched).toHaveLength(1);
+  });
+
+  /** A page's request is a dispatch, so it is bounded like a page-asked action (R32, R39). */
+  it('refuses a page’s request to make a worktree without the browser opt-in', async () => {
+    const control = bare();
+    await control.pass();
+    watch(control, true, null);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'createWorktree', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched).toEqual([]);
+    expect(control.notices).toContain('Turn on groundControl.actions.fromBrowser to run a card action from the browser.');
+  });
+
+  it('runs the worktree prompt before an automatic action too', async () => {
+    const control = bare({});
+    await control.pass();
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched[0]).toMatchObject({ cwd: CLONE, name: 'ground-control · create-worktree · #17198' });
   });
 });

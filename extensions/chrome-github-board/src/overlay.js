@@ -11,7 +11,7 @@
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {import('@ground-control/core').StartableAgent} StartableAgent
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void }} Actions
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, createWorktree: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -593,6 +593,20 @@ function basename(dir) {
   const parts = dir.split(/[\\/]/).filter(Boolean);
 
   return parts[parts.length - 1] ?? dir;
+}
+
+/**
+ * Two spellings of one directory, the way the hub's own `dirKey` compares them: separators and case set aside.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function sameDir(a, b) {
+  /** @param {string} dir */
+  const key = (dir) => dir.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+
+  return key(a) === key(b);
 }
 
 /**
@@ -2423,6 +2437,9 @@ const ACTION_OUTCOMES = {
   stopped: 'Stopped',
 };
 
+/** A worktree run's outcomes: landing it is making the worktree, not a merge (R46). */
+const CREATION_OUTCOMES = { ...ACTION_OUTCOMES, landed: 'Created' };
+
 /**
  * The word a dispatched action puts in the verdict, and the color it takes. An action waiting to be run states
  * nothing: its control is the whole message.
@@ -2436,7 +2453,8 @@ function actionState(action) {
   }
 
   if (action.state === 'running') {
-    return { text: 'Working…', outcome: 'running' };
+    // The worktree the action needs is still being made; the action itself has not started (R46).
+    return { text: action.stage === 'worktree' ? 'Creating worktree…' : 'Working…', outcome: 'running' };
   }
 
   if (action.state === 'refused') {
@@ -2491,11 +2509,15 @@ function tail(doc, card, now, actions, canRequest) {
   }
 
   if (card.checkout != null) {
-    const root = card.checkout.root;
-
     tools.appendChild(
-      toolButton(doc, 'Open in VS Code', `Open ${root} in VS Code`, vscodeMark(doc), () => actions.openCheckout(card.key)),
+      toolButton(doc, 'Open in VS Code', openCheckoutHint(card.checkout, card.worktree), vscodeMark(doc), () => actions.openCheckout(card.key)),
     );
+  }
+
+  const create = createWorktreeButton(doc, card, actions);
+
+  if (create) {
+    tools.appendChild(create);
   }
 
   const run = runButton(doc, card, actions);
@@ -2531,7 +2553,9 @@ function runButton(doc, card, actions) {
     const stop = toolButton(
       doc,
       `Stop ${label.toLowerCase()}`,
-      `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
+      action.stage === 'worktree'
+        ? `${label} is waiting for its worktree, which a session is creating. Click to stop.`
+        : `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
       stopMark(doc),
       () => actions.stopAction(card.key),
     );
@@ -2552,7 +2576,11 @@ function runButton(doc, card, actions) {
   }
 
   const title =
-    action.state === 'done' ? `${action.detail} Click to run ${label} again.` : `Start ${label} in this card’s checkout.`;
+    action.state === 'done'
+      ? `${action.detail} Click to run ${label} again.`
+      : card.creation
+        ? `Create a worktree for this card, then start ${label} in it.`
+        : `Start ${label} in this card’s worktree.`;
   const run = toolButton(doc, `Run ${label.toLowerCase()}`, title, playMark(doc), () => actions.runAction(card.key));
 
   run.classList.add('gc-run');
@@ -2562,6 +2590,91 @@ function runButton(doc, card, actions) {
   }
 
   return run;
+}
+
+/**
+ * What opening the checkout opens. A checkout that is the issue's worktree says so, naming the branch, or the
+ * directory for a detached HEAD (R46). The board builds the same sentence.
+ *
+ * @param {NonNullable<LanedCard['checkout']>} checkout
+ * @param {LanedCard['worktree']} worktree
+ * @returns {string}
+ */
+function openCheckoutHint(checkout, worktree) {
+  if (worktree && sameDir(worktree.root, checkout.root)) {
+    return `Open the worktree on ${worktree.branch ?? basename(worktree.root)} at ${checkout.root} in VS Code`;
+  }
+
+  return `Open ${checkout.root} in VS Code`;
+}
+
+/**
+ * The worktree control on a card with no worktree (R46): the offer to make one, why none can be made, the run
+ * making one, which the same control stops, or how the last run ended. The board builds the same name and hint.
+ *
+ * @param {Document} doc
+ * @param {LanedCard} card
+ * @param {Actions} actions
+ * @returns {HTMLButtonElement | null}
+ */
+function createWorktreeButton(doc, card, actions) {
+  const creation = card.creation;
+
+  if (!creation) {
+    return null;
+  }
+
+  if (creation.state === 'running') {
+    const stop = toolButton(
+      doc,
+      'Stop creating the worktree',
+      'A session is creating a worktree for this issue. Click to stop it. What it made so far stays.',
+      worktreeMark(doc),
+      () => actions.stopAction(card.key),
+    );
+
+    stop.dataset.state = 'running';
+
+    return stop;
+  }
+
+  if (creation.state === 'refused') {
+    const refused = toolButton(doc, 'Cannot create a worktree', creation.reason, worktreeMark(doc), null);
+
+    refused.setAttribute('aria-disabled', 'true');
+
+    return refused;
+  }
+
+  const title =
+    creation.state === 'done'
+      ? `${CREATION_OUTCOMES[/** @type {keyof typeof CREATION_OUTCOMES} */ (creation.outcome)] ?? CREATION_OUTCOMES.failed}: ${creation.detail} Click to try again.`
+      : 'No worktree for this issue. Run the worktree prompt to create one.';
+  const create = toolButton(doc, 'Create a worktree for this issue', title, worktreeMark(doc), () => actions.createWorktree(card.key));
+
+  if (creation.state === 'done') {
+    create.dataset.outcome = creation.outcome;
+  }
+
+  return create;
+}
+
+/**
+ * @param {Document} doc
+ * @returns {SVGElement}
+ */
+function worktreeMark(doc) {
+  const svg = doc.createElementNS(SVG_NS, 'svg');
+  const path = doc.createElementNS(SVG_NS, 'path');
+
+  svg.setAttribute('class', 'gc-worktree-mark');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute('d', 'M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z');
+  svg.appendChild(path);
+
+  return svg;
 }
 
 /**
@@ -2589,14 +2702,11 @@ function toolButton(doc, name, title, mark, chosen) {
   // the sentence the tooltip carries is set past `setAccessibleName` as the description.
   button.setAttribute('aria-description', title);
 
-  if (chosen === null) {
-    return button;
-  }
-
+  // A control that takes no press still swallows the click, or GitHub would open the issue behind it.
   button.addEventListener('click', (event) => {
     event.stopPropagation();
     event.preventDefault();
-    chosen();
+    chosen?.();
   });
 
   return button;
@@ -2986,6 +3096,10 @@ function badgeSignature(card, openable, canRequest) {
     uriScheme,
     // The lane menu offers the checkout, so a card that gains or loses one has to be rebuilt to stop offering it.
     card.checkout?.root ?? null,
+    // The open tooltip names the worktree's branch; the worktree control states the offer, the run, or its outcome.
+    card.worktree?.root ?? null,
+    card.worktree?.branch ?? null,
+    card.creation ?? null,
     card.lastSession === undefined
       ? null
       : [

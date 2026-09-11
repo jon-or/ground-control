@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -278,4 +278,31 @@ export function fakeClock(start = 1_788_000_000_000) {
       }
     },
   };
+}
+
+/**
+ * Lay down what makes a directory a clone of `origin` on `branch`, as `worktreesOf` and `linkOf` read it: a
+ * `.git` directory with HEAD and config. No git binary is involved.
+ */
+export function cloneAt(root: string, branch: string, origin = 'https://github.com/example-org/example-repo.git'): string {
+  mkdirSync(join(root, '.git'), { recursive: true });
+  writeFileSync(join(root, '.git', 'HEAD'), `ref: refs/heads/${branch}\n`);
+  writeFileSync(join(root, '.git', 'config'), `[remote "origin"]\n\turl = ${origin}\n`);
+
+  return root;
+}
+
+/** Register `worktree` as a linked worktree of the clone at `clone`, on `branch`, the way `git worktree add` does. */
+export function worktreeAt(clone: string, worktree: string, branch: string): string {
+  const name = worktree.split(/[\\/]/).filter(Boolean).at(-1) ?? 'wt';
+  const registration = join(clone, '.git', 'worktrees', name);
+
+  mkdirSync(registration, { recursive: true });
+  mkdirSync(worktree, { recursive: true });
+  writeFileSync(join(registration, 'gitdir'), `${worktree}/.git\n`);
+  writeFileSync(join(registration, 'HEAD'), `ref: refs/heads/${branch}\n`);
+  writeFileSync(join(registration, 'commondir'), '../..\n');
+  writeFileSync(join(worktree, '.git'), `gitdir: ${registration}\n`);
+
+  return worktree;
 }

@@ -1,15 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type {
   ActionSettings,
-  CardCheckout,
-  LaneId,
+    LaneId,
   TriageContext,
   TriagePullRequest,
 } from '@ground-control/core';
 import { actionEnabled, planAction, promptFor } from '../src/plan.js';
 import { actionEvidence } from '../src/evidence.js';
 
-const CHECKOUT: CardCheckout = { root: 'd:/work/repo.worktrees/17198-channel-mapping', source: 'session', only: true };
 
 function settings(over: Partial<ActionSettings> = {}): ActionSettings {
   return {
@@ -65,7 +63,6 @@ function plan(
   over: {
     lane?: LaneId;
     liveSessions?: number;
-    checkout?: CardCheckout | null;
     settings?: ActionSettings;
     context?: Partial<TriageContext>;
   } = {},
@@ -75,7 +72,6 @@ function plan(
     context: context(pr, over.context ?? {}),
     lane: over.lane ?? 'review',
     liveSessions: over.liveSessions ?? 0,
-    checkout: over.checkout === undefined ? CHECKOUT : over.checkout,
     settings: over.settings ?? settings(),
   });
 }
@@ -98,7 +94,6 @@ describe('what the board will act on', () => {
       pullRequest: 4021,
       branch: '17198-channel-mapping',
       base: 'master',
-      checkout: 'd:/work/repo.worktrees/17198-channel-mapping',
     });
   });
 
@@ -148,10 +143,6 @@ describe('what the board will act on', () => {
   /** R18: never a second agent on one piece of work, and a run in flight is itself a session on the card. */
   it('refuses a card something is already working on', () => {
     expect(refusedAs(plan({}, { liveSessions: 1 }))).toBe('session-running');
-  });
-
-  it('refuses a card with no checkout the board read from a session', () => {
-    expect(refusedAs(plan({}, { checkout: null }))).toBe('no-checkout');
   });
 
   it('refuses a pull request whose head branch it could not read', () => {

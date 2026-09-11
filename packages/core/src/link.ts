@@ -1,5 +1,6 @@
+import { gitDirOf } from './gitDir.js';
 import type { ReadText } from './machine.js';
-import { basename, isAbsolute, join, normalize, parent } from './paths.js';
+import { basename, join, normalize, parent } from './paths.js';
 import { repositoryOf } from './repository.js';
 
 export interface Link {
@@ -16,17 +17,18 @@ export interface Link {
 
 /** Follow a worktree gitdir pointer once. For ordinary clones, read HEAD directly from the .git directory. */
 function headAt(dir: string, read: ReadText): { branch: string | null } | null {
-  const dotGit = join(dir, '.git');
-  const pointer = read(dotGit);
-  const gitdir = pointer && /^gitdir:\s*(.+?)\s*$/m.exec(pointer)?.[1];
-  const gitDir = gitdir ? (isAbsolute(gitdir) ? normalize(gitdir) : join(dir, gitdir)) : dotGit;
-  const head = read(join(gitDir, 'HEAD'))?.trim();
+  const head = read(join(gitDirOf(dir, read), 'HEAD'))?.trim();
 
   if (!head) {
     return null;
   }
 
-  return { branch: /^ref: refs\/heads\/(.+)$/.exec(head)?.[1] ?? null };
+  return { branch: branchOf(head) };
+}
+
+/** The checked-out branch named by a HEAD file's contents. Null for a detached HEAD, which names a commit. */
+export function branchOf(head: string): string | null {
+  return /^ref: refs\/heads\/(.+)$/.exec(head.trim())?.[1] ?? null;
 }
 
 /**
