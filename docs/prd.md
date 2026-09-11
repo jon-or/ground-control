@@ -284,9 +284,9 @@ Offer only readable directories; skip a deleted session checkout if another qual
 
 Reuse an existing single-folder window, obey R14's window permission, and explain when the requesting editor already has the checkout open. The overlay can request opening by card ID through a connected editor; it cannot supply a path or choose a folder.
 
-### R44. Resume worktree sessions in the repository window
+### R44. Resume worktree sessions in the repository window (experimental)
 
-`resumeWorktreesInRepositoryWindow`, off by default, resumes a finished Claude session in the window on its repository instead of a window on its worktree, so many worktrees need not mean many windows. Only the window changes: the session still runs in its own worktree, and a resume that cannot guarantee that must not proceed.
+`resumeWorktreesInRepositoryWindow`, off by default and marked experimental in its setting description, resumes a finished Claude session in the window on its repository instead of a window on its worktree, so many worktrees need not mean many windows. Only the window changes: the session still runs in its own worktree, and a resume that cannot guarantee that must not proceed.
 
 Scope is Claude checkouts at `<repository>/.claude/worktrees/<name>`. Any other layout, any other agent, and a window already on the checkout keep the existing route ([mechanics](mechanics.md#claude-session-working-directories) M52). The redirect happens in the window that receives the resume, so it applies to a handed-over resume as well. Verify the resumed session's recorded working directory.
 

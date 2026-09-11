@@ -143,7 +143,7 @@ A positive `actions.dailyLimit` applies to both automatic and manual starts over
 
 ### Settings this guide does not cover
 
-Every setting is described in the Settings editor under Ground Control. The ones with no paragraph here are `refreshIntervalSeconds` and `sessionRefreshSeconds` (poll intervals), `openWindowsForSessions` and `resumeWorktreesInRepositoryWindow` (which window a session opens in), `triage.names`, `triage.concurrency` and `triage.timeoutSeconds`, `actions.concurrency`, `github.ghPath`, and the `hosts` and `sources` objects.
+Every setting is described in the Settings editor under Ground Control. The ones with no paragraph here are `refreshIntervalSeconds` and `sessionRefreshSeconds` (poll intervals), `openWindowsForSessions` and the experimental `resumeWorktreesInRepositoryWindow` (which window a session opens in), `triage.names`, `triage.concurrency` and `triage.timeoutSeconds`, `actions.concurrency`, `github.ghPath`, and the `hosts` and `sources` objects.
 
 ## Background process and logs
 
