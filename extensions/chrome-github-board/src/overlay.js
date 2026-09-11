@@ -16,6 +16,8 @@
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
 
+import { PANEL_CSS, unwatchPulls, watchPulls } from './panel.js';
+
 /** GitHub's board markup, as measured on 2026-09-04 (`mechanics.md` M27). Every other class on the page is hashed. */
 export const BOARD_REGION = '#project-items-region';
 export const CARD = '[data-board-card-id]';
@@ -505,6 +507,7 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${LOG_ID}[data-shows-hub="false"] .gc-line[data-source="hub"],
 #${LOG_ID}[data-shows-debug="false"] .gc-line[data-level="debug"] { display: none; }
 #${LOG_LINES_ID} .gc-empty { color: var(--fgColor-muted, #59636e); font-family: inherit; }
+${PANEL_CSS}
 `;
 
 /**
@@ -3017,6 +3020,7 @@ function logLine(doc, entry) {
  */
 export function clear(doc) {
   removeTips();
+  unwatchPulls();
   doc.documentElement.removeAttribute(MOTION_ATTR);
   openMenu = null;
   panelOpen = false;
@@ -3187,6 +3191,7 @@ function keptBadge(element, card, sig, replaceAvatars = true) {
 export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTATION) {
   ensureStyle(doc);
   ensureTips(doc);
+  watchPulls(doc, CARD);
   repaintNow = actions.repaint;
   // Only a scheme an editor could have registered; anything else falls back to stable's.
   const reported = state.snapshot?.editor?.uriScheme ?? '';

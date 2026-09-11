@@ -27,3 +27,7 @@ Trim by removing whole nodes: extra columns/cards, unread label lists, and unuse
 Validation checks that replaced values are gone and that no unexpected repository, issue number, or project-item ID remains. Validate URL-bearing attributes (`src`, `srcset`, `href`, `poster`, `data-src`) to prevent external requests or navigation. Check parsed attribute values: decoded `&` differs from serialized `&amp;`, so text replacement alone can miss an avatar URL.
 
 Use the isolation and scrubbing rules in [testing.md](../../../../docs/testing.md#recording-and-scrubbing).
+
+## Loopback certificate
+
+`github.com.key.pem` and `github.com.crt.pem` are a self-signed pair for `github.com`, valid for a century, made with `openssl req -x509 -newkey rsa:2048 -nodes -subj /CN=github.com -addext subjectAltName=DNS:github.com`. The extension suite serves a pull request page over TLS on a loopback listener and points the test browser's `github.com` at it with `--host-resolver-rules`, so the header rule in `rules.json` is exercised on a real response: Chrome applies `declarativeNetRequest` to responses from the network, not to ones Playwright's `route.fulfill` synthesizes. The pair secures nothing and is not a secret.

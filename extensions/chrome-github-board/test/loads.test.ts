@@ -1,4 +1,6 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:https';
+import type { Server } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -22,9 +24,53 @@ const ISSUE_URL = 'https://github.com/example-org/example-repo/issues/4501';
 interface Manifest {
   key: string;
   permissions: string[];
+  host_permissions: string[];
   background: { service_worker: string; type: string };
+  declarative_net_request: { rule_resources: { id: string; enabled: boolean; path: string }[] };
   content_scripts: { matches: string[]; js: string[] }[];
   web_accessible_resources: { resources: string[]; matches: string[] }[];
+}
+
+interface HeaderRule {
+  action: { type: string; responseHeaders: { header: string; operation: string }[] };
+  condition: { regexFilter: string; resourceTypes: string[]; initiatorDomains: string[] };
+}
+
+/**
+ * A pull request page as the panel frames it, served with the refusal GitHub sends (mechanics M58). It comes off a
+ * loopback listener rather than `route.fulfill`: Chrome applies the extension's header rule to a response from the
+ * network and not to one Playwright synthesizes, so only a served page can prove the rule lets the frame in.
+ */
+const PULL_PATH = '/example-org/example-repo/pull/4601';
+const PULL_URL = `https://github.com${PULL_PATH}`;
+const PULL_PAGE = `<!doctype html><title>Fix the quote email · Pull Request #4601</title>
+<div class="js-header-wrapper"><header class="AppHeader">site</header></div>
+<div id="repository-container-header">repository</div>
+<main><h1>Fix the quote email</h1>
+<a id="files" href="${PULL_PATH}/files">Files changed</a>
+<a id="author" href="/colleague">colleague</a></main>
+<footer class="footer">footer</footer>`;
+
+/** What GitHub sends with a pull request page, header for header (mechanics M58). */
+const REFUSAL = { 'x-frame-options': 'deny', 'content-security-policy': "frame-ancestors 'none'" };
+
+/** The listener that stands in for github.com, over TLS with the self-signed pair in `fixtures`. */
+function pullRequestServer(): Server {
+  return createServer(
+    {
+      key: readFileSync(join(__dirname, 'fixtures', 'github.com.key.pem')),
+      cert: readFileSync(join(__dirname, 'fixtures', 'github.com.crt.pem')),
+    },
+    (request, response) => {
+      if (request.url === PULL_PATH || request.url === `${PULL_PATH}/files`) {
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...REFUSAL });
+        response.end(PULL_PAGE);
+      } else {
+        response.writeHead(404, { 'content-type': 'text/plain' });
+        response.end('not served');
+      }
+    },
+  );
 }
 
 function manifest(where: string): Manifest {
@@ -38,9 +84,41 @@ function manifest(where: string): Manifest {
 describe('what the extension asks Chrome for', () => {
   const shipped = manifest(EXTENSION);
 
-  it('asks for nothing beyond the bridge, the alarm and its own storage', () => {
-    expect(shipped.permissions).toEqual(['nativeMessaging', 'alarms', 'storage']);
-    expect(shipped).not.toHaveProperty('host_permissions');
+  it('asks for the bridge, the alarm, its own storage, and the header rule that lets a pull request into its frame', () => {
+    expect(shipped.permissions).toEqual(['nativeMessaging', 'alarms', 'storage', 'declarativeNetRequest']);
+    // The header rule needs the host; nothing else does, and the worker still makes no request of its own.
+    expect(shipped.host_permissions).toEqual(['https://github.com/*']);
+    expect(shipped.declarative_net_request.rule_resources).toEqual([{ id: 'pull-frames', enabled: true, path: 'rules.json' }]);
+  });
+
+  /**
+   * The rule takes GitHub's framing refusal off a response, and with it the page's whole content security policy:
+   * Chrome can drop a header, not one directive of it. That is why the rule reaches only a pull request page,
+   * only as a frame, and only one a github.com page asked for — never a frame some other site embeds.
+   */
+  it('strips the framing refusal from pull request frames alone', () => {
+    const rules = JSON.parse(readFileSync(join(EXTENSION, 'rules.json'), 'utf8')) as HeaderRule[];
+
+    expect(rules).toHaveLength(1);
+
+    const [rule] = rules;
+
+    expect(rule?.action.type).toBe('modifyHeaders');
+    expect(rule?.action.responseHeaders).toEqual([
+      { header: 'x-frame-options', operation: 'remove' },
+      { header: 'content-security-policy', operation: 'remove' },
+    ]);
+    expect(rule?.condition.resourceTypes).toEqual(['sub_frame']);
+    expect(rule?.condition.initiatorDomains).toEqual(['github.com']);
+
+    const pattern = new RegExp(rule?.condition.regexFilter ?? '');
+
+    expect(pattern.test(PULL_URL)).toBe(true);
+    expect(pattern.test(`${PULL_URL}/files`)).toBe(true);
+    expect(pattern.test(`${PULL_URL}.diff`)).toBe(false);
+    expect(pattern.test('https://github.com/example-org/example-repo/issues/4601')).toBe(false);
+    expect(pattern.test('https://github.com/example-org/example-repo')).toBe(false);
+    expect(pattern.test('https://github.com.example.test/o/r/pull/1')).toBe(false);
   });
 
   /**
@@ -56,7 +134,7 @@ describe('what the extension asks Chrome for', () => {
 
   /** The content script imports these at runtime. Missing resources prevent policy or rendering from loading. */
   it('lets the page reach the modules the content script imports', () => {
-    expect(shipped.web_accessible_resources[0]?.resources).toEqual(['src/overlay.js', 'src/state.js', 'src/preferences.js']);
+    expect(shipped.web_accessible_resources[0]?.resources).toEqual(['src/overlay.js', 'src/panel.js', 'src/state.js', 'src/preferences.js']);
   });
 });
 
@@ -64,6 +142,7 @@ describe('the overlay as Chrome loads it', () => {
   let profile = '';
   let loaded = '';
   let context: BrowserContext;
+  let served: Server;
   /**
    * What the browser asked for: the addresses the route answered, and the addresses nothing would have. The first
    * is what says the board really loaded; the second is what `docs/testing.md` refuses. `chrome-extension://` is
@@ -98,15 +177,27 @@ describe('the overlay as Chrome loads it', () => {
       throw new Error('The copy under test can still reach a native host.');
     }
 
+    served = pullRequestServer();
+    await new Promise<void>((resolve) => served.listen(0, '127.0.0.1', resolve));
+
+    const address = served.address();
+    const port = typeof address === 'object' && address !== null ? address.port : 0;
+
+    // `github.com` resolves to the listener, so a request the routes below let through stays on this machine. The
+    // pair is self-signed, hence the ignored certificate errors.
     context = await chromium.launchPersistentContext(profile, {
       channel: 'chromium',
       headless: true,
-      args: [`--disable-extensions-except=${loaded}`, `--load-extension=${loaded}`],
+      ignoreHTTPSErrors: true,
+      args: [`--disable-extensions-except=${loaded}`, `--load-extension=${loaded}`, `--host-resolver-rules=MAP github.com 127.0.0.1:${port}`],
     });
 
     await context.route('https://github.com/**', (route) =>
       route.fulfill({ status: 200, contentType: 'text/html', body: BOARD }),
     );
+
+    // Registered after the board route, so Playwright checks it first: the pull request goes to the listener.
+    await context.route(`${PULL_URL}**`, (route) => route.continue());
 
     /*
      * Registered after the route above, which Playwright therefore checks first: this catches everything that one
@@ -132,6 +223,7 @@ describe('the overlay as Chrome loads it', () => {
 
   afterAll(async () => {
     await context?.close();
+    served?.close();
 
     // Named only once each is minted: a `beforeAll` that threw before then would otherwise take this down with it
     // and lose whatever went wrong.
@@ -297,6 +389,63 @@ describe('the overlay as Chrome loads it', () => {
     expect(await page.locator('#gc-menu').count()).toBe(0);
     expect(await page.locator('#gc-toasts').count()).toBe(0);
     expect(await page.locator('[data-gc-issue]').count()).toBe(0);
+  });
+
+  /**
+   * The pull request panel end to end, which jsdom cannot frame: the header rule lets a page GitHub refuses to
+   * frame into the panel, the panel reads that page's title and hides its site chrome, Escape inside the page
+   * closes the panel, and a link off the pull request opens a tab rather than a refused frame.
+   */
+  it('frames a pull request the site refuses to frame, and reads it as GitHub reads an issue', async () => {
+    const page = await context.newPage();
+
+    await page.goto(BOARD_URL);
+    await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
+
+    // The recorded board links no pull request; one is written into a card as GitHub links one, as an anchor.
+    await page.evaluate((url) => {
+      const link = document.createElement('a');
+
+      link.href = url;
+      link.target = '_blank';
+      link.textContent = '#4601';
+      document.querySelector('[data-board-card-id]')?.appendChild(link);
+    }, PULL_URL);
+
+    const before = context.pages().length;
+
+    // Forced past the card's `aria-disabled`, which GitHub sets on every card of a board the viewer cannot edit.
+    await page.locator('[data-board-card-id] a[href*="/pull/"]').click({ force: true });
+    await expect.poll(() => page.locator('#gc-panel iframe').count(), { timeout: 20_000 }).toBe(1);
+
+    await expect.poll(() => page.frame({ name: 'gc-pull-panel' })?.url(), { timeout: 20_000 }).toBe(PULL_URL);
+
+    const framed = page.frame({ name: 'gc-pull-panel' })!;
+
+    await expect.poll(() => framed.locator('h1').count(), { timeout: 20_000 }).toBe(1);
+    expect(context.pages().length).toBe(before);
+    expect(await page.locator('#gc-panel').getAttribute('aria-label')).toBe('Side panel: Pull request: Fix the quote email');
+
+    // Hidden by computed style: the site chrome the framed page carries, which the panel is there to lose.
+    for (const chrome of ['header.AppHeader', '#repository-container-header', 'footer.footer']) {
+      expect(await framed.locator(chrome).evaluate((element) => getComputedStyle(element).display)).toBe('none');
+    }
+
+    // A page of the same pull request stays in the frame, under the same rule.
+    await framed.locator('#files').click({ force: true });
+    await expect.poll(() => page.frame({ name: 'gc-pull-panel' })?.url(), { timeout: 20_000 }).toBe(`${PULL_URL}/files`);
+    expect(await page.locator('#gc-panel iframe').count()).toBe(1);
+
+    // A page off it would be refused in the frame, so it goes to a tab of its own.
+    const opened = context.waitForEvent('page');
+
+    await page.frame({ name: 'gc-pull-panel' })!.locator('#author').click({ force: true });
+    expect((await opened).url()).toBe('https://github.com/colleague');
+    expect(await page.locator('#gc-panel').count()).toBe(1);
+
+    await page.frame({ name: 'gc-pull-panel' })!.locator('body').press('Escape');
+    await expect.poll(() => page.locator('#gc-panel').count(), { timeout: 20_000 }).toBe(0);
+    expect(await page.locator('[data-gc-issue]').count()).toBe(3);
   });
 
   /**

@@ -2,7 +2,13 @@
 
 Adds local lane, triage, and session information to matching issue cards on GitHub Projects. Uses the same hub snapshot as the VS Code board. Displays phase, duration, attention, failures, and freshness.
 
-Session links open the connected editor in its own URI scheme, so an Insiders developer's links open Insiders; without a connected editor the last reported scheme applies, and `vscode` is the default. Checkout opening requires a connected editor. The overlay can move local lanes, read cards, run and stop card actions, start a session in a connected editor, and read logs; it cannot select filesystem paths or open combined diffs. Running a card action from here needs `groundControl.actions.fromBrowser` turned on in VS Code, a visible project tab, and a positive `groundControl.actions.dailyLimit`. See [R36](../../docs/prd.md#r36-github-overlay).
+Session links open the connected editor in its own URI scheme, so an Insiders developer's links open Insiders; without a connected editor the last reported scheme applies, and `vscode` is the default. Checkout opening requires a connected editor. The overlay can move local lanes, read cards, run and stop card actions, start a session in a connected editor, read logs, and open a card's pull request in a side panel; it cannot select filesystem paths or open combined diffs. Running a card action from here needs `groundControl.actions.fromBrowser` turned on in VS Code, a visible project tab, and a positive `groundControl.actions.dailyLimit`. See [R36](../../docs/prd.md#r36-github-overlay).
+
+## Pull request panel
+
+GitHub opens a card's issue in a side panel and its pull request in a new tab. The overlay takes a plain click on a pull request link in a card and opens the pull request in a panel of the same shape as GitHub's issue panel: GitHub's own pull request page, framed, with the site header, repository header, and footer hidden. Everything on the page works, the diff and commenting included. The bar names the repository and number, copies the address, and opens the page in a new tab; the close control, the backdrop, and Escape close it. Ctrl-click, Cmd-click, or a middle click leaves the link to GitHub. Links off the pull request open a new tab.
+
+GitHub forbids framing its pages, so the extension carries a `declarativeNetRequest` rule (`rules.json`) that removes `X-Frame-Options` and `Content-Security-Policy` from a pull request page loaded as a frame by a github.com page; that is what the `declarativeNetRequest` permission and the `github.com` host permission are for. See [data boundaries](../../docs/architecture.md#data-boundaries) for what the removed policy covered.
 
 ## Loading
 
@@ -28,6 +34,7 @@ Preferences use durable extension storage and apply across open tabs immediately
 | File | Responsibility | Verification |
 |---|---|---|
 | `src/overlay.js` | DOM matching, card rendering, menus, tooltips, and log panel | Vitest/jsdom and browser behavior tests |
+| `src/panel.js`, `rules.json` | Pull request panel and the header rule that admits the framed page | Vitest/jsdom; the rule and framed page in headless Playwright |
 | `src/state.js` | Snapshot state, retries, and log subscriptions | Vitest |
 | `src/preferences.js` | Project eligibility, validation, and preference updates | Vitest and browser tests |
 | `options.html`, `src/options.js` | Browser preference editor and shared-settings link | Headless Playwright |

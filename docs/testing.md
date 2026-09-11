@@ -130,6 +130,8 @@ Use Playwright's `chromium.launchPersistentContext` with `channel: 'chromium'`, 
 
 Serve recorded HTML at the matching github.com URL with `context.route`; abort all other requests. A `file://` page does not exercise content-script matching. Drive extension messages from the worker or UI. `page.evaluate` runs in the page's main world and cannot call the extension's `chrome.runtime` APIs.
 
+The pull request panel's header rule (`rules.json`) applies to responses from the network and not to ones `route.fulfill` synthesizes (M58). The suite serves the pull request page with GitHub's refusal headers from a loopback TLS listener, points the browser's `github.com` at it with `--host-resolver-rules`, and lets that one route `continue`; the self-signed pair is in `fixtures`, and `ignoreHTTPSErrors` accepts it. A fixture served without the refusal would pass with no rule at all.
+
 Use [record.cjs](../extensions/chrome-github-board/test/fixtures/record.cjs) to refresh public-board markup. It trims and scrubs real nodes and supplements the roadmap board with a recorded assignee stack. Exploratory browser inspection finds mechanisms; kept behavior is verified by repository tests.
 
 ## Triage and dispatch tests
