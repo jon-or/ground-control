@@ -24,10 +24,17 @@ describe('historical metadata', () => {
     expect(historyMetadata(text, text, ID)).toMatchObject({ cwd: '/work/42-example', branch: '42-example' });
     expect(historyMetadata(text, text, ID)?.title).toMatch(/^Recorded (custom|automatic) title$/);
   });
-  it('uses the latest saved branch/cwd and prefers a manual title across both windows', () => {
+  it('keeps the launch directory over later shell cwds, takes the latest branch, and prefers a manual title across both windows', () => {
     const head = [row(), row({ type: 'custom-title', customTitle: 'My title' })].join('\n');
     const tail = ['fragment', row({ cwd: '/work/43-next', gitBranch: '43-next' }), row({ type: 'ai-title', aiTitle: 'Automatic' }), '{truncated'].join('\n');
-    expect(historyMetadata(head, tail, ID)).toEqual({ cwd: '/work/43-next', branch: '43-next', title: 'My title' });
+    expect(historyMetadata(head, tail, ID)).toEqual({ cwd: '/work/42-example', branch: '43-next', title: 'My title' });
+  });
+  it('resolves the last relocation even when a later turn left the shell elsewhere', () => {
+    const relocated = (cwd: string) => JSON.stringify({ sessionId: ID, type: 'relocated', relocatedCwd: cwd });
+    const head = [row(), relocated('/work/.claude/worktrees/first'), row({ cwd: '/work/.claude/worktrees/first' })].join('\n');
+    const tail = [relocated('/work/.claude/worktrees/second'), row({ cwd: '/work/42-example', gitBranch: 'worktree-second' })].join('\n');
+    expect(historyMetadata(head, tail, ID)).toMatchObject({ cwd: '/work/.claude/worktrees/second', branch: 'worktree-second' });
+    expect(historyMetadata(head, JSON.stringify({ sessionId: 'other', type: 'relocated', relocatedCwd: '/elsewhere' }), ID)?.cwd).toBe('/work/.claude/worktrees/first');
   });
   it('ignores other sessions, subagents, malformed records and unprompted sessions', () => {
     expect(historyMetadata(row({ sessionId: 'different' }), row({ isSidechain: true }), ID)).toBeNull();
@@ -115,4 +122,13 @@ it('offers resume only while both the saved directory and its transcript are rea
   expect(adapter.canResume!(historical, m.deps)).toBe(false);
   m.dirs[historical.cwd] = ['.git']; expect(adapter.canResume!(historical, m.deps)).toBe(true);
   delete m.times[m.file]; expect(adapter.canResume!(historical, m.deps)).toBe(false);
+});
+it('resumes a session whose last turn changed the shell directory, from the transcript it was read from', async () => {
+  const m = machine();
+  m.text[m.file] = [row(), row({ cwd: '/work/.claude/worktrees/moved', gitBranch: 'worktree-moved' })].join('\n');
+  m.dirs['/work/42-example'] = ['.git'];
+  m.dirs['/work/.claude/worktrees/moved'] = ['.git'];
+  const historical = (await makeHistoryReader()(m.deps)).sessions[0]!;
+  expect(historical).toMatchObject({ cwd: '/work/42-example', branch: 'worktree-moved', issueNumber: 42 });
+  expect(makeClaudeAdapter(undefined, undefined, {}).canResume!(historical, m.deps)).toBe(true);
 });

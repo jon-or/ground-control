@@ -10,6 +10,7 @@ const record = z.object({
   type: z.string(),
   isSidechain: z.boolean().optional(),
   cwd: z.string().optional(),
+  relocatedCwd: z.string().optional(),
   gitBranch: z.string().optional(),
   customTitle: z.string().optional(),
   aiTitle: z.string().optional(),
@@ -17,9 +18,13 @@ const record = z.object({
 
 interface Metadata { cwd: string; branch: string | null; title: string | null }
 
-/** Bounded reads can begin or end inside a JSON line; only complete records for this parent session count. */
+/**
+ * Bounded reads can begin or end inside a JSON line; only complete records for this parent session count. cwd is where
+ * Claude resumes: the last `relocated` record, else the launch record; later record cwds follow the Bash shell (M3c).
+ */
 export function historyMetadata(head: string, tail: string, sessionId: string): Metadata | null {
-  let cwd: string | null = null;
+  let launched: string | null = null;
+  let relocated: string | null = null;
   let branch: string | null = null;
   let manual: string | null = null;
   let automatic: string | null = null;
@@ -31,12 +36,15 @@ export function historyMetadata(head: string, tail: string, sessionId: string): 
     const r = parsed.data;
     if (r.type === 'user' || r.type === 'assistant') {
       prompted = true;
-      cwd = r.cwd?.trim() || cwd;
+      launched ??= r.cwd?.trim() || null;
       if (r.gitBranch !== undefined) branch = r.gitBranch.trim() || null;
     }
+    if (r.type === 'relocated') relocated = r.relocatedCwd?.trim() || relocated;
     if (r.type === 'custom-title') manual = r.customTitle?.trim() || manual;
     if (r.type === 'ai-title') automatic = r.aiTitle?.trim() || automatic;
   }
+  const cwd = relocated ?? launched;
+
   return prompted && cwd ? { cwd, branch, title: manual ?? automatic } : null;
 }
 
