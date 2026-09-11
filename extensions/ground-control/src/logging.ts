@@ -34,15 +34,15 @@ export function boardLog(): Pick<vscode.LogOutputChannel, 'debug' | 'info' | 'wa
 }
 
 /**
- * Use a plain output channel to preserve original hub timestamps; LogOutputChannel would timestamp backfilled
- * lines at receipt.
+ * Use a plain output channel with the log language so VS Code colors levels without adding its own timestamps;
+ * LogOutputChannel would timestamp backfilled lines at receipt.
  */
 export function hubLog(): Pick<vscode.OutputChannel, 'appendLine' | 'show'> {
   if (gone) {
     return NOWHERE;
   }
 
-  hubChannel ??= vscode.window.createOutputChannel('Ground Control Hub');
+  hubChannel ??= vscode.window.createOutputChannel('Ground Control Hub', 'log');
 
   return hubChannel;
 }

@@ -2382,7 +2382,7 @@ describe('what the hub writes down about itself', () => {
 });
 
 describe('a client that opened a log viewer', () => {
-  const LINE = '2026-09-06T19:01:24.114Z info listening on 127.0.0.1:51844';
+  const LINE = '2026-09-06T19:01:24.114Z [info] listening on 127.0.0.1:51844';
 
   /** Create prior-process log output before starting the hub. */
   function seedLog(text: string): void {
@@ -2420,7 +2420,7 @@ describe('a client that opened a log viewer', () => {
 
   // Include prior-process log entries from disk in backfill.
   it('includes prior-process log entries', () => {
-    seedLog(`2026-09-05T08:00:00.000Z error could not listen on 127.0.0.1\n`);
+    seedLog(`2026-09-05T08:00:00.000Z [error] could not listen on 127.0.0.1\n`);
 
     const h = harness();
     const { client, inbox } = connect(h);

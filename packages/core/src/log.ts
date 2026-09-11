@@ -43,15 +43,15 @@ export function meetsLevel(level: LogLevel, floor: LogLevel): boolean {
   return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(floor);
 }
 
-/** Format an entry with a bracketed scope so colons in messages cannot be mistaken for scope separators. */
+/** Bracket the level so the editor log grammar colors it, and the scope so colons in messages are not scope separators. */
 export function formatLogLine(entry: LogEntry): string {
   const scope = entry.scope === undefined ? '' : `[${entry.scope}] `;
 
-  return `${entry.at} ${entry.level} ${scope}${entry.message}`;
+  return `${entry.at} [${entry.level}] ${scope}${entry.message}`;
 }
 
 /** Accept only lowercase scope words to avoid treating bracketed third-party output as a scope. */
-const LINE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z) (debug|info|warn|error) (?:\[([a-z][a-z0-9-]*)\] )?(.*?)\r?$/;
+const LINE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z) \[(debug|info|warn|error)\] (?:\[([a-z][a-z0-9-]*)\] )?(.*?)\r?$/;
 
 /**
  * Parse log entries while preserving unstructured stdout/stderr. Associate raw lines with the preceding

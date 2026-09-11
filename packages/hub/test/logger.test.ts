@@ -21,7 +21,7 @@ describe('what the hub writes about itself', () => {
 
     log.info('read 14 cards in 812ms', 'github');
 
-    expect(written).toEqual([`${AT} info [github] read 14 cards in 812ms`]);
+    expect(written).toEqual([`${AT} [info] [github] read 14 cards in 812ms`]);
   });
 
   it('defaults to info logging', () => {
@@ -45,7 +45,7 @@ describe('what the hub writes about itself', () => {
     log.setLevel('info');
     log.debug('and this does not');
 
-    expect(written).toEqual([`${AT} debug now this lands`]);
+    expect(written).toEqual([`${AT} [debug] now this lands`]);
     expect(log.level()).toBe('info');
   });
 
@@ -205,18 +205,18 @@ describe('the tail a viewer opens on', () => {
   }
 
   it('reads a file that fits the window whole', () => {
-    expect(tailOf(`${AT_ONE} info listening\n`, 1000).map((entry) => entry.message)).toEqual(['listening']);
+    expect(tailOf(`${AT_ONE} [info] listening\n`, 1000).map((entry) => entry.message)).toEqual(['listening']);
   });
 
   // A window smaller than the file opens the read mid-line, and half a sentence with no timestamp is not an entry.
   it('drops the fragment a truncated read opens with', () => {
-    const text = `tening on 127.0.0.1\n${AT_TWO} info stopping: a client asked it to stop\n`;
+    const text = `tening on 127.0.0.1\n${AT_TWO} [info] stopping: a client asked it to stop\n`;
 
     expect(tailOf(text, text.length).map((entry) => entry.message)).toEqual(['stopping: a client asked it to stop']);
   });
 
   it('keeps the first line when the whole file fitted, however short the window looks', () => {
-    const text = `${AT_ONE} info listening\n`;
+    const text = `${AT_ONE} [info] listening\n`;
 
     expect(tailOf(text, text.length + 1)).toHaveLength(1);
   });
