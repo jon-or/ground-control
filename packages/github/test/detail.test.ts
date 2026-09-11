@@ -535,6 +535,53 @@ describe('reading one conversation for display', () => {
     ]);
   });
 
+  it('names the badge each state change wears, so a client can draw GitHub’s octicon without parsing the words', async () => {
+    const reading = await fetchDetail(
+      config(),
+      'example-org',
+      'example-repo',
+      19572,
+      'pull-request',
+      runnerOf(
+        response({
+          timelineItems: page([
+            event('ClosedEvent', { stateReason: 'NOT_PLANNED' }),
+            event('ClosedEvent', { stateReason: 'COMPLETED' }),
+            event('ReopenedEvent'),
+            event('MergedEvent', { mergeRefName: 'main' }),
+            event('LabeledEvent', { label: { name: 'bug' } }),
+            event('AssignedEvent', { assignee: { login: 'dev-3' } }),
+            event('MilestonedEvent', { milestoneTitle: 'Patch 1' }),
+            event('RenamedTitleEvent', { currentTitle: 'New' }),
+            event('CrossReferencedEvent', { source: reference(7, 'example-org/example-repo') }),
+            event('ReviewRequestedEvent', { requestedReviewer: { login: 'dev-4' } }),
+            event('HeadRefForcePushedEvent', { beforeCommit: { abbreviatedOid: 'aaa1111' }, afterCommit: { abbreviatedOid: 'bbb2222' } }),
+            event('ConvertToDraftEvent'),
+            event('LockedEvent', { lockReason: null }),
+            event('PullRequestCommit', { commit: { abbreviatedOid: 'c0ffee1', messageHeadline: 'Fix', committedDate: '2026-08-01T00:00:00Z' } }),
+          ]),
+        }),
+      ),
+    );
+
+    expect(notes(reading.detail?.events ?? []).map((note) => note.icon)).toEqual([
+      'not-planned',
+      'closed',
+      'reopened',
+      'merged',
+      'label',
+      'assignee',
+      'milestone',
+      'renamed',
+      'reference',
+      'review-request',
+      'force-push',
+      'draft',
+      'lock',
+      'commit',
+    ]);
+  });
+
   it('names another repository when it references one, and stays bare within this one', async () => {
     const said = await summaries([
       event('CrossReferencedEvent', { source: reference(7, 'example-org/example-repo') }),

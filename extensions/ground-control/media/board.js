@@ -2297,24 +2297,197 @@ function detailAnswered(message) {
   paintDetail(false);
 }
 
-function detailHeading(detail, subject) {
-  const where = document.createElement('div');
-  where.className = 'detail-where';
+/** Octicon outlines GitHub draws in a conversation, from @primer/octicons 19.15.1 at 16px. */
+const OCTICONS = {
+  'issue-opened': [
+    'M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z',
+    'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z',
+  ],
+  'issue-closed': [
+    'M11.28 6.78a.75.75 0 0 0-1.06-1.06L7.25 8.69 5.78 7.22a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l3.5-3.5Z',
+    'M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0Zm-1.5 0a6.5 6.5 0 1 0-13 0 6.5 6.5 0 0 0 13 0Z',
+  ],
+  'issue-reopened': [
+    'M5.029 2.217a6.5 6.5 0 0 1 9.437 5.11.75.75 0 1 0 1.492-.154 8 8 0 0 0-14.315-4.03L.427 1.927A.25.25 0 0 0 0 2.104V5.75A.25.25 0 0 0 .25 6h3.646a.25.25 0 0 0 .177-.427L2.715 4.215a6.491 6.491 0 0 1 2.314-1.998ZM1.262 8.169a.75.75 0 0 0-1.22.658 8.001 8.001 0 0 0 14.315 4.03l1.216 1.216a.25.25 0 0 0 .427-.177V10.25a.25.25 0 0 0-.25-.25h-3.646a.25.25 0 0 0-.177.427l1.358 1.358a6.501 6.501 0 0 1-11.751-3.11.75.75 0 0 0-.272-.506Z',
+    'M9.06 9.06a1.5 1.5 0 1 1-2.12-2.12 1.5 1.5 0 0 1 2.12 2.12Z',
+  ],
+  skip: [
+    'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm9.78-2.22-5.5 5.5a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l5.5-5.5a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z',
+  ],
+  'git-pull-request': [
+    'M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z',
+  ],
+  'git-pull-request-closed': [
+    'M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z',
+  ],
+  'git-pull-request-draft': [
+    'M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z',
+  ],
+  'git-merge': [
+    'M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z',
+  ],
+  'git-commit': [
+    'M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z',
+  ],
+  'git-branch': [
+    'M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z',
+  ],
+  'repo-push': [
+    'M1 2.5A2.5 2.5 0 0 1 3.5 0h8.75a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V1.5h-8a1 1 0 0 0-1 1v6.708A2.493 2.493 0 0 1 3.5 9h3.25a.75.75 0 0 1 0 1.5H3.5a1 1 0 0 0 0 2h5.75a.75.75 0 0 1 0 1.5H3.5A2.5 2.5 0 0 1 1 11.5Zm13.23 7.79h-.001l-1.224-1.224v6.184a.75.75 0 0 1-1.5 0V9.066L10.28 10.29a.75.75 0 0 1-1.06-1.061l2.505-2.504a.75.75 0 0 1 1.06 0L15.29 9.23a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018Z',
+  ],
+  tag: [
+    'M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z',
+  ],
+  person: [
+    'M10.561 8.073a6.005 6.005 0 0 1 3.432 5.142.75.75 0 1 1-1.498.07 4.5 4.5 0 0 0-8.99 0 .75.75 0 0 1-1.498-.07 6.004 6.004 0 0 1 3.431-5.142 3.999 3.999 0 1 1 5.123 0ZM10.5 5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z',
+  ],
+  milestone: [
+    'M7.75 0a.75.75 0 0 1 .75.75V3h3.634c.414 0 .814.147 1.13.414l2.07 1.75a1.75 1.75 0 0 1 0 2.672l-2.07 1.75a1.75 1.75 0 0 1-1.13.414H8.5v5.25a.75.75 0 0 1-1.5 0V10H2.75A1.75 1.75 0 0 1 1 8.25v-3.5C1 3.784 1.784 3 2.75 3H7V.75A.75.75 0 0 1 7.75 0Zm4.384 8.5a.25.25 0 0 0 .161-.06l2.07-1.75a.248.248 0 0 0 0-.38l-2.07-1.75a.25.25 0 0 0-.161-.06H2.75a.25.25 0 0 0-.25.25v3.5c0 .138.112.25.25.25h9.384Z',
+  ],
+  pencil: [
+    'M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm.176 4.823L9.75 4.81l-6.286 6.287a.253.253 0 0 0-.064.108l-.558 1.953 1.953-.558a.253.253 0 0 0 .108-.064Zm1.238-3.763a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354Z',
+  ],
+  'cross-reference': [
+    'M2.75 3.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h4.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 13H9.06l-2.573 2.573A1.458 1.458 0 0 1 4 14.543V13H2.75A1.75 1.75 0 0 1 1 11.25v-7.5C1 2.784 1.784 2 2.75 2h5.5a.75.75 0 0 1 0 1.5ZM16 1.25v4.146a.25.25 0 0 1-.427.177L14.03 4.03l-3.75 3.75a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l3.75-3.75-1.543-1.543A.25.25 0 0 1 11.604 1h4.146a.25.25 0 0 1 .25.25Z',
+  ],
+  project: [
+    'M1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25V1.75C0 .784.784 0 1.75 0ZM1.5 1.75v12.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM11.75 3a.75.75 0 0 1 .75.75v7.5a.75.75 0 0 1-1.5 0v-7.5a.75.75 0 0 1 .75-.75Zm-8.25.75a.75.75 0 0 1 1.5 0v5.5a.75.75 0 0 1-1.5 0ZM8 3a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 3Z',
+  ],
+  link: [
+    'm7.775 3.275 1.25-1.25a3.5 3.5 0 1 1 4.95 4.95l-2.5 2.5a3.5 3.5 0 0 1-4.95 0 .751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018 1.998 1.998 0 0 0 2.83 0l2.5-2.5a2.002 2.002 0 0 0-2.83-2.83l-1.25 1.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042Zm-4.69 9.64a1.998 1.998 0 0 0 2.83 0l1.25-1.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042l-1.25 1.25a3.5 3.5 0 1 1-4.95-4.95l2.5-2.5a3.5 3.5 0 0 1 4.95 0 .751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018 1.998 1.998 0 0 0-2.83 0l-2.5 2.5a1.998 1.998 0 0 0 0 2.83Z',
+  ],
+  eye: [
+    'M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z',
+  ],
+  x: [
+    'M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z',
+  ],
+  check: [
+    'M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z',
+  ],
+  lock: [
+    'M4 4a4 4 0 0 1 8 0v2h.25c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25v-5.5C2 6.784 2.784 6 3.75 6H4Zm8.25 3.5h-8.5a.25.25 0 0 0-.25.25v5.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25ZM10.5 6V4a2.5 2.5 0 1 0-5 0v2Z',
+  ],
+  unlock: [
+    'M5.5 4v2h7A1.5 1.5 0 0 1 14 7.5v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-6A1.5 1.5 0 0 1 3.499 6H4V4a4 4 0 0 1 7.371-2.154.75.75 0 0 1-1.264.808A2.5 2.5 0 0 0 5.5 4Zm-2 3.5v6h9v-6h-9Z',
+  ],
+  'chevron-right': [
+    'M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z',
+  ],
+  'link-external': [
+    'M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z',
+  ],
+};
 
-  const state = document.createElement('span');
-  state.className = 'detail-state';
-  state.dataset.state = (detail?.state ?? '').toLowerCase();
-  state.textContent = detail === null ? (subject === 'issue' ? 'Issue' : 'Pull request') : statusWord(detail.state);
-  where.appendChild(state);
+function octicon(name) {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'octicon');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
 
-  if (detail) {
-    const at = document.createElement('span');
-    at.className = 'detail-ref';
-    at.textContent = `${detail.repository} #${detail.number}`;
-    where.appendChild(at);
+  for (const d of OCTICONS[name]) {
+    const path = document.createElementNS(SVG, 'path');
+    path.setAttribute('d', d);
+    svg.appendChild(path);
   }
 
-  return where;
+  return svg;
+}
+
+/** The state pill's word, octicon, and colour, as GitHub draws the header of each kind of conversation. */
+function detailStatus(detail, subject) {
+  if (detail === null) {
+    return { word: subject === 'issue' ? 'Issue' : 'Pull request', icon: subject === 'issue' ? 'issue-opened' : 'git-pull-request', tone: 'muted' };
+  }
+
+  const state = String(detail.state).toUpperCase();
+
+  if (detail.subject === 'issue') {
+    return state === 'CLOSED' ? { word: 'Closed', icon: 'issue-closed', tone: 'done' } : { word: 'Open', icon: 'issue-opened', tone: 'open' };
+  }
+
+  if (state === 'MERGED') {
+    return { word: 'Merged', icon: 'git-merge', tone: 'done' };
+  }
+
+  if (state === 'CLOSED') {
+    return { word: 'Closed', icon: 'git-pull-request-closed', tone: 'closed' };
+  }
+
+  return detail.draft ? { word: 'Draft', icon: 'git-pull-request-draft', tone: 'muted' } : { word: 'Open', icon: 'git-pull-request', tone: 'open' };
+}
+
+/** The badge beside a timeline event: GitHub's octicon and, where it colours the badge, its emphasis colour. */
+function noteBadge(event, subject) {
+  const issue = subject === 'issue';
+
+  switch (event.icon) {
+    case 'commit':
+      return { icon: 'git-commit', tone: 'muted' };
+    case 'merged':
+      return { icon: 'git-merge', tone: 'done' };
+    case 'closed':
+      return issue ? { icon: 'issue-closed', tone: 'done' } : { icon: 'git-pull-request-closed', tone: 'closed' };
+    case 'not-planned':
+      return { icon: 'skip', tone: 'neutral' };
+    case 'reopened':
+      return { icon: issue ? 'issue-reopened' : 'git-pull-request', tone: 'open' };
+    case 'label':
+      return { icon: 'tag', tone: 'muted' };
+    case 'assignee':
+      return { icon: 'person', tone: 'muted' };
+    case 'milestone':
+      return { icon: 'milestone', tone: 'muted' };
+    case 'renamed':
+      return { icon: 'pencil', tone: 'muted' };
+    case 'reference':
+    case 'duplicate':
+    case 'transfer':
+      return { icon: 'cross-reference', tone: 'muted' };
+    case 'status':
+      return { icon: 'project', tone: 'muted' };
+    case 'link':
+      return { icon: 'link', tone: 'muted' };
+    case 'review-request':
+      return { icon: 'eye', tone: 'muted' };
+    case 'review-dismissed':
+      return { icon: 'x', tone: 'muted' };
+    case 'force-push':
+      return { icon: 'repo-push', tone: 'muted' };
+    case 'branch':
+      return { icon: 'git-branch', tone: 'muted' };
+    case 'ready':
+      return { icon: 'git-pull-request', tone: 'muted' };
+    case 'draft':
+      return { icon: 'git-pull-request-draft', tone: 'muted' };
+    case 'lock':
+      return { icon: 'lock', tone: 'muted' };
+    case 'unlock':
+      return { icon: 'unlock', tone: 'muted' };
+    default:
+      return { icon: 'git-commit', tone: 'muted' };
+  }
+}
+
+/** The review row's badge: GitHub fills it green or red for a verdict and leaves a bare comment review muted. */
+function reviewBadge(state) {
+  switch (state) {
+    case 'APPROVED':
+      return { icon: 'check', tone: 'open' };
+    case 'CHANGES_REQUESTED':
+      return { icon: 'x', tone: 'closed' };
+    default:
+      return { icon: 'eye', tone: 'muted' };
+  }
+}
+
+function detailBadge({ icon, tone }) {
+  const badge = document.createElement('span');
+  badge.className = 'detail-badge';
+  badge.dataset.tone = tone;
+  badge.appendChild(octicon(icon));
+
+  return badge;
 }
 
 /** GitHub reports upper-case states; the panel shows them the way GitHub draws them. */
@@ -2340,7 +2513,7 @@ const REACTION_EMOJI = {
 const REVIEW_WORD = {
   APPROVED: 'approved these changes',
   CHANGES_REQUESTED: 'requested changes',
-  COMMENTED: 'reviewed this',
+  COMMENTED: 'reviewed',
   DISMISSED: 'left a dismissed review',
   PENDING: 'started a review',
 };
@@ -2390,9 +2563,58 @@ function detailAvatar(url, size) {
   return image;
 }
 
+/** The rendered body, folded behind the reason when the source hid it, or null when there is nothing to show. */
+function detailBody(post) {
+  if (post.hidden === null && post.bodyHtml.trim() === '') {
+    return null;
+  }
+
+  const body = document.createElement('div');
+  body.className = 'markdown-body';
+  body.appendChild(sanitizeDetail(post.bodyHtml));
+
+  if (post.hidden === null) {
+    return body;
+  }
+
+  // A hidden comment is still part of the record, so it is collapsed rather than dropped.
+  const fold = document.createElement('details');
+  fold.className = 'detail-hidden';
+
+  const why = document.createElement('summary');
+  why.textContent = `Hidden as ${String(post.hidden).toLowerCase().replace('_', ' ')}`;
+  fold.append(why, body);
+
+  return fold;
+}
+
+/** `{who} {did} {when}`, with the edit mark GitHub hangs after the time. */
+function detailByline(post, did) {
+  const parts = [];
+
+  const who = document.createElement('strong');
+  who.className = 'detail-author';
+  who.textContent = post.author ?? 'someone';
+  parts.push(who);
+
+  const said = document.createElement('span');
+  said.className = 'detail-when';
+  said.textContent = `${did} ${detailWhen(post.createdAt)}`;
+  parts.push(said);
+
+  if (post.editedAt) {
+    const edited = document.createElement('span');
+    edited.className = 'detail-when detail-edited';
+    edited.textContent = `edited ${detailWhen(post.editedAt)}`;
+    parts.push(edited);
+  }
+
+  return { said, parts };
+}
+
 /**
- * One thing somebody wrote: the opening body, a conversation comment, or a review summary. A review carries its
- * state and the inline threads it opened; a comment the source hid opens collapsed behind its reason.
+ * One thing somebody wrote. A comment is a bordered box with a shaded header, as GitHub draws it; a review is a
+ * timeline row carrying its verdict, with its body in a box beneath and the inline threads it opened after that.
  */
 function detailPost(post, verb) {
   const el = document.createElement('article');
@@ -2400,29 +2622,21 @@ function detailPost(post, verb) {
   el.dataset.kind = post.kind;
 
   const head = document.createElement('header');
+  const review = post.kind === 'review';
+  const did = verb ?? (review && Object.hasOwn(REVIEW_WORD, post.state) ? REVIEW_WORD[post.state] : review ? 'reviewed' : 'commented');
+  const { said, parts } = detailByline(post, did);
+
+  if (review) {
+    head.appendChild(detailBadge(reviewBadge(post.state)));
+  }
 
   if (post.avatarUrl) {
-    head.appendChild(detailAvatar(post.avatarUrl, 20));
+    head.appendChild(detailAvatar(post.avatarUrl, review ? 16 : 24));
   }
 
-  const who = document.createElement('strong');
-  who.textContent = post.author ?? 'someone';
-  head.appendChild(who);
+  head.append(...parts);
 
-  const said = document.createElement('span');
-  said.className = 'detail-when';
-  const did = post.kind === 'review' && Object.hasOwn(REVIEW_WORD, post.state) ? REVIEW_WORD[post.state] : null;
-  said.textContent = `${verb ?? did ?? (post.kind === 'review' ? 'reviewed this' : 'commented')} ${detailWhen(post.createdAt)}`;
-  head.appendChild(said);
-
-  if (post.editedAt) {
-    const edited = document.createElement('span');
-    edited.className = 'detail-when';
-    edited.textContent = `edited ${detailWhen(post.editedAt)}`;
-    head.appendChild(edited);
-  }
-
-  if (post.kind === 'review' && post.state) {
+  if (review && post.state) {
     // The verb above already names the state, so this only colours it.
     said.classList.add('detail-review-state');
     said.dataset.state = post.state.toLowerCase();
@@ -2430,25 +2644,18 @@ function detailPost(post, verb) {
 
   el.appendChild(head);
 
-  const body = document.createElement('div');
-  body.className = 'markdown-body';
-  body.appendChild(sanitizeDetail(post.bodyHtml));
+  const body = detailBody(post);
+  const reactions = post.reactions.length > 0 ? detailReactions(post.reactions) : null;
 
-  if (post.hidden !== null) {
-    // A hidden comment is still part of the record, so it is collapsed rather than dropped.
-    const fold = document.createElement('details');
-    fold.className = 'detail-hidden';
-
-    const why = document.createElement('summary');
-    why.textContent = `Hidden as ${String(post.hidden).toLowerCase().replace('_', ' ')}`;
-    fold.append(why, body);
-    el.appendChild(fold);
-  } else if (post.bodyHtml.trim() !== '') {
-    el.appendChild(body);
-  }
-
-  if (post.reactions.length > 0) {
-    el.appendChild(detailReactions(post.reactions));
+  if (review) {
+    if (body !== null || reactions !== null) {
+      const box = document.createElement('div');
+      box.className = 'detail-review-body';
+      box.append(...[body, reactions].filter((part) => part !== null));
+      el.appendChild(box);
+    }
+  } else {
+    el.append(...[body, reactions].filter((part) => part !== null));
   }
 
   for (const thread of post.threads) {
@@ -2469,10 +2676,14 @@ function detailThread(thread) {
 
   const where = document.createElement('summary');
   where.className = 'detail-thread-where';
+  where.appendChild(octicon('chevron-right'));
 
   const path = document.createElement('code');
   path.textContent = thread.line === null ? thread.path : `${thread.path}:${thread.line}`;
   where.appendChild(path);
+
+  const aside = document.createElement('span');
+  aside.className = 'detail-thread-aside';
 
   for (const mark of [thread.outdated ? 'Outdated' : null, thread.resolved ? 'Resolved' : null]) {
     if (mark === null) {
@@ -2482,14 +2693,15 @@ function detailThread(thread) {
     const tag = document.createElement('span');
     tag.className = 'detail-thread-mark';
     tag.textContent = mark;
-    where.appendChild(tag);
+    aside.appendChild(tag);
   }
 
   const held = thread.comments.length;
   const count = document.createElement('span');
   count.className = 'detail-thread-count';
   count.textContent = `${held}${thread.moreComments ? '+' : ''} comment${held === 1 && !thread.moreComments ? '' : 's'}`;
-  where.appendChild(count);
+  aside.appendChild(count);
+  where.appendChild(aside);
 
   el.appendChild(where);
 
@@ -2512,11 +2724,12 @@ function detailNote(text, error) {
   return note;
 }
 
-/** One state change or commit: a single line naming who did what, and when. */
-function detailActivityRow(event) {
+/** One state change or commit: a badge on the timeline, then who did what, and when. */
+function detailActivityRow(event, subject) {
   const row = document.createElement('div');
   row.className = 'detail-activity';
   row.dataset.kind = event.kind;
+  row.appendChild(detailBadge(noteBadge(event, subject)));
 
   if (event.avatarUrl) {
     row.appendChild(detailAvatar(event.avatarUrl, 16));
@@ -2552,12 +2765,12 @@ function detailActivityRow(event) {
 }
 
 /** Fold a long run of state changes so it does not bury the conversation, while still holding every one of them. */
-function detailActivityRun(events) {
+function detailActivityRun(events, subject) {
   if (events.length < ACTIVITY_RUN) {
     const loose = document.createDocumentFragment();
 
     for (const event of events) {
-      loose.appendChild(detailActivityRow(event));
+      loose.appendChild(detailActivityRow(event, subject));
     }
 
     return loose;
@@ -2567,24 +2780,24 @@ function detailActivityRun(events) {
   fold.className = 'detail-activity-run';
 
   const summary = document.createElement('summary');
-  summary.textContent = `${events.length} updates`;
+  summary.append(detailBadge({ icon: 'chevron-right', tone: 'muted' }), `${events.length} updates`);
   fold.appendChild(summary);
 
   for (const event of events) {
-    fold.appendChild(detailActivityRow(event));
+    fold.appendChild(detailActivityRow(event, subject));
   }
 
   return fold;
 }
 
 /** Draw the conversation in the order it happened, folding consecutive state changes into one row. */
-function detailTimeline(events) {
+function detailTimeline(events, subject) {
   const out = document.createDocumentFragment();
   let run = [];
 
   const flush = () => {
     if (run.length > 0) {
-      out.appendChild(detailActivityRun(run));
+      out.appendChild(detailActivityRun(run, subject));
       run = [];
     }
   };
@@ -2619,63 +2832,214 @@ function detailThreads(threads) {
   return section;
 }
 
-/** The line under the title: labels, author, assignees, milestone, and a pull request's branches and checks. */
-function detailChips(detail) {
-  const chips = document.createElement('div');
-  chips.className = 'detail-chips';
+/** A label drawn as GitHub draws it, from the channels its stylesheet reads: RGB for the fill, HSL for the text. */
+function detailLabel(label) {
+  const chip = document.createElement('span');
+  chip.className = 'detail-label';
+  chip.textContent = label.name;
 
-  for (const label of detail.labels) {
-    const chip = document.createElement('span');
-    chip.className = 'detail-label';
-    chip.style.setProperty('--gc-label', `#${label.color}`);
-    chip.textContent = label.name;
-    chips.appendChild(chip);
+  const hex = /^[0-9a-f]{6}$/i.test(label.color) ? label.color : 'ededed';
+  const [r, g, b] = [0, 2, 4].map((at) => Number.parseInt(hex.slice(at, at + 2), 16));
+  const { h, s, l } = hsl(r, g, b);
+
+  for (const [name, value] of [['r', r], ['g', g], ['b', b], ['h', h], ['s', s], ['l', l]]) {
+    chip.style.setProperty(`--label-${name}`, String(value));
   }
 
-  if (detail.assignees.length > 0) {
-    const who = document.createElement('span');
-    who.className = 'detail-facet';
-    who.textContent = `assigned ${detail.assignees.join(', ')}`;
-    chips.appendChild(who);
+  return chip;
+}
+
+/** Hue in degrees and saturation and lightness in percent, rounded as GitHub sends them. */
+function hsl(r, g, b) {
+  const [red, green, blue] = [r / 255, g / 255, b / 255];
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const l = (max + min) / 2;
+  const d = max - min;
+
+  if (d === 0) {
+    return { h: 0, s: 0, l: Math.round(l * 100) };
   }
 
-  if (detail.milestone) {
-    const milestone = document.createElement('span');
-    milestone.className = 'detail-facet';
-    milestone.textContent = detail.milestone;
-    chips.appendChild(milestone);
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === red ? ((green - blue) / d) % 6 : max === green ? (blue - red) / d + 2 : (red - green) / d + 4;
+
+  return { h: Math.round(((h * 60) + 360) % 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+
+/** One sidebar section: GitHub's small muted heading over its value, or over the muted words for having none. */
+function detailFacet(name, value, none) {
+  const facet = document.createElement('div');
+  facet.className = 'detail-facet';
+
+  const heading = document.createElement('h3');
+  heading.textContent = name;
+  facet.appendChild(heading);
+
+  const held = document.createElement('div');
+  held.className = 'detail-facet-value';
+
+  if (value === null) {
+    held.textContent = none;
+    held.dataset.empty = 'true';
+  } else {
+    held.append(...value);
   }
 
-  if (detail.draft) {
-    const draft = document.createElement('span');
-    draft.className = 'detail-facet';
-    draft.textContent = 'draft';
-    chips.appendChild(draft);
+  facet.appendChild(held);
+
+  return facet;
+}
+
+/** A sidebar value that carries a verdict: GitHub's check or cross in its colour, then the words. */
+function detailVerdict(icon, tone, words) {
+  const value = document.createElement('span');
+  value.className = 'detail-verdict';
+  value.dataset.tone = tone;
+  value.append(octicon(icon), words);
+
+  return value;
+}
+
+function reviewFacet(decision) {
+  switch (decision) {
+    case 'APPROVED':
+      return [detailVerdict('check', 'open', 'Approved')];
+    case 'CHANGES_REQUESTED':
+      return [detailVerdict('x', 'closed', 'Changes requested')];
+    case 'REVIEW_REQUIRED':
+      return ['Review required'];
+    default:
+      return null;
+  }
+}
+
+function checksFacet(checks) {
+  switch (checks) {
+    case null:
+      return null;
+    case 'SUCCESS':
+      return [detailVerdict('check', 'open', 'All checks passed')];
+    case 'FAILURE':
+    case 'ERROR':
+      return [detailVerdict('x', 'closed', 'Some checks failed')];
+    case 'PENDING':
+    case 'EXPECTED':
+      return ['Checks pending'];
+    default:
+      return [statusWord(checks)];
+  }
+}
+
+/** What GitHub keeps in the sidebar beside a conversation: assignees, labels, milestone, and a pull request's verdicts. */
+function detailSidebar(detail) {
+  const sidebar = document.createElement('div');
+  sidebar.className = 'detail-sidebar';
+
+  if (detail.subject === 'pull-request') {
+    sidebar.appendChild(detailFacet('Reviewers', reviewFacet(detail.reviewDecision), 'No reviews'));
   }
 
-  if (detail.branches) {
-    const branches = document.createElement('span');
-    branches.className = 'detail-facet';
-    branches.textContent = `${detail.branches.head} → ${detail.branches.base}`;
-    chips.appendChild(branches);
+  sidebar.append(
+    detailFacet('Assignees', detail.assignees.length > 0 ? [detail.assignees.join(', ')] : null, 'No one'),
+    detailFacet('Labels', detail.labels.length > 0 ? detail.labels.map(detailLabel) : null, 'None yet'),
+    detailFacet('Milestone', detail.milestone === null ? null : [detail.milestone], 'No milestone'),
+  );
+
+  if (detail.subject === 'pull-request') {
+    sidebar.appendChild(detailFacet('Checks', checksFacet(detail.checks), 'No checks'));
   }
 
-  if (detail.reviewDecision) {
-    const decision = document.createElement('span');
-    decision.className = 'detail-facet';
-    decision.textContent = statusWord(detail.reviewDecision.replace('_', ' '));
-    chips.appendChild(decision);
+  return sidebar;
+}
+
+/** A branch name in GitHub's chip: monospace on the accent tint. */
+function detailBranch(name) {
+  const chip = document.createElement('span');
+  chip.className = 'detail-branch';
+  chip.textContent = name;
+
+  return chip;
+}
+
+/** The line under a pull request's state pill: who is moving which branch into which. */
+function detailSummary(detail) {
+  if (detail.branches === null) {
+    return null;
   }
 
-  if (detail.checks) {
-    const checks = document.createElement('span');
-    checks.className = 'detail-facet';
-    checks.dataset.checks = detail.checks.toLowerCase();
-    checks.textContent = `checks ${detail.checks.toLowerCase()}`;
-    chips.appendChild(checks);
+  const summary = document.createElement('span');
+  summary.className = 'detail-summary';
+
+  const who = document.createElement('strong');
+  who.textContent = detail.author ?? 'someone';
+  summary.append(
+    who,
+    String(detail.state).toUpperCase() === 'MERGED' ? ' merged ' : ' wants to merge ',
+    detailBranch(detail.branches.head),
+    ' into ',
+    detailBranch(detail.branches.base),
+  );
+
+  return summary;
+}
+
+/** GitHub's page header: the repository, the title with its number, then the state pill and its summary line. */
+function detailHeader(detail, subject, loading) {
+  const head = document.createElement('header');
+
+  const repo = document.createElement('div');
+  repo.className = 'detail-repo';
+  repo.textContent = detail?.repository ?? '';
+  head.appendChild(repo);
+
+  const row = document.createElement('div');
+  row.className = 'detail-title-row';
+
+  const heading = document.createElement('h2');
+  heading.className = 'detail-title';
+
+  const words = document.createElement('span');
+  words.className = 'detail-title-text';
+  words.textContent = detail?.title ?? (loading ? 'Reading…' : 'Nothing to show');
+  heading.appendChild(words);
+
+  if (detail) {
+    heading.append(' ');
+
+    const number = document.createElement('span');
+    number.className = 'detail-number';
+    number.textContent = `#${detail.number}`;
+    heading.appendChild(number);
   }
 
-  return chips;
+  row.appendChild(heading);
+  head.appendChild(row);
+
+  const meta = document.createElement('div');
+  meta.className = 'detail-meta';
+
+  const status = detailStatus(detail, subject);
+  const state = document.createElement('span');
+  state.className = 'detail-state';
+  state.dataset.state = status.word.toLowerCase();
+  state.dataset.tone = status.tone;
+  state.append(octicon(status.icon), status.word);
+  meta.appendChild(state);
+
+  const summary = detail ? detailSummary(detail) : null;
+
+  if (summary !== null) {
+    meta.appendChild(summary);
+  }
+
+  head.appendChild(meta);
+
+  if (detail) {
+    head.appendChild(detailSidebar(detail));
+  }
+
+  return { head, row };
 }
 
 function paintDetail(opening) {
@@ -2691,13 +3055,15 @@ function paintDetail(opening) {
 
   panel.replaceChildren(detailGrip(panel));
 
-  const head = document.createElement('header');
-  const top = detailHeading(detail, detailFor.subject);
+  const { head, row } = detailHeader(detail, detailFor.subject, loading);
+
+  const actions = document.createElement('div');
+  actions.className = 'detail-actions';
 
   const external = document.createElement('button');
   external.type = 'button';
   external.className = 'detail-action';
-  external.textContent = 'Open on GitHub';
+  external.append(octicon('link-external'), 'Open on GitHub');
   external.disabled = detail === null;
   setTooltip(external, 'Open this conversation in your browser');
   external.addEventListener('click', () => detail && vscode.postMessage({ type: 'openLink', url: detail.url }));
@@ -2705,21 +3071,12 @@ function paintDetail(opening) {
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'detail-close';
-  close.textContent = '×';
+  close.appendChild(octicon('x'));
   setAccessibleName(close, 'Close conversation');
   close.addEventListener('click', () => closeDetail());
 
-  top.append(external, close);
-  head.appendChild(top);
-
-  const heading = document.createElement('h2');
-  heading.textContent = detail?.title ?? (loading ? 'Reading…' : 'Nothing to show');
-  head.appendChild(heading);
-
-  if (detail) {
-    head.appendChild(detailChips(detail));
-  }
-
+  actions.append(external, close);
+  row.appendChild(actions);
   panel.appendChild(head);
 
   const body = document.createElement('div');
@@ -2734,13 +3091,16 @@ function paintDetail(opening) {
   } else if (failure !== null || detail === null) {
     body.appendChild(detailNote(failure ?? 'That conversation could not be found.', true));
   } else {
-    body.appendChild(
+    const timeline = document.createElement('div');
+    timeline.className = 'detail-timeline';
+
+    timeline.appendChild(
       detailPost(
         {
           kind: 'comment',
           author: detail.author,
           avatarUrl: detail.authorAvatarUrl,
-          bodyHtml: detail.bodyHtml.trim() === '' ? '<p>No description.</p>' : detail.bodyHtml,
+          bodyHtml: detail.bodyHtml.trim() === '' ? '<p><em>No description provided.</em></p>' : detail.bodyHtml,
           createdAt: detail.createdAt,
           editedAt: detail.editedAt,
           reactions: detail.reactions,
@@ -2748,15 +3108,16 @@ function paintDetail(opening) {
           state: null,
           threads: [],
         },
-        detail.subject === 'issue' ? 'opened this' : 'opened this pull request',
+        'opened this',
       ),
     );
 
     if (detail.moreEvents) {
-      body.appendChild(detailNote('Earlier updates are not shown. Open on GitHub to read them.'));
+      timeline.appendChild(detailNote('Earlier updates are not shown. Open on GitHub to read them.'));
     }
 
-    body.appendChild(detailTimeline(detail.events));
+    timeline.appendChild(detailTimeline(detail.events, detail.subject));
+    body.appendChild(timeline);
 
     if (detail.threads.length > 0) {
       body.appendChild(detailThreads(detail.threads));

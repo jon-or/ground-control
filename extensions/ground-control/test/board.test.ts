@@ -3424,7 +3424,7 @@ describe('the conversation panel', () => {
   }
 
   function note(over: Partial<DetailNote> = {}): DetailNote {
-    return { kind: 'note', actor: 'dev-2', avatarUrl: null, createdAt: '2026-08-19T20:16:30Z', summary: 'closed this', url: null, ...over };
+    return { kind: 'note', icon: 'closed', actor: 'dev-2', avatarUrl: null, createdAt: '2026-08-19T20:16:30Z', summary: 'closed this', url: null, ...over };
   }
 
   function thread(over: Partial<DetailThread> = {}): DetailThread {
@@ -3677,9 +3677,79 @@ describe('the conversation panel', () => {
       checks: 'FAILURE',
     });
 
-    const facets = Array.from(panel()!.querySelectorAll('.detail-facet')).map((chip) => chip.textContent);
+    const facets = Array.from(panel()!.querySelectorAll('.detail-facet')).map((facet) => [
+      facet.querySelector('h3')!.textContent,
+      facet.querySelector('.detail-facet-value')!.textContent,
+    ]);
 
-    expect(facets).toEqual(['assigned dev-1', 'Patch 1', 'topic → main', 'Changes requested', 'checks failure']);
+    expect(facets).toEqual([
+      ['Reviewers', 'Changes requested'],
+      ['Assignees', 'dev-1'],
+      ['Labels', 'area-1'],
+      ['Milestone', 'Patch 1'],
+      ['Checks', 'Some checks failed'],
+    ]);
+    // A facet that holds something is not drawn in the muted empty colour.
+    expect(panel()!.querySelectorAll('.detail-facet-value[data-empty]')).toHaveLength(0);
+    // The branches sit under the state pill, as GitHub draws them, with the head first.
+    expect(Array.from(panel()!.querySelectorAll('.detail-branch')).map((chip) => chip.textContent)).toEqual(['topic', 'main']);
+    expect(panel()!.querySelector('.detail-summary')!.textContent).toBe('dev-1 wants to merge topic into main');
+    expect(panel()!.querySelector('.detail-state')!.textContent).toBe('Open');
+  });
+
+  it('draws the state pill the way GitHub colours it, and says Draft for a draft pull request', () => {
+    openPanel();
+    answer({ subject: 'pull-request', state: 'MERGED', branches: { base: 'main', head: 'topic' } });
+
+    const state = panel()!.querySelector<HTMLElement>('.detail-state')!;
+
+    expect(state.textContent).toBe('Merged');
+    expect(state.dataset.tone).toBe('done');
+    expect(panel()!.querySelector('.detail-summary')!.textContent).toBe('dev-1 merged topic into main');
+
+    answer({ subject: 'pull-request', state: 'OPEN', draft: true });
+
+    expect(panel()!.querySelector<HTMLElement>('.detail-state')!.textContent).toBe('Draft');
+    expect(panel()!.querySelector<HTMLElement>('.detail-state')!.dataset.tone).toBe('muted');
+
+    answer({ subject: 'pull-request', state: 'CLOSED' });
+
+    expect(panel()!.querySelector<HTMLElement>('.detail-state')!.dataset.tone).toBe('closed');
+
+    answer({ state: 'CLOSED' });
+
+    // A closed issue is purple on GitHub, unlike a closed pull request, which is red.
+    expect(panel()!.querySelector<HTMLElement>('.detail-state')!.dataset.tone).toBe('done');
+  });
+
+  it('gives each state change the badge GitHub draws for it, coloured where GitHub colours it', () => {
+    openPanel();
+    answer({
+      subject: 'pull-request',
+      events: [note({ icon: 'label', summary: 'added the bug label' }), note({ icon: 'closed', summary: 'closed this' }), note({ icon: 'merged', summary: 'merged this into main' })],
+    });
+
+    const badges = Array.from(panel()!.querySelectorAll<HTMLElement>('.detail-activity .detail-badge'));
+
+    expect(badges.map((badge) => badge.dataset.tone)).toEqual(['muted', 'closed', 'done']);
+    // Each event draws its own octicon, not one shared glyph.
+    expect(new Set(badges.map((badge) => badge.innerHTML)).size).toBe(3);
+
+    // The same closing is purple on an issue, as GitHub draws a completed issue.
+    answer({ events: [note({ icon: 'closed', summary: 'closed this as completed' })] });
+
+    expect(panel()!.querySelector<HTMLElement>('.detail-activity .detail-badge')!.dataset.tone).toBe('done');
+  });
+
+  it('shows the empty sidebar words GitHub uses when nothing is assigned, labelled, or milestoned', () => {
+    openPanel();
+    answer({ labels: [] });
+
+    const values = Array.from(panel()!.querySelectorAll('.detail-facet-value')).map((value) => value.textContent);
+
+    expect(values).toEqual(['No one', 'None yet', 'No milestone']);
+    expect(panel()!.querySelectorAll('.detail-facet-value[data-empty]')).toHaveLength(3);
+    expect(panel()!.querySelector('.detail-facet h3')!.textContent).toBe('Assignees');
   });
 
   it('shows inline review threads with their file, line, and state', () => {

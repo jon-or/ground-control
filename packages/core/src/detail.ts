@@ -27,12 +27,38 @@ export interface DetailPost {
   threads: DetailThread[];
 }
 
+/** The badge GitHub draws beside a timeline event; clients draw the matching octicon and colour. */
+export type DetailIcon =
+  | 'commit'
+  | 'merged'
+  | 'closed'
+  | 'not-planned'
+  | 'reopened'
+  | 'label'
+  | 'assignee'
+  | 'milestone'
+  | 'renamed'
+  | 'reference'
+  | 'status'
+  | 'link'
+  | 'review-request'
+  | 'review-dismissed'
+  | 'force-push'
+  | 'branch'
+  | 'ready'
+  | 'draft'
+  | 'lock'
+  | 'unlock'
+  | 'duplicate'
+  | 'transfer';
+
 /**
  * Something that happened rather than something someone wrote: a commit, a label, an assignment, a status move.
  * The source composes `summary` because the wording is a product decision, not a client one.
  */
 export interface DetailNote {
   kind: 'commit' | 'note';
+  icon: DetailIcon;
   actor: string | null;
   avatarUrl: string | null;
   createdAt: string;

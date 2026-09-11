@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   DetailEvent,
+  DetailIcon,
   DetailPost,
   DetailReaction,
   DetailReading,
@@ -197,81 +198,86 @@ function referenceOf(ref: z.infer<typeof reference>, repository: string): { name
  * Compose the one line a state change reads as. The wording is a product decision, so it is settled here rather
  * than in each client. A type outside the query's `itemTypes` cannot arrive, so an unknown one is dropped.
  */
-function noteOf(node: TimelineNode, repository: string): { summary: string; url: string | null } | null {
+function noteOf(node: TimelineNode, repository: string): { icon: DetailIcon; summary: string; url: string | null } | null {
   switch (node.__typename) {
     case 'ClosedEvent':
-      return { summary: node.stateReason ? `closed this as ${words(node.stateReason)}` : 'closed this', url: null };
+      return {
+        icon: node.stateReason === 'NOT_PLANNED' ? 'not-planned' : 'closed',
+        summary: node.stateReason ? `closed this as ${words(node.stateReason)}` : 'closed this',
+        url: null,
+      };
     case 'ReopenedEvent':
-      return { summary: 'reopened this', url: null };
+      return { icon: 'reopened', summary: 'reopened this', url: null };
     case 'MergedEvent':
-      return { summary: `merged this into ${node.mergeRefName ?? 'the base branch'}`, url: null };
+      return { icon: 'merged', summary: `merged this into ${node.mergeRefName ?? 'the base branch'}`, url: null };
     case 'LabeledEvent':
-      return { summary: `added the ${node.label?.name ?? 'unnamed'} label`, url: null };
+      return { icon: 'label', summary: `added the ${node.label?.name ?? 'unnamed'} label`, url: null };
     case 'UnlabeledEvent':
-      return { summary: `removed the ${node.label?.name ?? 'unnamed'} label`, url: null };
+      return { icon: 'label', summary: `removed the ${node.label?.name ?? 'unnamed'} label`, url: null };
     case 'AssignedEvent':
-      return { summary: `assigned ${nameOf(node.assignee)}`, url: null };
+      return { icon: 'assignee', summary: `assigned ${nameOf(node.assignee)}`, url: null };
     case 'UnassignedEvent':
-      return { summary: `unassigned ${nameOf(node.assignee)}`, url: null };
+      return { icon: 'assignee', summary: `unassigned ${nameOf(node.assignee)}`, url: null };
     case 'MilestonedEvent':
-      return { summary: `added this to the ${node.milestoneTitle ?? 'unnamed'} milestone`, url: null };
+      return { icon: 'milestone', summary: `added this to the ${node.milestoneTitle ?? 'unnamed'} milestone`, url: null };
     case 'DemilestonedEvent':
-      return { summary: `removed this from the ${node.milestoneTitle ?? 'unnamed'} milestone`, url: null };
+      return { icon: 'milestone', summary: `removed this from the ${node.milestoneTitle ?? 'unnamed'} milestone`, url: null };
     case 'RenamedTitleEvent':
-      return { summary: `renamed this to ${node.currentTitle ?? ''}`, url: null };
+      return { icon: 'renamed', summary: `renamed this to ${node.currentTitle ?? ''}`, url: null };
     case 'CrossReferencedEvent': {
       const at = referenceOf(node.source, repository);
 
-      return { summary: `referenced this in ${at.name}`, url: at.url };
+      return { icon: 'reference', summary: `referenced this in ${at.name}`, url: at.url };
     }
     case 'ReferencedEvent':
-      return { summary: `referenced this in commit ${node.commit?.abbreviatedOid ?? 'an unreadable commit'}`, url: null };
+      return { icon: 'reference', summary: `referenced this in commit ${node.commit?.abbreviatedOid ?? 'an unreadable commit'}`, url: null };
     case 'ProjectV2ItemStatusChangedEvent':
       return {
+        icon: 'status',
         summary: node.previousStatus ? `moved this from ${node.previousStatus} to ${node.status ?? 'no status'}` : `set the status to ${node.status ?? 'no status'}`,
         url: null,
       };
     case 'ConnectedEvent': {
       const linked = referenceOf(node.subject, repository);
 
-      return { summary: `linked ${linked.name}`, url: linked.url };
+      return { icon: 'link', summary: `linked ${linked.name}`, url: linked.url };
     }
     case 'DisconnectedEvent': {
       const unlinked = referenceOf(node.subject, repository);
 
-      return { summary: `unlinked ${unlinked.name}`, url: unlinked.url };
+      return { icon: 'link', summary: `unlinked ${unlinked.name}`, url: unlinked.url };
     }
     case 'ReviewRequestedEvent':
-      return { summary: `requested a review from ${nameOf(node.requestedReviewer)}`, url: null };
+      return { icon: 'review-request', summary: `requested a review from ${nameOf(node.requestedReviewer)}`, url: null };
     case 'ReviewRequestRemovedEvent':
-      return { summary: `removed the review request for ${nameOf(node.requestedReviewer)}`, url: null };
+      return { icon: 'review-request', summary: `removed the review request for ${nameOf(node.requestedReviewer)}`, url: null };
     case 'ReviewDismissedEvent':
-      return { summary: node.dismissalMessage ? `dismissed a review: ${node.dismissalMessage}` : 'dismissed a review', url: null };
+      return { icon: 'review-dismissed', summary: node.dismissalMessage ? `dismissed a review: ${node.dismissalMessage}` : 'dismissed a review', url: null };
     case 'HeadRefForcePushedEvent':
-      return { summary: `force-pushed from ${node.beforeCommit?.abbreviatedOid ?? '?'} to ${node.afterCommit?.abbreviatedOid ?? '?'}`, url: null };
+      return { icon: 'force-push', summary: `force-pushed from ${node.beforeCommit?.abbreviatedOid ?? '?'} to ${node.afterCommit?.abbreviatedOid ?? '?'}`, url: null };
     case 'HeadRefDeletedEvent':
-      return { summary: `deleted the ${node.headRefName ?? 'head'} branch`, url: null };
+      return { icon: 'branch', summary: `deleted the ${node.headRefName ?? 'head'} branch`, url: null };
     case 'HeadRefRestoredEvent':
-      return { summary: 'restored the head branch', url: null };
+      return { icon: 'branch', summary: 'restored the head branch', url: null };
     case 'BaseRefChangedEvent':
-      return { summary: `changed the base from ${node.previousRefName ?? '?'} to ${node.currentRefName ?? '?'}`, url: null };
+      return { icon: 'branch', summary: `changed the base from ${node.previousRefName ?? '?'} to ${node.currentRefName ?? '?'}`, url: null };
     case 'ReadyForReviewEvent':
-      return { summary: 'marked this ready for review', url: null };
+      return { icon: 'ready', summary: 'marked this ready for review', url: null };
     case 'ConvertToDraftEvent':
-      return { summary: 'converted this to a draft', url: null };
+      return { icon: 'draft', summary: 'converted this to a draft', url: null };
     case 'LockedEvent':
-      return { summary: node.lockReason ? `locked this as ${words(node.lockReason)}` : 'locked this', url: null };
+      return { icon: 'lock', summary: node.lockReason ? `locked this as ${words(node.lockReason)}` : 'locked this', url: null };
     case 'UnlockedEvent':
-      return { summary: 'unlocked this', url: null };
+      return { icon: 'unlock', summary: 'unlocked this', url: null };
     case 'MarkedAsDuplicateEvent': {
       const canonical = referenceOf(node.canonical, repository);
 
-      return { summary: `marked this a duplicate of ${canonical.name}`, url: canonical.url };
+      return { icon: 'duplicate', summary: `marked this a duplicate of ${canonical.name}`, url: canonical.url };
     }
     case 'UnmarkedAsDuplicateEvent':
-      return { summary: 'removed the duplicate mark', url: null };
+      return { icon: 'duplicate', summary: 'removed the duplicate mark', url: null };
     case 'TransferredEvent':
-      return { summary: `transferred this from ${node.fromRepository?.nameWithOwner ?? 'another repository'}`, url: null };
+      return { icon: 'transfer', summary: `transferred this from ${node.fromRepository?.nameWithOwner ?? 'another repository'}`, url: null };
     default:
       return null;
   }
@@ -300,6 +306,7 @@ function toEvent(node: TimelineNode, repository: string): DetailEvent | null {
 
     return {
       kind: 'commit',
+      icon: 'commit',
       actor: commit?.author?.user?.login ?? commit?.author?.name ?? null,
       avatarUrl: null,
       createdAt: commit?.committedDate ?? '',
@@ -312,7 +319,15 @@ function toEvent(node: TimelineNode, repository: string): DetailEvent | null {
 
   return note === null
     ? null
-    : { kind: 'note', actor: node.actor?.login ?? null, avatarUrl: node.actor?.avatarUrl ?? null, createdAt: node.createdAt ?? '', summary: note.summary, url: note.url };
+    : {
+        kind: 'note',
+        icon: note.icon,
+        actor: node.actor?.login ?? null,
+        avatarUrl: node.actor?.avatarUrl ?? null,
+        createdAt: node.createdAt ?? '',
+        summary: note.summary,
+        url: note.url,
+      };
 }
 
 function toThread(node: ThreadNode): { thread: DetailThread; review: string | null } {
