@@ -80,6 +80,14 @@ function issueNodesOf(response) {
 /** Replace identifying fields while preserving the recorded GraphQL structure. */
 function anonymiseResponse(response, logins, owners = ownerMap()) {
   const nodes = issueNodesOf(response);
+  const profile = response?.data?.user;
+
+  // A profile read (PROFILE_QUERY) carries one user and nothing else.
+  if (profile) {
+    profile.login = logins.of(profile.login);
+    profile.name = profile.name === null ? null : `${profile.login} Surname`;
+    profile.avatarUrl = `https://avatars.githubusercontent.com/${profile.login}?s=40`;
+  }
 
   for (const node of nodes) {
     node.title = title(node.number);
@@ -121,6 +129,7 @@ function assertScrubbed(recorded, written, logins) {
   const identifyingActorValues = (actor) =>
     actor && !/^dev-\d+(-[a-z0-9-]+)?$/.test(actor.login) ? [actor.login, actor.avatarUrl] : [];
 
+  const fromProfiles = recorded.flatMap((r) => (r?.data?.user ? [r.data.user.login, r.data.user.name, r.data.user.avatarUrl] : []));
   const fromNodes = recorded.flatMap((r) =>
     issueNodesOf(r).flatMap((n) => [
       n.title === title(n.number) ? null : n.title,
@@ -136,7 +145,7 @@ function assertScrubbed(recorded, written, logins) {
   );
 
   // Exclude synthetic values when checking a second scrub pass.
-  const real = [...fromNodes, ...logins.pairs().filter(([from, to]) => from !== to).map(([from]) => from)].filter(
+  const real = [...fromNodes, ...fromProfiles, ...logins.pairs().filter(([from, to]) => from !== to).map(([from]) => from)].filter(
     (value) => typeof value === 'string' && value.length > 3,
   );
 

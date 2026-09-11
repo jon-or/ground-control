@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AvatarPolicy, CardAvatar, CardPullRequest, IssueCard } from '@ground-control/core';
+import type { AccountLinks, Profiles } from './accounts.js';
 
 export type { CardAvatar, CardPullRequest, IssueCard };
 
@@ -20,6 +21,10 @@ export interface GithubConfig {
   /** Board policy supplied by the hub at configure time, not by the client's source settings. */
   reviewStatuses: readonly string[];
   avatar: AvatarPolicy;
+  /** Lowercase alias login to the login shown in its place (R28). */
+  linkedAccounts: AccountLinks;
+  /** Profiles of the linked targets, read by the source and shared by every reader. */
+  profiles: Profiles;
 }
 
 export interface AssignedIssues {

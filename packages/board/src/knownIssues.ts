@@ -26,7 +26,7 @@ export function knownIssueKey(repository: string, number: number): string {
   return `${repository}#${number}`;
 }
 
-const avatar = z.object({ login: z.string(), url: z.string(), source: z.enum(['pull-request', 'issue-author', 'issue']) });
+const avatar = z.object({ login: z.string(), url: z.string(), source: z.enum(['pull-request', 'issue-author', 'issue']), aliasOf: z.string().optional() });
 
 const pullRequest = z.object({
   number: z.number(),
@@ -61,10 +61,12 @@ const issueCard = z.object({
 
 /** Check the schema against IssueCard and omit absent optional keys for exactOptionalPropertyTypes. */
 function pinned(parsed: z.infer<typeof issueCard>): IssueCard {
-  const { repository, state, ...rest } = parsed;
+  const { repository, state, avatar: face, ...rest } = parsed;
+  const { aliasOf, ...actor } = face ?? {};
 
   return {
     ...rest,
+    avatar: face === null ? null : { ...(actor as Omit<NonNullable<IssueCard['avatar']>, 'aliasOf'>), ...(aliasOf === undefined ? {} : { aliasOf }) },
     ...(repository === undefined ? {} : { repository }),
     ...(state === undefined ? {} : { state }),
   };

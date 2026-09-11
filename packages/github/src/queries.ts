@@ -144,6 +144,10 @@ fragment prEvent on PullRequestTimelineItems{
 
 fragment reviewer on RequestedReviewer{ ... on User{ login } ... on Team{ slug } ... on Bot{ login } }`;
 
+/** The login, profile name, and face a linked account shows instead of its alias (R28). Bots have no name. */
+export const PROFILE_QUERY = `
+query($login:String!){ user(login:$login){ login name avatarUrl(size:40) } }`;
+
 export const DETAIL_QUERY = `
 query($owner:String!, $name:String!, $number:Int!, $issue:Boolean!, $pr:Boolean!, $events:String, $threads:String){
   repository(owner:$owner, name:$name){

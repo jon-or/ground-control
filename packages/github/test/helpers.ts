@@ -21,6 +21,8 @@ export function config(over: Partial<GithubConfig> = {}): GithubConfig {
     maxPages: 5,
     reviewStatuses: ['🔍 Dev Review'],
     avatar: { review: 'pull-request-author', offReview: 'assignee' },
+    linkedAccounts: {},
+    profiles: new Map(),
     ...over,
   };
 }

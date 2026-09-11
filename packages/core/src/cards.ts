@@ -46,4 +46,6 @@ export interface CardAvatar {
   url: string;
   /** Whose avatar this is: the selected PR's author, the issue's author, or an assignee (R5). */
   source: 'pull-request' | 'issue-author' | 'issue';
+  /** The login GitHub recorded, when a linked account stands in for it (R28). */
+  aliasOf?: string;
 }

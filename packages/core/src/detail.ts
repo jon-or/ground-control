@@ -14,6 +14,8 @@ export interface DetailReaction {
 export interface DetailPost {
   kind: 'comment' | 'review';
   author: string | null;
+  /** The login GitHub recorded, when a linked account stands in for the author (R28). */
+  aliasOf?: string;
   avatarUrl: string | null;
   bodyHtml: string;
   createdAt: string;
@@ -60,6 +62,8 @@ export interface DetailNote {
   kind: 'commit' | 'note';
   icon: DetailIcon;
   actor: string | null;
+  /** The login GitHub recorded, when a linked account stands in for the actor (R28). */
+  aliasOf?: string;
   avatarUrl: string | null;
   createdAt: string;
   /** One line, without the actor: `added the bug label`, `a1b2c3d Fix the totals`. */
@@ -100,6 +104,8 @@ export interface ItemDetail {
   state: string;
   bodyHtml: string;
   author: string | null;
+  /** The login GitHub recorded, when a linked account stands in for the author (R28). */
+  authorAliasOf?: string;
   authorAvatarUrl: string | null;
   createdAt: string;
   editedAt: string | null;

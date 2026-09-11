@@ -37,6 +37,7 @@ describe('the GitHub entry in a pushed configuration', () => {
       statusField: 'Status',
       cardSource: 'project',
       maxPages: 5,
+      linkedAccounts: {},
     });
   });
 
@@ -211,6 +212,150 @@ describe('the GitHub work source', () => {
 
     expect(reading.items).toBeNull();
     expect(reading.failure).toMatchObject({ subject: GITHUB_SOURCE_ID, kind: 'query-failed' });
+  });
+});
+
+/** Linked accounts resolve through profiles the source reads before any of its entry points answer (R28). */
+describe('the GitHub work source with linked accounts', () => {
+  const NEVER = new AbortController().signal;
+  const PROFILE = { login: 'dev-1', name: 'dev-1 Surname', avatarUrl: 'https://avatars.githubusercontent.com/dev-1?s=40' };
+
+  function linked(over: Partial<GithubSourceDeps> = {}) {
+    const reads: { targets: string[]; now: number }[] = [];
+    // Every reader records the configuration it was handed, so the profiles it saw are assertable.
+    const served: GithubConfig[] = [];
+    let release: (() => void) | null = null;
+
+    const { source: github, asked } = source({
+      readProfiles: async (_config, targets, cache, now) => {
+        reads.push({ targets: [...targets], now });
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+
+        for (const target of targets) {
+          if (!['dev-1', 'dev-2'].includes(target)) {
+            throw new Error(`profile read for ${target} was not expected`);
+          }
+
+          cache.set(target.toLowerCase(), { profile: { ...PROFILE, login: target }, at: now });
+        }
+      },
+      readContext: async (config, card) => {
+        served.push(config);
+
+        return { context: { issueNumber: card.number, logins: config.logins, repository: '' } as never, failure: null };
+      },
+      readDetail: async (config) => {
+        served.push(config);
+
+        return { detail: null, failure: null };
+      },
+      readCard: async (config) => {
+        served.push(config);
+
+        return { ok: true, value: { number: 1, assignees: config.logins } as never };
+      },
+      ...over,
+    });
+
+    github.configure({
+      repo: 'example-org/example-repo',
+      logins: ['dev-1-bot', 'dev-1'],
+      linkedAccounts: { 'dev-1-bot': 'dev-1', 'dev-1-agent': 'Dev-1', 'other-bot': 'dev-2' },
+    });
+
+    return { github, asked, reads, served, release: () => release?.() };
+  }
+
+  it('reads the profile of every distinct link target once before any reader answers, and shares the read with everything asked meanwhile', async () => {
+    const { github, asked, reads, served, release } = linked();
+    const card = { number: 1, url: 'https://github.com/example-org/example-repo/issues/1', pullRequest: null } as never;
+
+    const reading = github.read();
+    const context = github.readContext!(card, NEVER);
+    const detail = github.readDetail!(card, 'issue', NEVER);
+    const one = github.readCard!('github.com/example-org/example-repo', 1, NEVER);
+
+    await Promise.resolve();
+    expect(reads).toHaveLength(1);
+    expect(reads[0]?.targets).toEqual(['dev-1', 'dev-2']);
+    expect(asked).toHaveLength(0);
+    expect(served).toHaveLength(0);
+
+    release();
+
+    // The board read passes the profiles it waited for on to the fetch, and reports the owners as they resolve.
+    expect((await reading).items?.owners).toEqual(['dev-1']);
+    expect(asked[0]?.profiles.get('dev-1')?.profile).toEqual(PROFILE);
+    expect(asked[0]?.linkedAccounts).toEqual({ 'dev-1-bot': 'dev-1', 'dev-1-agent': 'Dev-1', 'other-bot': 'dev-2' });
+    await context;
+    await detail;
+    await one;
+    expect(reads).toHaveLength(1);
+    expect(served).toHaveLength(3);
+    expect(served.map((config) => config.profiles.get('dev-1')?.profile)).toEqual([PROFILE, PROFILE, PROFILE]);
+  });
+
+  it('asks for accounts before it spends a profile read, since there is nothing to show them on', async () => {
+    const { github, reads } = linked();
+
+    github.configure({ repo: 'example-org/example-repo', linkedAccounts: { 'dev-1-bot': 'dev-1' } });
+
+    expect((await github.read()).failure?.kind).toBe('no-logins');
+    expect(reads).toHaveLength(0);
+  });
+
+  it('warns about the links it drops once per change of settings, not on every client that resends them', () => {
+    const warnings: string[] = [];
+    const log = { debug: () => undefined, info: () => undefined, warn: (message: string) => void warnings.push(message), error: () => undefined, setLevel: () => undefined, level: () => 'debug' as const, watch: () => () => undefined };
+    const { source: github } = source({ log });
+    const settings = { repo: 'example-org/example-repo', logins: ['dev-1'], linkedAccounts: { 'dev-1': 'dev-1' } };
+
+    github.configure(settings);
+    github.configure(settings);
+    expect(warnings).toEqual(['Ignoring linked account "dev-1": it links to itself.']);
+
+    github.configure({ ...settings, linkedAccounts: { 'dev-2': 'dev-2' } });
+    expect(warnings).toHaveLength(2);
+  });
+
+  it('asks again on the next read, leaving the profile reader to decide what is stale', async () => {
+    const { github, reads, release } = linked();
+
+    const first = github.read();
+    release();
+    await first;
+
+    const second = github.read();
+    await Promise.resolve();
+    expect(reads).toHaveLength(2);
+    release();
+    await second;
+  });
+
+  it('reports the configured logins as they resolve, so a bot named alone still names its developer', async () => {
+    const { github, release } = linked();
+
+    github.configure({ repo: 'example-org/example-repo', logins: ['dev-1-bot'], linkedAccounts: { 'dev-1-bot': 'dev-1' } });
+
+    const reading = github.read();
+    release();
+
+    expect((await reading).items?.owners).toEqual(['dev-1']);
+  });
+
+  it('drops the links it cannot use and keeps the rest, rather than refusing the settings', () => {
+    const { github, asked, release } = linked();
+
+    expect(github.configure({ repo: 'example-org/example-repo', logins: ['dev-1'], linkedAccounts: { 'dev-1': 'dev-1', 'a b': 'dev-2', 'dev-1-bot': 'dev-1' } })).toBeNull();
+
+    const reading = github.read();
+    release();
+
+    return reading.then(() => {
+      expect(asked[0]?.linkedAccounts).toEqual({ 'dev-1-bot': 'dev-1' });
+    });
   });
 });
 

@@ -16,6 +16,7 @@ Scrub recordings before saving them in this public repository.
 | `paged-page2.json` | Same query plus `-f after='Y3Vyc29yOjEwMA=='`, nodes trimmed to 2 |
 | `project-truncated.json` | `-f cards='repo:$REPO is:issue is:open project:$REPO_OWNER/$PROJECT' -f all='repo:$REPO is:issue is:open'`, nodes trimmed to 3; filtered and assigned counts differ, with more pages available |
 | `issue-by-number.json` | `gh api graphql -f query="$ISSUE_Q" -f status=Status -f owner=$REPO_OWNER -f name=$REPO_NAME -F number=<closed unassigned issue>` |
+| `profile.json`, `profile-bot.json` | `gh api graphql -f query="$PROFILE_Q" -f login=<login>` for the first configured login and its bot; `$PROFILE_Q` is `PROFILE_QUERY`. Tests derive a nameless profile from the bot recording, since neither recording account lacks a display name. The linked-account cases in `issues.test.ts` rearrange `avatars.json`'s recorded actors (the bot PR author assigned ahead of the developer), and those in `detail.test.ts` compose assignment, review-request, and thread nodes the way the rest of that file does |
 | `untyped.json` | `-f cards='repo:$REPO is:issue -type:Bug -type:Feature -type:Task -type:Epic' -f all=<same>`, nodes trimmed to 2 |
 
 ## Scrubbing

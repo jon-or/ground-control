@@ -393,6 +393,74 @@ describe('fetchAssignedIssues', () => {
     });
   });
 
+  /** A bot linked to the developer shows as the developer wherever the card names it (R28). */
+  describe('with a linked account', () => {
+    const PROFILE = { login: 'dev-1', name: 'dev-1 Surname', avatarUrl: 'https://avatars.githubusercontent.com/dev-1?s=40' };
+    const linked = () =>
+      config({
+        logins: ['dev-1'],
+        reviewStatuses: ['⚒️ Dev'],
+        linkedAccounts: { 'dev-1-bot': 'dev-1' },
+        profiles: new Map([['dev-1', { profile: PROFILE, at: 0 }]]),
+      });
+
+    it('shows the pull request author as the account it is linked to, with the profile face and the bot as provenance', async () => {
+      const value = await unwrap(linked(), runnerOf(fixture('avatars')));
+      const card = value.cards.find((c) => c.number === 18954);
+
+      expect(card?.pullRequest?.author).toBe('dev-1');
+      expect(card?.avatar).toEqual({ login: 'dev-1', url: PROFILE.avatarUrl, source: 'pull-request', aliasOf: 'dev-1-bot' });
+      // The other card names nobody linked, and stays as recorded, off review under this status set.
+      expect(value.cards.find((c) => c.number === 19400)?.avatar).toEqual({
+        login: 'dev-2',
+        url: 'https://avatars.githubusercontent.com/dev-2?s=40',
+        source: 'issue',
+      });
+    });
+
+    it('keeps the bot face under the linked login while its profile is unread', async () => {
+      const unread = { ...linked(), profiles: new Map() };
+      const value = await unwrap(unread, runnerOf(fixture('avatars')));
+
+      expect(value.cards.find((c) => c.number === 18954)?.avatar).toEqual({
+        login: 'dev-1',
+        url: 'https://avatars.githubusercontent.com/dev-1-bot?s=40',
+        source: 'pull-request',
+        aliasOf: 'dev-1-bot',
+      });
+    });
+
+    it('prefers the developer among the assignees when the configured login is the bot, since both name the same person', async () => {
+      const response = structuredClone(fixture('avatars')) as {
+        data: { cards: { nodes: Array<{ assignees: { nodes: Array<{ login: string; avatarUrl: string }> }; pullRequests: { nodes: Array<{ author: { login: string; avatarUrl: string } }> } }> } };
+      };
+      const [issue, other] = response.data.cards.nodes;
+
+      // Derived: the other card's assignee listed ahead of the bot, both from the recording.
+      issue!.assignees.nodes = [other!.assignees.nodes[0]!, issue!.pullRequests.nodes[0]!.author];
+      issue!.pullRequests.nodes = [];
+      const value = await unwrap({ ...linked(), logins: ['dev-1-bot'], reviewStatuses: [] }, runnerOf(response));
+
+      expect(value.cards[0]?.assignees).toEqual(['dev-2', 'dev-1']);
+      expect(value.cards[0]?.avatar).toEqual({ login: 'dev-1', url: PROFILE.avatarUrl, source: 'issue', aliasOf: 'dev-1-bot' });
+    });
+
+    it('lists the developer once when the bot is assigned beside them, as directly assigned, whichever GitHub lists first', async () => {
+      const response = structuredClone(fixture('avatars')) as {
+        data: { cards: { nodes: Array<{ assignees: { nodes: Array<{ login: string; avatarUrl: string }> }; pullRequests: { nodes: Array<{ author: { login: string; avatarUrl: string } }> } }> } };
+      };
+      const [issue] = response.data.cards.nodes;
+
+      // Derived: the recording's PR author, the bot, assigned ahead of the developer, which the recording accounts had not done.
+      issue!.assignees.nodes = [issue!.pullRequests.nodes[0]!.author, issue!.assignees.nodes[0]!];
+      issue!.pullRequests.nodes = [];
+      const value = await unwrap({ ...linked(), reviewStatuses: [] }, runnerOf(response));
+
+      expect(value.cards[0]?.assignees).toEqual(['dev-1']);
+      expect(value.cards[0]?.avatar).toEqual({ login: 'dev-1', url: 'https://avatars.githubusercontent.com/dev-1?s=40', source: 'issue' });
+    });
+  });
+
   it('reads status from the configured project, not whichever project came back first', async () => {
     const value = await unwrap(config({ projectNumber: 6 }), runnerOf(fixture('project-mode')));
 

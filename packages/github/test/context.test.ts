@@ -214,6 +214,55 @@ describe('reading a card context', () => {
   });
 });
 
+/** A linked account reads as its target everywhere the prompt would name it, and counts among the developer's logins (R28). */
+describe('reading a card context with a linked account', () => {
+  const PROFILE = { login: 'dev-1', name: 'dev-1 Surname', avatarUrl: 'https://avatars.githubusercontent.com/dev-1?s=40' };
+  const linked = (target: string, logins = ['dev-1-bot'], profiles = new Map([['dev-1', { profile: PROFILE, at: 0 }]])) =>
+    config({ logins, linkedAccounts: { 'dev-1-bot': target }, profiles });
+
+  it('shows the bot pull request as the developer’s, with the developer’s profile name, and folds the bot into the developer logins', async () => {
+    const context = await contextOf('context-review', {}, linked('dev-1'));
+
+    expect(context.pullRequest).toMatchObject({ author: 'dev-1', authorName: 'dev-1 Surname' });
+    expect(context.logins).toEqual(['dev-1']);
+    // The bot assigned the developer, and was later assigned and unassigned itself: every one of those reads as dev-1.
+    expect(context.stateEvents.slice(0, 1)).toEqual([{ at: '2026-08-19T18:47:25Z', actor: 'dev-1', actorName: 'dev-1 Surname', status: null, assigned: 'dev-1', unassigned: null }]);
+    expect(context.stateEvents.filter((event) => event.assigned === 'dev-1-bot' || event.unassigned === 'dev-1-bot')).toHaveLength(0);
+    expect(context.stateEvents.filter((event) => event.assigned === 'dev-1' || event.unassigned === 'dev-1')).toHaveLength(7);
+    // The other people keep their own names.
+    expect(context.comments.map((c) => c.authorName)).toEqual(['dev-2 Surname', 'dev-3 Surname', 'dev-2 Surname', 'dev-1 Surname', 'dev-3 Surname']);
+  });
+
+  it('takes the target’s profile name over the bot’s own, and the bare target login while the profile is unread', async () => {
+    const colleague = await contextOf('context-review', {}, linked('dev-2', ['dev-1'], new Map([['dev-2', { profile: { login: 'dev-2', name: 'Two Surname', avatarUrl: '' }, at: 0 }]])));
+    const unread = await contextOf('context-review', {}, linked('dev-2', ['dev-1'], new Map()));
+
+    expect(colleague.pullRequest).toMatchObject({ author: 'dev-2', authorName: 'Two Surname' });
+    expect(colleague.logins).toEqual(['dev-1']);
+    expect(unread.pullRequest).toMatchObject({ author: 'dev-2', authorName: null });
+  });
+
+  it('asks for a review from the developer once when both the bot and the developer were asked', async () => {
+    const recorded = structuredClone(fixture('context-review')) as { data: { repository: { pullRequest: { reviewRequests: { nodes: unknown[] } } } } };
+
+    // Derived: the recording has no review requests; both accounts are in it elsewhere.
+    recorded.data.repository.pullRequest.reviewRequests.nodes = [
+      { requestedReviewer: { login: 'dev-1-bot' } },
+      { requestedReviewer: { login: 'dev-1', name: 'dev-1 Surname' } },
+      { requestedReviewer: { slug: 'platform' } },
+    ];
+    const reading = await fetchCardContext(linked('dev-1'), card(), runnerOf(recorded), new AbortController().signal);
+
+    expect(reading.context?.pullRequest?.reviewRequests).toEqual([{ login: 'dev-1', name: 'dev-1 Surname' }, { login: 'platform', name: null }]);
+  });
+
+  it('lists each developer login once when an alias and its target are both configured', async () => {
+    const context = await contextOf('context-review', {}, linked('dev-1', ['dev-1', 'DEV-1-BOT']));
+
+    expect(context.logins).toEqual(['dev-1']);
+  });
+});
+
 describe('refusing a context it cannot read', () => {
   it('returns gh failures with the GitHub source ID', async () => {
     const reading = await fetchCardContext(

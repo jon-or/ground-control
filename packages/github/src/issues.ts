@@ -1,5 +1,6 @@
 import { ASSIGNED_ISSUES_QUERY, ISSUE_BY_NUMBER_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
+import { dedupeActors, resolveActor, resolveLogin } from './accounts.js';
 import { makeGhRunner } from './gh.js';
 import { onConfiguredProject, projectOwnerOf } from './project.js';
 import type {
@@ -28,41 +29,83 @@ export function buildSearchQuery(cfg: GithubConfig, withProject: boolean): strin
   return parts.join(' ');
 }
 
+/** An account as a card shows it: a linked alias already replaced by its target (R28). */
+interface Actor {
+  login: string;
+  avatarUrl: string | undefined;
+  aliasOf: string | undefined;
+}
+
+type PullRequestNode = NonNullable<SearchNode['pullRequests']>['nodes'][number];
+
+/** The node's people after linked accounts resolve, deduplicated where GitHub lists an alias beside its target. */
+interface ResolvedNode {
+  author: Actor | null;
+  assignees: Actor[];
+  pullRequests: (Omit<PullRequestNode, 'author'> & { author: Actor | null })[];
+}
+
+function withAvatar(actor: Actor, source: CardAvatar['source']): CardAvatar | null {
+  if (actor.avatarUrl === undefined) {
+    return null;
+  }
+
+  return actor.aliasOf === undefined
+    ? { login: actor.login, url: actor.avatarUrl, source }
+    : { login: actor.login, url: actor.avatarUrl, source, aliasOf: actor.aliasOf };
+}
+
+function resolveNode(node: SearchNode, cfg: GithubConfig): ResolvedNode {
+  const resolve = (actor: { login: string; avatarUrl?: string | undefined }): Actor => {
+    const resolved = resolveActor(cfg.linkedAccounts, cfg.profiles, actor);
+
+    return { login: resolved.login, avatarUrl: resolved.avatarUrl ?? undefined, aliasOf: resolved.aliasOf };
+  };
+
+  return {
+    author: node.author === null ? null : resolve(node.author),
+    assignees: dedupeActors(node.assignees.nodes.map(resolve)),
+    pullRequests: (node.pullRequests?.nodes ?? []).map((pr) => ({ ...pr, author: pr.author === null ? null : resolve(pr.author) })),
+  };
+}
+
 /**
  * The person the policy names for the card's side of the review boundary, falling through to an assignee where
  * that person is unavailable: a review card with no pull request, a deleted account (R5).
  */
 function selectCardAvatar(
-  node: Pick<SearchNode, 'author' | 'assignees' | 'pullRequests'>,
-  cfg: Pick<GithubConfig, 'logins' | 'reviewStatuses' | 'avatar'>,
+  node: ResolvedNode,
+  cfg: Pick<GithubConfig, 'logins' | 'reviewStatuses' | 'avatar' | 'linkedAccounts' | 'profiles'>,
   status: string | null,
 ): CardAvatar | null {
   const review = status !== null && cfg.reviewStatuses.includes(status);
   const wanted = review ? cfg.avatar.review : cfg.avatar.offReview;
 
   if (wanted === 'pull-request-author') {
-    const pullRequest = [...(node.pullRequests?.nodes ?? [])]
+    const pullRequest = [...node.pullRequests]
       .filter((pr) => pr.author)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
 
     if (pullRequest?.author) {
-      return { login: pullRequest.author.login, url: pullRequest.author.avatarUrl, source: 'pull-request' };
+      return withAvatar(pullRequest.author, 'pull-request');
     }
   }
 
   if (wanted === 'issue-author' && node.author) {
-    return { login: node.author.login, url: node.author.avatarUrl, source: 'issue-author' };
+    return withAvatar(node.author, 'issue-author');
   }
 
-  const assignees = new Map(node.assignees.nodes.map((actor) => [actor.login.toLowerCase(), actor]));
-  const assignee = cfg.logins.map((login) => assignees.get(login.toLowerCase())).find(Boolean) ?? node.assignees.nodes[0];
+  // The assignees are already resolved, so the preference list has to be resolved the same way (R28).
+  const assignees = new Map(node.assignees.map((actor) => [actor.login.toLowerCase(), actor]));
+  const preferred = cfg.logins.map((login) => resolveLogin(cfg.linkedAccounts, cfg.profiles, login).toLowerCase());
+  const assignee = preferred.map((login) => assignees.get(login)).find(Boolean) ?? node.assignees[0];
 
-  return assignee?.avatarUrl ? { login: assignee.login, url: assignee.avatarUrl, source: 'issue' } : null;
+  return assignee === undefined ? null : withAvatar(assignee, 'issue');
 }
 
 /** Select the most recently updated open closing PR, or the most recently updated PR when none is open. */
-function selectPullRequest(node: Pick<SearchNode, 'pullRequests'>): CardPullRequest | null {
-  const byRecency = [...(node.pullRequests?.nodes ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+function selectPullRequest(node: ResolvedNode): CardPullRequest | null {
+  const byRecency = [...node.pullRequests].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const latest = byRecency.find((pr) => pr.state === 'OPEN') ?? byRecency[0];
 
   if (!latest) {
@@ -110,6 +153,7 @@ export function fieldProblemOf(item: ProjectItem, cfg: GithubConfig): string | n
 }
 
 function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
+  const people = resolveNode(node, cfg);
   const item = itemOf(node, cfg);
   const status = item?.fieldValueByName?.name ?? null;
 
@@ -124,9 +168,9 @@ function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
     status,
     statusColor: item?.fieldValueByName?.color ?? null,
     statusChangedAt: item?.fieldValueByName?.updatedAt ?? null,
-    assignees: node.assignees.nodes.map((a) => a.login),
-    avatar: selectCardAvatar(node, cfg, status),
-    pullRequest: selectPullRequest(node),
+    assignees: people.assignees.map((a) => a.login),
+    avatar: selectCardAvatar(people, cfg, status),
+    pullRequest: selectPullRequest(people),
     updatedAt: node.updatedAt,
   };
 }

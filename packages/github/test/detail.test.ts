@@ -736,6 +736,72 @@ describe('reading one conversation for display', () => {
     expect(reading.detail?.threads.map((thread) => thread.path)).toEqual(['src/a.ts', 'src/b.ts']);
   });
 
+  /** A linked account shows as its target on every line the panel names it (R28). */
+  describe('with a linked account', () => {
+    const PROFILE = { login: 'dev-1', name: 'dev-1 Surname', avatarUrl: 'https://avatars.githubusercontent.com/dev-1?s=40' };
+    const linked = () => config({ linkedAccounts: { 'dev-14': 'dev-1' }, profiles: new Map([['dev-1', { profile: PROFILE, at: 0 }]]) });
+    const readLinked = (over: Record<string, unknown> = {}, runner = runnerOf(fixture('detail-pull-request'))) =>
+      fetchDetail({ ...linked(), ...over }, 'example-org', 'example-repo', 19572, 'pull-request', runner);
+
+    it('shows the author, their commits, and their notes as the linked account, keeping the recorded login as provenance', async () => {
+      const reading = await readLinked();
+      const events = reading.detail?.events ?? [];
+      const commits = notes(events).filter((note) => note.kind === 'commit');
+      const crossReference = notes(events).find((note) => note.icon === 'reference');
+
+      expect(reading.detail).toMatchObject({ author: 'dev-1', authorAliasOf: 'dev-14', authorAvatarUrl: PROFILE.avatarUrl });
+      expect(commits).toHaveLength(2);
+      expect(commits.map((note) => [note.actor, note.aliasOf])).toEqual([['dev-1', 'dev-14'], ['dev-1', 'dev-14']]);
+      expect(crossReference).toMatchObject({ actor: 'dev-1', aliasOf: 'dev-14', avatarUrl: PROFILE.avatarUrl });
+      // The reviewer is nobody's alias and carries no provenance at all.
+      expect(posts(events).map((post) => post.author)).toEqual(['dev-17', 'dev-17', 'dev-17', 'dev-17', 'dev-17']);
+      expect(posts(events).some((post) => 'aliasOf' in post)).toBe(false);
+    });
+
+    it('keeps the recorded face under the linked login while the profile is unread', async () => {
+      const reading = await readLinked({ profiles: new Map() });
+
+      expect(reading.detail).toMatchObject({ author: 'dev-1', authorAliasOf: 'dev-14', authorAvatarUrl: 'https://avatars.githubusercontent.com/u/1?s=40' });
+    });
+
+    it('names the linked account in the summaries that name people, and lists them once among the assignees', async () => {
+      const reading = await readLinked(
+        {},
+        runnerOf(
+          response({
+            assignees: { nodes: [{ login: 'dev-14' }, { login: 'dev-1' }, { login: 'dev-2' }] },
+            timelineItems: page([
+              event('AssignedEvent', { assignee: { login: 'dev-14' } }),
+              event('ReviewRequestedEvent', { requestedReviewer: { login: 'dev-14' }, actor: { login: 'dev-14', avatarUrl: null } }),
+              event('ReviewRequestRemovedEvent', { requestedReviewer: { slug: 'platform' } }),
+            ]),
+          }),
+        ),
+      );
+      const said = notes(reading.detail?.events ?? []);
+
+      expect(reading.detail?.assignees).toEqual(['dev-1', 'dev-2']);
+      expect(said.map((note) => note.summary)).toEqual(['assigned dev-1', 'requested a review from dev-1', 'removed the review request for platform']);
+      expect(said.map((note) => [note.actor, note.aliasOf])).toEqual([['dev-2', undefined], ['dev-1', 'dev-14'], ['dev-2', undefined]]);
+    });
+
+    it('shows a linked reply on a review thread as the linked account', async () => {
+      const reading = await readLinked(
+        {},
+        runnerOf(
+          response({
+            reviewThreads: {
+              pageInfo: { hasPreviousPage: false, startCursor: null },
+              nodes: [threadNode('src/a.ts', 3, null, { nodes: [{ bodyHTML: '<p>ok</p>', createdAt: '2026-09-01T00:00:00Z', lastEditedAt: null, isMinimized: false, minimizedReason: null, author: { login: 'dev-14', avatarUrl: null }, reactionGroups: [], pullRequestReview: null }] })],
+            },
+          }),
+        ),
+      );
+
+      expect(reading.detail?.threads[0]?.comments[0]).toMatchObject({ author: 'dev-1', aliasOf: 'dev-14', avatarUrl: PROFILE.avatarUrl });
+    });
+  });
+
   it('reads nothing from a repository it cannot see', async () => {
     const reading = await fetchDetail(config(), 'example-org', 'example-repo', 15619, 'issue', runnerOf({ data: { repository: null } }));
 

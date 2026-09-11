@@ -4,6 +4,8 @@ import { DEFAULT_BOARD_POLICY, spawnable } from '@ground-control/core';
 import type { BoardPolicy, Logger, ReadFailure } from '@ground-control/core';
 import type { CardReading, ContextReading, IssueCard, SourceReading, WorkSource } from '@ground-control/core';
 import type { DetailReading, DetailSubject } from '@ground-control/core';
+import { dedupeLogins, fetchProfiles, linkTargets, normalizeLinks, resolveLogin } from './accounts.js';
+import type { ProfileEntry } from './accounts.js';
 import { fetchCardContext } from './context.js';
 import { fetchDetail, itemAddress } from './detail.js';
 import { makeGhRunner } from './gh.js';
@@ -25,6 +27,8 @@ const github = z
     cardSource: z.enum(['project', 'issueSearch']).default('project'),
     // GitHub search returns at most 1,000 results, so pages past the tenth read nothing.
     maxPages: z.number().int().min(1).max(10).default(5),
+    // Alias login to the login shown in its place; entries are checked in normalizeLinks, not here (R28).
+    linkedAccounts: z.record(z.string(), z.unknown()).default({}),
   })
   .strict();
 
@@ -41,7 +45,7 @@ function unconfigured(raw: unknown): boolean {
 }
 
 /** Client source settings only; the board policy arrives with configure, never from a client. */
-export type GithubSettings = Omit<GithubConfig, 'reviewStatuses' | 'avatar'>;
+export type GithubSettings = Omit<GithubConfig, 'reviewStatuses' | 'avatar' | 'linkedAccounts' | 'profiles'> & { linkedAccounts: Record<string, unknown> };
 
 export function readGithubConfig(raw: unknown): { config: GithubSettings } | { failure: ReadFailure } {
   if (unconfigured(raw)) {
@@ -87,6 +91,8 @@ export interface GithubSourceDeps {
   log: Logger;
   fetch(config: GithubConfig): Promise<Result<AssignedIssues>>;
   detectLogins(ghPath: string): Promise<string[]>;
+  /** Fill `cache` with the profiles of linked targets that are missing or stale. */
+  readProfiles(config: GithubConfig, targets: readonly string[], cache: Map<string, ProfileEntry>, now: number): Promise<void>;
   readContext(config: GithubConfig, card: IssueCard, signal: AbortSignal): Promise<ContextReading>;
   readCard(config: GithubConfig, owner: string, name: string, number: number, signal: AbortSignal): Promise<Result<IssueCard | null>>;
   readDetail(config: GithubConfig, card: IssueCard, subject: DetailSubject, signal: AbortSignal): Promise<DetailReading>;
@@ -101,6 +107,10 @@ function repositoryKeyOf(config: GithubConfig): string {
 export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSource {
   const fetch = deps.fetch ?? ((config: GithubConfig) => fetchAssignedIssues(config, makeGhRunner(config.ghPath, deps.log)));
   const detect = deps.detectLogins ?? detectLogins;
+  const profiles =
+    deps.readProfiles ??
+    ((config: GithubConfig, targets: readonly string[], cache: Map<string, ProfileEntry>, now: number) =>
+      fetchProfiles(makeGhRunner(config.ghPath, deps.log), targets, cache, now, deps.log));
   const readOne =
     deps.readCard ??
     ((config: GithubConfig, owner: string, name: string, number: number, signal: AbortSignal) =>
@@ -120,6 +130,26 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
     });
 
   let currentConfig: GithubConfig | null = null;
+  const profileCache = new Map<string, ProfileEntry>();
+  let profileRead: Promise<void> | null = null;
+  // Clients resend their settings on every reconnect; warn about the links only when they change.
+  let warnedLinks: string | null = null;
+
+  // Every entry point waits for the same read, so a detail or context read before the first poll is resolved too.
+  function withProfiles(config: GithubConfig): Promise<GithubConfig> {
+    if (profileRead === null) {
+      profileRead = profiles(config, linkTargets(config.linkedAccounts), profileCache, Date.now()).finally(() => {
+        profileRead = null;
+      });
+    }
+
+    return profileRead.then(() => config);
+  }
+
+  /** The configured logins as the board shows them: a linked alias counts as its target (R28). */
+  function ownersOf(config: GithubConfig): string[] {
+    return dedupeLogins(config.logins.map((login) => resolveLogin(config.linkedAccounts, config.profiles, login)));
+  }
 
   return {
     id: GITHUB_SOURCE_ID,
@@ -134,20 +164,22 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
         return parsed.failure;
       }
 
-      currentConfig = { ...parsed.config, reviewStatuses: [...board.reviewStatuses], avatar: board.avatar };
+      const linksAsGiven = JSON.stringify([parsed.config.linkedAccounts, parsed.config.logins]);
+      const linkedAccounts = normalizeLinks(parsed.config.linkedAccounts, parsed.config.logins, warnedLinks === linksAsGiven ? undefined : deps.log);
+      warnedLinks = linksAsGiven;
+
+      currentConfig = { ...parsed.config, reviewStatuses: [...board.reviewStatuses], avatar: board.avatar, linkedAccounts, profiles: profileCache };
 
       return null;
     },
 
     async read(): Promise<SourceReading> {
-      const config = currentConfig;
-
-      if (config === null) {
+      if (currentConfig === null) {
         return { items: null, failure: null, needs: null };
       }
 
       // Every query requires an explicit assignee; do not default to another account.
-      if (config.logins.length === 0) {
+      if (currentConfig.logins.length === 0) {
         return {
           items: null,
           failure: {
@@ -157,10 +189,11 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
             remedy:
               'Set groundControl.github.logins in Settings, or run Ground Control: Refresh Board to be asked again.',
           },
-          needs: { detected: await detect(config.ghPath) },
+          needs: { detected: await detect(currentConfig.ghPath) },
         };
       }
 
+      const config = await withProfiles(currentConfig);
       const result = await fetch(config);
 
       if (!result.ok) {
@@ -170,7 +203,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
       const { cards, matched, totalAssigned, notOnProject, truncated, fetchedAt, fieldProblem } = result.value;
 
       return {
-        items: { cards, owners: config.logins, matched, totalAssigned, notOnProject, truncated, fetchedAt, fieldProblem },
+        items: { cards, owners: ownersOf(config), matched, totalAssigned, notOnProject, truncated, fetchedAt, fieldProblem },
         failure: null,
         needs: null,
       };
@@ -188,7 +221,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
               remedy: 'Set groundControl.github.repo in Settings.',
             },
           })
-        : context(currentConfig, card, signal);
+        : withProfiles(currentConfig).then((config) => context(config, card, signal));
     },
 
     async readCard(repository, number, signal): Promise<CardReading | null> {
@@ -198,7 +231,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
       }
 
       const [owner = '', name = ''] = currentConfig.repo.split('/');
-      const result = await readOne(currentConfig, owner, name, number, signal);
+      const result = await readOne(await withProfiles(currentConfig), owner, name, number, signal);
 
       return result.ok
         ? { card: result.value, failure: null }
@@ -209,7 +242,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
       // Null means this source does not serve the card, so another source may answer for it.
       return currentConfig === null || itemAddress(card, subject) === null
         ? Promise.resolve(null)
-        : detail(currentConfig, card, subject, signal);
+        : withProfiles(currentConfig).then((config) => detail(config, card, subject, signal));
     },
   };
 }

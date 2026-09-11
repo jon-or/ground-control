@@ -12,6 +12,8 @@ import type {
 } from '@ground-control/core';
 import { DETAIL_EVENTS_QUERY, DETAIL_QUERY, DETAIL_THREADS_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
+import { dedupeActors, resolveActor } from './accounts.js';
+import type { ResolvedActor } from './accounts.js';
 import type { GithubConfig } from './types.js';
 
 /** Bound one page; a card's conversation is not worth a long-running gh process. */
@@ -182,9 +184,29 @@ function words(value: string): string {
   return value.toLowerCase().replaceAll('_', ' ');
 }
 
+/** Show a linked account as its target (R28). */
+type Resolve = (actor: { login: string; avatarUrl?: string | null | undefined }) => ResolvedActor;
+
 /** Name whoever GitHub reports for a reference: a login for a user or bot, a slug for a team. */
-function nameOf(who: { login?: string | undefined; slug?: string | undefined } | null | undefined): string {
-  return who?.login ?? who?.slug ?? 'someone';
+function nameOf(who: { login?: string | undefined; slug?: string | undefined } | null | undefined, resolve: Resolve): string {
+  return who?.login === undefined ? (who?.slug ?? 'someone') : resolve({ login: who.login }).login;
+}
+
+/** The author fields of a post or note, with `aliasOf` only where an account stands in for another. */
+function whoOf(actor: { login: string; avatarUrl?: string | null | undefined } | null | undefined, resolve: Resolve): { login: string | null; avatarUrl: string | null; aliasOf?: string } {
+  if (actor === null || actor === undefined) {
+    return { login: null, avatarUrl: null };
+  }
+
+  const resolved = resolve(actor);
+
+  return resolved.aliasOf === undefined
+    ? { login: resolved.login, avatarUrl: resolved.avatarUrl }
+    : { login: resolved.login, avatarUrl: resolved.avatarUrl, aliasOf: resolved.aliasOf };
+}
+
+function whoAs(who: ReturnType<typeof whoOf>): Pick<DetailPost, 'author' | 'avatarUrl' | 'aliasOf'> {
+  return who.aliasOf === undefined ? { author: who.login, avatarUrl: who.avatarUrl } : { author: who.login, avatarUrl: who.avatarUrl, aliasOf: who.aliasOf };
 }
 
 /** Name a referenced item. Another repository is spelled out; this one is not, because the reader is already in it. */
@@ -198,7 +220,7 @@ function referenceOf(ref: z.infer<typeof reference>, repository: string): { name
  * Compose the one line a state change reads as. The wording is a product decision, so it is settled here rather
  * than in each client. A type outside the query's `itemTypes` cannot arrive, so an unknown one is dropped.
  */
-function noteOf(node: TimelineNode, repository: string): { icon: DetailIcon; summary: string; url: string | null } | null {
+function noteOf(node: TimelineNode, repository: string, resolve: Resolve): { icon: DetailIcon; summary: string; url: string | null } | null {
   switch (node.__typename) {
     case 'ClosedEvent':
       return {
@@ -215,9 +237,9 @@ function noteOf(node: TimelineNode, repository: string): { icon: DetailIcon; sum
     case 'UnlabeledEvent':
       return { icon: 'label', summary: `removed the ${node.label?.name ?? 'unnamed'} label`, url: null };
     case 'AssignedEvent':
-      return { icon: 'assignee', summary: `assigned ${nameOf(node.assignee)}`, url: null };
+      return { icon: 'assignee', summary: `assigned ${nameOf(node.assignee, resolve)}`, url: null };
     case 'UnassignedEvent':
-      return { icon: 'assignee', summary: `unassigned ${nameOf(node.assignee)}`, url: null };
+      return { icon: 'assignee', summary: `unassigned ${nameOf(node.assignee, resolve)}`, url: null };
     case 'MilestonedEvent':
       return { icon: 'milestone', summary: `added this to the ${node.milestoneTitle ?? 'unnamed'} milestone`, url: null };
     case 'DemilestonedEvent':
@@ -248,9 +270,9 @@ function noteOf(node: TimelineNode, repository: string): { icon: DetailIcon; sum
       return { icon: 'link', summary: `unlinked ${unlinked.name}`, url: unlinked.url };
     }
     case 'ReviewRequestedEvent':
-      return { icon: 'review-request', summary: `requested a review from ${nameOf(node.requestedReviewer)}`, url: null };
+      return { icon: 'review-request', summary: `requested a review from ${nameOf(node.requestedReviewer, resolve)}`, url: null };
     case 'ReviewRequestRemovedEvent':
-      return { icon: 'review-request', summary: `removed the review request for ${nameOf(node.requestedReviewer)}`, url: null };
+      return { icon: 'review-request', summary: `removed the review request for ${nameOf(node.requestedReviewer, resolve)}`, url: null };
     case 'ReviewDismissedEvent':
       return { icon: 'review-dismissed', summary: node.dismissalMessage ? `dismissed a review: ${node.dismissalMessage}` : 'dismissed a review', url: null };
     case 'HeadRefForcePushedEvent':
@@ -283,14 +305,13 @@ function noteOf(node: TimelineNode, repository: string): { icon: DetailIcon; sum
   }
 }
 
-function toEvent(node: TimelineNode, repository: string): DetailEvent | null {
+function toEvent(node: TimelineNode, repository: string, resolve: Resolve): DetailEvent | null {
   if (node.__typename === 'IssueComment' || node.__typename === 'PullRequestReview') {
     const review = node.__typename === 'PullRequestReview';
 
     return {
       kind: review ? 'review' : 'comment',
-      author: node.author?.login ?? null,
-      avatarUrl: node.author?.avatarUrl ?? null,
+      ...whoAs(whoOf(node.author, resolve)),
       bodyHtml: node.bodyHTML ?? '',
       createdAt: node.createdAt ?? '',
       editedAt: node.lastEditedAt ?? null,
@@ -303,11 +324,13 @@ function toEvent(node: TimelineNode, repository: string): DetailEvent | null {
 
   if (node.__typename === 'PullRequestCommit') {
     const commit = node.commit;
+    const user = whoOf(commit?.author?.user, resolve);
 
     return {
       kind: 'commit',
       icon: 'commit',
-      actor: commit?.author?.user?.login ?? commit?.author?.name ?? null,
+      actor: user.login ?? commit?.author?.name ?? null,
+      ...(user.aliasOf === undefined ? {} : { aliasOf: user.aliasOf }),
       avatarUrl: null,
       createdAt: commit?.committedDate ?? '',
       summary: `${commit?.abbreviatedOid ?? ''} ${commit?.messageHeadline ?? ''}`.trim(),
@@ -315,22 +338,24 @@ function toEvent(node: TimelineNode, repository: string): DetailEvent | null {
     };
   }
 
-  const note = noteOf(node, repository);
+  const note = noteOf(node, repository, resolve);
+  const actor = whoOf(node.actor, resolve);
 
   return note === null
     ? null
     : {
         kind: 'note',
         icon: note.icon,
-        actor: node.actor?.login ?? null,
-        avatarUrl: node.actor?.avatarUrl ?? null,
+        actor: actor.login,
+        ...(actor.aliasOf === undefined ? {} : { aliasOf: actor.aliasOf }),
+        avatarUrl: actor.avatarUrl,
         createdAt: node.createdAt ?? '',
         summary: note.summary,
         url: note.url,
       };
 }
 
-function toThread(node: ThreadNode): { thread: DetailThread; review: string | null } {
+function toThread(node: ThreadNode, resolve: Resolve): { thread: DetailThread; review: string | null } {
   return {
     review: node.comments.nodes[0]?.pullRequestReview?.id ?? null,
     thread: {
@@ -340,8 +365,7 @@ function toThread(node: ThreadNode): { thread: DetailThread; review: string | nu
       outdated: node.isOutdated,
       comments: node.comments.nodes.map<DetailPost>((comment) => ({
         kind: 'comment',
-        author: comment.author?.login ?? null,
-        avatarUrl: comment.author?.avatarUrl ?? null,
+        ...whoAs(whoOf(comment.author, resolve)),
         bodyHtml: comment.bodyHTML,
         createdAt: comment.createdAt,
         editedAt: comment.lastEditedAt,
@@ -442,8 +466,10 @@ export async function fetchDetail(
     threads = reviewThreads.pageInfo;
   }
 
+  const resolve: Resolve = (actor) => resolveActor(cfg.linkedAccounts, cfg.profiles, actor);
+
   return {
-    detail: toDetail(node, repository.nameWithOwner, subject, nodes, threadNodes, {
+    detail: toDetail(node, repository.nameWithOwner, subject, nodes, threadNodes, resolve, {
       events: events.hasPreviousPage,
       threads: threads?.hasPreviousPage === true,
     }),
@@ -462,6 +488,7 @@ function toDetail(
   subject: DetailSubject,
   nodes: (TimelineNode | null)[],
   threadNodes: ThreadNode[],
+  resolve: Resolve,
   more: { events: boolean; threads: boolean },
 ): ItemDetail {
   const events: DetailEvent[] = [];
@@ -469,7 +496,7 @@ function toDetail(
   const reviews = new Map<string, DetailPost>();
 
   for (const entry of nodes) {
-    const event = entry === null ? null : toEvent(entry, repository);
+    const event = entry === null ? null : toEvent(entry, repository, resolve);
 
     if (entry === null || event === null) {
       continue;
@@ -484,7 +511,7 @@ function toDetail(
 
   const orphans: DetailThread[] = [];
 
-  for (const { thread, review } of threadNodes.map(toThread)) {
+  for (const { thread, review } of threadNodes.map((thread) => toThread(thread, resolve))) {
     const opened = review === null ? undefined : reviews.get(review);
 
     if (opened) {
@@ -498,6 +525,8 @@ function toDetail(
     review.threads.sort(byPlace);
   }
 
+  const author = whoOf(node.author, resolve);
+
   return {
     subject,
     number: node.number,
@@ -506,13 +535,14 @@ function toDetail(
     url: node.url,
     state: node.state,
     bodyHtml: node.bodyHTML,
-    author: node.author?.login ?? null,
-    authorAvatarUrl: node.author?.avatarUrl ?? null,
+    author: author.login,
+    ...(author.aliasOf === undefined ? {} : { authorAliasOf: author.aliasOf }),
+    authorAvatarUrl: author.avatarUrl,
     createdAt: node.createdAt,
     editedAt: node.lastEditedAt,
     reactions: toReactions(node.reactionGroups),
     labels: node.labels?.nodes ?? [],
-    assignees: node.assignees?.nodes.map((who) => who.login) ?? [],
+    assignees: dedupeActors((node.assignees?.nodes ?? []).map((who) => resolve(who))).map((who) => who.login),
     milestone: node.milestone?.title ?? null,
     branches: node.baseRefName && node.headRefName ? { base: node.baseRefName, head: node.headRefName } : null,
     draft: node.isDraft === true,

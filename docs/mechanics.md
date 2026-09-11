@@ -2,7 +2,7 @@
 
 This document records experiments and source inspections relevant to Ground Control. Some support implemented features; others establish options or constraints for future work. A successful experiment is not a claim that the product implements it. Product scope is in the [requirements](prd.md), and current use is described in [architecture](architecture.md).
 
-Record IDs retain the experiment identifiers M1–M57, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
+Record IDs retain the experiment identifiers M1–M59, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
 
 Code references use these M IDs rather than the former numbered sections. A record grouped under a topic keeps its original ID. Source inspections of Ground Control distinguish current implementation from the external experiment; they do not re-verify the measured CLI or editor version.
 
@@ -895,6 +895,12 @@ Every github.com page answered with `X-Frame-Options: deny` and a `Content-Secur
 Clicking a card's issue title on a project board opened GitHub's side panel and put `?pane=issue&itemId=<item>&issue=<owner>|<repo>|<number>` in the address; clicking a pull request card's title opened the pull request in a new tab, and no panel exists for one. The panel is a `role=dialog` with `aria-modal` and the name `Side panel: Issue: <title>`, under a portal with `--top-offset: 72px` and `--transition-duration: 200ms`, easing `cubic-bezier(.25, .46, .45, .94)`. Its backdrop is `position: fixed` from the offset to the bottom in `--overlay-backdrop-bgColor` (`rgba(200, 209, 218, 0.4)` in light). Its sheet is `position: fixed` at the right, top at the offset, `width: min(90%, 1280px)` at 768px and above, `min-width: 300px`, `--bgColor-default`, `--shadow-floating-large` (`0 0 0 1px rgba(209,217,224,0), 0 40px 80px rgba(37,41,46,0.24)`), `border-radius: var(--borderRadius-large) 0 0 var(--borderRadius-large)` (12px), `overflow: auto`, and slides from `translate(35%)` at opacity 0. Content sits 24px in; the header row starts 8px down, with the 32px title beside its number link and, on the right, 32px icon buttons 4px apart in `--fgColor-muted` with a 6px radius: Copy link, Pin side panel, Issue actions, and Close panel, each octicon 16px. Escape closed it and returned focus to the card link; a click on the backdrop closed it; the address lost its `pane` query.
 
 A pull request page's site chrome is `.js-header-wrapper` around the `AppHeader` (or the logged-out `HeaderMktg`), `#repository-container-header`, and `footer.footer`; the pull request itself is in `main`. The conversation page is a React application whose tabs (Conversation, Commits, Checks, Files changed) are paths under `/pull/<n>`. Its title is the first `h1`.
+
+### GitHub account profiles
+
+**Record M59. API observations, 2026-09-11, `gh` 2.96.0 against github.com. Used by linked accounts (R28).**
+
+`query($login:String!){ user(login:$login){ login name avatarUrl(size:40) } }` returned a human account and a bot-style user account in 241–277 ms each, both with a `name`; `avatarUrl(size:40)` carries the same `s=40` the card queries request. An unknown login returned `{"data":{"user":null},"errors":[{"type":"NOT_FOUND",…}]}` on stdout in 230 ms and `gh` exited 1 with the message on stderr, which the runner classifies as `query-failed`. `dependabot[bot]` returned the same `NOT_FOUND` shape: an app account is not a `User`, so a link target must be a user account. `User.name` is nullable for an account with no display name; both recorded accounts had one. The source reads one target per request rather than aliasing several into one document, so one unknown target cannot fail the others.
 
 ### Worktree registrations
 
