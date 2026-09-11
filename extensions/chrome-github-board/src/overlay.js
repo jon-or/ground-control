@@ -113,7 +113,6 @@ export const LANE_TITLES = {
   plan: 'Plan',
   build: 'Build',
   review: 'Review',
-  done: 'Done',
   icebox: 'Icebox',
   archived: 'Archived',
 };
@@ -131,10 +130,6 @@ export const LANE_SHAPES = {
   review: [
     ['circle', { cx: '7', cy: '7', r: '4.2' }],
     ['path', { d: 'M10.2 10.2 14 14' }],
-  ],
-  done: [
-    ['circle', { cx: '8', cy: '8', r: '6' }],
-    ['path', { d: 'M5.2 8.2 7.2 10.4 10.9 5.9', 'stroke-width': '1.7' }],
   ],
   icebox: [['path', { d: 'M8 2v12M2.8 5 13.2 11M13.2 5 2.8 11' }]],
   archived: [
@@ -234,7 +229,6 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-lane-mark[data-lane="plan"] { color: var(--fgColor-done, #8250df); }
 .gc-lane-mark[data-lane="build"] { color: var(--fgColor-accent, #0969da); }
 .gc-lane-mark[data-lane="review"] { color: var(--fgColor-attention, #9a6700); }
-.gc-lane-mark[data-lane="done"] { color: var(--fgColor-success, #1a7f37); }
 .gc-lane-mark[data-lane="unstarted"], .gc-lane-mark[data-lane="icebox"], .gc-lane-mark[data-lane="archived"] {
   color: var(--fgColor-muted, #59636e); }
 /* The verdict is the only element that shrinks, so a long qualifier truncates instead of moving a control. */
@@ -387,7 +381,7 @@ ${CARD}[${ATTENTION_ATTR}="running"] { outline-style: dashed;
   animation-iteration-count: infinite; }
 
 /*
- * Scope row attention to the card state so suppressed attention in Done does not color idle rows. Apply the
+ * Scope row attention to the card state so suppressed attention in Icebox does not color idle rows. Apply the
  * color only to the dot.
  */
 ${CARD}[${ATTENTION_ATTR}="blocked"] .gc-session[data-phase="waiting"] .gc-dot {
@@ -1792,7 +1786,7 @@ function toast(doc, problem) {
  *
  * @type {LaneId[]}
  */
-const MOVABLE = ['unstarted', 'plan', 'build', 'review', 'done', 'icebox'];
+const MOVABLE = ['unstarted', 'plan', 'build', 'review', 'icebox'];
 
 /**
  * An archived card takes its lane from membership, and `prune` in packages/board/src/lanes.ts drops a placement

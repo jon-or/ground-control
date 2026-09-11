@@ -27,8 +27,8 @@ export interface ActionPlan {
 
 export type ActionDecision = { ok: true; plan: ActionPlan } | { ok: false; refusal: ActionRefusal };
 
-/** Disable actions in Done, Icebox, and Archived to respect placement and membership (R7-R9). */
-const INACTIVE_LANES: readonly LaneId[] = ['done', 'icebox', 'archived'];
+/** Disable actions in Icebox and Archived to respect placement and membership (R7-R9). */
+const INACTIVE_LANES: readonly LaneId[] = ['icebox', 'archived'];
 
 function refuse(kind: string, message: string): ActionDecision {
   return { ok: false, refusal: { kind, message } };

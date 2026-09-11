@@ -1432,7 +1432,7 @@ describe('lanes', () => {
    * The literal titles, in order. Both clients duplicate this map because neither can import core at
    * runtime, so an expectation computed from the constant would agree with any drift (`docs/testing.md`).
    */
-  const LANE_NAMES = ['Unstarted', 'Plan', 'Build', 'Review', 'Done', 'Icebox'] as const;
+  const LANE_NAMES = ['Unstarted', 'Plan', 'Build', 'Review', 'Icebox'] as const;
 
   /**
    * The literal lane pictograms, matching the table in the other client's suite. Both clients duplicate the map
@@ -1446,10 +1446,6 @@ describe('lanes', () => {
     review: [
       ['circle', { cx: '7', cy: '7', r: '4.2' }],
       ['path', { d: 'M10.2 10.2 14 14' }],
-    ],
-    done: [
-      ['circle', { cx: '8', cy: '8', r: '6' }],
-      ['path', { d: 'M5.2 8.2 7.2 10.4 10.9 5.9', 'stroke-width': '1.7' }],
     ],
     icebox: [['path', { d: 'M8 2v12M2.8 5 13.2 11M13.2 5 2.8 11' }]],
     archived: [
@@ -1487,7 +1483,7 @@ describe('lanes', () => {
     const drawn = Array.from(document.querySelectorAll<HTMLElement>('.lane h2 .lane-mark'));
 
     expect(drawn.map((el) => el.dataset.lane)).toEqual([
-      'unstarted', 'plan', 'build', 'review', 'done', 'icebox', 'archived',
+      'unstarted', 'plan', 'build', 'review', 'icebox', 'archived',
     ]);
     expect(drawn.map((el) => drawnMark(el))).toEqual(drawn.map((el) => LANE_MARKS[el.dataset.lane ?? '']));
     // Before the name, which the heading still carries.
@@ -1616,10 +1612,13 @@ describe('lanes', () => {
     expect(card.classList).not.toContain('dragging');
   });
 
-  it('hides an empty Done and Icebox, and brings them back as drop targets while a card is dragged', () => {
-    send(message({ lanes: lanes({ plan: [planCard], done: [{ ...planCard, key: 'issue:1', lane: 'done' }] }) }));
+  it('hides an empty Icebox, and brings it back as a drop target while a card is dragged', () => {
+    send(message({ lanes: lanes({ plan: [planCard], icebox: [{ ...planCard, key: 'issue:1', lane: 'icebox' }] }) }));
 
-    expect(laneEl('done')?.classList).not.toContain('lane-idle');
+    expect(laneEl('icebox')?.classList).not.toContain('lane-idle');
+
+    send(message({ lanes: lanes({ plan: [planCard] }) }));
+
     expect(laneEl('icebox')?.classList).toContain('lane-idle');
     expect(document.getElementById('lanes')?.classList).not.toContain('dragging');
 

@@ -33,9 +33,9 @@ describe('the lane store', () => {
 
   /** One record per machine (R8), so a second store on the same home reads what the first wrote. */
   it('is one record every board reads, not one per board', () => {
-    makeLaneStore(home).write({ ...EMPTY_MEMORY, placements: { 'issue:1': 'done' }, statuses: [...STATUSES] });
+    makeLaneStore(home).write({ ...EMPTY_MEMORY, placements: { 'issue:1': 'icebox' }, statuses: [...STATUSES] });
 
-    expect(makeLaneStore(home).read(STATUSES).placements).toEqual({ 'issue:1': 'done' });
+    expect(makeLaneStore(home).read(STATUSES).placements).toEqual({ 'issue:1': 'icebox' });
   });
 
   it('returns empty lane state for invalid JSON', () => {
@@ -59,7 +59,7 @@ describe('the lane store', () => {
   it('clears the returned marks when the membership set it was written against has changed', () => {
     makeLaneStore(home).write({
       ...EMPTY_MEMORY,
-      placements: { 'issue:1': 'done' },
+      placements: { 'issue:1': 'icebox' },
       pastMyHandsAt: { 'issue:1': 1_000 },
       archived: ['issue:1'],
       statuses: ['⚒️ Dev'],

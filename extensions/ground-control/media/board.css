@@ -283,10 +283,6 @@ main.stale {
   color: var(--vscode-charts-yellow);
 }
 
-.lane-mark[data-lane='done'] {
-  color: var(--vscode-charts-green);
-}
-
 .lane-name {
   min-width: 0;
   overflow: hidden;
@@ -312,7 +308,7 @@ main.stale {
   opacity: 0.5;
 }
 
-/* Hide empty Done and Icebox lanes until dragging requires their drop targets. */
+/* Hide an empty Icebox lane until dragging requires its drop target. */
 .lane-idle {
   display: none;
 }
@@ -781,7 +777,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 }
 
 /*
- * Scope row attention to the card state so suppressed attention in Done does not color idle rows. Apply the
+ * Scope row attention to the card state so suppressed attention in Icebox does not color idle rows. Apply the
  * color only to the dot.
  */
 .card[data-attention='your-turn'] .session[data-phase='idle'] .dot {

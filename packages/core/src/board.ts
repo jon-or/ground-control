@@ -5,17 +5,16 @@ import type { CardTriage } from './triage.js';
 import type { CardWorktree } from './worktrees.js';
 import type { HistoricalSession, Session } from './types.js';
 
-export type LaneId = 'unstarted' | 'plan' | 'build' | 'review' | 'done' | 'icebox' | 'archived';
+export type LaneId = 'unstarted' | 'plan' | 'build' | 'review' | 'icebox' | 'archived';
 
 /** Left to right on the board. `archived` is last and renders only behind the toggle. */
-export const LANE_ORDER: readonly LaneId[] = ['unstarted', 'plan', 'build', 'review', 'done', 'icebox', 'archived'];
+export const LANE_ORDER: readonly LaneId[] = ['unstarted', 'plan', 'build', 'review', 'icebox', 'archived'];
 
 export const LANE_TITLES: Readonly<Record<LaneId, string>> = {
   unstarted: 'Unstarted',
   plan: 'Plan',
   build: 'Build',
   review: 'Review',
-  done: 'Done',
   icebox: 'Icebox',
   archived: 'Archived',
 };

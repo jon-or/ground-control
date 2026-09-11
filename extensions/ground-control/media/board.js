@@ -777,10 +777,6 @@ const LANE_SHAPES = {
     ['circle', { cx: '7', cy: '7', r: '4.2' }],
     ['path', { d: 'M10.2 10.2 14 14' }],
   ],
-  done: [
-    ['circle', { cx: '8', cy: '8', r: '6' }],
-    ['path', { d: 'M5.2 8.2 7.2 10.4 10.9 5.9', 'stroke-width': '1.7' }],
-  ],
   icebox: [['path', { d: 'M8 2v12M2.8 5 13.2 11M13.2 5 2.8 11' }]],
   archived: [
     ['rect', { x: '2.2', y: '4.6', width: '11.6', height: '8', rx: '1.2' }],
@@ -1990,9 +1986,9 @@ function syncLane(lane, placeable) {
 
   shell.count.textContent = String(lane.cards.length);
 
-  // Done and Icebox are ends, not stages, so an empty one is noise. It reappears while a card is being dragged,
-  // or a card could never be dropped into an empty one.
-  shell.el.classList.toggle('lane-idle', lane.cards.length === 0 && (lane.id === 'done' || lane.id === 'icebox'));
+  // Icebox is an end, not a stage, so an empty one is noise. It reappears while a card is being dragged,
+  // or a card could never be dropped into it.
+  shell.el.classList.toggle('lane-idle', lane.cards.length === 0 && lane.id === 'icebox');
 
   reconcile(shell.list, lane.cards.length === 0 ? [shell.empty] : lane.cards.map((c) => cardFor(c, placeable)));
 

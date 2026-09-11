@@ -109,7 +109,7 @@ export function readMemory(stored: unknown, statuses: readonly string[], now: nu
 
 
 /** Lanes that suppress failed, idle, and running attention. */
-const SETTLED_LANES: readonly LaneId[] = ['done', 'icebox', 'archived'];
+const SETTLED_LANES: readonly LaneId[] = ['icebox', 'archived'];
 
 /**
  * Retained running activity renders as idle because its process ended. Retained waiting still requires input,

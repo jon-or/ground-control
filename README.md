@@ -12,7 +12,7 @@ A personal board for assigned GitHub issues and local Claude Code and Codex sess
 - Classify the next action from issue and pull-request context on request; automatic triage requires opt-in.
 - Run a requested merge-upstream action using your prompt, in the card's worktree. Automatic dispatch is disabled by default; [R39](docs/prd.md#r39-merge-upstream-action) describes checks and implementation limits.
 
-Working lanes are Unstarted, Plan, Build, Review, Done, and Icebox. Archived contains work outside the configured membership set. [Arrival rules](docs/prd.md#r8-arrival-and-manual-placement) determine placement until you move a card.
+Working lanes are Unstarted, Plan, Build, Review, and Icebox. Archived contains work outside the configured membership set. [Arrival rules](docs/prd.md#r8-arrival-and-manual-placement) determine placement until you move a card.
 
 Automated takeover, resuming after tab closure or usage limits, and coordinated development stages remain [future requirements](docs/prd.md#future-workflow-requirements).
 

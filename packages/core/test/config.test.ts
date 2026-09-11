@@ -176,8 +176,10 @@ describe('the cadences', () => {
 });
 
 describe('the rest of a pushed configuration', () => {
-  it('refuses a lane no board has', () => {
-    expect(refusal(config({ statusLanes: { '🔍 Dev Review': 'nowhere' } as never }))).toContain('statusLanes');
+  it('drops a mapping to a lane no board has, and keeps the rest', () => {
+    const lanes = { '🔍 Dev Review': 'nowhere', '🏃 Testing': 'done', '⚒️ Dev': 'build' } as never;
+
+    expect(accepted(config({ statusLanes: lanes })).statusLanes).toEqual({ '⚒️ Dev': 'build' });
   });
 
   it('refuses a configuration missing a key the hub polls with', () => {

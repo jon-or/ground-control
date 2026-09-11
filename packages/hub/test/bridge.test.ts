@@ -269,9 +269,9 @@ describe('relaying one Chrome port', () => {
   it('sends what the browser asked for on to the hub', () => {
     const h = harness();
 
-    h.fromChrome({ type: 'move', key: 'issue-4501', lane: 'done' });
+    h.fromChrome({ type: 'move', key: 'issue-4501', lane: 'icebox' });
 
-    expect(h.sent).toEqual([{ type: 'move', key: 'issue-4501', lane: 'done' }]);
+    expect(h.sent).toEqual([{ type: 'move', key: 'issue-4501', lane: 'icebox' }]);
     expect(h.written).toEqual([]);
   });
 

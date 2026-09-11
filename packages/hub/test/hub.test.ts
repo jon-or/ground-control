@@ -1487,7 +1487,7 @@ describe('what the developer does', () => {
     const after = inbox.length;
 
     h.hub.receive(client, { type: 'refresh' });
-    h.hub.receive(client, { type: 'move', key: 'issue:1', lane: 'done' });
+    h.hub.receive(client, { type: 'move', key: 'issue:1', lane: 'icebox' });
     await settle();
 
     expect(inbox).toHaveLength(after);

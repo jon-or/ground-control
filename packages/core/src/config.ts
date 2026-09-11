@@ -243,7 +243,9 @@ export const hubConfig = z.object({
   hosts: z.record(z.string(), z.unknown()),
   sources: z.record(z.string(), z.unknown()),
   boardStatuses: z.array(z.string()),
-  statusLanes: z.record(z.string(), laneId),
+  // A saved mapping to a lane this build no longer has drops that entry, not the configuration.
+  statusLanes: z.record(z.string(), z.unknown()).transform((lanes) =>
+    Object.fromEntries(Object.entries(lanes).filter(([, lane]) => laneId.safeParse(lane).success)) as Record<string, LaneId>),
   refreshIntervalMs: z.number().finite().transform((ms) => Math.max(REFRESH_FLOOR_MS, ms)),
   sessionIntervalMs: z.number().finite().transform((ms) => Math.max(SESSION_FLOOR_MS, ms)),
   // A window under a minute would drop the hub between an editor reload and its reconnect.

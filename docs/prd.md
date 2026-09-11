@@ -156,11 +156,11 @@ Attention uses the card border, a tint, and the responsible row's state mark. Fa
 
 A failed row's state mark names the error kind in the agent's own vocabulary and carries the agent's text on hover, which for a limit includes the reset time the agent stated. Claude reports the failure through its `StopFailure` hook; Codex has no such hook, so the board reads the turn's terminal record from its rollout ([mechanics](mechanics.md#turns-that-end-on-an-error) M55). Retries before the failure are not shown as failed: the row stays working until the agent gives up.
 
-Implementation gap: the idle-attention branch does not exclude explicitly finished sessions. A finished session with idle activity can still produce Your turn outside Done, Icebox, and Archived. The intended rule is no session attention after an explicit finish.
+Implementation gap: the idle-attention branch does not exclude explicitly finished sessions. A finished session with idle activity can still produce Your turn outside Icebox and Archived. The intended rule is no session attention after an explicit finish.
 
 Retain the last observed activity after a process disappears. Retained waiting still needs the developer; retained failed still shows the failure; retained running becomes Your turn because the process is gone. Retain by session identity, not by card. Age does not clear it. An issue's departure from active membership invalidates observations older than that departure (R9).
 
-Done, Icebox, and Archived suppress Failed, Your turn, and the working border. Needs you remains visible in every lane.
+Icebox and Archived suppress Failed, Your turn, and the working border. Needs you remains visible in every lane.
 
 ## Lanes and membership
 
@@ -174,11 +174,10 @@ Lanes are independent of GitHub project statuses.
 | Plan | Agree what to build |
 | Build | Implement or answer changes requested on your work |
 | Review | Review a diff or await review of your work |
-| Done | Confirm completion |
 | Icebox | Work deliberately set aside |
 | Archived | Issues outside active board membership; optionally displayed |
 
-Hide empty Done and Icebox lanes except during a drag, when they must be available as destinations. There is no Blocked lane: attention remains on the card in its existing lane.
+Hide an empty Icebox lane except during a drag, when it must be available as a destination. There is no Blocked lane: attention remains on the card in its existing lane. There is no Done lane: the board holds work assigned to the developer, and finished work leaves it through a status outside the membership set (R9).
 
 ### R8. Arrival and manual placement
 

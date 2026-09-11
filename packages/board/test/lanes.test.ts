@@ -143,7 +143,7 @@ describe('the recording these tests rest on', () => {
 
 describe('assignLanes', () => {
   it('offers one Review lane, and Archived is not one a card can be moved to', () => {
-    expect(LANE_ORDER).toEqual(['unstarted', 'plan', 'build', 'review', 'done', 'icebox', 'archived']);
+    expect(LANE_ORDER).toEqual(['unstarted', 'plan', 'build', 'review', 'icebox', 'archived']);
     expect(PLACEABLE_LANES).toEqual(LANE_ORDER.slice(0, -1));
     expect(lanes([], []).map((l) => l.id)).toEqual([...LANE_ORDER]);
   });
@@ -453,9 +453,9 @@ describe('withPlacement', () => {
 
   it('leaves the rest of the memory alone', () => {
     const memory = remember({ 'issue:2': 'plan' }, ['issue:3']);
-    const moved = withPlacement(memory, 'issue:1', 'done');
+    const moved = withPlacement(memory, 'issue:1', 'icebox');
 
-    expect(moved.placements).toEqual({ 'issue:2': 'plan', 'issue:1': 'done' });
+    expect(moved.placements).toEqual({ 'issue:2': 'plan', 'issue:1': 'icebox' });
     expect(departedKeys(moved)).toEqual(['issue:3']);
   });
 
@@ -492,13 +492,18 @@ describe('readMemory', () => {
     }
   });
 
-  it('refuses a placement naming a lane that does not exist', () => {
-    expect(read({ placements: { 'issue:1': 'blocked' } })).toEqual(remember());
+  it('drops a placement naming a lane that does not exist, including one a prior version stored, and keeps the rest', () => {
+    const stale = read({ placements: { 'issue:1': 'blocked', 'issue:18954': 'done', 'issue:2': 'plan' } });
+    const inferred = cardFor(lanes(issues, []), 18954)?.lane;
+
+    expect(stale.placements).toEqual({ 'issue:2': 'plan' });
+    expect(inferred).toBeDefined();
+    expect(cardFor(lanes(issues, [], stale), 18954)?.lane).toBe(inferred);
   });
 
   /** Membership edits must not create returned attention or retain placements from archived work. */
   it('drops the seen marks and their placements when the membership set changes', () => {
-    const stored = { ...remember({ 'issue:1': 'done', 'issue:2': 'plan' }, ['issue:1']), statuses: ['⚒️ Dev'] };
+    const stored = { ...remember({ 'issue:1': 'icebox', 'issue:2': 'plan' }, ['issue:1']), statuses: ['⚒️ Dev'] };
     const memory = read(stored);
 
     expect(memory.seen).toEqual(['issue:1']);
@@ -527,14 +532,14 @@ describe('readMemory', () => {
   });
 
   it('keeps them when the same set comes back reordered — membership is a set', () => {
-    const stored = { ...remember({ 'issue:1': 'done' }, ['issue:1']), statuses: [...DEFAULT_BOARD_STATUSES].reverse() };
+    const stored = { ...remember({ 'issue:1': 'icebox' }, ['issue:1']), statuses: [...DEFAULT_BOARD_STATUSES].reverse() };
 
     expect(departedKeys(read(stored))).toEqual(['issue:1']);
-    expect(read(stored).placements).toEqual({ 'issue:1': 'done' });
+    expect(read(stored).placements).toEqual({ 'issue:1': 'icebox' });
   });
 
   it('treats missing legacy membership settings as changed', () => {
-    const { statuses: _absent, ...older } = remember({ 'issue:1': 'done' }, ['issue:1']);
+    const { statuses: _absent, ...older } = remember({ 'issue:1': 'icebox' }, ['issue:1']);
     const memory = read(older);
 
     expect(memory.placements).toEqual({});
@@ -616,11 +621,11 @@ describe('a reading kept past its own process', () => {
   });
 
   /**
-   * A card the developer has parked in Done is one they have said is not theirs to push on, and a your-turn there
+   * A card the developer has parked in Icebox is one they have said is not theirs to push on, and a your-turn there
    * asks nothing of them.
    */
   it('asks nothing on a card parked in a settled lane, and still says needs you there', () => {
-    const parked = remember({ 'issue:18954': 'done' });
+    const parked = remember({ 'issue:18954': 'icebox' });
 
     expect(cardOf(held('idle'), parked).attention).toBeNull();
     expect(cardOf(held('failed'), parked).attention).toBeNull();
@@ -652,7 +657,7 @@ describe('statusLanes', () => {
   });
 
   it('drops an entry naming a lane the developer cannot choose, and keeps the rest', () => {
-    expect(statusLanes({ '⚒️ Dev': 'archived', '🔍 Dev Review': 'review', '🏃 Testing': 'nowhere' })).toEqual({
+    expect(statusLanes({ '⚒️ Dev': 'archived', '🔍 Dev Review': 'review', '🏃 Testing': 'nowhere', '🚀 Releasable': 'done' })).toEqual({
       '🔍 Dev Review': 'review',
     });
   });
@@ -768,7 +773,7 @@ describe('nextMemory', () => {
   });
 
   it("drops archived card placements", () => {
-    const memory = remember({ 'issue:19072': 'done' });
+    const memory = remember({ 'issue:19072': 'icebox' });
     const away = lanes(restatus(19072, '🏃 Testing'), [], memory);
 
     expect(lane(away, 'archived').cards.map((c) => c.key)).toContain('issue:19072');
@@ -776,7 +781,7 @@ describe('nextMemory', () => {
   });
 
   it('drops it even when the session read failed — archiving took a status read of its own', () => {
-    const memory = remember({ 'issue:19072': 'done' });
+    const memory = remember({ 'issue:19072': 'icebox' });
     const away = lanes(restatus(19072, '🏃 Testing'), [], memory);
 
     expect(nextMemory(away, memory, false).placements).toEqual({});
@@ -784,15 +789,15 @@ describe('nextMemory', () => {
 
   it('preserves placement while an active session prevents archiving', () => {
     const live: Session = { ...sessions[0]!, issueNumber: 19072, repository: 'github.com/example-org/example-repo', finished: false };
-    const memory = remember({ 'issue:19072': 'done' });
+    const memory = remember({ 'issue:19072': 'icebox' });
     const held = lanes(restatus(19072, '🏃 Testing'), [live], memory);
 
-    expect(issueIn(held, 19072)).toBe('done');
-    expect(nextMemory(held, memory, true).placements).toEqual({ 'issue:19072': 'done' });
+    expect(issueIn(held, 19072)).toBe('icebox');
+    expect(nextMemory(held, memory, true).placements).toEqual({ 'issue:19072': 'icebox' });
   });
 
   it('brings a returned card back on its own signals rather than the lane it left in', () => {
-    const memory = remember({ 'issue:19072': 'done' });
+    const memory = remember({ 'issue:19072': 'icebox' });
     const away = lanes(restatus(19072, '🏃 Testing'), [], memory);
     const back = lanes(restatus(19072, '🔍 Dev Review'), [], nextMemory(away, memory, true));
 
@@ -942,7 +947,7 @@ describe('attentionOf', () => {
     expect(attentionOf([withPhase('running', { finished: true })], 'build')).toBeNull();
   });
 
-  it.each(['done', 'icebox', 'archived'] as const)('marks nothing on a working agent in %s', (id) => {
+  it.each(['icebox', 'archived'] as const)('marks nothing on a working agent in %s', (id) => {
     expect(attentionOf([withPhase('running')], id)).toBeNull();
   });
 
@@ -971,7 +976,7 @@ describe('attentionOf', () => {
     expect(attentionOf([withPhase('failed', { finished: true })], 'build')).toBeNull();
   });
 
-  it.each(['done', 'icebox', 'archived'] as const)('asks nothing of a failed turn in %s, and blocked still shows there', (id) => {
+  it.each(['icebox', 'archived'] as const)('asks nothing of a failed turn in %s, and blocked still shows there', (id) => {
     expect(attentionOf([withPhase('failed')], id)).toBeNull();
     expect(attentionOf([withPhase('failed'), withPhase('waiting')], id)).toBe('blocked');
   });
@@ -980,11 +985,11 @@ describe('attentionOf', () => {
     expect(attentionOf([withPhase('idle')], id)).toBe('your-turn');
   });
 
-  it.each(['done', 'icebox', 'archived'] as const)('asks nothing of a finished turn in %s', (id) => {
+  it.each(['icebox', 'archived'] as const)('asks nothing of a finished turn in %s', (id) => {
     expect(attentionOf([withPhase('idle')], id)).toBeNull();
   });
 
-  it.each(['done', 'icebox', 'archived'] as const)('still asks for the developer in %s when an agent is blocked', (id) => {
+  it.each(['icebox', 'archived'] as const)('still asks for the developer in %s when an agent is blocked', (id) => {
     expect(attentionOf([withPhase('waiting')], id)).toBe('blocked');
   });
 });
@@ -996,11 +1001,11 @@ describe('the attention on a card', () => {
     expect(cardFor(board, 18954)?.attention).toBe('your-turn');
   });
 
-  it('asks nothing on a card the developer parked in Done', () => {
+  it('asks nothing on a card the developer parked in Icebox', () => {
     const live = withPhase('idle', { issueNumber: 18954 });
-    const board = lanes(issues, [live], remember({ 'issue:18954': 'done' }));
+    const board = lanes(issues, [live], remember({ 'issue:18954': 'icebox' }));
 
-    expect(cardFor(board, 18954)?.lane).toBe('done');
+    expect(cardFor(board, 18954)?.lane).toBe('icebox');
     expect(cardFor(board, 18954)?.attention).toBeNull();
   });
 

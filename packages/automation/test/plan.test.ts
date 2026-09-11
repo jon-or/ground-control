@@ -133,7 +133,6 @@ describe('what the board will act on', () => {
 
   /** R8 keeps placement for the developer; a merge started in a lane they parked the card in overrules them. */
   it('refuses in the lanes the developer parked the card in, and acts in the others', () => {
-    expect(refusedAs(plan({}, { lane: 'done' }))).toBe('lane-parked');
     expect(refusedAs(plan({}, { lane: 'icebox' }))).toBe('lane-parked');
     expect(refusedAs(plan({}, { lane: 'archived' }))).toBe('lane-parked');
     expect(plan({}, { lane: 'build' }).ok).toBe(true);
