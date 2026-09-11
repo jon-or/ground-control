@@ -1449,6 +1449,8 @@ export class Hub {
 
     const liveIds = new Set(snapshot.sessions.filter((s) => !s.finished).map((s) => `${s.agent}:${s.sessionId}`));
     const endedIssues = new Set(this.#sessions?.sessions.filter((s) => !s.finished && !liveIds.has(`${s.agent}:${s.sessionId}`)).map((s) => s.issueNumber));
+    // A resume reservation exists so the new process can register before a second click; registration ends it.
+    for (const session of snapshot.sessions) if (!session.finished) this.#resuming.delete(session.sessionId);
     this.#sessions = { ...snapshot, sessions: snapshot.sessions.map((session) => this.#withActivity(session)) };
     this.#retain();
     this.#sessionsUnreadable = snapshot.sessions.length === 0 && snapshot.failures.length > 0;

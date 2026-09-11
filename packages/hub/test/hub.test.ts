@@ -2191,6 +2191,19 @@ describe('opening a historical session', () => {
     h.agent.sessions = [fakeSession({ sessionId: 'past' })]; release();
     await poll; expect((await prefire)?.map((s) => s.sessionId)).toEqual(['past']); h.hub.dispose();
   });
+  it.each([['live', false, 2], ['finished', true, 1]] as const)('releases the click reservation only once the resumed session registers %s', async (_kind, finished, performs) => {
+    const h = setup(); const { client, inbox } = connect(h, hello({ residentRoutes: ['resume-here'] }));
+    await h.hub.refresh('asked');
+    ask(h, client); await settle();
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(1);
+    h.agent.sessions = [fakeSession({ sessionId: 'past', finished, cwd: past.cwd, checkoutRoot: past.cwd, issueNumber: 42, repository: 'github.com/org/repo' })];
+    h.clock.advance(10_000); await h.hub.refresh('asked');
+    h.agent.sessions = [];
+    h.clock.advance(10_000); ask(h, client); await settle();
+    expect(inbox.filter((m) => m.type === 'perform')).toHaveLength(performs);
+    expect(inbox.some((m) => m.type === 'notice' && m.refusal === 'resume-pending')).toBe(performs === 1);
+    h.hub.dispose();
+  });
   it('does not let an expired window lookup use a newer click reservation', async () => {
     const h = setup();
     const first = connect(h, hello({ id: 'first', residentRoutes: ['resume-here'] }));
