@@ -2,7 +2,7 @@
 
 This document records experiments and source inspections relevant to Ground Control. Some support implemented features; others establish options or constraints for future work. A successful experiment is not a claim that the product implements it. Product scope is in the [requirements](prd.md), and current use is described in [architecture](architecture.md).
 
-Record IDs retain the experiment identifiers M1–M59, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
+Record IDs retain the experiment identifiers M1–M60, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
 
 Code references use these M IDs rather than the former numbered sections. A record grouped under a topic keeps its original ID. Source inspections of Ground Control distinguish current implementation from the external experiment; they do not re-verify the measured CLI or editor version.
 
@@ -671,6 +671,12 @@ Schema introspection on 2026-09-09: `IssueTimelineItemsItemType` lists `PROJECT_
 `DETAIL_QUERY` measured `rateLimit { cost }` of 1 for both subjects, despite requesting `last:100` timeline entries plus `last:100` review threads with `last:100` replies each. Unlike the closing-PR selection in M48, page size did not drive cost here. Reads are per click, not polled, and paging adds one point per page.
 
 Issue 15619 held 441 timeline entries across the requested types, of which 76 were `ReferencedEvent`. A conversation of that size is the reason consecutive state changes fold in the panel, and the reason reads run newest first.
+
+### Custody timeline reads
+
+**Record M60. API observations, 2026-09-11, `gh` 2.96.0 against `ownerrez/orez` issues 18845 and 15505. Used by the custody popup (R47).**
+
+`timelineItems(first:100, after:$cursor)` with `ASSIGNED_EVENT`, `UNASSIGNED_EVENT`, `PROJECT_V2_ITEM_STATUS_CHANGED_EVENT`, and `CLOSED_EVENT` returned 21 and 81 nodes, each in one page, oldest first, for the two sampled issues; the seven-issue proof of concept needed one to five pages of the same size. `ProjectV2ItemStatusChangedEvent.wasAutomated` was false on every node, including the moves a GitHub Actions account made, so automation is recognized by login (`custody.bots`), and `wasAutomated` is read only as a second signal. A `ClosedEvent` carries its actor; the last one seen is the closer. On 18845 the status moved twice after `closedAt` without a reopen event in the requested types; the fold stops at `closedAt`, so those moves open no leg.
 
 ### GitHub query cost and limits
 

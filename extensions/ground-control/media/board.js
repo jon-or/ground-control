@@ -979,6 +979,10 @@ function tail(boardCard, canRequest) {
     tools.appendChild(run);
   }
 
+  if (boardCard.issue && boardCard.issueNumber !== null) {
+    tools.appendChild(custodyButton(boardCard));
+  }
+
   held.appendChild(tools);
 
   return held;
@@ -1286,25 +1290,28 @@ function closeMenu(refocus) {
 }
 
 /**
- * Install outside-close handlers while a menu is open. Read openMenu each time because redraws can replace its
- * anchor.
+ * Install the handlers that take a floating panel off the document: a click outside it, Escape, and any scroll or
+ * resize, since the panel is fixed to the viewport and the lanes scroll under it. `inside` is read per event because
+ * redraws can replace the anchor.
+ *
+ * @param {(target: EventTarget | null) => boolean} inside
+ * @param {(refocus: boolean) => void} close
  */
-function watchMenu() {
+function watchDismissal(inside, close) {
   const away = (event) => {
-    if (openMenu && !openMenu.menu.contains(event.target) && !openMenu.anchor.contains(event.target)) {
-      closeMenu(false);
+    if (!inside(event.target)) {
+      close(false);
     }
   };
 
   const escape = (event) => {
-    if (event.key === 'Escape' && openMenu) {
+    if (event.key === 'Escape') {
       event.preventDefault();
-      closeMenu(true);
+      close(true);
     }
   };
 
-  // The menu is fixed to the viewport and the lanes scroll under it, so a scroll would leave it over another card.
-  const moved = () => closeMenu(false);
+  const moved = () => close(false);
 
   document.addEventListener('click', away, true);
   document.addEventListener('keydown', escape, true);
@@ -1399,7 +1406,12 @@ function showMenu(key, name, actions, anchor, from = 'first') {
   // close the menu.
   items[from === 'last' ? items.length - 1 : 0]?.focus();
 
-  openMenu = { key, menu, anchor, unwatch: watchMenu() };
+  openMenu = {
+    key,
+    menu,
+    anchor,
+    unwatch: watchDismissal((target) => openMenu === null || openMenu.menu.contains(target) || openMenu.anchor.contains(target), closeMenu),
+  };
 }
 
 /** GitHub's own overflow glyph, so the control reads as a menu rather than as one more of the chips beside it. */
@@ -1434,6 +1446,7 @@ function wireMenuControl(el, key, name, actions) {
     const reopening = openMenu?.key === key;
 
     closeMenu(false);
+    closeCustody(false);
 
     if (!reopening) {
       showMenu(key, name, actions(), el);
@@ -1447,6 +1460,7 @@ function wireMenuControl(el, key, name, actions) {
 
     event.preventDefault();
     closeMenu(false);
+    closeCustody(false);
     showMenu(key, name, actions(), el, event.key === 'ArrowUp' ? 'last' : 'first');
   });
 }
@@ -1792,8 +1806,9 @@ function card(boardCard, avatarPool, placeable) {
 
     el.draggable = true;
     el.addEventListener('dragstart', (event) => {
-      // A drag emits no click, so nothing else would take the menu off a card about to move to another lane.
+      // A drag emits no click, so nothing else would take the menu or the custody popup off a card about to move.
       closeMenu(false);
+      closeCustody(false);
       dragging = boardCard.key;
       el.classList.add('dragging');
       lanesEl.classList.add('dragging');
@@ -3366,6 +3381,414 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
+/*
+ * Custody popup: where the card's issue has been and who held it, folded by the hub and worded there, so this
+ * script only lays the words out. One popup at a time, anchored to the control that opened it (R47).
+ */
+
+/** The tabs in strip order. The chosen one is kept for the next popup; both clients remember it the same way. */
+const CUSTODY_TABS = [
+  ['health', 'Health'],
+  ['time', 'Time'],
+  ['route', 'Route'],
+];
+
+/** @type {{ key: string, issue: { number: number, title: string, state?: string } | null, anchor: Element, unwatch: () => void } | null} */
+let openCustody = null;
+/** @type {{ loading: boolean, custody: import('@ground-control/core').Custody | null, failure: string | null } | null} */
+let custodyState = null;
+let custodyTab = 'health';
+
+/** Octicon `history` at 16px, from @primer/octicons 19.15.1. */
+function custodyMark() {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('class', 'custody-mark');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const path = document.createElementNS(SVG, 'path');
+  path.setAttribute(
+    'd',
+    'm.427 1.927 1.215 1.215a8.002 8.002 0 1 1-1.6 5.685.75.75 0 1 1 1.493-.154 6.5 6.5 0 1 0 1.18-4.458l1.358 1.358A.25.25 0 0 1 3.896 6H.25A.25.25 0 0 1 0 5.75V2.104a.25.25 0 0 1 .427-.177ZM7.75 4a.75.75 0 0 1 .75.75v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5A.75.75 0 0 1 7.75 4Z',
+  );
+  svg.appendChild(path);
+
+  return svg;
+}
+
+/** The footer control that opens the popup. Cards without an issue have no timeline to read. */
+function custodyButton(boardCard) {
+  const button = toolButton('Show custody', 'Where this issue has been and who held it.', custodyMark(), () => {
+    if (openCustody?.key === boardCard.key) {
+      closeCustody(true);
+    } else {
+      openCustodyFor(boardCard, button);
+    }
+  });
+
+  button.classList.add('custody-open');
+  button.setAttribute('aria-haspopup', 'dialog');
+  button.setAttribute('aria-expanded', String(openCustody?.key === boardCard.key));
+
+  return button;
+}
+
+function closeCustody(refocus) {
+  if (openCustody === null) {
+    return;
+  }
+
+  const { anchor, unwatch } = openCustody;
+
+  openCustody = null;
+  custodyState = null;
+  unwatch();
+  document.getElementById('custody')?.remove();
+  anchor.setAttribute('aria-expanded', 'false');
+
+  if (refocus && anchor.isConnected) {
+    anchor.focus();
+  }
+}
+
+/** Ask the hub for the card's custody and show the popup in its loading state. */
+function openCustodyFor(boardCard, anchor) {
+  closeMenu(false);
+  closeCustody(false);
+
+  openCustody = {
+    key: boardCard.key,
+    issue: boardCard.issue,
+    anchor,
+    unwatch: watchDismissal(
+      (target) => openCustody === null || document.getElementById('custody')?.contains(target) === true || openCustody.anchor.contains(target),
+      closeCustody,
+    ),
+  };
+  custodyState = { loading: true, custody: null, failure: null };
+  anchor.setAttribute('aria-expanded', 'true');
+  paintCustody();
+  // Focus the dialog so Escape and the tab strip are one key away; it is placed before the scroll watcher can react.
+  document.getElementById('custody')?.focus();
+  vscode.postMessage({ type: 'readCustody', key: boardCard.key });
+}
+
+/** Ignore answers for a card the popup is no longer showing; requests can overtake each other. */
+function custodyAnswered(message) {
+  if (openCustody === null || message.key !== openCustody.key) {
+    return;
+  }
+
+  custodyState = { loading: false, custody: message.custody, failure: message.failure };
+  paintCustody();
+}
+
+/** Keep the popup on its control across a redraw, which replaces the control; close it when the card is gone. */
+function followCustody() {
+  if (openCustody === null) {
+    return;
+  }
+
+  if (!openCustody.anchor.isConnected) {
+    const anchor = cardEls.get(openCustody.key)?.el.querySelector('.custody-open');
+
+    if (!anchor?.isConnected) {
+      closeCustody(false);
+
+      return;
+    }
+
+    openCustody.anchor = anchor;
+    anchor.setAttribute('aria-expanded', 'true');
+  }
+
+  const panel = document.getElementById('custody');
+
+  if (panel) {
+    place(panel, openCustody.anchor);
+  }
+}
+
+function custodyPanel() {
+  const held = document.getElementById('custody');
+
+  if (held) {
+    held.replaceChildren();
+
+    return held;
+  }
+
+  const panel = document.createElement('div');
+
+  panel.id = 'custody';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', 'Custody');
+  panel.tabIndex = -1;
+  document.body.appendChild(panel);
+
+  return panel;
+}
+
+/** @param {string} tag @param {string} className @param {string} [text] */
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+
+  node.className = className;
+
+  if (text !== undefined) {
+    node.textContent = text;
+  }
+
+  return node;
+}
+
+/** A function's colour token; a status outside the stages has none and reads in the muted foreground. */
+function custodyTone(node, fn) {
+  node.dataset.function = fn ?? 'none';
+}
+
+function custodyHeader(issue, custody) {
+  const head = el('div', 'custody-head');
+  const number = el('span', 'custody-number', `#${custody?.number ?? issue?.number ?? ''}`);
+  const state = custody === null ? issue?.state ?? null : custody.closed ? 'CLOSED' : 'OPEN';
+
+  head.appendChild(number);
+
+  if (state) {
+    const pill = el('span', 'custody-state', state === 'CLOSED' ? 'Closed' : 'Open');
+
+    pill.dataset.state = state.toLowerCase();
+    head.appendChild(pill);
+  }
+
+  if (custody) {
+    head.appendChild(el('span', 'custody-age', `${custody.age} old`));
+  }
+
+  const title = el('div', 'custody-title', custody?.title ?? issue?.title ?? '');
+
+  return [head, title];
+}
+
+function custodyBar(custody) {
+  const wrap = el('div', 'custody-bar-wrap');
+  const bar = el('div', 'custody-bar');
+
+  bar.setAttribute('role', 'img');
+  bar.setAttribute('aria-label', `${custody.bar.length === 1 ? 'One leg' : `${custody.bar.length} legs`} over ${custody.age}`);
+
+  for (const segment of custody.bar) {
+    const piece = el('span', 'custody-seg');
+
+    custodyTone(piece, segment.function);
+    piece.style.flexGrow = String(Math.max(segment.share, 0.004));
+    piece.dataset.held = String(segment.held);
+    setTooltip(piece, segment.title);
+    bar.appendChild(piece);
+  }
+
+  const ends = el('div', 'custody-ends');
+
+  ends.appendChild(el('span', '', custody.createdLabel));
+  ends.appendChild(el('span', '', custody.endLabel));
+  wrap.append(bar, ends);
+
+  return wrap;
+}
+
+function custodyChip(label, fn) {
+  const chip = el('span', 'custody-chip', label);
+
+  custodyTone(chip, fn);
+
+  return chip;
+}
+
+function custodyTabs(panel) {
+  const strip = el('div', 'custody-tabs');
+
+  strip.setAttribute('role', 'tablist');
+
+  for (const [id, label] of CUSTODY_TABS) {
+    const tab = el('button', 'custody-tab', label);
+
+    tab.type = 'button';
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-selected', String(custodyTab === id));
+    tab.tabIndex = custodyTab === id ? 0 : -1;
+    tab.addEventListener('click', () => {
+      custodyTab = id;
+      rememberCustodyTab();
+      paintCustody();
+      panel.querySelector('.custody-tab[aria-selected="true"]')?.focus();
+    });
+    tab.addEventListener('keydown', (event) => {
+      const at = CUSTODY_TABS.findIndex(([known]) => known === custodyTab);
+      const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+
+      if (step === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      custodyTab = CUSTODY_TABS[(at + step + CUSTODY_TABS.length) % CUSTODY_TABS.length][0];
+      rememberCustodyTab();
+      paintCustody();
+      panel.querySelector('.custody-tab[aria-selected="true"]')?.focus();
+    });
+    strip.appendChild(tab);
+  }
+
+  return strip;
+}
+
+function rememberCustodyTab() {
+  vscode.setState({ ...(vscode.getState() ?? {}), custodyTab });
+}
+
+function custodyHealth(custody) {
+  const body = el('div', 'custody-body health');
+  const { health } = custody;
+  const headline = el('div', 'custody-headline', health.headline);
+
+  headline.dataset.bad = String(health.bad);
+  body.appendChild(headline);
+  body.appendChild(el('div', 'custody-subline', health.subline));
+
+  const figures = el('div', 'custody-figures');
+
+  for (const figure of health.figures) {
+    const cell = el('div', 'custody-figure');
+
+    cell.dataset.bad = String(figure.bad);
+    cell.appendChild(el('span', 'custody-value', figure.value));
+    cell.appendChild(el('span', 'custody-label', figure.label));
+    figures.appendChild(cell);
+  }
+
+  body.appendChild(figures);
+
+  const now = el('div', 'custody-now');
+
+  now.appendChild(el('span', 'custody-now-word', 'Now'));
+  now.appendChild(custodyChip(health.now.label, health.now.function));
+
+  const holder = el('span', 'custody-holder', health.now.holder);
+
+  holder.dataset.held = String(health.now.held);
+  now.appendChild(holder);
+  now.appendChild(el('span', 'custody-since', health.now.since));
+  body.appendChild(now);
+
+  return body;
+}
+
+function custodyTrack(share, fn) {
+  const track = el('span', 'custody-track');
+  const fill = el('span', 'custody-fill');
+
+  custodyTone(fill, fn);
+  fill.style.width = `${Math.round(Math.max(0, Math.min(1, share)) * 100)}%`;
+  track.appendChild(fill);
+
+  return track;
+}
+
+function custodyTime(custody) {
+  const body = el('div', 'custody-body time');
+
+  body.appendChild(el('div', 'custody-section', 'Where the time went'));
+
+  for (const row of custody.time.longest) {
+    const line = el('div', 'custody-row');
+    const holder = el('span', 'custody-holder', row.holder ?? 'unassigned');
+    const duration = el('span', 'custody-duration', row.duration);
+
+    holder.dataset.held = String(row.holder !== null);
+    duration.dataset.bad = String(row.bad);
+    line.append(custodyChip(row.label, row.function), holder, duration, custodyTrack(row.share, row.function));
+    body.appendChild(line);
+  }
+
+  body.appendChild(el('div', 'custody-section', 'Total per status'));
+
+  for (const row of custody.time.totals) {
+    const line = el('div', 'custody-row totals');
+
+    line.append(custodyChip(row.label, row.function), el('span', 'custody-duration', row.duration), custodyTrack(row.share, row.function));
+    body.appendChild(line);
+  }
+
+  return body;
+}
+
+function custodyRoute(custody) {
+  const body = el('div', 'custody-body route');
+  const list = el('ol', 'custody-stops');
+
+  for (const stop of custody.route) {
+    const item = el('li', 'custody-stop');
+    const dot = el('span', 'custody-dot');
+    const text = el('span', 'custody-stop-text');
+
+    item.dataset.current = String(stop.current);
+    item.dataset.folded = String(stop.folded > 0);
+    custodyTone(dot, stop.functions[0] ?? null);
+
+    if (stop.labels.length === 2) {
+      dot.dataset.second = stop.functions[1] ?? 'none';
+      text.append(stop.labels[0], el('span', 'custody-loop', ' ⇄ '), stop.labels[1], el('span', 'custody-loop', ` ×${stop.rounds}`));
+    } else {
+      text.append(stop.labels[0]);
+    }
+
+    if (stop.current) {
+      text.append(el('span', 'custody-now-mark', ' now'));
+    }
+
+    const holders = el('span', 'custody-holder', stop.holders);
+
+    holders.dataset.held = String(stop.holders !== 'unassigned');
+    item.append(dot, text, el('span', 'custody-duration', stop.duration), holders);
+    list.appendChild(item);
+  }
+
+  body.appendChild(list);
+
+  return body;
+}
+
+/** Draw the popup for its current state, keeping the header and bar fixed above whichever tab is open. */
+function paintCustody() {
+  if (openCustody === null || custodyState === null) {
+    return;
+  }
+
+  const panel = custodyPanel();
+  const custody = custodyState.custody;
+
+  panel.append(...custodyHeader(openCustody.issue, custody));
+
+  if (custodyState.loading) {
+    panel.appendChild(el('div', 'custody-note', 'Reading timeline…'));
+  } else if (custodyState.failure !== null) {
+    panel.appendChild(el('div', 'custody-note failure', `Couldn't read the timeline — ${custodyState.failure}`));
+  } else if (custody === null) {
+    panel.appendChild(el('div', 'custody-note', 'GitHub has no timeline for this issue.'));
+  } else {
+    panel.appendChild(custodyBar(custody));
+
+    if (custody.truncated) {
+      panel.appendChild(el('div', 'custody-note', 'The timeline was cut short; the newest moves are missing.'));
+    }
+
+    panel.appendChild(custodyTabs(panel));
+    panel.appendChild(custodyTab === 'time' ? custodyTime(custody) : custodyTab === 'route' ? custodyRoute(custody) : custodyHealth(custody));
+  }
+
+  place(panel, openCustody.anchor);
+}
+
 function countCards(lanes) {
   return lanes.reduce((total, lane) => total + lane.cards.length, 0);
 }
@@ -3416,7 +3839,7 @@ function draw(payload) {
     showArchived = false;
   }
 
-  vscode.setState({ payload, showArchived, animations });
+  vscode.setState({ payload, showArchived, animations, custodyTab });
 
   const shown = payload.lanes.filter((lane) => lane.id !== 'archived' || showArchived);
 
@@ -3506,6 +3929,7 @@ function draw(payload) {
     emptyEl.textContent = emptyText(payload);
     reconcile(lanesEl, [emptyEl]);
     followMenu();
+    followCustody();
 
     return;
   }
@@ -3516,6 +3940,7 @@ function draw(payload) {
   );
 
   followMenu();
+  followCustody();
 
   // After the cards, never before: a reused card is handed its newer observation time as it is reconciled.
   tickDurations();
@@ -3550,6 +3975,12 @@ window.addEventListener('message', (event) => {
     return;
   }
 
+  if (message.type === 'custody') {
+    custodyAnswered(message);
+
+    return;
+  }
+
   if (message.type === 'reading') {
     reading = message.enabled !== false;
     pairing = message.paired === true;
@@ -3571,7 +4002,7 @@ window.addEventListener('message', (event) => {
   if (message.type === 'presentation') {
     animations = message.animations !== false;
     applyMotion();
-    vscode.setState({ payload: board, showArchived, animations });
+    vscode.setState({ payload: board, showArchived, animations, custodyTab });
     return;
   }
 
@@ -3599,6 +4030,10 @@ window.addEventListener('message', (event) => {
 setInterval(tickDurations, 1_000);
 
 const restored = vscode.getState();
+
+if (CUSTODY_TABS.some(([id]) => id === restored?.custodyTab)) {
+  custodyTab = restored.custodyTab;
+}
 
 /**
  * Whether a revived payload is the shape this script reads. A panel revived after an upgrade holds the payload the

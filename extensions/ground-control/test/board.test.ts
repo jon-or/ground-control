@@ -3,8 +3,9 @@ import { resolve } from 'node:path';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANE_ORDER, LANE_TITLES, boardStatuses, statusLanes } from '@ground-control/board';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
+import { DEFAULT_CUSTODY } from '@ground-control/core';
 import type { HistoricalSession, Session } from '@ground-control/core';
-import type { BoardMessage, DetailNote, DetailPost, DetailThread, ItemDetail, SnapshotMessage } from '@ground-control/core';
+import type { BoardMessage, Custody, DetailNote, DetailPost, DetailThread, ItemDetail, SnapshotMessage } from '@ground-control/core';
 
 const api = {
   postMessage: vi.fn(),
@@ -246,7 +247,7 @@ describe('board webview', () => {
     const image = avatar.querySelector<HTMLImageElement>('img')!;
     const renderedSession = card.querySelector<HTMLElement>('.session')!;
 
-    expect(api.setState).toHaveBeenCalledWith({ payload, showArchived: false, animations: true });
+    expect(api.setState).toHaveBeenCalledWith({ payload, showArchived: false, animations: true, custodyTab: 'health' });
     expect(card.querySelector('.status')?.textContent).toBe('Dev Review');
     expect(card.querySelector('.type')?.textContent).toBe('Bug');
     // Nothing on hover: a chip that is its own whole fact has nothing left to say when it is pointed at.
@@ -1427,6 +1428,11 @@ describe('the manifest and the code agree on every default', () => {
 
   it('ships the hook install default the extension falls back to', () => {
     expect(declared('installSessionHooks')).toBe(true);
+  });
+
+  it('ships the custody stages and bots the package folds with', () => {
+    expect(declared('custody.stages')).toEqual(DEFAULT_CUSTODY.stages);
+    expect(declared('custody.bots')).toEqual(DEFAULT_CUSTODY.bots);
   });
 });
 
@@ -2745,6 +2751,7 @@ describe('card triage (R38)', () => {
     expect(Array.from(tail.querySelectorAll('.tool')).map((el) => el.getAttribute('aria-label'))).toEqual([
       'Read this card again',
       'Open in VS Code',
+      'Show custody',
     ]);
   });
 
@@ -3185,7 +3192,7 @@ describe('the tooltip', () => {
       el.hasAttribute('aria-label'),
     );
 
-    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual(['Read this card', 'Open in VS Code']);
+    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual(['Read this card', 'Open in VS Code', 'Show custody']);
     expect(both.every((el) => el.getAttribute('aria-description') !== el.getAttribute('aria-label'))).toBe(true);
     // The avatar is the one that would repeat itself: named for a reader, and its tooltip says the same thing.
     expect(document.querySelector('.avatar')!.getAttribute('aria-label')).toBe('dev-2, pull request author');
@@ -4506,5 +4513,202 @@ describe('the worktree in the bar', () => {
     document.querySelector<HTMLButtonElement>('.card-menu')!.click();
 
     expect(Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button')).map((item) => item.textContent)).toContain('Change folder…');
+  });
+});
+
+/**
+ * R47: the custody popup. The hub words everything; the board lays it out and keeps the popup on its control. The
+ * overlay draws the same fixture and its suite pins the same words.
+ */
+describe('the custody popup', () => {
+  const custody = JSON.parse(readFileSync(resolve('../../tools/fixtures/custody.json'), 'utf8')) as Custody;
+  const control = () => document.querySelector<HTMLButtonElement>('.custody-open');
+  const popup = () => document.getElementById('custody');
+  const tabs = () => Array.from(document.querySelectorAll<HTMLButtonElement>('.custody-tab'));
+  const open = () => {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    control()!.click();
+  };
+  const answer = (over: Partial<Extract<BoardMessage, { type: 'custody' }>> = {}) =>
+    send({ type: 'custody', key: 'issue:18953', custody, failure: null, ...over });
+
+  afterEach(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    popup()?.remove();
+  });
+
+  it('offers the control on an issue card and not on a card with no issue', () => {
+    send(message({ lanes: lanes({ build: [liveCard, { ...liveCard, key: 'session:x', issueNumber: null, issue: null, sessions: [{ ...session, ...checkout }] }] }) }));
+
+    const controls = document.querySelectorAll('.custody-open');
+
+    expect(controls).toHaveLength(1);
+    expect(controls[0]!.closest('.tools')).not.toBeNull();
+    expect(controls[0]!.getAttribute('aria-label')).toBe('Show custody');
+    expect(tipOf(controls[0])).toBe('Where this issue has been and who held it.');
+    expect(controls[0]!.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(controls[0]!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('asks the hub for the card by key and opens in its loading state with the card’s own header, focused', () => {
+    open();
+
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'readCustody', key: 'issue:18953' });
+    expect(document.activeElement).toBe(popup());
+    expect(control()!.getAttribute('aria-expanded')).toBe('true');
+    expect(popup()!.getAttribute('role')).toBe('dialog');
+    expect(popup()!.querySelector('.custody-number')!.textContent).toBe('#18953');
+    expect(popup()!.querySelector('.custody-title')!.textContent).toBe('Cached counts do not update');
+    expect(popup()!.querySelector('.custody-note')!.textContent).toBe('Reading timeline…');
+    expect(popup()!.querySelector('.custody-tabs')).toBeNull();
+  });
+
+  it('ignores an answer for another card and draws the one it asked for', () => {
+    open();
+    answer({ key: 'issue:1' });
+
+    expect(popup()!.querySelector('.custody-note')!.textContent).toBe('Reading timeline…');
+
+    answer();
+
+    expect(popup()!.querySelector('.custody-note')).toBeNull();
+    expect(popup()!.querySelector('.custody-number')!.textContent).toBe('#18845');
+    expect(popup()!.querySelector('.custody-state')!.textContent).toBe('Open');
+    expect(popup()!.querySelector('.custody-age')!.textContent).toBe('30d old');
+    expect(popup()!.querySelector('.custody-title')!.textContent).toBe(custody.title);
+  });
+
+  it('draws one bar segment per leg, sized by share, faded when nobody held it, and titled as the hub titles it', () => {
+    open();
+    answer();
+
+    const segments = Array.from(popup()!.querySelectorAll<HTMLElement>('.custody-seg'));
+
+    expect(segments).toHaveLength(custody.bar.length);
+    expect(segments.map((seg) => seg.dataset.function)).toEqual(custody.bar.map((seg) => seg.function ?? 'none'));
+    expect(segments.map((seg) => seg.dataset.held)).toEqual(custody.bar.map((seg) => String(seg.held)));
+    expect(segments.map((seg) => tipOf(seg))).toEqual(custody.bar.map((seg) => seg.title));
+    expect(Number(segments[0]!.style.flexGrow)).toBeCloseTo(custody.bar[0]!.share, 3);
+    expect(popup()!.querySelector('.custody-ends')!.textContent).toBe('Aug 12today');
+    expect(popup()!.querySelector('.custody-bar')!.getAttribute('aria-label')).toBe('10 legs over 30d');
+  });
+
+  it('opens on Health: the headline, the subline, four figures, and the now strip, red only where the hub says so', () => {
+    open();
+    answer();
+
+    const body = popup()!.querySelector<HTMLElement>('.custody-body.health')!;
+
+    expect(tabs().map((tab) => [tab.textContent, tab.getAttribute('aria-selected')])).toEqual([['Health', 'true'], ['Time', 'false'], ['Route', 'false']]);
+    expect(body.querySelector<HTMLElement>('.custody-headline')!.textContent).toBe('Stalled 8.2d in New');
+    expect(body.querySelector<HTMLElement>('.custody-headline')!.dataset.bad).toBe('true');
+    expect(body.querySelector('.custody-subline')!.textContent).toBe('It spent 8.2d in New with nobody assigned, 27% of its life.');
+    expect(Array.from(body.querySelectorAll<HTMLElement>('.custody-figure')).map((cell) => [cell.querySelector('.custody-value')!.textContent, cell.querySelector('.custody-label')!.textContent, cell.dataset.bad])).toEqual([
+      ['9', 'Hand-offs', 'false'],
+      ['3', 'People', 'false'],
+      ['2', 'Sent back', 'true'],
+      ['53%', 'Unassigned', 'true'],
+    ]);
+    expect(body.querySelector('.custody-now')!.textContent).toBe('NowTestingqa-23.9d');
+    expect(body.querySelector<HTMLElement>('.custody-now .custody-chip')!.dataset.function).toBe('qa');
+  });
+
+  it('switches to Time on click: the longest legs ranked against the top one, then totals against life', () => {
+    open();
+    answer();
+    tabs()[1]!.click();
+
+    const rows = Array.from(popup()!.querySelectorAll<HTMLElement>('.custody-row'));
+
+    expect(tabs()[1]!.getAttribute('aria-selected')).toBe('true');
+    expect(popup()!.querySelector('.custody-bar')).not.toBeNull();
+    expect(Array.from(popup()!.querySelectorAll('.custody-section')).map((el) => el.textContent)).toEqual(['Where the time went', 'Total per status']);
+    expect(rows.filter((row) => !row.classList.contains('totals')).map((row) => row.textContent)).toEqual(custody.time.longest.map((row) => `${row.label}${row.holder ?? 'unassigned'}${row.duration}`));
+    expect(rows.filter((row) => row.classList.contains('totals')).map((row) => row.textContent)).toEqual(custody.time.totals.map((row) => `${row.label}${row.duration}`));
+    expect(rows[0]!.querySelector<HTMLElement>('.custody-fill')!.style.width).toBe('100%');
+    expect(rows[0]!.querySelector<HTMLElement>('.custody-duration')!.dataset.bad).toBe('true');
+    expect(rows[0]!.querySelector<HTMLElement>('.custody-holder')!.dataset.held).toBe('false');
+    expect(api.setState).toHaveBeenCalledWith(expect.objectContaining({ custodyTab: 'time' }));
+  });
+
+  it('switches to Route with the arrow keys: one stop per row, the loop marked, the current stop last and ringed', () => {
+    open();
+    answer();
+    // The strip remembers the last tab, so start from Health and step left around the end of the strip.
+    tabs()[0]!.click();
+    tabs()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+
+    const stops = Array.from(popup()!.querySelectorAll<HTMLElement>('.custody-stop'));
+
+    expect(tabs()[2]!.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tabs()[2]);
+    expect(stops.map((stop) => stop.querySelector('.custody-stop-text')!.textContent)).toEqual(['New', 'Assigned', 'Dev', 'Ready For Testing', 'Testing ⇄ Dev ×2 now']);
+    expect(stops.map((stop) => stop.querySelector('.custody-holder')!.textContent)).toEqual(custody.route.map((stop) => stop.holders));
+    expect(stops.map((stop) => stop.querySelector('.custody-duration')!.textContent)).toEqual(custody.route.map((stop) => stop.duration));
+    expect(stops[4]!.dataset.current).toBe('true');
+    expect(stops[4]!.querySelector<HTMLElement>('.custody-dot')!.dataset).toMatchObject({ function: 'qa', second: 'dev' });
+    expect(stops[0]!.querySelector<HTMLElement>('.custody-dot')!.dataset.second).toBeUndefined();
+    expect(stops[4]!.querySelectorAll('.custody-loop')).toHaveLength(2);
+  });
+
+  it('opens on the tab it was last on', () => {
+    open();
+    answer();
+    tabs()[2]!.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    open();
+    answer();
+
+    expect(tabs()[2]!.getAttribute('aria-selected')).toBe('true');
+    expect(popup()!.querySelector('.custody-body.route')).not.toBeNull();
+  });
+
+  it('closes on Escape back to its control, on a click outside, and on its own control pressed again', () => {
+    open();
+    answer();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+    expect(popup()).toBeNull();
+    expect(document.activeElement).toBe(control());
+    expect(control()!.getAttribute('aria-expanded')).toBe('false');
+
+    open();
+    document.getElementById('lanes')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(popup()).toBeNull();
+
+    open();
+    control()!.click();
+    expect(popup()).toBeNull();
+    expect(sent().filter((m) => (m as { type: string }).type === 'readCustody')).toHaveLength(3);
+  });
+
+  it('stays on its control across a redraw and closes when the card leaves the board', () => {
+    open();
+    answer();
+    send(message({ lanes: lanes({ build: [{ ...liveCard, returned: true }] }) }));
+
+    expect(popup()).not.toBeNull();
+    expect(control()!.getAttribute('aria-expanded')).toBe('true');
+
+    send(message({ lanes: lanes({}) }));
+
+    expect(popup()).toBeNull();
+  });
+
+  it('shows the failure in the hub’s words, and says when there is no timeline or it was cut short', () => {
+    open();
+    answer({ custody: null, failure: 'GitHub could not be reached. Check your connection.' });
+    expect(popup()!.querySelector('.custody-note.failure')!.textContent).toBe("Couldn't read the timeline — GitHub could not be reached. Check your connection.");
+
+    control()!.click();
+    open();
+    answer({ custody: null });
+    expect(popup()!.querySelector('.custody-note')!.textContent).toBe('GitHub has no timeline for this issue.');
+
+    control()!.click();
+    open();
+    answer({ custody: { ...custody, truncated: true } });
+    expect(popup()!.querySelector('.custody-note')!.textContent).toBe('The timeline was cut short; the newest moves are missing.');
+    expect(popup()!.querySelector('.custody-tabs')).not.toBeNull();
   });
 });

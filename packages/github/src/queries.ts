@@ -245,3 +245,26 @@ query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
 }
 
 fragment profile on User{ name }`;
+
+/**
+ * Read an issue's custody history oldest first: every status change, assignment, and unassignment, with who
+ * closed it. Pages go forward with `after`, because a partial read must keep the first leg, not the newest.
+ */
+export const CUSTODY_QUERY = `
+query($owner:String!, $name:String!, $number:Int!, $after:String){
+  repository(owner:$owner, name:$name){
+    issue(number:$number){
+      number title url state createdAt closedAt
+      timelineItems(first:100, after:$after, itemTypes:[ASSIGNED_EVENT, UNASSIGNED_EVENT, PROJECT_V2_ITEM_STATUS_CHANGED_EVENT, CLOSED_EVENT]){
+        pageInfo{ hasNextPage endCursor }
+        nodes{
+          __typename
+          ... on AssignedEvent{ createdAt actor{ login } assignee{ ... on User{ login } ... on Bot{ login } ... on Mannequin{ login } } }
+          ... on UnassignedEvent{ createdAt actor{ login } assignee{ ... on User{ login } ... on Bot{ login } ... on Mannequin{ login } } }
+          ... on ProjectV2ItemStatusChangedEvent{ createdAt wasAutomated actor{ login } previousStatus status project{ number owner{ ... on Organization{ login } ... on User{ login } } } }
+          ... on ClosedEvent{ createdAt actor{ login } }
+        }
+      }
+    }
+  }
+}`;

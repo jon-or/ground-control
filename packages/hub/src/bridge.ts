@@ -154,6 +154,13 @@ export function bridgeAction(raw: unknown): BridgeAction {
     return { refused: 'Read issues and pull requests on GitHub itself.' };
   }
 
+  // Forward only the card key. The hub resolves the issue from its snapshot and answers this client alone.
+  if (message.type === 'readCustody') {
+    return typeof message.key === 'string'
+      ? { send: { type: 'readCustody', key: message.key } }
+      : { refused: 'That card cannot be read.' };
+  }
+
   return { refused: `The overlay may not send ${String(message.type)}.` };
 }
 

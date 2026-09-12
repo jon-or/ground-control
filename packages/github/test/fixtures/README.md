@@ -80,6 +80,22 @@ Pass `-` in place of a number to keep a recorded file, for example `node test/fi
 
 Element structure and attribute names are preserved, because the panel's sanitizer and stylesheet are tested against GitHub's markup shapes. Every run of text is replaced, and `href`, `src`, `alt`, `title`, and `data-*` values are rewritten, because bodies and cross-references are private. Comments are trimmed to three while `totalCount` keeps its recorded value, and both trimmed collections report `hasPreviousPage`, so the panel's clipped-conversation path is exercised. A trimmed timeline keeps the recent tail plus the first of every earlier event kind, so one recording covers every event shape the mapper reads, and reports `hasNextPage`. Review threads are trimmed the same way, and their paths become `src/example-<n>` with the recorded extension. Event prose, logins, label names, repository names, and addresses are replaced wherever they sit in an event's shape. The script refuses to write a fixture still naming the recording repository or its accounts.
 
+## Custody history
+
+`record-custody.js` reads `CUSTODY_QUERY` from source, pages one issue's timeline forward the way the adapter does, and scrubs the pages for the custody popup (R47):
+
+```sh
+GC_SELF_LOGINS=<gh logins> GC_BOT_LOGINS=<bot logins> GC_DETAIL_REPO=owner/name \
+  node test/fixtures/record-custody.js <issue> <fixture name>
+```
+
+| File | Scenario |
+|---|---|
+| `custody-issue.json` | Closed issue with a New → Assigned → Dev → Ready → Dev (automation bounce) → Ready → Testing → Testing → Releasable path, a close, and two status moves after the close; 21 nodes in one page |
+| `custody-paged.json` | Issue with 81 nodes in one page; `custody.test.ts` splits it in two and derives the cursor, since neither sampled issue needed a second page |
+
+Logins go through the search fixtures' map; logins named in `GC_BOT_LOGINS` become `bot-1`, `bot-2`, … so a test can configure them as bots, and a login ending in `[bot]` is a public app and is kept. Titles, repository, and project owner are replaced; numbers, timestamps, statuses, cursors, and `wasAutomated` are kept, because the legs are derived from them.
+
 ### Context scrubbing
 
 `anonymise-context.js` replaces every body using `remark()` in `fixture-words.js`, keyed by number and position.

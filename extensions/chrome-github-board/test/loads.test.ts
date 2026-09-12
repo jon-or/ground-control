@@ -152,7 +152,7 @@ describe('what the extension asks Chrome for', () => {
 
   /** The content script imports these at runtime. Missing resources prevent policy or rendering from loading. */
   it('lets the page reach the modules the content script imports', () => {
-    expect(shipped.web_accessible_resources[0]?.resources).toEqual(['src/overlay.js', 'src/panel.js', 'src/state.js', 'src/preferences.js']);
+    expect(shipped.web_accessible_resources[0]?.resources).toEqual(['src/overlay.js', 'src/panel.js', 'src/custody.js', 'src/state.js', 'src/preferences.js']);
   });
 });
 

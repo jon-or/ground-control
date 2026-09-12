@@ -9,6 +9,8 @@ import { DEFAULT_SESSION_SCOPE, sessionScopeSchema } from './sessionScope.js';
 import { DEFAULT_AVATAR_POLICY, OFF_REVIEW_AVATARS, REVIEW_AVATARS } from './source.js';
 import type { AvatarPolicy } from './source.js';
 import { agentHomeSchema } from './agentHomes.js';
+import { custodySettings } from './custody.js';
+import type { CustodySettings } from './custody.js';
 import type { SessionScope } from './sessionScope.js';
 import type { AgentConfig, ReadFailure } from './types.js';
 import type { LogFloor } from './log.js';
@@ -47,6 +49,8 @@ export interface HubConfig {
   triage: TriageSettings;
   actions: ActionSettings;
   newSession: NewSessionSettings;
+  /** Stages and bots the custody popup reads an issue's history with. */
+  custody: CustodySettings;
 }
 
 /** Hub log rotation and dispatch-output retention. Markers and settings backups are safety state with fixed limits. */
@@ -266,6 +270,8 @@ export const hubConfig = z.object({
   // Older configurations default to no unattended actions (R32).
   actions: actions.default({ ...DEFAULT_ACTIONS, permissionMode: 'auto' }),
   newSession: newSession.default(DEFAULT_NEW_SESSION),
+  // Absent from a configuration written by a client that predates the custody popup.
+  custody: custodySettings,
 });
 
 /** Parse client configuration or return a classified failure for display (R25). */

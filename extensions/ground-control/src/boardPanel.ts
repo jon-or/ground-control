@@ -58,6 +58,8 @@ type Inbound =
   | { type: 'setShowArchived'; shown: boolean }
   // The webview names the card, never the URL; the hub resolves the conversation from its own snapshot.
   | { type: 'readDetail'; key: string; subject: DetailSubject }
+  // The webview names the card; the hub folds the issue's timeline and answers this board alone.
+  | { type: 'readCustody'; key: string }
   // A link inside rendered conversation HTML. Only http(s) is opened.
   | { type: 'openLink'; url: string }
   // Panel width the developer dragged to, retained for the next conversation, or pair, they open.
@@ -261,6 +263,11 @@ export class BoardPanel {
 
       case 'readDetail':
         this.#tell({ type: 'readDetail', key: msg.key, subject: msg.subject });
+
+        return;
+
+      case 'readCustody':
+        this.#tell({ type: 'readCustody', key: msg.key });
 
         return;
 

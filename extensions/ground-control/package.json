@@ -223,6 +223,76 @@
             "order": 4,
             "markdownDescription": "Whose avatar a card shows on every other status, in both clients."
           },
+          "groundControl.custody.stages": {
+            "type": "array",
+            "scope": "application",
+            "items": {
+              "type": "object",
+              "required": ["status", "function"],
+              "properties": {
+                "status": { "type": "string", "description": "The project status text, exactly as the board shows it." },
+                "function": { "type": "string", "enum": ["intake", "dev", "product", "qa", "release"], "description": "The team function that owns the status. The custody popup colours by function." },
+                "stallDays": { "type": "number", "minimum": 0, "default": 7, "description": "A hold in this status at least this long reads as a stall." }
+              }
+            },
+            "default": [
+              {
+                "status": "🆕 New",
+                "function": "intake",
+                "stallDays": 5
+              },
+              {
+                "status": "🔖 Planned",
+                "function": "intake",
+                "stallDays": 5
+              },
+              {
+                "status": "🎁 Assigned",
+                "function": "dev",
+                "stallDays": 7
+              },
+              {
+                "status": "⚒️ Dev",
+                "function": "dev",
+                "stallDays": 7
+              },
+              {
+                "status": "🔍 Dev Review",
+                "function": "dev",
+                "stallDays": 7
+              },
+              {
+                "status": "🎯 Product Review",
+                "function": "product",
+                "stallDays": 3
+              },
+              {
+                "status": "👟 Ready For Testing",
+                "function": "qa",
+                "stallDays": 5
+              },
+              {
+                "status": "🏃 Testing",
+                "function": "qa",
+                "stallDays": 5
+              },
+              {
+                "status": "🚀 Releasable",
+                "function": "release",
+                "stallDays": 1
+              }
+            ],
+            "order": 7,
+            "markdownDescription": "Project statuses in workflow order, the function that owns each, and the hold length that counts as a stall there. The custody popup ranks a move to an earlier status as a send-back. A status not listed still renders and never counts as a send-back."
+          },
+          "groundControl.custody.bots": {
+            "type": "array",
+            "scope": "application",
+            "items": { "type": "string" },
+            "default": ["orez-codebot", "ownerrez-gh-actions", "github-actions", "github-project-automation[bot]", "claude[bot]"],
+            "order": 8,
+            "markdownDescription": "Logins whose status moves are automation. The custody popup counts their send-backs separately and never names them as holders. A login ending in `[bot]` is always automation."
+          },
           "groundControl.animations": {
             "scope": "application",
             "type": "boolean",

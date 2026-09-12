@@ -1,5 +1,6 @@
 import type { Lane, LaneId } from './board.js';
 import type { HubConfig } from './config.js';
+import type { Custody } from './custody.js';
 import type { DetailSubject, ItemDetail } from './detail.js';
 import type { OpenRefusal, OpenRoute, StartableAgent } from './host.js';
 import type { LogEntry } from './log.js';
@@ -97,7 +98,9 @@ export type ClientMessage =
   // Subscribe to log reads and streaming, or unsubscribe. No reads occur without a subscriber.
   | { type: 'watchLog'; watching: boolean }
   // Read one card's conversation for display. Answered to the requesting client alone, never broadcast.
-  | { type: 'readDetail'; key: string; subject: DetailSubject };
+  | { type: 'readDetail'; key: string; subject: DetailSubject }
+  // Read where one card's issue has been and who held it. Answered to the requesting client alone.
+  | { type: 'readCustody'; key: string };
 
 export type HubMessage =
   | { type: 'snapshot'; snapshot: Snapshot }
@@ -107,7 +110,9 @@ export type HubMessage =
   // Send subscribed clients the log tail first, then individual new lines.
   | { type: 'log'; entries: LogEntry[] }
   // Answer one readDetail. `detail` null with no failure is a subject the source found nothing for.
-  | { type: 'detail'; key: string; subject: DetailSubject; detail: ItemDetail | null; failure: string | null };
+  | { type: 'detail'; key: string; subject: DetailSubject; detail: ItemDetail | null; failure: string | null }
+  // Answer one readCustody. `custody` null with no failure is an issue the source found nothing for.
+  | { type: 'custody'; key: string; custody: Custody | null; failure: string | null };
 
 /** Flattened snapshot fields consumed by the webview. */
 export type SnapshotMessage = { type: 'board' } & Snapshot;
@@ -128,6 +133,8 @@ export type BoardMessage =
   | { type: 'setup'; pending: boolean }
   // Conversation for the card the webview asked about, or the reason it has none.
   | { type: 'detail'; key: string; subject: DetailSubject; detail: ItemDetail | null; failure: string | null }
+  // Custody for the card the webview asked about, or the reason it has none.
+  | { type: 'custody'; key: string; custody: Custody | null; failure: string | null }
   // Whether card controls read a conversation on the board, whether a pull request opens beside its issue, and the
   // widths the developer dragged the single panel and the pair to (R43).
   | { type: 'reading'; enabled: boolean; width: number | null; paired: boolean; pairWidth: number | null }

@@ -23,8 +23,20 @@ const SNAPSHOT: Snapshot = {
 };
 
 describe('what a message from the worker changes', () => {
+  /** A custody request marks the card loading; only the answer for that card fills it, and a stale one is dropped. */
+  it('holds a custody request for one card and takes only the answer for it', () => {
+    const asked = applyMessage(initialState(), { type: 'custodyPending', key: 'issue-4501' });
+    const stale = applyMessage(asked, { type: 'custody', key: 'issue-4502', custody: null, failure: 'late' });
+    const answered = applyMessage(asked, { type: 'custody', key: 'issue-4501', custody: null, failure: 'GitHub could not be reached.' });
+
+    expect(asked.custody).toEqual({ key: 'issue-4501', loading: true, custody: null, failure: null });
+    expect(stale).toBe(asked);
+    expect(answered.custody).toEqual({ key: 'issue-4501', loading: false, custody: null, failure: 'GitHub could not be reached.' });
+    expect(applyMessage(initialState(), { type: 'custody', key: 'issue-4501', custody: null, failure: null })).toEqual(initialState());
+  });
+
   it('starts out saying nothing has answered', () => {
-    expect(initialState()).toEqual({ snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null });
+    expect(initialState()).toEqual({ snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null });
   });
 
   it('takes a snapshot, and takes a change the same way', () => {

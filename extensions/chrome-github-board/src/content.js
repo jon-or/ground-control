@@ -100,6 +100,10 @@
     runAction: (key) => post({ type: 'runAction', key }),
     stopAction: (key) => post({ type: 'stopAction', key }),
     startSession: (key, agent) => post({ type: 'startSession', key, agent }),
+    readCustody: (key) => {
+      state = helpers.applyMessage(state, { type: 'custodyPending', key });
+      post({ type: 'readCustody', key });
+    },
     showCardRows: (shown) => showCardRows(shown),
     openOptions: () => post({ type: 'openOptions' }),
     repaint: () => schedule(),

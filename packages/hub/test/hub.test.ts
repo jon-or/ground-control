@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { GITHUB_SOURCE_ID, makeGithubSource } from '@ground-control/github';
 import type { AssignedIssues, GithubConfig, GithubSourceDeps, Result } from '@ground-control/github';
-import type { BoardPolicy, ClientHello, DetailReading, HubConfig, HubMessage, IssueCard, ItemDetail, Snapshot, WorkSource } from '@ground-control/core';
+import type { BoardPolicy, ClientHello, Custody, CustodyHistory, DetailReading, HubConfig, HubMessage, IssueCard, ItemDetail, Snapshot, WorkSource } from '@ground-control/core';
 import type { ActivityState } from '../src/activityInstall.js';
 import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
@@ -115,6 +115,7 @@ function harness(
     stored?: StoredConfig;
     readCard?: GithubSourceDeps['readCard'];
     readDetail?: GithubSourceDeps['readDetail'];
+    readCustody?: GithubSourceDeps['readCustody'];
   } = {},
 ): Harness {
   const agent = reportingAgent();
@@ -139,6 +140,10 @@ function harness(
     readDetail:
       extra.readDetail ??
       (async () => ({ detail: null, failure: { message: 'no reader is injected', remedy: 'inject one' } })),
+    // Inject history reads so a custody request cannot spawn gh in tests.
+    readCustody:
+      extra.readCustody ??
+      (async () => ({ history: null, failure: { subject: 'github', kind: 'bad-response', message: 'no reader is injected', remedy: 'inject one' } })),
   });
 
   const registries = { agents: [agent.adapter], hosts: [host.adapter], sources: [github, ...(extra.sources ?? [])] };
@@ -3345,5 +3350,181 @@ describe('reading one card conversation (R43)', () => {
       detail: null,
       failure: 'No configured source can read that conversation. Check the GitHub settings for this board.',
     });
+  });
+});
+
+describe('reading one card’s custody', () => {
+  const HISTORY: CustodyHistory = {
+    number: 7,
+    title: 'Issue 7',
+    url: 'https://github.com/example-org/example-repo/issues/7',
+    state: 'OPEN',
+    createdAt: '2026-08-01T00:00:00Z',
+    closedAt: null,
+    closedBy: null,
+    events: [
+      { at: '2026-08-01T00:00:05Z', actor: 'dev-2', automated: false, status: { from: null, to: '🆕 New' }, assigned: null, unassigned: null },
+      { at: '2026-08-10T00:00:00Z', actor: 'dev-3', automated: false, status: { from: '🆕 New', to: '⚒️ Dev' }, assigned: null, unassigned: null },
+      { at: '2026-08-10T00:00:01Z', actor: 'dev-3', automated: false, status: null, assigned: 'dev-1', unassigned: null },
+    ],
+    truncated: false,
+  };
+
+  function reader(answer: { history: CustodyHistory | null; failure: { subject: string; kind: 'transient'; message: string; remedy: string } | null } = { history: HISTORY, failure: null }) {
+    let asked = 0;
+
+    return {
+      asked: () => asked,
+      readCustody: (async () => {
+        asked += 1;
+
+        return answer;
+      }) as GithubSourceDeps['readCustody'],
+    };
+  }
+
+  async function board(readCustody: GithubSourceDeps['readCustody'], updatedAt = '2026-08-10T00:00:01Z') {
+    const served = { ...card(7), updatedAt };
+    let issues = { ...ISSUES, cards: [served], matched: 1, totalAssigned: 1 };
+    const h = harness({}, { fetch: async () => ({ ok: true, value: issues }), readCustody });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((held) => held.issue !== null)!.key;
+
+    return {
+      h,
+      client,
+      inbox,
+      key,
+      touch: async (at: string) => {
+        issues = { ...issues, cards: [{ ...served, updatedAt: at }] };
+        // A refresh asked for within the read floor reuses the cached cards.
+        h.clock.advance(61_000);
+        h.hub.receive(client, { type: 'refresh' });
+        await settle();
+      },
+    };
+  }
+
+  const custodyIn = (inbox: HubMessage[]) => inbox.filter((message) => message.type === 'custody') as Extract<HubMessage, { type: 'custody' }>[];
+
+  it('folds the history with the configured stages and answers only the client that asked', async () => {
+    const read = reader();
+    const { h, client, inbox, key } = await board(read.readCustody);
+    const { inbox: other } = connect(h, hello({ id: 'client-b' }));
+
+    h.clock.advance(Date.parse('2026-08-20T00:00:00Z') - h.clock.clock.now());
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+
+    expect(custodyIn(other)).toHaveLength(0);
+    expect(custodyIn(inbox)).toHaveLength(1);
+
+    const custody = custodyIn(inbox)[0]?.custody as Custody;
+
+    expect(custody.number).toBe(7);
+    expect(custody.health.headline).toBe('Stalled 10d in Dev');
+    expect(custody.route.map((stop) => stop.labels[0])).toEqual(['New', 'Dev']);
+    expect(custody.health.now).toMatchObject({ holder: 'dev-1', since: '10d' });
+  });
+
+  it('answers a repeat for the same card and updatedAt from its cache, and reads again once the card moves', async () => {
+    const read = reader();
+    const { h, client, inbox, key, touch } = await board(read.readCustody);
+
+    h.hub.receive(client, { type: 'readCustody', key });
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+
+    expect(read.asked()).toBe(1);
+    expect(custodyIn(inbox)).toHaveLength(3);
+
+    await touch('2026-08-11T00:00:00Z');
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+
+    expect(read.asked()).toBe(2);
+  });
+
+  it('folds the cached history with the current settings and clock on every request', async () => {
+    const read = reader();
+    const { h, client, inbox, key } = await board(read.readCustody);
+
+    h.clock.advance(Date.parse('2026-08-20T00:00:00Z') - h.clock.clock.now());
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+
+    h.hub.receive(client, { type: 'configure', config: { ...h.config(), custody: { stages: [{ status: '⚒️ Dev', function: 'dev', stallDays: 30 }], bots: [] } } });
+    await settle();
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+
+    h.clock.advance(5 * 24 * 60 * 60 * 1000);
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+
+    expect(read.asked()).toBe(1);
+    expect(custodyIn(inbox).map((message) => [message.custody?.health.headline, message.custody?.age])).toEqual([
+      ['Stalled 10d in Dev', '19d'],
+      ['Moving normally', '19d'],
+      ['Moving normally', '24d'],
+    ]);
+  });
+
+  it('does not keep a failure, so the next request tries the source again', async () => {
+    const read = reader({ history: null, failure: { subject: 'github', kind: 'transient', message: 'GitHub could not be reached.', remedy: 'Check your connection.' } });
+    const { h, client, inbox, key } = await board(read.readCustody);
+
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+
+    expect(read.asked()).toBe(2);
+    expect(custodyIn(inbox)[0]).toMatchObject({ custody: null, failure: 'GitHub could not be reached. Check your connection.' });
+  });
+
+  it('refuses a key that is not on the board without asking a source', async () => {
+    const read = reader();
+    const { h, client, inbox } = await board(read.readCustody);
+
+    h.hub.receive(client, { type: 'readCustody', key: 'issue:9999' });
+    await settle();
+
+    expect(read.asked()).toBe(0);
+    expect(custodyIn(inbox)[0]).toMatchObject({ custody: null, failure: 'That card is no longer on the board. Refresh the board and open it again.' });
+  });
+
+  it('reports an issue the source found nothing for as no custody and no failure', async () => {
+    const read = reader({ history: null, failure: null });
+    const { h, client, inbox, key } = await board(read.readCustody);
+
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+
+    expect(custodyIn(inbox)[0]).toMatchObject({ custody: null, failure: null });
+  });
+
+  it('says so when no configured source serves the card', async () => {
+    const read = reader();
+    const elsewhere = { ...card(7), url: 'https://ghe.example.com/example-org/example-repo/issues/7' };
+    const h = harness({}, { fetch: async () => ({ ok: true, value: { ...ISSUES, cards: [elsewhere], matched: 1, totalAssigned: 1 } }), readCustody: read.readCustody });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+    await settle();
+
+    const key = h.hub.snapshot().lanes.flatMap((lane) => lane.cards).find((held) => held.issue !== null)!.key;
+
+    h.hub.receive(client, { type: 'readCustody', key });
+    await settle();
+
+    expect(read.asked()).toBe(0);
+    expect(custodyIn(inbox)[0]).toMatchObject({ custody: null, failure: 'No configured source can read that issue. Check the GitHub settings for this board.' });
   });
 });

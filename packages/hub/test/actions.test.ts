@@ -323,6 +323,7 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
     logs: { rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 604_800_000 },
     avatar: { review: 'pull-request-author', offReview: 'assignee' },
     newSession: { prompt: '' },
+    custody: { stages: [], bots: [] },
     installActivity: false,
     triage: { enabled: true, concurrency: 2, timeoutMs: 60_000 },
     actions: {

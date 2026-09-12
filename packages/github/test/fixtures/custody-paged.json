@@ -1,0 +1,1032 @@
+[
+  {
+    "data": {
+      "repository": {
+        "issue": {
+          "number": 15505,
+          "title": "Inbox badge retries a settled charge",
+          "url": "https://github.com/example-org/example-repo/issues/15505",
+          "state": "CLOSED",
+          "createdAt": "2026-02-20T13:45:50Z",
+          "closedAt": "2026-09-03T22:08:38Z",
+          "author": {
+            "login": "dev-2"
+          },
+          "timelineItems": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": "Y3Vyc29yOnYyOpPPAAABoH1uJrABqzMwNzExNTQwMjg3"
+            },
+            "nodes": [
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-02-20T13:45:53Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-3"
+                },
+                "previousStatus": "",
+                "status": "🆕 New",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-02-20T16:01:53Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-2"
+                },
+                "previousStatus": "🆕 New",
+                "status": "🔖 Planned",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-02-20T16:02:09Z",
+                "actor": {
+                  "login": "dev-2"
+                },
+                "assignee": {
+                  "login": "dev-4"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-02-20T16:02:14Z",
+                "actor": {
+                  "login": "dev-2"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-02-23T02:22:12Z",
+                "actor": {
+                  "login": "dev-4"
+                },
+                "assignee": {
+                  "login": "dev-4"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-02-25T19:32:39Z",
+                "actor": {
+                  "login": "dev-2"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-05-07T18:19:35Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-05-07T18:19:37Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "🔖 Planned",
+                "status": "🎁 Assigned",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-05-08T09:54:24Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "🎁 Assigned",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-05-12T12:32:33Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "🎁 Assigned",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-05-14T16:21:56Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-05-14T16:21:59Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "🎁 Assigned",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-05-15T12:00:10Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "🎁 Assigned",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-05-19T14:27:52Z",
+                "actor": {
+                  "login": "dev-2"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-05-25T14:39:45Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "🎁 Assigned",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-05-26T13:52:57Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-05-26T18:55:06Z",
+                "actor": {
+                  "login": "dev-2"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-05-27T10:00:21Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-05-27T12:15:06Z",
+                "actor": {
+                  "login": "dev-2"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-06-01T12:03:22Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "🎁 Assigned",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-06-29T10:04:57Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "🎁 Assigned",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-06-29T10:05:25Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "🎁 Assigned",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-07-08T12:49:16Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-10T10:36:36Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "🎁 Assigned",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-08-11T13:06:58Z",
+                "actor": {
+                  "login": "dev-2"
+                },
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-08-26T15:50:27Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-26T15:50:29Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "🔍 Dev Review",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-26T15:54:18Z",
+                "actor": {
+                  "login": "dev-2"
+                },
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-26T21:46:20Z",
+                "actor": {
+                  "login": "dev-6"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-08-26T21:46:21Z",
+                "actor": {
+                  "login": "dev-6"
+                },
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-26T21:46:22Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-6"
+                },
+                "previousStatus": "🔍 Dev Review",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-08-27T13:43:44Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-27T13:43:44Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-27T13:43:47Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "🔍 Dev Review",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-27T20:46:54Z",
+                "actor": {
+                  "login": "dev-6"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-08-27T20:46:55Z",
+                "actor": {
+                  "login": "dev-6"
+                },
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-27T20:46:56Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-6"
+                },
+                "previousStatus": "🔍 Dev Review",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-28T13:48:59Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "🔍 Dev Review",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-08-28T13:49:02Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-28T13:49:02Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-08-28T17:01:45Z",
+                "actor": {
+                  "login": "dev-6"
+                },
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-28T17:01:46Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-6"
+                },
+                "previousStatus": "🔍 Dev Review",
+                "status": "👟 Ready For Testing",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-31T15:09:51Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-7"
+                },
+                "previousStatus": "👟 Ready For Testing",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-31T15:10:00Z",
+                "actor": {
+                  "login": "dev-7"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-31T15:45:33Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "👟 Ready For Testing",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-08-31T15:45:53Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-08-31T23:56:34Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-8"
+                },
+                "previousStatus": "👟 Ready For Testing",
+                "status": "🏃 Testing",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-31T23:56:43Z",
+                "actor": {
+                  "login": "dev-8"
+                },
+                "assignee": {
+                  "login": "dev-9"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-01T17:21:34Z",
+                "actor": {
+                  "login": "dev-9"
+                },
+                "assignee": {
+                  "login": "dev-9"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-01T17:21:34Z",
+                "actor": {
+                  "login": "dev-9"
+                },
+                "assignee": {
+                  "login": "dev-10"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-01T17:25:28Z",
+                "actor": {
+                  "login": "dev-10"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-01T17:25:30Z",
+                "actor": {
+                  "login": "dev-10"
+                },
+                "assignee": {
+                  "login": "dev-10"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-01T17:25:36Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-10"
+                },
+                "previousStatus": "🏃 Testing",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-02T12:57:56Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-02T12:58:01Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "👟 Ready For Testing",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-02T14:19:45Z",
+                "actor": {
+                  "login": "dev-10"
+                },
+                "assignee": {
+                  "login": "dev-9"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-02T14:19:53Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-10"
+                },
+                "previousStatus": "👟 Ready For Testing",
+                "status": "🏃 Testing",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-02T15:53:13Z",
+                "actor": {
+                  "login": "dev-9"
+                },
+                "assignee": {
+                  "login": "dev-9"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-02T15:53:14Z",
+                "actor": {
+                  "login": "dev-9"
+                },
+                "assignee": {
+                  "login": "dev-11"
+                }
+              },
+              {
+                "__typename": "ClosedEvent",
+                "createdAt": "2026-09-02T16:12:13Z",
+                "actor": {
+                  "login": "dev-11"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-02T16:12:14Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-3"
+                },
+                "previousStatus": "🏃 Testing",
+                "status": "🚀 Releasable",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-02T16:12:18Z",
+                "actor": {
+                  "login": "dev-11"
+                },
+                "assignee": {
+                  "login": "dev-11"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-02T21:18:53Z",
+                "actor": {
+                  "login": "dev-8"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-02T21:18:58Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-8"
+                },
+                "previousStatus": "🚀 Releasable",
+                "status": "⚒️ Dev",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-03T09:11:52Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-03T09:11:52Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-8"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-03T09:11:56Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "⚒️ Dev",
+                "status": "👟 Ready For Testing",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-03T13:00:20Z",
+                "actor": {
+                  "login": "dev-8"
+                },
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-03T13:00:20Z",
+                "actor": {
+                  "login": "dev-8"
+                },
+                "assignee": {
+                  "login": "dev-8"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-03T13:00:22Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-8"
+                },
+                "previousStatus": "👟 Ready For Testing",
+                "status": "🔍 Dev Review",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ClosedEvent",
+                "createdAt": "2026-09-03T21:13:56Z",
+                "actor": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-03T21:13:56Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-3"
+                },
+                "previousStatus": "🔍 Dev Review",
+                "status": "🚀 Releasable",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-03T21:23:06Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-3"
+                },
+                "previousStatus": "🚀 Releasable",
+                "status": "👟 Ready For Testing",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-03T22:08:24Z",
+                "actor": {
+                  "login": "dev-6"
+                },
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "ClosedEvent",
+                "createdAt": "2026-09-03T22:08:38Z",
+                "actor": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-03T22:08:39Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-3"
+                },
+                "previousStatus": "👟 Ready For Testing",
+                "status": "🚀 Releasable",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-03T22:14:09Z",
+                "actor": {
+                  "login": "dev-6"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-03T22:14:14Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-6"
+                },
+                "previousStatus": "🚀 Releasable",
+                "status": "🔍 Dev Review",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-04T08:40:54Z",
+                "actor": {
+                  "login": "dev-5"
+                },
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-04T08:40:56Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-5"
+                },
+                "previousStatus": "🔍 Dev Review",
+                "status": "👟 Ready For Testing",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              },
+              {
+                "__typename": "ProjectV2ItemStatusChangedEvent",
+                "createdAt": "2026-09-07T19:52:46Z",
+                "wasAutomated": false,
+                "actor": {
+                  "login": "dev-8"
+                },
+                "previousStatus": "👟 Ready For Testing",
+                "status": "🚀 Releasable",
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+]

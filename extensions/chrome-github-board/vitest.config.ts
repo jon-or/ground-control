@@ -10,7 +10,7 @@ export default defineConfig({
     hookTimeout: 60_000,
     coverage: {
       provider: 'v8',
-      include: ['src/overlay.js', 'src/panel.js', 'src/state.js', 'src/preferences.js'],
+      include: ['src/overlay.js', 'src/panel.js', 'src/custody.js', 'src/state.js', 'src/preferences.js'],
       thresholds: { lines: 85, branches: 85, functions: 85, statements: 85 },
     },
   },

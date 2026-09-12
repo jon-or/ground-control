@@ -1,4 +1,5 @@
 import type { IssueCard } from './cards.js';
+import type { CustodyReading } from './custody.js';
 import type { DetailReading, DetailSubject } from './detail.js';
 import type { TriageContext } from './triage.js';
 import type { ReadFailure } from './types.js';
@@ -72,6 +73,8 @@ export interface WorkSource {
    * source does not serve, distinct from a subject it serves and cannot find.
    */
   readDetail?(card: IssueCard, subject: DetailSubject, signal: AbortSignal): Promise<DetailReading | null>;
+  /** Optional custody history for one card's issue. Return null for a card this source does not serve. */
+  readCustody?(card: IssueCard, signal: AbortSignal): Promise<CustodyReading | null>;
 }
 
 /** One item read by number. `card` null beside no failure is a number the source served and found nothing for. */

@@ -222,6 +222,14 @@ The webview sanitizes source HTML before it reaches the document, keeping an ele
 
 The panel is modal: a scrim dims the board, and everything outside the panel is `inert` while it is open, because `aria-modal` tells assistive technology that nothing outside exists. The VS Code panel owns whether conversations are read on the board (`groundControl.readConversations`), whether a pull request opens beside its issue (`groundControl.pairConversations`), and the dragged widths of the single panel and the pair, sending all of it to the webview as `reading`. The widths are `globalState` mementos, as archive visibility is, one per mode, and `setDetailWidth` says which it sizes; a setting change reaches an open board without a reload. The webview holds one open conversation as a card key and a list of subjects, one state per subject, so a pair is two `readDetail` requests answered separately and drawn as two `.detail-scroll` regions in one `#detail` aside marked `data-paired`, each region its own container so the title and control rules read its width rather than the panel's.
 
+### Reading one card's custody
+
+`readCustody` names a card key; the hub resolves the card from its snapshot as `readDetail` does. `WorkSource.readCustody` returns a `CustodyHistory` — the issue's creation, close, closer, and every status change, assignment, and unassignment oldest first — or null for a card the source does not serve. The GitHub source reads one `timelineItems` connection forward with `first`/`after` (`CUSTODY_QUERY`), because a read that stops early must keep the first leg, not the newest; a page that fails after the first leaves the history `truncated`. Status events are kept only for the configured project and the built-in Status field, and linked accounts resolve here, so the board package never sees a recorded login.
+
+`packages/board` owns every decision: `legsOf` folds events into hand-offs (one actor, one minute, as `collapseStateChanges` groups them) and legs, drops legs under fifteen minutes into their neighbour, and merges equal neighbours; `buildCustody` derives the bar, the Health rule and figures, the Time rows, and the Route stops with their loops and fold, and words all of it, including durations, so both clients draw the same text. Stages, functions, stall floors, and bots come from `HubConfig.custody`, validated by `custodySettings` in core; a malformed stage drops itself and a malformed list keeps the default.
+
+The hub caches the `CustodyHistory` by card key and `updatedAt` in a bounded map, shares an in-flight read between repeated requests, forgets a failure so the next request tries again, and folds on every request with the current settings and clock, because an open issue's ages run on while nothing on it changes. Answers reach the requesting client alone. The bridge forwards `readCustody` with the key alone, because the overlay's page cannot fold a timeline it never reads.
+
 ## Triage and automation
 
 ### Triage
@@ -316,8 +324,9 @@ The authoritative message types are in [protocol.ts](../packages/core/src/protoc
 | `startSession` | Agent and card; root, prompt, and window resolved by hub | Allowed, watching-gated |
 | `watchLog` | Subscribe or unsubscribe | Allowed |
 | `readDetail` | Read one card's conversation for display | Refused |
+| `readCustody` | Read where one card's issue has been and who held it (R47) | Allowed |
 
-Hub messages are `snapshot`, `changed`, `perform`, `notice`, `log`, and `detail`. The bridge adds `trouble` for connection failures. `BoardMessage` types the extension-to-webview contract. The webview sends `ready` after script startup; the panel responds with current display state.
+Hub messages are `snapshot`, `changed`, `perform`, `notice`, `log`, `detail`, and `custody`. The bridge adds `trouble` for connection failures. `BoardMessage` types the extension-to-webview contract. The webview sends `ready` after script startup; the panel responds with current display state.
 
 On reconnect, restate configuration and log subscription after `hello`. Never queue stale copies of these messages. Broadcast accepted/refused configuration before waiting for the resulting read, so a read floor cannot leave an obsolete error visible.
 

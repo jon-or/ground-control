@@ -54,3 +54,4 @@ export {
   withKnownIssue,
 } from './knownIssues.js';
 export type { KnownIssue, KnownIssues } from './knownIssues.js';
+export { buildCustody } from './custody.js';

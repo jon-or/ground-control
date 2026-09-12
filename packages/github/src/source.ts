@@ -3,10 +3,11 @@ import { z } from 'zod';
 import { DEFAULT_BOARD_POLICY, spawnable } from '@ground-control/core';
 import type { BoardPolicy, Logger, ReadFailure } from '@ground-control/core';
 import type { CardReading, ContextReading, IssueCard, SourceReading, WorkSource } from '@ground-control/core';
-import type { DetailReading, DetailSubject } from '@ground-control/core';
+import type { CustodyReading, DetailReading, DetailSubject } from '@ground-control/core';
 import { dedupeLogins, fetchProfiles, linkTargets, normalizeLinks, resolveLogin } from './accounts.js';
 import type { ProfileEntry } from './accounts.js';
 import { fetchCardContext } from './context.js';
+import { fetchCustody } from './custody.js';
 import { fetchDetail, itemAddress } from './detail.js';
 import { makeGhRunner } from './gh.js';
 import { parseAuthStatusLogins } from './identity.js';
@@ -96,6 +97,7 @@ export interface GithubSourceDeps {
   readContext(config: GithubConfig, card: IssueCard, signal: AbortSignal): Promise<ContextReading>;
   readCard(config: GithubConfig, owner: string, name: string, number: number, signal: AbortSignal): Promise<Result<IssueCard | null>>;
   readDetail(config: GithubConfig, card: IssueCard, subject: DetailSubject, signal: AbortSignal): Promise<DetailReading>;
+  readCustody(config: GithubConfig, card: IssueCard, signal: AbortSignal): Promise<CustodyReading>;
 }
 
 /** Match github.com owner/name repositories only. Enterprise checkouts remain unlinked (R4). */
@@ -128,6 +130,10 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
         ? Promise.resolve({ detail: null, failure: null })
         : fetchDetail(config, at.owner, at.name, at.number, subject, makeGhRunner(config.ghPath, deps.log), signal);
     });
+
+  const custody =
+    deps.readCustody ??
+    ((config: GithubConfig, card: IssueCard, signal: AbortSignal) => fetchCustody(config, card, makeGhRunner(config.ghPath, deps.log), signal));
 
   let currentConfig: GithubConfig | null = null;
   const profileCache = new Map<string, ProfileEntry>();
@@ -243,6 +249,12 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
       return currentConfig === null || itemAddress(card, subject) === null
         ? Promise.resolve(null)
         : withProfiles(currentConfig).then((config) => detail(config, card, subject, signal));
+    },
+
+    readCustody(card, signal): Promise<CustodyReading | null> {
+      return currentConfig === null || itemAddress(card, 'issue') === null
+        ? Promise.resolve(null)
+        : withProfiles(currentConfig).then((config) => custody(config, card, signal));
     },
   };
 }

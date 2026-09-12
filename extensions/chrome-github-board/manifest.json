@@ -23,7 +23,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/overlay.js", "src/panel.js", "src/state.js", "src/preferences.js"],
+      "resources": ["src/overlay.js", "src/panel.js", "src/custody.js", "src/state.js", "src/preferences.js"],
       "matches": ["https://github.com/*"]
     }
   ]

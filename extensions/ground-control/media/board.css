@@ -2432,3 +2432,410 @@ body.vscode-dark .markdown-body .pl-ent {
     opacity: 1;
   }
 }
+
+/* Custody popup (R47): one frame, header and bar fixed above the tab strip, sized so no sampled issue scrolls. */
+#custody {
+  --gc-fn-intake: var(--vscode-charts-yellow);
+  --gc-fn-dev: var(--vscode-charts-blue);
+  --gc-fn-product: var(--vscode-charts-purple);
+  --gc-fn-qa: var(--vscode-charts-orange);
+  --gc-fn-release: var(--vscode-charts-green);
+  --gc-fn-none: var(--vscode-descriptionForeground);
+  --gc-bad: var(--vscode-charts-red);
+  --gc-ground: var(--vscode-editorWidget-background, var(--vscode-menu-background));
+  position: fixed;
+  z-index: 20;
+  width: 380px;
+  max-width: calc(100vw - 2 * var(--gc-gutter));
+  padding: 0.75rem 0.875rem 0.875rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--vscode-foreground);
+  background: var(--gc-ground);
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
+
+#custody:focus {
+  outline: 0;
+}
+
+.custody-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-number {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.custody-state {
+  padding: 0 0.45rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--vscode-foreground);
+  border: 1px solid var(--gc-edge);
+  border-radius: 999px;
+}
+
+.custody-state[data-state='open'] {
+  color: var(--vscode-charts-green);
+  border-color: color-mix(in srgb, var(--vscode-charts-green) 50%, transparent);
+}
+
+.custody-age {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.custody-title {
+  display: -webkit-box;
+  margin: 0.25rem 0 0.625rem;
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+[data-function='intake'] {
+  --gc-fn: var(--gc-fn-intake);
+}
+
+[data-function='dev'] {
+  --gc-fn: var(--gc-fn-dev);
+}
+
+[data-function='product'] {
+  --gc-fn: var(--gc-fn-product);
+}
+
+[data-function='qa'] {
+  --gc-fn: var(--gc-fn-qa);
+}
+
+[data-function='release'] {
+  --gc-fn: var(--gc-fn-release);
+}
+
+[data-function='none'] {
+  --gc-fn: var(--gc-fn-none);
+}
+
+.custody-bar {
+  display: flex;
+  height: 14px;
+  overflow: hidden;
+  background: var(--gc-lane);
+  border-radius: 7px;
+}
+
+.custody-seg {
+  flex: 0 1 auto;
+  min-width: 2px;
+  background: var(--gc-fn);
+}
+
+.custody-seg[data-held='false'] {
+  opacity: 0.38;
+}
+
+.custody-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+  font-size: 0.6875rem;
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-note {
+  padding: 0.75rem 0 0.25rem;
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-note.failure {
+  color: var(--vscode-errorForeground, var(--gc-bad));
+}
+
+.custody-tabs {
+  display: flex;
+  gap: 0.125rem;
+  margin: 0.75rem 0 0.625rem;
+  padding: 0.125rem;
+  background: var(--gc-lane);
+  border-radius: 8px;
+}
+
+.custody-tab {
+  flex: 1;
+  padding: 0.25rem 0;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.custody-tab[aria-selected='true'] {
+  color: var(--vscode-foreground);
+  background: var(--gc-ground);
+  box-shadow: 0 1px 2px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.2));
+}
+
+.custody-tab:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.custody-headline {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.custody-headline[data-bad='true'],
+.custody-figure[data-bad='true'] .custody-value,
+.custody-duration[data-bad='true'],
+.custody-loop {
+  color: var(--gc-bad);
+}
+
+.custody-subline {
+  margin-top: 0.25rem;
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-figures {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin: 0.875rem 0;
+}
+
+.custody-figure {
+  display: flex;
+  flex-direction: column;
+}
+
+.custody-value {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.custody-label {
+  font-size: 0.6875rem;
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.custody-chip::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--gc-fn);
+  border-radius: 50%;
+}
+
+.custody-now {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--gc-edge);
+}
+
+.custody-now-word,
+.custody-section {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-holder {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.custody-holder[data-held='false'] {
+  font-style: italic;
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-since,
+.custody-duration {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.custody-section {
+  margin: 0.5rem 0 0.375rem;
+}
+
+.custody-row + .custody-section {
+  margin-top: 0.75rem;
+}
+
+.custody-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  column-gap: 0.5rem;
+  align-items: center;
+  padding: 0.1rem 0;
+}
+
+.custody-row.totals {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.custody-track {
+  display: block;
+  grid-column: 1 / -1;
+  height: 4px;
+  margin-top: 0.1rem;
+  overflow: hidden;
+  background: var(--gc-lane);
+  border-radius: 2px;
+}
+
+.custody-fill {
+  display: block;
+  height: 100%;
+  background: var(--gc-fn);
+  border-radius: 2px;
+}
+
+.custody-stops {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.custody-stops::before {
+  content: '';
+  position: absolute;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  left: 5px;
+  width: 2px;
+  background: var(--gc-edge);
+}
+
+.custody-stop {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.5rem;
+  padding: 0.3rem 0 0.3rem 1.25rem;
+}
+
+.custody-dot {
+  position: absolute;
+  top: 0.55rem;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  background: var(--gc-fn);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--gc-ground);
+}
+
+/* A loop stop's dot is split between the two functions it alternates through. */
+.custody-dot[data-second] {
+  background: linear-gradient(135deg, var(--gc-fn) 50%, var(--gc-second) 50%);
+}
+
+.custody-dot[data-second='intake'] {
+  --gc-second: var(--gc-fn-intake);
+}
+
+.custody-dot[data-second='dev'] {
+  --gc-second: var(--gc-fn-dev);
+}
+
+.custody-dot[data-second='product'] {
+  --gc-second: var(--gc-fn-product);
+}
+
+.custody-dot[data-second='qa'] {
+  --gc-second: var(--gc-fn-qa);
+}
+
+.custody-dot[data-second='release'] {
+  --gc-second: var(--gc-fn-release);
+}
+
+.custody-dot[data-second='none'] {
+  --gc-second: var(--gc-fn-none);
+}
+
+.custody-stop[data-current='true'] .custody-dot {
+  box-shadow:
+    0 0 0 2px var(--gc-ground),
+    0 0 0 3.5px var(--vscode-foreground);
+}
+
+.custody-stop[data-current='true'] .custody-stop-text {
+  font-weight: 600;
+}
+
+.custody-stop[data-folded='true'] .custody-stop-text {
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-stop-text {
+  overflow: hidden;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.custody-now-mark {
+  font-weight: 400;
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-stop .custody-holder {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  color: var(--vscode-descriptionForeground);
+}
+
+.custody-stop .custody-holder[data-held='true'] {
+  color: var(--vscode-foreground);
+}
+
+.tool[aria-expanded='true'] {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}

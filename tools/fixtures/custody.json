@@ -1,0 +1,253 @@
+{
+  "number": 18845,
+  "title": "Owner statements omit the cleaning fee on the September run",
+  "url": "https://github.com/example-org/example-repo/issues/18845",
+  "closed": false,
+  "createdLabel": "Aug 12",
+  "endLabel": "today",
+  "age": "30d",
+  "truncated": false,
+  "bar": [
+    {
+      "label": "New",
+      "function": "intake",
+      "held": false,
+      "share": 0.2733333333333333,
+      "title": "New · unassigned · 8.2d"
+    },
+    {
+      "label": "Assigned",
+      "function": "dev",
+      "held": true,
+      "share": 0.21333333333333335,
+      "title": "Assigned · dev-1 · 6.4d"
+    },
+    {
+      "label": "Dev",
+      "function": "dev",
+      "held": true,
+      "share": 0.0025,
+      "title": "Dev · dev-1 · 1.8h"
+    },
+    {
+      "label": "Ready For Testing",
+      "function": "qa",
+      "held": false,
+      "share": 0.2575,
+      "title": "Ready For Testing · unassigned · 7.7d"
+    },
+    {
+      "label": "Testing",
+      "function": "qa",
+      "held": true,
+      "share": 0.02,
+      "title": "Testing · qa-1 · 14h"
+    },
+    {
+      "label": "Dev",
+      "function": "dev",
+      "held": true,
+      "share": 0.03333333333333333,
+      "title": "Dev · dev-1 · 1.0d"
+    },
+    {
+      "label": "Testing",
+      "function": "qa",
+      "held": true,
+      "share": 0.03333333333333333,
+      "title": "Testing · qa-1 · 1.0d"
+    },
+    {
+      "label": "Dev",
+      "function": "dev",
+      "held": true,
+      "share": 0.016666666666666666,
+      "title": "Dev · dev-1 · 12h"
+    },
+    {
+      "label": "Testing",
+      "function": "qa",
+      "held": true,
+      "share": 0.02,
+      "title": "Testing · qa-1 · 14h"
+    },
+    {
+      "label": "Testing",
+      "function": "qa",
+      "held": true,
+      "share": 0.13,
+      "title": "Testing · qa-2 · 3.9d"
+    }
+  ],
+  "health": {
+    "headline": "Stalled 8.2d in New",
+    "bad": true,
+    "subline": "It spent 8.2d in New with nobody assigned, 27% of its life.",
+    "figures": [
+      {
+        "label": "Hand-offs",
+        "value": "9",
+        "bad": false
+      },
+      {
+        "label": "People",
+        "value": "3",
+        "bad": false
+      },
+      {
+        "label": "Sent back",
+        "value": "2",
+        "bad": true
+      },
+      {
+        "label": "Unassigned",
+        "value": "53%",
+        "bad": true
+      }
+    ],
+    "now": {
+      "label": "Testing",
+      "function": "qa",
+      "holder": "qa-2",
+      "held": true,
+      "since": "3.9d"
+    }
+  },
+  "time": {
+    "longest": [
+      {
+        "label": "New",
+        "function": "intake",
+        "holder": null,
+        "duration": "8.2d",
+        "bad": true,
+        "share": 1
+      },
+      {
+        "label": "Ready For Testing",
+        "function": "qa",
+        "holder": null,
+        "duration": "7.7d",
+        "bad": true,
+        "share": 0.9420731707317073
+      },
+      {
+        "label": "Assigned",
+        "function": "dev",
+        "holder": "dev-1",
+        "duration": "6.4d",
+        "bad": false,
+        "share": 0.7804878048780488
+      },
+      {
+        "label": "Testing",
+        "function": "qa",
+        "holder": "qa-2",
+        "duration": "3.9d",
+        "bad": false,
+        "share": 0.47560975609756095
+      }
+    ],
+    "totals": [
+      {
+        "label": "New",
+        "function": "intake",
+        "duration": "8.2d",
+        "share": 0.2733333333333333
+      },
+      {
+        "label": "Ready For Testing",
+        "function": "qa",
+        "duration": "7.7d",
+        "share": 0.2575
+      },
+      {
+        "label": "Assigned",
+        "function": "dev",
+        "duration": "6.4d",
+        "share": 0.21333333333333335
+      },
+      {
+        "label": "Testing",
+        "function": "qa",
+        "duration": "6.1d",
+        "share": 0.20333333333333334
+      },
+      {
+        "label": "Dev",
+        "function": "dev",
+        "duration": "1.6d",
+        "share": 0.0525
+      }
+    ]
+  },
+  "route": [
+    {
+      "labels": [
+        "New"
+      ],
+      "functions": [
+        "intake"
+      ],
+      "rounds": 0,
+      "holders": "unassigned",
+      "duration": "8.2d",
+      "current": false,
+      "folded": 0
+    },
+    {
+      "labels": [
+        "Assigned"
+      ],
+      "functions": [
+        "dev"
+      ],
+      "rounds": 0,
+      "holders": "dev-1",
+      "duration": "6.4d",
+      "current": false,
+      "folded": 0
+    },
+    {
+      "labels": [
+        "Dev"
+      ],
+      "functions": [
+        "dev"
+      ],
+      "rounds": 0,
+      "holders": "dev-1",
+      "duration": "1.8h",
+      "current": false,
+      "folded": 0
+    },
+    {
+      "labels": [
+        "Ready For Testing"
+      ],
+      "functions": [
+        "qa"
+      ],
+      "rounds": 0,
+      "holders": "unassigned",
+      "duration": "7.7d",
+      "current": false,
+      "folded": 0
+    },
+    {
+      "labels": [
+        "Testing",
+        "Dev"
+      ],
+      "functions": [
+        "qa",
+        "dev"
+      ],
+      "rounds": 2,
+      "holders": "qa-1, qa-2 with dev-1",
+      "duration": "7.6d",
+      "current": true,
+      "folded": 0
+    }
+  ]
+}

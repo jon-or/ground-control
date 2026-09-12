@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
+import type { Custody, IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
 import { LANE_SHAPES, LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, cardsByIssue, clear, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, viewerLogin } from '../src/overlay.js';
 
 /**
@@ -101,10 +101,18 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
 
 const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), createWorktree: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn(), startSession: vi.fn(), showCardRows: vi.fn() };
 
+interface CustodyState {
+  key: string;
+  loading: boolean;
+  custody: Custody | null;
+  failure: string | null;
+}
+
 interface State {
   snapshot: Snapshot | null;
   trouble: string | null;
   notice: string | null;
+  custody?: CustodyState | null;
 }
 
 function state(over: Partial<State> = {}): State {
@@ -3773,5 +3781,191 @@ describe('the worktree in the bar', () => {
     show({ creation: { state: 'available' } });
 
     expect(create()).not.toBeNull();
+  });
+});
+
+/**
+ * R47: the custody popup, drawn from the same fixture the editor board's suite draws, so both pin the same words.
+ * The overlay repaints on every scan; the popup is state, redrawn under its card's control each time.
+ */
+describe('the custody popup', () => {
+  const custody = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', 'tools', 'fixtures', 'custody.json'), 'utf8')) as Custody;
+  const withCustody = { ...actions, readCustody: vi.fn() };
+  const control = () => document.querySelector<HTMLButtonElement>('.gc-custody-open');
+  const popup = () => document.querySelector<HTMLElement>('.gc-custody');
+  const tabs = () => [...document.querySelectorAll<HTMLButtonElement>('.gc-c-tab')];
+  const key = 'issue-4501';
+
+  /** Paint, press the control, and paint again the way the content script's repaint would. */
+  function open(shown: State & { custody?: CustodyState | null } = state()) {
+    paint(document, shown, NOW, withCustody);
+    control()!.click();
+    paint(document, shown, NOW, withCustody);
+  }
+
+  const answered = (over: Partial<CustodyState> = {}): State & { custody: CustodyState } => ({
+    ...state(),
+    custody: { key, loading: false, custody, failure: null, ...over },
+  });
+
+  beforeEach(() => {
+    withCustody.readCustody.mockReset();
+  });
+
+  it('offers the control only where the content script can ask for custody, and only on an issue card', () => {
+    paint(document, state(), NOW, actions);
+    expect(control()).toBeNull();
+
+    // The actions never change while a page lives; a fresh page is how a footer meets a different set.
+    clear(document);
+    document.documentElement.innerHTML = BOARD;
+    paint(document, state(), NOW, withCustody);
+
+    const button = control()!;
+
+    expect(button.closest('.gc-tools')).not.toBeNull();
+    expect(button.getAttribute('aria-label')).toBe('Show custody');
+    expect(tipOf(button)).toBe('Where this issue has been and who held it.');
+    expect(button.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('asks the content script for the card by key and draws the loading popup under the control', () => {
+    open();
+
+    expect(withCustody.readCustody).toHaveBeenCalledWith(key);
+    expect(actions.repaint).toHaveBeenCalled();
+    expect(control()!.getAttribute('aria-expanded')).toBe('true');
+    expect(popup()!.getAttribute('role')).toBe('dialog');
+    expect(popup()!.classList.contains('gc-popover')).toBe(true);
+    expect(popup()!.querySelector('.gc-c-number')!.textContent).toBe('#4501');
+    expect(popup()!.querySelector('.gc-c-note')!.textContent).toBe('Reading timeline…');
+    expect(popup()!.querySelector('.gc-c-tabs')).toBeNull();
+  });
+
+  it('draws the answer once the state carries it for this card, and stays loading on one for another', () => {
+    open(answered({ key: 'issue-4502' }));
+    expect(popup()!.querySelector('.gc-c-note')!.textContent).toBe('Reading timeline…');
+
+    paint(document, answered(), NOW, withCustody);
+
+    expect(popup()!.querySelector('.gc-c-note')).toBeNull();
+    expect(popup()!.querySelector('.gc-c-number')!.textContent).toBe('#18845');
+    expect(popup()!.querySelector('.gc-c-state')!.textContent).toBe('Open');
+    expect(popup()!.querySelector('.gc-c-age')!.textContent).toBe('30d old');
+    expect(popup()!.querySelector('.gc-c-title')!.textContent).toBe(custody.title);
+  });
+
+  it('draws one bar segment per leg, sized by share, faded when nobody held it, and titled as the hub titles it', () => {
+    open(answered());
+
+    const segments = [...popup()!.querySelectorAll<HTMLElement>('.gc-c-seg')];
+
+    expect(segments).toHaveLength(custody.bar.length);
+    expect(segments.map((seg) => seg.dataset.function)).toEqual(custody.bar.map((seg) => seg.function ?? 'none'));
+    expect(segments.map((seg) => seg.dataset.held)).toEqual(custody.bar.map((seg) => String(seg.held)));
+    expect(segments.map((seg) => tipOf(seg))).toEqual(custody.bar.map((seg) => seg.title));
+    expect(Number(segments[0]!.style.flexGrow)).toBeCloseTo(custody.bar[0]!.share, 3);
+    expect(popup()!.querySelector('.gc-c-ends')!.textContent).toBe('Aug 12today');
+    expect(popup()!.querySelector('.gc-c-bar')!.getAttribute('aria-label')).toBe('10 legs over 30d');
+  });
+
+  it('opens on Health: the headline, the subline, four figures, and the now strip, red only where the hub says so', () => {
+    open(answered());
+
+    const body = popup()!.querySelector<HTMLElement>('.gc-c-body.health')!;
+
+    expect(tabs().map((tab) => [tab.textContent, tab.getAttribute('aria-selected')])).toEqual([['Health', 'true'], ['Time', 'false'], ['Route', 'false']]);
+    expect(body.querySelector<HTMLElement>('.gc-c-headline')!.textContent).toBe('Stalled 8.2d in New');
+    expect(body.querySelector<HTMLElement>('.gc-c-headline')!.dataset.bad).toBe('true');
+    expect(body.querySelector('.gc-c-subline')!.textContent).toBe('It spent 8.2d in New with nobody assigned, 27% of its life.');
+    expect([...body.querySelectorAll<HTMLElement>('.gc-c-figure')].map((cell) => [cell.querySelector('.gc-c-value')!.textContent, cell.querySelector('.gc-c-label')!.textContent, cell.dataset.bad])).toEqual([
+      ['9', 'Hand-offs', 'false'],
+      ['3', 'People', 'false'],
+      ['2', 'Sent back', 'true'],
+      ['53%', 'Unassigned', 'true'],
+    ]);
+    expect(body.querySelector('.gc-c-now')!.textContent).toBe('NowTestingqa-23.9d');
+    expect(body.querySelector<HTMLElement>('.gc-c-now .gc-c-chip')!.dataset.function).toBe('qa');
+  });
+
+  it('switches to Time on click and keeps the choice in this browser for the next popup', () => {
+    open(answered());
+    tabs()[1]!.click();
+    paint(document, answered(), NOW, withCustody);
+
+    const rows = [...popup()!.querySelectorAll<HTMLElement>('.gc-c-row')];
+
+    expect(tabs()[1]!.getAttribute('aria-selected')).toBe('true');
+    expect(popup()!.querySelector('.gc-c-bar')).not.toBeNull();
+    expect([...popup()!.querySelectorAll('.gc-c-section')].map((el) => el.textContent)).toEqual(['Where the time went', 'Total per status']);
+    expect(rows.filter((row) => !row.classList.contains('totals')).map((row) => row.textContent)).toEqual(custody.time.longest.map((row) => `${row.label}${row.holder ?? 'unassigned'}${row.duration}`));
+    expect(rows.filter((row) => row.classList.contains('totals')).map((row) => row.textContent)).toEqual(custody.time.totals.map((row) => `${row.label}${row.duration}`));
+    expect(rows[0]!.querySelector<HTMLElement>('.gc-c-fill')!.style.width).toBe('100%');
+    expect(rows[0]!.querySelector<HTMLElement>('.gc-c-duration')!.dataset.bad).toBe('true');
+    expect(rows[0]!.querySelector<HTMLElement>('.gc-c-holder')!.dataset.held).toBe('false');
+    expect(localStorage.getItem('ground-control:custody-tab')).toBe('time');
+
+    // Close, then open again: the strip is where it was left.
+    control()!.click();
+    clear(document);
+    open(answered());
+    expect(tabs()[1]!.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('switches to Route with the arrow keys, keeping focus on the chosen tab across the repaint', () => {
+    open(answered());
+    tabs()[0]!.click();
+    paint(document, answered(), NOW, withCustody);
+    tabs()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    paint(document, answered(), NOW, withCustody);
+
+    const stops = [...popup()!.querySelectorAll<HTMLElement>('.gc-c-stop')];
+
+    expect(tabs()[2]!.getAttribute('aria-selected')).toBe('true');
+    expect(tabs().map((tab) => tab.tabIndex)).toEqual([-1, -1, 0]);
+    expect(document.activeElement).toBe(tabs()[2]);
+    expect(stops.map((stop) => stop.querySelector('.gc-c-stop-text')!.textContent)).toEqual(['New', 'Assigned', 'Dev', 'Ready For Testing', 'Testing ⇄ Dev ×2 now']);
+    expect(stops.map((stop) => stop.querySelector('.gc-c-holder')!.textContent)).toEqual(custody.route.map((stop) => stop.holders));
+    expect(stops.map((stop) => stop.querySelector('.gc-c-duration')!.textContent)).toEqual(custody.route.map((stop) => stop.duration));
+    expect(stops[4]!.dataset.current).toBe('true');
+    expect(stops[4]!.querySelector<HTMLElement>('.gc-c-dot')!.dataset).toMatchObject({ function: 'qa', second: 'dev' });
+    expect(stops[0]!.querySelector<HTMLElement>('.gc-c-dot')!.dataset.second).toBeUndefined();
+    expect(stops[4]!.querySelectorAll('.gc-c-loop')).toHaveLength(2);
+  });
+
+  it('closes on its own control pressed again and on a click outside, as a lane menu does', () => {
+    open(answered());
+    control()!.click();
+    paint(document, answered(), NOW, withCustody);
+
+    expect(popup()).toBeNull();
+    expect(control()!.getAttribute('aria-expanded')).toBe('false');
+    expect(withCustody.readCustody).toHaveBeenCalledTimes(1);
+
+    open(answered());
+    document.body.click();
+    paint(document, answered(), NOW, withCustody);
+
+    expect(popup()).toBeNull();
+  });
+
+  it('goes with its card when the card leaves the board', () => {
+    open(answered());
+    paint(document, { ...answered(), snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [] }] }) }, NOW, withCustody);
+
+    expect(popup()).toBeNull();
+  });
+
+  it('shows the failure in the hub’s words, and says when there is no timeline or it was cut short', () => {
+    open(answered({ custody: null, failure: 'GitHub could not be reached. Check your connection.' }));
+    expect(popup()!.querySelector('.gc-c-note.failure')!.textContent).toBe("Couldn't read the timeline — GitHub could not be reached. Check your connection.");
+
+    paint(document, answered({ custody: null }), NOW, withCustody);
+    expect(popup()!.querySelector('.gc-c-note')!.textContent).toBe('GitHub has no timeline for this issue.');
+
+    paint(document, answered({ custody: { ...custody, truncated: true } }), NOW, withCustody);
+    expect(popup()!.querySelector('.gc-c-note')!.textContent).toBe('The timeline was cut short; the newest moves are missing.');
+    expect(popup()!.querySelector('.gc-c-tabs')).not.toBeNull();
   });
 });

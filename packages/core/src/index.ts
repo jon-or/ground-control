@@ -9,6 +9,8 @@ export { checkoutFor } from './checkout.js';
 export type { CardCheckout, CheckoutSource } from './checkout.js';
 export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
 export { readableLink } from './detail.js';
+export { CUSTODY_FUNCTIONS, DEFAULT_CUSTODY, custodySettings } from './custody.js';
+export type { Custody, CustodyEvent, CustodyFigure, CustodyFunction, CustodyHealth, CustodyHistory, CustodyReading, CustodySegment, CustodySettings, CustodyStage, CustodyStop, CustodyTimeRow, CustodyTotalRow } from './custody.js';
 export type { DetailEvent, DetailIcon, DetailLabel, DetailNote, DetailPost, DetailReaction, DetailReading, DetailSubject, DetailThread, ItemDetail } from './detail.js';
 export { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_TRIAGE, DEFAULT_WORKTREE, IDLE_EXIT_CEILING_MS, IDLE_EXIT_FLOOR_MS, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, spawnable, triageMode } from './config.js';
 export type { HubConfig, LogSettings, NewSessionSettings, TriageSettings, WorktreeSettings } from './config.js';

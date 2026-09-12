@@ -4,7 +4,8 @@ export { GITHUB_SOURCE_ID, detectLogins, makeGithubSource, readGithubConfig } fr
 export type { GithubSettings, GithubSourceDeps } from './source.js';
 export { makeGhRunner } from './gh.js';
 export { TIMELINE_STATUS_FIELD, clip, fetchCardContext, repositoryOfUrl } from './context.js';
-export { CARD_CONTEXT_QUERY, ISSUE_BY_NUMBER_QUERY, PROFILE_QUERY } from './queries.js';
+export { CARD_CONTEXT_QUERY, CUSTODY_QUERY, ISSUE_BY_NUMBER_QUERY, PROFILE_QUERY } from './queries.js';
+export { fetchCustody } from './custody.js';
 export { parseAuthStatusLogins } from './identity.js';
 export { PROFILE_FRESH_MS, PROFILE_RETRY_MS, dedupeLogins, fetchProfiles, linkTargets, normalizeLinks, resolveActor, resolveLogin } from './accounts.js';
 export type { AccountLinks, Profile, ProfileEntry, Profiles, ResolvedActor } from './accounts.js';

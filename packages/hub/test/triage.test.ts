@@ -249,6 +249,7 @@ function hubConfig(
     logs: { rotateBytes: 1_000_000, kept: 2, dispatchRetentionMs: 604_800_000 },
     avatar: { review: 'pull-request-author', offReview: 'assignee' },
     newSession: { prompt: '' },
+    custody: { stages: [], bots: [] },
     installActivity: false,
     triage,
     actions: { permissionMode: 'manual', concurrency: 1, dailyLimit: 0, fromBrowser: false, resultTimeoutMs: 1_800_000, actions: {} },

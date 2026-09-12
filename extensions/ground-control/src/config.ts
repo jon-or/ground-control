@@ -5,7 +5,7 @@ import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubSettings } from '@ground-control/github';
 import { AUTOMATABLE_ACTIONS, LOG_FLOORS, OFF_REVIEW_AVATARS, REVIEW_AVATARS, diskReaders, idsFrom } from '@ground-control/core';
-import type { ActionSetting, AgentConfig, AutomatableAction, AvatarPolicy, HubConfig, LogFloor, OffReviewAvatar, ReviewAvatar } from '@ground-control/core';
+import type { ActionSetting, AgentConfig, AutomatableAction, AvatarPolicy, CustodyStage, HubConfig, LogFloor, OffReviewAvatar, ReviewAvatar } from '@ground-control/core';
 import { defaultConfig, makeRegistries } from '@ground-control/hub';
 import { readSessionScope } from './sessionScope.js';
 import { editorAgentHomes } from './agentStorage.js';
@@ -82,6 +82,8 @@ export function readHubConfig(userDir: string): HubConfig {
     triage: readTriage(),
     actions: readActions(),
     newSession: { prompt: cfg.get<string>('newSession.prompt', '') },
+    // The hub validates the entries; a malformed one drops itself.
+    custody: { stages: cfg.get<CustodyStage[]>('custody.stages', defaults.custody.stages), bots: cfg.get<string[]>('custody.bots', defaults.custody.bots) },
   };
 }
 

@@ -1,8 +1,8 @@
-import { assignLanes, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
+import { assignLanes, buildCustody, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
 import { CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions, worktreeIndex } from '@ground-control/core';
 import type { WorktreeScan } from '@ground-control/board';
-import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
+import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, CustodyHistory, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { actionEnabled } from '@ground-control/automation';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
@@ -114,6 +114,9 @@ const CLONES_MEMO_MS = 1_000;
 /** Bound one detail read so a slow source cannot hold a client's request open. A long conversation reads in pages. */
 const DETAIL_TIMEOUT_MS = 60_000;
 
+/** Custody histories kept per card while their card's `updatedAt` stands; the oldest goes when the store is full. */
+const CUSTODY_CACHE_SIZE = 50;
+
 /** Treat a delayed tick as resume from suspend and refresh immediately. */
 const WAKE_GAP_MS = 20_000;
 
@@ -205,6 +208,8 @@ export class Hub {
   readonly #timers: NodeJS.Timeout[] = [];
   /** Detail reads a client already has open, keyed by client, card, and subject. */
   readonly #detailReads = new Set<string>();
+  /** Custody histories read for a card at one `updatedAt`, in insertion order. Reads in flight share the promise. */
+  readonly #custody = new Map<string, Promise<{ history: CustodyHistory | null; failure: string | null }>>();
 
   #config: HubConfig;
   #storageReady = false;
@@ -439,6 +444,11 @@ export class Hub {
 
       case 'readDetail':
         void this.#readDetail(connected, message.key, message.subject);
+
+        return;
+
+      case 'readCustody':
+        void this.#readCustody(connected, message.key);
 
         return;
 
@@ -1133,6 +1143,84 @@ export class Hub {
     } finally {
       clearTimeout(timer);
       this.#detailReads.delete(inFlight);
+    }
+  }
+
+  /**
+   * Answer one client's custody request from the card the snapshot holds. The history is cached by card and
+   * `updatedAt`, since every timeline event moves `updatedAt`, and folded on every request, because an open
+   * issue's ages run on while nothing on it changes. The cache is bounded.
+   */
+  async #readCustody(client: Connected, key: string): Promise<void> {
+    const card = this.snapshot()
+      .lanes.flatMap((lane) => lane.cards)
+      .find((laned) => laned.key === key);
+
+    if (!card?.issue) {
+      client.send({ type: 'custody', key, custody: null, failure: 'That card is no longer on the board. Refresh the board and open it again.' });
+
+      return;
+    }
+
+    const issue = card.issue;
+    const cacheKey = `${key}|${issue.updatedAt}`;
+    let pending = this.#custody.get(cacheKey);
+
+    if (pending === undefined) {
+      pending = this.#readHistory(issue, key);
+      this.#custody.set(cacheKey, pending);
+
+      // A failure is not kept: the next request tries the source again.
+      void pending.then((answer) => {
+        if (answer.failure !== null) {
+          this.#custody.delete(cacheKey);
+        }
+      });
+
+      while (this.#custody.size > CUSTODY_CACHE_SIZE) {
+        const oldest = this.#custody.keys().next().value;
+
+        if (oldest === undefined) {
+          break;
+        }
+
+        this.#custody.delete(oldest);
+      }
+    }
+
+    const { history, failure } = await pending;
+    const custody = history === null ? null : buildCustody(history, this.#config.custody, this.#deps.clock.now());
+
+    client.send({ type: 'custody', key, custody, failure });
+  }
+
+  async #readHistory(issue: IssueCard, key: string): Promise<{ history: CustodyHistory | null; failure: string | null }> {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), DETAIL_TIMEOUT_MS);
+
+    try {
+      for (const source of this.#enabledSources()) {
+        const reading = await source.readCustody?.(issue, abort.signal);
+
+        // A source that does not serve this card establishes nothing; try the next one.
+        if (reading === undefined || reading === null) {
+          continue;
+        }
+
+        if (reading.failure !== null) {
+          return { history: null, failure: `${reading.failure.message} ${reading.failure.remedy}` };
+        }
+
+        return { history: reading.history, failure: null };
+      }
+
+      return { history: null, failure: 'No configured source can read that issue. Check the GitHub settings for this board.' };
+    } catch (error) {
+      this.#deps.log.debug(`custody ${key} could not be read: ${String(error)}`, 'issues');
+
+      return { history: null, failure: 'That history could not be read. Try again.' };
+    } finally {
+      clearTimeout(timer);
     }
   }
 

@@ -251,6 +251,11 @@ describe('the GitHub work source with linked accounts', () => {
 
         return { detail: null, failure: null };
       },
+      readCustody: async (config) => {
+        served.push(config);
+
+        return { history: null, failure: null };
+      },
       readCard: async (config) => {
         served.push(config);
 
@@ -275,6 +280,7 @@ describe('the GitHub work source with linked accounts', () => {
     const reading = github.read();
     const context = github.readContext!(card, NEVER);
     const detail = github.readDetail!(card, 'issue', NEVER);
+    const custody = github.readCustody!(card, NEVER);
     const one = github.readCard!('github.com/example-org/example-repo', 1, NEVER);
 
     await Promise.resolve();
@@ -291,10 +297,11 @@ describe('the GitHub work source with linked accounts', () => {
     expect(asked[0]?.linkedAccounts).toEqual({ 'dev-1-bot': 'dev-1', 'dev-1-agent': 'Dev-1', 'other-bot': 'dev-2' });
     await context;
     await detail;
+    await custody;
     await one;
     expect(reads).toHaveLength(1);
-    expect(served).toHaveLength(3);
-    expect(served.map((config) => config.profiles.get('dev-1')?.profile)).toEqual([PROFILE, PROFILE, PROFILE]);
+    expect(served).toHaveLength(4);
+    expect(served.map((config) => config.profiles.get('dev-1')?.profile)).toEqual([PROFILE, PROFILE, PROFILE, PROFILE]);
   });
 
   it('asks for accounts before it spends a profile read, since there is nothing to show them on', async () => {

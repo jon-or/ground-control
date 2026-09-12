@@ -10,12 +10,14 @@
  * @typedef {import('@ground-control/core').Session} Session
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {import('@ground-control/core').StartableAgent} StartableAgent
- * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, createWorktree: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void }} Actions
+ * @typedef {import('./custody.js').CustodyState} CustodyState
+ * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody?: CustodyState | null }} State
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, createWorktree: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void, readCustody?: (key: string) => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
 
+import { CUSTODY_CSS, CUSTODY_TABS, custodyMark, fillCustody } from './custody.js';
 import { PANEL_CSS, dressIssuePanel, unwatchPulls, watchPulls } from './panel.js';
 
 /** GitHub's board markup, as measured on 2026-09-04 (`mechanics.md` M27). Every other class on the page is hashed. */
@@ -516,6 +518,7 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${LOG_ID}[data-shows-debug="false"] .gc-line[data-level="debug"] { display: none; }
 #${LOG_LINES_ID} .gc-empty { color: var(--fgColor-muted, #59636e); font-family: inherit; }
 ${PANEL_CSS}
+${CUSTODY_CSS}
 `;
 
 /**
@@ -526,6 +529,19 @@ ${PANEL_CSS}
  */
 let openMenu = null;
 let panelOpen = false;
+
+/**
+ * The card whose custody popup is open, and the tab it shows. The tab outlives the popup and the tab, as the
+ * editor board's does.
+ *
+ * @type {string | null}
+ */
+let openCustody = null;
+const CUSTODY_TAB_KEY = 'ground-control:custody-tab';
+/** @type {string | null} */
+let custodyTab = null;
+/** A tab was chosen, so the strip the next paint draws focuses it. */
+let custodyTabFocused = false;
 
 /**
  * Keep log visibility independent of card rendering. Retain the panel and append lines so scans preserve
@@ -1184,9 +1200,10 @@ function ensureTips(doc) {
   const scrolled = () => {
     hideTip(doc);
 
-    if (openMenu !== null || panelOpen) {
+    if (openMenu !== null || panelOpen || openCustody !== null) {
       openMenu = null;
       panelOpen = false;
+      openCustody = null;
       repaintNow();
     }
   };
@@ -1300,6 +1317,7 @@ function closeOnOutsideClick(doc, keep, closed) {
 
     openMenu = null;
     panelOpen = false;
+    openCustody = null;
     closed();
   };
 
@@ -2531,9 +2549,109 @@ function tail(doc, card, now, actions, canRequest) {
     tools.appendChild(run);
   }
 
+  if (card.issue && card.issueNumber !== null && actions.readCustody) {
+    tools.appendChild(custodyButton(doc, card, actions));
+  }
+
   held.appendChild(tools);
 
   return held;
+}
+
+/**
+ * The chosen custody tab, read once from this browser's storage.
+ *
+ * @param {Document} doc
+ */
+function currentCustodyTab(doc) {
+  if (custodyTab === null) {
+    let stored = null;
+
+    try {
+      stored = doc.defaultView?.localStorage.getItem(CUSTODY_TAB_KEY) ?? null;
+    } catch {
+      stored = null;
+    }
+
+    custodyTab = CUSTODY_TABS.some(([id]) => id === stored) ? /** @type {string} */ (stored) : 'health';
+  }
+
+  return custodyTab;
+}
+
+/** @param {Document} doc @param {string} tab */
+function chooseCustodyTab(doc, tab) {
+  custodyTab = tab;
+
+  try {
+    doc.defaultView?.localStorage.setItem(CUSTODY_TAB_KEY, tab);
+  } catch {
+    // Storage refused. The tab still holds for this tab of the browser.
+  }
+}
+
+/**
+ * The footer control that opens the custody popup (R47). Pressing it on the open card closes the popup; on another
+ * card it moves there, asking the hub for that card.
+ *
+ * @param {Document} doc
+ * @param {LanedCard} card
+ * @param {Actions} actions
+ */
+function custodyButton(doc, card, actions) {
+  const button = toolButton(doc, 'Show custody', 'Where this issue has been and who held it.', custodyMark(doc), () => {
+    const opening = openCustody !== card.key;
+
+    openCustody = opening ? card.key : null;
+    openMenu = null;
+    panelOpen = false;
+
+    if (opening) {
+      actions.readCustody?.(card.key);
+    }
+
+    actions.repaint();
+  });
+
+  button.classList.add('gc-custody-open');
+  button.dataset.gcKey = card.key;
+  button.setAttribute('aria-haspopup', 'dialog');
+  button.setAttribute('aria-expanded', String(openCustody === card.key));
+
+  return button;
+}
+
+/**
+ * Draw the open custody popup under its card's control. The popover is rebuilt on every paint like a lane menu;
+ * the state it draws is whatever the hub last answered for this card, or the loading line until it answers.
+ *
+ * @param {Document} doc
+ * @param {State} state
+ * @param {LanedCard} card
+ * @param {Element} anchor
+ * @param {Actions} actions
+ * @returns {HTMLElement}
+ */
+function renderCustody(doc, state, card, anchor, actions) {
+  const answered = state.custody?.key === card.key ? state.custody : null;
+  const shown = answered ?? { key: card.key, loading: true, custody: null, failure: null };
+  const panel = fillCustody(doc, popover(doc, null), card.issue, shown, currentCustodyTab(doc), (tab) => {
+    chooseCustodyTab(doc, tab);
+    custodyTabFocused = true;
+    actions.repaint();
+  });
+
+  (doc.body ?? doc.documentElement).appendChild(panel);
+  // The control sits at the card's right edge, so the popup grows back across the card.
+  place(panel, anchor, 'right');
+
+  // A repaint replaces the strip, so the tab just chosen takes focus back.
+  if (custodyTabFocused) {
+    custodyTabFocused = false;
+    /** @type {HTMLElement | null} */ (panel.querySelector('.gc-c-tab[aria-selected="true"]'))?.focus();
+  }
+
+  return panel;
 }
 
 /**
@@ -3032,6 +3150,7 @@ export function clear(doc) {
   doc.documentElement.removeAttribute(MOTION_ATTR);
   openMenu = null;
   panelOpen = false;
+  openCustody = null;
   logOpen = false;
   logPinned = false;
   Object.assign(logShows, LOG_SHOWS_BY_DEFAULT);
@@ -3088,6 +3207,8 @@ function badgeSignature(card, openable, canRequest) {
   return JSON.stringify([
     // A card that gains or loses the read control has to be rebuilt to stop offering it.
     canRequest,
+    // The custody control states whether its popup is open.
+    openCustody === card.key,
     // Include the card key because GitHub recycles nodes between issues and footer handlers capture card
     // identity.
     card.key,
@@ -3319,12 +3440,24 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     badges += 1;
   }
 
+  // The popup hangs from its card's control, which a kept footer still carries; a card that left the board takes it.
+  if (openCustody !== null) {
+    const held = state.snapshot?.lanes.flatMap((lane) => lane.cards).find((card) => card.key === openCustody);
+    const anchor = held === undefined ? null : [...doc.querySelectorAll('.gc-custody-open')].find((button) => button instanceof HTMLElement && button.dataset.gcKey === held.key) ?? null;
+
+    if (held === undefined || anchor === null) {
+      openCustody = null;
+    } else {
+      open.push(renderCustody(doc, state, held, anchor, actions), anchor);
+    }
+  }
+
   // Close tooltips after rebuilding so removed anchors are detected.
   if (tipAnchor !== null && !tipAnchor.isConnected) {
     hideTip(doc);
   }
 
-  closeOnOutsideClick(doc, panelOpen || openMenu !== null || (logOpen && !logPinned) ? open : [], () => {
+  closeOnOutsideClick(doc, panelOpen || openMenu !== null || openCustody !== null || (logOpen && !logPinned) ? open : [], () => {
     // Read state after the menu handler runs so an outside click closes all unpinned panels and unsubscribes
     // from logs.
     if (logOpen && !logPinned) {

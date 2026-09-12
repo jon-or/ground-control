@@ -3,12 +3,14 @@
  * Browser state logic, independent of Chrome APIs for unit testing.
  *
  * @typedef {import('@ground-control/core').Snapshot} Snapshot
- * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null }} State
+ * @typedef {import('@ground-control/core').Custody} Custody
+ * @typedef {{ key: string, loading: boolean, custody: Custody | null, failure: string | null }} CustodyState
+ * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody: CustodyState | null }} State
  */
 
 /** @returns {State} */
 export function initialState() {
-  return { snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null };
+  return { snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null };
 }
 
 /**
@@ -16,7 +18,7 @@ export function initialState() {
  * connection (R24).
  *
  * @param {State} state
- * @param {{ type?: string, snapshot?: Snapshot, message?: string | null }} message
+ * @param {{ type?: string, snapshot?: Snapshot, message?: string | null, key?: string, custody?: Custody | null, failure?: string | null }} message
  * @returns {State}
  */
 export function applyMessage(state, message) {
@@ -31,6 +33,17 @@ export function applyMessage(state, message) {
   // Display the latest action result, including browser permission refusals.
   if (message.type === 'notice') {
     return { ...state, notice: message.message ?? null };
+  }
+
+  // A custody request for one card, then the hub's answer for it. An answer for another card is a stale one.
+  if (message.type === 'custodyPending' && typeof message.key === 'string') {
+    return { ...state, custody: { key: message.key, loading: true, custody: null, failure: null } };
+  }
+
+  if (message.type === 'custody' && typeof message.key === 'string') {
+    return state.custody?.key === message.key
+      ? { ...state, custody: { key: message.key, loading: false, custody: message.custody ?? null, failure: message.failure ?? null } }
+      : state;
   }
 
   return state;
