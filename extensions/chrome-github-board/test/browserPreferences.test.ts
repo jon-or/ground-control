@@ -124,10 +124,10 @@ afterEach(async () => {
   expect(offsite).toEqual([]);
 });
 
-async function preferences(enabled: boolean, projects: string[] = []) {
+async function preferences(cardRows: boolean, projects: string[] = []) {
   await worker.evaluate(async (value) => {
     await (globalThis as any).chrome.storage.local.set({ preferences: value });
-  }, { enabled, projects });
+  }, { cardRows, projects });
 }
 
 async function pageAt(url = BOARD) {
@@ -137,8 +137,14 @@ async function pageAt(url = BOARD) {
   return page;
 }
 
-async function shown(page: Page, enabled: boolean) {
-  await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(enabled ? 1 : 0);
+/** The menu stands on every allowed project, with or without hub data. */
+async function shown(page: Page, allowed: boolean) {
+  await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(allowed ? 1 : 0);
+}
+
+/** The toast stack is drawn only while hub data is on: it reports on a connection the board otherwise lacks. */
+async function hub(page: Page, on: boolean) {
+  await expect.poll(() => page.locator('#gc-toasts').count(), { timeout: 20_000 }).toBe(on ? 1 : 0);
 }
 
 async function options() {
@@ -177,7 +183,7 @@ async function filterBy(page: Page, filter: string) {
   }, filter);
 }
 
-it('runs only where the board filter names the developer, and hands GitHub its assignees back where it does not', async () => {
+it('replaces the assignee avatar only where the board filter names the developer, and keeps its rows everywhere', async () => {
   const board = await pageAt();
 
   // The fixture board is filtered to its own viewer, whose login GitHub states on the page.
@@ -186,39 +192,36 @@ it('runs only where the board filter names the developer, and hands GitHub its a
   await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(1);
 
   await filterBy(board, 'label:example');
-  await shown(board, false);
   await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(0);
   expect(await board.locator('figure').first().getAttribute('role')).toBe('group');
-
-  // `@me` needs no identity at all, so the gate works before the hub has ever answered.
-  await filterBy(board, 'assignee:@me');
   await shown(board, true);
+  expect(await board.locator('.gc-badge').count()).toBe(1);
+
+  // `@me` needs no identity at all, so the test works before the hub has ever answered.
+  await filterBy(board, 'assignee:@me');
+  await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(1);
 
   // A second login belongs to the developer only because the hub said so.
   await filterBy(board, 'assignee:teammate-bot');
-  await shown(board, false);
+  await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(0);
   await worker.evaluate(async () => {
     await (globalThis as any).chrome.storage.local.set({ logins: ['teammate-bot'] });
   });
-  await shown(board, true);
+  await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(1);
 
-  // A board naming someone else stays GitHub's, and turning the preference off gives every board back.
+  // A board naming someone else keeps GitHub's assignee, and the rows with it.
   await filterBy(board, 'assignee:teammate-bot,someone-else');
-  await shown(board, false);
-  await worker.evaluate(async () => {
-    await (globalThis as any).chrome.storage.local.set({ preferences: { enabled: true, projects: [], filteredToMe: false } });
-  });
-  await shown(board, true);
+  await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(0);
+  expect(await board.locator('.gc-badge').count()).toBe(1);
 });
 
-it('holds the hub connection on a board it is not serving, so a login it does not know can still arrive', async () => {
+it('learns a login from the hub and then replaces the avatar on a board that names it', async () => {
   const board = await pageAt();
 
   // A login the page cannot resolve on its own: not `@me`, not the signed-in user. Only the hub knows it is mine.
   await filterBy(board, 'assignee:teammate-bot');
-  await shown(board, false);
+  await shown(board, true);
   await expect.poll(() => worker.evaluate('probe.opens')).toBeGreaterThan(0);
-  expect(await worker.evaluate('probe.closes')).toBe(0);
 
   await worker.evaluate((snapshot) => {
     (globalThis as any).probe.emit({ type: 'snapshot', snapshot: { ...snapshot, owners: ['teammate-bot'] } });
@@ -226,13 +229,12 @@ it('holds the hub connection on a board it is not serving, so a login it does no
 
   await expect.poll(() => worker.evaluate('chrome.storage.local.get("logins").then(held => held.logins)'))
     .toEqual(['teammate-bot']);
-  await shown(board, true);
   await expect.poll(() => board.locator('[data-gc-actor]').count()).toBe(1);
 });
 
 
 /** The menu writes durable storage, so the choice survives a reload and reaches every tab, not just this one. */
-it('stores the card-row choice from its menu, keeping the rest of the preferences', async () => {
+it('stores the hub-data choice from its menu, dropping the hub connection with the rows and reopening it after', async () => {
   const board = await pageAt();
   await shown(board, true);
   await emit();
@@ -240,23 +242,34 @@ it('stores the card-row choice from its menu, keeping the rest of the preference
 
   await board.locator('#gc-menu button').first().click();
 
-  const overlay = board.getByRole('menuitemcheckbox', { name: 'Enable overlay', exact: true });
+  const overlay = board.getByRole('menuitemcheckbox', { name: 'Show hub data on cards', exact: true });
 
-  await expect.poll(() => overlay.textContent()).toBe('✓Enable overlay');
+  await expect.poll(() => overlay.textContent()).toBe('✓Show hub data on cards');
   await overlay.click();
 
   await expect.poll(() => board.locator('.gc-badge').count()).toBe(0);
+  await hub(board, false);
+  await expect.poll(() => worker.evaluate('probe.closes')).toBe(1);
   expect(await worker.evaluate('chrome.storage.local.get("preferences").then(held => held.preferences)'))
-    .toEqual({ enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: false, pairConversations: false });
+    .toEqual({ projects: [], animations: true, replaceAvatars: true, cardRows: false, pairConversations: false });
 
-  // The menu stands while the rows are gone, which is what makes the choice reversible from the page.
+  // The menu stays open while the rows are gone, which is what makes the choice reversible from the page, and
+  // Settings still opens without a hub connection.
   await shown(board, true);
-  await expect.poll(() => overlay.textContent()).toBe('Enable overlay');
+  await expect.poll(() => overlay.textContent()).toBe('Show hub data on cards');
+  const opened = context.waitForEvent('page');
+  await board.getByRole('menuitem', { name: 'Settings', exact: true }).click();
+  const settings = await opened;
+  await settings.waitForURL(worker.url().replace('src/worker.js', 'options.html'));
+  await settings.close();
   await overlay.click();
+  await hub(board, true);
+  await expect.poll(() => worker.evaluate('probe.opens')).toBe(2);
+  await emit();
   await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
 });
 
-it('saves accessible options, rejects invalid URLs, and preserves disabled startup after browser restart', async () => {
+it('saves accessible options, rejects invalid URLs, and preserves hub-data-off startup after browser restart', async () => {
   const board = await pageAt();
   await shown(board, true);
   await board.locator('#gc-menu button').first().click();
@@ -266,7 +279,7 @@ it('saves accessible options, rejects invalid URLs, and preserves disabled start
   await settings.waitForURL(worker.url().replace('src/worker.js', 'options.html'));
   await expect.poll(() => settings.getByRole('status').textContent()).not.toBe('Loading preferences…');
   expect(await worker.evaluate('probe.messages.filter(m => m.type === "openOptions" || m.type === "configure")')).toEqual([]);
-  expect(await settings.getByLabel('Enable overlay', { exact: true }).isChecked()).toBe(true);
+  expect(await settings.getByLabel(/Show hub data on cards/).isChecked()).toBe(true);
   expect(await settings.locator('a[href^="vscode:"]').getAttribute('href')).toBe('vscode://settings/groundControl.github.repo');
   await settings.getByLabel('Allowed project URLs', { exact: true }).fill('https://example.test/orgs/example-org/projects/3');
   await settings.getByRole('button', { name: 'Save', exact: true }).click();
@@ -275,26 +288,26 @@ it('saves accessible options, rejects invalid URLs, and preserves disabled start
   await settings.getByLabel('Allowed project URLs', { exact: true }).fill('https://github.com/orgs/EXAMPLE-ORG/projects/3/views/2?filter=test');
   expect(await settings.getByLabel(/Animate working borders/).isChecked()).toBe(true);
   expect(await settings.getByLabel(/Replace assignee avatars/).isChecked()).toBe(true);
-  expect(await settings.getByLabel(/Run only on boards filtered to my issues/).isChecked()).toBe(true);
-  expect(await settings.getByLabel(/Add triage and session rows to issue cards/).isChecked()).toBe(true);
   expect(await settings.getByLabel(/Show the issue on the left and the pull request on the right/).isChecked()).toBe(false);
   await settings.getByLabel(/Replace assignee avatars/).uncheck();
-  await settings.getByLabel(/Run only on boards filtered to my issues/).uncheck();
   await settings.getByLabel(/Show the issue on the left and the pull request on the right/).check();
-  await settings.getByLabel('Enable overlay', { exact: true }).uncheck();
+  await settings.getByLabel(/Show hub data on cards/).uncheck();
   await settings.getByRole('button', { name: 'Save', exact: true }).click();
-  await shown(board, false);
+  await hub(board, false);
+  await shown(board, true);
   expect(await worker.evaluate('chrome.storage.local.get("preferences").then(held => held.preferences)'))
-    .toEqual({ enabled: false, projects: [BOARD], animations: true, replaceAvatars: false, filteredToMe: false, cardRows: true, pairConversations: true });
+    .toEqual({ projects: [BOARD], animations: true, replaceAvatars: false, cardRows: false, pairConversations: true });
 
+  // Hub data stays off through a browser restart: the menu is drawn, and the native port is never opened.
   await context.close();
   await launch();
   const restarted = await pageAt();
   await expect.poll(() => worker.evaluate('probe.ports.length')).toBeGreaterThan(0);
-  await shown(restarted, false);
+  await shown(restarted, true);
+  await hub(restarted, false);
   expect(await worker.evaluate('probe.opens')).toBe(0);
   const restored = await options();
-  expect(await restored.getByLabel('Enable overlay', { exact: true }).isChecked()).toBe(false);
+  expect(await restored.getByLabel(/Show hub data on cards/).isChecked()).toBe(false);
   expect(await restored.getByLabel('Allowed project URLs', { exact: true }).inputValue()).toBe(BOARD);
   expect(await restored.getByLabel(/Replace assignee avatars/).isChecked()).toBe(false);
 });
@@ -343,8 +356,10 @@ it('clears hidden tabs immediately, restores GitHub markup, unsubscribes logs, a
     document.dispatchEvent(new Event('visibilitychange'));
   });
   await preferences(false);
-  await shown(board, false);
-  expect(await board.locator('#gc-style, #gc-log, .gc-badge, .gc-actor, [data-gc-hidden], [data-gc-actor], [data-gc-issue]').count()).toBe(0);
+  await hub(board, false);
+  expect(await board.locator('#gc-log, .gc-badge, .gc-actor, [data-gc-actor], [data-gc-issue]').count()).toBe(0);
+  // The collapsed header is the page's own choice, not the hub's, and stays.
+  expect(await board.locator('[data-gc-hidden]').count()).toBeGreaterThan(0);
   expect(await figure.getAttribute('role')).toBe('group');
   expect(await figure.locator('[data-component="AvatarStack"]').isVisible()).toBe(true);
   await expect.poll(() => worker.evaluate('probe.messages.filter(m => m.type === "watchLog").at(-1)?.watching')).toBe(false);
@@ -360,10 +375,10 @@ it('clears hidden tabs immediately, restores GitHub markup, unsubscribes logs, a
     document.documentElement.dataset.testVisibility = 'visible';
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  await shown(board, false);
+  await hub(board, false);
   expect(await board.locator('.gc-badge').count()).toBe(0);
   await preferences(true);
-  await shown(board, true);
+  await hub(board, true);
   await emit();
   await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
   await worker.evaluate(`
@@ -400,14 +415,13 @@ it('keeps disallowed ports ineligible through content and native reconnects', as
 });
 
 it('fails closed for invalid stored preferences and can recover through the options page', async () => {
-  await worker.evaluate('chrome.storage.local.set({ preferences: { enabled: true, projects: ["https://example.test/"] } })');
+  await worker.evaluate('chrome.storage.local.set({ preferences: { projects: ["https://example.test/"] } })');
   const board = await pageAt();
   await expect.poll(() => worker.evaluate('probe.ports.length')).toBe(1);
   await shown(board, false);
   expect(await worker.evaluate('probe.opens')).toBe(0);
   const settings = await options();
   await expect.poll(() => settings.getByRole('alert').textContent()).toMatch(/invalid|could not|cannot|settings|preferences/i);
-  await settings.getByLabel('Enable overlay', { exact: true }).check();
   await settings.getByLabel('Allowed project URLs', { exact: true }).fill(BOARD);
   await settings.getByRole('button', { name: 'Save', exact: true }).click();
   await shown(board, true);
@@ -453,17 +467,17 @@ it('clears prior native snapshots before reconnecting tabs can replay them', asy
   expect(await third.locator('.gc-badge').count()).toBe(0);
 });
 
-it('waits for a fresh snapshot after disabling and re-enabling the overlay', async () => {
+it('waits for a fresh snapshot after turning hub data off and on', async () => {
   const board = await pageAt();
   await shown(board, true);
   await emit();
   await expect.poll(() => board.locator('.gc-badge').count()).toBe(1);
   await preferences(false);
-  await shown(board, false);
+  await hub(board, false);
   await expect.poll(() => worker.evaluate('probe.closes')).toBe(1);
   await worker.evaluate('probe.deliveries = []');
   await preferences(true);
-  await shown(board, true);
+  await hub(board, true);
   await expect.poll(() => worker.evaluate('probe.opens')).toBe(2);
   expect(await worker.evaluate('probe.deliveries.filter(d => d.message.type === "snapshot")')).toEqual([]);
   expect(await board.locator('.gc-badge').count()).toBe(0);
@@ -487,7 +501,7 @@ it('does not replay a prior scope while the same native bridge reconnects to the
   await expect.poll(() => second.locator('.gc-badge').count()).toBe(1);
 });
 
-it('removes all disabled tabs before reporting the new aggregate watching state', async () => {
+it('removes every tab before reporting the new aggregate watching state when hub data goes off', async () => {
   const first = await pageAt();
   await shown(first, true);
   const second = await pageAt(OTHER);
@@ -495,8 +509,8 @@ it('removes all disabled tabs before reporting the new aggregate watching state'
   await expect.poll(() => worker.evaluate('probe.reports.filter(r => r.message.type === "boardState" && r.message.board).length')).toBe(2);
   await worker.evaluate('probe.messages = []');
   await preferences(false);
-  await shown(first, false);
-  await shown(second, false);
+  await hub(first, false);
+  await hub(second, false);
   await expect.poll(() => worker.evaluate('probe.closes')).toBe(1);
   const watching = await worker.evaluate('probe.messages.filter(m => m.type === "watching").map(m => m.watching)');
   expect(watching).toEqual([false]);

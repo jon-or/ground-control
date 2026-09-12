@@ -13,7 +13,7 @@ const KEEPALIVE = 'gc-keepalive';
 const boards = new Set();
 /** @type {Set<chrome.runtime.Port>} */
 const watchers = new Set();
-/** @type {Map<chrome.runtime.Port, { board: boolean, focused: boolean, visible: boolean, pathname: string, token: number }>} */
+/** @type {Map<chrome.runtime.Port, { board: boolean, visible: boolean, pathname: string, token: number }>} */
 const reports = new Map();
 /** @type {import('./preferences.js').Preferences | null} */
 let preferences = null;
@@ -30,19 +30,17 @@ let native = null;
 /** Replay the latest hub snapshot to newly connected tabs. */
 let last = null;
 
-/** Recheck browser preferences on every delivery. A permitted tab holds the hub connection open (R36). */
+/**
+ * Recheck browser preferences on every delivery. A permitted tab holds the hub connection open and is the only kind
+ * anything is delivered to: an allowed project with card rows on (R36).
+ */
 function permitted(port) {
   const report = reports.get(port);
-  return report !== undefined && report.board && allowsProject(preferences, report.pathname);
-}
-
-/** A permitted tab whose board is also filtered to the developer: the only kind anything is delivered to (R36). */
-function served(port) {
-  return permitted(port) && reports.get(port)?.focused === true;
+  return report !== undefined && report.board && preferences?.cardRows === true && allowsProject(preferences, report.pathname);
 }
 
 function send(port, message, token = reports.get(port)?.token) {
-  if (!boards.has(port) || !served(port) || token !== reports.get(port)?.token) return;
+  if (!boards.has(port) || !permitted(port) || token !== reports.get(port)?.token) return;
   try { port.postMessage({ ...message, pageToken: token }); } catch { /* The tab closed. */ }
 }
 
@@ -72,7 +70,7 @@ function toWatchers(message) {
   }
 }
 
-/** Hold the hub's assignee logins so the filter gate can name the developer before any snapshot arrives (R36). */
+/** Hold the hub's assignee logins so the filter test can name the developer before any snapshot arrives (R36). */
 let cachedLogins = '';
 
 /** @param {unknown} owners */
@@ -83,7 +81,7 @@ function cacheLogins(owners) {
   if (signature === cachedLogins) return;
   cachedLogins = signature;
   void chrome.storage.local.set({ [LOGINS_KEY]: logins }).catch(() => {
-    // A refused write leaves the gate on the viewer's own login; it is a cache, not the source.
+    // A refused write leaves the test on the viewer's own login; it is a cache, not the source.
     cachedLogins = '';
   });
 }
@@ -220,23 +218,25 @@ chrome.runtime.onConnect.addListener((port) => {
   try {
     if (new URL(port.sender?.url ?? '').origin !== 'https://github.com') return;
   } catch { return; }
-  reports.set(port, { board: false, focused: false, visible: false, pathname: '', token: 0 });
+  reports.set(port, { board: false, visible: false, pathname: '', token: 0 });
 
   port.onMessage.addListener((message) => {
     if (message?.type === 'boardState') {
       const previous = reports.get(port);
       if (!previous || typeof message.pathname !== 'string' || !Number.isSafeInteger(message.token) || message.token < 0) return;
-      reports.set(port, { board: message.board === true, focused: message.focused === true, visible: message.visible === true, pathname: message.pathname, token: message.token });
+      reports.set(port, { board: message.board === true, visible: message.visible === true, pathname: message.pathname, token: message.token });
       applyBoard(port, previous.token !== message.token || previous.pathname !== message.pathname);
       return;
     }
 
-    if (!boards.has(port) || !permitted(port)) return;
-
+    // The options page is where hub data is turned back on, so an allowed project opens it without a hub connection.
     if (message?.type === 'openOptions') {
-      void chrome.runtime.openOptionsPage();
+      const report = reports.get(port);
+      if (report !== undefined && allowsProject(preferences, report.pathname)) void chrome.runtime.openOptionsPage();
       return;
     }
+
+    if (!boards.has(port) || !permitted(port)) return;
 
     if (message?.type === 'logView') {
       watchLog(port, message.open === true);
@@ -253,7 +253,6 @@ chrome.runtime.onConnect.addListener((port) => {
 
     boards.delete(port);
     reports.delete(port);
-    servedPorts.delete(port);
     watchers.delete(port);
     watchLog(port, false);
     say('debug', `board tab disconnected; ${boards.size} open`, 'tabs');
@@ -276,19 +275,14 @@ function reconcile() {
   else toNative({ type: 'watching', watching: watchers.size > 0 });
 }
 
-/** Tabs already sent a snapshot for their current filter state, so one that becomes served is replayed once. */
-const servedPorts = new Set();
-
 function applyBoard(port, changed = false, immediately = true) {
-  const joined = (permitted(port) && !boards.has(port)) || (served(port) && !servedPorts.has(port));
-  if (served(port)) servedPorts.add(port);
-  else servedPorts.delete(port);
+  const joined = permitted(port) && !boards.has(port);
   if (permitted(port)) boards.add(port);
   else {
     boards.delete(port);
     watchLog(port, false);
   }
-  if (boards.has(port) && served(port) && reports.get(port)?.visible) watchers.add(port);
+  if (boards.has(port) && reports.get(port)?.visible) watchers.add(port);
   else watchers.delete(port);
   if (immediately) {
     reconcile();

@@ -503,7 +503,7 @@ describe('the overlay as Chrome loads it', () => {
     await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
 
     await worker.evaluate(
-      'chrome.storage.local.set({ preferences: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: true } })',
+      'chrome.storage.local.set({ preferences: { projects: [], animations: true, replaceAvatars: true, cardRows: true, pairConversations: true } })',
     );
 
     try {

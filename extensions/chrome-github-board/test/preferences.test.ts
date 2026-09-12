@@ -4,18 +4,18 @@ import type { PreferenceState } from '../src/preferences.js';
 
 describe('browser project preferences', () => {
   it.each(['/example/repo/issues/1', '/example/repo/pull/2', '/orgs/example/repositories', '/orgs/example/projects', '/', '/notifications'])('leaves non-project path %s unchanged', (path) => {
-    expect(allowsProject({ enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: false }, path)).toBe(false);
+    expect(allowsProject({ projects: [], animations: true, replaceAvatars: true, cardRows: true, pairConversations: false }, path)).toBe(false);
   });
 
-  it('defaults an absent preference object to enabled on supported projects', () => {
+  it('defaults an absent preference object to every supported project', () => {
     const state = parsePreferences(undefined);
-    expect(state).toEqual({ value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: false }, error: null });
+    expect(state).toEqual({ value: { projects: [], animations: true, replaceAvatars: true, cardRows: true, pairConversations: false }, error: null });
     expect(allowsProject(state.value, '/orgs/example/projects/3')).toBe(true);
     expect(allowsProject(state.value, '/example/repo/issues/3')).toBe(false);
   });
 
   it('normalizes owner case and view URLs without conflating owner kind or project number', () => {
-    const state = parsePreferences({ enabled: true, projects: ['https://github.com/orgs/Example/projects/3/views/2?pane=issue#card', 'https://github.com/orgs/example/projects/3'] });
+    const state = parsePreferences({ projects: ['https://github.com/orgs/Example/projects/3/views/2?pane=issue#card', 'https://github.com/orgs/example/projects/3'] });
     expect(state.value?.projects).toEqual(['https://github.com/orgs/example/projects/3']);
     expect(allowsProject(state.value, '/orgs/EXAMPLE/projects/3/views/1')).toBe(true);
     expect(allowsProject(state.value, '/users/example/projects/3')).toBe(false);
@@ -24,8 +24,8 @@ describe('browser project preferences', () => {
   });
 
   it.each([
-    null, false, [], {}, { enabled: true }, { enabled: 'true', projects: [] }, { enabled: true, projects: 'all' },
-    { enabled: true, projects: [1] }, { enabled: true, projects: ['https://example.com/orgs/example/projects/3'] },
+    null, false, [], {}, { enabled: true }, { projects: 'all' },
+    { projects: [1] }, { projects: ['https://example.com/orgs/example/projects/3'] },
   ])('fails closed for malformed stored preferences %j', (raw) => {
     const state = parsePreferences(raw);
     expect(state.value).toBeNull();
@@ -33,9 +33,11 @@ describe('browser project preferences', () => {
     expect(allowsProject(state.value, '/orgs/example/projects/3')).toBe(false);
   });
 
-  it('keeps all projects ineligible when disabled despite a matching list', () => {
-    const state = parsePreferences({ enabled: false, projects: ['https://github.com/users/example/projects/3'] });
-    expect(allowsProject(state.value, '/users/example/projects/3')).toBe(false);
+  /** Earlier releases stored `enabled` and `filteredToMe`; neither gates anything now, and a saved false must not lock a project out. */
+  it('reads past the retired keys an earlier release stored', () => {
+    const state = parsePreferences({ enabled: false, filteredToMe: false, projects: ['https://github.com/users/example/projects/3'] });
+    expect(state.value).toEqual({ projects: ['https://github.com/users/example/projects/3'], animations: true, replaceAvatars: true, cardRows: true, pairConversations: false });
+    expect(allowsProject(state.value, '/users/example/projects/3')).toBe(true);
   });
 
   it.each([
@@ -82,27 +84,27 @@ describe('preference loading', () => {
   it('does not allow access until the initial read completes', async () => {
     const h = storageHarness();
     expect(h.states).toEqual([]);
-    h.resolve({ preferences: { enabled: false, projects: [] } });
+    h.resolve({ preferences: { projects: [], cardRows: false } });
     await h.settle();
-    expect(h.states).toEqual([{ value: { enabled: false, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: false }, error: null }]);
+    expect(h.states).toEqual([{ value: { projects: [], animations: true, replaceAvatars: true, cardRows: false, pairConversations: false }, error: null }]);
   });
 
   it('retains newer storage changes when the initial read returns late', async () => {
     const h = storageHarness();
-    h.change({ preferences: { newValue: { enabled: false, projects: [] } } });
-    h.resolve({ preferences: { enabled: true, projects: [] } });
+    h.change({ preferences: { newValue: { projects: [], cardRows: false } } });
+    h.resolve({ preferences: { projects: [] } });
     await h.settle();
-    expect(h.states).toEqual([{ value: { enabled: false, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: false }, error: null }]);
+    expect(h.states).toEqual([{ value: { projects: [], animations: true, replaceAvatars: true, cardRows: false, pairConversations: false }, error: null }]);
   });
 
   it('ignores unrelated keys and storage areas', async () => {
     const h = storageHarness();
     h.change({ last: { newValue: {} } });
-    h.change({ preferences: { newValue: { enabled: false, projects: [] } } }, 'session');
+    h.change({ preferences: { newValue: { projects: [], cardRows: false } } }, 'session');
     expect(h.states).toEqual([]);
     h.resolve({});
     await h.settle();
-    expect(h.states[0]?.value?.enabled).toBe(true);
+    expect(h.states[0]?.value?.cardRows).toBe(true);
   });
 
   it('fails closed after an unreadable initial read', async () => {
@@ -116,10 +118,10 @@ describe('preference loading', () => {
 
   it('does not replace a newer valid choice with an older read failure', async () => {
     const h = storageHarness();
-    h.change({ preferences: { newValue: { enabled: true, projects: [] } } });
+    h.change({ preferences: { newValue: { projects: [] } } });
     h.reject(new Error('old read failed'));
     await h.settle();
-    expect(h.states).toEqual([{ value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: false }, error: null }]);
+    expect(h.states).toEqual([{ value: { projects: [], animations: true, replaceAvatars: true, cardRows: true, pairConversations: false }, error: null }]);
   });
 
   it('unsubscribes and ignores an initial read after disposal', async () => {
@@ -133,28 +135,36 @@ describe('preference loading', () => {
 
   it('restores defaults when preferences are explicitly removed', async () => {
     const h = storageHarness();
-    h.resolve({ preferences: { enabled: false, projects: [] } });
+    h.resolve({ preferences: { projects: [], cardRows: false } });
     await h.settle();
-    h.change({ preferences: { oldValue: { enabled: false, projects: [] } } });
-    expect(h.states.at(-1)).toEqual({ value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: false }, error: null });
+    h.change({ preferences: { oldValue: { projects: [], cardRows: false } } });
+    expect(h.states.at(-1)).toEqual({ value: { projects: [], animations: true, replaceAvatars: true, cardRows: true, pairConversations: false }, error: null });
   });
 });
 
 describe('presentation preferences', () => {
   /** Preferences saved before these keys existed must keep working exactly as they did. */
   it('keeps the defaults for a stored object that predates the later keys', () => {
-    expect(parsePreferences({ enabled: true, projects: [] }).value).toEqual({ enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: false });
+    expect(parsePreferences({ enabled: true, projects: [] }).value).toEqual({ projects: [], animations: true, replaceAvatars: true, cardRows: true, pairConversations: false });
   });
 
   it('reads the toggles and refuses a value of the wrong type', () => {
-    expect(parsePreferences({ enabled: true, projects: [], animations: false, replaceAvatars: false, cardRows: false }).value).toMatchObject({ animations: false, replaceAvatars: false, cardRows: false });
-    expect(parsePreferences({ enabled: true, projects: [], animations: 'no' }).value).toBeNull();
-    expect(parsePreferences({ enabled: true, projects: [], cardRows: 'no' }).value).toBeNull();
+    expect(parsePreferences({ projects: [], animations: false, replaceAvatars: false, cardRows: false }).value).toMatchObject({ animations: false, replaceAvatars: false, cardRows: false });
+    expect(parsePreferences({ projects: [], animations: 'no' }).value).toBeNull();
+    expect(parsePreferences({ projects: [], cardRows: 'no' }).value).toBeNull();
   });
 
   it('draws with the defaults when preferences are unreadable, leaving access to the eligibility check', () => {
-    expect(presentationOf(null)).toEqual({ animations: true, replaceAvatars: true, cardRows: true, pairConversations: false });
-    expect(presentationOf({ enabled: true, projects: [], animations: false, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: false })).toEqual({ animations: false, replaceAvatars: true, cardRows: true, pairConversations: false });
+    expect(presentationOf(null, true)).toEqual({ animations: true, replaceAvatars: true, cardRows: true, pairConversations: false });
+    expect(presentationOf({ projects: [], animations: false, replaceAvatars: true, cardRows: true, pairConversations: false }, true)).toEqual({ animations: false, replaceAvatars: true, cardRows: true, pairConversations: false });
+  });
+
+  /** R36: the pull request author replaces the assignee only where every card already shows the developer. */
+  it('replaces avatars only on a board filtered to the developer', () => {
+    const on = { projects: [], animations: true, replaceAvatars: true, cardRows: true, pairConversations: false };
+    expect(presentationOf(on, false).replaceAvatars).toBe(false);
+    expect(presentationOf(on, true).replaceAvatars).toBe(true);
+    expect(presentationOf({ ...on, replaceAvatars: false }, true).replaceAvatars).toBe(false);
   });
 });
 

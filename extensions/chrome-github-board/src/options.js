@@ -1,11 +1,9 @@
 // @ts-check
 import { PREFERENCES_KEY, parsePreferences, watchPreferences } from './preferences.js';
 
-const enabled = /** @type {HTMLInputElement} */ (document.getElementById('enabled'));
-const animations = /** @type {HTMLInputElement} */ (document.getElementById('animations'));
-const replaceAvatars = /** @type {HTMLInputElement} */ (document.getElementById('replaceAvatars'));
-const filteredToMe = /** @type {HTMLInputElement} */ (document.getElementById('filteredToMe'));
 const cardRows = /** @type {HTMLInputElement} */ (document.getElementById('cardRows'));
+const replaceAvatars = /** @type {HTMLInputElement} */ (document.getElementById('replaceAvatars'));
+const animations = /** @type {HTMLInputElement} */ (document.getElementById('animations'));
 const pairConversations = /** @type {HTMLInputElement} */ (document.getElementById('pairConversations'));
 const projects = /** @type {HTMLTextAreaElement} */ (document.getElementById('projects'));
 const error = /** @type {HTMLElement} */ (document.getElementById('error'));
@@ -15,11 +13,9 @@ document.getElementById('preferences')?.addEventListener('input', () => { edited
 
 watchPreferences(chrome.storage, (state) => {
   if (edited) return;
-  enabled.checked = state.value?.enabled ?? false;
-  animations.checked = state.value?.animations ?? true;
-  replaceAvatars.checked = state.value?.replaceAvatars ?? true;
-  filteredToMe.checked = state.value?.filteredToMe ?? true;
   cardRows.checked = state.value?.cardRows ?? true;
+  replaceAvatars.checked = state.value?.replaceAvatars ?? true;
+  animations.checked = state.value?.animations ?? true;
   pairConversations.checked = state.value?.pairConversations ?? false;
   projects.value = state.value?.projects.join('\n') ?? '';
   error.textContent = state.error ?? '';
@@ -29,11 +25,9 @@ watchPreferences(chrome.storage, (state) => {
 document.getElementById('preferences')?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const parsed = parsePreferences({
-    enabled: enabled.checked,
     projects: projects.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
     animations: animations.checked,
     replaceAvatars: replaceAvatars.checked,
-    filteredToMe: filteredToMe.checked,
     cardRows: cardRows.checked,
     pairConversations: pairConversations.checked,
   });

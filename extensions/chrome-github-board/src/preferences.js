@@ -2,10 +2,10 @@
 /** Browser-local policy; shared hub settings remain in VS Code. */
 export const PREFERENCES_KEY = 'preferences';
 
-/** Assignee logins the hub last reported, cached so the filter gate survives a reload with no connection. */
+/** Assignee logins the hub last reported, cached so the filter test survives a reload with no connection. */
 export const LOGINS_KEY = 'logins';
 
-/** @typedef {{ enabled: boolean, projects: string[], animations: boolean, replaceAvatars: boolean, filteredToMe: boolean, cardRows: boolean, pairConversations: boolean }} Preferences */
+/** @typedef {{ projects: string[], animations: boolean, replaceAvatars: boolean, cardRows: boolean, pairConversations: boolean }} Preferences */
 /** @typedef {{ value: Preferences | null, error: string | null }} PreferenceState */
 
 /** Exact project identity, excluding view selection. @param {string} pathname */
@@ -32,28 +32,37 @@ export function projectUrl(raw) {
 
 /** Invalid durable data closes access until corrected in options. @param {unknown} raw @returns {PreferenceState} */
 export function parsePreferences(raw) {
-  if (raw === undefined) return { value: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: false }, error: null };
+  if (raw === undefined) return { value: { projects: [], animations: true, replaceAvatars: true, cardRows: true, pairConversations: false }, error: null };
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return invalid();
   const held = /** @type {Record<string, unknown>} */ (raw);
-  if (typeof held.enabled !== 'boolean' || !Array.isArray(held.projects)) return invalid();
-  // These keys arrived after the first release; a stored object without them keeps the defaults, a wrong type is invalid.
+  if (!Array.isArray(held.projects)) return invalid();
+  // Toggles arrived after the first release; a stored object without one keeps its default, a wrong type is invalid.
+  // Earlier releases also stored `enabled` and `filteredToMe`, which are read past.
   const animations = held.animations === undefined ? true : held.animations;
   const replaceAvatars = held.replaceAvatars === undefined ? true : held.replaceAvatars;
-  const filteredToMe = held.filteredToMe === undefined ? true : held.filteredToMe;
   const cardRows = held.cardRows === undefined ? true : held.cardRows;
   const pairConversations = held.pairConversations === undefined ? false : held.pairConversations;
-  if (typeof animations !== 'boolean' || typeof replaceAvatars !== 'boolean' || typeof filteredToMe !== 'boolean' || typeof cardRows !== 'boolean' || typeof pairConversations !== 'boolean') return invalid();
+  if (typeof animations !== 'boolean' || typeof replaceAvatars !== 'boolean' || typeof cardRows !== 'boolean' || typeof pairConversations !== 'boolean') return invalid();
   const projects = held.projects.map(projectUrl);
   if (projects.some((project) => project === null)) return invalid();
-  return { value: { enabled: held.enabled, projects: [...new Set(/** @type {string[]} */ (projects))], animations, replaceAvatars, filteredToMe, cardRows, pairConversations }, error: null };
+  return { value: { projects: [...new Set(/** @type {string[]} */ (projects))], animations, replaceAvatars, cardRows, pairConversations }, error: null };
 }
 
 /** @typedef {{ animations: boolean, replaceAvatars: boolean, cardRows: boolean, pairConversations: boolean }} Presentation */
 
-/** What the overlay draws with; invalid or unread preferences fall back to the defaults, access is refused separately.
- * @param {Preferences | null} preferences @returns {Presentation} */
-export function presentationOf(preferences) {
-  return { animations: preferences?.animations ?? true, replaceAvatars: preferences?.replaceAvatars ?? true, cardRows: preferences?.cardRows ?? true, pairConversations: preferences?.pairConversations ?? false };
+/**
+ * What the overlay draws with; invalid or unread preferences fall back to the defaults, access is refused separately.
+ * Avatar replacement also needs a board filtered to the developer (R36): there every card shows the same assignee,
+ * so the pull request author is the useful face; on a wider board the assignee is.
+ *
+ * @param {Preferences | null} preferences @param {boolean} filteredToMe @returns {Presentation} */
+export function presentationOf(preferences, filteredToMe) {
+  return {
+    animations: preferences?.animations ?? true,
+    replaceAvatars: (preferences?.replaceAvatars ?? true) && filteredToMe,
+    cardRows: preferences?.cardRows ?? true,
+    pairConversations: preferences?.pairConversations ?? false,
+  };
 }
 
 /** @returns {PreferenceState} */
@@ -67,6 +76,7 @@ const ASSIGNEE = /(?:^|\s)assignee:((?:"[^"]*"|[^\s"])+)/gi;
 /**
  * True when a board's filter restricts it to the developer: at least one assignee qualifier, every value naming
  * `@me` or a known login (R36). Negated qualifiers only narrow a board, so they are ignored rather than refused.
+ * Decides avatar replacement only; the overlay itself runs on every allowed project.
  *
  * @param {string | null} filter @param {readonly string[]} logins
  */
@@ -93,7 +103,7 @@ export function parseLogins(raw) {
 /** @param {Preferences | null} preferences @param {string} pathname */
 export function allowsProject(preferences, pathname) {
   const path = projectPath(pathname);
-  return preferences !== null && preferences.enabled && path !== null &&
+  return preferences !== null && path !== null &&
     (preferences.projects.length === 0 || preferences.projects.includes(`https://github.com${path}`));
 }
 

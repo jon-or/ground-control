@@ -3,8 +3,12 @@ body { margin: 0; }
 main { max-width: 620px; margin: 48px auto; padding: 0 24px; }
 h1 { font-size: 26px; }
 form { margin: 28px 0; }
+fieldset { margin: 0 0 28px; padding: 0; border: 0; }
+legend { padding: 0; font-size: 18px; font-weight: 700; }
 label { display: block; font-weight: 600; margin-top: 18px; }
-.toggle { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+.toggle { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px; }
+.toggle input { flex: none; margin-top: 2px; }
+.help { color: GrayText; margin: -10px 0 18px 28px; }
 input[type=checkbox] { width: 18px; height: 18px; }
 textarea { box-sizing: border-box; width: 100%; margin-top: 8px; padding: 6px 10px; font: inherit; color: CanvasText; background: Canvas; border: 1px solid light-dark(#8c959f, #6e7681); border-radius: 4px; resize: vertical; }
 textarea::placeholder { color: GrayText; }

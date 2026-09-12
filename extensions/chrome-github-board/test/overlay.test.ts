@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Custody, IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { LANE_SHAPES, LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, cardsByIssue, clear, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, viewerLogin } from '../src/overlay.js';
+import { LANE_SHAPES, LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, HUB_DATA_LABEL, cardsByIssue, clear, clearHub, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, viewerLogin } from '../src/overlay.js';
 
 /**
  * The literal lane titles, matching the table in the editor board's suite. Both clients duplicate the map
@@ -356,9 +356,9 @@ describe('swapping the assignee for the pull request author', () => {
     expect(off).toEqual({ scanned: 3, badges: 0, menu: true });
   });
 
-  /** The rows are the only thing the choice reaches: the menu, its log, and the collapsed header are separate. */
-  it('leaves its own menu, log, and collapsed header standing while the rows are off', () => {
-    const shown = state({ snapshot: laneOf(actorCard(4501, AUTHOR)) });
+  /** Hub data off takes everything the hub feeds: the log closes and unsubscribes, the toasts go, the stale mark clears. */
+  it('closes the log and drops the toasts with the rows, and leaves the menu and collapsed header standing', () => {
+    const shown = state({ snapshot: laneOf(actorCard(4501, AUTHOR)), trouble: 'Hub disconnected' });
 
     paint(document, shown, NOW, actions);
     setLogOpen(document, true, actions);
@@ -368,11 +368,17 @@ describe('swapping the assignee for the pull request author', () => {
     const hidden = document.querySelectorAll('[data-gc-hidden]').length;
 
     expect(hidden).toBeGreaterThan(0);
+    expect(document.querySelectorAll('#gc-toasts .gc-toast')).toHaveLength(1);
+    expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('true');
+    expect(actions.watchLog).toHaveBeenLastCalledWith(true);
 
     paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false, pairConversations: false });
 
     expect(document.getElementById('gc-menu')).not.toBeNull();
-    expect(document.getElementById('gc-log')).not.toBeNull();
+    expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('false');
+    expect(document.getElementById('gc-log')).toBeNull();
+    expect(actions.watchLog).toHaveBeenLastCalledWith(false);
+    expect(document.getElementById('gc-toasts')).toBeNull();
     expect(document.querySelectorAll('[data-gc-hidden]')).toHaveLength(hidden);
   });
 
@@ -1324,7 +1330,7 @@ describe('the menu in the board’s own filter bar', () => {
     paint(document, state(), NOW, actions);
     open({ openOptions: vi.fn() });
 
-    expect(items().map((entry) => entry.textContent)).toEqual(['✓Enable overlay', 'Show log', 'Refresh', 'Settings']);
+    expect(items().map((entry) => entry.textContent)).toEqual(['✓Show hub data on cards', 'Show log', 'Refresh', 'Settings']);
     expect(document.querySelector('#gc-menu .gc-popover')?.firstElementChild?.className).toBe('gc-note');
   });
 
@@ -1333,7 +1339,24 @@ describe('the menu in the board’s own filter bar', () => {
     paint(document, state(), NOW, actions);
     open();
 
-    expect(items().map((entry) => entry.textContent)).toEqual(['✓Enable overlay', 'Show log', 'Refresh']);
+    expect(items().map((entry) => entry.textContent)).toEqual(['✓Show hub data on cards', 'Show log', 'Refresh']);
+  });
+
+  /** The options page and the menu item are one choice: a label that drifts in one place would name two settings. */
+  it('names the hub-data item as the options page names its checkbox', () => {
+    expect(readFileSync(join(__dirname, '..', 'options.html'), 'utf8')).toContain(`> ${HUB_DATA_LABEL}</label>`);
+  });
+
+  /** With no connection to report on, the panel holds the way back and Settings: no age line, no log, no refresh. */
+  it('offers only the hub-data choice and Settings while hub data is off', () => {
+    const off = { animations: true, replaceAvatars: true, cardRows: false, pairConversations: false };
+
+    paint(document, state(), NOW, actions, off);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, state(), NOW, { ...actions, openOptions: vi.fn() }, off);
+
+    expect(items().map((entry) => entry.textContent)).toEqual(['Show hub data on cards', 'Settings']);
+    expect(document.querySelector('#gc-menu .gc-popover .gc-note')).toBeNull();
   });
 
   /** One name, marked while it holds. The mark is decorative, so `aria-checked` is what carries the state. */
@@ -1343,7 +1366,7 @@ describe('the menu in the board’s own filter bar', () => {
 
     const shown = items()[0]!;
 
-    expect(shown.textContent).toBe('✓Enable overlay');
+    expect(shown.textContent).toBe('✓Show hub data on cards');
     expect(shown.getAttribute('role')).toBe('menuitemcheckbox');
     expect(shown.getAttribute('aria-checked')).toBe('true');
     shown.click();
@@ -1353,7 +1376,7 @@ describe('the menu in the board’s own filter bar', () => {
 
     const hidden = items()[0]!;
 
-    expect(hidden.textContent).toBe('Enable overlay');
+    expect(hidden.textContent).toBe('Show hub data on cards');
     expect(hidden.getAttribute('aria-checked')).toBe('false');
     hidden.click();
     expect(actions.showCardRows).toHaveBeenLastCalledWith(true);
@@ -2335,7 +2358,7 @@ describe('what a scan keeps', () => {
     const menu = document.getElementById('gc-menu');
     const item = document.querySelector('#gc-menu .gc-popover button[role]');
 
-    expect(item?.textContent).toContain('Enable overlay');
+    expect(item?.textContent).toContain('Show hub data on cards');
 
     paint(document, shown, NOW + 1_000, actions);
 
@@ -2600,6 +2623,25 @@ describe('card attention', () => {
     expect(document.querySelector('[data-gc-attention]')).toBeNull();
     // The label sits in GitHub's own header, so the footer sweep alone would leave it behind.
     expect(document.querySelector('.gc-returned')).toBeNull();
+  });
+
+  /** Hub data going off in a hidden tab gets no frame, so the hub's marks go at once and the page's own stay. */
+  it('takes only what the hub fed on a hub clear, leaving the menu and collapsed header', () => {
+    const shown = state({ snapshot: marked('blocked', { returned: true }), trouble: 'Hub disconnected' });
+
+    paint(document, shown, NOW, actions);
+    setLogOpen(document, true, actions);
+    document.getElementById('gc-collapse')!.click();
+    paint(document, shown, NOW, actions);
+    expect(document.querySelectorAll('.gc-badge, .gc-returned, [data-gc-attention], #gc-log, #gc-toasts').length).toBeGreaterThan(4);
+
+    clearHub(document);
+
+    expect(document.querySelectorAll('.gc-badge, .gc-returned, [data-gc-attention], [data-gc-issue], #gc-log, #gc-toasts')).toHaveLength(0);
+    expect(document.getElementById('gc-menu')).not.toBeNull();
+    expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('false');
+    expect(document.getElementById('gc-style')).not.toBeNull();
+    expect(document.querySelectorAll('[data-gc-hidden]').length).toBeGreaterThan(0);
   });
 });
 

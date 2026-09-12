@@ -15,6 +15,8 @@
   /** @type {import('./preferences.js').Preferences | null} */
   let preferences = null;
   let identity = null;
+  /** Whether the worker was last told this page wants hub data, so a change in that alone is also a new token. */
+  let hubIdentity = false;
   /** @type {string[]} Assignee logins from the hub, cached by the worker; the viewer's own login is read per page. */
   let logins = [];
   /** The last filter decision, held while the developer is still typing in the filter box. */
@@ -37,21 +39,21 @@
   let watchingLog = false;
   let reported = '';
 
-  /** A project the preferences allow. The hub connection follows this, so the gate below can learn the logins. */
+  /** A project the preferences allow: the menu, header collapse, and panels run here, with or without the hub. */
   function onProject() {
     return policy !== null && policy.allowsProject(preferences, location.pathname);
   }
 
+  /** Card rows on an allowed project: the only state that connects to the hub, and everything the hub feeds follows it. */
   function eligible() {
-    return onProject() && filteredToMe();
+    return onProject() && preferences?.cardRows === true;
   }
 
   /**
-   * R36: with the preference on, the overlay runs only where the board's filter restricts it to the developer.
-   * The filter box holds unapplied keystrokes, so a focused box keeps the last decision rather than judging each one.
+   * R36: avatar replacement wants a board whose filter restricts it to the developer. The filter box holds unapplied
+   * keystrokes, so a focused box keeps the last decision rather than judging each one.
    */
   function filteredToMe() {
-    if (preferences?.filteredToMe !== true) return true;
     if (document.activeElement === overlay.filterBox(document)) return focused;
 
     focused = policy.filtersToMe(overlay.filterText(document), [overlay.viewerLogin(document), ...logins].filter(Boolean));
@@ -59,11 +61,16 @@
     return focused;
   }
 
-  // Policy changes must clear hidden tabs without waiting for a suspended animation frame.
+  // Policy changes must clear hidden tabs without waiting for a suspended animation frame. Turning hub data on or
+  // off is a new page to the worker, which replays or stops delivering on the new token, but not to the page: the
+  // menu and collapsed header stay while what the hub fed goes.
   function syncPage() {
-    const next = eligible() ? policy.projectPath(location.pathname) : null;
-    if (next === identity) return;
+    const next = onProject() ? policy.projectPath(location.pathname) : null;
+    const hub = eligible();
+    if (next === identity && hub === hubIdentity) return;
+    const left = next !== identity;
     identity = next;
+    hubIdentity = hub;
     pageToken++;
     replayed = false;
     observer.disconnect();
@@ -71,7 +78,8 @@
       watchingLog = false;
       post({ type: 'logView', open: false });
     }
-    overlay.clear(document);
+    if (left) overlay.clear(document);
+    else overlay.clearHub(document);
     state = helpers.initialState();
     if (!stopped) observer.observe(document.documentElement, { childList: true, subtree: true });
   }
@@ -80,13 +88,12 @@
   function report() {
     if (helpers === null || stopped) return;
     syncPage();
-    const board = onProject();
-    const watched = eligible();
+    const board = eligible();
     const visible = document.visibilityState === 'visible';
-    const next = `${location.pathname}:${board}:${watched}:${visible}:${pageToken}`;
+    const next = `${location.pathname}:${board}:${visible}:${pageToken}`;
     if (next === reported || port === null) return;
     reported = next;
-    post({ type: 'boardState', board, focused: watched, visible, pathname: location.pathname, token: pageToken });
+    post({ type: 'boardState', board, visible, pathname: location.pathname, token: pageToken });
   }
 
   const observer = new MutationObserver(() => schedule());
@@ -105,7 +112,7 @@
       post({ type: 'readCustody', key });
     },
     showCardRows: (shown) => showCardRows(shown),
-    openOptions: () => post({ type: 'openOptions' }),
+    openOptions: () => { if (onProject()) post({ type: 'openOptions' }); },
     repaint: () => schedule(),
     watchLog: (open) => {
       if (open && !eligible()) return;
@@ -122,14 +129,16 @@
    * @param {boolean} shown
    */
   function showCardRows(shown) {
-    // Spreading null would store a preferences object with no `enabled`, which parses as invalid and locks the
+    // Spreading null would store a preferences object with no `projects`, which parses as invalid and locks the
     // developer out of the overlay until they correct it in options.
     if (preferences === null) return;
     void chrome.storage.local.set({ [policy.PREFERENCES_KEY]: { ...preferences, cardRows: shown } });
   }
 
+  // Board state, a closing log, and the options page reach the worker without the hub; everything else is hub work.
   function post(message) {
-    if (message.type !== 'boardState' && !(message.type === 'logView' && message.open === false) && !eligible()) return;
+    const always = message.type === 'boardState' || (message.type === 'logView' && message.open === false) || message.type === 'openOptions';
+    if (!always && !eligible()) return;
     try {
       port?.postMessage(message);
     } catch {
@@ -137,10 +146,17 @@
     }
   }
 
-  /** Coalesce renders to one frame and pause the observer during writes to prevent mutation loops. */
+  /**
+   * Coalesce renders to one frame and pause the observer during writes to prevent mutation loops. A board with card
+   * rows on waits for the worker's replay before its first paint; one with them off has nothing to wait for.
+   */
+  function drawable() {
+    return onProject() && (!eligible() || replayed);
+  }
+
   function schedule() {
     report();
-    if (scheduled || overlay === null || !eligible() || !replayed) {
+    if (scheduled || overlay === null || !drawable()) {
       return;
     }
 
@@ -151,9 +167,9 @@
 
       try {
         syncPage();
-        if (eligible() && replayed) {
-          overlay.paint(document, state, Date.now(), actions, policy.presentationOf(preferences));
-        } else {
+        if (drawable()) {
+          overlay.paint(document, state, Date.now(), actions, policy.presentationOf(preferences, filteredToMe()));
+        } else if (!onProject()) {
           overlay.clear(document);
 
           // Unsubscribe from hub logs when leaving the board (R40).

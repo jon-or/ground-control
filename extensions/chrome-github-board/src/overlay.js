@@ -1577,8 +1577,12 @@ function collapseButton(doc, host, actions) {
   return button;
 }
 
+/** The menu item and the options checkbox share this name: one choice, two places to make it. */
+export const HUB_DATA_LABEL = 'Show hub data on cards';
+
 /**
  * Show snapshot age and installation status above the menu items. Display failures as visible notices (R25).
+ * With hub data off the board has no connection to report on: the panel offers the choice itself and Settings.
  *
  * @param {Document} doc
  * @param {State} state
@@ -1600,8 +1604,9 @@ export function renderMenu(doc, state, now, actions, cardRows) {
   const held = doc.getElementById(MENU_ID);
   // Exclude age from the menu signature; the timer updates it in place. Preserve items under the pointer
   // across scans.
+  const stale = cardRows && (state.trouble !== null || (snapshot?.stale ?? false));
   const sig = JSON.stringify([
-    state.trouble !== null || (snapshot?.stale ?? false),
+    stale,
     panelOpen,
     logOpen,
     snapshot === null,
@@ -1636,7 +1641,7 @@ export function renderMenu(doc, state, now, actions, cardRows) {
   const button = nativeButton(doc, host);
 
   button.textContent = 'Ground Control';
-  button.dataset.stale = String(state.trouble !== null || (snapshot?.stale ?? false));
+  button.dataset.stale = String(stale);
   button.setAttribute('aria-haspopup', 'menu');
   button.setAttribute('aria-expanded', String(panelOpen));
   button.addEventListener('click', (event) => {
@@ -1660,45 +1665,49 @@ export function renderMenu(doc, state, now, actions, cardRows) {
   panel.setAttribute('role', 'menu');
   panel.setAttribute('aria-label', 'Ground Control');
 
-  const read = doc.createElement('div');
+  if (cardRows) {
+    const read = doc.createElement('div');
 
-  read.className = 'gc-note';
+    read.className = 'gc-note';
 
-  if (snapshot === null) {
-    read.textContent = 'No session or issue data received yet.';
-  } else {
-    // The age is a node of its own so the tick advances it where it stands, like every other duration on the page.
-    const held = doc.createElement('span');
+    if (snapshot === null) {
+      read.textContent = 'No session or issue data received yet.';
+    } else {
+      // The age is a node of its own so the tick advances it where it stands, like every other duration on the page.
+      const held = doc.createElement('span');
 
-    age(held, Date.parse(snapshot.fetchedAt), now);
-    read.append('Board updated ', held, ' ago.');
+      age(held, Date.parse(snapshot.fetchedAt), now);
+      read.append('Board updated ', held, ' ago.');
+    }
+
+    panel.appendChild(read);
+
+    if (snapshot?.hooks?.notice) {
+      const note = doc.createElement('div');
+
+      note.className = 'gc-note';
+      note.textContent = snapshot.hooks.notice;
+      panel.appendChild(note);
+    }
+
+    panel.appendChild(doc.createElement('hr'));
   }
-
-  panel.appendChild(read);
-
-  if (snapshot?.hooks?.notice) {
-    const note = doc.createElement('div');
-
-    note.className = 'gc-note';
-    note.textContent = snapshot.hooks.notice;
-    panel.appendChild(note);
-  }
-
-  panel.appendChild(doc.createElement('hr'));
 
   // A checked item keeps its label: flipping the verb as well would say the opposite of its own mark.
-  panel.appendChild(checkedItem(doc, 'Enable overlay', () => actions.showCardRows(!cardRows), cardRows));
+  panel.appendChild(checkedItem(doc, HUB_DATA_LABEL, () => actions.showCardRows(!cardRows), cardRows));
 
-  // Keep the infrequently used log action in the menu to conserve filter-bar width.
-  panel.appendChild(checkedItem(doc, 'Show log', () => setLogOpen(doc, !logOpen, actions), logOpen));
+  if (cardRows) {
+    // Keep the infrequently used log action in the menu to conserve filter-bar width.
+    panel.appendChild(checkedItem(doc, 'Show log', () => setLogOpen(doc, !logOpen, actions), logOpen));
 
-  panel.appendChild(
-    item(doc, 'Refresh', () => {
-      panelOpen = false;
-      actions.refresh();
-      actions.repaint();
-    }),
-  );
+    panel.appendChild(
+      item(doc, 'Refresh', () => {
+        panelOpen = false;
+        actions.refresh();
+        actions.repaint();
+      }),
+    );
+  }
 
   if (actions.openOptions) panel.appendChild(item(doc, 'Settings', actions.openOptions));
 
@@ -3265,17 +3274,12 @@ function logLine(doc, entry) {
  * @param {Document} doc
  */
 export function clear(doc) {
+  clearHub(doc);
   removeTips();
   unwatchPulls();
   doc.documentElement.removeAttribute(MOTION_ATTR);
-  openMenu = null;
   panelOpen = false;
-  openCustody = null;
-  logOpen = false;
-  logPinned = false;
-  Object.assign(logShows, LOG_SHOWS_BY_DEFAULT);
   collapsed = null;
-  dismissed.clear();
   closeOnOutsideClick(doc, [], () => {});
 
   for (const row of doc.querySelectorAll(`[${HIDDEN_ATTR}]`)) {
@@ -3293,14 +3297,40 @@ export function clear(doc) {
     bar.removeAttribute(GROUP_BAR_ATTR);
   }
 
-  for (const id of [MENU_ID, MENU_FALLBACK_ID, TOASTS_ID, LOG_ID, STYLE_ID]) {
+  for (const id of [MENU_ID, MENU_FALLBACK_ID, STYLE_ID]) {
+    doc.getElementById(id)?.remove();
+  }
+}
+
+/**
+ * Remove what the hub fed, at once rather than on the next frame: hidden tabs get no frame, and R36 wants GitHub's
+ * markup back the moment hub data goes off. The menu, header collapse, and panels stay for the next paint to redraw.
+ *
+ * @param {Document} doc
+ */
+export function clearHub(doc) {
+  openMenu = null;
+  openCustody = null;
+  logOpen = false;
+  logPinned = false;
+  Object.assign(logShows, LOG_SHOWS_BY_DEFAULT);
+  dismissed.clear();
+
+  for (const id of [TOASTS_ID, LOG_ID]) {
     doc.getElementById(id)?.remove();
   }
 
-  // Clear per-card state and open menus when leaving the board.
+  // The stale mark reports on a connection the board no longer has; a hidden tab gets no frame to repaint it.
+  const button = doc.querySelector(`#${MENU_ID} button`);
+
+  if (button instanceof HTMLElement) {
+    button.dataset.stale = 'false';
+  }
+
+  // Clear per-card state and open menus.
   drawn = new WeakMap();
 
-  for (const element of doc.querySelectorAll(`.${BADGE_CLASS}, .${POPOVER_CLASS}, .${ACTOR_CLASS}, .gc-returned`)) {
+  for (const element of doc.querySelectorAll(`.${BADGE_CLASS}, body > .${POPOVER_CLASS}, .${ACTOR_CLASS}, .gc-returned`)) {
     element.remove();
   }
 
@@ -3474,12 +3504,25 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     stale.remove();
   }
 
+  // Hub data off closes the log and its subscription; the toasts go below.
+  if (!presentation.cardRows && logOpen) {
+    logOpen = false;
+    logPinned = false;
+    actions.watchLog(false);
+  }
+
   const menu = renderMenu(doc, state, now, actions, presentation.cardRows);
   const log = renderLog(doc, actions);
 
   applyCollapse(doc);
   fitGroupArea(doc);
-  renderToasts(doc, state);
+
+  if (presentation.cardRows) {
+    renderToasts(doc, state);
+  } else {
+    doc.getElementById(TOASTS_ID)?.remove();
+    dismissed.clear();
+  }
 
   const index = state.snapshot === null ? null : cardsByIssue(state.snapshot);
 
@@ -3495,8 +3538,8 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
 
   const openable = state.snapshot?.openable ?? [];
 
-  // With card rows turned off the menu, its log, and the collapsed header stay; only what the overlay put
-  // inside GitHub's cards goes, and GitHub's own assignee figures come back.
+  // With hub data turned off the menu, the collapsed header, and the panels stay; what the overlay put inside
+  // GitHub's cards goes, and GitHub's own assignee figures come back.
   if (!presentation.cardRows) {
     for (const element of doc.querySelectorAll(CARD)) {
       scanned += 1;
