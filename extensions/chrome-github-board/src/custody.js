@@ -51,8 +51,8 @@ export const CUSTODY_CSS = `
 .${CUSTODY_CLASS} .gc-c-note { padding: 12px 0 4px; color: var(--fgColor-muted, #59636e); }
 .${CUSTODY_CLASS} .gc-c-note.failure { color: var(--gc-bad); }
 .${CUSTODY_CLASS} .gc-c-tabs { display: flex; gap: 2px; margin: 12px 0 10px; padding: 2px; background: var(--gc-muted); border-radius: 8px; }
-.${CUSTODY_CLASS} .gc-c-tab { flex: 1; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500;
-  color: var(--fgColor-muted, #59636e); background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
+.${CUSTODY_CLASS} .gc-c-tab { flex: 1; padding: 4px 0; font: inherit; font-size: 12px; font-weight: 500; text-align: center;
+  display: inline-flex; justify-content: center; align-items: center; color: var(--fgColor-muted, #59636e); background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
 .${CUSTODY_CLASS} .gc-c-tab[aria-selected="true"] { color: var(--fgColor-default, #1f2328); background: var(--gc-ground);
   box-shadow: var(--shadow-resting-xsmall, 0 1px 2px rgba(31, 35, 40, 0.15)); }
 .${CUSTODY_CLASS} .gc-c-headline { font-size: 18px; font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; }
@@ -100,30 +100,6 @@ export const CUSTODY_CSS = `
 .${CUSTODY_CLASS} .gc-c-stop .gc-c-holder { grid-column: 1 / -1; font-size: 12px; color: var(--fgColor-muted, #59636e); }
 .${CUSTODY_CLASS} .gc-c-stop .gc-c-holder[data-held="true"] { color: var(--fgColor-default, #1f2328); }
 `;
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
-
-/**
- * Octicon `history` at 16px, from @primer/octicons 19.15.1.
- *
- * @param {Document} doc
- */
-export function custodyMark(doc) {
-  const svg = doc.createElementNS(SVG_NS, 'svg');
-
-  svg.setAttribute('viewBox', '0 0 16 16');
-  svg.setAttribute('aria-hidden', 'true');
-
-  const path = doc.createElementNS(SVG_NS, 'path');
-
-  path.setAttribute(
-    'd',
-    'm.427 1.927 1.215 1.215a8.002 8.002 0 1 1-1.6 5.685.75.75 0 1 1 1.493-.154 6.5 6.5 0 1 0 1.18-4.458l1.358 1.358A.25.25 0 0 1 3.896 6H.25A.25.25 0 0 1 0 5.75V2.104a.25.25 0 0 1 .427-.177ZM7.75 4a.75.75 0 0 1 .75.75v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5A.75.75 0 0 1 7.75 4Z',
-  );
-  svg.appendChild(path);
-
-  return svg;
-}
 
 /**
  * @param {Document} doc

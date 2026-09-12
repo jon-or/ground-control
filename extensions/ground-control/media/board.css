@@ -911,7 +911,8 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   margin-inline-start: -0.25rem;
 }
 
-.number.link:hover {
+.number.link:hover,
+.number.link[aria-expanded='true'] {
   color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
 }
 

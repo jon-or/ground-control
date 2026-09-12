@@ -17,7 +17,7 @@
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
 
-import { CUSTODY_CSS, CUSTODY_TABS, custodyMark, fillCustody } from './custody.js';
+import { CUSTODY_CSS, CUSTODY_TABS, fillCustody } from './custody.js';
 import { PANEL_CSS, dressIssuePanel, unwatchPulls, watchPulls } from './panel.js';
 
 /** GitHub's board markup, as measured on 2026-09-04 (`mechanics.md` M27). Every other class on the page is hashed. */
@@ -206,12 +206,16 @@ const DURATION_TITLE = 'Time since the phase was reported.';
  */
 const ATTENTION_ATTR = 'data-gc-attention';
 
+/** The group bars of a grouped board, sized like the columns. */
+const GROUP_BAR_ATTR = 'data-gc-group-bar';
+
 /**
  * Cancel the card's bottom padding to align the footer with its edges (mechanics M27). Overlap adjacent column
  * borders by 1px. Draw fading dividers as background strips over transparent borders; border-image would
  * remove the rounded corners.
  */
 const CSS = `
+[${GROUP_BAR_ATTR}] { margin-right: -1px !important; }
 ${COLUMN} { margin-right: -1px !important;
   border-left-color: transparent !important; border-right-color: transparent !important;
   border-bottom-color: transparent !important;
@@ -336,6 +340,10 @@ a.gc-session:hover .gc-destination, a.gc-session:focus-visible .gc-destination {
   background: color-mix(in srgb, var(--fgColor-severe, #bc4c00) 10%, transparent); }
 /* The header line carries the issue number rather than pills, so the label reads smaller and tighter there. */
 span.gc-returned { margin-left: 6px; font-size: 11px; line-height: 18px; font-weight: 500; border-radius: 9px; }
+/* The number opens the custody popup; GitHub draws it as inert muted text, so hover and the open state colour it. */
+.gc-custody-open { cursor: pointer; border-radius: 4px; }
+.gc-custody-open:hover, .gc-custody-open[aria-expanded="true"] { color: var(--fgColor-accent, #0969da); }
+.gc-custody-open:focus-visible { outline: 2px solid var(--focus-outlineColor, #0969da); outline-offset: 1px; }
 .gc-sync-mark { fill: currentColor; }
 @keyframes gc-mark-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @keyframes gc-text-pulse {
@@ -1477,6 +1485,45 @@ function applyCollapse(doc) {
   }
 }
 
+/**
+ * A grouped board keeps its group bars in a container GitHub sizes with an inline `min-width` from its own 8px column
+ * margin, and each bar carries that margin too; pulled to 1px, the columns fall 9px a column short of the bars.
+ * Size the container to the column row, and give the bars the columns' margin.
+ *
+ * @param {Document} doc
+ */
+function fitGroupArea(doc) {
+  const region = doc.querySelector(BOARD_REGION);
+  const row = doc.querySelector(COLUMN)?.parentElement;
+
+  if (region === null || row == null) {
+    return;
+  }
+
+  const width = `${row.getBoundingClientRect().width}px`;
+
+  for (const area of region.children) {
+    if (!(area instanceof HTMLElement) || area.style.minWidth === '' || area.contains(row)) {
+      continue;
+    }
+
+    if (area.dataset.gcMinWidth === undefined) {
+      area.dataset.gcMinWidth = area.style.minWidth;
+    }
+
+    if (area.style.minWidth !== width) {
+      area.style.minWidth = width;
+    }
+
+    // The bar is the sticky child; the others are the group's column row and its drop zone.
+    for (const bar of area.children) {
+      if (!bar.hasAttribute(GROUP_BAR_ATTR) && bar.querySelector(COLUMN) === null && doc.defaultView?.getComputedStyle(bar).position === 'sticky') {
+        bar.setAttribute(GROUP_BAR_ATTR, '');
+      }
+    }
+  }
+}
+
 /** Octicons `chevron-up` and `chevron-down`, drawn rather than fetched — the same rule the agent mark follows. */
 const CHEVRONS = {
   up: 'M3.22 10.53a.749.749 0 0 1 0-1.06l4.25-4.25a.749.749 0 0 1 1.06 0l4.25 4.25a.749.749 0 1 1-1.06 1.06L8 6.811 4.28 10.53a.749.749 0 0 1-1.06 0Z',
@@ -2549,10 +2596,6 @@ function tail(doc, card, now, actions, canRequest) {
     tools.appendChild(run);
   }
 
-  if (card.issue && card.issueNumber !== null && actions.readCustody) {
-    tools.appendChild(custodyButton(doc, card, actions));
-  }
-
   held.appendChild(tools);
 
   return held;
@@ -2590,35 +2633,94 @@ function chooseCustodyTab(doc, tab) {
   }
 }
 
+const CUSTODY_HINT = 'Show custody: where this issue has been and who held it.';
+
+/** The number elements already carrying a custody handler; GitHub keeps a node across paints and recycles it between issues. */
+const custodyNumbers = new WeakSet();
+
 /**
- * The footer control that opens the custody popup (R47). Pressing it on the open card closes the popup; on another
- * card it moves there, asking the hub for that card.
+ * Give GitHub back its header line. The handler stays on the node, but without its key a press does nothing.
+ *
+ * @param {Element} number
+ */
+function restoreNumber(number) {
+  if (!number.classList.contains('gc-custody-open')) {
+    return;
+  }
+
+  number.classList.remove('gc-custody-open');
+
+  for (const name of ['data-gc-key', 'role', 'tabindex', 'aria-haspopup', 'aria-expanded', 'aria-description', TIP_ATTR]) {
+    number.removeAttribute(name);
+  }
+}
+
+/**
+ * The card's number opens the custody popup (R47). GitHub draws it as a plain header line that no click reaches, and
+ * the card's own name reads from it, so it keeps its text as its name and takes the action as its description.
+ * Pressing it on the open card closes the popup; on another card it moves there, asking the hub for that card.
+ * GitHub owns the node, so this runs on every paint (mechanics M27).
  *
  * @param {Document} doc
- * @param {LanedCard} card
+ * @param {Element} element
+ * @param {LanedCard | undefined} card
  * @param {Actions} actions
  */
-function custodyButton(doc, card, actions) {
-  const button = toolButton(doc, 'Show custody', 'Where this issue has been and who held it.', custodyMark(doc), () => {
-    const opening = openCustody !== card.key;
+function renderNumber(doc, element, card, actions) {
+  const number = element.querySelector('[id^="board-card-header-title-"]');
 
-    openCustody = opening ? card.key : null;
+  if (!(number instanceof HTMLElement)) {
+    return;
+  }
+
+  if (card?.issue == null || card.issueNumber === null || actions.readCustody === undefined) {
+    restoreNumber(number);
+
+    return;
+  }
+
+  number.classList.add('gc-custody-open');
+  number.dataset.gcKey = card.key;
+  number.setAttribute('role', 'button');
+  number.tabIndex = 0;
+  number.setAttribute('aria-haspopup', 'dialog');
+  number.setAttribute('aria-expanded', String(openCustody === card.key));
+  setTooltip(number, CUSTODY_HINT);
+
+  if (custodyNumbers.has(number)) {
+    return;
+  }
+
+  custodyNumbers.add(number);
+
+  const toggle = () => {
+    const key = number.dataset.gcKey ?? null;
+    const opening = key !== null && openCustody !== key;
+
+    openCustody = opening ? key : null;
     openMenu = null;
     panelOpen = false;
 
     if (opening) {
-      actions.readCustody?.(card.key);
+      actions.readCustody?.(key);
     }
 
     actions.repaint();
+  };
+
+  // The card behind it is GitHub's drag handle and selection target, so the press stops here.
+  number.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggle();
   });
-
-  button.classList.add('gc-custody-open');
-  button.dataset.gcKey = card.key;
-  button.setAttribute('aria-haspopup', 'dialog');
-  button.setAttribute('aria-expanded', String(openCustody === card.key));
-
-  return button;
+  number.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      toggle();
+    }
+  });
 }
 
 /**
@@ -2642,8 +2744,7 @@ function renderCustody(doc, state, card, anchor, actions) {
   });
 
   (doc.body ?? doc.documentElement).appendChild(panel);
-  // The control sits at the card's right edge, so the popup grows back across the card.
-  place(panel, anchor, 'right');
+  place(panel, anchor);
 
   // A repaint replaces the strip, so the tab just chosen takes focus back.
   if (custodyTabFocused) {
@@ -3162,6 +3263,17 @@ export function clear(doc) {
     row.removeAttribute(HIDDEN_ATTR);
   }
 
+  for (const area of doc.querySelectorAll('[data-gc-min-width]')) {
+    if (area instanceof HTMLElement) {
+      area.style.minWidth = area.dataset.gcMinWidth ?? '';
+      delete area.dataset.gcMinWidth;
+    }
+  }
+
+  for (const bar of doc.querySelectorAll(`[${GROUP_BAR_ATTR}]`)) {
+    bar.removeAttribute(GROUP_BAR_ATTR);
+  }
+
   for (const id of [MENU_ID, MENU_FALLBACK_ID, TOASTS_ID, LOG_ID, STYLE_ID]) {
     doc.getElementById(id)?.remove();
   }
@@ -3175,6 +3287,10 @@ export function clear(doc) {
 
   for (const figure of doc.querySelectorAll(`[${ACTOR_ATTR}]`)) {
     restoreActor(figure);
+  }
+
+  for (const number of doc.querySelectorAll('.gc-custody-open')) {
+    restoreNumber(number);
   }
 
   for (const card of doc.querySelectorAll('[data-gc-issue]')) {
@@ -3207,8 +3323,6 @@ function badgeSignature(card, openable, canRequest) {
   return JSON.stringify([
     // A card that gains or loses the read control has to be rebuilt to stop offering it.
     canRequest,
-    // The custody control states whether its popup is open.
-    openCustody === card.key,
     // Include the card key because GitHub recycles nodes between issues and footer handlers capture card
     // identity.
     card.key,
@@ -3344,6 +3458,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
   const log = renderLog(doc, actions);
 
   applyCollapse(doc);
+  fitGroupArea(doc);
   renderToasts(doc, state);
 
   const index = state.snapshot === null ? null : cardsByIssue(state.snapshot);
@@ -3374,6 +3489,10 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
         restoreActor(figure);
       }
 
+      for (const number of element.querySelectorAll('.gc-custody-open')) {
+        restoreNumber(number);
+      }
+
       element.removeAttribute('data-gc-issue');
       element.removeAttribute(ATTENTION_ATTR);
     }
@@ -3392,6 +3511,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     const kept = card === undefined || sig === null || openMenu === card.key ? null : keptBadge(element, card, sig, presentation.replaceAvatars);
 
     renderReturned(doc, element, card);
+    renderNumber(doc, element, card, actions);
 
     if (kept === null) {
       for (const stale of element.querySelectorAll(`.${BADGE_CLASS}, .${ACTOR_CLASS}`)) {
@@ -3440,10 +3560,10 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     badges += 1;
   }
 
-  // The popup hangs from its card's control, which a kept footer still carries; a card that left the board takes it.
+  // The popup hangs from its card's number, written on every paint; a card that left the board takes it.
   if (openCustody !== null) {
     const held = state.snapshot?.lanes.flatMap((lane) => lane.cards).find((card) => card.key === openCustody);
-    const anchor = held === undefined ? null : [...doc.querySelectorAll('.gc-custody-open')].find((button) => button instanceof HTMLElement && button.dataset.gcKey === held.key) ?? null;
+    const anchor = held === undefined ? null : [...doc.querySelectorAll('.gc-custody-open')].find((number) => number instanceof HTMLElement && number.dataset.gcKey === held.key) ?? null;
 
     if (held === undefined || anchor === null) {
       openCustody = null;

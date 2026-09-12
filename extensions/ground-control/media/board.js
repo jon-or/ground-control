@@ -979,10 +979,6 @@ function tail(boardCard, canRequest) {
     tools.appendChild(run);
   }
 
-  if (boardCard.issue && boardCard.issueNumber !== null) {
-    tools.appendChild(custodyButton(boardCard));
-  }
-
   held.appendChild(tools);
 
   return held;
@@ -1257,17 +1253,18 @@ let openMenu = null;
 const MENU_MARGIN = 8;
 
 /**
- * Measure the menu after insertion. Align right edges, flip above if needed, and reposition after card
+ * Measure the menu after insertion. Align the named edges, flip above if needed, and reposition after card
  * redraws.
  */
-function place(menu, anchor) {
+function place(menu, anchor, edge = 'right') {
   const rect = anchor.getBoundingClientRect();
   const menuBounds = menu.getBoundingClientRect();
   const below = rect.bottom + 4;
   const overflows = below + menuBounds.height > window.innerHeight - MENU_MARGIN;
+  const start = edge === 'right' ? rect.right - menuBounds.width : rect.left;
 
   menu.style.top = `${overflows ? Math.max(MENU_MARGIN, rect.top - 4 - menuBounds.height) : below}px`;
-  menu.style.left = `${Math.max(MENU_MARGIN, Math.min(rect.right - menuBounds.width, window.innerWidth - menuBounds.width - MENU_MARGIN))}px`;
+  menu.style.left = `${Math.max(MENU_MARGIN, Math.min(start, window.innerWidth - menuBounds.width - MENU_MARGIN))}px`;
 }
 
 /** Takes the open menu off the document. The focus goes back to the control whenever the keyboard is what closed it. */
@@ -1668,15 +1665,7 @@ function card(boardCard, avatarPool, placeable) {
   }
 
   if (issue) {
-    const repo = repoName(issue);
-    const issueLabel = repo === null ? `issue #${issue.number}` : `issue ${repo} #${issue.number}`;
-
-    number.type = 'button';
-    // The visible label identifies the issue; the accessible name adds the open action.
-    setAccessibleName(number, reading ? `Read ${issueLabel}` : `Open ${issueLabel} on GitHub`);
-    // Disable dragging on this control.
-    number.draggable = false;
-    number.addEventListener('click', (event) => openIssueFrom(event, boardCard, number));
+    custodyControl(number, boardCard);
   }
 
   const avatarSlot = document.createElement('span');
@@ -3393,44 +3382,34 @@ const CUSTODY_TABS = [
   ['route', 'Route'],
 ];
 
+const CUSTODY_HINT = 'Show custody: where this issue has been and who held it.';
+
 /** @type {{ key: string, issue: { number: number, title: string, state?: string } | null, anchor: Element, unwatch: () => void } | null} */
 let openCustody = null;
 /** @type {{ loading: boolean, custody: import('@ground-control/core').Custody | null, failure: string | null } | null} */
 let custodyState = null;
 let custodyTab = 'health';
 
-/** Octicon `history` at 16px, from @primer/octicons 19.15.1. */
-function custodyMark() {
-  const svg = document.createElementNS(SVG, 'svg');
-  svg.setAttribute('class', 'custody-mark');
-  svg.setAttribute('viewBox', '0 0 16 16');
-  svg.setAttribute('aria-hidden', 'true');
+/**
+ * The card's number opens the popup (R47). Its text stays the accessible name, since the number is what the
+ * control is; the tooltip carries the action as the description.
+ */
+function custodyControl(number, boardCard) {
+  number.type = 'button';
+  number.draggable = false;
+  number.classList.add('custody-open');
+  setTooltip(number, CUSTODY_HINT);
+  number.setAttribute('aria-haspopup', 'dialog');
+  number.setAttribute('aria-expanded', String(openCustody?.key === boardCard.key));
+  number.addEventListener('click', (event) => {
+    event.stopPropagation();
 
-  const path = document.createElementNS(SVG, 'path');
-  path.setAttribute(
-    'd',
-    'm.427 1.927 1.215 1.215a8.002 8.002 0 1 1-1.6 5.685.75.75 0 1 1 1.493-.154 6.5 6.5 0 1 0 1.18-4.458l1.358 1.358A.25.25 0 0 1 3.896 6H.25A.25.25 0 0 1 0 5.75V2.104a.25.25 0 0 1 .427-.177ZM7.75 4a.75.75 0 0 1 .75.75v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5A.75.75 0 0 1 7.75 4Z',
-  );
-  svg.appendChild(path);
-
-  return svg;
-}
-
-/** The footer control that opens the popup. Cards without an issue have no timeline to read. */
-function custodyButton(boardCard) {
-  const button = toolButton('Show custody', 'Where this issue has been and who held it.', custodyMark(), () => {
     if (openCustody?.key === boardCard.key) {
       closeCustody(true);
     } else {
-      openCustodyFor(boardCard, button);
+      openCustodyFor(boardCard, number);
     }
   });
-
-  button.classList.add('custody-open');
-  button.setAttribute('aria-haspopup', 'dialog');
-  button.setAttribute('aria-expanded', String(openCustody?.key === boardCard.key));
-
-  return button;
 }
 
 function closeCustody(refocus) {
@@ -3505,7 +3484,7 @@ function followCustody() {
   const panel = document.getElementById('custody');
 
   if (panel) {
-    place(panel, openCustody.anchor);
+    place(panel, openCustody.anchor, 'left');
   }
 }
 
@@ -3786,7 +3765,7 @@ function paintCustody() {
     panel.appendChild(custodyTab === 'time' ? custodyTime(custody) : custodyTab === 'route' ? custodyRoute(custody) : custodyHealth(custody));
   }
 
-  place(panel, openCustody.anchor);
+  place(panel, openCustody.anchor, 'left');
 }
 
 function countCards(lanes) {

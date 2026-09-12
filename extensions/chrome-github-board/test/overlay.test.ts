@@ -1426,6 +1426,50 @@ describe('the gap between the lanes', () => {
     }
   });
 
+  /**
+   * A grouped board (M27) keeps the column headers in one row and each group's bar and columns in a container GitHub
+   * gives an inline `min-width` from its own 8px margin, so the bars would overrun the 1px columns by 9px a column.
+   */
+  function groupBoard(): { header: HTMLElement, area: HTMLElement, bar: HTMLElement } {
+    const region = document.querySelector<HTMLElement>('#project-items-region')!;
+    const header = document.createElement('div');
+    const area = document.createElement('div');
+    const bar = document.createElement('div');
+
+    header.append(...region.children);
+    area.style.minWidth = '716px';
+    bar.textContent = 'No Priority';
+    bar.style.position = 'sticky';
+    area.appendChild(bar);
+    region.append(header, area);
+    header.getBoundingClientRect = () => ({ width: 698 }) as DOMRect;
+
+    return { header, area, bar };
+  }
+
+  it('sizes a grouped board’s group container to the column row and margins its bars like a column', () => {
+    const { area, bar } = groupBoard();
+
+    paint(document, state(), NOW, actions);
+
+    expect(area.style.minWidth).toBe('698px');
+    expect(bar.hasAttribute('data-gc-group-bar')).toBe(true);
+    expect([...area.children].filter((child) => child.hasAttribute('data-gc-group-bar'))).toEqual([bar]);
+
+    clear(document);
+
+    expect(area.style.minWidth).toBe('716px');
+    expect(area.dataset.gcMinWidth).toBeUndefined();
+    expect(bar.hasAttribute('data-gc-group-bar')).toBe(false);
+  });
+
+  it('leaves an ungrouped board’s region children alone', () => {
+    paint(document, state(), NOW, actions);
+
+    for (const child of document.querySelector('#project-items-region')!.children) {
+      expect((child as HTMLElement).style.minWidth).toBe('');
+    }
+  });
 });
 
 describe('folding the project header away', () => {
@@ -3812,22 +3856,76 @@ describe('the custody popup', () => {
     withCustody.readCustody.mockReset();
   });
 
-  it('offers the control only where the content script can ask for custody, and only on an issue card', () => {
+  it('is GitHub’s own number line, only where the content script can ask for custody, and only on an issue card', () => {
     paint(document, state(), NOW, actions);
     expect(control()).toBeNull();
 
-    // The actions never change while a page lives; a fresh page is how a footer meets a different set.
+    // The actions never change while a page lives; a fresh page is how a card meets a different set.
     clear(document);
     document.documentElement.innerHTML = BOARD;
     paint(document, state(), NOW, withCustody);
 
-    const button = control()!;
+    const number = control()!;
 
-    expect(button.closest('.gc-tools')).not.toBeNull();
-    expect(button.getAttribute('aria-label')).toBe('Show custody');
-    expect(tipOf(button)).toBe('Where this issue has been and who held it.');
-    expect(button.getAttribute('aria-haspopup')).toBe('dialog');
-    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(number.id).toBe('board-card-header-title-24501');
+    expect(number.textContent).toBe('example-repo #4501');
+    expect(number.dataset.gcKey).toBe(key);
+    // The card names itself from this line, so it carries no label of its own; the action is its description.
+    expect(number.hasAttribute('aria-label')).toBe(false);
+    expect(tipOf(number)).toBe('Show custody: where this issue has been and who held it.');
+    expect(number.getAttribute('role')).toBe('button');
+    expect(number.tabIndex).toBe(0);
+    expect(number.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(number.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.gc-tools .gc-custody-open')).toBeNull();
+  });
+
+  it('gives GitHub back its number line when the card leaves the snapshot or the page leaves the board', () => {
+    paint(document, state(), NOW, withCustody);
+    const number = control()!;
+
+    paint(document, { ...state(), snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [] }] }) }, NOW, withCustody);
+    expect(number.classList.contains('gc-custody-open')).toBe(false);
+    expect(number.hasAttribute('role')).toBe(false);
+    expect(number.hasAttribute('tabindex')).toBe(false);
+    expect(number.hasAttribute('aria-description')).toBe(false);
+    expect(number.hasAttribute('data-gc-key')).toBe(false);
+
+    // The handler stays on the node; without a key it does nothing.
+    number.click();
+    expect(withCustody.readCustody).not.toHaveBeenCalled();
+
+    paint(document, state(), NOW, withCustody);
+    expect(number.classList.contains('gc-custody-open')).toBe(true);
+    clear(document);
+    expect(number.classList.contains('gc-custody-open')).toBe(false);
+  });
+
+  it('keeps one handler on a node GitHub keeps, and stops the press at the number', () => {
+    paint(document, state(), NOW, withCustody);
+    paint(document, state(), NOW, withCustody);
+
+    const number = control()!;
+    const reached = vi.fn();
+
+    number.closest('[data-board-card-id]')!.addEventListener('click', reached);
+    number.click();
+
+    expect(withCustody.readCustody).toHaveBeenCalledTimes(1);
+    expect(reached).not.toHaveBeenCalled();
+  });
+
+  it('opens from the keyboard, as a button does', () => {
+    paint(document, state(), NOW, withCustody);
+    control()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    paint(document, state(), NOW, withCustody);
+
+    expect(withCustody.readCustody).toHaveBeenCalledWith(key);
+    expect(popup()).not.toBeNull();
+
+    control()!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    paint(document, state(), NOW, withCustody);
+    expect(popup()).toBeNull();
   });
 
   it('asks the content script for the card by key and draws the loading popup under the control', () => {

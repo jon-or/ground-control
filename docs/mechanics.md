@@ -724,7 +724,7 @@ Recorded pages were GitHub's public roadmap (`github` project 4247, view 21) and
 | Issue link inside a card | Repository/issue association |
 | `[id^="board-card-title-"]` | Card title |
 | `ul[aria-label="Fields"]` | Card field list of type, status, label and pull request pills, where the returned label goes (R45) |
-| `[id^="board-card-header-title-"]` | Card header line, which holds the returned label on a card with no labels |
+| `[id^="board-card-header-title-"]` | Card header line with the number; the custody control (R47), and the returned label's fallback on a card with no labels |
 | `[data-component="AvatarStack"]` | Assignee display |
 | `[role="region"][aria-label="View filters"]` | Filter toolbar |
 | The one `input` in that toolbar | Applied filter text |
@@ -805,6 +805,8 @@ A session name mixed 55% default text over muted, approximately #394047 light/#c
 Labels measured 20px high, 14px text at weight 400, 18.2px line height, 1px 8px padding, pill radius. Light labels used opaque color with black text and transparent border; dark labels used full-strength label text, 18% fill, and 30% border. The editor uses the tint recipe in both schemes rather than assuming all theme colors support black text.
 
 Other recorded values: 4px label gap, 8px below title, 12px horizontal card inset, 12px issue number, 14px GitHub title. Columns measured 350px wide with 1px borders and 8px right margins. A -1px margin joined dividers without doubling borders. Gradient background strips preserved rounded corners where border-image did not. These are dated UI observations, not stable GitHub API contracts or stylesheet assertions.
+
+Measured 2026-09-11 on the Dev board grouped by Priority: `#project-items-region` then holds a header row of columns and a container carrying an inline `min-width` of 358px per column, in which each group is a sticky bar with `margin-right: 8px` followed by its own column row. Both figures come from GitHub's 8px margin, so with the columns pulled to -1px the bars ran 9px per column past the last column (144px over 17 columns). The overlay sets that container's `min-width` to the header row's measured width on each paint, gives the bars the columns' -1px margin over `data-gc-group-bar`, and restores the inline value on clear. Column pagination appends a 358px placeholder to every row, which the bars span with or without the overlay.
 
 ## Workflow and recovery experiments
 

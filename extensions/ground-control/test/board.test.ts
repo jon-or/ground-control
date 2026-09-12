@@ -357,18 +357,14 @@ describe('board webview', () => {
     expect(badges[2]?.style.getPropertyValue('--gc-badge')).toBe('var(--vscode-charts-foreground)');
   });
 
-  it('opens the issue from its number and the pull request from its badge', () => {
+  it('opens the issue from its title and the pull request from its badge; the number opens custody', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
+    const title = document.querySelector<HTMLButtonElement>('.card-open')!;
     const number = document.querySelector<HTMLButtonElement>('.card-meta .number')!;
     const pr = document.querySelector<HTMLButtonElement>('.badges.github .badge.pull-request')!;
 
-    expect(number.tagName).toBe('BUTTON');
-    // The number and its repository are the chip's whole fact, so it says nothing further on hover.
-    expect(tipOf(number)).toBe('');
-    // The button's own text is a bare number, so without this a screen reader announces only "18953, button".
-    expect(number.getAttribute('aria-label')).toBe('Read issue example-repo #18953');
-    expect(number.getAttribute('draggable')).toBe('false');
+    expect(title.tagName).toBe('BUTTON');
     expect(pr.tagName).toBe('BUTTON');
     // The accessible name includes PR state; no redundant hover text is needed.
     expect(tipOf(pr)).toBe('');
@@ -376,21 +372,24 @@ describe('board webview', () => {
     expect(pr.getAttribute('draggable')).toBe('false');
     expect(getComputedStyle(pr).cursor).toBe('pointer');
 
-    number.click();
+    title.click();
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'readDetail', key: 'issue:18953', subject: 'issue' });
 
     pr.click();
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'readDetail', key: 'issue:18953', subject: 'pull-request' });
+
+    number.click();
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'readCustody', key: 'issue:18953' });
+    expect(sent().filter((m) => (m as { type: string }).type === 'readDetail')).toHaveLength(2);
   });
 
   it('sends the issue and pull request to the browser when the click asks for it', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
-    const number = document.querySelector<HTMLButtonElement>('.card-meta .number')!;
     const title = document.querySelector<HTMLButtonElement>('.card-open')!;
     const pr = document.querySelector<HTMLButtonElement>('.badges.github .badge.pull-request')!;
 
-    number.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    title.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
 
     // The same modifier on macOS, where Ctrl-click is the context menu.
@@ -662,7 +661,8 @@ describe('board webview', () => {
     const number = document.querySelector<HTMLElement>('.number')!;
 
     expect(number.textContent).toBe('example-repo #18953');
-    expect(number.getAttribute('aria-label')).toBe('Read issue example-repo #18953');
+    // The text is the control's name: a reader hears the issue, then the description says what the press does.
+    expect(number.hasAttribute('aria-label')).toBe(false);
   });
 
   // A snapshot an older hub cached carries no repository, and the card must read as it did rather than as a blank.
@@ -678,7 +678,6 @@ describe('board webview', () => {
     const number = document.querySelector<HTMLElement>('.number')!;
 
     expect(number.textContent).toBe('#18953');
-    expect(number.getAttribute('aria-label')).toBe('Read issue #18953');
   });
 
   it('leaves out a badge the issue has nothing for', () => {
@@ -2117,7 +2116,7 @@ describe("the card's own menu", () => {
     const meta = document.querySelector<HTMLElement>('.card-meta')!;
 
     expect(Array.from(meta.children).map((el) => el.className)).toEqual([
-      'number link',
+      'number link custody-open',
       'card-menu',
       'avatar-slot',
     ]);
@@ -2751,7 +2750,6 @@ describe('card triage (R38)', () => {
     expect(Array.from(tail.querySelectorAll('.tool')).map((el) => el.getAttribute('aria-label'))).toEqual([
       'Read this card again',
       'Open in VS Code',
-      'Show custody',
     ]);
   });
 
@@ -3172,7 +3170,7 @@ describe('the tooltip', () => {
    * announcement.
    */
   it('sets accessible descriptions before hover', () => {
-    expect(document.querySelector('.number')!.getAttribute('aria-label')).toBe('Read issue example-repo #18953');
+    expect(document.querySelector('.number')!.getAttribute('aria-description')).toBe('Show custody: where this issue has been and who held it.');
     expect(document.querySelector('.session')!.getAttribute('aria-label')).toContain('open this session');
     // The state is the row's described half: what the board saw is the part not written on the row.
     send(message({ lanes: lanes({ build: [{ ...liveCard, sessions: [{ ...session, activity: { phase: 'running', since: Date.now(), at: Date.now(), event: 'PostToolBatch' } }] }] }) }));
@@ -3192,7 +3190,7 @@ describe('the tooltip', () => {
       el.hasAttribute('aria-label'),
     );
 
-    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual(['Read this card', 'Open in VS Code', 'Show custody']);
+    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual(['Read this card', 'Open in VS Code']);
     expect(both.every((el) => el.getAttribute('aria-description') !== el.getAttribute('aria-label'))).toBe(true);
     // The avatar is the one that would repeat itself: named for a reader, and its tooltip says the same thing.
     expect(document.querySelector('.avatar')!.getAttribute('aria-label')).toBe('dev-2, pull request author');
@@ -3463,7 +3461,7 @@ describe('the conversation panel', () => {
 
   function openPanel(): void {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
-    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+    document.querySelector<HTMLButtonElement>('.card-open')!.click();
   }
 
   function panel(): HTMLElement | null {
@@ -4144,7 +4142,7 @@ describe('reading conversations turned off', () => {
     send({ type: 'reading', enabled: false, width: null, paired: false, pairWidth: null } as BoardMessage);
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
-    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+    document.querySelector<HTMLButtonElement>('.card-open')!.click();
     document.querySelector<HTMLButtonElement>('.badges.github .badge.pull-request')!.click();
 
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'openIssue', number: 18953 });
@@ -4157,9 +4155,6 @@ describe('reading conversations turned off', () => {
     send({ type: 'reading', enabled: false, width: null, paired: false, pairWidth: null } as BoardMessage);
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
-    expect(document.querySelector('.card-meta .number')!.getAttribute('aria-label')).toBe(
-      'Open issue example-repo #18953 on GitHub',
-    );
     expect(document.querySelector('.badge.pull-request')!.getAttribute('aria-label')).toBe(
       'Open pull request #19403, open, on GitHub',
     );
@@ -4167,7 +4162,7 @@ describe('reading conversations turned off', () => {
 
   it('closes a conversation left open when the setting is turned off', () => {
     send(message({ lanes: lanes({ build: [liveCard] }) }));
-    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+    document.querySelector<HTMLButtonElement>('.card-open')!.click();
     expect(document.getElementById('detail')).not.toBeNull();
 
     send({ type: 'reading', enabled: false, width: null, paired: false, pairWidth: null } as BoardMessage);
@@ -4295,7 +4290,7 @@ describe('an issue and pull request pair', () => {
   it('opens the issue alone from the issue control, with pairing on', () => {
     pairing();
     send(message({ lanes: lanes({ build: [liveCard] }) }));
-    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+    document.querySelector<HTMLButtonElement>('.card-open')!.click();
 
     expect(reads()).toEqual([{ type: 'readDetail', key: 'issue:18953', subject: 'issue' }]);
     expect(panel().hasAttribute('data-paired')).toBe(false);
@@ -4335,14 +4330,14 @@ describe('an issue and pull request pair', () => {
     expect(panel().style.width).toBe('900px');
 
     document.querySelector<HTMLButtonElement>('.detail-close')!.click();
-    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+    document.querySelector<HTMLButtonElement>('.card-open')!.click();
     expect(panel().style.width).toBe('500px');
   });
 
   it('ignores an answer for a subject the pair is not showing', () => {
     pairing();
     send(message({ lanes: lanes({ build: [liveCard] }) }));
-    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+    document.querySelector<HTMLButtonElement>('.card-open')!.click();
 
     send({ type: 'detail', key: 'issue:18953', subject: 'pull-request', detail: pulled(), failure: null } as BoardMessage);
     expect(panes().map((pane) => pane.querySelector('.detail-title-text')!.textContent)).toEqual(['Reading…']);
@@ -4537,17 +4532,20 @@ describe('the custody popup', () => {
     popup()?.remove();
   });
 
-  it('offers the control on an issue card and not on a card with no issue', () => {
+  it('is the issue number, on an issue card and not on a card with no issue', () => {
     send(message({ lanes: lanes({ build: [liveCard, { ...liveCard, key: 'session:x', issueNumber: null, issue: null, sessions: [{ ...session, ...checkout }] }] }) }));
 
     const controls = document.querySelectorAll('.custody-open');
 
     expect(controls).toHaveLength(1);
-    expect(controls[0]!.closest('.tools')).not.toBeNull();
-    expect(controls[0]!.getAttribute('aria-label')).toBe('Show custody');
-    expect(tipOf(controls[0])).toBe('Where this issue has been and who held it.');
+    expect(controls[0]!.tagName).toBe('BUTTON');
+    expect(controls[0]!.classList.contains('number')).toBe(true);
+    expect(controls[0]!.textContent).toBe('example-repo #18953');
+    expect(controls[0]!.getAttribute('draggable')).toBe('false');
+    expect(tipOf(controls[0])).toBe('Show custody: where this issue has been and who held it.');
     expect(controls[0]!.getAttribute('aria-haspopup')).toBe('dialog');
     expect(controls[0]!.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.tools .custody-open')).toBeNull();
   });
 
   it('asks the hub for the card by key and opens in its loading state with the card’s own header, focused', () => {
