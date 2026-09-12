@@ -77,6 +77,24 @@ describe('legsOf', () => {
     ]);
   });
 
+  it('holds a person once through two linked accounts, until the last of them is unassigned', () => {
+    // The source resolves both logins to one person before the board sees them.
+    const legs = legsOf(
+      history([
+        assign(DAY, 'lead', 'dev-1'),
+        assign(DAY + 100, 'lead', 'dev-1'),
+        unassign(2 * DAY, 'lead', 'dev-1'),
+        assign(2 * DAY + 100, 'lead', 'dev-2'),
+        unassign(3 * DAY, 'lead', 'dev-1'),
+      ]),
+      DEFAULT_CUSTODY,
+      NOW,
+    );
+
+    expect(legs.map((leg) => leg.assignees)).toEqual([[], ['dev-1'], ['dev-1', 'dev-2'], ['dev-2']]);
+    expect(buildCustody(history([assign(DAY, 'lead', 'dev-1'), assign(DAY + 100, 'lead', 'dev-1')]), DEFAULT_CUSTODY, NOW).health.now.holder).toBe('dev-1');
+  });
+
   it('drops the six-minute send and the automated bounce into the Dev leg before them, so Ready starts at the second send', () => {
     const legs = legsOf(history(WORKED), DEFAULT_CUSTODY, NOW);
     const dev = legs[2];
