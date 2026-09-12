@@ -128,6 +128,7 @@ export type BoardMessage =
   | { type: 'setup'; pending: boolean }
   // Conversation for the card the webview asked about, or the reason it has none.
   | { type: 'detail'; key: string; subject: DetailSubject; detail: ItemDetail | null; failure: string | null }
-  // Whether card controls read a conversation on the board, and the panel width the developer dragged to (R43).
-  | { type: 'reading'; enabled: boolean; width: number | null }
+  // Whether card controls read a conversation on the board, whether a pull request opens beside its issue, and the
+  // widths the developer dragged the single panel and the pair to (R43).
+  | { type: 'reading'; enabled: boolean; width: number | null; paired: boolean; pairWidth: number | null }
   | SnapshotMessage;

@@ -1348,6 +1348,27 @@ body[data-motion='reduced'] #tip[data-open='true'] {
   box-shadow: -8px 0 24px color-mix(in srgb, black 35%, transparent);
 }
 
+/*
+ * A pair: the issue on the left, the pull request on the right, each a scrolling column and its own container, so
+ * the title and control rules that read the panel's width read the pane's instead.
+ */
+#detail[data-paired] {
+  width: 95vw;
+  min-width: 45rem;
+  flex-direction: row;
+  container-type: normal;
+}
+
+#detail[data-paired] > .detail-scroll {
+  flex: 1 1 0;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+#detail[data-paired] > .detail-scroll + .detail-scroll {
+  border-left: 1px solid var(--gh-border);
+}
+
 body.vscode-dark #detail,
 body.vscode-high-contrast #detail {
   --gh-open: #238636;

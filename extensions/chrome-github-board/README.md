@@ -8,9 +8,11 @@ Session links open the connected editor in its own URI scheme, so an Insiders de
 
 GitHub opens a card's issue in a side panel and its pull request in a new tab. The overlay takes a plain click on a pull request link in a card and opens the pull request in a panel of the same shape as GitHub's issue panel: GitHub's own pull request page, framed, with the site header, repository header, and footer hidden. Everything on the page works, the diff and commenting included. The bar names the repository and number, copies the address, pins the panel, and opens the page in a new tab; the close control, the backdrop, and Escape close it. Ctrl-click, Cmd-click, or a middle click leaves the link to GitHub. Links off the pull request open a new tab.
 
+**Show the issue on the left and the pull request on the right** on the options page frames the card's issue on the left and the pull request on the right, each scrolling on its own, in one wider panel with a width of its own; the pair floats only, so no pin is offered. Links off either page still open a tab.
+
 **Pin side panel** docks the panel beside the board, as GitHub's issue panel docks: the board narrows to fit and stays usable, and only the close control closes it. The choice holds for the next pull request. Drag either panel's left edge to size it, or focus the edge and use the arrow keys; the floating and docked widths are kept separately in this browser. GitHub's own issue panel gets the same edge while floating, since GitHub sizes it only once pinned, and shares the floating width with the pull request panel.
 
-GitHub forbids framing its pages, so the extension carries a `declarativeNetRequest` rule (`rules.json`) that removes `X-Frame-Options` and `Content-Security-Policy` from a pull request page loaded as a frame by a github.com page; that is what the `declarativeNetRequest` permission and the `github.com` host permission are for. See [data boundaries](../../docs/architecture.md#data-boundaries) for what the removed policy covered.
+GitHub forbids framing its pages, so the extension carries a `declarativeNetRequest` rule (`rules.json`) that removes `X-Frame-Options` and `Content-Security-Policy` from a pull request or issue page loaded as a frame by a github.com page, or fetched for one by GitHub's own service worker, which runs while you are logged in. That worker also serves the issue pages you open in a tab, so with the extension installed those pages arrive without GitHub's Content Security Policy, a browser-side XSS defense; pull request pages are not served by the worker and keep theirs; that is what the `declarativeNetRequest` permission and the `github.com` host permission are for. See [data boundaries](../../docs/architecture.md#data-boundaries) for what the removed policy covered.
 
 ## Loading
 
@@ -36,7 +38,7 @@ Preferences use durable extension storage and apply across open tabs immediately
 | File | Responsibility | Verification |
 |---|---|---|
 | `src/overlay.js` | DOM matching, card rendering, menus, tooltips, and log panel | Vitest/jsdom and browser behavior tests |
-| `src/panel.js`, `rules.json` | Pull request panel and the header rule that admits the framed page | Vitest/jsdom; the rule and framed page in headless Playwright |
+| `src/panel.js`, `rules.json` | Pull request panel, the issue and pull request pair, and the header rule that admits the framed pages | Vitest/jsdom; the rule and framed page in headless Playwright |
 | `src/state.js` | Snapshot state, retries, and log subscriptions | Vitest |
 | `src/preferences.js` | Project eligibility, validation, and preference updates | Vitest and browser tests |
 | `options.html`, `src/options.js` | Browser preference editor and shared-settings link | Headless Playwright |

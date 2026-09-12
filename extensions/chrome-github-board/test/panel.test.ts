@@ -952,3 +952,174 @@ describe('one docked panel for issues and pull requests', () => {
   });
 });
 
+/**
+ * With pairing on, a pull request opens beside the card's issue: two frames, one width, no dock (R43). What Chrome
+ * does with the framed issue page is the extension suite's.
+ */
+describe('an issue and pull request pair', () => {
+  const ISSUE = 'https://github.com/example-org/example-repo/issues/4501';
+
+  function paired(): void {
+    paint(document, { snapshot: null, trouble: null, notice: null }, Date.now(), actions, { animations: true, replaceAvatars: true, cardRows: true, pairConversations: true });
+  }
+
+  function frames(): HTMLIFrameElement[] {
+    return [...panel()!.querySelectorAll('iframe')];
+  }
+
+  /** The issue page as its frame would hold it, written into the frame's own document as `framed` writes the pull request's. */
+  function framedIssue(html: string): Document {
+    const host = frames()[0]!;
+    const inner = host.contentDocument!;
+
+    inner.open();
+    inner.write(html);
+    inner.close();
+    host.dispatchEvent(new Event('load'));
+
+    return inner;
+  }
+
+  it("frames the card's issue on the left and the pull request on the right, each in a frame of its own", () => {
+    paired();
+    click(linkPull());
+
+    const root = panel()!;
+    const [issue, pull] = frames();
+
+    expect(root.getAttribute('data-paired')).toBe('true');
+    expect(root.getAttribute('aria-label')).toBe('Side panel: Issue #4501 and pull request: example-org/example-repo#4601');
+    expect(frames()).toHaveLength(2);
+    expect(issue!.name).toBe('gc-issue-panel');
+    expect(issue!.src).toBe(ISSUE);
+    expect(issue!.title).toBe('Issue #4501');
+    expect(pull!.name).toBe('gc-pull-panel');
+    expect(pull!.src).toBe(PULL);
+    expect(issue!.compareDocumentPosition(pull!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // No bar names the pages, which name themselves; the bar holds the controls alone, and the pull request's address.
+    expect(root.querySelector('.gc-panel-ref')).toBeNull();
+    expect(root.querySelector('.gc-panel-bar .gc-panel-actions')).not.toBeNull();
+    expect(root.querySelector<HTMLAnchorElement>('a[aria-label="Open in new tab"]')!.href).toBe(PULL);
+  });
+
+  it('opens the pull request alone with pairing off, and reads the choice again on every paint', () => {
+    paired();
+
+    const link = linkPull();
+
+    click(link);
+
+    const pair = panel()!;
+
+    // The same pair for the same click.
+    click(link);
+    expect(panel()).toBe(pair);
+
+    painted();
+    click(link);
+    expect(panel()).not.toBe(pair);
+    expect(panel()!.getAttribute('data-paired')).toBe('false');
+    expect(frames()).toHaveLength(1);
+  });
+
+  it("floats over the board with no pin offered, and leaves GitHub's pin choice as it was", () => {
+    localStorage.setItem('projects.sidePanelPinned', 'true');
+    paired();
+    click(linkPull());
+
+    const names = [...panel()!.querySelectorAll('.gc-panel-actions > *')].map((control) => control.getAttribute('aria-label'));
+
+    expect(names).toEqual(['Copy link', 'Open in new tab', 'Close panel']);
+    expect(panel()!.getAttribute('data-pinned')).toBe('false');
+    expect(panel()!.getAttribute('aria-modal')).toBe('true');
+    expect(document.body.style.marginRight).toBe('');
+    expect(localStorage.getItem('projects.sidePanelPinned')).toBe('true');
+  });
+
+  it('sizes from its own edge at a floor of two readable frames, and keeps that width apart from the single panel', () => {
+    localStorage.setItem('ground-control:panel-width', '500');
+    paired();
+    click(linkPull());
+
+    const root = panel()!;
+    const handle = gripOf(root);
+    const sheet = root.querySelector<HTMLElement>('.gc-panel-sheet')!;
+
+    // The single panel's width is not the pair's: the stylesheet sizes a pair nobody has sized yet.
+    expect(root.style.getPropertyValue('--gc-panel-width')).toBe('');
+    laidOut(sheet, 900, () => root.style.getPropertyValue('--gc-panel-width'));
+    expect(handle.getAttribute('aria-valuemin')).toBe('720');
+
+    drag(handle, 100, 9000);
+    expect(root.style.getPropertyValue('--gc-panel-width')).toBe('720px');
+
+    drag(handle, 900, 800);
+    expect(root.style.getPropertyValue('--gc-panel-width')).toBe('820px');
+    expect(localStorage.getItem('ground-control:pair-width')).toBe('820');
+    expect(localStorage.getItem('ground-control:panel-width')).toBe('500');
+  });
+
+  it('opens at the width the pair was last dragged to', () => {
+    localStorage.setItem('ground-control:pair-width', '900');
+    localStorage.setItem('ground-control:panel-width', '800');
+    paired();
+    click(linkPull());
+    expect(panel()!.style.getPropertyValue('--gc-panel-width')).toBe('900px');
+  });
+
+  it("hides the site chrome around the framed issue, keeps the issue's own pages in its frame, and sends any other link to a tab", () => {
+    const opened = vi.spyOn(window, 'open').mockImplementation(() => null);
+
+    paired();
+    click(linkPull());
+
+    const inner = framedIssue('<header class="AppHeader"></header><h1>Quote email drops rows</h1><a id="comment" href="#issuecomment-1">c</a><a id="pull" href="/example-org/example-repo/pull/4601">#4601</a><a id="other" href="https://github.com/example-org/example-repo/issues/4502">#4502</a>');
+    const press = (id: string) => {
+      const event = new inner.defaultView!.MouseEvent('click', { bubbles: true, cancelable: true });
+
+      inner.getElementById(id)!.dispatchEvent(event);
+
+      return event.defaultPrevented;
+    };
+
+    expect(inner.head.querySelector('style')!.textContent).toContain('header.AppHeader');
+    expect(press('comment')).toBe(false);
+    expect(opened).not.toHaveBeenCalled();
+
+    // The pull request beside it is another frame, not this one's to navigate: it opens a tab like any other link.
+    expect(press('pull')).toBe(true);
+    expect(opened).toHaveBeenLastCalledWith(PULL, '_blank', 'noreferrer');
+    expect(press('other')).toBe(true);
+    expect(opened).toHaveBeenLastCalledWith('https://github.com/example-org/example-repo/issues/4502', '_blank', 'noreferrer');
+
+    // The pair keeps the pull request's name for the panel; the issue page's title is the frame's own.
+    expect(panel()!.getAttribute('aria-label')).toBe('Side panel: Issue #4501 and pull request: example-org/example-repo#4601');
+  });
+
+  it('closes on Escape pressed inside the issue page', () => {
+    paired();
+    click(linkPull());
+
+    const inner = framedIssue('<h1>Quote email drops rows</h1>');
+
+    inner.body.dispatchEvent(new inner.defaultView!.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(panel()!.hasAttribute('data-open')).toBe(false);
+  });
+
+  it('says which page refused the frame, and offers a tab, when Chrome hands back its own page', () => {
+    paired();
+    click(linkPull());
+
+    const [issue] = frames();
+
+    Object.defineProperty(issue!, 'contentDocument', { value: null, configurable: true });
+    issue!.dispatchEvent(new Event('load'));
+
+    const refused = panel()!.querySelector('.gc-panel-refused')!;
+
+    expect(refused.textContent).toBe('GitHub refused to load this issue in the panel; open it in a new tab.');
+    expect(refused.querySelector('a')!.href).toBe(ISSUE);
+    expect(frames()).toHaveLength(1);
+  });
+});

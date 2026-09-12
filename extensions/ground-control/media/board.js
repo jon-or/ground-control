@@ -2146,28 +2146,46 @@ function sanitizeDetail(html) {
   return out;
 }
 
-/** The open conversation, or null. Held outside the payload so a redraw does not close it. */
+/**
+ * The open conversation, or null: the card, the subjects shown side by side, and the control that opened it. Held
+ * outside the payload so a redraw does not close it. One state per subject, since each is read on its own.
+ */
 let detailFor = null;
 let detailState = null;
 /** Narrowest and widest the panel can be dragged, so it cannot be lost or made to cover the whole board. */
 const DETAIL_MIN_WIDTH = 360;
+/** A pair holds two conversations, so its floor is two readable panes. */
+const PAIR_MIN_WIDTH = 720;
 const DETAIL_WIDTH_STEP = 40;
 
-/** Width the developer dragged the panel to, in pixels, or null for the stylesheet's own. */
+/** Widths the developer dragged the single panel and the pair to, in pixels, or null for the stylesheet's own. */
 let detailWidth = null;
+let pairWidth = null;
+/** Whether a pull request opens beside its issue (R43). */
+let pairing = false;
+
+function detailPaired() {
+  return detailFor !== null && detailFor.subjects.length > 1;
+}
+
+function detailMinWidth() {
+  return detailPaired() ? PAIR_MIN_WIDTH : DETAIL_MIN_WIDTH;
+}
 
 function detailMaxWidth() {
-  return Math.max(DETAIL_MIN_WIDTH, Math.round(window.innerWidth * 0.95));
+  return Math.max(detailMinWidth(), Math.round(window.innerWidth * 0.95));
 }
 
 function applyDetailWidth(panel) {
-  panel.style.width = detailWidth === null ? '' : `${Math.min(detailWidth, detailMaxWidth())}px`;
+  const width = detailPaired() ? pairWidth : detailWidth;
+
+  panel.style.width = width === null ? '' : `${Math.min(width, detailMaxWidth())}px`;
 }
 
 /** Size the panel from its own edge, and tell the extension so the next one opens the same width. */
 /** Report the panel's width the way a window splitter must, so arrow keys have audible effect. */
 function gripValue(grip, panel) {
-  grip.setAttribute('aria-valuemin', String(DETAIL_MIN_WIDTH));
+  grip.setAttribute('aria-valuemin', String(detailMinWidth()));
   grip.setAttribute('aria-valuemax', String(Math.round(detailMaxWidth())));
   grip.setAttribute('aria-valuenow', String(Math.round(panel.getBoundingClientRect().width)));
 }
@@ -2182,12 +2200,19 @@ function detailGrip(panel) {
   gripValue(grip, panel);
 
   const resize = (width) => {
-    detailWidth = Math.max(DETAIL_MIN_WIDTH, Math.min(Math.round(width), detailMaxWidth()));
+    const next = Math.max(detailMinWidth(), Math.min(Math.round(width), detailMaxWidth()));
+
+    if (detailPaired()) {
+      pairWidth = next;
+    } else {
+      detailWidth = next;
+    }
+
     applyDetailWidth(panel);
     gripValue(grip, panel);
   };
 
-  const save = () => vscode.postMessage({ type: 'setDetailWidth', width: detailWidth });
+  const save = () => vscode.postMessage({ type: 'setDetailWidth', width: detailPaired() ? pairWidth : detailWidth, paired: detailPaired() });
 
   grip.addEventListener('pointerdown', (event) => {
     // Capture so a fast drag that leaves the grip keeps sizing, and stop the text selection a drag would start.
@@ -2245,8 +2270,6 @@ function detailPanel() {
   panel.id = 'detail';
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
-  panel.setAttribute('aria-label', 'Conversation');
-  applyDetailWidth(panel);
 
   document.body.append(scrim, panel);
   // `aria-modal` claims nothing outside the panel exists, so everything outside it is held out of pointer and keyboard.
@@ -2284,22 +2307,51 @@ function closeDetail() {
   (opener?.isConnected === true ? opener : lanesEl).focus();
 }
 
-/** Ask the hub for one conversation and show the panel in its loading state. */
+/**
+ * Ask the hub for each conversation and show the panel in its loading state. A pull request opens beside its issue
+ * when pairing is on; the issue control opens the issue alone either way.
+ */
 function openDetail(boardCard, subject, opener) {
-  detailFor = { key: boardCard.key, subject, opener: opener ?? null };
-  detailState = { loading: true, detail: null, failure: null };
+  const subjects = subject === 'pull-request' && pairing ? ['issue', 'pull-request'] : [subject];
+
+  detailFor = { key: boardCard.key, subjects, opener: opener ?? null };
+  detailState = Object.fromEntries(subjects.map((one) => [one, { loading: true, detail: null, failure: null }]));
   paintDetail(true);
-  vscode.postMessage({ type: 'readDetail', key: boardCard.key, subject });
+
+  for (const one of subjects) {
+    vscode.postMessage({ type: 'readDetail', key: boardCard.key, subject: one });
+  }
 }
 
 /** Ignore answers for a card or subject the panel is no longer showing; requests can overtake each other. */
 function detailAnswered(message) {
-  if (detailFor === null || message.key !== detailFor.key || message.subject !== detailFor.subject) {
+  if (detailFor === null || message.key !== detailFor.key || !detailFor.subjects.includes(message.subject)) {
     return;
   }
 
-  detailState = { loading: false, detail: message.detail, failure: message.failure };
-  paintDetail(false);
+  detailState[message.subject] = { loading: false, detail: message.detail, failure: message.failure };
+
+  // In a pair the answers land apart, so only the answered pane is redrawn: the other keeps its scroll and focus.
+  const stale = detailPaired() ? document.querySelectorAll('#detail .detail-scroll')[detailFor.subjects.indexOf(message.subject)] : undefined;
+
+  if (stale === undefined) {
+    paintDetail(false);
+
+    return;
+  }
+
+  const held = document.activeElement;
+  const inside = held !== null && stale.contains(held);
+  const fresh = detailPane(message.subject, detailState[message.subject], true);
+
+  stale.replaceWith(fresh);
+
+  if (inside) {
+    const name = held.getAttribute('aria-label') ?? '';
+    const wanted = held.className.split(' ')[0] ?? '';
+
+    (fresh.querySelector(`.${wanted}[aria-label="${name}"]`) ?? fresh.querySelector('.detail-close')).focus();
+  }
 }
 
 /** Octicon outlines GitHub draws in a conversation, from @primer/octicons 19.15.1 at 16px. */
@@ -3171,30 +3223,55 @@ function paintDetail(opening) {
   }
 
   const panel = detailPanel();
-  const { loading, detail, failure } = detailState;
+  const paired = detailPaired();
   // Whether the reader was inside the panel must be read before the repaint detaches whatever held focus.
   const held = document.activeElement;
   const inside = held !== null && (held === document.body || panel.contains(held));
 
+  // A pair lays its two panes side by side and is sized as a pair; the same panel can go from one to the other.
+  panel.toggleAttribute('data-paired', paired);
+  panel.setAttribute('aria-label', paired ? 'Issue and pull request' : 'Conversation');
+  applyDetailWidth(panel);
   panel.replaceChildren(detailGrip(panel));
 
-  const { head, row } = detailHeader(detail, detailFor.subject, loading);
+  for (const subject of detailFor.subjects) {
+    panel.appendChild(detailPane(subject, detailState[subject], paired));
+  }
 
-  const actions = detailActions(detail);
-  const close = /** @type {HTMLButtonElement} */ (actions.querySelector('.detail-close'));
-  row.appendChild(actions);
+  const close = /** @type {HTMLButtonElement} */ (panel.querySelector('.detail-close'));
 
-  // The whole panel scrolls, header included, so the header can give way to the collapsed bar.
+  // Every paint replaces the panel's children, so focus that was inside it goes back to the same control: the one
+  // with the same name where controls share a class, else the first of its class.
+  if (opening || inside) {
+    const name = held?.getAttribute('aria-label') ?? null;
+    const wanted = (held?.className ?? '').split(' ')[0] ?? '';
+    const named = name === null ? null : panel.querySelector(`.${wanted}[aria-label="${name}"]`);
+
+    (named ?? panel.querySelector(`.${wanted === '' ? 'detail-close' : wanted}`) ?? close).focus();
+  }
+}
+
+/**
+ * One conversation: its page header, the bar that stands in for it once scrolled, and the timeline, in a region
+ * that scrolls on its own. Beside another it is named for its subject, so the two regions read apart.
+ */
+function detailPane(subject, state, paired) {
+  const { loading, detail, failure } = state;
+  const { head, row } = detailHeader(detail, subject, loading);
+
+  row.appendChild(detailActions(detail));
+
+  // The whole pane scrolls, header included, so the header can give way to the collapsed bar.
   const body = document.createElement('div');
   body.className = 'detail-scroll';
   // A conversation with no links has nothing else to focus, so the scrolling region takes the keyboard itself.
   body.tabIndex = 0;
   body.setAttribute('role', 'region');
-  setAccessibleName(body, 'Conversation');
+  setAccessibleName(body, paired ? (subject === 'issue' ? 'Issue' : 'Pull request') : 'Conversation');
   body.appendChild(head);
 
   if (detail) {
-    const sticky = detailStickyBar(detail, detailFor.subject);
+    const sticky = detailStickyBar(detail, subject);
 
     body.appendChild(sticky);
     body.addEventListener('scroll', () => stickDetailBar(body, head, sticky), { passive: true });
@@ -3247,17 +3324,7 @@ function paintDetail(opening) {
     }
   }
 
-  panel.appendChild(body);
-
-  // Every paint replaces the panel's children, so focus that was inside it goes back to the same control: the one
-  // with the same name where controls share a class, else the first of its class.
-  if (opening || inside) {
-    const name = held?.getAttribute('aria-label') ?? null;
-    const wanted = (held?.className ?? '').split(' ')[0] ?? '';
-    const named = name === null ? null : panel.querySelector(`.${wanted}[aria-label="${name}"]`);
-
-    (named ?? panel.querySelector(`.${wanted === '' ? 'detail-close' : wanted}`) ?? close).focus();
-  }
+  return body;
 }
 
 /** Whether card controls read a conversation here; off sends them to the browser, as they went before (R43). */
@@ -3485,7 +3552,9 @@ window.addEventListener('message', (event) => {
 
   if (message.type === 'reading') {
     reading = message.enabled !== false;
+    pairing = message.paired === true;
     detailWidth = typeof message.width === 'number' ? message.width : null;
+    pairWidth = typeof message.pairWidth === 'number' ? message.pairWidth : null;
 
     // A board turned off while a conversation is open closes it; the setting is what says it should not be there.
     if (!reading) {

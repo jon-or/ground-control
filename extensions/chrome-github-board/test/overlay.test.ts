@@ -310,7 +310,7 @@ describe('swapping the assignee for the pull request author', () => {
 
   /** The browser preference is the developer's; GitHub's own figure, role and caption come back when it is off. */
   it('restores the assignee figure when replacement is turned off, and never replaces while it stays off', () => {
-    const presentation = { animations: true, replaceAvatars: false, cardRows: true };
+    const presentation = { animations: true, replaceAvatars: false, cardRows: true, pairConversations: false };
 
     paint(document, state({ snapshot: laneOf(actorCard(4501, AUTHOR)) }), NOW, actions);
     expect(document.querySelector('.gc-actor')).not.toBeNull();
@@ -335,7 +335,7 @@ describe('swapping the assignee for the pull request author', () => {
     paint(document, shown, NOW, actions);
     expect(document.querySelector('.gc-badge')).not.toBeNull();
 
-    const off = paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false });
+    const off = paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false, pairConversations: false });
     const stack = assigneeStackOf(cardElement(4501))!;
 
     expect(document.querySelector('.gc-badge')).toBeNull();
@@ -361,7 +361,7 @@ describe('swapping the assignee for the pull request author', () => {
 
     expect(hidden).toBeGreaterThan(0);
 
-    paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false });
+    paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false, pairConversations: false });
 
     expect(document.getElementById('gc-menu')).not.toBeNull();
     expect(document.getElementById('gc-log')).not.toBeNull();
@@ -371,17 +371,17 @@ describe('swapping the assignee for the pull request author', () => {
   it('draws the rows again when they are turned back on', () => {
     const shown = state({ snapshot: laneOf(actorCard(4501, AUTHOR)) });
 
-    paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false });
+    paint(document, shown, NOW, actions, { animations: true, replaceAvatars: true, cardRows: false, pairConversations: false });
 
     expect(paint(document, shown, NOW, actions)).toEqual({ scanned: 3, badges: 1, menu: true });
     expect(document.querySelector('.gc-badge')).not.toBeNull();
   });
 
   it('marks the page for reduced motion while the preference is off and clears it when it returns', () => {
-    paint(document, state(), NOW, actions, { animations: false, replaceAvatars: true, cardRows: true });
+    paint(document, state(), NOW, actions, { animations: false, replaceAvatars: true, cardRows: true, pairConversations: false });
     expect(document.documentElement.getAttribute('data-gc-motion')).toBe('reduced');
 
-    paint(document, state(), NOW, actions, { animations: true, replaceAvatars: true, cardRows: true });
+    paint(document, state(), NOW, actions, { animations: true, replaceAvatars: true, cardRows: true, pairConversations: false });
     expect(document.documentElement.hasAttribute('data-gc-motion')).toBe(false);
   });
 
@@ -1341,7 +1341,7 @@ describe('the menu in the board’s own filter bar', () => {
     shown.click();
     expect(actions.showCardRows).toHaveBeenCalledWith(false);
 
-    paint(document, state(), NOW, actions, { animations: true, replaceAvatars: true, cardRows: false });
+    paint(document, state(), NOW, actions, { animations: true, replaceAvatars: true, cardRows: false, pairConversations: false });
 
     const hidden = items()[0]!;
 
@@ -2514,6 +2514,7 @@ describe('card attention', () => {
       animations: true,
       replaceAvatars: true,
       cardRows: false,
+      pairConversations: false,
     });
 
     expect(document.querySelector('.gc-returned')).toBeNull();

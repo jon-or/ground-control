@@ -12,7 +12,7 @@
     "type": "module"
   },
   "declarative_net_request": {
-    "rule_resources": [{ "id": "pull-frames", "enabled": true, "path": "rules.json" }]
+    "rule_resources": [{ "id": "conversation-frames", "enabled": true, "path": "rules.json" }]
   },
   "content_scripts": [
     {

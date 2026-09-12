@@ -10,8 +10,8 @@
       ]
     },
     "condition": {
-      "regexFilter": "^https://github\\.com/[^/]+/[^/]+/pull/\\d+([/?#]|$)",
-      "resourceTypes": ["sub_frame"],
+      "regexFilter": "^https://github\\.com/[^/]+/[^/]+/(pull|issues)/\\d+([/?#]|$)",
+      "resourceTypes": ["sub_frame", "xmlhttprequest"],
       "initiatorDomains": ["github.com"]
     }
   }

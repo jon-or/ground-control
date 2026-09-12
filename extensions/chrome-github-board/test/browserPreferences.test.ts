@@ -247,7 +247,7 @@ it('stores the card-row choice from its menu, keeping the rest of the preference
 
   await expect.poll(() => board.locator('.gc-badge').count()).toBe(0);
   expect(await worker.evaluate('chrome.storage.local.get("preferences").then(held => held.preferences)'))
-    .toEqual({ enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: false });
+    .toEqual({ enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: false, pairConversations: false });
 
   // The menu stands while the rows are gone, which is what makes the choice reversible from the page.
   await shown(board, true);
@@ -277,13 +277,15 @@ it('saves accessible options, rejects invalid URLs, and preserves disabled start
   expect(await settings.getByLabel(/Replace assignee avatars/).isChecked()).toBe(true);
   expect(await settings.getByLabel(/Run only on boards filtered to my issues/).isChecked()).toBe(true);
   expect(await settings.getByLabel(/Add triage and session rows to issue cards/).isChecked()).toBe(true);
+  expect(await settings.getByLabel(/Show the issue on the left and the pull request on the right/).isChecked()).toBe(false);
   await settings.getByLabel(/Replace assignee avatars/).uncheck();
   await settings.getByLabel(/Run only on boards filtered to my issues/).uncheck();
+  await settings.getByLabel(/Show the issue on the left and the pull request on the right/).check();
   await settings.getByLabel('Enable overlay', { exact: true }).uncheck();
   await settings.getByRole('button', { name: 'Save', exact: true }).click();
   await shown(board, false);
   expect(await worker.evaluate('chrome.storage.local.get("preferences").then(held => held.preferences)'))
-    .toEqual({ enabled: false, projects: [BOARD], animations: true, replaceAvatars: false, filteredToMe: false, cardRows: true });
+    .toEqual({ enabled: false, projects: [BOARD], animations: true, replaceAvatars: false, filteredToMe: false, cardRows: true, pairConversations: true });
 
   await context.close();
   await launch();

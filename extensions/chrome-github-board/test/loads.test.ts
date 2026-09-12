@@ -51,6 +51,17 @@ const PULL_PAGE = `<!doctype html><title>Fix the quote email · Pull Request #46
 <a id="author" href="/colleague">colleague</a></main>
 <footer class="footer">footer</footer>`;
 
+/**
+ * The issue a pair frames beside the pull request, served the same way. It is the second card's issue, so the
+ * first card's issue address stays free for the test that proves the overlay leaves other pages alone.
+ */
+const PAIRED_ISSUE_PATH = '/example-org/example-repo/issues/4502';
+const PAIRED_ISSUE_URL = `https://github.com${PAIRED_ISSUE_PATH}`;
+const ISSUE_PAGE = `<!doctype html><title>Calendar feed counts archived records twice · Issue #4502</title>
+<div class="js-header-wrapper"><header class="AppHeader">site</header></div>
+<main><h1>Calendar feed counts archived records twice</h1></main>
+<footer class="footer">footer</footer>`;
+
 /** What GitHub sends with a pull request page, header for header (mechanics M58). */
 const REFUSAL = { 'x-frame-options': 'deny', 'content-security-policy': "frame-ancestors 'none'" };
 
@@ -65,6 +76,9 @@ function pullRequestServer(): Server {
       if (request.url === PULL_PATH || request.url === `${PULL_PATH}/files`) {
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...REFUSAL });
         response.end(PULL_PAGE);
+      } else if (request.url === PAIRED_ISSUE_PATH) {
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...REFUSAL });
+        response.end(ISSUE_PAGE);
       } else {
         response.writeHead(404, { 'content-type': 'text/plain' });
         response.end('not served');
@@ -84,19 +98,20 @@ function manifest(where: string): Manifest {
 describe('what the extension asks Chrome for', () => {
   const shipped = manifest(EXTENSION);
 
-  it('asks for the bridge, the alarm, its own storage, and the header rule that lets a pull request into its frame', () => {
+  it('asks for the bridge, the alarm, its own storage, and the header rule that lets a conversation page into its frame', () => {
     expect(shipped.permissions).toEqual(['nativeMessaging', 'alarms', 'storage', 'declarativeNetRequest']);
     // The header rule needs the host; nothing else does, and the worker still makes no request of its own.
     expect(shipped.host_permissions).toEqual(['https://github.com/*']);
-    expect(shipped.declarative_net_request.rule_resources).toEqual([{ id: 'pull-frames', enabled: true, path: 'rules.json' }]);
+    expect(shipped.declarative_net_request.rule_resources).toEqual([{ id: 'conversation-frames', enabled: true, path: 'rules.json' }]);
   });
 
   /**
    * The rule takes GitHub's framing refusal off a response, and with it the page's whole content security policy:
-   * Chrome can drop a header, not one directive of it. That is why the rule reaches only a pull request page,
-   * only as a frame, and only one a github.com page asked for — never a frame some other site embeds.
+   * Chrome can drop a header, not one directive of it. That is why the rule reaches only a pull request or issue
+   * page, only as a frame or as the fetch GitHub's own service worker makes for one, and only one a github.com page
+   * asked for — never a frame some other site embeds.
    */
-  it('strips the framing refusal from pull request frames alone', () => {
+  it('strips the framing refusal from pull request and issue frames alone', () => {
     const rules = JSON.parse(readFileSync(join(EXTENSION, 'rules.json'), 'utf8')) as HeaderRule[];
 
     expect(rules).toHaveLength(1);
@@ -108,7 +123,8 @@ describe('what the extension asks Chrome for', () => {
       { header: 'x-frame-options', operation: 'remove' },
       { header: 'content-security-policy', operation: 'remove' },
     ]);
-    expect(rule?.condition.resourceTypes).toEqual(['sub_frame']);
+    // `xmlhttprequest` is GitHub's service worker fetching a page for a frame while the developer is logged in (M58).
+    expect(rule?.condition.resourceTypes).toEqual(['sub_frame', 'xmlhttprequest']);
     expect(rule?.condition.initiatorDomains).toEqual(['github.com']);
 
     const pattern = new RegExp(rule?.condition.regexFilter ?? '');
@@ -116,7 +132,9 @@ describe('what the extension asks Chrome for', () => {
     expect(pattern.test(PULL_URL)).toBe(true);
     expect(pattern.test(`${PULL_URL}/files`)).toBe(true);
     expect(pattern.test(`${PULL_URL}.diff`)).toBe(false);
-    expect(pattern.test('https://github.com/example-org/example-repo/issues/4601')).toBe(false);
+    expect(pattern.test(PAIRED_ISSUE_URL)).toBe(true);
+    expect(pattern.test(`${PAIRED_ISSUE_URL}#issuecomment-1`)).toBe(true);
+    expect(pattern.test('https://github.com/example-org/example-repo/issues')).toBe(false);
     expect(pattern.test('https://github.com/example-org/example-repo')).toBe(false);
     expect(pattern.test('https://github.com.example.test/o/r/pull/1')).toBe(false);
   });
@@ -196,8 +214,10 @@ describe('the overlay as Chrome loads it', () => {
       route.fulfill({ status: 200, contentType: 'text/html', body: BOARD }),
     );
 
-    // Registered after the board route, so Playwright checks it first: the pull request goes to the listener.
+    // Registered after the board route, so Playwright checks them first: the pull request and the paired issue go
+    // to the listener.
     await context.route(`${PULL_URL}**`, (route) => route.continue());
+    await context.route(`${PAIRED_ISSUE_URL}**`, (route) => route.continue());
 
     /*
      * Registered after the route above, which Playwright therefore checks first: this catches everything that one
@@ -468,6 +488,79 @@ describe('the overlay as Chrome loads it', () => {
     await page.frame({ name: 'gc-pull-panel' })!.locator('body').press('Escape');
     await expect.poll(() => page.locator('#gc-panel').count(), { timeout: 20_000 }).toBe(0);
     expect(await page.locator('[data-gc-issue]').count()).toBe(3);
+  });
+
+  /**
+   * The pair end to end: the same rule lets an issue page into a frame beside the pull request's, and the two frames
+   * hold two pages, each with its site chrome hidden. The preference is set from the worker, as the options page
+   * sets it, and taken back after, so the tests below open a single panel.
+   */
+  it("frames the card's issue beside its pull request when pairing is on", async () => {
+    const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
+    const page = await context.newPage();
+
+    await page.goto(BOARD_URL);
+    await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
+
+    await worker.evaluate(
+      'chrome.storage.local.set({ preferences: { enabled: true, projects: [], animations: true, replaceAvatars: true, filteredToMe: true, cardRows: true, pairConversations: true } })',
+    );
+
+    try {
+      await page.evaluate((url) => {
+        const link = document.createElement('a');
+
+        link.href = url;
+        link.target = '_blank';
+        link.textContent = '#4601';
+        document.querySelector('[data-board-card-id="24502"]')?.appendChild(link);
+      }, PULL_URL);
+
+      // The connection toast stands over the bottom of the board, where the appended link is; it is dismissed so the
+      // click reaches the link. The preference reaches the page through storage on its own schedule, so the click is
+      // retried until the pair opens.
+      await expect.poll(() => page.locator('#gc-toasts .gc-toast').count(), { timeout: 20_000 }).toBeGreaterThan(0);
+      await page.locator('#gc-toasts .gc-toast .gc-dismiss').first().click();
+      await expect
+        .poll(
+          async () => {
+            await page.locator('[data-board-card-id="24502"] a[href*="/pull/"]').click({ force: true });
+
+            return page.locator('#gc-panel[data-paired="true"] iframe').count();
+          },
+          { timeout: 20_000 },
+        )
+        .toBe(2);
+
+      await expect.poll(() => page.frame({ name: 'gc-issue-panel' })?.url(), { timeout: 20_000 }).toBe(PAIRED_ISSUE_URL);
+      await expect.poll(() => page.frame({ name: 'gc-pull-panel' })?.url(), { timeout: 20_000 }).toBe(PULL_URL);
+
+      const issue = page.frame({ name: 'gc-issue-panel' })!;
+      const pull = page.frame({ name: 'gc-pull-panel' })!;
+
+      await expect.poll(() => issue.locator('h1').count(), { timeout: 20_000 }).toBe(1);
+      await expect.poll(() => pull.locator('h1').count(), { timeout: 20_000 }).toBe(1);
+      expect(await page.locator('#gc-panel').getAttribute('aria-label')).toBe('Side panel: Issue #4502 and pull request: Fix the quote email');
+      expect(await issue.locator('header.AppHeader').evaluate((element) => getComputedStyle(element).display)).toBe('none');
+      expect(await page.locator('#gc-panel button[aria-label="Pin side panel"]').count()).toBe(0);
+
+      // The settled split is product behavior: the issue frame ends where the pull request frame starts, inside the
+      // one sheet, and the two are the same width.
+      const edges = await page.evaluate(() => {
+        const [left, right] = [...document.querySelectorAll('#gc-panel iframe')].map((frame) => frame.getBoundingClientRect());
+
+        return { leftRight: left?.right ?? Number.NaN, rightLeft: right?.left ?? Number.NaN, leftWidth: left?.width ?? Number.NaN, rightWidth: right?.width ?? Number.NaN };
+      });
+
+      // Within a pixel: the two share the row's width and land on subpixel edges.
+      expect(edges.leftRight).toBeLessThanOrEqual(edges.rightLeft + 1);
+      expect(Math.abs(edges.leftWidth - edges.rightWidth)).toBeLessThan(2);
+
+      await page.locator('#gc-panel button[aria-label="Close panel"]').click();
+      await expect.poll(() => page.locator('#gc-panel').count(), { timeout: 20_000 }).toBe(0);
+    } finally {
+      await worker.evaluate('chrome.storage.local.remove("preferences")');
+    }
   });
 
   /**

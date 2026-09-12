@@ -4069,7 +4069,7 @@ describe('the conversation panel', () => {
 
     // Dragging left widens a panel anchored to the right edge.
     expect(panel()!.style.width).toBe('700px');
-    expect(api.postMessage).toHaveBeenCalledWith({ type: 'setDetailWidth', width: 700 });
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'setDetailWidth', width: 700, paired: false });
   });
 
   it('refuses to be dragged narrower than it can be read', () => {
@@ -4098,15 +4098,15 @@ describe('the conversation panel', () => {
     expect(panel()!.style.width).toBe('640px');
     // Sizing is reported as it happens; the width is saved once the reader lets the key go, not on every repeat.
     expect(grip.getAttribute('aria-valuenow')).toBe('600');
-    expect(api.postMessage).not.toHaveBeenCalledWith({ type: 'setDetailWidth', width: 640 });
+    expect(api.postMessage).not.toHaveBeenCalledWith({ type: 'setDetailWidth', width: 640, paired: false });
 
     grip.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }));
 
-    expect(api.postMessage).toHaveBeenCalledWith({ type: 'setDetailWidth', width: 640 });
+    expect(api.postMessage).toHaveBeenCalledWith({ type: 'setDetailWidth', width: 640, paired: false });
   });
 
   it('opens the width the developer last dragged to', () => {
-    send({ type: 'reading', enabled: true, width: 720 } as BoardMessage);
+    send({ type: 'reading', enabled: true, width: 720, paired: false, pairWidth: null } as BoardMessage);
     openPanel();
 
     expect(panel()!.style.width).toBe('720px');
@@ -4128,13 +4128,13 @@ describe('the conversation panel', () => {
 
 describe('reading conversations turned off', () => {
   afterEach(() => {
-    send({ type: 'reading', enabled: true, width: null } as BoardMessage);
+    send({ type: 'reading', enabled: true, width: null, paired: false, pairWidth: null } as BoardMessage);
     document.getElementById('detail')?.remove();
     document.getElementById('detail-scrim')?.remove();
   });
 
   it('sends a card’s controls to the browser, as they went before the panel existed', () => {
-    send({ type: 'reading', enabled: false, width: null } as BoardMessage);
+    send({ type: 'reading', enabled: false, width: null, paired: false, pairWidth: null } as BoardMessage);
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
     document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
@@ -4147,7 +4147,7 @@ describe('reading conversations turned off', () => {
   });
 
   it('says what its controls do, so the name matches the click', () => {
-    send({ type: 'reading', enabled: false, width: null } as BoardMessage);
+    send({ type: 'reading', enabled: false, width: null, paired: false, pairWidth: null } as BoardMessage);
     send(message({ lanes: lanes({ build: [liveCard] }) }));
 
     expect(document.querySelector('.card-meta .number')!.getAttribute('aria-label')).toBe(
@@ -4163,10 +4163,182 @@ describe('reading conversations turned off', () => {
     document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
     expect(document.getElementById('detail')).not.toBeNull();
 
-    send({ type: 'reading', enabled: false, width: null } as BoardMessage);
+    send({ type: 'reading', enabled: false, width: null, paired: false, pairWidth: null } as BoardMessage);
 
     expect(document.getElementById('detail')).toBeNull();
     expect(document.getElementById('lanes')!.hasAttribute('inert')).toBe(false);
+  });
+});
+
+/**
+ * With pairing on, a card's pull-request control opens the pull request beside its issue: two reads, two panes that
+ * scroll apart, one width of the pair's own (R43). The issue control opens the issue alone either way.
+ */
+describe('an issue and pull request pair', () => {
+  function pulled(): ItemDetail {
+    return {
+      subject: 'pull-request',
+      number: 19403,
+      repository: 'example-org/example-repo',
+      title: 'Remediate the cache',
+      url: 'https://github.com/example-org/example-repo/pull/19403',
+      state: 'OPEN',
+      bodyHtml: '<p>A fix.</p>',
+      author: 'dev-1',
+      authorAvatarUrl: null,
+      createdAt: '2026-08-20T20:16:30Z',
+      editedAt: null,
+      reactions: [],
+      labels: [],
+      assignees: [],
+      milestone: null,
+      branches: { head: '18953-cache', base: 'master' },
+      draft: false,
+      reviewDecision: null,
+      checks: null,
+      events: [],
+      moreEvents: false,
+      moreThreads: false,
+      threads: [],
+    };
+  }
+
+  function pairing(width: number | null = null, pairWidth: number | null = null): void {
+    send({ type: 'reading', enabled: true, width, paired: true, pairWidth } as BoardMessage);
+  }
+
+  function openPair(): void {
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    document.querySelector<HTMLButtonElement>('.badges.github .badge.pull-request')!.click();
+  }
+
+  function panel(): HTMLElement {
+    return document.getElementById('detail')!;
+  }
+
+  function panes(): HTMLElement[] {
+    return Array.from(panel().querySelectorAll<HTMLElement>('.detail-scroll'));
+  }
+
+  function reads(): unknown[] {
+    return sent().filter((m) => (m as { type: string }).type === 'readDetail');
+  }
+
+  afterEach(() => {
+    send({ type: 'reading', enabled: true, width: null, paired: false, pairWidth: null } as BoardMessage);
+    document.getElementById('detail')?.remove();
+    document.getElementById('detail-scrim')?.remove();
+  });
+
+  it('asks for both conversations and draws the issue on the left and the pull request on the right', () => {
+    pairing();
+    openPair();
+
+    expect(reads()).toEqual([
+      { type: 'readDetail', key: 'issue:18953', subject: 'issue' },
+      { type: 'readDetail', key: 'issue:18953', subject: 'pull-request' },
+    ]);
+    expect(panel().hasAttribute('data-paired')).toBe(true);
+    expect(panel().getAttribute('aria-label')).toBe('Issue and pull request');
+    expect(panes().map((pane) => pane.getAttribute('aria-label'))).toEqual(['Issue', 'Pull request']);
+    expect(panes().map((pane) => pane.querySelector('.detail-title-text')!.textContent)).toEqual(['Reading…', 'Reading…']);
+
+    // Each answer lands in its own pane, so the pull request reads while the issue is still on its way.
+    send({ type: 'detail', key: 'issue:18953', subject: 'pull-request', detail: pulled(), failure: null } as BoardMessage);
+    expect(panes().map((pane) => pane.querySelector('.detail-title-text')!.textContent)).toEqual(['Reading…', 'Remediate the cache']);
+
+    send({
+      type: 'detail',
+      key: 'issue:18953',
+      subject: 'issue',
+      detail: { ...pulled(), subject: 'issue', number: 18953, title: 'Cache remediation', url: 'https://github.com/example-org/example-repo/issues/18953', branches: null },
+      failure: null,
+    } as BoardMessage);
+    expect(panes().map((pane) => pane.querySelector('.detail-title-text')!.textContent)).toEqual(['Cache remediation', 'Remediate the cache']);
+
+    // Two scrolling regions, so one can be read to the end while the other stays where it was.
+    expect(panes().every((pane) => pane.getAttribute('role') === 'region' && pane.tabIndex === 0)).toBe(true);
+  });
+
+  it('redraws only the pane an answer is for, so the other keeps its scroll and its focus', () => {
+    pairing();
+    openPair();
+    send({ type: 'detail', key: 'issue:18953', subject: 'pull-request', detail: pulled(), failure: null } as BoardMessage);
+
+    const right = panes()[1]!;
+    const close = right.querySelector<HTMLButtonElement>('.detail-close')!;
+
+    right.scrollTop = 300;
+    close.focus();
+
+    send({ type: 'detail', key: 'issue:18953', subject: 'issue', detail: { ...pulled(), subject: 'issue', number: 18953, title: 'Cache remediation' }, failure: null } as BoardMessage);
+
+    expect(panes()[1]).toBe(right);
+    expect(right.scrollTop).toBe(300);
+    expect(document.activeElement).toBe(close);
+    expect(panes()[0]!.querySelector('.detail-title-text')!.textContent).toBe('Cache remediation');
+
+    // Focus held in the answered pane comes back to the same control of its replacement.
+    panes()[0]!.querySelector<HTMLButtonElement>('[aria-label="Copy link"]')!.focus();
+    send({ type: 'detail', key: 'issue:18953', subject: 'issue', detail: { ...pulled(), subject: 'issue', number: 18953, title: 'Cache remediation, again' }, failure: null } as BoardMessage);
+    expect(panes()[0]!.querySelector('.detail-title-text')!.textContent).toBe('Cache remediation, again');
+    expect(document.activeElement).toBe(panes()[0]!.querySelector('[aria-label="Copy link"]'));
+  });
+
+  it('opens the issue alone from the issue control, with pairing on', () => {
+    pairing();
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+
+    expect(reads()).toEqual([{ type: 'readDetail', key: 'issue:18953', subject: 'issue' }]);
+    expect(panel().hasAttribute('data-paired')).toBe(false);
+    expect(panes().map((pane) => pane.getAttribute('aria-label'))).toEqual(['Conversation']);
+  });
+
+  it('opens the pull request alone with pairing off', () => {
+    openPair();
+
+    expect(reads()).toEqual([{ type: 'readDetail', key: 'issue:18953', subject: 'pull-request' }]);
+    expect(panel().hasAttribute('data-paired')).toBe(false);
+  });
+
+  it('sizes the pair from its own edge at a floor of two readable panes, and reports the width as the pair\'s', () => {
+    pairing();
+    openPair();
+
+    const grip = panel().querySelector<HTMLElement>('.detail-grip')!;
+
+    expect(grip.getAttribute('aria-valuemin')).toBe('720');
+
+    panel().getBoundingClientRect = () => ({ width: 900 }) as DOMRect;
+    grip.setPointerCapture = () => {};
+    grip.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100 }));
+    grip.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 9000 }));
+    expect(panel().style.width).toBe('720px');
+
+    grip.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 50 }));
+    grip.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 50 }));
+    expect(panel().style.width).toBe('950px');
+    expect(api.postMessage).toHaveBeenLastCalledWith({ type: 'setDetailWidth', width: 950, paired: true });
+  });
+
+  it('opens the pair at its own remembered width, apart from the single panel\'s', () => {
+    pairing(500, 900);
+    openPair();
+    expect(panel().style.width).toBe('900px');
+
+    document.querySelector<HTMLButtonElement>('.detail-close')!.click();
+    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+    expect(panel().style.width).toBe('500px');
+  });
+
+  it('ignores an answer for a subject the pair is not showing', () => {
+    pairing();
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    document.querySelector<HTMLButtonElement>('.card-meta .number')!.click();
+
+    send({ type: 'detail', key: 'issue:18953', subject: 'pull-request', detail: pulled(), failure: null } as BoardMessage);
+    expect(panes().map((pane) => pane.querySelector('.detail-title-text')!.textContent)).toEqual(['Reading…']);
   });
 });
 

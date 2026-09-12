@@ -14,3 +14,4 @@ coverage/
 .vscode-test/
 test-results/
 .playwright-mcp/
+extensions/chrome-github-board/_metadata/

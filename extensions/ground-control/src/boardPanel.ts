@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { agentOfSession, basename, sessionOf } from '@ground-control/core';
 import { readableLink } from '@ground-control/core';
 import type { BoardMessage, CardCheckout, ClientMessage, DetailSubject, LaneId, Snapshot } from '@ground-control/core';
-import { SECTION, readConversations, userDirOf } from './config.js';
+import { SECTION, pairConversations, readConversations, userDirOf } from './config.js';
 import { configureHub, runSetup, setupPending } from './setup.js';
 import { promptForLogins } from './identity.js';
 import { client } from './hubClient.js';
@@ -19,6 +19,9 @@ export const SHOW_ARCHIVED_KEY = 'groundControl.showArchived';
 
 /** Dragged conversation-panel width in pixels, retained across boards and windows. */
 export const DETAIL_WIDTH_KEY = 'groundControl.detailWidth';
+
+/** Dragged width of an issue and pull request pair in pixels, kept apart from the single panel's. */
+export const PAIR_WIDTH_KEY = 'groundControl.pairWidth';
 
 /** Allow a cold extension host to render before reporting script-start failure. */
 const BLANK_AFTER_MS = 10_000;
@@ -57,8 +60,8 @@ type Inbound =
   | { type: 'readDetail'; key: string; subject: DetailSubject }
   // A link inside rendered conversation HTML. Only http(s) is opened.
   | { type: 'openLink'; url: string }
-  // Panel width the developer dragged to, retained for the next conversation they open.
-  | { type: 'setDetailWidth'; width: number | null };
+  // Panel width the developer dragged to, retained for the next conversation, or pair, they open.
+  | { type: 'setDetailWidth'; width: number | null; paired: boolean };
 
 
 /** Name diff tabs by issue or checkout directory. Include the selected directory when sessions span checkouts. */
@@ -186,7 +189,7 @@ export class BoardPanel {
       this.#client.onDetail((message) => this.#post(message)),
       // A setting change reaches an open board without a reload, as the archive choice does.
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration(`${SECTION}.readConversations`)) {
+        if (event.affectsConfiguration(`${SECTION}.readConversations`) || event.affectsConfiguration(`${SECTION}.pairConversations`)) {
           this.#postReading();
         }
       }),
@@ -344,7 +347,10 @@ export class BoardPanel {
         return;
 
       case 'setDetailWidth':
-        void this.#memento.update(DETAIL_WIDTH_KEY, typeof msg.width === 'number' && msg.width > 0 ? Math.round(msg.width) : undefined);
+        void this.#memento.update(
+          msg.paired ? PAIR_WIDTH_KEY : DETAIL_WIDTH_KEY,
+          typeof msg.width === 'number' && msg.width > 0 ? Math.round(msg.width) : undefined,
+        );
 
         return;
 
@@ -452,9 +458,15 @@ export class BoardPanel {
       .find((card) => card.issue?.number === number)?.issue;
   }
 
-  /** Tell the webview whether to read a conversation on the board, and how wide the developer left the panel. */
+  /** Tell the webview whether to read a conversation on the board, whether to pair, and how wide the developer left each. */
   #postReading(): void {
-    this.#post({ type: 'reading', enabled: readConversations(), width: this.#memento.get<number>(DETAIL_WIDTH_KEY) ?? null });
+    this.#post({
+      type: 'reading',
+      enabled: readConversations(),
+      width: this.#memento.get<number>(DETAIL_WIDTH_KEY) ?? null,
+      paired: pairConversations(),
+      pairWidth: this.#memento.get<number>(PAIR_WIDTH_KEY) ?? null,
+    });
   }
 
   #openExternal(url: string | undefined): void {

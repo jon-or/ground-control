@@ -6,6 +6,7 @@ const animations = /** @type {HTMLInputElement} */ (document.getElementById('ani
 const replaceAvatars = /** @type {HTMLInputElement} */ (document.getElementById('replaceAvatars'));
 const filteredToMe = /** @type {HTMLInputElement} */ (document.getElementById('filteredToMe'));
 const cardRows = /** @type {HTMLInputElement} */ (document.getElementById('cardRows'));
+const pairConversations = /** @type {HTMLInputElement} */ (document.getElementById('pairConversations'));
 const projects = /** @type {HTMLTextAreaElement} */ (document.getElementById('projects'));
 const error = /** @type {HTMLElement} */ (document.getElementById('error'));
 const status = /** @type {HTMLElement} */ (document.getElementById('status'));
@@ -19,6 +20,7 @@ watchPreferences(chrome.storage, (state) => {
   replaceAvatars.checked = state.value?.replaceAvatars ?? true;
   filteredToMe.checked = state.value?.filteredToMe ?? true;
   cardRows.checked = state.value?.cardRows ?? true;
+  pairConversations.checked = state.value?.pairConversations ?? false;
   projects.value = state.value?.projects.join('\n') ?? '';
   error.textContent = state.error ?? '';
   status.textContent = state.error ? 'Overlay access is paused until preferences are corrected.' : '';
@@ -33,6 +35,7 @@ document.getElementById('preferences')?.addEventListener('submit', async (event)
     replaceAvatars: replaceAvatars.checked,
     filteredToMe: filteredToMe.checked,
     cardRows: cardRows.checked,
+    pairConversations: pairConversations.checked,
   });
   status.textContent = '';
   if (parsed.value === null) {

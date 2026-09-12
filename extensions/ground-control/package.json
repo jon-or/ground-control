@@ -165,6 +165,13 @@
             "order": 2,
             "markdownDescription": "Open an issue or pull request in a reading panel on the board. When off, its controls open GitHub in your browser, which Ctrl-click, or Cmd-click on macOS, does either way."
           },
+          "groundControl.pairConversations": {
+            "type": "boolean",
+            "scope": "application",
+            "default": false,
+            "order": 3,
+            "markdownDescription": "Show the issue on the left and the pull request on the right."
+          },
           "groundControl.statusLanes": {
             "type": "object",
             "scope": "application",

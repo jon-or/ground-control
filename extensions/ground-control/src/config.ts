@@ -195,6 +195,11 @@ export function readConversations(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('readConversations', true);
 }
 
+/** Whether a card's pull-request control opens the pull request beside its issue rather than alone (R43). */
+export function pairConversations(): boolean {
+  return vscode.workspace.getConfiguration(SECTION).get<boolean>('pairConversations', false);
+}
+
 /** Disabling session hooks removes existing hooks; skipping installation would leave them active (R34). */
 export function installSessionHooks(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('installSessionHooks', true);

@@ -77,7 +77,7 @@ const MOTION_ATTR = 'data-gc-motion';
 
 /** @typedef {import('./preferences.js').Presentation} Presentation */
 /** @type {Presentation} */
-const DEFAULT_PRESENTATION = { animations: true, replaceAvatars: true, cardRows: true };
+const DEFAULT_PRESENTATION = { animations: true, replaceAvatars: true, cardRows: true, pairConversations: false };
 
 /**
  * Store the timestamp for each displayed duration so one timer updates all ages. Both clients use the same
@@ -3199,7 +3199,7 @@ function keptBadge(element, card, sig, replaceAvatars = true) {
 export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTATION) {
   ensureStyle(doc);
   ensureTips(doc);
-  watchPulls(doc, CARD);
+  watchPulls(doc, CARD, presentation.pairConversations);
   dressIssuePanel(doc);
   repaintNow = actions.repaint;
   // Only a scheme an editor could have registered; anything else falls back to stable's.

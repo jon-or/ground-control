@@ -2,13 +2,14 @@
 /**
  * Read a card's pull request in a side panel over the board (R43). GitHub opens an issue in a panel of its own
  * and a pull request in a new tab; this panel frames the pull request page and is drawn as GitHub draws the
- * issue panel (mechanics M58). The frame loads only because `rules.json` strips the framing refusal from pull
- * request responses.
+ * issue panel (mechanics M58). With pairing on, the card's issue is framed beside it. The frames load only because
+ * `rules.json` strips the framing refusal from pull request and issue responses.
  */
 
 export const PANEL_ID = 'gc-panel';
-/** The frame's `name`, which is how a browser test addresses it. */
+/** The frames' `name`s, which are how a browser test addresses them. */
 const FRAME_NAME = 'gc-pull-panel';
+const ISSUE_FRAME_NAME = 'gc-issue-panel';
 /** Must match `overlay.js`, whose delegated handler draws the tooltip; importing it would be circular. */
 const TIP_ATTR = 'data-gc-tip';
 const CLOSE_DELAY = 200;
@@ -20,11 +21,14 @@ const TOP_OFFSET = 72;
 /** GitHub's own keys for its issue panel, shared so the two panels pin and dock as one (mechanics M58). */
 const PINNED_KEY = 'projects.sidePanelPinned';
 const PINNED_WIDTH_KEY = 'projects.sidePanelWidth';
-/** Browser-local: the floating width, which GitHub keeps none of. */
+/** Browser-local: the floating width, which GitHub keeps none of, and the width of an issue and pull request pair. */
 const WIDTH_KEY = 'ground-control:panel-width';
+const PAIR_WIDTH_KEY = 'ground-control:pair-width';
 
 /** Width bounds and the keyboard step, as the editor board's conversation panel has them; docked, GitHub's own 256px floor. */
 const MIN_WIDTH = 360;
+/** A pair holds two pages, so its floor is two readable frames. */
+const PAIR_MIN_WIDTH = 720;
 const PINNED_MIN_WIDTH = 256;
 const WIDTH_STEP = 40;
 /** What a docked panel leaves the board: GitHub's own panel floor. */
@@ -44,6 +48,7 @@ const ISSUE_PANE = '[data-component="PageLayout.Pane"][aria-label^="Side panel: 
 const ISSUE_CONTENT = '[class*="ContentWrapper-module__contentContainer"]';
 
 const PULL_URL = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)(?=[/?#]|$)/;
+const ISSUE_URL = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)(?=[/?#]|$)/;
 
 export const PANEL_CSS = `
 #${PANEL_ID} { position: fixed; inset: var(--gc-panel-top, ${TOP_OFFSET}px) 0 0 0; z-index: 100;
@@ -87,6 +92,15 @@ ${actionsCss(`#${PANEL_ID} `)}
 #${PANEL_ID} .gc-panel-frame { flex: 1 1 auto; width: 100%; border: 0; background: var(--bgColor-default, #ffffff);
   border-radius: 0 0 0 var(--borderRadius-large, 12px); }
 #${PANEL_ID}[data-pinned="true"] .gc-panel-frame { border-radius: 0; }
+/* A pair: the issue frame on the left, the pull request frame on the right, each scrolling on its own, at a width of its own.
+   It has no bar: the controls float at the top right over the pull request page, on GitHub's page colour, until its sticky header takes them. */
+#${PANEL_ID}[data-paired="true"] .gc-panel-sheet { width: var(--gc-panel-width, 95%); min-width: ${PAIR_MIN_WIDTH}px; }
+#${PANEL_ID}[data-paired="true"] .gc-panel-bar { position: absolute; top: 8px; right: 16px; height: auto; padding: 0; z-index: 2;
+  border-radius: 6px; background: var(--bgColor-default, #ffffff); }
+#${PANEL_ID}[data-paired="true"] .gc-panel-frames > :first-child { border-radius: var(--borderRadius-large, 12px) 0 0 var(--borderRadius-large, 12px); }
+#${PANEL_ID} .gc-panel-frames { flex: 1 1 auto; display: flex; min-height: 0; }
+#${PANEL_ID} .gc-panel-frames > * { flex: 1 1 0; min-width: 0; width: auto; }
+#${PANEL_ID} .gc-panel-frames > * + * { border-left: 1px solid var(--borderColor-default, #d1d9e0); border-radius: 0; }
 #${PANEL_ID} .gc-panel-refused { padding: 24px; }
 #${PANEL_ID} .gc-panel-refused a { color: var(--fgColor-accent, #0969da); }
 /* GitHub's issue panel lays its content in a 1280px column; a wider panel is for reading, not for margins. */
@@ -139,14 +153,14 @@ const OCTICONS = {
 };
 
 /**
- * @typedef {{ repo: string, number: number, url: string }} PullRef
- * @typedef {{ root: HTMLElement, pin: HTMLElement, trigger: Element, ref: PullRef, key: (event: KeyboardEvent) => void, inerted: Element[], pinned: boolean, report: () => void, replaced: string | null }} Open
+ * @typedef {{ repo: string, number: number, url: string }} PageRef
+ * @typedef {{ root: HTMLElement, pin: HTMLElement | null, trigger: Element, ref: PageRef, issue: PageRef | null, key: (event: KeyboardEvent) => void, inerted: Element[], pinned: boolean, report: () => void, replaced: string | null }} Open
  * @typedef {{ width: () => number, min: () => number, max: () => number, resize: (width: number) => void, done: () => void }} Sizing
  */
 
 /** @type {Open | null} */
 let open = null;
-/** @type {{ doc: Document, click: (event: MouseEvent) => void } | null} */
+/** @type {{ doc: Document, click: (event: MouseEvent) => void, paired: boolean } | null} */
 let watching = null;
 
 /**
@@ -154,23 +168,45 @@ let watching = null;
  * its comment.
  *
  * @param {string} href
- * @returns {PullRef | null}
+ * @returns {PageRef | null}
  */
 export function pullRefOf(href) {
-  const match = PULL_URL.exec(href);
+  return refOf(PULL_URL, href);
+}
+
+/**
+ * The issue a link names, or null for any other address.
+ *
+ * @param {string} href
+ * @returns {PageRef | null}
+ */
+export function issueRefOf(href) {
+  return refOf(ISSUE_URL, href);
+}
+
+/**
+ * @param {RegExp} pattern
+ * @param {string} href
+ * @returns {PageRef | null}
+ */
+function refOf(pattern, href) {
+  const match = pattern.exec(href);
 
   return match ? { repo: match[1] ?? '', number: Number(match[2]), url: href } : null;
 }
 
 /**
- * Open every pull request link inside a card in the panel. A modified or non-primary click is GitHub's to handle,
- * as it is on the editor board (R43).
+ * Open every pull request link inside a card in the panel, beside the card's issue when pairing is on. A modified
+ * or non-primary click is GitHub's to handle, as it is on the editor board (R43).
  *
  * @param {Document} doc
  * @param {string} within selector for the cards whose links are taken
+ * @param {boolean} [paired]
  */
-export function watchPulls(doc, within) {
+export function watchPulls(doc, within, paired = false) {
   if (watching?.doc === doc) {
+    watching.paired = paired;
+
     return;
   }
 
@@ -183,19 +219,43 @@ export function watchPulls(doc, within) {
     }
 
     const link = linkOf(event);
-    const ref = link === null || link.closest(within) === null ? null : pullRefOf(new URL(link.getAttribute('href') ?? '', doc.baseURI).href);
+    const card = link?.closest(within) ?? null;
 
-    if (link === null || ref === null) {
+    if (link === null || card === null) {
+      return;
+    }
+
+    const ref = pullRefOf(new URL(link.getAttribute('href') ?? '', doc.baseURI).href);
+
+    if (ref === null) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    openPanel(doc, ref, link);
+    openPanel(doc, ref, link, watching?.paired === true ? issueOf(card, doc) : null);
   };
 
   doc.addEventListener('click', click, true);
-  watching = { doc, click };
+  watching = { doc, click, paired };
+}
+
+/**
+ * The issue a card is for: the first issue link in it, which GitHub puts on the card's title.
+ *
+ * @param {Element} card
+ * @param {Document} doc
+ */
+function issueOf(card, doc) {
+  for (const link of card.querySelectorAll('a[href*="/issues/"]')) {
+    const ref = issueRefOf(new URL(link.getAttribute('href') ?? '', doc.baseURI).href);
+
+    if (ref !== null) {
+      return ref;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -272,6 +332,24 @@ function maxWidth(doc, pinned) {
   const window = doc.defaultView?.innerWidth ?? 0;
 
   return pinned ? Math.max(PINNED_MIN_WIDTH, window - BOARD_MIN_WIDTH) : Math.max(MIN_WIDTH, Math.round(window * 0.95));
+}
+
+/**
+ * A pair keeps a width of its own and never docks; a single panel keeps one floating and one docked.
+ *
+ * @param {boolean} paired
+ * @param {boolean} pinned
+ */
+function widthKey(paired, pinned) {
+  return paired ? PAIR_WIDTH_KEY : pinned ? PINNED_WIDTH_KEY : WIDTH_KEY;
+}
+
+/**
+ * @param {boolean} paired
+ * @param {boolean} pinned
+ */
+function minWidth(paired, pinned) {
+  return paired ? PAIR_MIN_WIDTH : pinned ? PINNED_MIN_WIDTH : MIN_WIDTH;
 }
 
 /**
@@ -572,15 +650,17 @@ function control(doc, tag, name, mark) {
  * Open the panel on a pull request, replacing one already open. Everything else in the page is `inert` while it is
  * open, as `aria-modal` says, so neither Tab nor the pointer reaches the board. Focus lands on the close control so
  * Escape works at once; it returns to the trigger on close. Each control acts on its own panel, since a closed one
- * stays in the page while it slides out.
+ * stays in the page while it slides out. Given the card's issue, the panel frames it on the left and the pull
+ * request on the right, at the pair's own width, and never docks.
  *
  * @param {Document} doc
- * @param {PullRef} ref
+ * @param {PageRef} ref
  * @param {Element} trigger
+ * @param {PageRef | null} [issue]
  */
-function openPanel(doc, ref, trigger) {
+function openPanel(doc, ref, trigger, issue = null) {
   if (open !== null) {
-    if (open.ref.url === ref.url) {
+    if (open.ref.url === ref.url && open.issue?.url === issue?.url) {
       return;
     }
 
@@ -596,7 +676,7 @@ function openPanel(doc, ref, trigger) {
   const link = doc.createElement('a');
   const actions = doc.createElement('div');
   const copy = control(doc, 'button', 'Copy link', 'copy');
-  const pin = control(doc, 'button', 'Pin side panel', 'pin');
+  const pin = issue === null ? control(doc, 'button', 'Pin side panel', 'pin') : null;
   const external = /** @type {HTMLAnchorElement} */ (control(doc, 'a', 'Open in new tab', 'link-external'));
   const close = control(doc, 'button', 'Close panel', 'x');
   const frame = doc.createElement('iframe');
@@ -604,9 +684,10 @@ function openPanel(doc, ref, trigger) {
 
   root.id = PANEL_ID;
   root.setAttribute('role', 'dialog');
-  root.setAttribute('aria-label', `Side panel: Pull request: ${ref.repo}#${ref.number}`);
+  root.setAttribute('aria-label', pairName(ref, issue, `${ref.repo}#${ref.number}`));
+  root.setAttribute('data-paired', String(issue !== null));
   root.style.setProperty('--gc-panel-top', `${topOffset(doc)}px`);
-  pin.addEventListener('click', () => mine() && setPinned(doc, !(/** @type {Open} */ (open).pinned)));
+  pin?.addEventListener('click', () => mine() && setPinned(doc, !(/** @type {Open} */ (open).pinned)));
 
   backdrop.className = 'gc-panel-backdrop';
   backdrop.addEventListener('click', () => mine() && !(/** @type {Open} */ (open).pinned) && closePanel());
@@ -632,8 +713,14 @@ function openPanel(doc, ref, trigger) {
     );
   });
   close.addEventListener('click', () => mine() && closePanel());
-  actions.append(copy, pin, external, close);
-  bar.append(link, actions);
+  actions.append(copy, ...(pin === null ? [] : [pin]), external, close);
+
+  // A pair's frames name their pages themselves, so its bar holds the controls alone.
+  if (issue === null) {
+    bar.appendChild(link);
+  }
+
+  bar.appendChild(actions);
   frame.className = 'gc-panel-frame';
   frame.name = FRAME_NAME;
   frame.title = `Pull request #${ref.number}`;
@@ -643,13 +730,28 @@ function openPanel(doc, ref, trigger) {
   const measure = () => sheet.getBoundingClientRect().width;
   const { handle, report } = grip(doc, {
     width: measure,
-    min: () => (open?.pinned === true ? PINNED_MIN_WIDTH : MIN_WIDTH),
+    min: () => minWidth(issue !== null, open?.pinned === true),
     max: () => maxWidth(doc, open?.pinned === true),
     resize: (next) => mine() && setWidth(doc, root, next),
-    done: () => mine() && store(doc, open?.pinned === true ? PINNED_WIDTH_KEY : WIDTH_KEY, String(Math.round(measure()))),
+    done: () => mine() && store(doc, widthKey(issue !== null, open?.pinned === true), String(Math.round(measure()))),
   });
 
-  sheet.append(handle, bar, frame);
+  if (issue === null) {
+    sheet.append(handle, bar, frame);
+  } else {
+    const frames = doc.createElement('div');
+    const issueFrame = doc.createElement('iframe');
+
+    frames.className = 'gc-panel-frames';
+    issueFrame.className = 'gc-panel-frame';
+    issueFrame.name = ISSUE_FRAME_NAME;
+    issueFrame.title = `Issue #${issue.number}`;
+    issueFrame.src = issue.url;
+    issueFrame.addEventListener('load', () => mine() && framed(doc, issueFrame, issue, issueRefOf, 'issue'));
+    frames.append(issueFrame, frame);
+    sheet.append(handle, bar, frames);
+  }
+
   root.append(backdrop, sheet);
 
   // Only a floating panel is modal: Escape leaves a docked one where it is, as it leaves GitHub's.
@@ -663,8 +765,8 @@ function openPanel(doc, ref, trigger) {
 
   doc.addEventListener('keydown', key, true);
   doc.body.appendChild(root);
-  open = { root, pin, trigger, ref, key, inerted: [], pinned: false, report, replaced };
-  setPinned(doc, pinnedByDefault(doc));
+  open = { root, pin, trigger, ref, issue, key, inerted: [], pinned: false, report, replaced };
+  setPinned(doc, issue === null && pinnedByDefault(doc));
   close.focus();
 
   // Laid out closed before it is marked open, or there is nothing for the slide to start from.
@@ -675,7 +777,7 @@ function openPanel(doc, ref, trigger) {
 /**
  * Dock the panel beside the board, or float it over the board again. Floating, the panel is modal and everything
  * else on the page is `inert`; docked, the board keeps the width the panel leaves it and stays live. The choice is
- * kept for the next panel, as GitHub keeps its own.
+ * kept for the next panel, as GitHub keeps its own. A pair only floats, and leaves the kept choice as it was.
  *
  * @param {Document} doc
  * @param {boolean} pinned
@@ -685,15 +787,18 @@ function setPinned(doc, pinned) {
     return;
   }
 
-  const { root, pin, inerted } = open;
+  const { root, pin, issue, inerted } = open;
 
   open.pinned = pinned;
   root.setAttribute('data-pinned', String(pinned));
   root.setAttribute('aria-modal', String(!pinned));
-  store(doc, PINNED_KEY, String(pinned));
-  pin.setAttribute('aria-label', pinned ? 'Unpin side panel' : 'Pin side panel');
-  pin.setAttribute(TIP_ATTR, pinned ? 'Unpin side panel' : 'Pin side panel');
-  pin.replaceChildren(octicon(doc, pinned ? 'pin-slash' : 'pin'));
+
+  if (pin !== null) {
+    store(doc, PINNED_KEY, String(pinned));
+    pin.setAttribute('aria-label', pinned ? 'Unpin side panel' : 'Pin side panel');
+    pin.setAttribute(TIP_ATTR, pinned ? 'Unpin side panel' : 'Pin side panel');
+    pin.replaceChildren(octicon(doc, pinned ? 'pin-slash' : 'pin'));
+  }
 
   for (const child of inerted) {
     child.removeAttribute('inert');
@@ -705,15 +810,13 @@ function setPinned(doc, pinned) {
     child.setAttribute('inert', '');
   }
 
-  const width = stored(doc, pinned ? PINNED_WIDTH_KEY : WIDTH_KEY);
-
-  setWidth(doc, root, width === null ? null : width);
+  setWidth(doc, root, stored(doc, widthKey(issue !== null, pinned)));
   open.report();
 }
 
 /**
  * Size the panel, and docked, leave the board the rest. Null is the stylesheet's own width: GitHub's `min(90%, 1280px)`
- * floating, and GitHub's 320px docked.
+ * floating, 95% for a pair, and GitHub's 320px docked.
  *
  * @param {Document} doc
  * @param {HTMLElement} root
@@ -721,7 +824,8 @@ function setPinned(doc, pinned) {
  */
 function setWidth(doc, root, width) {
   const pinned = root.getAttribute('data-pinned') === 'true';
-  const chosen = width === null ? (pinned ? 320 : null) : clamp(width, pinned ? PINNED_MIN_WIDTH : MIN_WIDTH, maxWidth(doc, pinned));
+  const paired = root.getAttribute('data-paired') === 'true';
+  const chosen = width === null ? (pinned ? 320 : null) : clamp(width, minWidth(paired, pinned), maxWidth(doc, pinned));
 
   root.style.setProperty('--gc-panel-width', chosen === null ? '' : `${chosen}px`);
   shrinkBoard(doc, pinned ? chosen : null);
@@ -742,17 +846,55 @@ function shrinkBoard(doc, width) {
 }
 
 /**
- * The frame has a document. Chrome answers a refused frame with its own error page, which this cannot read; the
- * panel says so rather than showing the browser's page.
+ * The panel's name: the pull request's, or the pair's, by the pull request's title once the page has one.
+ *
+ * @param {PageRef} ref
+ * @param {PageRef | null} issue
+ * @param {string} title
+ */
+function pairName(ref, issue, title) {
+  return issue === null ? `Side panel: Pull request: ${title}` : `Side panel: Issue #${issue.number} and pull request: ${title}`;
+}
+
+/**
+ * The pull request frame has a document: the bar comes back, the panel takes the page's name, and the page's sticky
+ * header takes the controls.
  *
  * @param {Document} doc
  * @param {HTMLElement} root
  * @param {HTMLIFrameElement} frame
- * @param {PullRef} ref
+ * @param {PageRef} ref
  * @param {HTMLElement} bar
  * @param {HTMLElement} actions
  */
 function loaded(doc, root, frame, ref, bar, actions) {
+  // A new document starts unscrolled, and the last one took the controls with it.
+  showBar(root, bar, actions);
+
+  const inner = framed(doc, frame, ref, pullRefOf, 'pull request');
+
+  if (inner === null) {
+    return;
+  }
+
+  const title = inner.querySelector('h1')?.textContent?.trim() ?? '';
+
+  root.setAttribute('aria-label', pairName(ref, open?.issue ?? null, title === '' ? `${ref.repo}#${ref.number}` : title));
+  follow(inner, root, bar, actions);
+}
+
+/**
+ * A frame has a document, which is returned once the page is in it. Chrome answers a refused frame with its own
+ * error page, which this cannot read; the panel says so rather than showing the browser's page. The frame's first
+ * document, before the page arrives, is blank.
+ *
+ * @param {Document} doc
+ * @param {HTMLIFrameElement} frame
+ * @param {PageRef} ref
+ * @param {(href: string) => PageRef | null} refOf what the frame may navigate within
+ * @param {string} what
+ */
+function framed(doc, frame, ref, refOf, what) {
   /** @type {Document | null} */
   let inner = null;
 
@@ -761,9 +903,6 @@ function loaded(doc, root, frame, ref, bar, actions) {
   } catch {
     inner = null;
   }
-
-  // A new document starts unscrolled, and the last one took the controls with it.
-  showBar(root, bar, actions);
 
   if (inner === null) {
     const refused = doc.createElement('p');
@@ -774,22 +913,19 @@ function loaded(doc, root, frame, ref, bar, actions) {
     link.target = '_blank';
     link.rel = 'noreferrer';
     link.textContent = 'open it in a new tab';
-    refused.append('GitHub refused to load this pull request in the panel; ', link, '.');
+    refused.append(`GitHub refused to load this ${what} in the panel; `, link, '.');
     frame.replaceWith(refused);
 
-    return;
+    return null;
   }
 
-  // The frame's first document, before the page arrives, is blank.
   if (!inner.location.href.startsWith('https://github.com/')) {
-    return;
+    return null;
   }
 
-  const title = inner.querySelector('h1')?.textContent?.trim() ?? '';
+  const root = frame.closest(`#${PANEL_ID}`);
 
-  root.setAttribute('aria-label', `Side panel: Pull request: ${title === '' ? `${ref.repo}#${ref.number}` : title}`);
   dress(inner);
-  follow(inner, root, bar, actions);
 
   // After the page's own handlers, so an Escape that closed a menu on the page does not close the panel too.
   inner.addEventListener('keydown', (event) => {
@@ -798,7 +934,7 @@ function loaded(doc, root, frame, ref, bar, actions) {
     }
   });
 
-  // Only this pull request's pages can load in the frame (`rules.json`); a link anywhere else opens a tab.
+  // Only this page's own pages can load in the frame (`rules.json`); a link anywhere else opens a tab.
   inner.addEventListener(
     'click',
     (event) => {
@@ -809,7 +945,7 @@ function loaded(doc, root, frame, ref, bar, actions) {
       }
 
       const target = new URL(link.getAttribute('href') ?? '', inner.location.href);
-      const same = pullRefOf(target.href);
+      const same = refOf(target.href);
 
       if (!target.protocol.startsWith('http') || (same !== null && same.repo === ref.repo && same.number === ref.number)) {
         return;
@@ -821,6 +957,8 @@ function loaded(doc, root, frame, ref, bar, actions) {
     },
     true,
   );
+
+  return inner;
 }
 
 /**
