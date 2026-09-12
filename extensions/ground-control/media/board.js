@@ -2382,6 +2382,9 @@ const OCTICONS = {
   'link-external': [
     'M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z',
   ],
+  copy: [
+    'M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z',
+  ],
 };
 
 function octicon(name) {
@@ -3057,6 +3060,111 @@ function detailHeader(detail, subject, loading) {
   return { head, row };
 }
 
+/**
+ * The panel's controls, as GitHub's own panel draws them: 32px icon buttons for Copy link, Open on GitHub, and Close.
+ * The page header and the collapsed bar each carry a set, since only one of the two is on screen at a time.
+ */
+function detailActions(detail) {
+  const actions = document.createElement('div');
+  actions.className = 'detail-actions';
+
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'detail-action';
+  copy.appendChild(octicon('copy'));
+  copy.disabled = detail === null;
+  setAccessibleName(copy, 'Copy link');
+  setTooltip(copy, 'Copy link');
+  let ticked = 0;
+  copy.addEventListener('click', () => {
+    // A refused write leaves the mark as it is.
+    void navigator.clipboard?.writeText(detail.url).then(
+      () => {
+        copy.replaceChildren(octicon('check'));
+        clearTimeout(ticked);
+        ticked = setTimeout(() => copy.replaceChildren(octicon('copy')), 2000);
+      },
+      () => {},
+    );
+  });
+
+  const external = document.createElement('button');
+  external.type = 'button';
+  external.className = 'detail-action';
+  external.appendChild(octicon('link-external'));
+  external.disabled = detail === null;
+  setAccessibleName(external, 'Open on GitHub');
+  setTooltip(external, 'Open on GitHub');
+  external.addEventListener('click', () => detail && vscode.postMessage({ type: 'openLink', url: detail.url }));
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'detail-close';
+  close.appendChild(octicon('x'));
+  setAccessibleName(close, 'Close conversation');
+  close.addEventListener('click', () => closeDetail());
+
+  actions.append(copy, external, close);
+
+  return actions;
+}
+
+/**
+ * The bar the page header collapses into once it has scrolled away, as GitHub's sticky header (mechanics M57): the
+ * state pill, the title at body size with its number, one small line of context, and the controls.
+ */
+function detailStickyBar(detail, subject) {
+  const sticky = document.createElement('div');
+  sticky.className = 'detail-sticky';
+  sticky.hidden = true;
+
+  const bar = document.createElement('div');
+  bar.className = 'detail-sticky-bar';
+
+  const status = detailStatus(detail, subject);
+  const state = document.createElement('span');
+  state.className = 'detail-state';
+  state.dataset.state = status.word.toLowerCase();
+  state.dataset.tone = status.tone;
+  state.append(octicon(status.icon), status.word);
+
+  const words = document.createElement('div');
+  words.className = 'detail-sticky-words';
+
+  const title = document.createElement('div');
+  title.className = 'detail-sticky-title';
+
+  const text = document.createElement('span');
+  text.className = 'detail-sticky-text';
+  text.textContent = detail.title;
+
+  const number = document.createElement('span');
+  number.className = 'detail-number';
+  number.textContent = `#${detail.number}`;
+  title.append(text, ' ', number);
+
+  const context = document.createElement('div');
+  context.className = 'detail-sticky-context';
+  context.appendChild(detailSummary(detail) ?? document.createTextNode(detail.repository));
+
+  words.append(title, context);
+  bar.append(state, words, detailActions(detail));
+  sticky.appendChild(bar);
+
+  return sticky;
+}
+
+/**
+ * The bar shows once the page header has scrolled out of the panel. The header's own controls leave the tab order
+ * while the bar's stand in for them, so the keyboard meets one set.
+ */
+function stickDetailBar(body, head, sticky) {
+  const shown = body.scrollTop >= head.offsetHeight;
+
+  sticky.hidden = !shown;
+  /** @type {HTMLElement} */ (head.querySelector('.detail-actions')).inert = shown;
+}
+
 function paintDetail(opening) {
   if (detailFor === null) {
     return;
@@ -3072,39 +3180,34 @@ function paintDetail(opening) {
 
   const { head, row } = detailHeader(detail, detailFor.subject, loading);
 
-  const actions = document.createElement('div');
-  actions.className = 'detail-actions';
-
-  const external = document.createElement('button');
-  external.type = 'button';
-  external.className = 'detail-action';
-  external.append(octicon('link-external'), 'Open on GitHub');
-  external.disabled = detail === null;
-  setTooltip(external, 'Open this conversation in your browser');
-  external.addEventListener('click', () => detail && vscode.postMessage({ type: 'openLink', url: detail.url }));
-
-  const close = document.createElement('button');
-  close.type = 'button';
-  close.className = 'detail-close';
-  close.appendChild(octicon('x'));
-  setAccessibleName(close, 'Close conversation');
-  close.addEventListener('click', () => closeDetail());
-
-  actions.append(external, close);
+  const actions = detailActions(detail);
+  const close = /** @type {HTMLButtonElement} */ (actions.querySelector('.detail-close'));
   row.appendChild(actions);
-  panel.appendChild(head);
 
+  // The whole panel scrolls, header included, so the header can give way to the collapsed bar.
   const body = document.createElement('div');
   body.className = 'detail-scroll';
   // A conversation with no links has nothing else to focus, so the scrolling region takes the keyboard itself.
   body.tabIndex = 0;
   body.setAttribute('role', 'region');
   setAccessibleName(body, 'Conversation');
+  body.appendChild(head);
+
+  if (detail) {
+    const sticky = detailStickyBar(detail, detailFor.subject);
+
+    body.appendChild(sticky);
+    body.addEventListener('scroll', () => stickDetailBar(body, head, sticky), { passive: true });
+  }
+
+  const content = document.createElement('div');
+  content.className = 'detail-content';
+  body.appendChild(content);
 
   if (loading) {
-    body.appendChild(detailNote('Reading the conversation…'));
+    content.appendChild(detailNote('Reading the conversation…'));
   } else if (failure !== null || detail === null) {
-    body.appendChild(detailNote(failure ?? 'That conversation could not be found.', true));
+    content.appendChild(detailNote(failure ?? 'That conversation could not be found.', true));
   } else {
     const timeline = document.createElement('div');
     timeline.className = 'detail-timeline';
@@ -3133,24 +3236,27 @@ function paintDetail(opening) {
     }
 
     timeline.appendChild(detailTimeline(detail.events, detail.subject));
-    body.appendChild(timeline);
+    content.appendChild(timeline);
 
     if (detail.threads.length > 0) {
-      body.appendChild(detailThreads(detail.threads));
+      content.appendChild(detailThreads(detail.threads));
     }
 
     if (detail.moreThreads) {
-      body.appendChild(detailNote('Some review threads are not shown. Open on GitHub to read them.'));
+      content.appendChild(detailNote('Some review threads are not shown. Open on GitHub to read them.'));
     }
   }
 
   panel.appendChild(body);
 
-  // Every paint replaces the panel's children, so focus that was inside it goes back to the same control.
+  // Every paint replaces the panel's children, so focus that was inside it goes back to the same control: the one
+  // with the same name where controls share a class, else the first of its class.
   if (opening || inside) {
+    const name = held?.getAttribute('aria-label') ?? null;
     const wanted = (held?.className ?? '').split(' ')[0] ?? '';
+    const named = name === null ? null : panel.querySelector(`.${wanted}[aria-label="${name}"]`);
 
-    (panel.querySelector(`.${wanted === '' ? 'detail-close' : wanted}`) ?? close).focus();
+    (named ?? panel.querySelector(`.${wanted === '' ? 'detail-close' : wanted}`) ?? close).focus();
   }
 }
 

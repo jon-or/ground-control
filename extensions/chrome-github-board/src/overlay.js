@@ -16,7 +16,7 @@
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
 
-import { PANEL_CSS, unwatchPulls, watchPulls } from './panel.js';
+import { PANEL_CSS, dressIssuePanel, unwatchPulls, watchPulls } from './panel.js';
 
 /** GitHub's board markup, as measured on 2026-09-04 (`mechanics.md` M27). Every other class on the page is hashed. */
 export const BOARD_REGION = '#project-items-region';
@@ -3200,6 +3200,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
   ensureStyle(doc);
   ensureTips(doc);
   watchPulls(doc, CARD);
+  dressIssuePanel(doc);
   repaintNow = actions.repaint;
   // Only a scheme an editor could have registered; anything else falls back to stable's.
   const reported = state.snapshot?.editor?.uriScheme ?? '';

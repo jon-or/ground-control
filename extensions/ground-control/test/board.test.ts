@@ -3733,7 +3733,7 @@ describe('the conversation panel', () => {
     // A facet that holds something is not drawn in the muted empty colour.
     expect(panel()!.querySelectorAll('.detail-facet-value[data-empty]')).toHaveLength(0);
     // The branches sit under the state pill, as GitHub draws them, with the head first.
-    expect(Array.from(panel()!.querySelectorAll('.detail-branch')).map((chip) => chip.textContent)).toEqual(['topic', 'main']);
+    expect(Array.from(panel()!.querySelectorAll('.detail-meta .detail-branch')).map((chip) => chip.textContent)).toEqual(['topic', 'main']);
     expect(panel()!.querySelector('.detail-summary')!.textContent).toBe('dev-1 wants to merge topic into main');
     expect(panel()!.querySelector('.detail-state')!.textContent).toBe('Open');
   });
@@ -3919,12 +3919,111 @@ describe('the conversation panel', () => {
     openPanel();
     answer();
 
-    panel()!.querySelector<HTMLButtonElement>('.detail-action')!.click();
+    panel()!.querySelector<HTMLButtonElement>('[aria-label="Open on GitHub"]')!.click();
 
     expect(api.postMessage).toHaveBeenCalledWith({
       type: 'openLink',
       url: 'https://github.com/example-org/example-repo/issues/18953',
     });
+  });
+
+  it('draws the controls as icons, copy link before open on GitHub, and copies the address to the clipboard', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    try {
+      openPanel();
+
+      const before = Array.from(panel()!.querySelector('.detail-title-row .detail-actions')!.children) as HTMLButtonElement[];
+
+      expect(before.map((el) => el.getAttribute('aria-label'))).toEqual(['Copy link', 'Open on GitHub', 'Close conversation']);
+      expect(before.map((el) => el.textContent)).toEqual(['', '', '']);
+      expect(before.map((el) => el.disabled)).toEqual([true, true, false]);
+
+      answer();
+
+      const copy = panel()!.querySelector<HTMLButtonElement>('[aria-label="Copy link"]')!;
+
+      expect(copy.disabled).toBe(false);
+
+      copy.click();
+      await Promise.resolve();
+
+      expect(writeText).toHaveBeenCalledWith('https://github.com/example-org/example-repo/issues/18953');
+      expect(copy.querySelector('svg')!.innerHTML).toContain('M13.78 4.22');
+
+      vi.advanceTimersByTime(2000);
+      expect(copy.querySelector('svg')!.innerHTML).toContain('M0 6.75');
+
+      // A refused write leaves the copy mark as it is.
+      writeText.mockImplementationOnce(() => Promise.reject(new Error('refused')));
+      copy.click();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(copy.querySelector('svg')!.innerHTML).toContain('M0 6.75');
+    } finally {
+      vi.useRealTimers();
+      Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    }
+  });
+
+  it('collapses the page header into a bar once it has scrolled out of the panel', () => {
+    openPanel();
+    answer({ title: 'Cached entity data never expires', number: 18956, repository: 'example-org/example-repo' });
+
+    const body = panel()!.querySelector<HTMLElement>('.detail-scroll')!;
+    const sticky = panel()!.querySelector<HTMLElement>('.detail-sticky')!;
+
+    expect(body.querySelector('header')).not.toBeNull();
+    expect(sticky.hidden).toBe(true);
+    expect(sticky.querySelector('.detail-sticky-title')!.textContent).toBe('Cached entity data never expires #18956');
+    expect(sticky.querySelector('.detail-sticky-context')!.textContent).toBe('example-org/example-repo');
+    expect(Array.from(sticky.querySelectorAll('.detail-actions > *')).map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Copy link',
+      'Open on GitHub',
+      'Close conversation',
+    ]);
+
+    // jsdom lays nothing out, so the header is given the height a browser would measure.
+    const head = body.querySelector<HTMLElement>('header')!;
+    const headActions = head.querySelector<HTMLElement>('.detail-actions')!;
+    Object.defineProperty(head, 'offsetHeight', { value: 150, configurable: true });
+
+    const scrollTo = (top: number) => {
+      body.scrollTop = top;
+      body.dispatchEvent(new Event('scroll'));
+    };
+
+    scrollTo(100);
+    expect(sticky.hidden).toBe(true);
+    expect(headActions.inert).toBe(false);
+
+    scrollTo(150);
+    expect(sticky.hidden).toBe(false);
+    // The header's controls have scrolled away but would still take Tab; the bar's stand in for them.
+    expect(headActions.inert).toBe(true);
+
+    scrollTo(100);
+    expect(sticky.hidden).toBe(true);
+    expect(headActions.inert).toBe(false);
+  });
+
+  it('puts focus back on the control of the same name, not the first of its class, after a repaint', () => {
+    openPanel();
+    answer();
+    panel()!.querySelector<HTMLButtonElement>('[aria-label="Open on GitHub"]')!.focus();
+    answer();
+
+    expect(document.activeElement).toBe(panel()!.querySelector('.detail-title-row [aria-label="Open on GitHub"]'));
+  });
+
+  it('names a pull request\'s branches on the collapsed bar', () => {
+    openPanel();
+    answer({ subject: 'pull-request', branches: { head: 'feature', base: 'master' }, author: 'dev-1' });
+
+    expect(panel()!.querySelector('.detail-sticky-context')!.textContent).toBe('dev-1 wants to merge feature into master');
   });
 
   it('closes on Escape, on the close control, and on a click outside it', () => {

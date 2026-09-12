@@ -1447,10 +1447,67 @@ body[data-motion='reduced'] #detail {
 
 /* Page header ------------------------------------------------------------- */
 
-#detail > header {
-  flex: none;
+#detail .detail-scroll > header {
   padding: 16px 24px;
   border-bottom: 1px solid var(--gh-border);
+}
+
+/*
+ * GitHub's sticky header: once the page header has scrolled away, a 56px bar with the state pill, the title at body
+ * size, one small line, and the controls. It takes no height of its own so showing it never shifts the conversation.
+ */
+.detail-sticky {
+  position: sticky;
+  top: 0;
+  height: 0;
+  z-index: 2;
+}
+
+.detail-sticky-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 24px;
+  background: var(--gh-bg);
+  border-bottom: 1px solid var(--gh-border);
+}
+
+.detail-sticky-words {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-sticky-title {
+  font-weight: 600;
+  line-height: 21px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail-sticky-title .detail-number {
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.detail-sticky-context {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--gh-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail-sticky-context .detail-branch {
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 4px;
 }
 
 .detail-repo {
@@ -1502,34 +1559,22 @@ body[data-motion='reduced'] #detail {
 .detail-actions {
   flex: none;
   display: flex;
-  gap: 8px;
+  gap: 4px;
 }
 
-/* GitHub's default button: 32px tall, on the muted ground, with the default border. */
+/* GitHub's panel controls: 32px icon buttons in the muted colour, tinted on hover. */
 .detail-action,
 .detail-close {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  place-items: center;
+  width: 32px;
   height: 32px;
-  padding: 0 12px;
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  color: var(--gh-fg);
-  background: var(--gh-bg-muted);
-  border: 1px solid var(--gh-border);
+  padding: 0;
+  color: var(--gh-fg-muted);
+  background: transparent;
+  border: 0;
   border-radius: 6px;
   cursor: pointer;
-}
-
-.detail-close {
-  width: 32px;
-  padding: 0;
-  justify-content: center;
-  color: var(--gh-fg-muted);
 }
 
 .detail-action:hover,
@@ -1538,8 +1583,7 @@ body[data-motion='reduced'] #detail {
 }
 
 .detail-action:disabled {
-  color: var(--gh-fg-muted);
-  background: var(--gh-bg-muted);
+  background: transparent;
   cursor: default;
 }
 
@@ -1686,9 +1730,13 @@ body.vscode-high-contrast .detail-label {
 /* Conversation ------------------------------------------------------------ */
 
 .detail-scroll {
+  position: relative;
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.detail-content {
   padding: 16px 24px 24px;
 }
 

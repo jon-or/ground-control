@@ -431,6 +431,28 @@ describe('the overlay as Chrome loads it', () => {
       expect(await framed.locator(chrome).evaluate((element) => getComputedStyle(element).display)).toBe('none');
     }
 
+    // Pinned, the panel is a pane beside the board rather than over it: the board ends where the panel starts.
+    await page.locator('#gc-panel button[aria-label="Pin side panel"]').click();
+
+    const edges = () =>
+      page.evaluate(() => ({
+        board: document.querySelector('#project-items-region')?.getBoundingClientRect().right ?? Number.NaN,
+        panel: document.querySelector('#gc-panel .gc-panel-sheet')?.getBoundingClientRect().left ?? Number.NaN,
+        backdrop: getComputedStyle(document.querySelector('#gc-panel .gc-panel-backdrop')!).display,
+      }));
+    const pinned = await edges();
+
+    expect(pinned.backdrop).toBe('none');
+    expect(pinned.board).toBeLessThanOrEqual(pinned.panel);
+    expect(pinned.panel).toBeLessThan((await page.viewportSize())!.width);
+
+    await page.locator('#gc-panel button[aria-label="Unpin side panel"]').click();
+
+    const floating = await edges();
+
+    expect(floating.backdrop).toBe('block');
+    expect(floating.board).toBeGreaterThan(floating.panel);
+
     // A page of the same pull request stays in the frame, under the same rule.
     await framed.locator('#files').click({ force: true });
     await expect.poll(() => page.frame({ name: 'gc-pull-panel' })?.url(), { timeout: 20_000 }).toBe(`${PULL_URL}/files`);
