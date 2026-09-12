@@ -152,9 +152,9 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
     return profileRead.then(() => config);
   }
 
-  /** The configured logins as the board shows them: a linked alias counts as its target (R28). */
+  /** The configured logins as the board shows them and as written: the overlay's filter gate names aliases too (R28, R36). */
   function ownersOf(config: GithubConfig): string[] {
-    return dedupeLogins(config.logins.map((login) => resolveLogin(config.linkedAccounts, config.profiles, login)));
+    return dedupeLogins([...config.logins.map((login) => resolveLogin(config.linkedAccounts, config.profiles, login)), ...config.logins]);
   }
 
   return {

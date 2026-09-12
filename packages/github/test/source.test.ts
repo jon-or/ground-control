@@ -291,8 +291,8 @@ describe('the GitHub work source with linked accounts', () => {
 
     release();
 
-    // The board read passes the profiles it waited for on to the fetch, and reports the owners as they resolve.
-    expect((await reading).items?.owners).toEqual(['dev-1']);
+    // The board read passes the profiles it waited for on to the fetch, and reports the owners as they resolve and as written.
+    expect((await reading).items?.owners).toEqual(['dev-1', 'dev-1-bot']);
     expect(asked[0]?.profiles.get('dev-1')?.profile).toEqual(PROFILE);
     expect(asked[0]?.linkedAccounts).toEqual({ 'dev-1-bot': 'dev-1', 'dev-1-agent': 'Dev-1', 'other-bot': 'dev-2' });
     await context;
@@ -341,7 +341,7 @@ describe('the GitHub work source with linked accounts', () => {
     await second;
   });
 
-  it('reports the configured logins as they resolve, so a bot named alone still names its developer', async () => {
+  it('reports the configured logins as they resolve and as written, so a board filtered to the bot still passes the gate', async () => {
     const { github, release } = linked();
 
     github.configure({ repo: 'example-org/example-repo', logins: ['dev-1-bot'], linkedAccounts: { 'dev-1-bot': 'dev-1' } });
@@ -349,7 +349,7 @@ describe('the GitHub work source with linked accounts', () => {
     const reading = github.read();
     release();
 
-    expect((await reading).items?.owners).toEqual(['dev-1']);
+    expect((await reading).items?.owners).toEqual(['dev-1', 'dev-1-bot']);
   });
 
   it('drops the links it cannot use and keeps the rest, rather than refusing the settings', () => {
