@@ -58,8 +58,8 @@ const REFUSAL = { 'x-frame-options': 'deny', 'content-security-policy': "frame-a
 function pullRequestServer(): Server {
   return createServer(
     {
-      key: readFileSync(join(__dirname, 'fixtures', 'github.com.key.pem')),
-      cert: readFileSync(join(__dirname, 'fixtures', 'github.com.crt.pem')),
+      key: readFileSync(join(__dirname, 'fixtures', 'github.com.key')),
+      cert: readFileSync(join(__dirname, 'fixtures', 'github.com.crt')),
     },
     (request, response) => {
       if (request.url === PULL_PATH || request.url === `${PULL_PATH}/files`) {
