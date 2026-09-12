@@ -1749,6 +1749,11 @@ function card(boardCard, avatarPool, placeable) {
     el.dataset.attention = boardCard.attention;
   }
 
+  // Attention retained from an ended session dims the border, as the ended session's mark is hollow (R6).
+  if (boardCard.retainedAttention) {
+    el.dataset.attentionRetained = 'true';
+  }
+
   if (boardCard.returned) {
     const mark = badge('returned', 'Returned', 'ORANGE');
     setTooltip(mark, 'This card returned to you.');
@@ -1899,6 +1904,7 @@ function signature(boardCard) {
     boardCard.lane,
     boardCard.returned,
     boardCard.attention,
+    boardCard.retainedAttention,
     boardCard.triage,
     board.triage?.canRequest,
     boardCard.action,

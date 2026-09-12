@@ -186,9 +186,9 @@ Both clients open the popup from the card. An icon in GitHub's own issue sidebar
 
 Attention uses the card border, a tint, and the responsible row's state mark. Failed is red, Needs you yellow, Your turn blue, and working a dashed green border. Working borders animate; reduced motion, from the system preference or the editor's `animations` setting, retains a static dashed border. Activity changes do not reorder cards.
 
-A failed row's state mark names the error kind in the agent's own vocabulary and carries the agent's text on hover, which for a limit includes the reset time the agent stated. Claude reports the failure through its `StopFailure` hook; Codex has no such hook, so the board reads the turn's terminal record from its rollout ([mechanics](mechanics.md#turns-that-end-on-an-error) M55). Retries before the failure are not shown as failed: the row stays working until the agent gives up.
+Attention retained from a session that has ended draws the same color at half strength, border and tint, matching the hollow state mark of the ended row; attention from a live session draws at full strength. Forced colors use `GrayText` for retained attention in place of `Highlight`.
 
-Implementation gap: the idle-attention branch does not exclude explicitly finished sessions. A finished session with idle activity can still produce Your turn outside Icebox and Archived. The intended rule is no session attention after an explicit finish.
+A failed row's state mark names the error kind in the agent's own vocabulary and carries the agent's text on hover, which for a limit includes the reset time the agent stated. Claude reports the failure through its `StopFailure` hook; Codex has no such hook, so the board reads the turn's terminal record from its rollout ([mechanics](mechanics.md#turns-that-end-on-an-error) M55). Retries before the failure are not shown as failed: the row stays working until the agent gives up.
 
 Retain the last observed activity after a process disappears. Retained waiting still needs the developer; retained failed still shows the failure; retained running becomes Your turn because the process is gone. Retain by session identity, not by card. Age does not clear it. An issue's departure from active membership invalidates observations older than that departure (R9).
 

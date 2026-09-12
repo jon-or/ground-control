@@ -333,32 +333,50 @@ main.dragging .lane-idle {
   border-radius: var(--gc-radius);
 }
 
-/* Preserve attention borders and tint on hover. A failed turn outranks every other border (R6). */
+/*
+ * Each attention state sets its color and tint; the border and background rules below draw them, at full
+ * strength for a live session and at the dimmed strength for attention retained from one that ended (R6).
+ */
 .card[data-attention='failed'],
-.card[data-attention='failed']:hover {
-  border-color: var(--vscode-charts-red);
-  background: color-mix(in srgb, var(--vscode-charts-red) 7%, var(--vscode-editor-background));
+.card[data-attention='blocked'],
+.card[data-attention='your-turn'] {
+  --gc-attention-strength: 1;
+
+  border-color: color-mix(in srgb, var(--gc-attention) calc(100% * var(--gc-attention-strength)), transparent);
+  background: color-mix(
+    in srgb,
+    var(--gc-attention) calc(var(--gc-tint) * var(--gc-attention-strength)),
+    var(--vscode-editor-background)
+  );
 }
 
-.card[data-attention='blocked'],
-.card[data-attention='blocked']:hover {
-  border-color: var(--vscode-charts-yellow);
-  background: color-mix(in srgb, var(--vscode-charts-yellow) 7%, var(--vscode-editor-background));
+/* A failed turn outranks every other border (R6). */
+.card[data-attention='failed'] {
+  --gc-attention: var(--vscode-charts-red);
+  --gc-tint: 7%;
+}
+
+.card[data-attention='blocked'] {
+  --gc-attention: var(--vscode-charts-yellow);
+  --gc-tint: 7%;
 }
 
 /* Use a quieter indicator for completed turns than for blocked sessions. */
-.card[data-attention='your-turn'],
-.card[data-attention='your-turn']:hover {
-  border-color: var(--vscode-charts-blue);
-  background: color-mix(in srgb, var(--vscode-charts-blue) 5%, var(--vscode-editor-background));
+.card[data-attention='your-turn'] {
+  --gc-attention: var(--vscode-charts-blue);
+  --gc-tint: 5%;
+}
+
+/* Match the hollow state mark of an ended session: same color at half strength. */
+.card[data-attention-retained] {
+  --gc-attention-strength: 0.5;
 }
 
 /*
  * Use the running dot color for the card border, with dashes and no fill to distinguish it from attention
  * states (R6).
  */
-.card[data-attention='running'],
-.card[data-attention='running']:hover {
+.card[data-attention='running'] {
   border-style: dashed;
   /* Use this border color between pulse frames and with reduced motion. */
   border-color: color-mix(in srgb, var(--gc-working) 55%, transparent);
@@ -786,8 +804,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
 
 /* Keep the running indicator visible with animation disabled, by OS preference or by groundControl.animations. */
 @media (prefers-reduced-motion: reduce) {
-  .card[data-attention='running'],
-  .card[data-attention='running']:hover {
+  .card[data-attention='running'] {
     animation: none;
   }
 
@@ -798,8 +815,7 @@ body.vscode-high-contrast-light .session[data-phase='running'] .session-label {
   }
 }
 
-body[data-motion='reduced'] .card[data-attention='running'],
-body[data-motion='reduced'] .card[data-attention='running']:hover {
+body[data-motion='reduced'] .card[data-attention='running'] {
   animation: none;
 }
 
@@ -859,14 +875,17 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
     outline: 1px solid Highlight;
   }
 
-  .card[data-attention],
-  .card[data-attention]:hover {
+  .card[data-attention] {
     border-color: Highlight;
   }
 
+  /* Forced colors have no opacity, so retained attention takes the inactive system color. */
+  .card[data-attention-retained] {
+    border-color: GrayText;
+  }
+
   /* Retain the dashed running border in forced colors; reserve Highlight for attention. */
-  .card[data-attention='running'],
-  .card[data-attention='running']:hover {
+  .card[data-attention='running'] {
     border-color: CanvasText;
     animation: none;
   }

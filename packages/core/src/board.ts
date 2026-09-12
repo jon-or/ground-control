@@ -42,6 +42,8 @@ export interface LanedCard extends BoardCard {
   returned: boolean;
   /** Attention or running state; null when neither applies. */
   attention: Attention | null;
+  /** Present when the attention is retained from a session that has ended; the border dims to match its hollow mark (R6). */
+  retainedAttention?: true;
   /** Membership explanation, independent of lane placement. */
   reason: string;
   /** Triage result or progress; absent before classification. */

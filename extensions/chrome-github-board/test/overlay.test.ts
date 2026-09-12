@@ -2486,6 +2486,27 @@ describe('card attention', () => {
     expect(document.querySelector('.gc-returned')).toBeNull();
   });
 
+  /** The ring says whether its attention is still live, as the dot's fill does for the row (R6). */
+  it('dims the ring for attention retained past the process, and restores it when the attention is live again', () => {
+    const element = () => document.querySelector(`[data-gc-issue="${REPO}#4501"]`)!;
+
+    paint(document, state({ snapshot: marked('your-turn', { sessions: [], retainedAttention: true }) }), NOW, actions);
+
+    expect(element().getAttribute('data-gc-attention')).toBe('your-turn');
+    expect(element().getAttribute('data-gc-attention-retained')).toBe('true');
+
+    // Same attention from a live session: the retained flag alone changes, and the card must redraw for it.
+    paint(document, state({ snapshot: marked('your-turn') }), NOW, actions);
+
+    expect(element().getAttribute('data-gc-attention')).toBe('your-turn');
+    expect(element().hasAttribute('data-gc-attention-retained')).toBe(false);
+
+    paint(document, state({ snapshot: marked('your-turn', { sessions: [], retainedAttention: true }) }), NOW, actions);
+    paint(document, state({ snapshot: marked(null) }), NOW, actions);
+
+    expect(element().hasAttribute('data-gc-attention-retained')).toBe(false);
+  });
+
   /** Returned states the card, not its work, so it rides in the card header line with its pills (R45). */
   it('marks returned cards in the card header, and takes the mark off again', () => {
     paint(document, state({ snapshot: marked(null, { returned: true }) }), NOW, actions);

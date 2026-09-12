@@ -1918,6 +1918,28 @@ describe('historical rows', () => {
     );
   });
 
+  /** The border says whether its attention is still live, as the mark's fill does for the row (R6). */
+  it('dims the card border for attention retained past the process, and restores it when the attention is live again', () => {
+    const retained = { ...lastSession, retained: { phase: 'idle' as const, event: 'Stop', at: Date.now() - 300_000 } };
+    const past: LanedCard = { ...liveCard, sessions: [], lastSession: retained, attention: 'your-turn', retainedAttention: true };
+
+    send(message({ lanes: lanes({ build: [past] }) }));
+
+    const card = document.querySelector<HTMLElement>('.card')!;
+
+    expect(card.dataset.attention).toBe('your-turn');
+    expect(card.dataset.attentionRetained).toBe('true');
+
+    // Same attention from a live session: the change is in the retained flag alone, and the card must redraw for it.
+    const idle: Session = { ...session, activity: { phase: 'idle', since: Date.now(), at: Date.now(), event: 'Stop' } };
+    const { retainedAttention: _flag, lastSession: _past, ...back } = { ...past, sessions: [idle] };
+
+    send(message({ lanes: lanes({ build: [back] }) }));
+
+    expect(document.querySelector<HTMLElement>('.card')!.dataset.attention).toBe('your-turn');
+    expect(document.querySelector<HTMLElement>('.card')!.dataset.attentionRetained).toBeUndefined();
+  });
+
   /** A snapshot an older hub cached, or one whose fields were redefined: the cast is what lets a shape the current type forbids be rendered. */
   it('draws the plain hollow mark for a saved session carrying a reading it cannot read', () => {
     const readings: unknown[] = [undefined, { phase: 'waiting', event: 'PreToolUse' }, { phase: 'napping', event: 'PreToolUse', at: 1 }];

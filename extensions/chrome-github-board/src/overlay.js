@@ -205,6 +205,8 @@ const DURATION_TITLE = 'Time since the phase was reported.';
  * when attention clears.
  */
 const ATTENTION_ATTR = 'data-gc-attention';
+/** Present when the attention is retained from an ended session; the outline dims to match its hollow dot (R6). */
+const RETAINED_ATTR = 'data-gc-attention-retained';
 
 /** The group bars of a grouped board, sized like the columns. */
 const GROUP_BAR_ATTR = 'data-gc-group-bar';
@@ -356,12 +358,15 @@ span.gc-returned { margin-left: 6px; font-size: 11px; line-height: 18px; font-we
   .gc-tail .gc-age, .gc-tools { transition: none; }
 }
 /* Use Primer foreground tokens to match session dots and editor chart colors (mechanics M38). */
-${CARD}[${ATTENTION_ATTR}] { outline: 1px solid var(--fgColor-attention, #9a6700); outline-offset: -1px;
-  border-radius: 6px; }
-${CARD}[${ATTENTION_ATTR}="your-turn"] { outline-color: var(--fgColor-accent, #0969da); }
+${CARD}[${ATTENTION_ATTR}] { --gc-attention: var(--fgColor-attention, #9a6700); --gc-attention-strength: 1;
+  outline: 1px solid color-mix(in srgb, var(--gc-attention) calc(100% * var(--gc-attention-strength)), transparent);
+  outline-offset: -1px; border-radius: 6px; }
+${CARD}[${ATTENTION_ATTR}="your-turn"] { --gc-attention: var(--fgColor-accent, #0969da); }
 /* A failed turn outranks every other outline (R6). */
-${CARD}[${ATTENTION_ATTR}="failed"] { outline-color: var(--fgColor-danger, #d1242f);
-  background: color-mix(in srgb, var(--fgColor-danger, #d1242f) 7%, transparent); }
+${CARD}[${ATTENTION_ATTR}="failed"] { --gc-attention: var(--fgColor-danger, #d1242f);
+  background: color-mix(in srgb, var(--gc-attention) calc(7% * var(--gc-attention-strength)), transparent); }
+/* Match the hollow dot of an ended session: same color at half strength. */
+${CARD}[${RETAINED_ATTR}] { --gc-attention-strength: 0.5; }
 
 /* Distinguish running sessions with a faded, dashed green border, separate from attention states (R6). */
 ${CARD}[${ATTENTION_ATTR}="running"] { outline-style: dashed;
@@ -427,6 +432,8 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   .gc-session[data-phase="running"] .gc-name {
     background-image: none; color: CanvasText; animation-name: none; }
   ${CARD}[${ATTENTION_ATTR}] { outline-color: Highlight; }
+  /* Forced colors have no opacity, so retained attention takes the inactive system color. */
+  ${CARD}[${RETAINED_ATTR}] { outline-color: GrayText; }
   /* Retain the dashed running border in forced colors; reserve Highlight for attention. */
   ${CARD}[${ATTENTION_ATTR}="running"] { outline-color: CanvasText; animation: none; }
   /* Use dot fill to distinguish live and ended sessions in forced colors. */
@@ -2306,6 +2313,12 @@ function renderReturned(doc, element, card) {
   pills.appendChild(mark);
 }
 
+/** @param {Element} element */
+function clearAttention(element) {
+  element.removeAttribute(ATTENTION_ATTR);
+  element.removeAttribute(RETAINED_ATTR);
+}
+
 /**
  * Set attention on the GitHub card for border and session-dot styling. Session rows already identify the
  * affected session (R6).
@@ -2315,12 +2328,18 @@ function renderReturned(doc, element, card) {
  */
 function renderAttention(element, card) {
   if (card.attention === null) {
-    element.removeAttribute(ATTENTION_ATTR);
+    clearAttention(element);
 
     return;
   }
 
   element.setAttribute(ATTENTION_ATTR, card.attention);
+
+  if (card.retainedAttention) {
+    element.setAttribute(RETAINED_ATTR, 'true');
+  } else {
+    element.removeAttribute(RETAINED_ATTR);
+  }
 }
 
 /**
@@ -3298,7 +3317,7 @@ export function clear(doc) {
   }
 
   for (const card of doc.querySelectorAll(`[${ATTENTION_ATTR}]`)) {
-    card.removeAttribute(ATTENTION_ATTR);
+    clearAttention(card);
   }
 }
 
@@ -3329,6 +3348,7 @@ function badgeSignature(card, openable, canRequest) {
     card.lane,
     card.returned,
     card.attention,
+    card.retainedAttention,
     card.triage,
     card.action,
     card.issue?.statusChangedAt ?? null,
@@ -3494,7 +3514,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
       }
 
       element.removeAttribute('data-gc-issue');
-      element.removeAttribute(ATTENTION_ATTR);
+      clearAttention(element);
     }
 
     // The lane menu this names went with its card, and a stale key reopens it when the rows come back.
@@ -3527,7 +3547,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
 
     if (ref === null) {
       element.removeAttribute('data-gc-issue');
-      element.removeAttribute(ATTENTION_ATTR);
+      clearAttention(element);
 
       continue;
     }
@@ -3535,7 +3555,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     element.setAttribute('data-gc-issue', `${ref.repo}#${ref.number}`);
 
     if (card === undefined) {
-      element.removeAttribute(ATTENTION_ATTR);
+      clearAttention(element);
 
       continue;
     }

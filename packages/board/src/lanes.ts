@@ -121,8 +121,8 @@ export function retainedPhase(retained: RetainedActivity): 'waiting' | 'idle' | 
 
 /**
  * Rank card attention as failed, blocked, your-turn, then running; no observed phase means no attention. Include
- * retained session state after lane departure rules have invalidated older observations. Finished sessions do
- * not retain failed or blocked attention. Settled lanes keep only blocked (R6, R24).
+ * retained session state after lane departure rules have invalidated older observations. Finished sessions
+ * produce no attention. Settled lanes keep only blocked (R6, R24).
  */
 export function attentionOf(sessions: readonly Session[], lane: LaneId, retained?: RetainedActivity): Attention | null {
   const settled = SETTLED_LANES.includes(lane);
@@ -140,11 +140,20 @@ export function attentionOf(sessions: readonly Session[], lane: LaneId, retained
     return null;
   }
 
-  if (sessions.some((session) => session.activity?.phase === 'idle') || retained !== undefined) {
+  if (live('idle') || retained !== undefined) {
     return 'your-turn';
   }
 
   return live('running') ? 'running' : null;
+}
+
+/** Attention with its source: once no session is live, retained state is the only source left (R6). */
+function attentionFields(sessions: readonly Session[], lane: LaneId, retained?: RetainedActivity): Pick<LanedCard, 'attention' | 'retainedAttention'> {
+  const attention = attentionOf(sessions, lane, retained);
+
+  return attention !== null && sessions.every((session) => session.finished)
+    ? { attention, retainedAttention: true }
+    : { attention };
 }
 
 function authoredByDeveloper(login: string | null, logins: readonly string[]): boolean {
@@ -200,35 +209,35 @@ function offBoardReason(issue: IssueCard, rules: BoardRules): string {
 function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>, placements: Record<string, LaneId>): LanedCard {
   const lane = placed(card, rules, placements);
   const retained = card.lastSession?.retained;
-  const base = { ...card, lane, returned: false, attention: attentionOf(card.sessions, lane, retained) };
+  const inLane = (id: LaneId, reason: string): LanedCard => ({
+    ...card,
+    lane: id,
+    returned: false,
+    ...attentionFields(card.sessions, id, retained),
+    reason,
+  });
 
   if (card.issue === null) {
-    return { ...base, reason: 'Ad-hoc work with no issue.' };
+    return inLane(lane, 'Ad-hoc work with no issue.');
   }
 
   const status = card.issue.status;
   const running = card.sessions.some((session) => !session.finished);
-  const archive = (reason: string): LanedCard => ({
-    ...base,
-    lane: 'archived',
-    attention: attentionOf(card.sessions, 'archived', retained),
-    reason,
-  });
 
   // Archive unassigned issues even with active sessions (R9).
   if (card.unassigned) {
-    return archive(`${offBoardReason(card.issue, rules)}.`);
+    return inLane('archived', `${offBoardReason(card.issue, rules)}.`);
   }
 
   // An assigned issue that is not on the project board has no status to judge, and R1 still puts it on the board.
   if (status === null || onBoard.has(status)) {
-    return { ...base, reason: status ?? 'Not on the project board.' };
+    return inLane(lane, status ?? 'Not on the project board.');
   }
 
   // R2 outranks R9: a status that would archive the card cannot hide a session still running on it.
   return running
-    ? { ...base, reason: `${status} — session still active.` }
-    : archive(`${status} — outside active board statuses.`);
+    ? inLane(lane, `${status} — session still active.`)
+    : inLane('archived', `${status} — outside active board statuses.`);
 }
 
 /** Remove retained activity at or before the last archive transition, before either client renders it (R9). */

@@ -592,6 +592,32 @@ describe('a reading kept past its own process', () => {
     expect(cardOf(held('idle')).attention).toBe('your-turn');
   });
 
+  /** The card border dims for retained attention, as the row's mark is hollow for the ended session (R6). */
+  it.each(['waiting', 'idle', 'running', 'failed'] as const)('marks a %s reading as retained, so the border dims', (phase) => {
+    expect(cardOf(held(phase)).retainedAttention).toBe(true);
+  });
+
+  it('marks nothing as retained while a live session produces the attention', () => {
+    const { lastSession: _past, ...card } = { ...held('idle'), sessions: [withPhase('idle', { issueNumber: 18954 })] };
+
+    expect(cardOf(card).attention).toBe('your-turn');
+    expect(cardOf(card)).not.toHaveProperty('retainedAttention');
+  });
+
+  it('marks nothing as retained once the settled lane drops the attention', () => {
+    const card = cardOf(held('idle'), remember({ 'issue:18954': 'icebox' }));
+
+    expect(card.attention).toBeNull();
+    expect(card).not.toHaveProperty('retainedAttention');
+  });
+
+  it('keeps the retained mark on the attention a settled lane retains', () => {
+    const card = cardOf(held('waiting'), remember({ 'issue:18954': 'icebox' }));
+
+    expect(card.attention).toBe('blocked');
+    expect(card.retainedAttention).toBe(true);
+  });
+
   it('keeps a failure a session ended on, because the error still needs a decision', () => {
     expect(cardOf(held('failed')).attention).toBe('failed');
     expect(retainedPhase({ phase: 'failed', event: 'StopFailure', at: 1, error: { kind: 'rate_limit', message: null } })).toBe('failed');
@@ -945,6 +971,11 @@ describe('attentionOf', () => {
 
   it('reads a finished agent as working no more than it reads one as blocked', () => {
     expect(attentionOf([withPhase('running', { finished: true })], 'build')).toBeNull();
+  });
+
+  it('asks nothing for a finished agent that ended on an idle turn', () => {
+    expect(attentionOf([withPhase('idle', { finished: true })], 'build')).toBeNull();
+    expect(attentionOf([withPhase('idle', { finished: true }), withPhase('running')], 'build')).toBe('running');
   });
 
   it.each(['icebox', 'archived'] as const)('marks nothing on a working agent in %s', (id) => {
