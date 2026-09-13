@@ -46,7 +46,9 @@ const PULL_URL = `https://github.com${PULL_PATH}`;
 const PULL_PAGE = `<!doctype html><title>Fix the quote email · Pull Request #4601</title>
 <div class="js-header-wrapper"><header class="AppHeader">site</header></div>
 <div id="repository-container-header">repository</div>
+<style>[class*="is-stuck"] { position: fixed; top: 0; left: 0; right: 0; padding: 0 24px; display: flex } [class*="prTitleArea"] { display: flex; align-items: center; gap: 8px; margin: 0 auto; min-width: 100vw }</style>
 <main><h1>Fix the quote email</h1>
+<div class="StickyPullRequestHeader-module__prHeader__P9n8q"><div class="StickyPullRequestHeader-module__prTitleArea__dSHAx"><h2>Fix the quote email</h2></div></div>
 <a id="files" href="${PULL_PATH}/files">Files changed</a>
 <a id="author" href="/colleague">colleague</a></main>
 <footer class="footer">footer</footer>`;
@@ -556,7 +558,23 @@ describe('the overlay as Chrome loads it', () => {
       expect(edges.leftRight).toBeLessThanOrEqual(edges.rightLeft + 1);
       expect(Math.abs(edges.leftWidth - edges.rightWidth)).toBeLessThan(2);
 
-      await page.locator('#gc-panel button[aria-label="Close panel"]').click();
+      // Stuck, the served page's header takes the controls. It is fixed and padded, and centres a title row floored at
+      // 100vw, as GitHub's does (M58): the row's right edge is past the frame's, unreachable by scrolling, unless the
+      // panel lifts the floor, and without it the row is content-wide and centred unless the panel grows it. The title
+      // must start at the header's padding and the controls end at it, inside the pull request frame, half the sheet.
+      await pull.locator('[class*="prHeader"]').evaluate((element) => element.classList.add('StickyPullRequestHeader-module__is-stuck__BQKQx'));
+      await expect.poll(() => pull.locator('[class*="prTitleArea"] > .gc-panel-actions').count(), { timeout: 20_000 }).toBe(1);
+
+      const controls = await pull.locator('[class*="prTitleArea"] > .gc-panel-actions').evaluate((element) => ({
+        titleLeft: element.parentElement!.querySelector('h2')!.getBoundingClientRect().left,
+        right: element.getBoundingClientRect().right,
+        visible: element.ownerDocument.documentElement.clientWidth,
+      }));
+
+      expect(controls.titleLeft).toBe(24);
+      expect(controls.right).toBe(controls.visible - 24);
+
+      await pull.locator('button[aria-label="Close panel"]').click();
       await expect.poll(() => page.locator('#gc-panel').count(), { timeout: 20_000 }).toBe(0);
     } finally {
       await worker.evaluate('chrome.storage.local.remove("preferences")');

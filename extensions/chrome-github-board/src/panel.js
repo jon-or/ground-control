@@ -119,6 +119,9 @@ const FRAME_CSS = `
 .js-header-wrapper, header.AppHeader, #repository-container-header, footer.footer { display: none !important; }
 main .container-xl, main [class*="prc-PageLayout-Content-"], main [class*="prc-PageLayout-ContentWrapper-"] { max-width: none !important; }
 ${actionsCss('')}
+/* GitHub floors the stuck title row at 100vw, and at 1280px from 1012px up, wider than the header holds, so the row's right edge, and the
+   controls on it, fall past the frame's edge. Without the floor the row is content-wide and centred, so it is grown to fill the header. */
+${STICKY_TITLE_AREA} { min-width: 0 !important; flex: 1 1 auto !important; }
 ${STICKY_TITLE_AREA} > .gc-panel-actions { order: 2; margin-left: auto; align-self: center; flex: none; }
 `;
 
