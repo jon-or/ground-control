@@ -217,6 +217,8 @@ const GROUP_BAR_ATTR = 'data-gc-group-bar';
  * remove the rounded corners.
  */
 const CSS = `
+/* Saturate the danger red so the 8px failure dot and the card outline read as an error. */
+:root { --gc-failed: color-mix(in srgb, var(--fgColor-danger, #d1242f) 60%, #f00); }
 [${GROUP_BAR_ATTR}] { margin-right: -1px !important; }
 ${COLUMN} { margin-right: -1px !important;
   border-left-color: transparent !important; border-right-color: transparent !important;
@@ -303,7 +305,7 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-dot[data-live="true"] { background: var(--gc-dot, var(--fgColor-muted, #59636e)); }
 .gc-dot[data-phase="running"] { --gc-dot: var(--fgColor-success, #1a7f37); }
 .gc-dot[data-phase="waiting"] { --gc-dot: var(--fgColor-attention, #9a6700); }
-.gc-dot[data-phase="failed"] { --gc-dot: var(--fgColor-danger, #d1242f); }
+.gc-dot[data-phase="failed"] { --gc-dot: var(--gc-failed); }
 .${BADGE_CLASS} svg { flex: none; }
 .gc-agent { flex: none; }
 /*
@@ -363,7 +365,7 @@ ${CARD}[${ATTENTION_ATTR}] { --gc-attention: var(--fgColor-attention, #9a6700); 
   outline-offset: -1px; border-radius: 6px; }
 ${CARD}[${ATTENTION_ATTR}="your-turn"] { --gc-attention: var(--fgColor-accent, #0969da); }
 /* A failed turn outranks every other outline (R6). */
-${CARD}[${ATTENTION_ATTR}="failed"] { --gc-attention: var(--fgColor-danger, #d1242f);
+${CARD}[${ATTENTION_ATTR}="failed"] { --gc-attention: var(--gc-failed);
   background: color-mix(in srgb, var(--gc-attention) calc(7% * var(--gc-attention-strength)), transparent); }
 /* Match the hollow dot of an ended session: same color at half strength. */
 ${CARD}[${RETAINED_ATTR}] { --gc-attention-strength: 0.5; }

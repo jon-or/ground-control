@@ -3,6 +3,8 @@
   --gc-radius: 6px;
   /* Reduce green by 20%; the unmodified Dark Modern chart color has 9:1 contrast against cards. */
   --gc-working: color-mix(in srgb, var(--vscode-charts-green) 80%, black);
+  /* Saturate the chart red so the 8px failure dot and the card border read as an error. */
+  --gc-failed: color-mix(in srgb, var(--vscode-charts-red) 60%, #f00);
   --gc-gutter: 1.25rem;
   /* 1.62:1 against a Dark Modern card and 1.42:1 in Light Modern, against GitHub's own 1.76 and 1.43. */
   --gc-edge: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
@@ -352,7 +354,7 @@ main.dragging .lane-idle {
 
 /* A failed turn outranks every other border (R6). */
 .card[data-attention='failed'] {
-  --gc-attention: var(--vscode-charts-red);
+  --gc-attention: var(--gc-failed);
   --gc-tint: 7%;
 }
 
@@ -632,7 +634,7 @@ main.dragging .lane-idle {
 }
 
 .dot[data-phase='failed'] {
-  --gc-dot: var(--vscode-charts-red);
+  --gc-dot: var(--gc-failed);
 }
 
 /* Use Claude brand orange and the muted row color for the monochrome OpenAI logo. */
