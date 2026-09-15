@@ -771,7 +771,7 @@ describe('board webview', () => {
 
     expect(document.querySelectorAll('.notice')).toHaveLength(4);
     expect(document.querySelectorAll('.notice.error')).toHaveLength(2);
-    expect(document.getElementById('lanes')?.classList).toContain('stale');
+    expect(document.getElementById('meta')?.classList).toContain('stale');
     expect(document.getElementById('meta')?.textContent).toContain('could not refresh');
     expect(document.querySelector('.empty')?.textContent).toBe('None of your assigned issues match the current card source.');
   });
@@ -839,7 +839,7 @@ describe('board webview', () => {
 
     expect(document.querySelector('.notice.error')?.textContent).toContain('does not know how to reach');
     expect(document.getElementById('meta')?.textContent).not.toContain('could not refresh');
-    expect(document.getElementById('lanes')?.classList).not.toContain('stale');
+    expect(document.getElementById('meta')?.classList).not.toContain('stale');
   });
 
   it('reports each empty state honestly and handles loading and refresh', () => {

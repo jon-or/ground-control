@@ -182,10 +182,6 @@ main {
   overflow-y: hidden;
 }
 
-main.stale {
-  opacity: 0.5;
-}
-
 /* Every lane runs the full height of the panel, so the column below the last card is still a drop target. */
 .lane {
   flex: none;

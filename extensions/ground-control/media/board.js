@@ -3806,10 +3806,9 @@ function draw(payload) {
 
   noticesEl.replaceChildren();
 
-  // A failed source keeps its last good read on screen, dimmed. Clearing it would imply the board verified there is
-  // nothing to show; leaving it bright would imply the read succeeded.
+  // A failed source keeps its last good read on screen. Clearing it would imply the board verified there is nothing
+  // to show, so the header and the notices carry the freshness; the cards keep full contrast, as the overlay's do.
   const stale = payload.stale === true;
-  lanesEl.classList.toggle('stale', stale);
   metaEl.classList.toggle('stale', stale);
 
   // The lanes a card can be moved into come from the payload, so the webview never holds a second list of lane names.
