@@ -11,6 +11,9 @@ export type PidAlive = (pid: number) => boolean;
 
 const MARKER_FILE = /^(.+)\.json$/;
 
+/** How long a marker without a PID is still worth reporting, measured from its last hook event. */
+export const UNPROVEN_MAX_AGE_MS = 60 * 60 * 1000;
+
 /** Codex thread-name index, the source of session titles. */
 export function sessionIndexPathOf(home: string, env: NodeJS.ProcessEnv = {}): string {
   return `${codexHomeOf(home, env).replace(/\/$/, '')}/session_index.jsonl`;
@@ -128,9 +131,13 @@ export function readRoster(
       continue;
     }
 
-    // A marker without a PID cannot establish liveness.
+    // A marker without a PID cannot establish liveness, and only a later prompt re-walks the PID. Report it while the
+    // session still writes events; otherwise one abandoned marker holds the board stale until the 30-day cleanup.
     if (marker.pid === null) {
-      unproven++;
+      if (now - marker.at < UNPROVEN_MAX_AGE_MS) {
+        unproven++;
+      }
+
       continue;
     }
 

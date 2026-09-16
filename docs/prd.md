@@ -536,6 +536,8 @@ A client disconnection does not prove that the hub stopped. A board update time 
 
 For a transient source failure with cached data, retain that data, mark freshness accurately, and retry silently for one minute. Report initial-load failures and actionable failures immediately. After the grace period, show the transient failure and explain that retry is automatic.
 
+A Codex hook marker that never recorded its process identity cannot be resolved by a later read. Report it while the session still writes events; a marker quiet for an hour is dropped, rather than reporting an unfixable failure and marking the board stale until the 30-day marker cleanup.
+
 In the overlay, failures use dismissible notices; informational details belong in its menu. Announce newly installed hooks once per client, including how many existing sessions may need restart. Repeat the announcement only after a new install cycle.
 
 ### R40. Logs

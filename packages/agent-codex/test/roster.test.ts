@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readRoster, sessionIndexPathOf, threadNamesFrom } from '../src/roster.js';
+import { UNPROVEN_MAX_AGE_MS, readRoster, sessionIndexPathOf, threadNamesFrom } from '../src/roster.js';
 import { HOOK_MARKER_VERSION, activityDirOf, markerPathOf } from '../src/hookScript.js';
 import { HOME, STATE_DIR, machine } from './helpers.js';
 import type { FakeMachine } from './helpers.js';
@@ -12,6 +12,7 @@ interface Written {
   sessionId?: string;
   event?: string;
   pid?: number | null;
+  at?: number;
   cwd?: string | null;
   transcriptPath?: string | null;
   model?: string | null;
@@ -170,6 +171,16 @@ describe('the roster the markers make', () => {
     expect(reading.failure?.message).toContain('cannot tell whether 1 Codex session is still running');
   });
 
+  /** A PID a marker never recorded stays unknowable, so an abandoned marker must not keep the board stale. */
+  it('stops reporting a missing PID once the marker goes quiet', () => {
+    const quiet = markerText({ pid: null, at: NOW - UNPROVEN_MAX_AGE_MS - 1 });
+
+    const reading = readRoster(board({ files: checkout({ [markerPathOf(STATE_DIR, 'thread-1')]: quiet }) }), ALIVE, {}, NOW);
+
+    expect(reading.sessions).toEqual([]);
+    expect(reading.failure).toBeNull();
+  });
+
   it('reports no transcript time where the marker has no transcript path', () => {
     const reading = readRoster(
       board({ files: checkout({ [markerPathOf(STATE_DIR, 'thread-1')]: markerText({ transcriptPath: null }) }) }),
@@ -218,6 +229,23 @@ describe('multiple invalid markers', () => {
       );
 
       expect(reading.failure?.message).toContain('whether 2 Codex sessions are still running');
+    });
+
+    it('counts only the marker still writing events where a quiet one sits beside it', () => {
+      const reading = readRoster(
+        board({
+          dirs: { [activityDirOf(STATE_DIR)]: ['thread-1.json', 'thread-2.json'] },
+          files: checkout({
+            [markerPathOf(STATE_DIR, 'thread-1')]: markerText({ pid: null }),
+            [markerPathOf(STATE_DIR, 'thread-2')]: markerText({ sessionId: 'thread-2', pid: null, at: NOW - UNPROVEN_MAX_AGE_MS - 1 }),
+          }),
+        }),
+        ALIVE,
+        {},
+        NOW,
+      );
+
+      expect(reading.failure?.message).toContain('whether 1 Codex session is still running');
     });
   });
 
