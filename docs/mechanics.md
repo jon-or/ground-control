@@ -148,7 +148,7 @@ An absolute `createFileSystemWatcher` outside the workspace was exercised in a d
 
 ### Claude background dispatch and attach
 
-**Records M1 and M33. Runtime/source, 2026-09-01 and 2026-09-05–08; later probes CLI 2.1.261. Used by actions.**
+**Records M1 and M33. Runtime/source, 2026-09-01 and 2026-09-05–08; later probes CLI 2.1.261, argument handling 2026-09-16 on CLI 2.1.273. Used by actions.**
 
 ```text
 claude --bg --permission-mode <mode> -n <name> <prompt>
@@ -158,7 +158,7 @@ stderr: Starting background service…
 
 The eight-character ID is a prefix of `sessionId` on the next roster read. `--bg` warns and ignores `--session-id`; the caller cannot select the new ID. Parse stdout separately from startup diagnostics. The printed format is undocumented.
 
-A leading slash in the prompt invokes a command/skill. An unknown slash command still starts an idle session, writing warnings without a user turn. Successful dispatch is not successful work. Git Bash rewrote `/gc-nonexistent-probe hello` into a Git-install path; pass arguments without shell/MSYS rewriting. The CLI runner refuses batch shims rather than silently adding a shell.
+A leading slash in the prompt invokes a command/skill. Text on later lines of the same prompt reaches what the slash invokes. Probing `/probe source:master target:feature` with a trailing paragraph, a command's `$ARGUMENTS` expanded to the arguments and the paragraph while `$1` took only its own token; a skill invoked the same way received both. A command body reading positional arguments alone therefore drops appended text, so Ground Control's appended result contract reaches skills and `$ARGUMENTS` commands but not positional-only ones. An unknown slash command still starts an idle session, writing warnings without a user turn. Successful dispatch is not successful work. Git Bash rewrote `/gc-nonexistent-probe hello` into a Git-install path; pass arguments without shell/MSYS rewriting. The CLI runner refuses batch shims rather than silently adding a shell.
 
 Permission probes requested Write and Bash in a scratch repository:
 

@@ -509,7 +509,7 @@
             "default": "",
             "editPresentation": "multilineText",
             "order": 1,
-            "markdownDescription": "Prompt for the session that creates a card's worktree, run from the card's clone with the action agent. A card action on a card with no worktree runs this first, then the action in the worktree it reports; the create-worktree control runs it alone. Empty refuses both. See the [placeholders and result format](https://github.com/jon-or/ground-control/blob/master/README.md#worktree-settings)."
+            "markdownDescription": "Prompt for the session that creates a card's worktree, run from the card's clone with the action agent. A card action on a card with no worktree runs this first, then the action in the worktree it reports; the create-worktree control runs it alone. Empty refuses both. The board appends the result-file instruction when the prompt omits `{resultPath}`, except for a slash command reading positional arguments. See the [placeholders and result format](https://github.com/jon-or/ground-control/blob/master/README.md#worktree-settings)."
           },
           "groundControl.actions.merge-upstream.enabled": {
             "scope": "application",
@@ -523,7 +523,7 @@
             "type": "string",
             "default": "",
             "order": 3,
-            "markdownDescription": "Prompt for merge sessions that may push changes, following the [prompt and result format](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings)."
+            "markdownDescription": "Prompt for merge sessions that may push changes. The board appends the result-file instruction when the prompt omits `{resultPath}`. See the [prompt and result format](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings)."
           },
           "groundControl.actions.agent": {
             "scope": "application",

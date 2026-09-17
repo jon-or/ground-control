@@ -11,6 +11,7 @@ import type {
   HistoricalSession,
   HubConfig,
   IssueCard,
+  LanedCard,
   ReadFailure,
   Session,
   Snapshot,
@@ -21,6 +22,7 @@ import type {
   WorkSource,
 } from '@ground-control/core';
 import { Hub } from '../src/hub.js';
+import { readingOf } from '../src/actions.js';
 import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
@@ -136,6 +138,45 @@ interface Control {
   key(): string;
   cardCheckout(): Snapshot['lanes'][number]['cards'][number]['checkout'];
 }
+
+/** What the card carries decides whether a finished run's outcome still stands (R39). */
+describe('the reading a card carries', () => {
+  const card = (over: Partial<LanedCard> = {}): LanedCard => ({
+    key: 'issue:17198',
+    issue: issue(),
+    issueNumber: 17198,
+    sessions: [],
+    lane: 'review',
+    returned: false,
+    attention: null,
+    reason: '',
+    ...over,
+  });
+
+  it('settles on the action a completed reading names, at the time it was read', () => {
+    const triage = { state: 'done', action: 'merge-upstream', qualifier: null, detail: 'Behind master.', at: 1_788_000_000_000, stale: false } as const;
+
+    expect(readingOf(card({ triage }))).toEqual({ action: 'merge-upstream', settled: true, at: 1_788_000_000_000 });
+  });
+
+  it('settles on no action where the completed reading names one the board does not perform', () => {
+    const triage = { state: 'done', action: 'address-review', qualifier: 'initial', detail: 'Comments to answer.', at: 5, stale: false } as const;
+
+    expect(readingOf(card({ triage }))).toEqual({ action: null, settled: true, at: 5 });
+  });
+
+  it('is unsettled while the card is being read, or after its read failed', () => {
+    expect(readingOf(card({ triage: { state: 'running' } }))).toEqual({ action: null, settled: false, at: null });
+    expect(readingOf(card({ triage: { state: 'failed', attempts: 2, exhausted: false } }))).toEqual({ action: null, settled: false, at: null });
+  });
+
+  /** Never read is not the same as never readable: one is still coming, the other never will. */
+  it('is unsettled for a card not read yet, and settled for one the board does not read', () => {
+    expect(readingOf(card())).toEqual({ action: null, settled: false, at: null });
+    expect(readingOf(card({ key: 'session:abc', issue: null, issueNumber: null }))).toEqual({ action: null, settled: true, at: null });
+    expect(readingOf(card({ unassigned: true }))).toEqual({ action: null, settled: true, at: null });
+  });
+});
 
 /** Live session and checkout used for dispatched-run tests. */
 function sessionOn(over: Partial<Session> = {}): Session {
@@ -458,6 +499,21 @@ describe('a card action asked for from the browser', () => {
     expect(control.notices.at(-1)).toBe('That card action is turned off in Settings.');
   });
 
+  /** A card with no action to start is not a setting the developer can change, so it must not name one. */
+  it('tells a page asking on a card that reads as nothing that there is no action, not that one is turned off', async () => {
+    const control = harness({}, [issue()]);
+
+    control.classified = { action: 'fix-checks', detail: 'The build is red.' };
+    control.hub.configure(config({ fromBrowser: true }));
+    watch(control, true, null);
+    await control.pass();
+
+    await ask(control);
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.notices.at(-1)).toBe('That card has no action to start.');
+  });
+
   it('stops a run without the start gates, because refusing a stop could strand it', async () => {
     const control = await primed({ fromBrowser: false });
 
@@ -507,12 +563,10 @@ describe('dispatching a card action', () => {
     await control.pass();
 
     expect(control.dispatched).toHaveLength(1);
-    expect(control.dispatched[0]).toMatchObject({
-      path: 'claude-cli',
-      prompt: '/or-merge master 17198-channel-mapping 17198 --single',
-      cwd: CHECKOUT,
-      permissionMode: 'manual',
-    });
+    expect(control.dispatched[0]).toMatchObject({ path: 'claude-cli', cwd: CHECKOUT, permissionMode: 'manual' });
+    expect(control.dispatched[0]?.prompt).toMatch(/^\/or-merge master 17198-channel-mapping 17198 --single\n\n/);
+    // A prompt that never names the result file still reports, or every unattended run settles as stopped short.
+    expect(control.dispatched[0]?.prompt).toContain(`write JSON to ${actionReportPathOf(stateDir, control.key())}`);
   });
 
   it('does not dispatch disabled actions', async () => {
@@ -668,6 +722,23 @@ describe('dispatching a card action', () => {
     await control.pass(PAST_GATE);
 
     expect(control.dispatched).toHaveLength(2);
+  });
+
+  /** The card shows what it reads as now: a reading taken after the run replaces the run's own verdict (R39). */
+  it('clears a finished run once the card has been read again', async () => {
+    const control = harness();
+    watch(control);
+    await control.pass();
+    await control.appear();
+    await control.finish();
+
+    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge-upstream', outcome: 'halted' });
+
+    control.classified = { action: 'fix-checks', detail: 'The build is red.' };
+    control.hub.receive({ id: 'board-1' }, { type: 'retriage', key: control.key() });
+    await control.settle();
+
+    expect(control.cardAction()).toBeUndefined();
   });
 
   /** A successful merge changes its own head commit. Completed runs must block automatic repeats even after that change. */
@@ -1040,7 +1111,7 @@ describe('the developer asking by hand', () => {
     await control.settle();
 
     expect(control.dispatched).toHaveLength(1);
-    expect(control.dispatched[0]?.prompt).toBe('/or-merge 17198');
+    expect(control.dispatched[0]?.prompt).toMatch(/^\/or-merge 17198\n\n/);
   });
 
   it('runs a card the board has already spent a run on, because the click is not held to that rule', async () => {
@@ -1214,6 +1285,19 @@ describe('making the worktree an action needs', () => {
     expect(card(control).creation).toEqual({ state: 'running', since: control.clock.clock.now() });
   });
 
+  it('tells a worktree prompt that never names the result file to report ready and the path', async () => {
+    const control = bare(undefined, 'Make a worktree for #{issue} from {clone}');
+    await control.pass();
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    const prompt = control.dispatched[0]?.prompt ?? '';
+
+    expect(prompt).toContain(`write JSON to ${actionReportPathOf(stateDir, control.key())}`);
+    expect(prompt).toContain('"outcome":"ready"');
+  });
+
   it('records the worktree the run reports, then starts the action in it as the same attempt', async () => {
     const control = bare();
     await control.pass();
@@ -1229,7 +1313,8 @@ describe('making the worktree an action needs', () => {
     expect(card(control).worktree).toEqual({ root: worktree, branch: 'refund-window', only: true });
     expect(makeWorktreeStore(stateDir).read()).toEqual({ [control.key()]: worktree });
     expect(control.dispatched).toHaveLength(2);
-    expect(control.dispatched[1]).toMatchObject({ cwd: worktree, prompt: '/or-merge master 17198-channel-mapping 17198 --single' });
+    expect(control.dispatched[1]).toMatchObject({ cwd: worktree });
+    expect(control.dispatched[1]?.prompt).toMatch(/^\/or-merge master 17198-channel-mapping 17198 --single\n\n/);
     expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge-upstream' });
     expect(control.cardAction()).not.toHaveProperty('stage');
     // One request, one attempt: the worktree run and the action it precedes share the daily allowance.
@@ -1325,7 +1410,8 @@ describe('making the worktree an action needs', () => {
     await control.pass(PAST_GATE);
 
     expect(control.dispatched).toHaveLength(2);
-    expect(control.dispatched[1]).toMatchObject({ cwd: worktree, prompt: '/or-merge master 17198-channel-mapping 17198 --single' });
+    expect(control.dispatched[1]).toMatchObject({ cwd: worktree });
+    expect(control.dispatched[1]?.prompt).toMatch(/^\/or-merge master 17198-channel-mapping 17198 --single\n\n/);
     expect(makeActionStore(stateDir).read().dispatches).toHaveLength(2);
   });
 

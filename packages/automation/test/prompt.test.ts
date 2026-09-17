@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dispatchName, promptValues, worktreePromptValues } from '../src/prompt.js';
+import { actionPrompt, dispatchName, promptValues, worktreePrompt, worktreePromptValues } from '../src/prompt.js';
 import { fillTemplate } from '@ground-control/core';
 import type { ActionPlan } from '../src/plan.js';
 
@@ -77,5 +77,47 @@ describe('worktree prompt values', () => {
 
   it('fills an empty repository where the card names none', () => {
     expect(worktreePromptValues({ ...card, issue: { title: 't', url: 'u' } }, 'd:/work/repo', 'r').repo).toBe('');
+  });
+});
+
+/** The blank line between the developer's prompt and the contract the board adds. */
+const BREAK = '\n\n';
+
+describe('result contract', () => {
+  const values = promptValues(PLAN, 'd:/work/repo.worktrees/17198-channel-mapping', 'C:/runs/issue-17198.json');
+  const worktreeValues = worktreePromptValues(
+    { issueNumber: 17198, issue: { title: 'Channel mapping drops the last row', url: 'https://example.invalid/17198' } },
+    'd:/work/repo',
+    'C:/runs/issue-17198.json',
+  );
+
+  /** An unattended run reports only through the file, so a prompt that never mentions it always looks stopped short. */
+  it('appends the action report contract, word for word, to a prompt that omits the path', () => {
+    expect(actionPrompt('/or-merge {base} {branch} {issue} --single', values)).toBe(
+      '/or-merge master 17198-channel-mapping 17198 --single' + BREAK +
+        'This run is unattended. Before you finish, write JSON to C:/runs/issue-17198.json: ' +
+        '{"outcome":"pushed","detail":"<what happened>"} only once the merge is pushed, otherwise ' +
+        '{"outcome":"halted","detail":"<why it stopped>"}; add "auditPath":"<file>" when the run wrote one. ' +
+        'Write every key of whichever object you write, however the run ends, and ask no questions.',
+    );
+  });
+
+  it('appends the worktree report contract, word for word, naming ready and the absolute path', () => {
+    expect(worktreePrompt('/init-worktree {issue}', worktreeValues)).toBe(
+      '/init-worktree 17198' + BREAK +
+        'This run is unattended. Before you finish, write JSON to C:/runs/issue-17198.json: ' +
+        '{"outcome":"ready","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +
+        '{"outcome":"halted","detail":"<why no worktree>"}. ' +
+        'Write every key of whichever object you write, however the run ends, and ask no questions.',
+    );
+  });
+
+  it('leaves a prompt that places the path itself exactly as written', () => {
+    expect(actionPrompt('/or-merge {branch} --report {resultPath}', values)).toBe(
+      '/or-merge 17198-channel-mapping --report C:/runs/issue-17198.json',
+    );
+    expect(worktreePrompt('/init-worktree {issue} --report {resultPath}', worktreeValues)).toBe(
+      '/init-worktree 17198 --report C:/runs/issue-17198.json',
+    );
   });
 });

@@ -1850,9 +1850,11 @@ export class Hub {
     const action = projected.flatMap((lane) => lane.cards).find((card) => card.key === key)?.action;
 
     // An editor click is itself the opt-in for a disabled action (R32); a page's click is not.
-    return action !== undefined && actionEnabled(action.action, this.#config.actions)
-      ? null
-      : 'That card action is turned off in Settings.';
+    if (action === undefined) {
+      return 'That card has no action to start.';
+    }
+
+    return actionEnabled(action.action, this.#config.actions) ? null : 'That card action is turned off in Settings.';
   }
 
   /** What every page-asked dispatch needs: a visible tab, the browser opt-in, and a positive daily allowance (R39). */

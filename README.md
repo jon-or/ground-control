@@ -87,7 +87,7 @@ A card's worktree is a working tree of a clone of its repository: the one a work
 {"outcome": "ready", "worktree": "D:/git/repo.worktrees/17198-channel-mapping", "detail": "Branched from origin/master and built."}
 ```
 
-The board records the path only where git registers it as a working tree of a clone of the card's repository; the prompt chooses the branch name. Write the prompt to be idempotent — a retry after a run that made the worktree and then failed must find it and report the same path — and to ask nothing, since it runs unattended. An empty prompt refuses both the control and any action on a card with no worktree. Exactly one known clone of the card's repository is required.
+A prompt that does not place `{resultPath}` itself has that instruction appended before dispatch, except for a slash command that reads positional arguments (`$1`, `$2`) rather than `$ARGUMENTS` — those never receive it, and a worktree run that reports nothing links no worktree, so the action after it never starts. Place `{resultPath}` in the prompt yourself for those. The board records the path only where git registers it as a working tree of a clone of the card's repository; the prompt chooses the branch name. Write the prompt to be idempotent — a retry after a run that made the worktree and then failed must find it and report the same path — and to ask nothing, since it runs unattended. An empty prompt refuses both the control and any action on a card with no worktree. Exactly one known clone of the card's repository is required.
 
 ### Agent storage
 
@@ -137,7 +137,7 @@ Merge prompts accept `{issue}`, `{repo}`, `{pr}`, `{branch}`, `{base}`, `{checko
 {"outcome": "pushed", "detail": "Merged the base branch and pushed.", "auditPath": "merge-audit.md"}
 ```
 
-The board reports `pushed` as Merged and missing output as stopped short; it does not independently verify the merge on GitHub. Stacked PRs, and cards with no worktree and no worktree prompt, are refused. See [merge action requirements](docs/prd.md#r39-merge-upstream-action).
+A prompt that does not place `{resultPath}` itself has that instruction appended before dispatch, so an unattended run reports without you writing the contract into every prompt. A slash command that reads positional arguments (`$1`, `$2`) rather than `$ARGUMENTS` does not receive the appended text; place `{resultPath}` in the prompt yourself for those. The board reports `pushed` as Merged and missing output as stopped short; it does not independently verify the merge on GitHub. Stacked PRs, and cards with no worktree and no worktree prompt, are refused. See [merge action requirements](docs/prd.md#r39-merge-upstream-action).
 
 `actions.permissionMode` defaults to Claude's `auto`. Claude's `manual` and `acceptEdits` modes can wait for approval in unattended runs; `dontAsk` denies operations needing approval, `plan` cannot write, and `bypassPermissions` disables permission checks. Codex supports only `plan`, `dontAsk`, and `bypassPermissions`. Unsupported agent/mode combinations refuse before reading card context or dispatching; unknown modes reject configuration. Ground Control never substitutes broader permissions.
 

@@ -2535,7 +2535,8 @@ function verdict(doc, card, now) {
     );
   }
 
-  // A dispatched run is the newer fact about the same work, so it takes the qualifier's place until it clears.
+  // A dispatched run is the newer fact about the same work, so it takes the qualifier's place until the hub
+  // drops it, which it does once the card has been read again (R39).
   const state = actionState(card.action);
 
   if (state) {

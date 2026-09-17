@@ -1,8 +1,9 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { ACTION_REVISION, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, fillTemplate, isAutomatable, repositoryKey } from '@ground-control/core';
+import { ACTION_REVISION, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, isAutomatable, repositoryKey } from '@ground-control/core';
 import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, Clone, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource, WorktreeSettings } from '@ground-control/core';
 import {
   actionEnabled,
+  actionPrompt,
   alreadyRun,
   cardActionOf,
   dispatchName,
@@ -18,9 +19,11 @@ import {
   withRefusal,
   withSession,
   worktreeCreationOf,
+  worktreePrompt,
   worktreePromptValues,
 } from '@ground-control/automation';
-import type { ActionPlan, ActionRefusal } from '@ground-control/automation';
+import type { ActionPlan, ActionRefusal, CardReading } from '@ground-control/automation';
+import { triageable } from '@ground-control/board';
 import { read } from './fs.js';
 import { actionReportPathOf } from './paths.js';
 import type { ActionStore } from './actionStore.js';
@@ -306,8 +309,8 @@ export class ActionRunner {
     return lanes.map((lane) => ({
       ...lane,
       cards: lane.cards.map((card): LanedCard => {
-        const action = actionOf(card);
-        const decorated = cardActionOf(state, card.key, action, this.#offerRefusal(action, card, clones));
+        const reading = readingOf(card);
+        const decorated = cardActionOf(state, card.key, reading, this.#offerRefusal(reading.action, card, clones));
         const creation = this.#creatable(card) ? worktreeCreationOf(state, card.key, this.#worktreeRefusal(card, clones)) : undefined;
 
         return {
@@ -712,7 +715,7 @@ export class ActionRunner {
 
     const outcome = await agent.dispatch!({
       path: configured.path,
-      prompt: fillTemplate(template, promptValues(plan, checkout, reportPath)),
+      prompt: actionPrompt(template, promptValues(plan, checkout, reportPath)),
       name: dispatchName(plan.action, plan.issueNumber),
       cwd: checkout,
       permissionMode: this.#settings.permissionMode,
@@ -804,7 +807,7 @@ export class ActionRunner {
 
     const outcome = await agent.dispatch!({
       path: configured.path,
-      prompt: fillTemplate(template, worktreePromptValues(card, clone.cwd, reportPath)),
+      prompt: worktreePrompt(template, worktreePromptValues(card, clone.cwd, reportPath)),
       name: dispatchName(CREATE_WORKTREE, card.issueNumber),
       cwd: clone.cwd,
       permissionMode: this.#settings.permissionMode,
@@ -872,6 +875,20 @@ function actionOf(card: LanedCard): AutomatableAction | null {
   const reading = card.triage?.state === 'done' ? card.triage.action : null;
 
   return reading !== null && isAutomatable(reading) ? reading : null;
+}
+
+/**
+ * The card's reading for display. A card the board does not read carries none and never will, so its reading is
+ * settled; one being read again, or whose read failed, is not, and keeps the outcome the card already shows.
+ */
+export function readingOf(card: LanedCard): CardReading {
+  const triage = card.triage;
+
+  if (triage?.state === 'done') {
+    return { action: actionOf(card), settled: true, at: triage.at };
+  }
+
+  return { action: null, settled: triage === undefined && !triageable(card), at: null };
 }
 
 /**

@@ -187,7 +187,8 @@ export function readTriageState(stored: unknown): TriageState {
 }
 
 /** Triage only assigned issues; ad-hoc and unassigned cards are ineligible. */
-function triageable(card: LanedCard): card is LanedCard & { issue: IssueCard } {
+/** Whether the board reads this card at all. An unassigned, ad-hoc or issueless card carries no reading and never will. */
+export function triageable(card: LanedCard): card is LanedCard & { issue: IssueCard } {
   return card.issue !== null && card.issueNumber !== null && card.unassigned !== true && !card.key.startsWith(SESSION_KEY_PREFIX);
 }
 

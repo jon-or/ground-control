@@ -18,6 +18,7 @@ import {
   withRefusal,
   withSession,
 } from '../src/state.js';
+import type { CardReading } from '../src/state.js';
 
 const NOW = Date.parse('2026-09-05T12:00:00Z');
 
@@ -36,6 +37,11 @@ function run(over: Partial<ActionRun> = {}): ActionRun {
     detail: 'Working in d:/work/repo.',
     ...over,
   };
+}
+
+/** A settled reading of the card, which is what a decorated card carries unless triage is mid-read. */
+function reads(action: 'merge-upstream' | null, settled = true, at: number | null = NOW - 1): CardReading {
+  return { action, settled, at };
 }
 
 function laneWith(...keys: string[]): Lane[] {
@@ -274,18 +280,18 @@ describe('what a render leaves behind', () => {
 
 describe('what a card says about its action', () => {
   it('says nothing where the card reading is not one the board performs', () => {
-    expect(cardActionOf(EMPTY_ACTIONS, 'issue:1', null, null)).toBeUndefined();
+    expect(cardActionOf(EMPTY_ACTIONS, 'issue:1', reads(null), null)).toBeUndefined();
   });
 
   it('offers the control on a card the board could act on, whether or not the setting is on', () => {
-    expect(cardActionOf(EMPTY_ACTIONS, 'issue:1', 'merge-upstream', null)).toEqual({
+    expect(cardActionOf(EMPTY_ACTIONS, 'issue:1', reads('merge-upstream'), null)).toEqual({
       state: 'available',
       action: 'merge-upstream',
     });
   });
 
   it('says why the control would refuse before it is pressed', () => {
-    expect(cardActionOf(EMPTY_ACTIONS, 'issue:1', 'merge-upstream', 'No prompt is set.')).toEqual({
+    expect(cardActionOf(EMPTY_ACTIONS, 'issue:1', reads('merge-upstream'), 'No prompt is set.')).toEqual({
       state: 'refused',
       action: 'merge-upstream',
       reason: 'No prompt is set.',
@@ -295,7 +301,7 @@ describe('what a card says about its action', () => {
   it('says why the board declined, over the offer', () => {
     const state = withRefusal(EMPTY_ACTIONS, 'issue:1', { kind: 'stacked-branch', message: 'It is a chain.' }, NOW);
 
-    expect(cardActionOf(state, 'issue:1', 'merge-upstream', null)).toEqual({
+    expect(cardActionOf(state, 'issue:1', reads('merge-upstream'), null)).toEqual({
       state: 'refused',
       action: 'merge-upstream',
       reason: 'It is a chain.',
@@ -305,18 +311,17 @@ describe('what a card says about its action', () => {
   it('says a run is working, over everything else', () => {
     const state = withRefusal(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', { kind: 'k', message: 'm' }, NOW);
 
-    expect(cardActionOf(state, 'issue:17198', 'merge-upstream', 'ignored')).toEqual({
+    expect(cardActionOf(state, 'issue:17198', reads('merge-upstream'), 'ignored')).toEqual({
       state: 'running',
       action: 'merge-upstream',
       since: NOW,
     });
   });
 
-  /** The action a finished run reports is the one it ran, not whatever the card has since been triaged to. */
-  it('reports a finished run by what it did, whatever the card now reads as', () => {
+  it('keeps a finished run on a card the next reading still reads the same way', () => {
     const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Conflicts.', NOW + 5);
 
-    expect(cardActionOf(state, 'issue:17198', null, null)).toEqual({
+    expect(cardActionOf(state, 'issue:17198', reads('merge-upstream'), null)).toEqual({
       state: 'done',
       action: 'merge-upstream',
       outcome: 'halted',
@@ -325,12 +330,52 @@ describe('what a card says about its action', () => {
     });
   });
 
+  /** A settled reading that names no action the board performs supersedes the run it no longer describes. */
+  it('drops a finished run once the card reads as something else', () => {
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Conflicts.', NOW + 5);
+
+    expect(cardActionOf(state, 'issue:17198', reads(null), null)).toBeUndefined();
+    expect(cardActionOf(state, 'issue:17198', reads(null), 'No worktree.')).toBeUndefined();
+  });
+
+  /** A merge that landed reclassifies the card, and the outcome goes with the reading that replaced it. */
+  it('drops a landed run the same way, rather than keeping a verdict the reading has moved past', () => {
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'landed', 'Merged master.', NOW + 5);
+
+    expect(cardActionOf(state, 'issue:17198', reads(null), null)).toBeUndefined();
+  });
+
+  /**
+   * The same reading taken again is a new one: it followed the run, so the run's verdict is no longer what the
+   * card has to say. Reading again requires changed evidence, which is also what makes another run legitimate.
+   */
+  it('drops a finished run once the card has been read again, however that reading came out', () => {
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Conflicts.', NOW + 5);
+
+    expect(cardActionOf(state, 'issue:17198', reads('merge-upstream', true, NOW + 6), null)).toEqual({
+      state: 'available',
+      action: 'merge-upstream',
+    });
+    expect(cardActionOf(state, 'issue:17198', reads('merge-upstream', true, NOW + 4), null)).toMatchObject({ state: 'done' });
+  });
+
+  /** Reading again must not blink the outcome out: only a settled reading supersedes it. */
+  it('keeps the outcome while the card is being read again, or its reading failed', () => {
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Conflicts.', NOW + 5);
+
+    expect(cardActionOf(state, 'issue:17198', reads(null, false), null)).toMatchObject({
+      state: 'done',
+      action: 'merge-upstream',
+      outcome: 'halted',
+    });
+  });
+
   // The worktree run before an action is that action's first stage; one asked for alone is not an action at all (R46).
   describe('while a worktree run is on the card', () => {
     const making = (next?: 'merge-upstream') => withDispatch(EMPTY_ACTIONS, run({ action: 'create-worktree', ...(next === undefined ? {} : { next }) }), NOW);
 
     it('shows the action it precedes as running, at its worktree stage', () => {
-      expect(cardActionOf(making('merge-upstream'), 'issue:17198', 'merge-upstream', null)).toEqual({
+      expect(cardActionOf(making('merge-upstream'), 'issue:17198', reads('merge-upstream'), null)).toEqual({
         state: 'running',
         action: 'merge-upstream',
         since: NOW,
@@ -339,28 +384,30 @@ describe('what a card says about its action', () => {
     });
 
     it('leaves the action offerable while a worktree run asked for alone is running', () => {
-      expect(cardActionOf(making(), 'issue:17198', 'merge-upstream', null)).toEqual({ state: 'available', action: 'merge-upstream' });
-      expect(cardActionOf(making(), 'issue:17198', null, null)).toBeUndefined();
+      expect(cardActionOf(making(), 'issue:17198', reads('merge-upstream'), null)).toEqual({ state: 'available', action: 'merge-upstream' });
+      expect(cardActionOf(making(), 'issue:17198', reads(null), null)).toBeUndefined();
     });
 
     it('reports a worktree run that ended short of the action as that action, done', () => {
       const state = withOutcome(making('merge-upstream'), 'issue:17198', 'halted', 'No worktree reported.', NOW + 5);
 
-      expect(cardActionOf(state, 'issue:17198', null, null)).toEqual({
+      expect(cardActionOf(state, 'issue:17198', reads('merge-upstream'), null)).toEqual({
         state: 'done',
         action: 'merge-upstream',
         outcome: 'halted',
         detail: 'No worktree reported.',
         at: NOW + 5,
       });
+      // The action it stood for is the action the reading supersedes.
+      expect(cardActionOf(state, 'issue:17198', reads(null), null)).toBeUndefined();
     });
 
     // The action's own record or refusal follows a linked run; showing the action as done would claim it ran.
     it('says nothing about a worktree run that linked its worktree, whatever it preceded', () => {
       const state = withOutcome(making('merge-upstream'), 'issue:17198', 'landed', 'Created d:/wt.', NOW + 5);
 
-      expect(cardActionOf(state, 'issue:17198', 'merge-upstream', null)).toEqual({ state: 'available', action: 'merge-upstream' });
-      expect(cardActionOf(withRefusal(state, 'issue:17198', { kind: 'k', message: 'Draft.' }, NOW + 6), 'issue:17198', 'merge-upstream', null)).toEqual({
+      expect(cardActionOf(state, 'issue:17198', reads('merge-upstream'), null)).toEqual({ state: 'available', action: 'merge-upstream' });
+      expect(cardActionOf(withRefusal(state, 'issue:17198', { kind: 'k', message: 'Draft.' }, NOW + 6), 'issue:17198', reads('merge-upstream'), null)).toEqual({
         state: 'refused',
         action: 'merge-upstream',
         reason: 'Draft.',
@@ -370,7 +417,7 @@ describe('what a card says about its action', () => {
     it('says nothing about a finished worktree run that preceded no action', () => {
       const state = withOutcome(making(), 'issue:17198', 'halted', 'No worktree reported.', NOW + 5);
 
-      expect(cardActionOf(state, 'issue:17198', 'merge-upstream', null)).toEqual({ state: 'available', action: 'merge-upstream' });
+      expect(cardActionOf(state, 'issue:17198', reads('merge-upstream'), null)).toEqual({ state: 'available', action: 'merge-upstream' });
     });
   });
 });

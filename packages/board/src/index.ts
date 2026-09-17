@@ -34,6 +34,7 @@ export {
   statusAction,
   triageJsonSchema,
   triageLabel,
+  triageable,
   triggerOf,
   withTriage,
   withTriageFailure,

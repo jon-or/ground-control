@@ -1,3 +1,4 @@
+import { fillTemplate } from '@ground-control/core';
 import type { ActionPlan } from './plan.js';
 
 /** Supported action prompt placeholders, including the result-file path. `checkout` is the worktree the run works in. */
@@ -46,6 +47,39 @@ export function worktreePromptValues(
     clone,
     resultPath,
   };
+}
+
+/**
+ * Result-file contract appended to a prompt that does not name `{resultPath}` itself. An unattended run reports
+ * no other way, so the board states the contract instead of requiring it in every developer prompt.
+ */
+function reportContract(resultPath: string, shape: string): string {
+  return (
+    `\n\nThis run is unattended. Before you finish, write JSON to ${resultPath}: ${shape} ` +
+    'Write every key of whichever object you write, however the run ends, and ask no questions.'
+  );
+}
+
+const ACTION_SHAPE =
+  '{"outcome":"pushed","detail":"<what happened>"} only once the merge is pushed, otherwise ' +
+  '{"outcome":"halted","detail":"<why it stopped>"}; add "auditPath":"<file>" when the run wrote one.';
+
+const WORKTREE_SHAPE =
+  '{"outcome":"ready","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +
+  '{"outcome":"halted","detail":"<why no worktree>"}.';
+
+/** Fill an action prompt, appending the result contract unless the prompt places `{resultPath}` itself. */
+export function actionPrompt(template: string, values: PromptValues): string {
+  const filled = fillTemplate(template, values);
+
+  return template.includes('{resultPath}') ? filled : filled + reportContract(values.resultPath, ACTION_SHAPE);
+}
+
+/** Fill a worktree prompt, appending the result contract unless the prompt places `{resultPath}` itself. */
+export function worktreePrompt(template: string, values: WorktreePromptValues): string {
+  const filled = fillTemplate(template, values);
+
+  return template.includes('{resultPath}') ? filled : filled + reportContract(values.resultPath, WORKTREE_SHAPE);
 }
 
 /** Display name identifying the board-started run and issue. */

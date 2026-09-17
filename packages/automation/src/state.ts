@@ -217,6 +217,15 @@ export function nextActionState(
   return { runs, refusals: kept(state.refusals), gates: kept(state.gates), dispatches };
 }
 
+/** What the card's triage says now. A card the board does not read has a settled reading of no action and no time. */
+export interface CardReading {
+  action: AutomatableAction | null;
+  /** False while the card is being read again, or where its read failed: neither replaces the reading it has. */
+  settled: boolean;
+  /** When the reading was taken, or null where there is none. */
+  at: number | null;
+}
+
 /**
  * Select action display state: running/completed result, refusal, then availability. Availability allows a
  * manual request even when automatic dispatch is disabled. A worktree run shows as the action it precedes; one
@@ -225,7 +234,7 @@ export function nextActionState(
 export function cardActionOf(
   state: ActionState,
   key: string,
-  action: AutomatableAction | null,
+  reading: CardReading,
   offerRefusal: string | null,
 ): CardAction | undefined {
   const run = state.runs[key];
@@ -242,26 +251,29 @@ export function cardActionOf(
   }
 
   if (shown !== undefined && shown.action !== CREATE_WORKTREE) {
-    return {
-      state: 'done',
-      action: shown.action,
-      outcome: shown.outcome,
-      detail: shown.detail,
-      at: shown.endedAt ?? shown.startedAt,
-    };
+    const ended = shown.endedAt ?? shown.startedAt;
+    // A finished run describes the reading it ran under. A settled reading naming another action, or taken after
+    // the run ended, replaces it; one still being read, or failed, leaves the outcome rather than blinking it out.
+    const superseded = reading.settled && (reading.action !== shown.action || (reading.at ?? 0) > ended);
+
+    if (!superseded) {
+      return { state: 'done', action: shown.action, outcome: shown.outcome, detail: shown.detail, at: ended };
+    }
   }
 
-  if (action === null) {
+  if (reading.action === null) {
     return undefined;
   }
 
   const refusal = state.refusals[key];
 
   if (refusal !== undefined) {
-    return { state: 'refused', action, reason: refusal.message };
+    return { state: 'refused', action: reading.action, reason: refusal.message };
   }
 
-  return offerRefusal === null ? { state: 'available', action } : { state: 'refused', action, reason: offerRefusal };
+  return offerRefusal === null
+    ? { state: 'available', action: reading.action }
+    : { state: 'refused', action: reading.action, reason: offerRefusal };
 }
 
 /**
