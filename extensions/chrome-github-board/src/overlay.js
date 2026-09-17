@@ -216,9 +216,46 @@ const GROUP_BAR_ATTR = 'data-gc-group-bar';
  * borders by 1px. Draw fading dividers as background strips over transparent borders; border-image would
  * remove the rounded corners.
  */
+/**
+ * The board's scrolling surfaces: each column's card list, the board view that scrolls columns sideways, and the
+ * overlay's own log. GitHub leaves all three the browser's default 15px bar (mechanics M61).
+ */
+const SCROLLERS = [`${COLUMN} .column-drop-zone`, '#project-items-region', `#${LOG_LINES_ID}`];
+
+/** Where the thumb shows: the surface is pointed at, or something inside it holds focus. */
+const REVEALED = [
+  `${COLUMN}:hover .column-drop-zone`,
+  `${COLUMN} .column-drop-zone:focus-within`,
+  '#project-items-region:hover',
+  `#${LOG_LINES_ID}:hover`,
+  `#${LOG_LINES_ID}:focus-within`,
+];
+
+/**
+ * Append a pseudo-element to every selector: in `a, b::-webkit-scrollbar` the pseudo reaches only `b`.
+ *
+ * @param {string[]} selectors
+ * @param {string} suffix
+ */
+const each = (selectors, suffix) => selectors.map((selector) => selector + suffix).join(', ');
+
 const CSS = `
 /* Saturate the danger red so the 8px failure dot and the card outline read as an error. */
-:root { --gc-failed: color-mix(in srgb, var(--fgColor-danger, #d1242f) 60%, #f00); }
+:root { --gc-failed: color-mix(in srgb, var(--fgColor-danger, #d1242f) 60%, #f00);
+  --gc-scroll: color-mix(in srgb, var(--fgColor-muted, #59636e) 40%, transparent);
+  --gc-scroll-hover: color-mix(in srgb, var(--fgColor-muted, #59636e) 60%, transparent);
+  --gc-scroll-active: color-mix(in srgb, var(--fgColor-muted, #59636e) 80%, transparent); }
+/* The editor board's scrollbar: a 4px thumb in a transparent 8px gutter, drawn once its surface is pointed at.
+   The gutter is always reserved, so showing the thumb moves nothing. Setting scrollbar-width or scrollbar-color
+   would turn all of this off: Chrome draws its own bar instead once either is set (mechanics M61). */
+${each(SCROLLERS, '::-webkit-scrollbar')} { width: 8px; height: 8px; }
+${each(SCROLLERS, '::-webkit-scrollbar-track')} { background: transparent; }
+${each(SCROLLERS, '::-webkit-scrollbar-corner')} { background: transparent; }
+${each(SCROLLERS, '::-webkit-scrollbar-thumb')} { background: transparent; border: 2px solid transparent;
+  border-radius: 999px; background-clip: padding-box; }
+${each(REVEALED, '::-webkit-scrollbar-thumb')} { background: var(--gc-scroll); background-clip: padding-box; }
+${each(SCROLLERS, '::-webkit-scrollbar-thumb:hover')} { background: var(--gc-scroll-hover); background-clip: padding-box; }
+${each(SCROLLERS, '::-webkit-scrollbar-thumb:active')} { background: var(--gc-scroll-active); background-clip: padding-box; }
 [${GROUP_BAR_ATTR}] { margin-right: -1px !important; }
 ${COLUMN} { margin-right: -1px !important;
   border-left-color: transparent !important; border-right-color: transparent !important;

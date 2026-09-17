@@ -205,11 +205,10 @@ main {
   gap: 0.5rem;
   padding: 0 0.5rem 1.5rem;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
 }
 
-/* Use editor scrollbar styling consistently across lanes. */
+/* Use editor scrollbar styling consistently across lanes. Setting scrollbar-width or scrollbar-color here would
+   turn the rules below off: Chromium draws its own bar instead once either is set (mechanics M61). */
 .lane-cards::-webkit-scrollbar {
   width: 8px;
 }
