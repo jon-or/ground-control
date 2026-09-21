@@ -41,6 +41,53 @@ body.vscode-dark {
   --gc-lane: color-mix(in srgb, black 30%, var(--vscode-editor-background));
 }
 
+/* Scrollbars -------------------------------------------------------------- */
+
+/*
+ * A 4px thumb in a transparent 8px gutter, drawn once its surface is pointed at or holds focus. The webview
+ * inherits VS Code's html { scrollbar-color }, which makes Chromium draw the standard 15px bar and ignore
+ * every rule below; auto returns each scroller to the custom bar (mechanics M61).
+ */
+* {
+  scrollbar-color: auto;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+/* The lane heading is outside the scrolling list, so the lane reveals the thumb its cards carry. :where keeps
+   these reveals no more specific than the thumb's own hover and active states, which follow. */
+*:hover::-webkit-scrollbar-thumb,
+:where(.lane:hover, .lane:focus-within) .lane-cards::-webkit-scrollbar-thumb,
+:where(.detail-scroll:focus-within)::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--vscode-scrollbarSlider-activeBackground);
+  background-clip: padding-box;
+}
+
 /* Header ------------------------------------------------------------------ */
 
 header {
@@ -205,39 +252,6 @@ main {
   gap: 0.5rem;
   padding: 0 0.5rem 1.5rem;
   overflow-y: auto;
-}
-
-/* Use editor scrollbar styling consistently across lanes. Setting scrollbar-width or scrollbar-color here would
-   turn the rules below off: Chromium draws its own bar instead once either is set (mechanics M61). */
-.lane-cards::-webkit-scrollbar {
-  width: 8px;
-}
-
-.lane-cards::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.lane-cards::-webkit-scrollbar-thumb {
-  background: transparent;
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background-clip: padding-box;
-}
-
-.lane:hover .lane-cards::-webkit-scrollbar-thumb,
-.lane-cards:focus-within::-webkit-scrollbar-thumb {
-  background: var(--vscode-scrollbarSlider-background);
-  background-clip: padding-box;
-}
-
-.lane-cards::-webkit-scrollbar-thumb:hover {
-  background: var(--vscode-scrollbarSlider-hoverBackground);
-  background-clip: padding-box;
-}
-
-.lane-cards::-webkit-scrollbar-thumb:active {
-  background: var(--vscode-scrollbarSlider-activeBackground);
-  background-clip: padding-box;
 }
 
 .lane h2 {
