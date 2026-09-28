@@ -1092,16 +1092,68 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   display: none;
 }
 
-/* The verdict is the only element that shrinks, so a long qualifier truncates instead of moving a control. */
+/*
+ * The verdict is the only element that shrinks, so a long qualifier truncates instead of moving a control. Only its
+ * words shrink: the state mark after them keeps its width.
+ */
 .verdict {
+  display: flex;
   flex: 1 1 auto;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.verdict .words {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--vscode-foreground);
+}
+
+/* An even box, so the 16-unit glyph lands on whole pixels (R45). */
+.state-mark {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.state-mark svg {
+  width: 12px;
+  height: 12px;
+}
+
+.state-mark[data-outcome='running'] {
+  color: var(--gc-working);
+  animation: mark-colour-pulse 1.8s ease-in-out infinite;
+}
+
+.state-mark[data-outcome='landed'] {
+  color: var(--vscode-charts-green);
+}
+
+.state-mark[data-outcome='halted'] {
+  color: var(--vscode-charts-orange);
+}
+
+.state-mark[data-outcome='failed'] {
+  color: var(--gc-failed);
+}
+
+/* Colour, not opacity, so the glyph keeps its edges while it pulses (R45). */
+@keyframes mark-colour-pulse {
+  0%,
+  100% {
+    color: color-mix(in srgb, var(--gc-working) 45%, transparent);
+  }
+  50% {
+    color: var(--gc-working);
+  }
 }
 
 .verdict .note {
@@ -1118,17 +1170,8 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   color: color-mix(in srgb, var(--vscode-descriptionForeground) 65%, transparent);
 }
 
-.verdict[data-state='triaging'] .note,
-.verdict[data-outcome='running'] .note {
+.verdict[data-state='triaging'] .note {
   animation: text-pulse 1.8s ease-in-out infinite;
-}
-
-.verdict[data-outcome='landed'] .note {
-  color: var(--vscode-charts-green);
-}
-
-.verdict[data-outcome='halted'] .note {
-  color: var(--vscode-charts-orange);
 }
 
 /*
@@ -1263,7 +1306,7 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 
 @media (prefers-reduced-motion: reduce) {
   .verdict[data-state='triaging'] .note,
-  .verdict[data-outcome='running'] .note {
+  .state-mark[data-outcome='running'] {
     animation: none;
   }
 
@@ -1278,7 +1321,7 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 }
 
 body[data-motion='reduced'] .verdict[data-state='triaging'] .note,
-body[data-motion='reduced'] .verdict[data-outcome='running'] .note {
+body[data-motion='reduced'] .state-mark[data-outcome='running'] {
   animation: none;
 }
 

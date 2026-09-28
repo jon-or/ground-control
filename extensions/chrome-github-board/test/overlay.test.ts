@@ -663,6 +663,37 @@ describe('the tooltip', () => {
     expect(open()).toBe('true');
   });
 
+  // The run's state mark is an anchor of its own inside the verdict, which explains the triage.
+  it('shows the state mark’s tooltip over the verdict, and the verdict’s again once past the mark', () => {
+    paint(
+      document,
+      state({
+        snapshot: laneOf({
+          ...actorCard(4501, AUTHOR),
+          triage: { state: 'done', action: 'merge', qualifier: 'upstream', target: null, detail: 'Rich asked for a merge.', at: NOW, stale: false },
+          action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts.', at: NOW },
+        }),
+      }),
+      NOW,
+      actions,
+    );
+
+    const verdict = document.querySelector('.gc-verdict')!;
+    const mark = verdict.querySelector('.gc-state-mark')!;
+    const words = verdict.querySelector('.gc-words')!;
+
+    hover(mark);
+    vi.advanceTimersByTime(120);
+
+    expect(tip()?.textContent).toBe('Stopped short: Conflicts.');
+
+    mark.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: words }));
+    hover(words);
+    vi.advanceTimersByTime(120);
+
+    expect(tip()?.textContent).toContain('Rich asked for a merge.');
+  });
+
   /** Ignore anchors removed during the delay; their zero-sized bounds would place the tooltip in a corner. */
   it('ignores removed tooltip anchors', () => {
     const avatar = document.querySelector('.gc-actor')!;
@@ -3023,14 +3054,24 @@ it('links historical rows through the same VS Code handler without opening the G
   expect(parentClick).not.toHaveBeenCalled();
 });
 
+/** Each state glyph's drawing, pinned as the other client pins it so a shape changed on one side alone fails. */
+const GLYPH_SVG: Record<string, string> = {
+  ring: '<circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="2"></circle>',
+  check: '<path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
+  alert: '<path d="M8 3v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><circle cx="8" cy="12.5" r="1.25" fill="currentColor"></circle>',
+  cross: '<path d="M4 4 12 12M12 4 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
+  square: '<rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"></rect>',
+  slash: '<circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path d="M4.5 11.5 11.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5"></path>',
+};
+
 describe('card actions (R39)', () => {
   const at = Date.UTC(2026, 8, 1, 19, 0, 0);
   const show = (entry: LanedCard) =>
     paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
   /** The run control, which the bar reveals in the age's place. */
   const mark = () => document.querySelector<HTMLButtonElement>('button.gc-run');
-  /** What the bar says while an action is dispatched: the state displaces the triage qualifier. */
-  const said = () => document.querySelector<HTMLElement>('.gc-verdict .gc-note')?.textContent;
+  /** What the bar's state mark says while an action is dispatched. */
+  const said = () => document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')?.getAttribute('aria-label') ?? undefined;
   const acting = (action: NonNullable<LanedCard['action']>): LanedCard => card(4501, { sessions: [], action });
 
   it('stops a running action, warning that its changes may be incomplete', () => {
@@ -3088,8 +3129,59 @@ describe('card actions (R39)', () => {
 
     expect(said()).toBe(text);
     expect(mark()?.dataset.outcome).toBe(outcome);
-    expect(document.querySelector<HTMLElement>('.gc-verdict')?.dataset.outcome).toBe(outcome);
+    expect(document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')?.dataset.outcome).toBe(outcome);
     expect(tipOf(mark())).toBe(`${detail} Click to run Merge · upstream again.`);
+  });
+
+  /** The qualifier names the row, so the state sits beside it rather than in its place (R45). */
+  it('keeps the qualifier in the words and puts the state in a mark after them', () => {
+    const triage = { state: 'done', action: 'merge', qualifier: 'test', target: 'Test-Payments', detail: 'Rich asked.', at, stale: false } as const;
+    show({ ...acting({ state: 'running', action: 'merge', qualifier: 'test', since: at }), triage });
+
+    const verdict = document.querySelector<HTMLElement>('.gc-verdict')!;
+
+    expect(verdict.querySelector('.gc-words')?.textContent).toBe('Merge · test');
+    expect(verdict.lastElementChild?.classList.contains('gc-state-mark')).toBe(true);
+    expect(said()).toBe('Merging…');
+  });
+
+  /** The same glyph for each state as board.js, which cannot share a runtime import. */
+  it.each([
+    ['running', { state: 'running', action: 'review-others', qualifier: 'initial', since: at }, 'ring', 'Reviewing…'],
+    ['at its worktree stage', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'worktree' }, 'branch', 'Creating worktree…'],
+    ['landed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'landed', detail: 'Merged into Test-Payments.', at }, 'check', 'Merged'],
+    ['halted', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'halted', detail: 'Conflicts.', at }, 'alert', 'Stopped short'],
+    ['failed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'failed', detail: 'Not found.', at }, 'cross', 'Did not run'],
+    ['stopped', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'stopped', detail: 'Stopped by you.', at }, 'square', 'Stopped'],
+    ['refused', { state: 'refused', action: 'merge', qualifier: 'test', reason: 'This card has an active session.' }, 'slash', 'Not run'],
+  ] as const)('draws a %s run with its own glyph, named in words', (_, action, glyph, text) => {
+    show(acting(action));
+
+    const mark = document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')!;
+    const drawn = glyph === 'branch' ? mark.querySelector('svg.gc-worktree-mark') : mark.querySelector(`svg[data-glyph="${glyph}"]`);
+
+    expect(drawn).not.toBeNull();
+    if (glyph !== 'branch') expect(drawn!.innerHTML).toBe(GLYPH_SVG[glyph]);
+    expect(mark.getAttribute('role')).toBe('img');
+    expect(said()).toBe(text);
+  });
+
+  it('puts what the run said about itself in the mark’s tooltip and description', () => {
+    show(acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at }));
+
+    const mark = document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')!;
+
+    expect(tipOf(mark)).toBe('Stopped short: Conflicts in Booking.cs.');
+    expect(mark.getAttribute('aria-description')).toBe('Conflicts in Booking.cs.');
+  });
+
+  it('puts why a run was refused in the mark’s tooltip and description', () => {
+    show(acting({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'This card has an active session.' }));
+
+    const mark = document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')!;
+
+    expect(tipOf(mark)).toBe('Not run: This card has an active session.');
+    expect(mark.getAttribute('aria-description')).toBe('This card has an active session.');
   });
 
   it('carries nothing on a card with no action at all', () => {
@@ -3766,7 +3858,7 @@ describe('the worktree in the bar', () => {
   const open = () => document.querySelector<HTMLButtonElement>('.gc-tail .gc-tool[aria-label="Open in VS Code"]');
   const create = () => document.querySelector<HTMLButtonElement>('.gc-tail .gc-tool[aria-label="Create a worktree for this issue"]');
   const run = () => document.querySelector<HTMLButtonElement>('button.gc-run');
-  const said = () => document.querySelector<HTMLElement>('.gc-verdict .gc-note')?.textContent;
+  const said = () => document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')?.getAttribute('aria-label') ?? undefined;
 
   it('says the checkout it opens is the worktree, naming the branch', () => {
     show({ worktree: WORKTREE, checkout: AS_CHECKOUT });
@@ -3868,7 +3960,7 @@ describe('the worktree in the bar', () => {
     show({ creation: { state: 'running', since: at }, action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts.', at } });
 
     expect(said()).toBe('Creating worktree…');
-    expect(document.querySelector<HTMLElement>('.gc-verdict')?.dataset.outcome).toBe('running');
+    expect(document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')?.dataset.outcome).toBe('running');
 
     show({ creation: { state: 'done', outcome: 'landed', detail: 'Made.', at }, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
 

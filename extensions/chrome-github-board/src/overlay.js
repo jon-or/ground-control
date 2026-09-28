@@ -288,16 +288,28 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-lane-mark[data-lane="review"] { color: var(--fgColor-attention, #9a6700); }
 .gc-lane-mark[data-lane="unstarted"], .gc-lane-mark[data-lane="icebox"], .gc-lane-mark[data-lane="archived"] {
   color: var(--fgColor-muted, #59636e); }
-/* The verdict is the only element that shrinks, so a long qualifier truncates instead of moving a control. */
-.gc-verdict { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+/* The verdict is the only element that shrinks, so a long qualifier truncates instead of moving a control. Only its
+   words shrink: the state mark after them keeps its width. */
+.gc-verdict { display: flex; flex: 1 1 auto; align-items: center; gap: 4px; min-width: 0;
   font-size: 11px; color: var(--fgColor-default, #1f2328); font-weight: 500; }
+.gc-verdict .gc-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* An even box, so the 16-unit glyph lands on whole pixels (R45). */
+.gc-state-mark { display: inline-flex; flex: none; width: 12px; height: 12px; color: var(--fgColor-muted, #59636e); }
+.gc-state-mark svg { width: 12px; height: 12px; }
+.gc-state-mark[data-outcome="running"] { color: var(--fgColor-success, #1a7f37);
+  animation: gc-mark-colour-pulse 1.8s ease-in-out infinite; }
+.gc-state-mark[data-outcome="landed"] { color: var(--fgColor-success, #1a7f37); }
+.gc-state-mark[data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
+.gc-state-mark[data-outcome="failed"] { color: var(--gc-failed); }
+/* Colour, not opacity, so the glyph keeps its edges while it pulses (R45). */
+@keyframes gc-mark-colour-pulse {
+  0%, 100% { color: color-mix(in srgb, var(--fgColor-success, #1a7f37) 45%, transparent); }
+  50% { color: var(--fgColor-success, #1a7f37); }
+}
 .gc-verdict .gc-note { color: var(--fgColor-muted, #59636e); font-weight: 400; }
 .gc-verdict[data-stale="true"] { color: var(--fgColor-muted, #59636e); }
 .gc-verdict[data-stale="true"] .gc-note { color: color-mix(in srgb, var(--fgColor-muted, #59636e) 65%, transparent); }
-.gc-verdict[data-state="triaging"] .gc-note, .gc-verdict[data-outcome="running"] .gc-note {
-  animation: gc-text-pulse 1.8s ease-in-out infinite; }
-.gc-verdict[data-outcome="landed"] .gc-note { color: var(--fgColor-success, #1a7f37); }
-.gc-verdict[data-outcome="halted"] .gc-note { color: var(--fgColor-attention, #9a6700); }
+.gc-verdict[data-state="triaging"] .gc-note { animation: gc-text-pulse 1.8s ease-in-out infinite; }
 /* One right-edge slot painted twice: the age at rest, the controls while the bar is pointed at or focused.
    Both are flush right, so the controls cost no width and run lands where the age was. */
 .gc-tail { position: relative; display: flex; flex: none; align-items: center; justify-content: flex-end;
@@ -392,7 +404,7 @@ span.gc-returned { margin-left: 6px; font-size: 11px; line-height: 18px; font-we
   50% { color: var(--fgColor-muted, #59636e); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .gc-verdict[data-state="triaging"] .gc-note, .gc-verdict[data-outcome="running"] .gc-note { animation: none; }
+  .gc-verdict[data-state="triaging"] .gc-note, .gc-state-mark[data-outcome="running"] { animation: none; }
   .${BADGE_CLASS} button.gc-tool[data-state="running"] { animation: none; }
   .gc-tail .gc-age, .gc-tools { transition: none; }
 }
@@ -463,7 +475,7 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
 [${MOTION_ATTR}="reduced"] ${CARD}[${ATTENTION_ATTR}="running"] { animation: none; }
 [${MOTION_ATTR}="reduced"] .gc-verdict[data-state="triaging"] .gc-note,
-[${MOTION_ATTR}="reduced"] .gc-verdict[data-outcome="running"] .gc-note { animation: none; }
+[${MOTION_ATTR}="reduced"] .gc-state-mark[data-outcome="running"] { animation: none; }
 [${MOTION_ATTR}="reduced"] .${BADGE_CLASS} button.gc-tool[data-state="running"] { animation: none; }
 
 /* Restore text color when forced colors suppress the gradient. */
@@ -2498,8 +2510,8 @@ function canRequestTriage(snapshot, card) {
 }
 
 /**
- * What to do with this card, as one line of text: the triage action, then either the dispatched action's state
- * or the triage qualifier (R38, R39). The full explanation stays in the tooltip.
+ * What to do with this card, as one line: the triage action and its qualifier, then a mark for the dispatched
+ * run's state (R38, R39, R45). The words truncate; the mark never does. The full explanation stays in the tooltip.
  *
  * @param {Document} doc
  * @param {LanedCard} card
@@ -2508,26 +2520,29 @@ function canRequestTriage(snapshot, card) {
  */
 function verdict(doc, card, now) {
   const held = doc.createElement('span');
+  const words = doc.createElement('span');
   const triage = card.triage;
 
   held.className = 'gc-verdict';
+  words.className = 'gc-words';
+  held.appendChild(words);
 
   if (!triage) {
-    held.textContent = 'Not read';
+    words.textContent = 'Not read';
     setTooltip(held, 'This card has not been read.');
   } else if (triage.state === 'failed') {
     // Same failure wording as the editor board; only the remedy differs where the browser cannot retry.
-    held.textContent = 'Not read';
+    words.textContent = 'Not read';
     setTooltip(
       held,
       triage.exhausted ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped.` : 'Triage failed.',
     );
   } else if (triage.state === 'running') {
     held.dataset.state = 'triaging';
-    held.appendChild(note(doc, 'Reading…'));
+    words.appendChild(note(doc, 'Reading…'));
     setTooltip(held, 'Identifying the next action.');
   } else {
-    held.textContent = TRIAGE_LABELS[triage.action] ?? triage.action;
+    words.textContent = TRIAGE_LABELS[triage.action] ?? triage.action;
     held.dataset.stale = String(triage.stale);
     setTooltip(
       held,
@@ -2535,24 +2550,90 @@ function verdict(doc, card, now) {
     );
   }
 
-  // A dispatched run is the newer fact about the same work, so it takes the qualifier's place until the hub
-  // drops it, which it does once the card has been read again (R39).
+  // The qualifier names the row a run uses, so it stays beside the run's state rather than giving way to it (R39).
+  if (triage?.state === 'done' && triage.qualifier) {
+    words.append(' · ');
+    words.appendChild(note(doc, triage.qualifier));
+  }
+
   const state = actionState(card.action, card.creation);
 
   if (state) {
-    held.dataset.outcome = state.outcome;
-    held.append(' · ');
-    held.appendChild(note(doc, state.text));
-  } else if (triage?.state === 'done' && triage.qualifier) {
-    held.append(' · ');
-    held.appendChild(note(doc, triage.qualifier));
+    held.appendChild(stateMark(doc, state));
   }
 
   return held;
 }
 
 /**
- * The muted half of the verdict: the qualifier, or the dispatched state that displaces it.
+ * The dispatched run's state as one glyph: its words are the accessible name and the tooltip, with the run's
+ * detail after them. Each state has its own shape, so colour is never the only difference.
+ *
+ * @param {Document} doc
+ * @param {{ text: string, outcome: string, glyph: string, detail?: string }} state
+ * @returns {HTMLElement}
+ */
+function stateMark(doc, state) {
+  const mark = doc.createElement('span');
+
+  mark.className = 'gc-state-mark';
+  mark.dataset.outcome = state.outcome;
+  mark.setAttribute('role', 'img');
+  mark.setAttribute(TIP_ATTR, state.detail ? `${state.text}: ${state.detail}` : state.text);
+  setAccessibleName(mark, state.text);
+
+  if (state.detail) {
+    mark.setAttribute('aria-description', state.detail);
+  }
+
+  mark.appendChild(state.glyph === 'branch' ? worktreeMark(doc) : stateGlyph(doc, state.glyph));
+
+  return mark;
+}
+
+/**
+ * Glyphs drawn on a 16-unit grid, stroked or filled in the mark's colour. Same shapes as the editor board.
+ *
+ * @type {Record<string, [string, Record<string, string>][]>}
+ */
+const STATE_GLYPHS = {
+  ring: [['circle', { cx: '8', cy: '8', r: '5', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }]],
+  check: [['path', { d: 'M3.5 8.5 6.5 11.5 12.5 4.5', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]],
+  alert: [
+    ['path', { d: 'M8 3v6', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }],
+    ['circle', { cx: '8', cy: '12.5', r: '1.25', fill: 'currentColor' }],
+  ],
+  cross: [['path', { d: 'M4 4 12 12M12 4 4 12', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }]],
+  square: [['rect', { x: '4', y: '4', width: '8', height: '8', rx: '1.5', fill: 'currentColor' }]],
+  slash: [
+    ['circle', { cx: '8', cy: '8', r: '5', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' }],
+    ['path', { d: 'M4.5 11.5 11.5 4.5', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' }],
+  ],
+};
+
+/**
+ * @param {Document} doc
+ * @param {string} kind
+ * @returns {SVGElement}
+ */
+function stateGlyph(doc, kind) {
+  const svg = markSvg(doc, '0 0 16 16');
+
+  svg.setAttribute('class', 'gc-state-glyph');
+  svg.dataset.glyph = kind;
+
+  for (const [tag, attributes] of STATE_GLYPHS[kind] ?? []) {
+    const shape = doc.createElementNS(SVG_NS, tag);
+
+    for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
+    svg.appendChild(shape);
+  }
+
+  return svg;
+}
+
+/**
+ * The muted half of the verdict's words: the qualifier, or what triage is doing.
  *
  * @param {Document} doc
  * @param {string} text
@@ -2584,24 +2665,28 @@ const ACTION_RUNNING = { merge: 'Merging…', 'review-others': 'Reviewing…', '
 /** What a run that reported its work complete did, by action (R39). */
 const ACTION_LANDED = { merge: 'Merged', 'review-others': 'Reviewed', 'address-review': 'Answered' };
 
+/** The glyph each finished outcome is drawn with. */
+const OUTCOME_GLYPHS = { landed: 'check', halted: 'alert', failed: 'cross', stopped: 'square' };
+
 /**
- * The word a dispatched run puts in the verdict, and the color it takes. An action waiting to be run states
- * nothing: its control is the whole message. A worktree run asked for on its own is the newest fact while it runs.
+ * The state a dispatched run puts in the verdict: its words, glyph, and colour. An action waiting to be run
+ * states nothing: its control is the whole message. A worktree run asked for on its own is the newest fact while
+ * it runs.
  *
  * @param {LanedCard['action']} action
  * @param {LanedCard['creation']} creation
- * @returns {{ text: string, outcome: string } | null}
+ * @returns {{ text: string, outcome: string, glyph: string, detail?: string } | null}
  */
 function actionState(action, creation) {
   if (action?.state === 'running') {
     // The worktree the action needs is still being made; the action itself has not started (R46).
-    const running = ACTION_RUNNING[/** @type {keyof typeof ACTION_RUNNING} */ (action.action)] ?? 'Working…';
-
-    return { text: action.stage === 'worktree' ? 'Creating worktree…' : running, outcome: 'running' };
+    return action.stage === 'worktree'
+      ? { text: 'Creating worktree…', outcome: 'running', glyph: 'branch' }
+      : { text: ACTION_RUNNING[/** @type {keyof typeof ACTION_RUNNING} */ (action.action)] ?? 'Working…', outcome: 'running', glyph: 'ring' };
   }
 
   if (creation?.state === 'running') {
-    return { text: 'Creating worktree…', outcome: 'running' };
+    return { text: 'Creating worktree…', outcome: 'running', glyph: 'branch' };
   }
 
   if (!action || action.state === 'available') {
@@ -2609,15 +2694,17 @@ function actionState(action, creation) {
   }
 
   if (action.state === 'refused') {
-    return { text: 'Not run', outcome: 'refused' };
+    return { text: 'Not run', outcome: 'refused', glyph: 'slash', detail: action.reason };
   }
 
+  const outcome = Object.hasOwn(OUTCOME_GLYPHS, action.outcome) ? action.outcome : 'failed';
+  const landed = outcome === 'landed' ? ACTION_LANDED[/** @type {keyof typeof ACTION_LANDED} */ (action.action)] : undefined;
+
   return {
-    text:
-      (action.outcome === 'landed' ? ACTION_LANDED[/** @type {keyof typeof ACTION_LANDED} */ (action.action)] : undefined) ??
-      ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (action.outcome)] ??
-      ACTION_OUTCOMES.failed,
-    outcome: action.outcome,
+    text: landed ?? ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (outcome)],
+    outcome,
+    glyph: OUTCOME_GLYPHS[/** @type {keyof typeof OUTCOME_GLYPHS} */ (outcome)],
+    detail: action.detail,
   };
 }
 

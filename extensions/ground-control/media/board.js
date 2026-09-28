@@ -843,30 +843,33 @@ const ACTION_RUNNING = { merge: 'Merging…', 'review-others': 'Reviewing…', '
 const ACTION_LANDED = { merge: 'Merged', 'review-others': 'Reviewed', 'address-review': 'Answered' };
 
 /**
- * What to do with this card, as one line of text: the triage action, then either the dispatched action's state
- * or the triage qualifier (R38, R39). The full explanation stays in the tooltip.
+ * What to do with this card, as one line: the triage action and its qualifier, then a mark for the dispatched
+ * run's state (R38, R39, R45). The words truncate; the mark never does. The full explanation stays in the tooltip.
  */
 function verdict(boardCard) {
   const held = document.createElement('span');
+  const words = document.createElement('span');
   const triage = boardCard.triage;
 
   held.className = 'verdict';
+  words.className = 'words';
+  held.appendChild(words);
 
   if (!triage) {
-    held.textContent = 'Not read';
+    words.textContent = 'Not read';
     setTooltip(held, 'This card has not been read.');
   } else if (triage.state === 'failed') {
-    held.textContent = 'Not read';
+    words.textContent = 'Not read';
     setTooltip(
       held,
       triage.exhausted ? `Triage failed after ${triage.attempts} attempts. Automatic retries stopped.` : 'Triage failed.',
     );
   } else if (triage.state === 'running') {
     held.dataset.state = 'triaging';
-    held.appendChild(note('Reading…'));
+    words.appendChild(note('Reading…'));
     setTooltip(held, 'Identifying the next action.');
   } else {
-    held.textContent = TRIAGE_LABELS[triage.action] ?? triage.action;
+    words.textContent = TRIAGE_LABELS[triage.action] ?? triage.action;
     held.dataset.stale = String(triage.stale);
     setTooltip(
       held,
@@ -878,17 +881,16 @@ function verdict(boardCard) {
     );
   }
 
-  // A dispatched run is the newer fact about the same work, so it takes the qualifier's place until the hub
-  // drops it, which it does once the card has been read again (R39).
+  // The qualifier names the row a run uses, so it stays beside the run's state rather than giving way to it (R39).
+  if (triage?.state === 'done' && triage.qualifier) {
+    words.append(' · ');
+    words.appendChild(note(triage.qualifier));
+  }
+
   const state = actionState(boardCard.action, boardCard.creation);
 
   if (state) {
-    held.dataset.outcome = state.outcome;
-    held.append(' · ');
-    held.appendChild(note(state.text));
-  } else if (triage?.state === 'done' && triage.qualifier) {
-    held.append(' · ');
-    held.appendChild(note(triage.qualifier));
+    held.appendChild(stateMark(state));
   }
 
   return held;
@@ -897,14 +899,73 @@ function verdict(boardCard) {
 /** A card with no issue has nothing to read, so the verdict names the branch its sessions are working on. */
 function branchVerdict(boardCard) {
   const held = document.createElement('span');
+  const words = document.createElement('span');
 
   held.className = 'verdict';
-  held.textContent = cardTitle(boardCard);
+  words.className = 'words';
+  words.textContent = cardTitle(boardCard);
+  held.appendChild(words);
 
   return held;
 }
 
-/** The muted half of the verdict: the qualifier, or the dispatched state that displaces it. */
+/**
+ * The dispatched run's state as one glyph: its words are the accessible name and the tooltip, with the run's
+ * detail after them. Each state has its own shape, so colour is never the only difference.
+ */
+function stateMark(state) {
+  const mark = document.createElement('span');
+
+  mark.className = 'state-mark';
+  mark.dataset.outcome = state.outcome;
+  mark.setAttribute('role', 'img');
+  mark.setAttribute(TIP_ATTR, state.detail ? `${state.text}: ${state.detail}` : state.text);
+  setAccessibleName(mark, state.text);
+
+  if (state.detail) {
+    mark.setAttribute('aria-description', state.detail);
+  }
+
+  mark.appendChild(state.glyph === 'branch' ? worktreeMark() : stateGlyph(state.glyph));
+
+  return mark;
+}
+
+/** Glyphs drawn on a 16-unit grid, stroked or filled in the mark's colour. */
+const STATE_GLYPHS = {
+  ring: [['circle', { cx: '8', cy: '8', r: '5', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }]],
+  check: [['path', { d: 'M3.5 8.5 6.5 11.5 12.5 4.5', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]],
+  alert: [
+    ['path', { d: 'M8 3v6', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }],
+    ['circle', { cx: '8', cy: '12.5', r: '1.25', fill: 'currentColor' }],
+  ],
+  cross: [['path', { d: 'M4 4 12 12M12 4 4 12', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }]],
+  square: [['rect', { x: '4', y: '4', width: '8', height: '8', rx: '1.5', fill: 'currentColor' }]],
+  slash: [
+    ['circle', { cx: '8', cy: '8', r: '5', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' }],
+    ['path', { d: 'M4.5 11.5 11.5 4.5', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' }],
+  ],
+};
+
+function stateGlyph(kind) {
+  const svg = document.createElementNS(SVG, 'svg');
+
+  svg.setAttribute('class', 'state-glyph');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.dataset.glyph = kind;
+
+  for (const [tag, attributes] of STATE_GLYPHS[kind] ?? []) {
+    const shape = document.createElementNS(SVG, tag);
+
+    for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
+    svg.appendChild(shape);
+  }
+
+  return svg;
+}
+
+/** The muted half of the verdict's words: the qualifier, or what triage is doing. */
 function note(text) {
   const held = document.createElement('span');
 
@@ -914,18 +975,24 @@ function note(text) {
   return held;
 }
 
+/** The glyph each finished outcome is drawn with. */
+const OUTCOME_GLYPHS = { landed: 'check', halted: 'alert', failed: 'cross', stopped: 'square' };
+
 /**
- * The word a dispatched run puts in the verdict, and the color it takes. An action waiting to be run states
- * nothing: its control is the whole message. A worktree run asked for on its own is the newest fact while it runs.
+ * The state a dispatched run puts in the verdict: its words, glyph, and colour. An action waiting to be run
+ * states nothing: its control is the whole message. A worktree run asked for on its own is the newest fact while
+ * it runs.
  */
 function actionState(action, creation) {
   if (action?.state === 'running') {
     // The worktree the action needs is still being made; the action itself has not started (R46).
-    return { text: action.stage === 'worktree' ? 'Creating worktree…' : ACTION_RUNNING[action.action] ?? 'Working…', outcome: 'running' };
+    return action.stage === 'worktree'
+      ? { text: 'Creating worktree…', outcome: 'running', glyph: 'branch' }
+      : { text: ACTION_RUNNING[action.action] ?? 'Working…', outcome: 'running', glyph: 'ring' };
   }
 
   if (creation?.state === 'running') {
-    return { text: 'Creating worktree…', outcome: 'running' };
+    return { text: 'Creating worktree…', outcome: 'running', glyph: 'branch' };
   }
 
   if (!action || action.state === 'available') {
@@ -933,12 +1000,13 @@ function actionState(action, creation) {
   }
 
   if (action.state === 'refused') {
-    return { text: 'Not run', outcome: 'refused' };
+    return { text: 'Not run', outcome: 'refused', glyph: 'slash', detail: action.reason };
   }
 
   const landed = action.outcome === 'landed' ? ACTION_LANDED[action.action] : undefined;
+  const outcome = Object.hasOwn(OUTCOME_GLYPHS, action.outcome) ? action.outcome : 'failed';
 
-  return { text: landed ?? ACTION_OUTCOMES[action.outcome] ?? ACTION_OUTCOMES.failed, outcome: action.outcome };
+  return { text: landed ?? ACTION_OUTCOMES[outcome], outcome, glyph: OUTCOME_GLYPHS[outcome], detail: action.detail };
 }
 
 /**

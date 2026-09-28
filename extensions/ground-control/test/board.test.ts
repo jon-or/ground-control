@@ -235,6 +235,16 @@ const toggleArchived = () => {
   el.click();
 };
 
+/** Each state glyph's drawing, pinned as the other client pins it so a shape changed on one side alone fails. */
+const GLYPH_SVG: Record<string, string> = {
+  ring: '<circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="2"></circle>',
+  check: '<path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
+  alert: '<path d="M8 3v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><circle cx="8" cy="12.5" r="1.25" fill="currentColor"></circle>',
+  cross: '<path d="M4 4 12 12M12 4 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
+  square: '<rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"></rect>',
+  slash: '<circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path d="M4.5 11.5 11.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5"></path>',
+};
+
 describe('board webview', () => {
   it('renders an accessible avatar, retains fallback initials until load, and lays sessions out below the header', () => {
     const payload = message({ lanes: lanes({ unstarted: [liveCard] }) });
@@ -2818,9 +2828,9 @@ describe('card actions (R39)', () => {
     return document.querySelector<HTMLButtonElement>('.tool.run');
   }
 
-  /** What the bar says while an action is dispatched: the state displaces the triage qualifier. */
+  /** What the bar's state mark says while an action is dispatched. */
   function said(): string | undefined {
-    return document.querySelector<HTMLElement>('.verdict .note')?.textContent ?? undefined;
+    return document.querySelector<HTMLElement>('.verdict .state-mark')?.getAttribute('aria-label') ?? undefined;
   }
 
   it('offers to run an action the board could take, and sends the card key when pressed', () => {
@@ -2891,12 +2901,62 @@ describe('card actions (R39)', () => {
       send(message({ lanes: lanes({ unstarted: [acting(action)] }) }));
 
       expect(said()).toBe(text);
-      expect(document.querySelector<HTMLElement>('.verdict')?.dataset['outcome']).toBe(action.outcome);
+      expect(document.querySelector<HTMLElement>('.verdict .state-mark')?.dataset['outcome']).toBe(action.outcome);
       // Pinned, not contained: the overlay pins the same sentence, and a drift caught on one side only is
       // how the two clients stop matching (`docs/testing.md` parity tables).
       expect(tipOf(chip())).toBe(`${action.detail} Click to run Merge · upstream again.`);
     });
   }
+
+  /** The qualifier names the row, so the state sits beside it rather than in its place (R45). */
+  it('keeps the qualifier in the words and puts the state in a mark after them', () => {
+    const triage = { state: 'done', action: 'merge', qualifier: 'test', target: 'Test-Payments', detail: 'Rich asked.', at, stale: false } as const;
+    send(message({ lanes: lanes({ unstarted: [{ ...acting({ state: 'running', action: 'merge', qualifier: 'test', since: at }), triage }] }) }));
+
+    const verdict = document.querySelector<HTMLElement>('.verdict')!;
+
+    expect(verdict.querySelector('.words')?.textContent).toBe('Merge · test');
+    expect(verdict.lastElementChild?.classList.contains('state-mark')).toBe(true);
+    expect(said()).toBe('Merging…');
+  });
+
+  it.each([
+    ['running', { state: 'running', action: 'review-others', qualifier: 'initial', since: at }, 'ring', 'Reviewing…'],
+    ['at its worktree stage', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'worktree' }, 'branch', 'Creating worktree…'],
+    ['landed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'landed', detail: 'Merged into Test-Payments.', at }, 'check', 'Merged'],
+    ['halted', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'halted', detail: 'Conflicts.', at }, 'alert', 'Stopped short'],
+    ['failed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'failed', detail: 'Not found.', at }, 'cross', 'Did not run'],
+    ['stopped', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'stopped', detail: 'Stopped by you.', at }, 'square', 'Stopped'],
+    ['refused', { state: 'refused', action: 'merge', qualifier: 'test', reason: 'This card has an active session.' }, 'slash', 'Not run'],
+  ] as const)('draws a %s run with its own glyph, named in words', (_, action, glyph, text) => {
+    send(message({ lanes: lanes({ unstarted: [acting(action)] }) }));
+
+    const mark = document.querySelector<HTMLElement>('.verdict .state-mark')!;
+    const drawn = glyph === 'branch' ? mark.querySelector('svg.worktree-mark') : mark.querySelector(`svg[data-glyph="${glyph}"]`);
+
+    expect(drawn).not.toBeNull();
+    if (glyph !== 'branch') expect(drawn!.innerHTML).toBe(GLYPH_SVG[glyph]);
+    expect(mark.getAttribute('role')).toBe('img');
+    expect(said()).toBe(text);
+  });
+
+  it('puts what the run said about itself in the mark’s tooltip and description', () => {
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at })] }) }));
+
+    const mark = document.querySelector<HTMLElement>('.verdict .state-mark')!;
+
+    expect(tipOf(mark)).toBe('Stopped short: Conflicts in Booking.cs.');
+    expect(mark.getAttribute('aria-description')).toBe('Conflicts in Booking.cs.');
+  });
+
+  it('puts why a run was refused in the mark’s tooltip and description', () => {
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'This card has an active session.' })] }) }));
+
+    const mark = document.querySelector<HTMLElement>('.verdict .state-mark')!;
+
+    expect(tipOf(mark)).toBe('Not run: This card has an active session.');
+    expect(mark.getAttribute('aria-description')).toBe('This card has an active session.');
+  });
 
   it('offers retry for finished actions', () => {
     send(message({ lanes: lanes({ unstarted: [acting(outcomes[1]![0])] }) }));
@@ -3280,6 +3340,40 @@ describe('the tooltip', () => {
     chip.querySelector('.note')!.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: chip }));
 
     expect(open()).toBe('true');
+  });
+
+  // The run's state mark is an anchor of its own inside the verdict, which explains the triage.
+  it('shows the state mark’s tooltip over the verdict, and the verdict’s again once past the mark', () => {
+    const at = Date.now();
+    send(
+      message({
+        lanes: lanes({
+          build: [
+            {
+              ...liveCard,
+              sessions: [],
+              triage: { state: 'done', action: 'merge', qualifier: 'upstream', target: null, detail: 'Rich asked for a merge.', at, stale: false },
+              action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts.', at },
+            },
+          ],
+        }),
+      }),
+    );
+
+    const verdict = document.querySelector('.verdict')!;
+    const mark = verdict.querySelector('.state-mark')!;
+    const words = verdict.querySelector('.words')!;
+
+    hover(mark);
+    vi.advanceTimersByTime(120);
+
+    expect(tip()?.textContent).toBe('Stopped short: Conflicts.');
+
+    mark.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: words }));
+    hover(words);
+    vi.advanceTimersByTime(120);
+
+    expect(tip()?.textContent).toContain('Rich asked for a merge.');
   });
 
   /** Ignore anchors removed during the delay; their zero-sized bounds would place the tooltip in a corner. */
@@ -4409,7 +4503,7 @@ describe('the worktree in the bar', () => {
   const open = () => document.querySelector<HTMLButtonElement>('.tools .tool[aria-label="Open in VS Code"]');
   const create = () => document.querySelector<HTMLButtonElement>('.tools .tool[aria-label="Create a worktree for this issue"]');
   const run = () => document.querySelector<HTMLButtonElement>('.tool.run');
-  const said = () => document.querySelector<HTMLElement>('.verdict .note')?.textContent ?? undefined;
+  const said = () => document.querySelector<HTMLElement>('.verdict .state-mark')?.getAttribute('aria-label') ?? undefined;
 
   function show(over: Partial<LanedCard>): void {
     send(message({ lanes: lanes({ unstarted: [{ ...liveCard, ...over }] }) }));
@@ -4519,7 +4613,7 @@ describe('the worktree in the bar', () => {
     show({ creation: { state: 'running', since: at }, action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts.', at } });
 
     expect(said()).toBe('Creating worktree…');
-    expect(document.querySelector<HTMLElement>('.verdict')?.dataset.outcome).toBe('running');
+    expect(document.querySelector<HTMLElement>('.verdict .state-mark')?.dataset.outcome).toBe('running');
 
     show({ creation: { state: 'done', outcome: 'landed', detail: 'Made.', at }, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
 
