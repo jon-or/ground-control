@@ -406,12 +406,8 @@ function watch(control: Control, watching = true, hostId: string | null = 'vscod
   });
 }
 
-/**
- * A page may ask, but the developer decides. `fromBrowser` is separate from the daily limit because a limit
- * set for the developer's own requests is not consent for a web page to spend it (R32, R39).
- */
+/** A page may ask, but the developer decides through `fromBrowser` and the row's automatic setting (R32, R39). */
 describe('a card action asked for from the browser', () => {
-  const LIMIT_REACHED = 'Card action limit reached for the last 24 hours.';
   const SCOPED = 'This session or checkout is not available under the current session settings.';
 
   /**
@@ -459,7 +455,7 @@ describe('a card action asked for from the browser', () => {
     expect(control.notices.at(-1)).toBe('Open this project tab to run a card action from the browser.');
   });
 
-  /** A limit the developer set for their own requests is not consent for a page to spend it. */
+  /** A page script can click the overlay's controls, so the developer turns browser starts on deliberately. */
   it('refuses a start the developer has not turned on', async () => {
     const control = await primed({ fromBrowser: false });
 
@@ -471,11 +467,8 @@ describe('a card action asked for from the browser', () => {
     );
   });
 
-  /**
-   * Zero means no automatic starts and manual ones from an editor (R39). A page inherits no such exemption:
-   * without a positive limit nothing would bound how many agents it can dispatch.
-   */
-  it('refuses a start with no daily allowance, which would leave the page unbounded', async () => {
+  /** Zero turns automatic starts off; the daily limit does not bound a manual start from either client (R39). */
+  it('starts one with a daily limit of zero', async () => {
     const control = harness({}, [issue()]);
 
     control.hub.configure(config({ fromBrowser: true, dailyLimit: 0 }));
@@ -486,19 +479,16 @@ describe('a card action asked for from the browser', () => {
 
     await ask(control);
 
-    expect(control.dispatched).toHaveLength(0);
-    expect(control.notices.at(-1)).toBe(
-      'Set groundControl.actions.dailyLimit above zero to run a card action from the browser.',
-    );
+    expect(control.dispatched).toHaveLength(1);
   });
 
-  it('meters the page against the daily allowance the board itself spends', async () => {
+  it('starts one past the daily limit the board spent, without counting it', async () => {
     const control = await primed({ fromBrowser: true, dailyLimit: 1 });
 
     await ask(control);
 
-    expect(control.dispatched).toHaveLength(1);
-    expect(control.notices.at(-1)).toBe(LIMIT_REACHED);
+    expect(control.dispatched).toHaveLength(2);
+    expect(makeActionStore(stateDir).read().dispatches).toHaveLength(1);
   });
 
   /** An editor click is itself the opt-in for a disabled action; a page's click is not (R32). */
@@ -841,6 +831,40 @@ describe('dispatching a card action', () => {
     await control.pass();
 
     expect(control.dispatched).toEqual([]);
+  });
+
+  it('starts a manual request past the daily limit, and does not count it', async () => {
+    const control = harness({ dailyLimit: 1 });
+    watch(control);
+    await control.pass();
+    await control.appear();
+    await control.finish();
+
+    expect(control.dispatched).toHaveLength(1);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(2);
+    expect(control.notices).not.toContain('Card action limit reached for the last 24 hours.');
+    expect(makeActionStore(stateDir).read().dispatches).toHaveLength(1);
+  });
+
+  /** A recorded refusal may no longer hold; a click reads the card afresh without waiting out the retry gate. */
+  it('keeps the run control pressable over an automatic refusal, and starts once the cause has cleared', async () => {
+    const control = harness();
+    control.pr = { isDraft: true };
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toEqual([]);
+    expect(control.cardAction()).toEqual({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'Pull request #4021 is a draft.', retryable: true });
+
+    control.pr = { isDraft: false };
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
   });
 });
 
@@ -1525,8 +1549,8 @@ describe('making the worktree an action needs', () => {
     expect(control.dispatched[1]?.prompt).toMatch(/^\/or-merge master 17198-channel-mapping 17198 --single\n\n/);
     expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge', qualifier: 'upstream' });
     expect(control.cardAction()).not.toHaveProperty('stage');
-    // One request, one attempt: the worktree run and the action it precedes share the daily allowance.
-    expect(makeActionStore(stateDir).read().dispatches).toHaveLength(1);
+    // A manual request spends no daily allowance, for the worktree run or the action after it.
+    expect(makeActionStore(stateDir).read().dispatches).toEqual([]);
   });
 
   it('shows the worktree run on the issue card though it runs in the clone, and starts the action once it has finished', async () => {
@@ -1726,7 +1750,8 @@ describe('making the worktree an action needs', () => {
     expect(control.dispatched).toHaveLength(2);
     expect(control.dispatched[1]).toMatchObject({ cwd: worktree });
     expect(control.dispatched[1]?.prompt).toMatch(/^\/or-merge master 17198-channel-mapping 17198 --single\n\n/);
-    expect(makeActionStore(stateDir).read().dispatches).toHaveLength(2);
+    // The worktree was asked for by hand; only the automatic action counts.
+    expect(makeActionStore(stateDir).read().dispatches).toHaveLength(1);
   });
 
   it('shows the refusal, not the action as done, where the action after a linked run is refused', async () => {
@@ -1744,7 +1769,8 @@ describe('making the worktree an action needs', () => {
 
     expect(control.dispatched).toHaveLength(1);
     expect(card(control).worktree?.root).toBe(worktree);
-    expect(control.cardAction()).toEqual({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'Pull request #4021 is a draft.' });
+    // The draft may be undone before the next automatic check, so the click stays available.
+    expect(control.cardAction()).toEqual({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'Pull request #4021 is a draft.', retryable: true });
   });
 
   it('refuses to make a worktree where the hub knows no clone of the repository', async () => {
@@ -1813,5 +1839,18 @@ describe('making the worktree an action needs', () => {
 
     expect(control.dispatched).toHaveLength(1);
     expect(control.dispatched[0]).toMatchObject({ cwd: CLONE, name: 'ground-control · create-worktree · #17198' });
+  });
+
+  it('counts an automatic worktree run and the action after it as one attempt', async () => {
+    const control = bare({});
+    await control.pass();
+    await control.pass(PAST_GATE);
+    await control.appear();
+    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    await control.finish();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(2);
+    expect(makeActionStore(stateDir).read().dispatches).toHaveLength(1);
   });
 });

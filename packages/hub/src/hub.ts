@@ -495,8 +495,8 @@ export class Hub {
       case 'runAction': {
         const projected = this.#lanes(true);
 
-        // A browser start needs its own opt-in, a visible board, a daily allowance, and a row the developer made
-        // automatic. An editor click is itself the opt-in (R32); a page's is not.
+        // A browser start needs its own opt-in, a visible board, and a row the developer made automatic. An editor
+        // click is itself the opt-in (R32); a page's is not.
         if (connected.hello.hostId === null) {
           const refusal = this.#browserStartRefusal(connected, projected, message.key);
 
@@ -1840,10 +1840,7 @@ export class Hub {
     };
   }
 
-  /**
-   * Why a browser start cannot run, or null when it may. The overlay's opt-in is separate from the daily
-   * limit, because a limit the developer set for their own requests is not consent for a page to spend it.
-   */
+  /** Why a browser start cannot run, or null when it may. */
   #browserStartRefusal(client: Connected, projected: readonly Lane[], key: string): string | null {
     const refusal = this.#browserDispatchRefusal(client);
 
@@ -1863,7 +1860,7 @@ export class Hub {
     return actionEnabled(row) ? null : 'That card action is not automatic in the action table.';
   }
 
-  /** What every page-asked dispatch needs: a visible tab, the browser opt-in, and a positive daily allowance (R39). */
+  /** What every page-asked dispatch needs: a visible tab and the browser opt-in (R39). */
   #browserDispatchRefusal(client: Connected): string | null {
     if (!client.watching) {
       return 'Open this project tab to run a card action from the browser.';
@@ -1871,12 +1868,6 @@ export class Hub {
 
     if (!this.#config.actions.fromBrowser) {
       return 'Turn on groundControl.actions.fromBrowser to run a card action from the browser.';
-    }
-
-    // Zero exempts a developer's own manual request from the allowance (R39). A page inherits no exemption:
-    // without a positive limit nothing would bound how many agents it can dispatch.
-    if (this.#config.actions.dailyLimit <= 0) {
-      return 'Set groundControl.actions.dailyLimit above zero to run a card action from the browser.';
     }
 
     return null;
@@ -2029,7 +2020,7 @@ export class Hub {
       else delete result.action;
       if (restrictedSessionScope(scope)) {
         if (result.action?.state === 'done') result.action = { ...result.action, detail: 'Action finished. Session details are hidden by session scope.' };
-        if (result.action?.state === 'refused') result.action = { ...result.action, reason: 'This action is unavailable under the current session settings or safety checks.' };
+        if (result.action?.state === 'refused') result.action = { ...result.action, reason: 'This action was refused. The reason is hidden by session scope.' };
         // A worktree run's detail names the directory it made, and a refusal names the clones it found.
         if (result.creation?.state === 'done') result.creation = { ...result.creation, detail: 'The worktree run finished. Session details are hidden by session scope.' };
         if (result.creation?.state === 'refused') result.creation = { ...result.creation, reason: 'A worktree cannot be made under the current session settings.' };

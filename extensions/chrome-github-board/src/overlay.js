@@ -2928,7 +2928,7 @@ function renderCustody(doc, state, card, anchor, actions) {
 
 /**
  * The card's own action, as one control (R39). Running stops it, because an interrupted merge leaves changes
- * to resolve; a refusal states its condition and takes no press.
+ * to resolve; a current refusal states its condition and takes no press.
  *
  * @param {Document} doc
  * @param {LanedCard} card
@@ -2962,7 +2962,8 @@ function runButton(doc, card, actions) {
     return stop;
   }
 
-  if (action.state === 'refused') {
+  // A refusal recorded from an earlier attempt may no longer hold; a click reads the card afresh (R39).
+  if (action.state === 'refused' && !action.retryable) {
     const refused = toolButton(doc, `Cannot run ${label.toLowerCase()}`, action.reason, playMark(doc), null);
 
     refused.classList.add('gc-run');
@@ -2974,9 +2975,11 @@ function runButton(doc, card, actions) {
   const title =
     action.state === 'done'
       ? `${action.detail} Click to run ${label} again.`
-      : card.creation
-        ? `Create a worktree for this card, then start ${label} in it.`
-        : `Start ${label} in this card’s worktree.`;
+      : action.state === 'refused'
+        ? `${action.reason} Click to run ${label} anyway.`
+        : card.creation
+          ? `Create a worktree for this card, then start ${label} in it.`
+          : `Start ${label} in this card’s worktree.`;
   const run = toolButton(doc, `Run ${label.toLowerCase()}`, title, playMark(doc), () => actions.runAction(card.key));
 
   run.classList.add('gc-run');

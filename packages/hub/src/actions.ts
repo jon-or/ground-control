@@ -89,7 +89,7 @@ interface Row {
 /** How a run was asked for: by a click, by the automatic check, or as the action after its worktree run. */
 interface Request {
   asked: boolean;
-  /** The worktree run already counted this request against the daily limit and cleared its record. */
+  /** The worktree run already counted any automatic request against the daily limit and cleared its record. */
   chained: boolean;
   /** For a chained request, the row the worktree run was started for; a reading that moved since starts nothing. */
   row?: Row;
@@ -243,8 +243,8 @@ export class ActionRunner {
   }
 
   /**
-   * Manual requests bypass automatic enablement/history while retaining safety checks, concurrency, and
-   * positive daily limits. A zero daily limit disables automatic starts only (R32, R39).
+   * Manual requests bypass automatic enablement, history, the retry gate, and the daily limit, which they do not
+   * spend, while retaining safety checks and concurrency (R32, R39).
    */
   runAction(lanes: readonly Lane[], key: string): ReadFailure | null {
     return this.#request(lanes, key, false);
@@ -272,11 +272,6 @@ export class ActionRunner {
 
     if (this.#busy() >= this.#settings.concurrency) {
       return refusal('action-busy', 'Concurrent card action limit reached.');
-    }
-
-    // Zero disables automatic starts but permits manual requests.
-    if (this.#settings.dailyLimit > 0 && dispatchesInWindow(state, this.#deps.now()) >= this.#settings.dailyLimit) {
-      return refusal('action-daily-limit', 'Card action limit reached for the last 24 hours.');
     }
 
     const card = lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
@@ -866,7 +861,7 @@ export class ActionRunner {
           detail: failed ? outcome.failure.message : `Working in ${checkout}.`,
         },
         now,
-        !request.chained,
+        !request.asked && !request.chained,
       ),
     );
 
@@ -965,6 +960,7 @@ export class ActionRunner {
           detail: failed ? outcome.failure.message : `Creating a worktree from ${clone.cwd}.`,
         },
         now,
+        !request.asked,
       ),
     );
 

@@ -3099,6 +3099,19 @@ describe('card actions (R39)', () => {
     expect(tipOf(mark())).toBe('The pull request is a draft.');
   });
 
+  /** A refusal recorded from an earlier attempt may no longer hold; a click reads the card afresh (R39). */
+  it('keeps the control pressable over a recorded refusal', () => {
+    show(acting({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'The pull request is a draft.', retryable: true }));
+
+    expect(said()).toBe('Not run');
+    expect(mark()?.getAttribute('aria-disabled')).toBeNull();
+    expect(tipOf(mark())).toBe('The pull request is a draft. Click to run Merge · upstream anyway.');
+
+    mark()!.click();
+
+    expect(actions.runAction).toHaveBeenCalledWith('issue-4501');
+  });
+
   it('offers to run an action the board could take, and sends the card key when pressed', () => {
     show(acting({ state: 'available', action: 'merge', qualifier: 'upstream' }));
 

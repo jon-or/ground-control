@@ -2983,6 +2983,25 @@ describe('card actions (R39)', () => {
     expect(chip()?.getAttribute('aria-description')).toBe('It merges into a feature branch.');
   });
 
+  /** A refusal recorded from an earlier attempt may no longer hold; a click reads the card afresh (R39). */
+  it('keeps the control pressable over a recorded refusal', () => {
+    send(
+      message({
+        lanes: lanes({
+          unstarted: [acting({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'Pull request #4021 is a draft.', retryable: true })],
+        }),
+      }),
+    );
+
+    expect(said()).toBe('Not run');
+    expect(chip()?.getAttribute('aria-disabled')).toBeNull();
+    expect(tipOf(chip())).toBe('Pull request #4021 is a draft. Click to run Merge · upstream anyway.');
+
+    chip()?.click();
+
+    expect(sent()).toContainEqual({ type: 'runAction', key: 'issue:18953' });
+  });
+
   it('omits absent card actions', () => {
     send(message({ lanes: lanes({ unstarted: [{ ...liveCard, sessions: [] }] }) }));
 

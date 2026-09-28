@@ -193,8 +193,8 @@ export function dispatchesInWindow(state: ActionState, now: number): number {
 }
 
 /**
- * Record the attempt and timestamp regardless of its outcome. A run that continues one already counted — the
- * action after its worktree run — is not counted again: one request is one attempt against the daily limit.
+ * Record the attempt, and its timestamp when `counted`, regardless of its outcome. Manual requests are not counted,
+ * nor is the action after its worktree run: one automatic request is one attempt against the daily limit.
  */
 export function withDispatch(state: ActionState, run: ActionRun, now: number, counted = true): ActionState {
   const refusals = { ...state.refusals };
@@ -321,8 +321,9 @@ export interface CardReading {
 }
 
 /**
- * Select action display state: running/completed result, refusal, then availability. Availability allows a
- * manual request even when automatic dispatch is disabled. A worktree run shows as the action it precedes; one
+ * Select action display state: running/completed result, a current refusal, a refusal recorded from an earlier attempt,
+ * then availability. A recorded refusal, like availability, allows a manual request even when automatic dispatch is
+ * disabled; a current one does not. A worktree run shows as the action it precedes; one
  * asked for alone shows on the worktree control instead (`worktreeCreationOf`), and the action stays offerable.
  */
 export function cardActionOf(
@@ -367,14 +368,19 @@ export function cardActionOf(
   }
 
   const row = { action: reading.action, qualifier: reading.qualifier };
+
+  if (offerRefusal !== null) {
+    return { state: 'refused', ...row, reason: offerRefusal };
+  }
+
   const refusal = state.refusals[key];
 
   // A refusal of another row, or one made before any row was known, says nothing about this reading's row.
   if (refusal !== undefined && refusal.action === reading.action && refusal.qualifier === reading.qualifier) {
-    return { state: 'refused', ...row, reason: refusal.message };
+    return { state: 'refused', ...row, reason: refusal.message, retryable: true };
   }
 
-  return offerRefusal === null ? { state: 'available', ...row } : { state: 'refused', ...row, reason: offerRefusal };
+  return { state: 'available', ...row };
 }
 
 /**

@@ -81,8 +81,8 @@ export type ClientMessage =
   | { type: 'open'; sessionId: string; extensionReady: boolean; handedOver?: boolean; resumeToken?: string }
   // Paid classification: validate the card key and rate-limit repeated requests.
   | { type: 'retriage'; key: string }
-  // Manual action request. Bypasses automatic enablement/history, retaining safety and concurrency checks.
-  // Positive daily limits apply; zero disables automatic starts only (R32, R39).
+  // Manual action request. Bypasses automatic enablement/history, cooldown, and the daily limit, retaining safety
+  // and concurrency checks (R32, R39).
   | { type: 'runAction'; key: string }
   // Stop the card action session without changing its lane.
   | { type: 'stopAction'; key: string }

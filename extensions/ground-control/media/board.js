@@ -1072,7 +1072,7 @@ function tail(boardCard, canRequest) {
 
 /**
  * The card's own action, as one control (R39). Running stops it, because an interrupted merge leaves changes
- * to resolve; a refusal states its condition and takes no press.
+ * to resolve; a current refusal states its condition and takes no press.
  */
 function runButton(boardCard) {
   const action = boardCard.action;
@@ -1100,7 +1100,8 @@ function runButton(boardCard) {
     return stop;
   }
 
-  if (action.state === 'refused') {
+  // A refusal recorded from an earlier attempt may no longer hold; a click reads the card afresh (R39).
+  if (action.state === 'refused' && !action.retryable) {
     const refused = toolButton(`Cannot run ${label.toLowerCase()}`, action.reason, playMark(), null);
 
     refused.classList.add('run');
@@ -1112,9 +1113,11 @@ function runButton(boardCard) {
   const title =
     action.state === 'done'
       ? `${action.detail} Click to run ${label} again.`
-      : boardCard.creation
-        ? `Create a worktree for this card, then start ${label} in it.`
-        : `Start ${label} in this card’s worktree.`;
+      : action.state === 'refused'
+        ? `${action.reason} Click to run ${label} anyway.`
+        : boardCard.creation
+          ? `Create a worktree for this card, then start ${label} in it.`
+          : `Start ${label} in this card’s worktree.`;
   const run = toolButton(`Run ${label.toLowerCase()}`, title, playMark(), () =>
     vscode.postMessage({ type: 'runAction', key: boardCard.key }),
   );

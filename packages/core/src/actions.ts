@@ -69,13 +69,13 @@ export interface ActionSettings {
    */
   concurrency: number;
   /**
-   * Rolling 24-hour dispatch-attempt limit, including failures. Zero disables automatic starts while
-   * permitting manual requests. Pending dispatches are not reserved against this limit.
+   * Rolling 24-hour limit on automatic dispatch attempts, including failures; zero disables automatic starts.
+   * Manual requests neither need nor spend it. Pending dispatches are not reserved against this limit.
    */
   dailyLimit: number;
   /**
-   * Whether the GitHub overlay may start a card action. Off by default: a limit the developer set for their
-   * own requests is not consent for a web page to spend it (R32).
+   * Whether the GitHub overlay may start a card action. Off by default: the overlay's controls sit in github.com's
+   * DOM, where a page script can click them (R32).
    */
   fromBrowser: boolean;
   /** Timeout for a dispatched session to appear on the roster. */
@@ -156,7 +156,7 @@ export interface ActionState {
   refusals: Record<string, ActionRefusalRecord>;
   /** Epoch milliseconds before which the board does not read a card again for actions. */
   gates: Record<string, number>;
-  /** Dispatch timestamps in the rolling day, oldest first, for daily-limit checks. */
+  /** Automatic dispatch timestamps in the rolling day, oldest first, for daily-limit checks. */
   dispatches: number[];
   /** The issue each dispatched session belongs to, by `agent:sessionId` (R3). Outlives the run record. */
   links: Record<string, SessionLink>;
@@ -181,7 +181,8 @@ export const ACTION_REVISION = 2;
  */
 export type CardAction = { action: AutomatableAction; qualifier: TriageQualifier | null } & (
   | { state: 'available' }
-  | { state: 'refused'; reason: string }
+  /** `retryable` marks a refusal recorded from an earlier attempt: a manual request reads the card afresh and may start. */
+  | { state: 'refused'; reason: string; retryable?: true }
   /** `stage` is `worktree` while the run that precedes the action is still making the worktree (R46). */
   | { state: 'running'; since: number; stage?: 'worktree' }
   | { state: 'done'; outcome: ActionOutcome; detail: string; at: number }

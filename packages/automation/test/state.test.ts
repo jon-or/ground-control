@@ -378,7 +378,8 @@ describe('what a card says about its action', () => {
     });
   });
 
-  it('says why the board declined, over the offer', () => {
+  /** A refusal recorded from an earlier attempt may no longer hold, so a manual request can still be made over it. */
+  it('says why the board declined, over the offer, and leaves it to be asked for', () => {
     const state = withRefusal(EMPTY_ACTIONS, 'issue:1', { kind: 'merge-type-changed', message: 'It is a chain.' }, NOW, UPSTREAM);
 
     expect(cardActionOf(state, 'issue:1', reads('merge'), null)).toEqual({
@@ -386,6 +387,18 @@ describe('what a card says about its action', () => {
       action: 'merge',
       qualifier: 'upstream',
       reason: 'It is a chain.',
+      retryable: true,
+    });
+  });
+
+  it('says why the control would refuse now, over why the board declined earlier', () => {
+    const state = withRefusal(EMPTY_ACTIONS, 'issue:1', { kind: 'merge-type-changed', message: 'It is a chain.' }, NOW, UPSTREAM);
+
+    expect(cardActionOf(state, 'issue:1', reads('merge'), 'This card has an active session.')).toEqual({
+      state: 'refused',
+      action: 'merge',
+      qualifier: 'upstream',
+      reason: 'This card has an active session.',
     });
   });
 
@@ -516,6 +529,7 @@ describe('what a card says about its action', () => {
         action: 'merge',
         qualifier: 'upstream',
         reason: 'Draft.',
+        retryable: true,
       });
     });
 
