@@ -22,7 +22,7 @@ the current instruction, even without a comment: status determines the work; ass
 Earlier comments are background, even if their threads have no reply. Only comments since that change remain open.
 
 When asked for an action, take the first that applies:
-1. merge-upstream: somebody has asked you to merge or rebase the base branch into yours
+1. merge: somebody has asked you to merge one branch into another, such as the base branch into yours or yours into a test branch
 2. fix-checks: a build, a test run or a check on your pull request is failing
 3. qa-failure: a tester has reported it does not work
 4. qa-question: a tester has asked something about how it is meant to behave
@@ -43,6 +43,8 @@ Merge requests and failing checks are reported evidence. Prefer the latest repor
 as pending after someone reports it fixed. A branch that will not merge is not yours to fix.
 
 An assigned issue with no discussion or pull request is develop, not other. Use other only if no listed action fits.
+For merge, target is the branch the latest request names as the destination, exactly as written; null if it names none.
+For every other action, target is null.
 Do not speculate about unsupported causes.`;
 
 /** Explicit placeholder for missing text. */
@@ -181,6 +183,7 @@ export function buildTriagePrompt(
     `PULL REQUEST #${pr.number}: ${pr.title}`,
     `Opened by: ${isDeveloperLogin(pr.author, context.logins) ? 'you' : nameOf(pr.author, pr.authorName)}`,
     `State: ${pr.state}${pr.isDraft ? ' (draft)' : ''}`,
+    `Branches: ${pr.headRefName || NO_TEXT} into ${pr.baseRefName || NO_TEXT}`,
     `Requested reviewers: ${pr.reviewRequests.map((r) => displayName(r.login, r.name, context.logins)).join(', ') || NO_TEXT}`,
     `Reviews submitted: ${pr.reviews.map((r) => `${displayName(r.author, r.authorName, context.logins)} ${r.state}`).join('; ') || NO_TEXT}`,
     '',
@@ -207,7 +210,7 @@ function finish(lines: string[], settled: TriageAction | null): string {
   lines.push(
     '',
     settled === null
-      ? 'Answer with the action and the sentence.'
+      ? 'Answer with the action, the sentence, and the target.'
       : `The action is already decided: ${settled} — ${TRIAGE_LABELS[settled]}. Write one sentence explaining that action.`,
   );
 

@@ -1,3 +1,5 @@
+import type { MergeType } from './merge.js';
+
 /**
  * Supported next-action labels (R38). Status mappings and PR check state can determine an action before
  * classification; conversation interpretation handles the remaining cases.
@@ -10,19 +12,23 @@ export const TRIAGE_ACTIONS = [
   'review-others',
   'address-review',
   'fix-checks',
-  'merge-upstream',
+  'merge',
   'other',
 ] as const;
 
 export type TriageAction = (typeof TRIAGE_ACTIONS)[number];
 
-/** Whether a review round is the first or a later one. Read from the pull request's own history, never from the model. */
-export type TriageQualifier = 'initial' | 'followup';
+/**
+ * Refines the action from PR facts, never from the model: whether a review round is the first or a later one, or
+ * which branches a merge moves between (R39).
+ */
+export type TriageQualifier = 'initial' | 'followup' | MergeType;
 
-/** Classifier action and explanation. */
+/** Classifier action and explanation, with the branch a merge request names as its destination. */
 export interface TriageResult {
   action: TriageAction;
   detail: string;
+  target: string | null;
 }
 
 /**
@@ -34,6 +40,8 @@ export interface TriageEntry {
   /** The `TRIAGE_REVISION` this was read under. An entry from an older one is dropped, which re-reads the card. */
   revision: number;
   qualifier: TriageQualifier | null;
+  /** The branch a merge request names as its destination, as the classifier read it; null for other actions. */
+  target: string | null;
   detail: string;
   /** Epoch milliseconds this was decided. */
   at: number;
@@ -68,7 +76,7 @@ export const EMPTY_TRIAGE: TriageState = { entries: {}, failures: {} };
  */
 export type CardTriage =
   | { state: 'running' }
-  | { state: 'done'; action: TriageAction; qualifier: TriageQualifier | null; detail: string; at: number; stale: boolean }
+  | { state: 'done'; action: TriageAction; qualifier: TriageQualifier | null; target: string | null; detail: string; at: number; stale: boolean }
   | { state: 'failed'; attempts: number; exhausted: boolean };
 
 /** One comment on an issue or a pull request, clipped. `authorAssociation` is how a tester is told from a colleague. */
@@ -115,7 +123,7 @@ export interface TriagePullRequest {
   isDraft: boolean;
   author: string | null;
   authorName: string | null;
-  /** PR base branch. Refuse unattended merges for stacked branches (R39). Empty in older recordings. */
+  /** PR base branch. A base other than the default branch makes a merge stacked (R39). Empty in older recordings. */
   baseRefName: string;
   /** Head branch receiving the merge. */
   headRefName: string;
@@ -155,9 +163,6 @@ export interface TriageContext {
   logins: string[];
   /** `owner/name`, as the card's own URL carries it. What a dispatched run is told it is working in. */
   repository: string;
-  /**
-   * Observed repository default branch. Other PR bases are treated as stacked branches and refused for automation
-   * (R39).
-   */
+  /** Observed repository default branch, which every merge leg starts from (R39). */
   defaultBranch: string | null;
 }

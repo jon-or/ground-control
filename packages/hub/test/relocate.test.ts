@@ -233,8 +233,8 @@ describe('moving the state', () => {
   it('refuses to move under a running card action, which was told to report into the current directory', async () => {
     seedState(bootstrap);
     makeActionStore(bootstrap).write({
-      runs: { 'issue:1': { key: 'issue:1', action: 'merge-upstream', revision: ACTION_REVISION, evidence: 'e', startedAt: NOW, endedAt: null, agent: 'claude', sessionId: 's', shortId: 's', outcome: 'running', detail: 'Working.' } },
-      refusals: {}, gates: {}, dispatches: [NOW],
+      runs: { 'issue:1': { key: 'issue:1', action: 'merge', qualifier: 'upstream', revision: ACTION_REVISION, evidence: 'e', startedAt: NOW, endedAt: null, agent: 'claude', sessionId: 's', shortId: 's', outcome: 'running', detail: 'Working.' } },
+      refusals: {}, gates: {}, dispatches: [NOW], links: {},
     });
 
     const d = deps();

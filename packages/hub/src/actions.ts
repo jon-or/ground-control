@@ -1,6 +1,22 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { ACTION_REVISION, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, isAutomatable, repositoryKey } from '@ground-control/core';
-import type { ActionSettings, ActionState, AgentAdapter, AutomatableAction, Clone, Lane, LanedCard, Logger, ReadFailure, Session, WorkSource, WorktreeSettings } from '@ground-control/core';
+import { ACTION_REVISION, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, isAutomatable, repositoryKey, rowFor } from '@ground-control/core';
+import type {
+  ActionRow,
+  ActionSettings,
+  ActionState,
+  AgentAdapter,
+  AutomatableAction,
+  Clone,
+  Lane,
+  LanedCard,
+  Logger,
+  ReadFailure,
+  Session,
+  TriageContext,
+  TriageQualifier,
+  WorkSource,
+  WorktreeSettings,
+} from '@ground-control/core';
 import {
   actionEnabled,
   actionPrompt,
@@ -9,21 +25,24 @@ import {
   dispatchName,
   dispatchesInWindow,
   gateOpen,
+  isDeveloperLogin,
   nextActionState,
   planAction,
   promptFor,
   promptValues,
   readActionReport,
+  sessionLinks,
   withDispatch,
   withOutcome,
   withRefusal,
   withSession,
+  withoutAbsentLinks,
   worktreeCreationOf,
   worktreePrompt,
   worktreePromptValues,
 } from '@ground-control/automation';
-import type { ActionPlan, ActionRefusal, CardReading } from '@ground-control/automation';
-import { triageable } from '@ground-control/board';
+import type { ActionPlan, ActionRefusal, CardReading, WorktreePullRequest } from '@ground-control/automation';
+import { triageable, triageLabel } from '@ground-control/board';
 import { read } from './fs.js';
 import { actionReportPathOf } from './paths.js';
 import type { ActionStore } from './actionStore.js';
@@ -61,11 +80,19 @@ function hasIssue(card: LanedCard): card is IssueCard {
   return card.issue !== null && card.issueNumber !== null;
 }
 
+/** An action table row as a reading names it. */
+interface Row {
+  action: AutomatableAction;
+  qualifier: TriageQualifier | null;
+}
+
 /** How a run was asked for: by a click, by the automatic check, or as the action after its worktree run. */
 interface Request {
   asked: boolean;
   /** The worktree run already counted this request against the daily limit and cleared its record. */
   chained: boolean;
+  /** For a chained request, the row the worktree run was started for; a reading that moved since starts nothing. */
+  row?: Row;
 }
 
 /** Run supported card actions without changing lane placement. Outcomes come from session reports (R39). */
@@ -103,6 +130,25 @@ export class ActionRunner {
         .filter(([, run]) => run.outcome === 'running')
         .map(([key]) => key),
     );
+  }
+
+  /** The issue each dispatched session belongs to, by `agent:sessionId` (R3). */
+  links(): ReadonlyMap<string, number> {
+    return sessionLinks(this.#deps.store.read());
+  }
+
+  /**
+   * Forget links to sessions absent from complete roster and history reads, by `agent:sessionId`. A link of an agent
+   * that was not read, such as one turned off for now, is kept: its absence says nothing about the session.
+   */
+  pruneLinks(present: ReadonlySet<string>, readAgents: ReadonlySet<string>): void {
+    const state = this.#deps.store.read();
+    const unread = Object.keys(state.links).filter((key) => !readAgents.has(key.slice(0, key.indexOf(':'))));
+    const next = withoutAbsentLinks(state, new Set([...present, ...unread]), this.#deps.now());
+
+    if (next !== state) {
+      this.#write(next);
+    }
   }
 
   /** Profile transitions must wait for both launched work and pending dispatch or stop requests. */
@@ -309,8 +355,8 @@ export class ActionRunner {
     return lanes.map((lane) => ({
       ...lane,
       cards: lane.cards.map((card): LanedCard => {
-        const reading = readingOf(card);
-        const decorated = cardActionOf(state, card.key, reading, this.#offerRefusal(reading.action, card, clones));
+        const reading = readingOf(card, this.#settings.table);
+        const decorated = cardActionOf(state, card.key, reading, this.#offerRefusal(reading, card, clones));
         const creation = this.#creatable(card) ? worktreeCreationOf(state, card.key, this.#worktreeRefusal(card, clones)) : undefined;
 
         return {
@@ -328,13 +374,15 @@ export class ActionRunner {
   }
 
   /** Report action refusals that require no GitHub read. */
-  #offerRefusal(action: AutomatableAction | null, card: LanedCard, clones: readonly Clone[]): string | null {
+  #offerRefusal(reading: CardReading, card: LanedCard, clones: readonly Clone[]): string | null {
+    const { action, qualifier } = reading;
+
     if (action === null) {
       return null;
     }
 
-    // Refuse unattended actions while any session is already on the card (R39).
-    if (card.sessions.length > 0) {
+    // Refuse unattended actions while any session is still running on the card (R39).
+    if (activeSessions(card) > 0) {
       return 'This card has an active session.';
     }
 
@@ -346,9 +394,17 @@ export class ActionRunner {
       }
     }
 
-    return promptFor(action, this.#settings) === null
-      ? `No prompt is set for ${action}. Set its prompt in groundControl.actions.`
-      : null;
+    const row = rowFor(this.#settings.table, action, qualifier);
+
+    if (row === undefined && action === 'merge') {
+      const target = card.triage?.state === 'done' ? card.triage.target : null;
+
+      return target === null
+        ? 'Triage could not tell which kind of merge this is. Read the card again.'
+        : `The request names ${target}, which is neither this pull request's branch, its base, nor a test branch. Read the card again.`;
+    }
+
+    return promptFor(row) === null ? `No prompt is set for ${triageLabel(action, qualifier)}. Set it in the action table.` : null;
   }
 
   /** Why no worktree run can start for the card: no prompt, or no single clone of its repository (R46). */
@@ -380,17 +436,17 @@ export class ActionRunner {
 
     for (const lane of lanes) {
       for (const card of lane.cards) {
-        const action = actionOf(card);
+        const { action, qualifier } = readingOf(card, this.#settings.table);
 
         if (
           due.length < free &&
           action !== null &&
-          actionEnabled(action, this.#settings) &&
+          actionEnabled(rowFor(this.#settings.table, action, qualifier)) &&
           state.runs[card.key]?.outcome !== 'running' &&
           !this.#inFlight.has(card.key) &&
           // Wait for a worktree, or the means to make one, before checking GitHub; an early refusal would delay an eligible card.
           (card.worktree !== undefined || (hasIssue(card) && this.#worktreeRefusal(card, clones) === null)) &&
-          card.sessions.length === 0 &&
+          activeSessions(card) === 0 &&
           gateOpen(state, card.key, now)
         ) {
           due.push(card);
@@ -407,7 +463,7 @@ export class ActionRunner {
     // Finished background sessions remain listed (M33); presence alone would prevent completion.
     const live = new Set(sessions.filter((session) => !session.finished).map((session) => session.sessionId));
     const cards = new Map(lanes.flatMap((lane) => lane.cards).map((card) => [card.key, card]));
-    const continued: string[] = [];
+    const continued: { key: string; row: Row }[] = [];
     let next = state;
 
     for (const [key, run] of Object.entries(state.runs)) {
@@ -420,7 +476,7 @@ export class ActionRunner {
         const found = sessions.find((session) => session.sessionId.startsWith(run.shortId) && run.shortId !== '');
 
         if (found !== undefined) {
-          next = withSession(next, key, found.sessionId);
+          next = withSession(next, key, found.sessionId, this.#deps.now());
         } else if (this.#deps.now() - run.startedAt > this.#settings.resultTimeoutMs) {
           // Allow registration time before declaring the dispatched session missing (M33).
           next = withOutcome(next, key, 'failed', 'The dispatched session was not found before the timeout.', this.#deps.now());
@@ -450,7 +506,7 @@ export class ActionRunner {
         next = made.state;
 
         if (made.linked && run.next !== undefined) {
-          continued.push(key);
+          continued.push({ key, row: { action: run.next, qualifier: run.qualifier } });
         }
       } else {
         next = this.#settled(next, key);
@@ -463,8 +519,8 @@ export class ActionRunner {
     }
 
     // The action the worktree run preceded starts now, in the worktree the card carries after the write above.
-    for (const key of continued) {
-      void this.#run(key, this.#deps.currentCard?.(key), { asked: false, chained: true });
+    for (const { key, row } of continued) {
+      void this.#run(key, this.#deps.currentCard?.(key), { asked: false, chained: true, row });
     }
   }
 
@@ -476,14 +532,14 @@ export class ActionRunner {
     const report = readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)));
 
     this.#deps.log.info(
-      `${key}: ${report?.outcome === 'pushed' ? 'push reported' : 'no push reported'}`,
+      `${key}: ${landed(report) ? 'completion reported' : 'no completion reported'}`,
       'actions',
     );
 
     return withOutcome(
       state,
       key,
-      report?.outcome === 'pushed' ? 'landed' : 'halted',
+      landed(report) ? 'landed' : 'halted',
       report?.detail ?? 'The run ended without a readable result.',
       this.#deps.now(),
     );
@@ -521,6 +577,8 @@ export class ActionRunner {
   async #run(key: string, card: LanedCard | undefined, request: Request): Promise<void> {
     const controller = new AbortController();
     this.#inFlight.set(key, controller);
+    // Known once the reading is; a crash after that is a refusal of this row.
+    let row: Row | null = null;
 
     try {
       const configuration = this.#configuration;
@@ -539,25 +597,39 @@ export class ActionRunner {
         return;
       }
 
-      // Require the card's requested action on the server too; clients can submit arbitrary card keys.
-      const action = actionOf(card);
+      // Require the card's requested row on the server too; clients can submit arbitrary card keys.
+      const cardReading = readingOf(card, this.#settings.table);
+      const { action, qualifier } = cardReading;
 
       if (action === null) {
-        this.#refuse(key, request, { kind: 'not-a-merge', message: 'This card has no merge-upstream action.' });
+        this.#refuse(key, request, { kind: 'no-action', message: 'This card has no action to run.' });
 
         return;
       }
 
+      row = { action, qualifier };
+
+      // The click or the automatic check that started the worktree run consented to its row, not to whatever the card
+      // reads as now.
+      if (request.row !== undefined && (request.row.action !== action || request.row.qualifier !== qualifier)) {
+        this.#refuse(key, request, {
+          kind: 'reading-changed',
+          message: `The card now reads as ${triageLabel(action, qualifier)}, not the ${triageLabel(request.row.action, request.row.qualifier)} its worktree was made for. Nothing was started.`,
+        }, row);
+
+        return;
+      }
+      const target = card.triage?.state === 'done' ? card.triage.target : null;
       const reading = await source.readContext!(card.issue, controller.signal);
 
       if (this.#deps.currentCard) card = this.#deps.currentCard(key);
       if (controller.signal.aborted || card === undefined) {
-        this.#refuse(key, request, { kind: 'action-unavailable', message: 'This card is no longer available. Nothing was started.' });
+        this.#refuse(key, request, { kind: 'action-unavailable', message: 'This card is no longer available. Nothing was started.' }, row);
         return;
       }
 
       if (configuration !== this.#configuration) {
-        this.#refuse(key, request, { kind: 'action-settings-changed', message: 'Action settings changed while reading the card. Retry with the current settings.' });
+        this.#refuse(key, request, { kind: 'action-settings-changed', message: 'Action settings changed while reading the card. Retry with the current settings.' }, row);
 
         return;
       }
@@ -566,32 +638,34 @@ export class ActionRunner {
         this.#refuse(key, request, {
           kind: 'context-empty',
           message: reading.failure?.message ?? 'The card could not be read, so nothing was started.',
-        });
+        }, row);
 
         return;
       }
 
       const decision = planAction({
         action,
+        qualifier,
+        target,
         context: reading.context,
         lane: card.lane,
-        liveSessions: card.sessions.length,
-        settings: this.#settings,
+        liveSessions: activeSessions(card),
+        testBranchPattern: this.#settings.testBranchPattern,
       });
 
       if (!decision.ok) {
-        this.#refuse(key, request, decision.refusal);
+        this.#refuse(key, request, decision.refusal, row);
 
         return;
       }
 
       // Check persisted runs separately from fresh context. Manual retries bypass this check and retain the
       // previous outcome; a chained run follows its own worktree run's record.
-      if (!request.asked && !request.chained && alreadyRun(this.#deps.store.read(), key, decision.plan.evidence)) {
+      if (!request.asked && !request.chained && alreadyRun(this.#deps.store.read(), key, decision.plan.evidence, action, statusChangedAt(card))) {
         this.#refuse(key, request, {
           kind: 'already-run',
           message: 'This action already ran for the card’s current state.',
-        });
+        }, row);
 
         return;
       }
@@ -599,9 +673,11 @@ export class ActionRunner {
       // The action needs a worktree to work in (R46). Without one, the worktree run goes first and this action after.
       if (card.worktree === undefined) {
         if (!hasIssue(card)) {
-          this.#refuse(key, request, { kind: 'action-unavailable', message: 'This card is no longer available. Nothing was started.' });
+          this.#refuse(key, request, { kind: 'action-unavailable', message: 'This card is no longer available. Nothing was started.' }, row);
         } else {
-          await this.#dispatchWorktree(key, card, action, agent, controller.signal, request);
+          const pullRequest = { number: decision.plan.pullRequest, branch: decision.plan.branch, role: decision.plan.role };
+
+          await this.#dispatchWorktree(key, card, row, pullRequest, agent, controller.signal, request);
         }
 
         return;
@@ -613,14 +689,17 @@ export class ActionRunner {
       this.#refuse(key, request, {
         kind: 'action-crashed',
         message: error instanceof Error ? error.message : String(error),
-      });
+      }, row);
     } finally {
       this.#inFlight.delete(key);
       this.#deps.changed();
     }
   }
 
-  /** A worktree run asked for on its own (R46): no context read, since the run's prompt reads what it needs. */
+  /**
+   * A worktree run asked for on its own (R46). A card with a pull request is read first, because a reviewer's
+   * worktree checks out its head.
+   */
   async #runWorktree(key: string, card: LanedCard | undefined, request: Request): Promise<void> {
     const controller = new AbortController();
     this.#inFlight.set(key, controller);
@@ -640,7 +719,40 @@ export class ActionRunner {
         return;
       }
 
-      await this.#dispatchWorktree(key, card, undefined, agent, controller.signal, request);
+      let pullRequest: WorktreePullRequest | null = null;
+
+      if (card.issue.pullRequest != null) {
+        const configuration = this.#configuration;
+        const source = this.#deps.sources.find((candidate) => candidate.readContext !== undefined);
+        const reading = source === undefined ? null : await source.readContext!(card.issue, controller.signal);
+
+        // The card can gain a worktree, or the settings change, while it is read; recheck as `#run` does.
+        if (this.#deps.currentCard) card = this.#deps.currentCard(key);
+        if (controller.signal.aborted || card === undefined || !this.#creatable(card)) {
+          this.#refuse(key, request, { kind: 'worktree-unavailable', message: 'This card is no longer available. Nothing was started.' });
+
+          return;
+        }
+
+        if (configuration !== this.#configuration) {
+          this.#refuse(key, request, { kind: 'action-settings-changed', message: 'Action settings changed while reading the card. Retry with the current settings.' });
+
+          return;
+        }
+
+        if (reading?.context == null) {
+          this.#refuse(key, request, {
+            kind: 'context-empty',
+            message: reading?.failure?.message ?? 'The card’s pull request could not be read, so no worktree was started.',
+          });
+
+          return;
+        }
+
+        pullRequest = pullRequestOf(reading.context);
+      }
+
+      await this.#dispatchWorktree(key, card, undefined, pullRequest, agent, controller.signal, request);
     } catch (error: unknown) {
       this.#refuse(key, request, {
         kind: 'action-crashed',
@@ -691,13 +803,15 @@ export class ActionRunner {
     signal: AbortSignal,
     request: Request,
   ): Promise<void> {
-    const template = promptFor(plan.action, this.#settings);
+    const row: Row = { action: plan.action, qualifier: plan.qualifier };
+    const label = triageLabel(plan.action, plan.qualifier);
+    const template = promptFor(rowFor(this.#settings.table, plan.action, plan.qualifier));
 
     if (template === null) {
       this.#refuse(key, request, {
         kind: 'no-prompt',
-        message: `Set a prompt for ${plan.action} before starting it.`,
-      });
+        message: `Set a prompt for ${label} in the action table before starting it.`,
+      }, row);
 
       return;
     }
@@ -708,7 +822,7 @@ export class ActionRunner {
       this.#refuse(key, request, {
         kind: 'report-unclearable',
         message: `Could not clear the previous result at ${reportPath}. No new run was started.`,
-      });
+      }, row);
 
       return;
     }
@@ -716,7 +830,7 @@ export class ActionRunner {
     const outcome = await agent.dispatch!({
       path: configured.path,
       prompt: actionPrompt(template, promptValues(plan, checkout, reportPath)),
-      name: dispatchName(plan.action, plan.issueNumber),
+      name: dispatchName(plan.action, plan.issueNumber, plan.qualifier),
       cwd: checkout,
       permissionMode: this.#settings.permissionMode,
       model: this.#settings.model === undefined ? configured.model : this.#settings.model || null,
@@ -728,9 +842,9 @@ export class ActionRunner {
     const failed = 'failure' in outcome;
 
     if ('failure' in outcome) {
-      this.#deps.log.warn(`${key}: ${plan.action} could not be started: ${outcome.failure.message}`, 'actions');
+      this.#deps.log.warn(`${key}: ${label} could not be started: ${outcome.failure.message}`, 'actions');
     } else {
-      this.#deps.log.info(`${key}: started ${plan.action} as ${outcome.shortId} in ${checkout}`, 'actions');
+      this.#deps.log.info(`${key}: started ${label} as ${outcome.shortId} in ${checkout}`, 'actions');
     }
 
     this.#write(
@@ -739,6 +853,8 @@ export class ActionRunner {
         {
           key,
           action: plan.action,
+          qualifier: plan.qualifier,
+          issueNumber: plan.issueNumber,
           revision: ACTION_REVISION,
           evidence: plan.evidence,
           startedAt: now,
@@ -757,20 +873,21 @@ export class ActionRunner {
     // Announce only successful starts so a failed dispatch does not consume the one-time notice.
     if (!failed) {
       this.#deps.announce(
-        `Started ${plan.action} for #${plan.issueNumber} in ${checkout}. ` +
-          'The agent may edit and push changes. Disable future automatic runs in groundControl.actions.',
+        `Started ${label} for #${plan.issueNumber} in ${checkout}. ` +
+          'The agent may edit and push changes. Turn off automatic runs in the action table.',
       );
     }
   }
 
   /**
-   * Start the worktree prompt in the card's clone (R46). `next` is the action that follows once the run reports
-   * the worktree; the record carries it so settling knows what to start.
+   * Start the worktree prompt in the card's clone (R46). `next` is the row that follows once the run reports the
+   * worktree; the record carries it so settling knows what to start.
    */
   async #dispatchWorktree(
     key: string,
     card: IssueCard,
-    next: AutomatableAction | undefined,
+    next: Row | undefined,
+    pullRequest: WorktreePullRequest | null,
     { agent, configured }: { agent: AgentAdapter; configured: { path: string; model: string | null } },
     signal: AbortSignal,
     request: Request,
@@ -781,7 +898,7 @@ export class ActionRunner {
       this.#refuse(key, request, {
         kind: 'no-worktree',
         message: 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.',
-      });
+      }, next ?? null);
 
       return;
     }
@@ -789,7 +906,7 @@ export class ActionRunner {
     const clone = cloneFor(card, this.#deps.clones());
 
     if ('refusal' in clone) {
-      this.#refuse(key, request, { kind: 'no-clone', message: clone.refusal });
+      this.#refuse(key, request, { kind: 'no-clone', message: clone.refusal }, next ?? null);
 
       return;
     }
@@ -800,14 +917,14 @@ export class ActionRunner {
       this.#refuse(key, request, {
         kind: 'report-unclearable',
         message: `Could not clear the previous result at ${reportPath}. No new run was started.`,
-      });
+      }, next ?? null);
 
       return;
     }
 
     const outcome = await agent.dispatch!({
       path: configured.path,
-      prompt: worktreePrompt(template, worktreePromptValues(card, clone.cwd, reportPath)),
+      prompt: worktreePrompt(template, worktreePromptValues(card, clone.cwd, reportPath, pullRequest)),
       name: dispatchName(CREATE_WORKTREE, card.issueNumber),
       cwd: clone.cwd,
       permissionMode: this.#settings.permissionMode,
@@ -822,7 +939,9 @@ export class ActionRunner {
     if ('failure' in outcome) {
       this.#deps.log.warn(`${key}: ${CREATE_WORKTREE} could not be started: ${outcome.failure.message}`, 'actions');
     } else {
-      this.#deps.log.info(`${key}: started ${CREATE_WORKTREE} as ${outcome.shortId} in ${clone.cwd}${next === undefined ? '' : `, then ${next}`}`, 'actions');
+      const then = next === undefined ? '' : `, then ${triageLabel(next.action, next.qualifier)}`;
+
+      this.#deps.log.info(`${key}: started ${CREATE_WORKTREE} as ${outcome.shortId} in ${clone.cwd}${then}`, 'actions');
     }
 
     this.#write(
@@ -831,7 +950,9 @@ export class ActionRunner {
         {
           key,
           action: CREATE_WORKTREE,
-          ...(next === undefined ? {} : { next }),
+          ...(next === undefined ? {} : { next: next.action }),
+          qualifier: next?.qualifier ?? null,
+          issueNumber: card.issueNumber,
           revision: ACTION_REVISION,
           // A worktree run has no PR head to key on; the action after it reads its own fresh evidence.
           evidence: '',
@@ -850,45 +971,72 @@ export class ActionRunner {
     if (!failed) {
       this.#deps.announce(
         `Started a worktree run for #${card.issueNumber} in ${clone.cwd}. ` +
-          'The agent may create branches and directories. Disable future automatic runs in groundControl.actions.',
+          'The agent may create branches and directories. Turn off automatic runs in the action table.',
       );
     }
   }
 
   /**
-   * Persist automatic refusals and their retry gates. Return manual refusals as notices without closing the
-   * next attempt's gate; manual validation completes asynchronously after the click (R25).
+   * Persist automatic refusals, of the row where one was known, and their retry gates. Return manual refusals as
+   * notices without closing the next attempt's gate; manual validation completes asynchronously after the click (R25).
    */
-  #refuse(key: string, request: Request, refused: ActionRefusal): void {
+  #refuse(key: string, request: Request, refused: ActionRefusal, row: Row | null = null): void {
     if (request.asked) {
       this.#deps.notify(refused.message, refused.kind);
 
       return;
     }
 
-    this.#write(withRefusal(this.#deps.store.read(), key, refused, this.#deps.now()));
+    this.#write(withRefusal(this.#deps.store.read(), key, refused, this.#deps.now(), row));
   }
 }
 
-/** Return the supported action from completed triage. */
-function actionOf(card: LanedCard): AutomatableAction | null {
-  const reading = card.triage?.state === 'done' ? card.triage.action : null;
+/** Whether the run reported its work complete: `done`, or `pushed`, which merge prompts written before `done` use. */
+function landed(report: ReturnType<typeof readActionReport>): boolean {
+  return report?.outcome === 'done' || report?.outcome === 'pushed';
+}
 
-  return reading !== null && isAutomatable(reading) ? reading : null;
+/** When the card's status last changed, the new request a landed run waits for (R39). */
+function statusChangedAt(card: LanedCard): number | null {
+  const at = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
+
+  return Number.isFinite(at) ? at : null;
+}
+
+/** Sessions still running on the card. A finished background session stays listed (M33) but is not active work. */
+function activeSessions(card: LanedCard): number {
+  return card.sessions.filter((session) => !session.finished).length;
+}
+
+/** The card's pull request as a worktree run needs it (R46). */
+function pullRequestOf(context: TriageContext): WorktreePullRequest | null {
+  const pr = context.pullRequest;
+
+  if (pr === null) {
+    return null;
+  }
+
+  return { number: pr.number, branch: pr.headRefName, role: isDeveloperLogin(pr.author, context.logins) ? 'author' : 'reviewer' };
 }
 
 /**
- * The card's reading for display. A card the board does not read carries none and never will, so its reading is
- * settled; one being read again, or whose read failed, is not, and keeps the outcome the card already shows.
+ * The card's reading, where the action table has a row for it. A card the board does not read carries none and
+ * never will, so its reading is settled; one being read again, or whose read failed, is not, and keeps the outcome
+ * the card already shows.
  */
-export function readingOf(card: LanedCard): CardReading {
+export function readingOf(card: LanedCard, table: readonly ActionRow[]): CardReading {
   const triage = card.triage;
 
   if (triage?.state === 'done') {
-    return { action: actionOf(card), settled: true, at: triage.at };
+    const { action, qualifier } = triage;
+    // A merge triage could not type still has the table's merge rows as candidates, so the card says why it cannot run.
+    const untyped = action === 'merge' && qualifier === null && table.some((row) => row.action === 'merge');
+    const found = isAutomatable(action) && (rowFor(table, action, qualifier) !== undefined || untyped);
+
+    return found ? { action, qualifier, settled: true, at: triage.at } : { action: null, qualifier: null, settled: true, at: triage.at };
   }
 
-  return { action: null, settled: triage === undefined && !triageable(card), at: null };
+  return { action: null, qualifier: null, settled: triage === undefined && !triageable(card), at: null };
 }
 
 /**

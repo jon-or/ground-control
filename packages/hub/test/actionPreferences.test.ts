@@ -21,7 +21,7 @@ function harness(over: Partial<ActionSettings> = {}, enabled = configured) {
   const notices: string[] = [];
   let reads = 0;
   let hold: Promise<void> | null = null;
-  const settings: ActionSettings = { ...DEFAULT_ACTIONS, actions: { 'merge-upstream': { enabled: true, prompt: 'Merge {base} into {branch}' } }, ...over };
+  const settings: ActionSettings = { ...DEFAULT_ACTIONS, table: [{ action: 'merge', qualifier: 'upstream', prompt: 'Merge {base} into {branch}', automatic: true }], ...over };
   const claude = makeClaudeAdapter(async () => { throw new Error('unexpected classifier or roster read'); }, async (path, args) => {
     calls.push({ agent: 'claude', path, args });
     return { ok: true, text: 'backgrounded · 46af2ac8 · merge' };
@@ -54,7 +54,7 @@ function harness(over: Partial<ActionSettings> = {}, enabled = configured) {
     key: 'issue:1', issueNumber: 1, lane: 'build', returned: false, attention: null, reason: '', sessions: [],
     checkout: { root: checkout, source: 'worktree', only: true },
     worktree: { root: checkout, branch: '1-fix', only: true },
-    triage: { state: 'done', action: 'merge-upstream', qualifier: null, detail: 'Merge main.', at: 1, stale: false },
+    triage: { state: 'done', action: 'merge', qualifier: 'upstream', target: null, detail: 'Merge main.', at: 1, stale: false },
     issue: { number: 1, title: 'Merge upstream', url: 'https://github.com/example/repo/issues/1', type: null, typeColor: null,
       status: 'Dev', statusColor: null, statusChangedAt: null, assignees: ['developer'], avatar: null, pullRequest: null, updatedAt: '' },
   }] }];

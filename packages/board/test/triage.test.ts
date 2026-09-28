@@ -36,7 +36,9 @@ const TRIAGE_LABEL_ROWS: [TriageAction, TriageQualifier | null, string][] = [
   ['address-review', 'initial', 'Answer review · initial'],
   ['address-review', 'followup', 'Answer review · followup'],
   ['fix-checks', null, 'Fix failing checks'],
-  ['merge-upstream', null, 'Merge upstream'],
+  ['merge', 'upstream', 'Merge · upstream'],
+  ['merge', 'stacked', 'Merge · stacked'],
+  ['merge', 'test', 'Merge · test'],
   ['other', null, 'Other'],
 ];
 
@@ -74,6 +76,7 @@ function entry(over: Partial<TriageEntry> = {}): TriageEntry {
     revision: TRIAGE_REVISION,
     action: 'develop',
     qualifier: null,
+    target: null,
     detail: 'Pick it up.',
     at: 1_000,
     agent: 'claude',
@@ -211,7 +214,7 @@ describe('reading the stored state', () => {
   it('drops one unusable entry rather than the whole file, which would re-read the entire board', () => {
     const stored = {
       entries: {
-        'issue:1': { revision: TRIAGE_REVISION, action: 'merge-upstream', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' },
+        'issue:1': { revision: TRIAGE_REVISION, action: 'merge', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' },
         'issue:2': { revision: TRIAGE_REVISION, action: 'a-thing-no-build-has', detail: 'go', at: 1, agent: 'claude' },
       },
       failures: { 'issue:3': { kind: 'k', message: 'm', attempts: 1, nextAt: 5 }, 'issue:4': { kind: 'k' } },
@@ -225,10 +228,10 @@ describe('reading the stored state', () => {
 
   it('defaults optional fields within the current revision', () => {
     const read = readTriageState({
-      entries: { 'issue:1': { revision: TRIAGE_REVISION, action: 'merge-upstream', detail: 'go', at: 1, agent: 'claude' } },
+      entries: { 'issue:1': { revision: TRIAGE_REVISION, action: 'merge', detail: 'go', at: 1, agent: 'claude' } },
     });
 
-    expect(read.entries['issue:1']).toMatchObject({ qualifier: null, wasArchived: false, evidence: '' });
+    expect(read.entries['issue:1']).toMatchObject({ qualifier: null, target: null, wasArchived: false, evidence: '' });
   });
 
   it('drops an entry read under an older revision, which is what re-reads those cards', () => {
@@ -269,7 +272,7 @@ function offered(): readonly string[] {
 
 describe('the classifier answer', () => {
   it('takes an answer that is one of the actions the model was offered', () => {
-    expect(readTriageResult({ action: 'qa-failure', detail: 'Safari.' }, null)).toEqual({ action: 'qa-failure', detail: 'Safari.' });
+    expect(readTriageResult({ action: 'qa-failure', detail: 'Safari.' }, null)).toEqual({ action: 'qa-failure', detail: 'Safari.', target: null });
   });
 
   it('refuses an action no build has, rather than reading it as other', () => {
@@ -282,8 +285,8 @@ describe('the classifier answer', () => {
 
   it('takes a merge from the model, because a merge is a request rather than a fact', () => {
     // Merges require written requests. Failing-check facts are applied before model classification (R39).
-    for (const action of ['merge-upstream', 'fix-checks'] as const) {
-      expect(readTriageResult({ action, detail: 'go' }, null)).toEqual({ action, detail: 'go' });
+    for (const action of ['merge', 'fix-checks'] as const) {
+      expect(readTriageResult({ action, detail: 'go' }, null)).toEqual({ action, detail: 'go', target: null });
       expect(offered()).toContain(action);
     }
   });
@@ -426,15 +429,35 @@ describe('what the evidence settles before the model is asked', () => {
 
   it('preserves the explanation for the settled action', () => {
     // Pass deterministic actions before classification to keep labels and explanations consistent (R24).
-    expect(resolveTriage('review-others', { action: 'develop', detail: 'Rich sent it over for review.' }, context())).toEqual({
+    expect(resolveTriage('review-others', { action: 'develop', detail: 'Rich sent it over for review.', target: null }, context())).toEqual({
       action: 'review-others',
       qualifier: 'initial',
+      target: null,
       detail: 'Rich sent it over for review.',
     });
   });
 
+  // The model reads the destination; the type comes from the branches, never from the model (R39).
+  it('types a merge from its branches and the destination the request named', () => {
+    const merge = (target: string | null) => ({ action: 'merge' as const, detail: 'Rich asked for a merge.', target });
+
+    expect(resolveTriage(null, merge(null), context())).toMatchObject({ action: 'merge', qualifier: 'upstream', target: null });
+    expect(resolveTriage(null, merge(null), context({ baseRefName: '17190-channel-base' }))).toMatchObject({ qualifier: 'stacked' });
+    expect(resolveTriage(null, merge('Test-Payments'), context())).toMatchObject({ qualifier: 'test', target: 'Test-Payments' });
+    expect(resolveTriage(null, merge('QA-2'), context(), '^QA-')).toMatchObject({ qualifier: 'test', target: 'QA-2' });
+    // A destination that is none of the pull request's leaves no type, which the plan refuses with the reason.
+    expect(resolveTriage(null, merge('release-9'), context())).toMatchObject({ qualifier: null, target: 'release-9' });
+  });
+
+  it('keeps a destination only on a merge', () => {
+    expect(readTriageResult({ action: 'merge', detail: 'go', target: ' Test-Payments ' }, null)).toEqual({ action: 'merge', detail: 'go', target: 'Test-Payments' });
+    expect(readTriageResult({ action: 'merge', detail: 'go', target: '  ' }, null)).toMatchObject({ target: null });
+    expect(readTriageResult({ action: 'develop', detail: 'go', target: 'Test-Payments' }, null)).toMatchObject({ target: null });
+    expect(resolveTriage(null, { action: 'develop', detail: 'go', target: 'Test-Payments' }, context())).toMatchObject({ target: null });
+  });
+
   it('takes the model action where nothing settled one', () => {
-    expect(resolveTriage(null, { action: 'qa-failure', detail: 'Safari.' }, context())).toMatchObject({
+    expect(resolveTriage(null, { action: 'qa-failure', detail: 'Safari.', target: null }, context())).toMatchObject({
       action: 'qa-failure',
       detail: 'Safari.',
     });
@@ -502,7 +525,7 @@ describe('what a card carries', () => {
 
   /** Hide stored triage and its action controls after unassignment. */
   it('shows nothing on a card the developer is no longer assigned, however recently it was read', () => {
-    const held = state({ entries: { 'issue:17198': entry({ action: 'merge-upstream' }) } });
+    const held = state({ entries: { 'issue:17198': entry({ action: 'merge' }) } });
     const [lane] = withTriage(lanesOf(card({ unassigned: true })), held, NONE, 1_000);
 
     expect(lane?.cards[0]?.triage).toBeUndefined();
@@ -516,6 +539,7 @@ describe('what a card carries', () => {
       state: 'done',
       action: 'address-review',
       qualifier: 'followup',
+      target: null,
       detail: 'Answer the naming notes.',
       at: 1_000,
       stale: false,

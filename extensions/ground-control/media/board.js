@@ -227,6 +227,11 @@ function boardActions() {
       run: () => vscode.postMessage({ type: 'refresh' }),
     },
     {
+      label: 'Action table',
+      hint: 'Choose the prompt each triage action runs, and which start without a click.',
+      run: () => vscode.postMessage({ type: 'editActions' }),
+    },
+    {
       label: 'Settings',
       hint: "Open Ground Control settings.",
       run: () => vscode.postMessage({ type: 'openSettings' }),
@@ -761,7 +766,7 @@ const TRIAGE_LABELS = {
   'review-others': 'Review their PR',
   'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
-  'merge-upstream': 'Merge upstream',
+  merge: 'Merge',
   other: 'Other',
 };
 
@@ -820,9 +825,9 @@ const BADGE_COLORS = {
 /** A pull request's own state colours, matching what GitHub paints them. */
 const PR_COLORS = { OPEN: 'GREEN', MERGED: 'PURPLE', CLOSED: 'RED' };
 
-/** `landed` is a session-reported push, not independently verified completion (R39). */
+/** `landed` is session-reported completion, not independently verified (R39); ACTION_LANDED names it per action. */
 const ACTION_OUTCOMES = {
-  landed: 'Merged',
+  landed: 'Done',
   halted: 'Stopped short',
   failed: 'Did not run',
   stopped: 'Stopped',
@@ -830,6 +835,12 @@ const ACTION_OUTCOMES = {
 
 /** A worktree run's outcomes: landing it is making the worktree, not a merge (R46). */
 const CREATION_OUTCOMES = { ...ACTION_OUTCOMES, landed: 'Created' };
+
+/** What a running action is doing, stated at rest (R45). */
+const ACTION_RUNNING = { merge: 'Merging…', 'review-others': 'Reviewing…', 'address-review': 'Answering review…' };
+
+/** What a run that reported its work complete did, by action (R39). */
+const ACTION_LANDED = { merge: 'Merged', 'review-others': 'Reviewed', 'address-review': 'Answered' };
 
 /**
  * What to do with this card, as one line of text: the triage action, then either the dispatched action's state
@@ -869,7 +880,7 @@ function verdict(boardCard) {
 
   // A dispatched run is the newer fact about the same work, so it takes the qualifier's place until the hub
   // drops it, which it does once the card has been read again (R39).
-  const state = actionState(boardCard.action);
+  const state = actionState(boardCard.action, boardCard.creation);
 
   if (state) {
     held.dataset.outcome = state.outcome;
@@ -904,24 +915,30 @@ function note(text) {
 }
 
 /**
- * The word a dispatched action puts in the verdict, and the color it takes. An action waiting to be run states
- * nothing: its control is the whole message.
+ * The word a dispatched run puts in the verdict, and the color it takes. An action waiting to be run states
+ * nothing: its control is the whole message. A worktree run asked for on its own is the newest fact while it runs.
  */
-function actionState(action) {
-  if (!action || action.state === 'available') {
-    return null;
+function actionState(action, creation) {
+  if (action?.state === 'running') {
+    // The worktree the action needs is still being made; the action itself has not started (R46).
+    return { text: action.stage === 'worktree' ? 'Creating worktree…' : ACTION_RUNNING[action.action] ?? 'Working…', outcome: 'running' };
   }
 
-  if (action.state === 'running') {
-    // The worktree the action needs is still being made; the action itself has not started (R46).
-    return { text: action.stage === 'worktree' ? 'Creating worktree…' : 'Working…', outcome: 'running' };
+  if (creation?.state === 'running') {
+    return { text: 'Creating worktree…', outcome: 'running' };
+  }
+
+  if (!action || action.state === 'available') {
+    return null;
   }
 
   if (action.state === 'refused') {
     return { text: 'Not run', outcome: 'refused' };
   }
 
-  return { text: ACTION_OUTCOMES[action.outcome] ?? ACTION_OUTCOMES.failed, outcome: action.outcome };
+  const landed = action.outcome === 'landed' ? ACTION_LANDED[action.action] : undefined;
+
+  return { text: landed ?? ACTION_OUTCOMES[action.outcome] ?? ACTION_OUTCOMES.failed, outcome: action.outcome };
 }
 
 /**
@@ -996,7 +1013,8 @@ function runButton(boardCard) {
     return null;
   }
 
-  const label = TRIAGE_LABELS[action.action] ?? action.action;
+  // One row per action and qualifier, so the control names both (R39).
+  const label = `${TRIAGE_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
 
   if (action.state === 'running') {
     const stop = toolButton(

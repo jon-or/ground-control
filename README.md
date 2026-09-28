@@ -10,7 +10,7 @@ A personal board for assigned GitHub issues and local Claude Code and Codex sess
 - Start an editor session at a card's checkout. Claude accepts an unsent prompt; Codex opens a bare session.
 - See on a card whether it has a worktree for its issue, and run your own worktree prompt to make one — on its own, or before a card action that needs it.
 - Classify the next action from issue and pull-request context on request; automatic triage requires opt-in.
-- Run a requested merge-upstream action using your prompt, in the card's worktree. Automatic dispatch is disabled by default; [R39](docs/prd.md#r39-merge-upstream-action) describes checks and implementation limits.
+- Run your own prompt for a card's triaged action — merges, reviews, and review answers — in the card's worktree, from a click or automatically. The action table chooses the prompt per action and which start without a click; nothing is configured by default. [R39](docs/prd.md#r39-card-actions) describes checks and implementation limits.
 
 Working lanes are Unstarted, Plan, Build, Review, and Icebox. Archived contains work outside the configured membership set. [Arrival rules](docs/prd.md#r8-arrival-and-manual-placement) determine placement until you move a card.
 
@@ -81,7 +81,7 @@ Hook changes preserve unrelated agent settings, hooks, and Codex trust entries, 
 
 A card's worktree is a working tree of a clone of its repository: the one a worktree run reported, or one whose branch or directory names the issue. The board finds them in the clones it already knows — clones you have open in an editor, have run a session in, or have picked as a card's folder — and in any absolute path listed in `repositoryRoots`; relative and blank entries are ignored. Every card action runs in the card's worktree.
 
-`worktree.prompt` is your prompt for the session that makes one. It runs with the action agent, model, and permission mode, from the clone's main tree, and accepts `{issue}`, `{repo}`, `{title}`, `{url}`, `{clone}`, and `{resultPath}`. A card action on a card with no worktree runs it first and then the action in the worktree it reports, as one attempt against the daily limit; the create-worktree control in the card's bar runs it alone. The session must write JSON to `{resultPath}` with `outcome` `ready`, `worktree` as the absolute path it made, and `detail`, or `halted` with `detail`, for example:
+`worktree.prompt` is your prompt for the session that makes one. It runs with the action agent, model, and permission mode, from the clone's main tree, and accepts `{issue}`, `{repo}`, `{title}`, `{url}`, `{clone}`, `{pr}`, `{branch}`, `{role}`, and `{resultPath}`. `{pr}` and `{branch}` are the card's pull request and its head branch; `{role}` is `author` for your own pull request and `reviewer` for someone else's, whose worktree should check out that head rather than make a branch. All three are empty on a card with no pull request. A card action on a card with no worktree runs it first and then the action in the worktree it reports, as one attempt against the daily limit; the create-worktree control in the card's bar runs it alone. The session must write JSON to `{resultPath}` with `outcome` `ready`, `worktree` as the absolute path it made, and `detail`, or `halted` with `detail`, for example:
 
 ```json
 {"outcome": "ready", "worktree": "D:/git/repo.worktrees/17198-channel-mapping", "detail": "Branched from origin/master and built."}
@@ -125,23 +125,35 @@ Switching to manual cancels automatic readings; switching off cancels all readin
 
 ### Action settings
 
-Setting `actions.merge-upstream.prompt` enables the manual merge control on eligible cards, even with automatic merging disabled. The agent runs in the card's worktree and may push changes; a card with no worktree gets one from `worktree.prompt` first. Automatic starts also require `actions.merge-upstream.enabled`.
+The action table says which prompt runs for each triage action. Open it with **Ground Control: Edit Action Table**, the board menu's Action table item, or the link in the `actions.table` setting; it saves to `actions.table`, which settings.json also edits. Each row names an action — Merge, Review their PR, or Answer review — a qualifier or Any, the prompt, and whether it runs automatically. A row naming the card's qualifier takes precedence over an Any row; a card whose reading has no row offers no action. Every row can be started from the card's run control; an automatic row also starts without a click. The agent runs in the card's worktree and may push changes; a card with no worktree gets one from `worktree.prompt` first. For example:
+
+```json
+"groundControl.actions.table": [
+  { "action": "review-others", "qualifier": "initial", "prompt": "/review-pr {pr}", "automatic": true },
+  { "action": "review-others", "qualifier": "followup", "prompt": "/review-pr-followup {pr}", "automatic": false },
+  { "action": "merge", "qualifier": "test", "prompt": "/merge-to-test {default} {branch} {target}", "automatic": false }
+]
+```
+
+The qualifier of a review or an answer is `initial` or `followup`, from your own history on the pull request. A merge's is its type, from the branches: `test` where the request names a branch matching `actions.testBranchPattern` (default `^Test-`), which merges the default branch into the head and then the head into that branch; otherwise `stacked` where the pull request's base is not the default branch, which merges the default branch into the base and the base into the head; otherwise `upstream`. A test merge on a stacked pull request merges into the base first. The prompt performs the legs; the board supplies the branches. An earlier `actions.merge-upstream` prompt becomes a Merge · upstream row once.
+
+Reviews refuse your own pull request; merges and answers refuse someone else's; every row refuses drafts, closed pull requests, parked lanes, and a card with a session still running.
 
 `actions.agent` chooses `auto`, `claude`, or `codex`; auto preserves registry order, Claude before Codex, among enabled agents that can dispatch. An explicit selection must also be enabled in `agents`. Both agents can remain available for discovery while card actions use one of them.
 
 `actions.model` selects the coding model; empty uses that CLI's default. `triage.model` affects classification only. Saved hub configurations from older clients inherit each agent's legacy `model` only while the corresponding new model field is absent; an explicit empty field clears that inheritance. The current VS Code client sends both fields, so upgrades stop using the classification model for actions unless it is also set in `actions.model`.
 
-Merge prompts accept `{issue}`, `{repo}`, `{pr}`, `{branch}`, `{base}`, `{checkout}` (the worktree), and `{resultPath}`. A prompt beginning with `/` invokes a slash command. The session must write JSON to `{resultPath}` with `outcome` (`pushed` or `halted`), `detail`, and optionally `auditPath`, for example:
+Action prompts accept `{issue}`, `{repo}`, `{pr}`, `{branch}` (the pull request head), `{base}` (its base), `{default}` (the repository default branch), `{target}` (the test branch of a test merge, else empty), `{checkout}` (the worktree), and `{resultPath}`. A prompt beginning with `/` invokes a slash command. The session must write JSON to `{resultPath}` with `outcome` (`done` or `halted`), `detail`, and optionally `auditPath`, for example:
 
 ```json
-{"outcome": "pushed", "detail": "Merged the base branch and pushed.", "auditPath": "merge-audit.md"}
+{"outcome": "done", "detail": "Merged the base branch and pushed.", "auditPath": "merge-audit.md"}
 ```
 
-A prompt that does not place `{resultPath}` itself has that instruction appended before dispatch, so an unattended run reports without you writing the contract into every prompt. A slash command that reads positional arguments (`$1`, `$2`) rather than `$ARGUMENTS` does not receive the appended text; place `{resultPath}` in the prompt yourself for those. The board reports `pushed` as Merged and missing output as stopped short; it does not independently verify the merge on GitHub. Stacked PRs, and cards with no worktree and no worktree prompt, are refused. See [merge action requirements](docs/prd.md#r39-merge-upstream-action).
+A prompt that does not place `{resultPath}` itself has that instruction appended before dispatch, so an unattended run reports without you writing the contract into every prompt. A slash command that reads positional arguments (`$1`, `$2`) rather than `$ARGUMENTS` does not receive the appended text; place `{resultPath}` in the prompt yourself for those. The board reports `done` as Merged, Reviewed, or Answered, and missing output as stopped short; it does not independently verify the work on GitHub. `pushed`, which earlier merge prompts wrote, still counts as `done`. Cards with no worktree and no worktree prompt are refused. See [card action requirements](docs/prd.md#r39-card-actions).
 
 `actions.permissionMode` defaults to Claude's `auto`. Claude's `manual` and `acceptEdits` modes can wait for approval in unattended runs; `dontAsk` denies operations needing approval, `plan` cannot write, and `bypassPermissions` disables permission checks. Codex supports only `plan`, `dontAsk`, and `bypassPermissions`. Unsupported agent/mode combinations refuse before reading card context or dispatching; unknown modes reject configuration. Ground Control never substitutes broader permissions.
 
-A positive `actions.dailyLimit` applies to both automatic and manual starts over a rolling 24 hours; zero disables automatic starts but permits manual starts from an editor. `actions.fromBrowser` defaults to off; turning it on lets the GitHub overlay start a card action or a worktree run; either also needs a visible project tab and a positive `actions.dailyLimit`, and an action must be enabled. Stopping a run needs no setting. `actions.resultMinutes` limits the wait for a dispatched session to appear, not the duration of its work.
+A positive `actions.dailyLimit` applies to both automatic and manual starts over a rolling 24 hours; zero disables automatic starts but permits manual starts from an editor. `actions.fromBrowser` defaults to off; turning it on lets the GitHub overlay start a card action or a worktree run; either also needs a visible project tab and a positive `actions.dailyLimit`, and the action's row must be automatic. Stopping a run needs no setting. `actions.resultMinutes` limits the wait for a dispatched session to appear, not the duration of its work.
 
 ### Settings this guide does not cover
 

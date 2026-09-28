@@ -58,7 +58,8 @@ const SESSION_KEYS = {
   finished: true,
   attachId: true,
   details: true,
-} satisfies Record<keyof Session, true>;
+  // `linked` is set by the hub from its dispatch records, never recorded from an adapter.
+} satisfies Record<Exclude<keyof Session, 'linked'>, true>;
 
 function checked(rows: unknown[]): Session[] {
   rows.forEach((row, index) => {

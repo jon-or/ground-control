@@ -89,7 +89,7 @@ export function defaultConfig(registries: Registries, readers: MachineReaders): 
     logLevel: 'info',
     triage: { ...DEFAULT_TRIAGE },
     // Disable automatic actions until configured (R32).
-    actions: { ...DEFAULT_ACTIONS, actions: {} },
+    actions: { ...DEFAULT_ACTIONS, table: [] },
     newSession: { ...DEFAULT_NEW_SESSION },
     custody: { stages: [...DEFAULT_CUSTODY.stages], bots: [...DEFAULT_CUSTODY.bots] },
   };

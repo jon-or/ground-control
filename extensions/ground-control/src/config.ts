@@ -4,8 +4,8 @@ import { boardStatuses, statusLanes } from '@ground-control/board';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubSettings } from '@ground-control/github';
-import { AUTOMATABLE_ACTIONS, LOG_FLOORS, OFF_REVIEW_AVATARS, REVIEW_AVATARS, diskReaders, idsFrom } from '@ground-control/core';
-import type { ActionSetting, AgentConfig, AutomatableAction, AvatarPolicy, CustodyStage, HubConfig, LogFloor, OffReviewAvatar, ReviewAvatar } from '@ground-control/core';
+import { DEFAULT_TEST_BRANCH_PATTERN, LOG_FLOORS, OFF_REVIEW_AVATARS, REVIEW_AVATARS, diskReaders, idsFrom, readActionTable } from '@ground-control/core';
+import type { AgentConfig, AvatarPolicy, CustodyStage, HubConfig, LogFloor, OffReviewAvatar, ReviewAvatar } from '@ground-control/core';
 import { defaultConfig, makeRegistries } from '@ground-control/hub';
 import { readSessionScope } from './sessionScope.js';
 import { editorAgentHomes } from './agentStorage.js';
@@ -88,9 +88,8 @@ export function readHubConfig(userDir: string): HubConfig {
 }
 
 /**
- * Use flat enabled/prompt settings so VS Code renders editable controls (mechanics M50). An empty prompt
- * disables automatic dispatch. Prompts are supplied by the developer because repository workflows differ
- * (R39).
+ * The action table is an array setting the action table panel edits (R39); the other limits are flat keys so VS Code
+ * renders editable controls (mechanics M50). Prompts are supplied by the developer because repository workflows differ.
  */
 export function readActions(): HubConfig['actions'] {
   const cfg = vscode.workspace.getConfiguration(SECTION);
@@ -100,15 +99,8 @@ export function readActions(): HubConfig['actions'] {
     return Number.isFinite(value) ? Number(value) : fallback;
   };
 
-  // Read the declared flat settings keys directly instead of the synthesized actions.<action> object.
-  const setting = (action: AutomatableAction): ActionSetting => {
-    const prompt = cfg.get<unknown>(`actions.${action}.prompt`, '');
-
-    return {
-      enabled: cfg.get<unknown>(`actions.${action}.enabled`, false) === true,
-      prompt: typeof prompt === 'string' ? prompt.trim() : '',
-    };
-  };
+  const table = cfg.get<unknown>('actions.table', []);
+  const pattern = cfg.get<unknown>('actions.testBranchPattern', DEFAULT_TEST_BRANCH_PATTERN);
 
   return {
     agent: cfg.get<NonNullable<HubConfig['actions']['agent']>>('actions.agent', 'auto'),
@@ -119,10 +111,8 @@ export function readActions(): HubConfig['actions'] {
     fromBrowser: cfg.get<boolean>('actions.fromBrowser', false) === true,
     // Minutes in settings, milliseconds in the hub, the way every other interval here is.
     resultTimeoutMs: number('actions.resultMinutes', 30) * 60 * 1000,
-    // Omit empty prompts so the board does not offer actions that can only refuse.
-    actions: Object.fromEntries(
-      AUTOMATABLE_ACTIONS.map((action) => [action, setting(action)] as const).filter(([, held]) => held.prompt !== ''),
-    ),
+    table: readActionTable(Array.isArray(table) ? table : []),
+    testBranchPattern: typeof pattern === 'string' && pattern.trim() !== '' ? pattern.trim() : DEFAULT_TEST_BRANCH_PATTERN,
   };
 }
 

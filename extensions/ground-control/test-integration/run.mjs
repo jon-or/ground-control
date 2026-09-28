@@ -60,6 +60,9 @@ writeFileSync(
       'groundControl.github.repo': 'example-org/example-repo',
       'groundControl.github.logins': 'example-developer',
       'groundControl.agents': { claude: 'claude-not-on-this-path' },
+      // Settings from before the action table, no longer declared, which activation copies into the table once.
+      'groundControl.actions.merge-upstream.enabled': true,
+      'groundControl.actions.merge-upstream.prompt': '/legacy-merge {base}',
       'window.newWindowProfile': 'Default',
     },
     null,

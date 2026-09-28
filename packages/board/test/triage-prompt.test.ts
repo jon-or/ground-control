@@ -71,7 +71,7 @@ describe('the system prompt', () => {
   it('specifies action precedence', () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain('take the first that applies');
     // Assert action precedence independently of the prompt.
-    const order = ['merge-upstream', 'fix-checks', 'qa-failure', 'qa-question', 'dev-question', 'address-review', 'review-others', 'develop', 'other'];
+    const order = ['merge', 'fix-checks', 'qa-failure', 'qa-question', 'dev-question', 'address-review', 'review-others', 'develop', 'other'];
     const at = order.map((action) => TRIAGE_SYSTEM_PROMPT.indexOf(`${action}:`));
 
     expect(at).toEqual([...at].sort((a, b) => a - b));
@@ -88,7 +88,9 @@ describe('the system prompt', () => {
 
   it('requires merge requests and excludes inferred conflict work', () => {
     // Merges require written requests. Failing-check facts are applied before model classification (R39).
-    expect(TRIAGE_SYSTEM_PROMPT).toContain('somebody has asked you to merge or rebase the base branch into yours');
+    expect(TRIAGE_SYSTEM_PROMPT).toContain(
+      'somebody has asked you to merge one branch into another, such as the base branch into yours or yours into a test branch',
+    );
     expect(TRIAGE_SYSTEM_PROMPT).toContain('A branch that will not merge is not yours to fix.');
     expect(TRIAGE_SYSTEM_PROMPT).toContain('is failing');
   });
@@ -118,7 +120,7 @@ describe('the system prompt', () => {
   it('places explanation constraints before action choices', () => {
     // Both rules regressed when they sat at the end: counts came back and the sentence went technical again.
     for (const rule of ['Describe the status and who needs to act', 'Do not give counts']) {
-      expect(TRIAGE_SYSTEM_PROMPT.indexOf(rule)).toBeLessThan(TRIAGE_SYSTEM_PROMPT.indexOf('1. merge-upstream'));
+      expect(TRIAGE_SYSTEM_PROMPT.indexOf(rule)).toBeLessThan(TRIAGE_SYSTEM_PROMPT.indexOf('1. merge:'));
     }
   });
 
@@ -360,7 +362,7 @@ describe('building the prompt', () => {
     expect(buildTriagePrompt(context(), NOW, 'review-others')).toContain(
       'The action is already decided: review-others — Review their PR. Write one sentence explaining that action.',
     );
-    expect(buildTriagePrompt(context(), NOW)).toContain('Answer with the action and the sentence.');
+    expect(buildTriagePrompt(context(), NOW)).toContain('Answer with the action, the sentence, and the target.');
   });
 
   it('is a pure function of its context, so what reached the model can always be read back', () => {

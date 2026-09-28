@@ -36,7 +36,7 @@ describe('what the hub receives before the choices are made', () => {
   const config = {
     installActivity: true,
     triage: { enabled: true, mode: 'automatic' },
-    actions: { agent: 'auto', actions: { 'merge-upstream': { enabled: true, prompt: 'merge' } } },
+    actions: { agent: 'auto', table: [{ action: 'merge', qualifier: 'upstream', prompt: 'merge', automatic: true }] },
     agents: [{ id: 'claude', path: 'claude' }],
   } as unknown as HubConfig;
 
@@ -46,7 +46,7 @@ describe('what the hub receives before the choices are made', () => {
 
     expect(held.installActivity).toBe(false);
     expect(held.triage).toMatchObject({ enabled: false, mode: 'off' });
-    expect(held.actions).toMatchObject({ agent: 'auto', actions: {} });
+    expect(held.actions).toMatchObject({ agent: 'auto', table: [] });
     expect(held.agents).toEqual(config.agents);
   });
 });

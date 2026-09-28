@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { triageMode } from '@ground-control/core';
+import { DEFAULT_TEST_BRANCH_PATTERN, triageMode } from '@ground-control/core';
 import type { AgentAdapter, IssueCard, Lane, LaneId, Logger, ReadFailure, Snapshot, TriageSettings, WorkSource } from '@ground-control/core';
 import {
   buildTriagePrompt,
@@ -63,6 +63,8 @@ export class TriageRunner {
   #settings: TriageSettings = { enabled: false, concurrency: 1, timeoutMs: 180_000 };
   /** Use the same status mapping as lane assignment (R38). */
   #statusLanes: Readonly<Record<string, LaneId>> = {};
+  /** Tells a test merge from the others when a merge is read (R39). */
+  #testBranchPattern = DEFAULT_TEST_BRANCH_PATTERN;
   #agentPaths = new Map<string, { path: string; model: string | null }>();
   #sourceIds: ReadonlySet<string> = new Set();
   #disposed = false;
@@ -114,9 +116,11 @@ export class TriageRunner {
     agents: readonly { id: string; path: string; model?: string | undefined }[],
     statusLanes: Readonly<Record<string, LaneId>>,
     sourceIds: ReadonlySet<string>,
+    testBranchPattern: string = DEFAULT_TEST_BRANCH_PATTERN,
   ): void {
     this.#settings = settings;
     this.#statusLanes = statusLanes;
+    this.#testBranchPattern = testBranchPattern;
     this.#agentPaths = new Map(agents.map((agent) => [agent.id, { path: agent.path, model: agent.model ?? null }]));
     this.#sourceIds = sourceIds;
 
@@ -361,13 +365,14 @@ export class TriageRunner {
       return { kind: 'triage-unreadable', message: 'Classifier returned an unsupported action.' };
     }
 
-    const { action, qualifier, detail } = resolveTriage(settled, result, reading.context);
+    const { action, qualifier, target, detail } = resolveTriage(settled, result, reading.context, this.#testBranchPattern);
 
     this.#deps.store.write(
       withTriaged(this.#deps.store.read(), due.key, {
         revision: TRIAGE_REVISION,
         action,
         qualifier,
+        target,
         detail,
         at: this.#deps.now(),
         agent: due.agent.id,

@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import * as vscode from 'vscode';
+import { ActionTablePanel, migrateActionTable } from './actionTablePanel.js';
 import { BoardPanel, VIEW_TYPE } from './boardPanel.js';
 import type { Drawn } from './boardPanel.js';
 import { bundlePathOf } from '@ground-control/hub';
@@ -32,6 +33,7 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
   boardLog().info(`Ground Control ${version} activating with home ${home}`);
   recoverStateDirectory(home);
   migrateLaneMemory(context.globalState, resolveStateDir(home).stateDir);
+  void migrateActionTable(context.globalState).catch((error: unknown) => boardLog().error(`could not copy the merge settings into the action table: ${String(error)}`));
 
   const bundle = bundlePathOf(home);
 
@@ -65,6 +67,9 @@ export function activate(context: vscode.ExtensionContext): GroundControl {
     }),
     vscode.commands.registerCommand('groundControl.openBoard', () => {
       BoardPanel.show(context);
+    }),
+    vscode.commands.registerCommand('groundControl.editActions', () => {
+      ActionTablePanel.show(context.extensionUri);
     }),
     // Repeatable: choices are ordinary settings, so running setup again rewrites them.
     vscode.commands.registerCommand('groundControl.runSetup', async () => {

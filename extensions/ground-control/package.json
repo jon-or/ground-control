@@ -29,6 +29,11 @@
         "category": "Ground Control"
       },
       {
+        "command": "groundControl.editActions",
+        "title": "Edit Action Table",
+        "category": "Ground Control"
+      },
+      {
         "command": "groundControl.toggleHubLog",
         "title": "Toggle Hub Log",
         "category": "Ground Control"
@@ -511,19 +516,44 @@
             "order": 1,
             "markdownDescription": "Prompt for the session that creates a card's worktree, run from the card's clone with the action agent. A card action on a card with no worktree runs this first, then the action in the worktree it reports; the create-worktree control runs it alone. Empty refuses both. The board appends the result-file instruction when the prompt omits `{resultPath}`, except for a slash command reading positional arguments. See the [placeholders and result format](https://github.com/jon-or/ground-control/blob/master/README.md#worktree-settings)."
           },
-          "groundControl.actions.merge-upstream.enabled": {
+          "groundControl.actions.table": {
             "scope": "application",
-            "type": "boolean",
-            "default": false,
+            "type": "array",
+            "default": [],
             "order": 2,
-            "markdownDescription": "Automatically run the configured merge prompt when triage identifies a request to merge upstream."
+            "items": {
+              "type": "object",
+              "required": ["action", "prompt"],
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "type": "string",
+                  "enum": ["merge", "review-others", "address-review"],
+                  "enumDescriptions": ["Merge", "Review their PR", "Answer review"]
+                },
+                "qualifier": {
+                  "type": ["string", "null"],
+                  "enum": [null, "upstream", "stacked", "test", "initial", "followup"],
+                  "default": null,
+                  "description": "upstream, stacked, or test for merge; initial or followup for reviews; null for any."
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "automatic": {
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            },
+            "markdownDescription": "Which prompt runs for each triage action, and whether it starts without a click. [Edit the action table](command:groundControl.editActions). See the [placeholders and result format](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings)."
           },
-          "groundControl.actions.merge-upstream.prompt": {
+          "groundControl.actions.testBranchPattern": {
             "scope": "application",
             "type": "string",
-            "default": "",
+            "default": "^Test-",
             "order": 3,
-            "markdownDescription": "Prompt for merge sessions that may push changes. The board appends the result-file instruction when the prompt omits `{resultPath}`. See the [prompt and result format](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings)."
+            "markdownDescription": "Regular expression for test branches. A merge request naming a matching branch is a test merge."
           },
           "groundControl.actions.agent": {
             "scope": "application",

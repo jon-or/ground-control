@@ -4,13 +4,17 @@ import { fillTemplate } from '@ground-control/core';
 import type { ActionPlan } from '../src/plan.js';
 
 const PLAN: ActionPlan = {
-  action: 'merge-upstream',
+  action: 'merge',
+  qualifier: 'upstream',
   evidence: '17198|4021|abc',
   repository: 'example-org/example-repo',
   issueNumber: 17198,
   pullRequest: 4021,
   branch: '17198-channel-mapping',
   base: 'master',
+  defaultBranch: 'master',
+  target: '',
+  role: 'author',
 };
 
 const VALUES = promptValues(PLAN, 'd:/work/repo.worktrees/17198-channel-mapping', 'C:/Users/dev/.claude/ground-control/runs/issue-17198.json');
@@ -24,9 +28,9 @@ describe('dispatch prompt values', () => {
 
   /** Assert explicit placeholder names independently; review matching settings documentation separately. */
   it('defines and fills every supported placeholder', () => {
-    expect(Object.keys(VALUES)).toEqual(['issue', 'repo', 'pr', 'branch', 'base', 'checkout', 'resultPath']);
-    expect(fillTemplate('{issue} {repo} {pr} {branch} {base} {checkout} {resultPath}', VALUES)).toBe(
-      '17198 example-org/example-repo 4021 17198-channel-mapping master ' +
+    expect(Object.keys(VALUES)).toEqual(['issue', 'repo', 'pr', 'branch', 'base', 'default', 'target', 'checkout', 'resultPath']);
+    expect(fillTemplate('{issue} {repo} {pr} {branch} {base} {default} [{target}] {checkout} {resultPath}', VALUES)).toBe(
+      '17198 example-org/example-repo 4021 17198-channel-mapping master master [] ' +
         'd:/work/repo.worktrees/17198-channel-mapping ' +
         'C:/Users/dev/.claude/ground-control/runs/issue-17198.json',
     );
@@ -52,7 +56,7 @@ describe('dispatch prompt values', () => {
 
 describe('what a dispatched session is called', () => {
   it('names the board, the action and the issue, so it is told from work the developer started', () => {
-    expect(dispatchName(PLAN.action, PLAN.issueNumber)).toBe('ground-control · merge-upstream · #17198');
+    expect(dispatchName(PLAN.action, PLAN.issueNumber, PLAN.qualifier)).toBe('ground-control · merge upstream · #17198');
   });
 
   it('names a worktree run the same way, so it is told from the action it precedes', () => {
@@ -65,10 +69,10 @@ describe('worktree prompt values', () => {
     issueNumber: 17198,
     issue: { title: 'Channel mapping drops the last row', url: 'https://github.com/example-org/example-repo/issues/17198', repository: 'example-org/example-repo' },
   };
-  const values = worktreePromptValues(card, 'd:/work/repo', 'C:/Users/dev/.claude/ground-control/runs/issue-17198.json');
+  const values = worktreePromptValues(card, 'd:/work/repo', 'C:/Users/dev/.claude/ground-control/runs/issue-17198.json', null);
 
   it('defines and fills every supported placeholder', () => {
-    expect(Object.keys(values)).toEqual(['issue', 'repo', 'title', 'url', 'clone', 'resultPath']);
+    expect(Object.keys(values)).toEqual(['issue', 'repo', 'title', 'url', 'clone', 'pr', 'branch', 'role', 'resultPath']);
     expect(fillTemplate('/init-worktree {issue} --report {resultPath} in {clone} for {repo}: {title} {url}', values)).toBe(
       '/init-worktree 17198 --report C:/Users/dev/.claude/ground-control/runs/issue-17198.json in d:/work/repo ' +
         'for example-org/example-repo: Channel mapping drops the last row https://github.com/example-org/example-repo/issues/17198',
@@ -76,7 +80,7 @@ describe('worktree prompt values', () => {
   });
 
   it('fills an empty repository where the card names none', () => {
-    expect(worktreePromptValues({ ...card, issue: { title: 't', url: 'u' } }, 'd:/work/repo', 'r').repo).toBe('');
+    expect(worktreePromptValues({ ...card, issue: { title: 't', url: 'u' } }, 'd:/work/repo', 'r', null).repo).toBe('');
   });
 });
 
@@ -89,6 +93,7 @@ describe('result contract', () => {
     { issueNumber: 17198, issue: { title: 'Channel mapping drops the last row', url: 'https://example.invalid/17198' } },
     'd:/work/repo',
     'C:/runs/issue-17198.json',
+    null,
   );
 
   /** An unattended run reports only through the file, so a prompt that never mentions it always looks stopped short. */
@@ -96,7 +101,7 @@ describe('result contract', () => {
     expect(actionPrompt('/or-merge {base} {branch} {issue} --single', values)).toBe(
       '/or-merge master 17198-channel-mapping 17198 --single' + BREAK +
         'This run is unattended. Before you finish, write JSON to C:/runs/issue-17198.json: ' +
-        '{"outcome":"pushed","detail":"<what happened>"} only once the merge is pushed, otherwise ' +
+        '{"outcome":"done","detail":"<what happened>"} only once the work is complete, otherwise ' +
         '{"outcome":"halted","detail":"<why it stopped>"}; add "auditPath":"<file>" when the run wrote one. ' +
         'Write every key of whichever object you write, however the run ends, and ask no questions.',
     );

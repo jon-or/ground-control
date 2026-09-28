@@ -55,6 +55,7 @@ type Inbound =
   | { type: 'toggleLogs' }
   | { type: 'showBoardLog' }
   | { type: 'openSettings' }
+  | { type: 'editActions' }
   | { type: 'setShowArchived'; shown: boolean }
   // The webview names the card, never the URL; the hub resolves the conversation from its own snapshot.
   | { type: 'readDetail'; key: string; subject: DetailSubject }
@@ -350,6 +351,11 @@ export class BoardPanel {
       // Filter settings to the Ground Control prefix.
       case 'openSettings':
         void vscode.commands.executeCommand('workbench.action.openSettings', '@ext:groundcontrol.ground-control');
+
+        return;
+
+      case 'editActions':
+        void vscode.commands.executeCommand('groundControl.editActions');
 
         return;
 

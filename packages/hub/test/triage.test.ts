@@ -252,7 +252,7 @@ function hubConfig(
     custody: { stages: [], bots: [] },
     installActivity: false,
     triage,
-    actions: { permissionMode: 'manual', concurrency: 1, dailyLimit: 0, fromBrowser: false, resultTimeoutMs: 1_800_000, actions: {} },
+    actions: { permissionMode: 'manual', concurrency: 1, dailyLimit: 0, fromBrowser: false, resultTimeoutMs: 1_800_000, table: [], testBranchPattern: '^Test-' },
   };
 }
 
@@ -338,7 +338,7 @@ describe('reading a card that arrives', () => {
     await control.hub.refresh('asked');
     await control.settle();
 
-    expect(control.classified[0]?.prompt).toContain('Answer with the action and the sentence.');
+    expect(control.classified[0]?.prompt).toContain('Answer with the action, the sentence, and the target.');
     expect(control.classified[0]?.schema).toHaveProperty('properties.action');
   });
 
@@ -471,7 +471,7 @@ describe('when a reading cannot be made', () => {
     // Merges require written requests. Reject unsupported action labels through the response enum (R39).
     const offered = (triageJsonSchema(null) as { properties: { action: { enum: string[] } } }).properties.action.enum;
 
-    expect(offered).toContain('merge-upstream');
+    expect(offered).toContain('merge');
     expect(offered).not.toContain('resolve-conflicts');
     expect(offered).not.toContain('land');
   });

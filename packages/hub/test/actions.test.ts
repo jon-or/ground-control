@@ -2,8 +2,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { DEFAULT_SESSION_SCOPE } from '@ground-control/core';
+import { LINK_GRACE_MS } from '@ground-control/automation';
 import { bootstrapDirOf } from '@ground-control/core';
 import type {
+  ActionRow,
   AgentAdapter,
   ContextReading,
   DispatchInput,
@@ -49,6 +51,15 @@ afterEach(() => dispose());
 
 /** A step past the 30-minute read gate, for the tests that are about a card becoming due again. */
 const PAST_GATE = 2_000_000;
+
+/** The row the harness PR reads as: based on the default branch, so an upstream merge. */
+const UPSTREAM: ActionRow = { action: 'merge', qualifier: 'upstream', prompt: '/or-merge {base} {branch} {issue} --single', automatic: true };
+
+/** The row left to the developer's click. */
+const MANUAL_ROW: ActionRow = { ...UPSTREAM, automatic: false };
+
+/** A row with nothing to run, so nothing starts on its own and a click reaches the checks before the prompt one. */
+const NO_PROMPT: Partial<HubConfig['actions']> = { table: [{ ...UPSTREAM, prompt: '' }] };
 
 function issue(over: Partial<IssueCard> = {}): IssueCard {
   return {
@@ -110,7 +121,7 @@ interface Control {
   /** What the fresh read answers. A test changes this to move the card under the runner. */
   pr: Partial<TriagePullRequest> | null;
   /** Classifier result requesting a merge (R39). */
-  classified: { action: TriageAction; detail: string };
+  classified: { action: TriageAction; detail: string; target: string | null };
   /** Every context read the runner made, so a gate that should have stopped one is visible. */
   reads: number[];
   /** Set to make the source seam throw rather than answer. Both seams are public and either may. */
@@ -153,28 +164,34 @@ describe('the reading a card carries', () => {
     ...over,
   });
 
-  it('settles on the action a completed reading names, at the time it was read', () => {
-    const triage = { state: 'done', action: 'merge-upstream', qualifier: null, detail: 'Behind master.', at: 1_788_000_000_000, stale: false } as const;
+  const table = [UPSTREAM];
 
-    expect(readingOf(card({ triage }))).toEqual({ action: 'merge-upstream', settled: true, at: 1_788_000_000_000 });
+  it('settles on the action a completed reading names, at the time it was read', () => {
+    const triage = { state: 'done', action: 'merge', qualifier: 'upstream', target: null, detail: 'Behind master.', at: 1_788_000_000_000, stale: false } as const;
+
+    expect(readingOf(card({ triage }), table)).toEqual({ action: 'merge', qualifier: 'upstream', settled: true, at: 1_788_000_000_000 });
   });
 
-  it('settles on no action where the completed reading names one the board does not perform', () => {
-    const triage = { state: 'done', action: 'address-review', qualifier: 'initial', detail: 'Comments to answer.', at: 5, stale: false } as const;
+  it('settles on no action where the completed reading names one the action table has no row for', () => {
+    const review = { state: 'done', action: 'address-review', qualifier: 'initial', target: null, detail: 'Comments to answer.', at: 5, stale: false } as const;
+    const stacked = { state: 'done', action: 'merge', qualifier: 'stacked', target: null, detail: 'Behind its parent.', at: 5, stale: false } as const;
+    const checks = { state: 'done', action: 'fix-checks', qualifier: null, target: null, detail: 'The build is red.', at: 5, stale: false } as const;
 
-    expect(readingOf(card({ triage }))).toEqual({ action: null, settled: true, at: 5 });
+    expect(readingOf(card({ triage: review }), table)).toEqual({ action: null, qualifier: null, settled: true, at: 5 });
+    expect(readingOf(card({ triage: stacked }), table)).toEqual({ action: null, qualifier: null, settled: true, at: 5 });
+    expect(readingOf(card({ triage: checks }), table)).toEqual({ action: null, qualifier: null, settled: true, at: 5 });
   });
 
   it('is unsettled while the card is being read, or after its read failed', () => {
-    expect(readingOf(card({ triage: { state: 'running' } }))).toEqual({ action: null, settled: false, at: null });
-    expect(readingOf(card({ triage: { state: 'failed', attempts: 2, exhausted: false } }))).toEqual({ action: null, settled: false, at: null });
+    expect(readingOf(card({ triage: { state: 'running' } }), table)).toEqual({ action: null, qualifier: null, settled: false, at: null });
+    expect(readingOf(card({ triage: { state: 'failed', attempts: 2, exhausted: false } }), table)).toEqual({ action: null, qualifier: null, settled: false, at: null });
   });
 
   /** Never read is not the same as never readable: one is still coming, the other never will. */
   it('is unsettled for a card not read yet, and settled for one the board does not read', () => {
-    expect(readingOf(card())).toEqual({ action: null, settled: false, at: null });
-    expect(readingOf(card({ key: 'session:abc', issue: null, issueNumber: null }))).toEqual({ action: null, settled: true, at: null });
-    expect(readingOf(card({ unassigned: true }))).toEqual({ action: null, settled: true, at: null });
+    expect(readingOf(card(), table)).toEqual({ action: null, qualifier: null, settled: false, at: null });
+    expect(readingOf(card({ key: 'session:abc', issue: null, issueNumber: null }), table)).toEqual({ action: null, qualifier: null, settled: true, at: null });
+    expect(readingOf(card({ unassigned: true }), table)).toEqual({ action: null, qualifier: null, settled: true, at: null });
   });
 });
 
@@ -213,7 +230,7 @@ function harness(
       },
     ],
     pr: {},
-    classified: { action: 'merge-upstream', detail: 'Behind master.' },
+    classified: { action: 'merge', detail: 'Behind master.', target: null },
     reads: [],
     readThrows: false,
     contextHolding: null,
@@ -374,7 +391,8 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
       fromBrowser: false,
       // Keep the registration timeout beyond normal test clock advances; timeout tests override it.
       resultTimeoutMs: 14_400_000,
-      actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge {base} {branch} {issue} --single' } },
+      table: [UPSTREAM],
+      testBranchPattern: '^Test-',
       ...actions,
     },
   };
@@ -487,7 +505,7 @@ describe('a card action asked for from the browser', () => {
   it('refuses a start for an action turned off in Settings', async () => {
     const control = harness({}, [issue()]);
 
-    control.hub.configure(config({ fromBrowser: true, actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge' } } }));
+    control.hub.configure(config({ fromBrowser: true, table: [{ ...MANUAL_ROW, prompt: '/or-merge' }] }));
     watch(control, true, null);
     await control.pass();
 
@@ -496,14 +514,14 @@ describe('a card action asked for from the browser', () => {
     await ask(control);
 
     expect(control.dispatched).toHaveLength(0);
-    expect(control.notices.at(-1)).toBe('That card action is turned off in Settings.');
+    expect(control.notices.at(-1)).toBe('That card action is not automatic in the action table.');
   });
 
   /** A card with no action to start is not a setting the developer can change, so it must not name one. */
   it('tells a page asking on a card that reads as nothing that there is no action, not that one is turned off', async () => {
     const control = harness({}, [issue()]);
 
-    control.classified = { action: 'fix-checks', detail: 'The build is red.' };
+    control.classified = { action: 'fix-checks', detail: 'The build is red.', target: null };
     control.hub.configure(config({ fromBrowser: true }));
     watch(control, true, null);
     await control.pass();
@@ -563,14 +581,19 @@ describe('dispatching a card action', () => {
     await control.pass();
 
     expect(control.dispatched).toHaveLength(1);
-    expect(control.dispatched[0]).toMatchObject({ path: 'claude-cli', cwd: CHECKOUT, permissionMode: 'manual' });
+    expect(control.dispatched[0]).toMatchObject({
+      path: 'claude-cli',
+      cwd: CHECKOUT,
+      permissionMode: 'manual',
+      name: 'ground-control · merge upstream · #17198',
+    });
     expect(control.dispatched[0]?.prompt).toMatch(/^\/or-merge master 17198-channel-mapping 17198 --single\n\n/);
     // A prompt that never names the result file still reports, or every unattended run settles as stopped short.
     expect(control.dispatched[0]?.prompt).toContain(`write JSON to ${actionReportPathOf(stateDir, control.key())}`);
   });
 
   it('does not dispatch disabled actions', async () => {
-    const control = harness({ actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge' } } });
+    const control = harness({ table: [{ ...MANUAL_ROW, prompt: '/or-merge' }] });
     watch(control);
     await control.pass();
 
@@ -652,15 +675,15 @@ describe('dispatching a card action', () => {
     watch(control);
     await control.pass();
 
-    const said = control.notices.filter((notice) => notice.includes('Started merge-upstream for'));
+    const said = control.notices.filter((notice) => notice.includes('Started Merge · upstream for'));
 
     expect(said).toHaveLength(1);
     expect(said[0]).toContain('may edit and push');
-    expect(said[0]).toContain('groundControl.actions');
+    expect(said[0]).toContain('Turn off automatic runs in the action table.');
 
     await control.pass(PAST_GATE);
 
-    expect(control.notices.filter((notice) => notice.includes('Started merge-upstream for'))).toHaveLength(1);
+    expect(control.notices.filter((notice) => notice.includes('Started Merge · upstream for'))).toHaveLength(1);
   });
 
   /** Failed dispatches must not consume the first-run notice. */
@@ -678,11 +701,11 @@ describe('dispatching a card action', () => {
     await control.pass();
 
     expect(control.dispatched).toHaveLength(1);
-    expect(overlay.filter((notice) => notice.includes('Started merge-upstream for'))).toEqual([]);
+    expect(overlay.filter((notice) => notice.includes('Started Merge · upstream for'))).toEqual([]);
 
     watch(control);
 
-    const said = control.notices.filter((notice) => notice.includes('Started merge-upstream for'));
+    const said = control.notices.filter((notice) => notice.includes('Started Merge · upstream for'));
 
     expect(said).toHaveLength(1);
     expect(said[0]).toContain('may edit and push');
@@ -696,7 +719,7 @@ describe('dispatching a card action', () => {
     watch(control);
     await control.pass();
 
-    expect(control.notices.filter((notice) => notice.includes('Started merge-upstream for'))).toEqual([]);
+    expect(control.notices.filter((notice) => notice.includes('Started Merge · upstream for'))).toEqual([]);
   });
 
   /** The one rule that keeps a merge that halted from being started over on every pass. */
@@ -732,22 +755,26 @@ describe('dispatching a card action', () => {
     await control.appear();
     await control.finish();
 
-    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge-upstream', outcome: 'halted' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted' });
 
-    control.classified = { action: 'fix-checks', detail: 'The build is red.' };
+    control.classified = { action: 'fix-checks', detail: 'The build is red.', target: null };
     control.hub.receive({ id: 'board-1' }, { type: 'retriage', key: control.key() });
     await control.settle();
 
     expect(control.cardAction()).toBeUndefined();
   });
 
-  /** A successful merge changes its own head commit. Completed runs must block automatic repeats even after that change. */
-  it('never dispatches again once a run landed, however far the branch has moved since', async () => {
-    const control = harness();
+  /**
+   * A successful merge changes its own head commit. Completed runs must block automatic repeats even after that
+   * change, until the card is read again after the run.
+   */
+  it('never dispatches again once a run landed, however far the branch has moved, until the card’s status changes', async () => {
+    // The harness issue's status change is dated after the fake clock; this one moved before the run.
+    const control = harness({}, [issue({ statusChangedAt: '2026-08-01T09:00:00Z' })]);
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'pushed', detail: 'Merged master.' });
+    control.report({ outcome: 'done', detail: 'Merged master.' });
     await control.finish();
 
     expect(control.dispatched).toHaveLength(1);
@@ -766,12 +793,33 @@ describe('dispatching a card action', () => {
     await control.settle();
 
     expect(control.dispatched).toHaveLength(2);
+
+    await control.appear();
+    control.report({ outcome: 'done', detail: 'Merged master again.' });
+    await control.finish();
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(2);
+
+    // Reading the same conversation again is not a new request.
+    control.hub.receive({ id: 'board-1' }, { type: 'retriage', key: control.key() });
+    await control.settle();
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(2);
+
+    // A status change after the run is; the card is read again and may start one.
+    control.cards = [issue({ statusChangedAt: new Date(control.clock.clock.now() + 1000).toISOString() })];
+    await control.pass(PAST_GATE);
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(3);
   });
 
   /** Enabled actions require fresh GitHub context, but repeated hub updates must respect the retry interval. */
   it('waits for the retry interval before rereading', async () => {
     const control = harness();
-    control.pr = { baseRefName: '17000-parent-feature' };
+    control.pr = { isDraft: true };
     watch(control);
     await control.pass();
 
@@ -796,17 +844,115 @@ describe('dispatching a card action', () => {
   });
 });
 
+describe('the action table', () => {
+  const REVIEW: ActionRow = { action: 'review-others', qualifier: 'initial', prompt: '/review-pr {pr} {branch}', automatic: true };
+
+  it('reviews someone else’s pull request with the review row, as the reviewer', async () => {
+    const control = harness({ table: [UPSTREAM, REVIEW] });
+    control.pr = { author: 'dev-2' };
+    control.classified = { action: 'review-others', detail: 'Mayur asked you to review.', target: null };
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched[0]).toMatchObject({ cwd: CHECKOUT, name: 'ground-control · review-others initial · #17198' });
+    expect(control.dispatched[0]?.prompt).toMatch(/^\/review-pr 4021 17198-channel-mapping\n\n/);
+    expect(control.dispatched[0]?.prompt).toContain('"outcome":"done"');
+    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'review-others', qualifier: 'initial' });
+  });
+
+  it('offers nothing on a card whose reading has no row, and starts nothing', async () => {
+    const control = harness({ table: [REVIEW] });
+    watch(control);
+    await control.pass();
+
+    expect(control.snapshot().lanes.flatMap((lane) => lane.cards)[0]?.triage).toMatchObject({ action: 'merge', qualifier: 'upstream' });
+    expect(control.cardAction()).toBeUndefined();
+    expect(control.dispatched).toEqual([]);
+  });
+
+  it('runs the row naming the reading’s qualifier over the one naming none, wherever it sits', async () => {
+    const control = harness({ table: [{ ...UPSTREAM, qualifier: null, prompt: '/any-merge' }, { ...UPSTREAM, prompt: '/upstream-merge' }] });
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched[0]?.prompt).toMatch(/^\/upstream-merge\n\n/);
+  });
+
+  it('runs a row naming no qualifier for any reading of its action', async () => {
+    const control = harness({ table: [{ ...UPSTREAM, qualifier: null, prompt: '/any-merge {default}' }] });
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched[0]?.prompt).toMatch(/^\/any-merge master\n\n/);
+  });
+
+  // Claude keeps a finished background session listed (M33); it is not work the run would collide with.
+  it('starts, and offers, the action on a card whose only session has finished', async () => {
+    const control = harness({ table: [MANUAL_ROW] }, [issue()], [sessionOn({ finished: true })]);
+    watch(control);
+    await control.pass();
+
+    expect(control.cardAction()).toEqual({ state: 'available', action: 'merge', qualifier: 'upstream' });
+
+    control.hub.configure(config());
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(1);
+  });
+
+  it('says why a merge it could not type cannot run, rather than offering nothing', async () => {
+    const control = harness({ table: [{ ...UPSTREAM, automatic: false }, { ...UPSTREAM, qualifier: 'test', automatic: false }] });
+    control.classified = { action: 'merge', detail: 'Rich asked for a merge into release-9.', target: 'release-9' };
+    watch(control);
+    await control.pass();
+
+    expect(control.cardAction()).toEqual({
+      state: 'refused',
+      action: 'merge',
+      qualifier: null,
+      reason: 'The request names release-9, which is neither this pull request\'s branch, its base, nor a test branch. Read the card again.',
+    });
+  });
+
+  it('still refuses a card whose session is running', async () => {
+    const control = harness({ table: [MANUAL_ROW] }, [issue()], [sessionOn()]);
+    watch(control);
+    await control.pass();
+
+    expect(control.cardAction()).toEqual({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'This card has an active session.' });
+  });
+});
+
 describe('what the board refuses to act on', () => {
-  it('reports refusal for PRs targeting non-default branches', async () => {
-    const control = harness();
+  /** A base other than the default branch makes the merge stacked, which runs its own row (R39). */
+  it('runs a pull request based on another branch as a stacked merge, under the stacked row', async () => {
+    const control = harness({ table: [{ ...UPSTREAM, qualifier: 'stacked', prompt: '/or-merge {default} {base} {branch}' }] });
     control.pr = { baseRefName: '17000-parent-feature' };
     watch(control);
     await control.pass();
 
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched[0]).toMatchObject({ name: 'ground-control · merge stacked · #17198' });
+    expect(control.dispatched[0]?.prompt).toMatch(/^\/or-merge master 17000-parent-feature 17198-channel-mapping\n\n/);
+  });
+
+  /** The row was chosen for the type the card was read as; a base that moved since would run the wrong legs. */
+  it('reports refusal for a PR restacked onto another branch since it was read as an upstream merge', async () => {
+    const control = harness({ table: [MANUAL_ROW] });
+    watch(control);
+    await control.pass();
+
+    expect(control.cardAction()).toEqual({ state: 'available', action: 'merge', qualifier: 'upstream' });
+
+    control.pr = { baseRefName: '17000-parent-feature' };
+    control.hub.configure(config());
+    await control.pass(PAST_GATE);
+
     expect(control.dispatched).toEqual([]);
     expect(control.cardAction()).toMatchObject({
       state: 'refused',
-      reason: '#4021 targets 17000-parent-feature. Merge-upstream requires the default branch, master.',
+      reason: 'This is now a stacked merge, not the upstream merge the card was read as. Read the card again.',
     });
   });
 
@@ -814,7 +960,7 @@ describe('what the board refuses to act on', () => {
   /** Require a requested merge on the server; a client can submit arbitrary card keys (R39). */
   it('refuses a card whose reading is not asking for a merge', async () => {
     const control = harness();
-    control.classified = { action: 'fix-checks', detail: 'The build is red.' };
+    control.classified = { action: 'fix-checks', detail: 'The build is red.', target: null };
     watch(control);
     await control.pass();
 
@@ -825,7 +971,7 @@ describe('what the board refuses to act on', () => {
     await control.settle();
 
     expect(control.dispatched).toEqual([]);
-    expect(control.notices).toContain('This card has no merge-upstream action.');
+    expect(control.notices).toContain('This card has no action to run.');
   });
 
   // An action works in the card's worktree; with none and no prompt to make one there is nothing to start (R46).
@@ -840,7 +986,8 @@ describe('what the board refuses to act on', () => {
     expect(control.reads).toEqual([17198]);
     expect(control.cardAction()).toEqual({
       state: 'refused',
-      action: 'merge-upstream',
+      action: 'merge',
+      qualifier: 'upstream',
       reason: 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.',
     });
   });
@@ -867,20 +1014,23 @@ describe('what the board refuses to act on', () => {
     expect(control.dispatched).toEqual([]);
     expect(control.cardAction()).toEqual({
       state: 'refused',
-      action: 'merge-upstream',
+      action: 'merge',
+      qualifier: 'upstream',
       reason: 'No worktree for this issue. Set groundControl.worktree.prompt so one can be created.',
     });
   });
 
   it('disables actions without configured prompts', async () => {
-    const control = harness({ actions: {} });
+    const control = harness(NO_PROMPT);
     watch(control);
     await control.pass();
 
+    expect(control.dispatched).toEqual([]);
     expect(control.cardAction()).toMatchObject({
       state: 'refused',
-      action: 'merge-upstream',
-      reason: 'No prompt is set for merge-upstream. Set its prompt in groundControl.actions.',
+      action: 'merge',
+      qualifier: 'upstream',
+      reason: 'No prompt is set for Merge · upstream. Set it in the action table.',
     });
   });
 });
@@ -891,14 +1041,14 @@ describe('following a run to its end', () => {
     watch(control);
     await control.pass();
 
-    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge-upstream' });
+    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge', qualifier: 'upstream' });
 
     // The dispatched session appears on the roster under the short id the CLI printed (`mechanics.md` M33).
     await control.appear();
 
     expect(control.cardAction()).toMatchObject({ state: 'running' });
 
-    control.report({ outcome: 'pushed', detail: 'Merged master, tests green.' });
+    control.report({ outcome: 'done', detail: 'Merged master, tests green.' });
     await control.finish();
 
     expect(control.cardAction()).toMatchObject({
@@ -1049,7 +1199,7 @@ describe('the developer asking by hand', () => {
   });
 
   it('rechecks checkout scope after a held manual context read', async () => {
-    const control = harness({ actions: {} });
+    const control = harness(NO_PROMPT);
     watch(control);
     await control.pass();
     let release!: () => void;
@@ -1058,7 +1208,7 @@ describe('the developer asking by hand', () => {
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
     await control.settle();
     expect(control.reads).toHaveLength(reads + 1);
-    control.hub.configure({ ...config({ actions: {} }), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeDirectories: [CHECKOUT] } });
+    control.hub.configure({ ...config(NO_PROMPT), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeDirectories: [CHECKOUT] } });
     release();
     await control.settle();
     expect(control.dispatched).toEqual([]);
@@ -1067,7 +1217,7 @@ describe('the developer asking by hand', () => {
   });
 
   it('rechecks a newly active session after a held manual context read', async () => {
-    const control = harness({ actions: {} });
+    const control = harness(NO_PROMPT);
     watch(control);
     await control.pass();
     let release!: () => void;
@@ -1086,9 +1236,9 @@ describe('the developer asking by hand', () => {
   });
 
   it('preserves a useful unsupported-permission refusal for an in-scope card', async () => {
-    const control = harness({ actions: {} });
+    const control = harness(NO_PROMPT);
     control.permissions.splice(0, control.permissions.length, 'manual');
-    control.hub.configure({ ...config({ actions: {}, permissionMode: 'auto' }), sessionScope: { ...DEFAULT_SESSION_SCOPE, includeDirectories: [home] } });
+    control.hub.configure({ ...config({ ...NO_PROMPT, permissionMode: 'auto' }), sessionScope: { ...DEFAULT_SESSION_SCOPE, includeDirectories: [home] } });
     watch(control);
     await control.pass();
     const reads = control.reads.length;
@@ -1100,7 +1250,7 @@ describe('the developer asking by hand', () => {
     control.hub.dispose();
   });
   it('runs a card whose action is turned off, because the click is the opt-in', async () => {
-    const control = harness({ actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge {issue}' } } });
+    const control = harness({ table: [{ ...MANUAL_ROW, prompt: '/or-merge {issue}' }] });
     watch(control);
     await control.pass();
 
@@ -1145,17 +1295,15 @@ describe('the developer asking by hand', () => {
 
   /** Report asynchronous manual refusals without storing a refusal that would delay the next request (R25). */
   it('reports manual refusals without applying retry gates', async () => {
-    const control = harness({ actions: {} });
-    control.pr = { baseRefName: '17000-parent-feature' };
+    const control = harness(NO_PROMPT);
+    control.pr = { isDraft: true };
     watch(control);
     await control.pass();
 
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
     await control.settle();
 
-    expect(control.notices).toContain(
-      '#4021 targets 17000-parent-feature. Merge-upstream requires the default branch, master.',
-    );
+    expect(control.notices).toContain('Pull request #4021 is a draft.');
     expect(control.dispatched).toEqual([]);
 
     // An immediate manual retry performs another read.
@@ -1226,7 +1374,7 @@ describe('making the worktree an action needs', () => {
    * A card with no worktree: no saved session names one, and the clone is on another branch. The action is
    * left to the developer's click unless a test is about the automatic path.
    */
-  function bare(over: Partial<HubConfig['actions']> = { actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge {base} {branch} {issue} --single' } } }, prompt = PROMPT): Control {
+  function bare(over: Partial<HubConfig['actions']> = { table: [MANUAL_ROW] }, prompt = PROMPT): Control {
     const control = harness(over);
     control.history = [];
     control.hub.configure({ ...config(over), repositoryRoots: [CLONE], worktree: { prompt } });
@@ -1235,7 +1383,7 @@ describe('making the worktree an action needs', () => {
     return control;
   }
 
-  const MANUAL: Partial<HubConfig['actions']> = { actions: { 'merge-upstream': { enabled: false, prompt: '/or-merge {base} {branch} {issue} --single' } } };
+  const MANUAL: Partial<HubConfig['actions']> = { table: [MANUAL_ROW] };
 
   const card = (control: Control) => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]!;
 
@@ -1255,7 +1403,7 @@ describe('making the worktree an action needs', () => {
     await control.pass();
 
     expect(card(control).creation).toEqual({ state: 'available' });
-    expect(card(control).action).toEqual({ state: 'available', action: 'merge-upstream' });
+    expect(card(control).action).toEqual({ state: 'available', action: 'merge', qualifier: 'upstream' });
   });
 
   it('offers nothing where the card already has its worktree', async () => {
@@ -1281,8 +1429,68 @@ describe('making the worktree an action needs', () => {
       name: 'ground-control · create-worktree · #17198',
       prompt: `Make a worktree for #17198 (Channel mapping drops rows past the first page) from ${CLONE}, then write ${actionReportPathOf(stateDir, control.key())}`,
     });
-    expect(control.cardAction()).toEqual({ state: 'running', action: 'merge-upstream', since: control.clock.clock.now(), stage: 'worktree' });
+    expect(control.cardAction()).toEqual({ state: 'running', action: 'merge', qualifier: 'upstream', since: control.clock.clock.now(), stage: 'worktree' });
     expect(card(control).creation).toEqual({ state: 'running', since: control.clock.clock.now() });
+  });
+
+  it('tells the worktree run the card’s pull request, its head, and whose it is', async () => {
+    const control = bare(MANUAL, 'Worktree for {pr} on {branch} as {role}, report to {resultPath}');
+    await control.pass();
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched[0]?.prompt).toBe(`Worktree for 4021 on 17198-channel-mapping as author, report to ${actionReportPathOf(stateDir, control.key())}`);
+  });
+
+  // A reviewer's worktree checks out the head rather than branching, so a run asked for alone reads the PR first.
+  it('reads the pull request for a worktree asked for alone, and names a reviewer as one', async () => {
+    const control = bare(MANUAL, 'Worktree for {pr} on {branch} as {role}');
+    control.pr = { author: 'dev-2', headRefName: '17198-their-branch' };
+    await control.pass();
+    const reads = control.reads.length;
+
+    control.hub.receive({ id: 'board-1' }, { type: 'createWorktree', key: control.key() });
+    await control.settle();
+
+    expect(control.reads.length).toBe(reads + 1);
+    expect(control.dispatched[0]?.prompt).toMatch(/^Worktree for 4021 on 17198-their-branch as reviewer\n\n/);
+  });
+
+  it('leaves the pull request placeholders empty on a card with none, without reading it', async () => {
+    const control = bare(MANUAL, 'Worktree [{pr}] [{branch}] [{role}]');
+    control.cards = [issue({ pullRequest: null })];
+    await control.pass();
+    const reads = control.reads.length;
+
+    control.hub.receive({ id: 'board-1' }, { type: 'createWorktree', key: control.key() });
+    await control.settle();
+
+    expect(control.reads.length).toBe(reads);
+    expect(control.dispatched[0]?.prompt).toMatch(/^Worktree \[\] \[\] \[\]\n\n/);
+  });
+
+  it('leaves the placeholders empty where the fresh read finds the pull request gone', async () => {
+    const control = bare(MANUAL, 'Worktree for [{pr}]');
+    await control.pass();
+    control.pr = null;
+
+    control.hub.receive({ id: 'board-1' }, { type: 'createWorktree', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched[0]?.prompt).toMatch(/^Worktree for \[\]\n\n/);
+  });
+
+  it('starts no worktree where the pull request cannot be read, and says why', async () => {
+    const control = bare(MANUAL, 'Worktree for {pr}');
+    control.readThrows = true;
+    await control.pass();
+
+    control.hub.receive({ id: 'board-1' }, { type: 'createWorktree', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched).toEqual([]);
+    expect(control.notices).toContain('the seam threw rather than answering');
   });
 
   it('tells a worktree prompt that never names the result file to report ready and the path', async () => {
@@ -1315,10 +1523,116 @@ describe('making the worktree an action needs', () => {
     expect(control.dispatched).toHaveLength(2);
     expect(control.dispatched[1]).toMatchObject({ cwd: worktree });
     expect(control.dispatched[1]?.prompt).toMatch(/^\/or-merge master 17198-channel-mapping 17198 --single\n\n/);
-    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge-upstream' });
+    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge', qualifier: 'upstream' });
     expect(control.cardAction()).not.toHaveProperty('stage');
     // One request, one attempt: the worktree run and the action it precedes share the daily allowance.
     expect(makeActionStore(stateDir).read().dispatches).toHaveLength(1);
+  });
+
+  it('shows the worktree run on the issue card though it runs in the clone, and starts the action once it has finished', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    // The clone's branch names no issue, so only the dispatch record puts this session on the card (R3).
+    const run = fakeSession({ agent: 'claude', sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', cwd: CLONE, checkoutRoot: CLONE, branch: 'master', issueNumber: null });
+    control.agent.sessions = [run];
+    await control.pass();
+
+    const cards = () => control.snapshot().lanes.flatMap((lane) => lane.cards);
+
+    expect(cards().map((c) => c.key)).toEqual(['issue:17198']);
+    expect(cards()[0]?.sessions.map((s) => s.sessionId)).toEqual([run.sessionId]);
+    // The clone is where the run started, not the card's checkout.
+    expect(cards()[0]?.checkout).toBeUndefined();
+
+    const worktree = made();
+    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    // Claude keeps a finished background session listed (M33); it is not active work that blocks the action.
+    control.agent.sessions = [{ ...run, finished: true }];
+    await control.pass();
+    await control.settle();
+
+    expect(cards()[0]?.sessions.map((s) => s.sessionId)).toEqual([run.sessionId]);
+    expect(control.dispatched).toHaveLength(2);
+    expect(control.dispatched[1]).toMatchObject({ cwd: worktree });
+  });
+
+  it('keeps a worktree run on the issue card once only its saved transcript remains, until it is gone for a day', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    const run = fakeSession({ agent: 'claude', sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', cwd: CLONE, checkoutRoot: CLONE, branch: 'master', issueNumber: null });
+    control.agent.sessions = [run];
+    await control.pass();
+
+    control.agent.sessions = [];
+    control.history = [{ agent: 'claude', sessionId: run.sessionId, title: 'Worktree', cwd: CLONE, branch: 'master', issueNumber: null, repository: 'github.com/example-org/example-repo', updatedAt: control.clock.clock.now() }];
+    await control.pass();
+
+    const cards = () => control.snapshot().lanes.flatMap((lane) => lane.cards);
+
+    expect(cards().map((c) => c.key)).toEqual(['issue:17198']);
+    expect(cards()[0]?.lastSession).toMatchObject({ sessionId: run.sessionId, linked: true });
+    expect(Object.keys(makeActionStore(stateDir).read().links)).toEqual([`claude:${run.sessionId}`]);
+
+    // Gone from the roster and history: kept through the grace period, then forgotten.
+    control.history = [];
+    await control.pass();
+
+    expect(Object.keys(makeActionStore(stateDir).read().links)).toHaveLength(1);
+
+    await control.pass(LINK_GRACE_MS);
+
+    expect(makeActionStore(stateDir).read().links).toEqual({});
+  });
+
+  // With the agent turned off its sessions are not read, so their absence proves nothing.
+  it('keeps the links of an agent that was not read', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    control.agent.sessions = [fakeSession({ agent: 'claude', sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', cwd: CLONE, checkoutRoot: CLONE, branch: 'master', issueNumber: null })];
+    await control.pass();
+
+    control.hub.configure({ ...config(MANUAL), agents: [], repositoryRoots: [CLONE], worktree: { prompt: PROMPT } });
+    control.agent.sessions = [];
+    await control.pass(LINK_GRACE_MS);
+    await control.pass();
+
+    expect(Object.keys(makeActionStore(stateDir).read().links)).toEqual(['claude:46af2ac8-f232-4406-8e8f-2579df5eb08f']);
+  });
+
+  // The click, or the automatic row, consented to the row the worktree was made for.
+  it('starts nothing after the worktree where the card has since been read as another row', async () => {
+    const stacked: ActionRow = { ...MANUAL_ROW, qualifier: 'stacked', automatic: true };
+    const control = bare({ table: [MANUAL_ROW, stacked] });
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    await control.appear();
+
+    // Restacked while the worktree run works, and read again: now the automatic stacked row.
+    control.pr = { baseRefName: '17000-parent-feature' };
+    control.hub.receive({ id: 'board-1' }, { type: 'retriage', key: control.key() });
+    await control.settle();
+    await control.pass();
+
+    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    await control.finish();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.cardAction()).toMatchObject({
+      state: 'refused',
+      action: 'merge',
+      qualifier: 'stacked',
+      reason: 'The card now reads as Merge · stacked, not the Merge · upstream its worktree was made for. Nothing was started.',
+    });
   });
 
   it('halts, and starts no action, where the run reports a directory git does not register', async () => {
@@ -1336,7 +1650,7 @@ describe('making the worktree an action needs', () => {
 
     expect(control.dispatched).toHaveLength(1);
     expect(card(control).worktree).toBeUndefined();
-    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge-upstream', outcome: 'halted', detail: `The run reported ${stray}, which git does not register as a working tree.` });
+    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: `The run reported ${stray}, which git does not register as a working tree.` });
     expect(card(control).creation).toMatchObject({ state: 'done', outcome: 'halted' });
   });
 
@@ -1377,7 +1691,7 @@ describe('making the worktree an action needs', () => {
     expect(control.dispatched).toHaveLength(1);
     expect(control.dispatched[0]).toMatchObject({ cwd: CLONE, name: 'ground-control · create-worktree · #17198' });
     // The action stays offerable: the worktree run is not the action, and the run control must not say it is.
-    expect(control.cardAction()).toEqual({ state: 'available', action: 'merge-upstream' });
+    expect(control.cardAction()).toEqual({ state: 'available', action: 'merge', qualifier: 'upstream' });
     expect(card(control).creation).toEqual({ state: 'running', since: control.clock.clock.now() });
 
     await control.appear();
@@ -1430,7 +1744,7 @@ describe('making the worktree an action needs', () => {
 
     expect(control.dispatched).toHaveLength(1);
     expect(card(control).worktree?.root).toBe(worktree);
-    expect(control.cardAction()).toEqual({ state: 'refused', action: 'merge-upstream', reason: 'Pull request #4021 is a draft.' });
+    expect(control.cardAction()).toEqual({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'Pull request #4021 is a draft.' });
   });
 
   it('refuses to make a worktree where the hub knows no clone of the repository', async () => {
@@ -1472,7 +1786,7 @@ describe('making the worktree an action needs', () => {
     await control.settle();
 
     expect(control.stopped).toEqual(['46af2ac8']);
-    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge-upstream', outcome: 'stopped' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'stopped' });
     expect(card(control).creation).toMatchObject({ state: 'done', outcome: 'stopped' });
 
     await control.pass();

@@ -25,6 +25,21 @@ function groupSessions<K>(sessions: Session[], keyOf: (session: Session) => K): 
   return groups;
 }
 
+/**
+ * Put each session the board dispatched on the issue it was dispatched for, whatever its branch (R3). A session
+ * whose branch already names that issue is unchanged.
+ */
+export function linkSessions<T extends { agent: string; sessionId: string; issueNumber: number | null }>(
+  sessions: readonly T[],
+  links: ReadonlyMap<string, number>,
+): T[] {
+  return sessions.map((session) => {
+    const issueNumber = links.get(`${session.agent}:${session.sessionId}`);
+
+    return issueNumber === undefined || issueNumber === session.issueNumber ? session : { ...session, issueNumber, linked: true };
+  });
+}
+
 /** Group ad-hoc sessions by repository and branch, falling back to checkout directory. */
 function checkoutKey(session: Session): string {
   return session.repository !== null && session.branch !== null

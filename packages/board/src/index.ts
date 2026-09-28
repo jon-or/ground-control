@@ -1,4 +1,4 @@
-export { mergeBoard } from './merge.js';
+export { linkSessions, mergeBoard } from './merge.js';
 export { withCheckouts } from './checkouts.js';
 export type { WorktreeScan } from './checkouts.js';
 export {

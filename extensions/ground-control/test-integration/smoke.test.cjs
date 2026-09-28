@@ -51,6 +51,7 @@ describe('the extension in a real window', () => {
       commands.filter((name) => name.startsWith('groundControl.')).sort(),
       [
         'groundControl.disableGithubOverlay',
+        'groundControl.editActions',
         'groundControl.enableGithubOverlay',
         'groundControl.openBoard',
         'groundControl.openChanges',

@@ -644,7 +644,7 @@ describe('the tooltip', () => {
         snapshot: laneOf({
           ...actorCard(4501, AUTHOR),
           issue: { ...actorCard(4501, AUTHOR).issue!, statusChangedAt: new Date(NOW - 86_400_000).toISOString() },
-          triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW, stale: false },
+          triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: NOW, stale: false },
         }),
       }),
       NOW,
@@ -1985,7 +1985,7 @@ describe('moving a card from the browser', () => {
 
       const projected = laneOf(card(4501, {
         sessions: [],
-        action: { state: 'running', action: 'merge-upstream', since: NOW },
+        action: { state: 'running', action: 'merge', qualifier: 'upstream', since: NOW },
       }));
       paint(document, state({ snapshot: projected }), NOW, actions);
 
@@ -2193,7 +2193,7 @@ describe('what a scan keeps', () => {
     [
       'a reading',
       { card: { triage: { state: 'running' } } },
-      { card: { triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW, stale: false } } },
+      { card: { triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: NOW, stale: false } } },
     ],
     [
       'how long it has held its status',
@@ -2706,7 +2706,7 @@ describe('durations that advance on their own', () => {
           title: 'Build',
           cards: [
             card(4501, {
-              triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW - 7_200_000, stale: false },
+              triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: NOW - 7_200_000, stale: false },
               issue: { ...card(4501).issue!, statusChangedAt: '2026-09-04T09:00:00Z' },
             }),
             card(4502, { sessions: [], lastSession: { agent: 'claude', sessionId: OTHER_ID, title: 'Past attempt', cwd: '/work/4502', branch: '4502', issueNumber: 4502, repository: `github.com/${REPO}`, updatedAt: NOW - 10_800_000 } }),
@@ -3034,12 +3034,12 @@ describe('card actions (R39)', () => {
   const acting = (action: NonNullable<LanedCard['action']>): LanedCard => card(4501, { sessions: [], action });
 
   it('stops a running action, warning that its changes may be incomplete', () => {
-    show(acting({ state: 'running', action: 'merge-upstream', since: at }));
+    show(acting({ state: 'running', action: 'merge', qualifier: 'upstream', since: at }));
 
-    expect(said()).toBe('Working…');
-    expect(mark()?.getAttribute('aria-label')).toBe('Stop merge upstream');
+    expect(said()).toBe('Merging…');
+    expect(mark()?.getAttribute('aria-label')).toBe('Stop merge · upstream');
     expect(tipOf(mark())).toBe(
-      'Merge upstream is running. Click to stop. Changes remain in the checkout and may be incomplete.',
+      'Merge · upstream is running. Click to stop. Changes remain in the checkout and may be incomplete.',
     );
 
     mark()!.click();
@@ -3049,7 +3049,7 @@ describe('card actions (R39)', () => {
 
   // Left out rather than drawn to refuse, which is the rule every other control here follows.
   it('carries a refusal and its reason, with nothing to press', () => {
-    show(acting({ state: 'refused', action: 'merge-upstream', reason: 'The pull request is a draft.' }));
+    show(acting({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'The pull request is a draft.' }));
 
     expect(said()).toBe('Not run');
     expect(mark()?.getAttribute('aria-disabled')).toBe('true');
@@ -3059,10 +3059,10 @@ describe('card actions (R39)', () => {
   });
 
   it('offers to run an action the board could take, and sends the card key when pressed', () => {
-    show(acting({ state: 'available', action: 'merge-upstream' }));
+    show(acting({ state: 'available', action: 'merge', qualifier: 'upstream' }));
 
-    expect(mark()?.getAttribute('aria-label')).toBe('Run merge upstream');
-    expect(tipOf(mark())).toBe('Start Merge upstream in this card\u2019s worktree.');
+    expect(mark()?.getAttribute('aria-label')).toBe('Run merge · upstream');
+    expect(tipOf(mark())).toBe('Start Merge · upstream in this card\u2019s worktree.');
 
     mark()!.click();
 
@@ -3070,7 +3070,7 @@ describe('card actions (R39)', () => {
   });
 
   it('offers to run a finished action again', () => {
-    show(acting({ state: 'done', action: 'merge-upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at }));
+    show(acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at }));
 
     mark()!.click();
 
@@ -3084,12 +3084,12 @@ describe('card actions (R39)', () => {
     ['failed', 'Did not run', 'Claude Code was not found.'],
     ['stopped', 'Stopped', 'Stopped by you.'],
   ] as const)('reads a %s run as "%s"', (outcome, text, detail) => {
-    show(acting({ state: 'done', action: 'merge-upstream', outcome, detail, at }));
+    show(acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome, detail, at }));
 
     expect(said()).toBe(text);
     expect(mark()?.dataset.outcome).toBe(outcome);
     expect(document.querySelector<HTMLElement>('.gc-verdict')?.dataset.outcome).toBe(outcome);
-    expect(tipOf(mark())).toBe(`${detail} Click to run Merge upstream again.`);
+    expect(tipOf(mark())).toBe(`${detail} Click to run Merge · upstream again.`);
   });
 
   it('carries nothing on a card with no action at all', () => {
@@ -3100,13 +3100,24 @@ describe('card actions (R39)', () => {
 
   /** The footer is cached by signature, so a state change has to rebuild it or the old outcome would stand. */
   it('repaints the footer when the action changes state', () => {
-    show(acting({ state: 'running', action: 'merge-upstream', since: at }));
+    show(acting({ state: 'running', action: 'merge', qualifier: 'upstream', since: at }));
 
-    expect(said()).toBe('Working…');
+    expect(said()).toBe('Merging…');
 
-    show(acting({ state: 'done', action: 'merge-upstream', outcome: 'landed', detail: 'Merged master.', at }));
+    show(acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'landed', detail: 'Merged master.', at }));
 
     expect(said()).toBe('Merged');
+  });
+
+  it('names what each action is doing while it runs and what it did when it lands', () => {
+    show(acting({ state: 'running', action: 'review-others', qualifier: 'initial', since: at }));
+
+    expect(said()).toBe('Reviewing…');
+
+    show(acting({ state: 'done', action: 'address-review', qualifier: 'followup', outcome: 'landed', detail: 'Answered the notes.', at }));
+
+    expect(said()).toBe('Answered');
+    expect(tipOf(mark())).toBe('Answered the notes. Click to run Answer review · followup again.');
   });
 });
 
@@ -3132,7 +3143,7 @@ describe('card triage (R38)', () => {
     show(
       moved(card(4501, {
         sessions: [],
-        triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'Safari still shows an empty second page.', at: NOW - 3_600_000, stale: false },
+        triage: { state: 'done', action: 'qa-failure', qualifier: null, target: null, detail: 'Safari still shows an empty second page.', at: NOW - 3_600_000, stale: false },
       }), new Date(NOW - 2 * 86_400_000).toISOString()),
     );
 
@@ -3147,7 +3158,7 @@ describe('card triage (R38)', () => {
     show(
       card(4501, {
         sessions: [],
-        triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'Still empty.', at: NOW - 3_600_000, stale: false },
+        triage: { state: 'done', action: 'qa-failure', qualifier: null, target: null, detail: 'Still empty.', at: NOW - 3_600_000, stale: false },
       }),
     );
 
@@ -3159,7 +3170,7 @@ describe('card triage (R38)', () => {
     show(
       moved(card(4501, {
         sessions: [],
-        triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'Still empty.', at: NOW, stale: false },
+        triage: { state: 'done', action: 'qa-failure', qualifier: null, target: null, detail: 'Still empty.', at: NOW, stale: false },
       }), new Date(NOW - 3_600_000).toISOString()),
     );
 
@@ -3174,7 +3185,7 @@ describe('card triage (R38)', () => {
     show(
       card(4501, {
         sessions: [],
-        triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW - 60_000, stale: true },
+        triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: NOW - 60_000, stale: true },
       }),
     );
 
@@ -3211,7 +3222,7 @@ describe('card triage (R38)', () => {
     const cards = [
       card(4501, { sessions: [] }),
       card(4502, { sessions: [], triage: { state: 'failed', attempts: 2, exhausted: false } }),
-      card(4503, { sessions: [], triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW, stale: false } }),
+      card(4503, { sessions: [], triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: NOW, stale: false } }),
     ];
 
     paint(document, state({ snapshot: snapshot({
@@ -3251,7 +3262,7 @@ describe('card triage (R38)', () => {
 
   const read = card(4503, {
     sessions: [],
-    triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW, stale: false },
+    triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: NOW, stale: false },
   });
 
   /** The age is what the bar carries at rest, and the controls stand in its place, so they share one slot. */
@@ -3271,7 +3282,7 @@ describe('card triage (R38)', () => {
     showRead({
       ...moved(read, '2026-09-04T19:00:00Z'),
       checkout: { root: 'c:/work/4503', source: 'session', only: true },
-      action: { state: 'available', action: 'merge-upstream' },
+      action: { state: 'available', action: 'merge', qualifier: 'upstream' },
     });
 
     const tools = [...document.querySelectorAll<HTMLButtonElement>('.gc-tail .gc-tool')];
@@ -3279,7 +3290,7 @@ describe('card triage (R38)', () => {
     expect(tools.map((el) => el.getAttribute('aria-label'))).toEqual([
       'Read this card again',
       'Open in VS Code',
-      'Run merge upstream',
+      'Run merge · upstream',
     ]);
     expect(tipOf(tools[1])).toBe('Open c:/work/4503 in VS Code');
 
@@ -3363,7 +3374,9 @@ describe('card triage (R38)', () => {
     ['address-review', 'initial', 'Answer review · initial'],
     ['address-review', 'followup', 'Answer review · followup'],
     ['fix-checks', null, 'Fix failing checks'],
-    ['merge-upstream', null, 'Merge upstream'],
+    ['merge', 'upstream', 'Merge · upstream'],
+    ['merge', 'stacked', 'Merge · stacked'],
+    ['merge', 'test', 'Merge · test'],
     ['other', null, 'Other'],
   ];
 
@@ -3371,7 +3384,7 @@ describe('card triage (R38)', () => {
     show(
       card(4501, {
         sessions: [],
-        triage: { state: 'done', action: action as never, qualifier: qualifier as never, detail: 'x', at: NOW, stale: false },
+        triage: { state: 'done', action: action as never, qualifier: qualifier as never, target: null, detail: 'x', at: NOW, stale: false },
       }),
     );
 
@@ -3671,7 +3684,7 @@ describe('the age attribute both boards share', () => {
         ? card(4501, { sessions: [], lastSession: { agent: 'claude', sessionId: OTHER_ID, title: 'Past attempt', cwd: '/work/4501', branch: '4501', issueNumber: 4501, repository: `github.com/${REPO}`, updatedAt: NOW - held } })
         : card(4501, {
             sessions: [session({ activity: { phase: 'running', since: NOW - held, at: NOW - held, event: 'PreToolUse' } })],
-            triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: NOW - 60_000, stale: false },
+            triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: NOW - 60_000, stale: false },
             issue: { ...card(4501).issue!, statusChangedAt: new Date(NOW - held).toISOString() },
           });
     const shown = state({
@@ -3840,22 +3853,34 @@ describe('the worktree in the bar', () => {
   });
 
   it('says the run control will make the worktree first where the card has none', () => {
-    show({ creation: { state: 'available' }, action: { state: 'available', action: 'merge-upstream' } });
+    show({ creation: { state: 'available' }, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
 
-    expect(tipOf(run())).toBe('Create a worktree for this card, then start Merge upstream in it.');
+    expect(tipOf(run())).toBe('Create a worktree for this card, then start Merge · upstream in it.');
 
-    show({ worktree: WORKTREE, checkout: AS_CHECKOUT, action: { state: 'available', action: 'merge-upstream' } });
+    show({ worktree: WORKTREE, checkout: AS_CHECKOUT, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
 
-    expect(tipOf(run())).toBe('Start Merge upstream in this card\u2019s worktree.');
+    expect(tipOf(run())).toBe('Start Merge · upstream in this card\u2019s worktree.');
     expect(create()).toBeNull();
   });
 
-  it('says the action is at its worktree stage, and stops from either control', () => {
-    show({ creation: { state: 'running', since: at }, action: { state: 'running', action: 'merge-upstream', since: at, stage: 'worktree' } });
+  // Pointing at the bar is how the worktree control is reached, so the run it started has to show without that (R45).
+  it('states a worktree run asked for on its own at rest, over the last outcome of the action', () => {
+    show({ creation: { state: 'running', since: at }, action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts.', at } });
 
     expect(said()).toBe('Creating worktree…');
-    expect(run()?.getAttribute('aria-label')).toBe('Stop merge upstream');
-    expect(tipOf(run())).toBe('Merge upstream is waiting for its worktree, which a session is creating. Click to stop.');
+    expect(document.querySelector<HTMLElement>('.gc-verdict')?.dataset.outcome).toBe('running');
+
+    show({ creation: { state: 'done', outcome: 'landed', detail: 'Made.', at }, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
+
+    expect(said()).toBeUndefined();
+  });
+
+  it('says the action is at its worktree stage, and stops from either control', () => {
+    show({ creation: { state: 'running', since: at }, action: { state: 'running', action: 'merge', qualifier: 'upstream', since: at, stage: 'worktree' } });
+
+    expect(said()).toBe('Creating worktree…');
+    expect(run()?.getAttribute('aria-label')).toBe('Stop merge · upstream');
+    expect(tipOf(run())).toBe('Merge · upstream is waiting for its worktree, which a session is creating. Click to stop.');
 
     run()!.click();
 

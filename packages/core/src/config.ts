@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
-import { AUTOMATABLE_ACTIONS } from './actions.js';
+import { AUTOMATABLE_ACTIONS, ROW_QUALIFIERS } from './actions.js';
+import { DEFAULT_TEST_BRANCH_PATTERN } from './merge.js';
 import { LANE_ORDER } from './board.js';
-import type { ActionSettings } from './actions.js';
+import type { ActionRow, ActionSettings } from './actions.js';
 import type { LaneId } from './board.js';
 import { LOG_FLOORS } from './log.js';
 import { DEFAULT_SESSION_SCOPE, sessionScopeSchema } from './sessionScope.js';
@@ -191,13 +192,42 @@ export const DEFAULT_ACTIONS: ActionSettings = {
   dailyLimit: 10,
   fromBrowser: false,
   resultTimeoutMs: 30 * 60 * 1000,
-  actions: {},
+  table: [],
+  testBranchPattern: DEFAULT_TEST_BRANCH_PATTERN,
 };
 
-const actionSetting = z.object({
-  enabled: z.boolean().catch(false).default(false),
+const actionRow = z.object({
+  action: z.enum(AUTOMATABLE_ACTIONS),
+  qualifier: z.string().nullable().catch(null).default(null),
   prompt: z.string().catch('').default(''),
+  automatic: z.boolean().catch(false).default(false),
 });
+
+/**
+ * Keep the rows that name a supported action and a qualifier that action takes, first row per action and qualifier.
+ * A row the parser cannot read drops alone, not the table.
+ */
+export function readActionTable(raw: readonly unknown[]): ActionRow[] {
+  const rows: ActionRow[] = [];
+
+  for (const value of raw) {
+    const parsed = actionRow.safeParse(value);
+
+    if (!parsed.success) continue;
+
+    const { action, qualifier, prompt, automatic } = parsed.data;
+    const known = qualifier === null || (ROW_QUALIFIERS[action] as readonly string[]).includes(qualifier);
+
+    if (known && !rows.some((row) => row.action === action && row.qualifier === qualifier)) {
+      rows.push({ action, qualifier: qualifier as ActionRow['qualifier'], prompt, automatic });
+    }
+  }
+
+  return rows;
+}
+
+/** The earlier single merge setting, which a configuration with no table becomes a Merge · upstream row from. */
+const legacyMerge = z.object({ enabled: z.boolean().catch(false).default(false), prompt: z.string().catch('').default('') });
 
 const actions = z.object({
   agent: z.enum(['auto', 'claude', 'codex']).optional(),
@@ -217,11 +247,18 @@ const actions = z.object({
     .number()
     .finite()
     .transform((ms) => Math.min(ACTION_RESULT_TIMEOUT_CEILING_MS, Math.max(ACTION_RESULT_TIMEOUT_FLOOR_MS, ms))),
-  // Unsupported actions invalidate the action map without rejecting the rest of the configuration.
-  actions: z
-    .record(z.enum(AUTOMATABLE_ACTIONS), actionSetting)
-    .catch({})
-    .default({}),
+  table: z.array(z.unknown()).optional().catch(undefined),
+  testBranchPattern: z.string().trim().min(1).catch(DEFAULT_TEST_BRANCH_PATTERN).default(DEFAULT_TEST_BRANCH_PATTERN),
+  actions: z.object({ 'merge-upstream': legacyMerge.optional().catch(undefined) }).optional().catch(undefined),
+}).transform(({ table, actions: legacy, ...rest }): ActionSettings => {
+  const merge = legacy?.['merge-upstream'];
+  const rows = table !== undefined
+    ? readActionTable(table)
+    : merge !== undefined && merge.prompt.trim() !== ''
+      ? [{ action: 'merge' as const, qualifier: 'upstream' as const, prompt: merge.prompt, automatic: merge.enabled }]
+      : [];
+
+  return { ...rest, table: rows };
 });
 
 export const DEFAULT_WORKTREE: WorktreeSettings = { prompt: '' };

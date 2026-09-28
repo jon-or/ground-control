@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeBoard } from '../src/index.js';
+import { linkSessions, mergeBoard } from '../src/index.js';
 import type { Session } from '../src/types.js';
 import { checkoutKeyOf, issues, linkedOffBoard, linkedOnBoard, offBoardIssues, onBoard, sessions, unlinked, unlinkedCheckouts } from './helpers.js';
 
@@ -326,5 +326,42 @@ describe('latest historical session fallback', () => {
     expect(mergeBoard([], [], [past('old', 1)])).toEqual([]);
     const finished = { ...sessions[0]!, issueNumber: 42, finished: true };
     expect(mergeBoard([issue], [finished], [past('old', 1)])[0]).toMatchObject({ sessions: [], lastSession: { sessionId: 'old' } });
+  });
+});
+
+describe('sessions the board dispatched', () => {
+  const issue = { ...issues[0]!, number: 42, url: 'https://github.com/org/repo/issues/42' };
+  // A worktree run starts in the clone, whose branch names no issue (R46).
+  const inClone = { ...sessions[0]!, agent: 'claude', sessionId: 'worktree-run', cwd: '/work/repo', checkoutRoot: '/work/repo', branch: 'master', repository: 'github.com/org/repo', issueNumber: null, finished: false };
+  const links = new Map([['claude:worktree-run', 42]]);
+
+  it('puts a live dispatched session on the card it was dispatched from, not an ad-hoc card of its checkout', () => {
+    const cards = mergeBoard([issue], linkSessions([inClone], links));
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.sessions.map((s) => s.sessionId)).toEqual(['worktree-run']);
+    expect(cards[0]?.sessions[0]?.linked).toBe(true);
+  });
+
+  it('puts a saved dispatched session on that card once it has ended', () => {
+    const saved = { agent: 'claude', sessionId: 'worktree-run', title: 'Worktree', cwd: '/work/repo', branch: 'master', issueNumber: null, repository: 'github.com/org/repo', updatedAt: 10 };
+
+    expect(mergeBoard([issue], [], linkSessions([saved], links))[0]?.lastSession).toMatchObject({ sessionId: 'worktree-run', linked: true });
+  });
+
+  it('overrides a branch that names another issue, since the dispatch record is the match', () => {
+    const cards = mergeBoard([issue, { ...issue, number: 7, url: 'https://github.com/org/repo/issues/7' }], linkSessions([{ ...inClone, issueNumber: 7 }], links));
+
+    expect(cards.find((card) => card.issueNumber === 42)?.sessions).toHaveLength(1);
+    expect(cards.find((card) => card.issueNumber === 7)?.sessions).toEqual([]);
+  });
+
+  it('leaves a session whose branch already names the issue, and every unlinked one, as it was', () => {
+    const own = { ...inClone, issueNumber: 42 };
+    const other = { ...inClone, sessionId: 'someone-else' };
+    const [first, second] = linkSessions([own, other], links);
+
+    expect(first).toBe(own);
+    expect(second).toBe(other);
   });
 });

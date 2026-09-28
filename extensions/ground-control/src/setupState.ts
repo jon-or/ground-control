@@ -40,7 +40,7 @@ export function gated(config: HubConfig): HubConfig {
     ...config,
     installActivity: false,
     triage: { ...config.triage, enabled: false, mode: 'off' },
-    actions: { ...config.actions, actions: {} },
+    actions: { ...config.actions, table: [] },
   };
 }
 

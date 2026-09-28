@@ -1,6 +1,6 @@
-import { assignLanes, buildCustody, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
+import { assignLanes, buildCustody, linkSessions, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
-import { CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, sessionInScope, unreportedSessions, worktreeIndex } from '@ground-control/core';
+import { CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex } from '@ground-control/core';
 import type { WorktreeScan } from '@ground-control/board';
 import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, CustodyHistory, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
@@ -292,7 +292,7 @@ export class Hub {
       changed: () => this.#broadcast(),
       announce: (message) => this.#notifyTriageOnce(message),
     });
-    this.#triage.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources());
+    this.#triage.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources(), this.#config.actions.testBranchPattern);
     this.#actions = new ActionRunner({
       stateDir: deps.stateDir,
       store: deps.actions,
@@ -495,8 +495,8 @@ export class Hub {
       case 'runAction': {
         const projected = this.#lanes(true);
 
-        // A browser start needs its own opt-in, a visible board, a daily allowance, and an action the
-        // developer left enabled. An editor click is itself the opt-in (R32); a page's is not.
+        // A browser start needs its own opt-in, a visible board, a daily allowance, and a row the developer made
+        // automatic. An editor click is itself the opt-in (R32); a page's is not.
         if (connected.hello.hostId === null) {
           const refusal = this.#browserStartRefusal(connected, projected, message.key);
 
@@ -1027,7 +1027,7 @@ export class Hub {
     }
 
     this.#sourcesRefused = refused;
-    this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources());
+    this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources(), this.#config.actions.testBranchPattern);
 
     return [...configureHosts(this.#deps.registries, this.#config.hosts), ...refused];
   }
@@ -1539,7 +1539,7 @@ export class Hub {
     const endedIssues = new Set(this.#sessions?.sessions.filter((s) => !s.finished && !liveIds.has(`${s.agent}:${s.sessionId}`)).map((s) => s.issueNumber));
     // A resume reservation exists so the new process can register before a second click; registration ends it.
     for (const session of snapshot.sessions) if (!session.finished) this.#resuming.delete(session.sessionId);
-    this.#sessions = { ...snapshot, sessions: snapshot.sessions.map((session) => this.#withActivity(session)) };
+    this.#sessions = { ...snapshot, sessions: this.#linked(snapshot.sessions).map((session) => this.#withActivity(session)) };
     this.#retain();
     this.#sessionsUnreadable = snapshot.sessions.length === 0 && snapshot.failures.length > 0;
     this.#logSessionRead(snapshot.failures, snapshot.sessions.length, this.#deps.clock.now() - startedAt);
@@ -1555,11 +1555,15 @@ export class Hub {
     if (snapshot.failures.length > 0) return;
     const history = await fetchSessionHistory(config, this.#deps.registries.agents, readers);
     if (!current()) return;
-    this.#history = history.sessions;
+    this.#history = this.#linked(history.sessions);
     this.#historyFailures = history.failures;
-    // Prune retained phases only after complete live and history reads establish that sessions are absent.
+    // Prune retained phases and session links only after complete live and history reads establish that sessions are absent.
     if (history.failures.length === 0) {
       this.#deps.status.write(pruned(this.#deps.status.read(), this.#sessions?.sessions ?? [], this.#history));
+      this.#actions.pruneLinks(
+        new Set([...(this.#sessions?.sessions ?? []), ...this.#history].map((s) => `${s.agent}:${s.sessionId}`)),
+        new Set(config.agents.map((agent) => agent.id)),
+      );
     }
 
     this.#broadcast();
@@ -1849,12 +1853,14 @@ export class Hub {
 
     const action = projected.flatMap((lane) => lane.cards).find((card) => card.key === key)?.action;
 
-    // An editor click is itself the opt-in for a disabled action (R32); a page's click is not.
+    // An editor click is itself the opt-in for a manual row (R32); a page's click is not.
     if (action === undefined) {
       return 'That card has no action to start.';
     }
 
-    return actionEnabled(action.action, this.#config.actions) ? null : 'That card action is turned off in Settings.';
+    const row = rowFor(this.#config.actions.table, action.action, action.qualifier);
+
+    return actionEnabled(row) ? null : 'That card action is not automatic in the action table.';
   }
 
   /** What every page-asked dispatch needs: a visible tab, the browser opt-in, and a positive daily allowance (R39). */
@@ -1981,14 +1987,21 @@ export class Hub {
     });
   }
 
+  /** Sessions the board dispatched, placed on the issue they were dispatched for (R3). */
+  #linked<T extends { agent: string; sessionId: string; issueNumber: number | null }>(sessions: readonly T[]): T[] {
+    return linkSessions(sessions, this.#actions.links());
+  }
+
   /** Full lanes preserve safety evidence. Projection starts again from allowed inputs, never redacted session objects. */
   #lanes(projected: boolean): Lane[] {
     const scope = this.#scope();
     const items = this.#items();
     const cards = items?.cards ?? [];
-    const all = this.#sessions?.sessions ?? [];
+    // Relink here too: a link recorded since the last roster read applies without waiting for the next one.
+    const all = this.#linked(this.#sessions?.sessions ?? []);
+    const linkedHistory = this.#linked(this.#history);
     const sessions = projected ? all.filter((session) => this.#sessionAllowed(session)) : all;
-    const history = projected ? (scope.showHistory ? this.#history.filter((session) => this.#sessionAllowed(session)) : []) : this.#history;
+    const history = projected ? (scope.showHistory ? linkedHistory.filter((session) => this.#sessionAllowed(session)) : []) : linkedHistory;
     const unassigned = items === null ? new Map<number, IssueCard>() : this.#issues.known(sessions, new Set(cards.map((card) => card.number)));
     const laned = assignLanes(mergeBoard(cards, sessions, history, unassigned, this.#deps.status.read()), {
       boardStatuses: this.#config.boardStatuses, statusLanes: this.#config.statusLanes, logins: items?.owners ?? [],
@@ -2031,7 +2044,7 @@ export class Hub {
       shown.find((lane) => lane.id === 'build')?.cards.push({
         key: run.key, issue: null, issueNumber: null, sessions: [], lane: 'build', returned: false,
         attention: null, reason: 'Ground Control action is running.',
-        ...(action === undefined ? {} : { action: { state: 'running', action, since: run.startedAt, ...(run.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : {}) } }),
+        ...(action === undefined ? {} : { action: { state: 'running', action, qualifier: run.qualifier, since: run.startedAt, ...(run.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : {}) } }),
         ...(run.action === CREATE_WORKTREE ? { creation: { state: 'running', since: run.startedAt } } : {}),
       });
     }

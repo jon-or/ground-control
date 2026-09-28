@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TRIAGE_ACTIONS } from '@ground-control/core';
+import { DEFAULT_TEST_BRANCH_PATTERN, MERGE_TYPES, TRIAGE_ACTIONS, mergeTypeOf } from '@ground-control/core';
 import type {
   CardTriage,
   IssueCard,
@@ -36,18 +36,25 @@ const SPENT_ATTEMPTS_MS = 60 * 60 * 1000;
  * Increment when prompt or decision changes invalidate stored triage. Older revisions are discarded and classified
  * again.
  */
-export const TRIAGE_REVISION = 7;
+export const TRIAGE_REVISION = 8;
 
 const detailProperty = { type: 'string', maxLength: DETAIL_LIMIT } as const;
 
-/** Request only an explanation for a settled action; otherwise require an allowed action too. */
+/**
+ * Request only an explanation for a settled action; otherwise require an allowed action and, for a merge, the
+ * destination branch too. A settled action is never a merge (R38).
+ */
 export function triageJsonSchema(settled: TriageAction | null): object {
   return settled !== null
     ? { type: 'object', properties: { detail: detailProperty }, required: ['detail'], additionalProperties: false }
     : {
         type: 'object',
-        properties: { action: { type: 'string', enum: TRIAGE_ACTIONS }, detail: detailProperty },
-        required: ['action', 'detail'],
+        properties: {
+          action: { type: 'string', enum: TRIAGE_ACTIONS },
+          detail: detailProperty,
+          target: { type: ['string', 'null'] },
+        },
+        required: ['action', 'detail', 'target'],
         additionalProperties: false,
       };
 }
@@ -56,6 +63,7 @@ export function triageJsonSchema(settled: TriageAction | null): object {
 const parsed = z.object({
   action: z.enum(TRIAGE_ACTIONS),
   detail: z.string().min(1),
+  target: z.string().nullable().catch(null).default(null),
 });
 
 const parsedDetail = z.object({ detail: z.string().min(1) });
@@ -69,16 +77,19 @@ export function readTriageResult(value: unknown, settled: TriageAction | null): 
   }
 
   const action = settled ?? (result.data as z.infer<typeof parsed>).action;
+  // A destination only means something on a merge; one the model gave any other action is dropped.
+  const named = settled === null && action === 'merge' ? (result.data as z.infer<typeof parsed>).target?.trim() ?? '' : '';
+  const target = named === '' ? null : named;
   const detail = result.data.detail.trim();
 
   if (detail.length <= DETAIL_LIMIT) {
-    return { action, detail };
+    return { action, detail, target };
   }
 
   const cut = detail.slice(0, DETAIL_LIMIT - 1);
   const space = cut.lastIndexOf(' ');
 
-  return { action, detail: `${space > 0 ? cut.slice(0, space) : cut}…` };
+  return { action, detail: `${space > 0 ? cut.slice(0, space) : cut}…`, target };
 }
 
 /** Shared action labels, checked by parity tables in both clients. */
@@ -90,13 +101,16 @@ export const TRIAGE_LABELS: Readonly<Record<TriageAction, string>> = {
   'review-others': 'Review their PR',
   'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
-  'merge-upstream': 'Merge upstream',
+  merge: 'Merge',
   other: 'Other',
 };
 
 export const TRIAGE_QUALIFIERS: Readonly<Record<TriageQualifier, string>> = {
   initial: 'initial',
   followup: 'followup',
+  upstream: 'upstream',
+  stacked: 'stacked',
+  test: 'test',
 };
 
 /** Shared action and review-round label. */
@@ -135,7 +149,8 @@ export function triggerOf(issue: IssueCard): string {
 const triageEntry = z.object({
   action: z.enum(TRIAGE_ACTIONS),
   revision: z.literal(TRIAGE_REVISION),
-  qualifier: z.enum(['initial', 'followup']).nullable().default(null),
+  qualifier: z.enum(['initial', 'followup', ...MERGE_TYPES]).nullable().default(null),
+  target: z.string().nullable().default(null),
   detail: z.string(),
   at: z.number(),
   agent: z.string(),
@@ -321,12 +336,24 @@ function isDeveloperLogin(login: string | null, logins: readonly string[]): bool
 /**
  * Detect later review rounds from the developer's own PR history. address-review requires a developer reply;
  * review-others requires a developer review or comment. Other people's rounds, bots included, are not the developer's.
+ * A merge takes its type from its branches and the destination the request named, or none where they conflict (R39).
  */
-export function qualifierOf(action: TriageAction, context: TriageContext): TriageQualifier | null {
+export function qualifierOf(
+  action: TriageAction,
+  context: TriageContext,
+  target: string | null = null,
+  testPattern: string = DEFAULT_TEST_BRANCH_PATTERN,
+): TriageQualifier | null {
   const pr = context.pullRequest;
 
   if (pr === null) {
     return null;
+  }
+
+  if (action === 'merge') {
+    const merge = mergeTypeOf(pr, context.defaultBranch, target, testPattern);
+
+    return merge.ok ? merge.type : null;
   }
 
   if (action === 'address-review') {
@@ -402,10 +429,12 @@ export function resolveTriage(
   settled: TriageAction | null,
   result: TriageResult,
   context: TriageContext,
-): { action: TriageAction; qualifier: TriageQualifier | null; detail: string } {
+  testPattern: string = DEFAULT_TEST_BRANCH_PATTERN,
+): { action: TriageAction; qualifier: TriageQualifier | null; target: string | null; detail: string } {
   const action = settled ?? result.action;
+  const target = action === 'merge' ? result.target : null;
 
-  return { action, qualifier: qualifierOf(action, context), detail: result.detail };
+  return { action, qualifier: qualifierOf(action, context, target, testPattern), target, detail: result.detail };
 }
 
 /** Attach triage only to eligible cards. */
@@ -444,6 +473,7 @@ export function withTriage(
         state: 'done',
         action: entry.action,
         qualifier: entry.qualifier,
+        target: entry.target,
         detail: entry.detail,
         at: entry.at,
         stale: entry.evidence !== '' && entry.evidence !== evidenceOf(card.issue),

@@ -326,7 +326,8 @@ describe('what the board may do on its own', () => {
       // A configuration written before browser starts existed must not enable them.
       fromBrowser: false,
       resultTimeoutMs: 1_800_000,
-      actions: {},
+      table: [],
+      testBranchPattern: '^Test-',
     });
   });
 
@@ -337,7 +338,8 @@ describe('what the board may do on its own', () => {
         concurrency: 2,
         dailyLimit: 5,
         resultTimeoutMs: 600_000,
-        actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge' } },
+        table: [{ action: 'review-others', qualifier: 'followup', prompt: '/review-pr-followup {pr}', automatic: true }],
+        testBranchPattern: '^QA-',
       }),
     ).toEqual({
       permissionMode: 'bypassPermissions',
@@ -345,8 +347,21 @@ describe('what the board may do on its own', () => {
       dailyLimit: 5,
       fromBrowser: false,
       resultTimeoutMs: 600_000,
-      actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge' } },
+      table: [{ action: 'review-others', qualifier: 'followup', prompt: '/review-pr-followup {pr}', automatic: true }],
+      testBranchPattern: '^QA-',
     });
+  });
+
+  /** A hub configuration saved before the table existed carries the one merge setting there was. */
+  it('turns the earlier merge setting into a Merge · upstream row where no table was sent', () => {
+    const base = { permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 };
+
+    expect(actionsOf({ ...base, actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge' } } })).toMatchObject({
+      table: [{ action: 'merge', qualifier: 'upstream', prompt: '/or-merge', automatic: true }],
+    });
+    expect(actionsOf({ ...base, actions: { 'merge-upstream': { enabled: true, prompt: '  ' } } })).toMatchObject({ table: [] });
+    // A table the client sent is the developer's current choice, even an empty one.
+    expect(actionsOf({ ...base, table: [], actions: { 'merge-upstream': { enabled: true, prompt: '/or-merge' } } })).toMatchObject({ table: [] });
   });
 
   it('floors and ceilings a hand-edited spend, in both directions', () => {
@@ -383,31 +398,32 @@ describe('what the board may do on its own', () => {
   });
 
   /** A later build naming an action this one does not perform must not cost the developer their configuration. */
-  it('drops an action it does not know, and one shaped wrongly, rather than refusing the whole block', () => {
+  it('drops a row it cannot run, and keeps the rest of the table', () => {
+    const base = { permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 };
+    const kept = { action: 'merge', qualifier: 'test', prompt: '/merge-to-test', automatic: false };
+
     expect(
       actionsOf({
-        permissionMode: 'manual',
-        concurrency: 1,
-        dailyLimit: 1,
-        resultTimeoutMs: 60_000,
-        actions: { 'fix-checks': { enabled: true, prompt: '/x' } },
+        ...base,
+        table: [
+          { action: 'fix-checks', prompt: '/x' },
+          { action: 'merge', qualifier: 'initial', prompt: '/wrong-qualifier' },
+          kept,
+          { ...kept, prompt: '/second-row-for-the-same-reading' },
+          'on',
+        ],
       }),
-    ).toMatchObject({ actions: {} });
-    expect(
-      actionsOf({ permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000, actions: 'on' }),
-    ).toMatchObject({ actions: {} });
+    ).toMatchObject({ table: [kept] });
+    expect(actionsOf({ ...base, table: 'on' })).toMatchObject({ table: [] });
+    expect(actionsOf({ ...base, testBranchPattern: '  ' })).toMatchObject({ testBranchPattern: '^Test-' });
   });
 
-  it('reads an action written with neither field as off with nothing to run', () => {
-    expect(
-      actionsOf({
-        permissionMode: 'manual',
-        concurrency: 1,
-        dailyLimit: 1,
-        resultTimeoutMs: 60_000,
-        actions: { 'merge-upstream': {} },
-      }),
-    ).toMatchObject({ actions: { 'merge-upstream': { enabled: false, prompt: '' } } });
+  it('reads a row with no qualifier as matching any, off, with the prompt it has', () => {
+    const base = { permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 };
+
+    expect(actionsOf({ ...base, table: [{ action: 'address-review' }] })).toMatchObject({
+      table: [{ action: 'address-review', qualifier: null, prompt: '', automatic: false }],
+    });
   });
 
   it('refuses an actions block that is not one, rather than acting on a default nobody chose', () => {

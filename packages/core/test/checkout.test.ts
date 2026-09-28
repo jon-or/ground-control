@@ -62,6 +62,14 @@ describe('which of a card’s directories its work is in', () => {
     expect(pick({ sessions: [], lastSession: historical })?.root).toBe('d:/work/repo.worktrees/18953-lane-divider');
   });
 
+  it('passes over a session the board dispatched from somewhere else, such as a worktree run in the clone', () => {
+    const run = session({ sessionId: 'worktree-run', cwd: 'd:/work/repo', checkoutRoot: 'd:/work/repo', linked: true, startedAt: 1_789_000_000_000 });
+
+    expect(pick({ sessions: [run, session()] })?.root).toBe('d:/work/repo.worktrees/18941-inbox-badge');
+    expect(pick({ sessions: [run] })).toBeNull();
+    expect(pick({ sessions: [], lastSession: { ...historical, linked: true } })).toBeNull();
+  });
+
   it('prefers live sessions over saved sessions', () => {
     expect(pick({ sessions: [session()], lastSession: historical })?.root).toBe('d:/work/repo.worktrees/18941-inbox-badge');
   });

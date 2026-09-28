@@ -23,6 +23,8 @@ export interface HistoricalSession {
   /** Canonical remote identity (host/owner/repository), or null when the checkout cannot establish it. */
   repository: string | null;
   updatedAt: number;
+  /** The issue number comes from the board's dispatch record, not the branch (R3). */
+  linked?: true;
   /**
    * The last phase the board saw this session in while it was live, where that reading still stands (R6). Absent
    * otherwise.
@@ -99,6 +101,11 @@ export interface Session {
    * fallback when no phase exists. Additional fields are allowed.
    */
   details: Record<string, string>;
+  /**
+   * The issue number comes from the board's dispatch record, not the branch (R3). The directory is where the run
+   * started, which need not be the card's checkout.
+   */
+  linked?: true;
 }
 
 /** Adapter, source, or configuration failure. subject identifies the component; kind is component-specific. */

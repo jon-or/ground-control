@@ -54,6 +54,25 @@ async function untilSnapshot(matches, why, within = 20_000) {
   }
 }
 
+/** run.mjs seeds the two merge keys an earlier build declared; this build reads them without declaring them (M50). */
+describe('the merge settings from before the action table', () => {
+  it('became a Merge · upstream row on activation', async () => {
+    await api();
+    const deadline = Date.now() + 20_000;
+
+    while (settings().inspect('actions.table')?.globalValue === undefined) {
+      assert.ok(Date.now() < deadline, 'activation never copied the merge settings into the table');
+      await new Promise((done) => setTimeout(done, 100));
+    }
+
+    assert.deepStrictEqual(settings().inspect('actions.table').globalValue, [
+      { action: 'merge', qualifier: 'upstream', prompt: '/legacy-merge {base}', automatic: true },
+    ]);
+
+    await settings().update('actions.table', undefined, vscode.ConfigurationTarget.Global);
+  });
+});
+
 describe('what this window pushes to the hub', () => {
   /** What the run was seeded with. Restoring to `undefined` would fall back to the developer's own CLIs (R30). */
   const OFFLINE_AGENTS = { claude: 'claude-not-on-this-path' };
@@ -62,8 +81,8 @@ describe('what this window pushes to the hub', () => {
     await settings().update('agents', OFFLINE_AGENTS, vscode.ConfigurationTarget.Global);
     await settings().update('hosts', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('sources', undefined, vscode.ConfigurationTarget.Global);
-    await settings().update('actions.merge-upstream.enabled', undefined, vscode.ConfigurationTarget.Global);
-    await settings().update('actions.merge-upstream.prompt', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.table', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.testBranchPattern', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('triage.mode', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('triage.enabled', undefined, vscode.ConfigurationTarget.Global);
     await settings().update('triage.dailyLimit', undefined, vscode.ConfigurationTarget.Global);
@@ -338,29 +357,42 @@ describe('what this window pushes to the hub', () => {
     await untilSnapshot((s) => !named(s), 'the setting was put back and the board went on complaining about it');
   });
 
-  /**
-   * Update the declared flat action keys through VS Code; undeclared or nested replacements must fail (R34,
-   * mechanics M50).
-   */
-  it('carries the merge-upstream action from the two keys the settings editor writes', async () => {
-    const prompt = '/or-merge {base} {branch} {issue} --single';
+  /** The action table panel writes these two settings; the hub runs the rows it can read, in order (R39). */
+  it('carries the action table and the test branch pattern, dropping a row it cannot run', async () => {
+    const review = { action: 'review-others', qualifier: 'followup', prompt: '/review-pr-followup {pr}', automatic: true };
+    const merge = { action: 'merge', qualifier: null, prompt: '/merge {default} {branch} {target}', automatic: false };
 
-    await settings().update('actions.merge-upstream.enabled', true, vscode.ConfigurationTarget.Global);
-    await settings().update('actions.merge-upstream.prompt', prompt, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.table', [review, { action: 'fix-checks', prompt: '/x' }, merge], vscode.ConfigurationTarget.Global);
+    await settings().update('actions.testBranchPattern', '^QA-', vscode.ConfigurationTarget.Global);
 
     const config = await untilStored(
-      (c) => c.actions?.actions?.['merge-upstream'] !== undefined,
-      'the action never reached the hub',
+      (c) => c.actions?.table?.length > 0 && c.actions?.testBranchPattern === '^QA-',
+      'the table never reached the hub',
     );
 
-    assert.deepStrictEqual(config.actions.actions['merge-upstream'], { enabled: true, prompt });
+    assert.deepStrictEqual(config.actions.table, [review, merge]);
 
-    await settings().update('actions.merge-upstream.prompt', undefined, vscode.ConfigurationTarget.Global);
+    await settings().update('actions.table', undefined, vscode.ConfigurationTarget.Global);
 
-    await untilStored(
-      (c) => c.actions?.actions?.['merge-upstream'] === undefined,
-      'the prompt was cleared and the action went on being carried',
-    );
+    await untilStored((c) => c.actions?.table?.length === 0, 'the table was cleared and its rows went on being carried');
+  });
+
+  it('opens one action table page however often it is asked for', async () => {
+    const pages = () => vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) => tab.label === 'Ground Control Actions');
+
+    await vscode.commands.executeCommand('groundControl.editActions');
+    await vscode.commands.executeCommand('groundControl.editActions');
+
+    const deadline = Date.now() + 10_000;
+
+    while (pages().length === 0) {
+      assert.ok(Date.now() < deadline, `no action table tab among ${JSON.stringify(vscode.window.tabGroups.all.flatMap((g) => g.tabs).map((t) => t.label))}`);
+      await new Promise((done) => setTimeout(done, 100));
+    }
+
+    assert.strictEqual(pages().length, 1);
+
+    await vscode.window.tabGroups.close(pages());
   });
 });
 

@@ -44,10 +44,10 @@ describe('what the board remembers about each card', () => {
     store.write({ entries: {}, failures: {} });
     writeFileSync(
       triagePathOf(home),
-      JSON.stringify({ entries: { 'issue:9': { revision: TRIAGE_REVISION, action: 'merge-upstream', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' } }, failures: {} }),
+      JSON.stringify({ entries: { 'issue:9': { revision: TRIAGE_REVISION, action: 'merge', qualifier: null, detail: 'go', at: 1, agent: 'claude', wasArchived: false, evidence: 'e' } }, failures: {} }),
     );
 
-    expect(store.read().entries['issue:9']?.action).toBe('merge-upstream');
+    expect(store.read().entries['issue:9']?.action).toBe('merge');
   });
 
   it('returns empty state for invalid JSON', () => {

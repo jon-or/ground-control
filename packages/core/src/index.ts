@@ -12,26 +12,29 @@ export { readableLink } from './detail.js';
 export { CUSTODY_FUNCTIONS, DEFAULT_CUSTODY, custodySettings } from './custody.js';
 export type { Custody, CustodyEvent, CustodyFigure, CustodyFunction, CustodyHealth, CustodyHistory, CustodyReading, CustodySegment, CustodySettings, CustodyStage, CustodyStop, CustodyTimeRow, CustodyTotalRow } from './custody.js';
 export type { DetailEvent, DetailIcon, DetailLabel, DetailNote, DetailPost, DetailReaction, DetailReading, DetailSubject, DetailThread, ItemDetail } from './detail.js';
-export { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_TRIAGE, DEFAULT_WORKTREE, IDLE_EXIT_CEILING_MS, IDLE_EXIT_FLOOR_MS, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, spawnable, triageMode } from './config.js';
+export { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_TRIAGE, DEFAULT_WORKTREE, IDLE_EXIT_CEILING_MS, IDLE_EXIT_FLOOR_MS, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, readActionTable, spawnable, triageMode } from './config.js';
 export type { HubConfig, LogSettings, NewSessionSettings, TriageSettings, WorktreeSettings } from './config.js';
 export { DEFAULT_AVATAR_POLICY, DEFAULT_BOARD_POLICY, OFF_REVIEW_AVATARS, REVIEW_AVATARS } from './source.js';
 export type { AvatarPolicy, BoardPolicy, OffReviewAvatar, ReviewAvatar } from './source.js';
-export { ACTION_REVISION, AUTOMATABLE_ACTIONS, CREATE_WORKTREE, EMPTY_ACTIONS, isAutomatable } from './actions.js';
+export { ACTION_REVISION, AUTOMATABLE_ACTIONS, CREATE_WORKTREE, EMPTY_ACTIONS, ROW_QUALIFIERS, isAutomatable, rowFor } from './actions.js';
 export type {
   ActionOutcome,
   ActionRefusalRecord,
   ActionReport,
+  ActionRow,
   ActionRun,
-  ActionSetting,
   ActionSettings,
   ActionState,
   AutomatableAction,
   CardAction,
   DispatchedAction,
+  SessionLink,
   WorktreeCreation,
 } from './actions.js';
 export type { CardReading, ContextReading, SourceReading, WorkItems, WorkSource } from './source.js';
 export { EMPTY_TRIAGE, TRIAGE_ACTIONS } from './triage.js';
+export { DEFAULT_TEST_BRANCH_PATTERN, MERGE_TYPES, mergeTypeOf } from './merge.js';
+export type { MergeReading, MergeType } from './merge.js';
 export type {
   CardTriage,
   TriageAction,

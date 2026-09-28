@@ -43,6 +43,8 @@ With hooks installed and a board visible, target arrival within one second of a 
 
 Group matching in-scope live sessions under their issue card. Multiple sessions may work on one issue. Idle and waiting sessions remain live. A known different repository must not match an issue solely by its number.
 
+A session the board dispatched from a card (R39, R46) belongs to that card, live and saved, whatever its branch or directory: the dispatch record is the match and takes precedence over the branch. It stays linked while the session is in the roster or history.
+
 For an issue card with no live sessions, show one saved session: the matching transcript with the newest modification time. Match using its saved branch, then saved directory name, and the configured issue pattern. Require the checkout's origin repository to match the issue repository. Do not use the checkout's current branch to assign historical work.
 
 A saved row:
@@ -103,7 +105,7 @@ The footer's first line is one command bar: the card's lane, what to do about it
 | Slot | At rest | While the bar is pointed at or focused |
 |---|---|---|
 | Lane (overlay) | Pictogram, in the lane's colour, on a button edge that opens the lane menu | unchanged |
-| Verdict | Triage action, then the dispatched action's state or the triage qualifier | unchanged |
+| Verdict | Triage action, then the dispatched run's state or the triage qualifier | unchanged |
 | Tail | Time in the current status, right-aligned | Reread, open checkout, create worktree (R46), run |
 
 The verdict is the only element that shrinks: a long qualifier truncates it rather than moving a control. The tail is one slot painted two ways, so revealing the controls changes no width and the run control lands where the age was, above the session duration below it. Reveal keys on the bar, not the card, so passing over a title arms nothing. Controls stay in the tab order while hidden and appear on keyboard focus; where the device cannot hover, the tail lays the controls out and drops the age.
@@ -118,7 +120,7 @@ Hovering the bar hides the age, and hovering is how the reread is reached, so th
 
 Returned states the card rather than its work, so it is a label in the card's own label row under the title rather than a mark in the bar, on both clients. The overlay joins GitHub's field list under the title and falls back to the card header line on a card carrying no field of its own, because GitHub owns and redraws both (mechanics M27). The row leads with the pull request, then the type and the status, so the card most in need of attention states its pull request first.
 
-The run control carries the card's action (R39): it starts an available action, stops a running one, repeats a finished one, and is present but inert for a refusal. Its accessible name and tooltip name the action, because one glyph serves every triage. While an action is dispatched its state displaces the triage qualifier, and R39 states how long a finished run's outcome keeps that place in the verdict, which is the newer fact about the same work.
+The run control carries the card's action (R39): it starts an available action, stops a running one, repeats a finished one, and is present but inert for a refusal. Its accessible name and tooltip name the action, because one glyph serves every triage. While a run is dispatched from the card its state displaces the triage qualifier, and R39 states how long a finished run's outcome keeps that place in the verdict, which is the newer fact about the same work. A running run is stated at rest, without pointing at the bar, in words naming the work: `Creating worktree…`, `Merging…`, `Reviewing…`, or `Answering review…`. This includes a worktree run asked for on its own (R46).
 
 ### R43. Reading a conversation
 
@@ -332,11 +334,11 @@ Every card action works in the card's worktree: the directory an unattended agen
 
 **What a worktree is.** A working tree of a clone of the card's repository: the clone's main tree, or any worktree git registers under the clone's shared git directory. It is the card's where a provisioning run reported it and the hub recorded that, else where its branch name, or failing that its directory name, yields the issue number through `branchIssuePattern`. Search the clones the hub already knows — live and saved session directories, remembered picks, recorded worktrees, connected editor window folders — plus any absolute path in `repositoryRoots`; a relative configured path is ignored rather than resolved, because the hub's working directory is not the editor's. Report a worktree only where its directory reads back: a registration outlives the directory it names ([mechanics](mechanics.md#worktree-registrations) M56). Where an issue has several, the recorded one is the card's, else the first by path; its checkout is then not the only one, which R37 states. A recorded worktree that git no longer registers, or that belongs to another repository, is inert. Session scope hides an excluded worktree exactly as it hides an excluded checkout, in both clients.
 
-**The worktree run.** `worktree.prompt` is the developer's prompt for the session that makes a worktree: their own script or slash command, naming the branch, the directory, and whatever setup the repository needs. It runs with the action agent, model, and permission mode, from the clone's main tree, or its git directory where it has none, and it takes `{issue}`, `{repo}`, `{title}`, `{url}`, `{clone}`, and `{resultPath}`. It ends by writing the result file with `outcome` `ready`, `worktree` as the absolute path it made, and `detail`; `halted` with `detail` says why not. A prompt that does not place `{resultPath}` itself receives that contract appended to it, except a slash command reading positional arguments, which never sees appended text ([mechanics](mechanics.md#claude-background-dispatch-and-attach) M33). The hub records the path only where git registers it as a working tree of a clone of the card's repository and scope admits it; a path that fails either check halts the run with the reason. The prompt chooses the branch name; the hub does not read it. The prompt must be idempotent — a retry after a run that made the worktree and then failed must find it, finish, and report the same path — and must ask nothing when it runs unattended.
+**The worktree run.** `worktree.prompt` is the developer's prompt for the session that makes a worktree: their own script or slash command, naming the branch, the directory, and whatever setup the repository needs. It runs with the action agent, model, and permission mode, from the clone's main tree, or its git directory where it has none, and it takes `{issue}`, `{repo}`, `{title}`, `{url}`, `{clone}`, `{pr}`, `{branch}`, `{role}`, and `{resultPath}`. `{pr}` and `{branch}` are the card's pull request and its head branch, empty where the card has none. `{role}` is `author` where that pull request is the developer's, `reviewer` where it is someone else's, and empty where there is none: a reviewer's worktree checks out the pull request's head rather than making a branch for the issue. It ends by writing the result file with `outcome` `ready`, `worktree` as the absolute path it made, and `detail`; `halted` with `detail` says why not. A prompt that does not place `{resultPath}` itself receives that contract appended to it, except a slash command reading positional arguments, which never sees appended text ([mechanics](mechanics.md#claude-background-dispatch-and-attach) M33). The hub records the path only where git registers it as a working tree of a clone of the card's repository and scope admits it; a path that fails either check halts the run with the reason. The prompt chooses the branch name; the hub does not read it. The prompt must be idempotent — a retry after a run that made the worktree and then failed must find it, finish, and report the same path — and must ask nothing when it runs unattended.
 
 **Refusals.** Refuse, naming the setting, rather than guess: no prompt; no clone of the repository the hub knows; more than one, which `repositoryRoots` narrows; a card with no issue to name a branch after; an archived or unassigned card, which is read-only (R9). Each refusal is shown on the worktree control, and on the run control where an action would need the worktree.
 
-**The chain.** An action on a card with no worktree dispatches the worktree run with the action recorded as what follows. When the run reports a worktree, the action starts in it, reading its own fresh context, as the same attempt: one request is one dispatch against the daily limit and one concurrency slot throughout. A run that halts, fails, or is stopped ends the chain; the action is not started, and the card shows the action as done with the run's reason. Retrying an action on a card whose earlier run did make the worktree runs the action alone. While the run is on, the verdict says the worktree is being created and the run control stops it; a worktree run asked for on its own shows on the worktree control, which stops it, and leaves the action offerable. The session the run is, tracked like any dispatched session (R39), starts in the clone rather than the issue's directory, so it appears on an ad-hoc card of the clone rather than on the issue's card.
+**The chain.** An action on a card with no worktree dispatches the worktree run with the action recorded as what follows. When the run reports a worktree, the action starts in it, reading its own fresh context, as the same attempt: one request is one dispatch against the daily limit and one concurrency slot throughout. A run that halts, fails, or is stopped ends the chain; the action is not started, and the card shows the action as done with the run's reason. Retrying an action on a card whose earlier run did make the worktree runs the action alone. While the run is on, the verdict says the worktree is being created and the run control stops it. A worktree run asked for on its own is also stated in the verdict, and the worktree control stops it; the action stays offerable. The session the run is, tracked like any dispatched session (R39), starts in the clone rather than the issue's directory, and belongs to the issue's card because the board dispatched it from there (R3).
 
 **The worktree control.** Where the card has an issue and no worktree, one further tail control, between open-checkout and run in both clients, runs the worktree prompt alone, so a developer can provision before starting anything. It states the offer, the refusal, the run in progress, or how the last run ended. Where the worktree is the card's checkout (R41), the open-checkout control opens it and its tooltip says so, naming the branch, or the directory where HEAD is detached; there is no second open control. Both clients state the worktree and offer the run. A page's request is a dispatch, so it is bounded exactly as a page-asked action is (R39): the browser opt-in, a visible project tab, and a positive daily limit.
 
@@ -354,7 +356,7 @@ Allow additional sessions on the same card. Prevent repeated starts for the same
 
 ### R38. Triage
 
-Classify a newly eligible card, a returned card, or a card whose status changed. Show one action and a short explanation. Actions include Develop, questions, QA failure, review, answer review, fix checks, merge upstream, and Other.
+Classify a newly eligible card, a returned card, or a card whose status changed. Show one action and a short explanation. Actions include Develop, questions, QA failure, review, answer review, fix checks, merge, and Other.
 
 Determine the action from status and PR facts where possible; ask the model for the explanation. When those facts do not settle the action, ask the model to choose it too. Do not correct the action after generating a contradictory explanation.
 
@@ -364,11 +366,11 @@ Determine the action from status and PR facts where possible; ask the model for 
 | Status mapped to Unstarted | Develop |
 | Status mapped to Build, or unmapped | Inspect PR facts and conversation |
 | Failing checks | Deterministic evidence, subject to status precedence |
-| Merge upstream | Requires a written request or a deliberate action; never infer from mergeability |
+| Merge | Requires a written request or a deliberate action; never infer from mergeability. Record the branch the request names; R39 derives the merge type from it |
 
 Read status and assignment events alongside comments. Consecutive changes by the same identified person, no more than one minute apart, form one instruction dated at its first event. Different people or anonymous actors do not combine. Comments before the latest instruction are background. Adding the issue to a project is not an instruction.
 
-Use the developer's own submitted reviews, comments, and replies to distinguish initial review from follow-up. Reviews by other people or bots do not establish a prior round for the developer. Ignore draft reviews. Do not use `reviewDecision` as triage evidence; lane arrival uses it separately (R8).
+The qualifier refines the action from PR facts, never from the model: initial or followup for review and answer review, and upstream, stacked, or test for merge (R39). Use the developer's own submitted reviews, comments, and replies to distinguish initial review from follow-up. Reviews by other people or bots do not establish a prior round for the developer. Ignore draft reviews. Do not use `reviewDecision` as triage evidence; lane arrival uses it separately (R8).
 
 The explanation describes status and responsibility, not technical implementation. Address the developer as “you”; use colleagues' first names, or logins where GitHub has no name, with a linked account (R28) named as the account it links to. Do not invent counts from a partial conversation. Other covers waiting with no identified action. The action is visible; the explanation and classification time are on hover. The age beside it is time in the current status (R45).
 
@@ -386,35 +388,60 @@ Triage sends issue/PR text, recent comments, identities, review information, and
 
 Only Claude currently provides classification. Report absent classifier or configured conversation source separately from missing/ineligible cards and disabled mode. Both clients display the missing capability and remove their request controls until it is restored. Do not announce model use or reserve automatic attempts without an available classifier and source. Removing required capability cancels pending readings while preserving prior results and session discovery.
 
-### R39. Merge-upstream action
+### R39. Card actions
 
-The only implemented unattended card action merges a PR's base branch into its head. It is disabled by default and requires a developer-supplied prompt. Supply issue, repository, PR, branches, and worktree facts to that prompt; do not define the repository's build, test, push, or commenting policy. `{checkout}` is the worktree the run works in.
+A card action is an unattended run of a developer prompt, chosen by the card's triage reading (R38). The action table configures them. Each row names a triage action, optionally a qualifier, the prompt, and whether the board starts it automatically. A row with no qualifier matches any; a row naming the reading's qualifier takes precedence over it. A reading with no row has no action. Nothing is configured by default, and a row needs a nonempty prompt.
+
+Rows choose from the actions that have refusal rules: Merge, Review their PR, and Answer review. The table cannot add triage actions, and the classifier is not told about it.
+
+| Row | Example prompt |
+|---|---|
+| Review their PR · initial | `/review-pr {pr}` |
+| Review their PR · followup | `/review-pr-followup {pr}` |
+| Answer review · initial | `/answer-review {pr}` |
+| Answer review · followup | `/answer-review-followup {pr}` |
+| Merge · test | the developer's own multi-leg merge prompt |
+
+Supply issue, repository, PR, branch, and worktree facts to the prompt: `{issue}`, `{repo}`, `{pr}`, `{branch}` (the PR head), `{base}` (the PR base), `{default}` (the repository default branch), `{target}` (the test branch, empty unless the merge type is test), `{checkout}` (the worktree the run works in), and `{resultPath}`. Do not define the repository's build, test, push, review-posting, or commenting policy.
+
+The table is edited in an editor panel with one line per row and columns for action, qualifier, prompt, and automatic. The panel opens from the setting's description and an Action table item in the editor board's menu. It stores `actions.table`, which settings.json also edits; the native settings editor cannot show a table with more than two columns. Like every hub setting, it has no browser editor (R34). An install whose earlier `actions.merge-upstream` prompt is set gets a Merge · upstream row from it, once.
+
+**Merge types.** Triage identifies a merge request and records the branch it names (R38). The board derives the type from branch facts:
+
+| Type | When | Legs, performed by the prompt |
+|---|---|---|
+| test | The named branch matches `actions.testBranchPattern`, default `^Test-` | Default into head, then head into the test branch; on a stacked PR, default into base first |
+| stacked | Otherwise, the PR base is not the default branch | Default into base, then base into head |
+| upstream | Otherwise | Default into head |
+
+Refuse a named branch that is neither the head, the base, nor a test branch, and a test branch that does not exist on GitHub. Requests always name the test branch; a merge whose destination the classifier could not read is typed from the branches alone. The type is the reading's qualifier. Before dispatch it is derived again from fresh PR facts, and a type that no longer matches the reading is refused until the card is read again.
 
 `actions.agent` selects `auto`, `claude`, or `codex` independently of session discovery; explicit selection requires that enabled adapter to support dispatch. Auto preserves registry order among enabled dispatchers. `actions.model` selects the coding model, with empty using the CLI default. `triage.model` affects classification only. Older saved configurations inherit `AgentConfig.model` only when the corresponding model field is absent; an explicit empty field clears inheritance. The current editor sends separate model fields, ending accidental classification-model inheritance for actions.
 
-Automatic eligibility comes from triage identifying a requested merge. A manual editor control can run or retry that candidate even when automatic dispatch is disabled; it cannot create a merge candidate on an unrelated card. Before dispatch, reread the PR and apply all safety checks and configured limits. An automatic run on a card with no worktree runs the worktree prompt first (R46), so enabling the action is also consent to provision for it.
+Automatic eligibility comes from a reading whose row is automatic. The run control offers the row matching the card's reading, automatic or not, so a manual editor request can run or retry it; it cannot start another row on the card. Before dispatch, reread the PR and apply all safety checks and configured limits. An automatic run on a card with no worktree runs the worktree prompt first (R46), so making a row automatic is also consent to provision for it.
 
-Refuse drafts, other people's PRs, closed/merged PRs, disallowed lanes, active work on the card, and stacked PRs whose base is not the repository's default branch. The run works in the card's worktree (R46); a card with none and no worktree prompt is refused, and a manually selected checkout or a session directory that is not the issue's worktree does not authorize unattended edits. If merge is not a candidate action, show neither a merge control nor an irrelevant refusal.
+Refuse, for every row: no PR, a closed or merged PR, a draft, disallowed lanes, and active work on the card. Merge and Answer review also refuse another person's PR; Review their PR refuses the developer's own. Merge also refuses where the default branch is unknown or the merge type fails the checks above. The run works in the card's worktree (R46); a card with none and no worktree prompt is refused, and a manually selected checkout or a session directory that is not the issue's worktree does not authorize unattended edits. A card whose reading has no row shows no run control and no refusal.
 
 Bound automatic work by:
 
 - Concurrent runs and starts in a rolling 24-hour window.
-- One attempt per head commit, except attempts recorded as failed.
+- One attempt per action and head commit, whatever the qualifier, except attempts recorded as failed: a follow-up review of the head the first review read has nothing new to read.
 - A 30-minute reconsideration interval after an automatic decision.
-- No automatic repeat after a successful outcome, even if its push changed the head.
+- After a successful run, no automatic run of that action until the card's status changes. A merge's own push changes the head without a new request, and a reread of the same conversation is not a new request; a new review round arrives as a status change.
+- The action after a worktree run starts only while the card still reads as the row the worktree was made for.
 - Durable run records; a failed write prevents further dispatch.
 
-An explicit manual request can bypass automatic eligibility history and cooldowns, but not safety checks, the required prompt, or concurrency limits. A browser request bypasses neither the action's own enablement nor `actions.fromBrowser`. A positive daily limit also applies to manual requests; zero disables automatic starts while allowing manual requests from an editor. A browser request inherits no such exemption, because without a positive limit nothing would bound how many agents a page can dispatch.
+An explicit manual request can bypass automatic eligibility history and cooldowns, but not safety checks, the required prompt, or concurrency limits. A browser request bypasses neither the row's automatic setting nor `actions.fromBrowser`. A positive daily limit also applies to manual requests; zero disables automatic starts while allowing manual requests from an editor. A browser request inherits no such exemption, because without a positive limit nothing would bound how many agents a page can dispatch.
 
-Track the dispatched process as an ordinary session, identify it as board-started, and notify the developer on the first dispatch. A detached Claude row attaches in a terminal at its checkout; closing the terminal leaves it running. The overlay can attach through the editor link, and displays and controls action state like the editor board. `actions.fromBrowser` defaults to false and gates every browser start; a browser start also requires a visible project tab, a positive daily limit, and an action the developer left enabled, because an editor click is itself the opt-in for a disabled action and a page's click is not. A browser stop needs no opt-in, because refusing one could strand a run, but it still requires a visible project tab and a card in scope. Hold the first-dispatch notice until an editor can show it.
+Track the dispatched process as an ordinary session, identify it as board-started, and notify the developer on the first dispatch. A detached Claude row attaches in a terminal at its checkout; closing the terminal leaves it running. The overlay can attach through the editor link, and displays and controls action state like the editor board. `actions.fromBrowser` defaults to false and gates every browser start; a browser start also requires a visible project tab, a positive daily limit, and a row the developer made automatic, because an editor click is itself the opt-in for a manual row and a page's click is not. A browser stop needs no opt-in, because refusing one could strand a run, but it still requires a visible project tab and a card in scope. Hold the first-dispatch notice until an editor can show it.
 
-Read an outcome and explanation from the run's designated result file. Clear the previous file before starting; if that fails, do not dispatch. Missing output means stopped short. A prompt that does not place `{resultPath}` itself receives the result-file contract appended to it, because an unattended run reports no other way; a prompt that places the path keeps its own instructions unchanged. This is a session-reported outcome, not independently verified stage completion: it changes no lane or GitHub status. A finished run is shown until a settled reading names another action, or none, which supersedes the outcome; the card then shows that reading instead. A reading still being taken, one that failed, and a card no longer read at all leave the outcome in place, so re-reading does not blink it out. A running run always shows, so it stays stoppable.
+Read an outcome and explanation from the run's designated result file: `done` once the work is complete, or `halted` with why it stopped. Clear the previous file before starting; if that fails, do not dispatch. Missing output means stopped short. A prompt that does not place `{resultPath}` itself receives the result-file contract appended to it, because an unattended run reports no other way; a prompt that places the path keeps its own instructions unchanged. This is a session-reported outcome, not independently verified stage completion: it changes no lane or GitHub status. A finished run is shown until a settled reading names another row, or none, which supersedes the outcome; the card then shows that reading instead. A reading still being taken, one that failed, and a card no longer read at all leave the outcome in place, so re-reading does not blink it out. A running run always shows, so it stays stoppable.
 
 Stopping a run warns that work in progress may be incomplete. Do not reset a partially merged checkout. Report a failed stop and keep the control available. Automatic repair of failing checks and general conflict resolution are not additional actions.
 
 A browser request repeats what a manual request already permits: it can start an action on a card that already landed, up to the daily limit, and a refused start spends a source read without spending that limit.
 
-Implementation limits: run records are written after dispatch returns, so persistence failure can leave an already started process unrecorded. Concurrent starts can exceed the remaining daily allowance because pending requests do not reserve it. Failed attempts count toward that allowance and can include a process whose ID could not be read. Codex stop authorization is lost on hub restart, even though the action record remains. These gaps require implementation work to meet the intended dispatch and recovery guarantees.
+Implementation limits: run records are written after dispatch returns, so persistence failure can leave an already started process unrecorded. Concurrent starts can exceed the remaining daily allowance because pending requests do not reserve it. Failed attempts count toward that allowance and can include a process whose ID could not be read. Codex stop authorization is lost on hub restart, even though the action record remains. A test branch's existence on GitHub is not checked before dispatch; the prompt receives the name as the request gave it. These gaps require implementation work to meet the intended dispatch and recovery guarantees.
 
 ## Setup, permissions, and lifecycle
 
@@ -472,7 +499,7 @@ Triage has no tools or developer settings and offers no broader permission mode.
 
 ### R32. Opt-in automation
 
-Unattended code changes start disabled. Enable actions individually, each with its own prompt. Triage is a separately configurable read that costs model usage and sends text off-machine; it defaults to manual requests. Starting a prefilled editor session is a deliberate user action, not unattended automation.
+Unattended code changes start disabled. Enable each action table row individually, with its own prompt (R39). Triage is a separately configurable read that costs model usage and sends text off-machine; it defaults to manual requests. Starting a prefilled editor session is a deliberate user action, not unattended automation.
 
 ### R33. Limits
 

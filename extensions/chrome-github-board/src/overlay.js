@@ -166,7 +166,7 @@ const TRIAGE_LABELS = {
   'review-others': 'Review their PR',
   'address-review': 'Answer review',
   'fix-checks': 'Fix failing checks',
-  'merge-upstream': 'Merge upstream',
+  merge: 'Merge',
   other: 'Other',
 };
 
@@ -2537,7 +2537,7 @@ function verdict(doc, card, now) {
 
   // A dispatched run is the newer fact about the same work, so it takes the qualifier's place until the hub
   // drops it, which it does once the card has been read again (R39).
-  const state = actionState(card.action);
+  const state = actionState(card.action, card.creation);
 
   if (state) {
     held.dataset.outcome = state.outcome;
@@ -2567,9 +2567,9 @@ function note(doc, text) {
   return held;
 }
 
-/** `landed` is a session-reported push, not independently verified completion (R39). */
+/** `landed` is session-reported completion, not independently verified (R39); ACTION_LANDED names it per action. */
 const ACTION_OUTCOMES = {
-  landed: 'Merged',
+  landed: 'Done',
   halted: 'Stopped short',
   failed: 'Did not run',
   stopped: 'Stopped',
@@ -2578,21 +2578,34 @@ const ACTION_OUTCOMES = {
 /** A worktree run's outcomes: landing it is making the worktree, not a merge (R46). */
 const CREATION_OUTCOMES = { ...ACTION_OUTCOMES, landed: 'Created' };
 
+/** What a running action is doing, stated at rest (R45). */
+const ACTION_RUNNING = { merge: 'Merging…', 'review-others': 'Reviewing…', 'address-review': 'Answering review…' };
+
+/** What a run that reported its work complete did, by action (R39). */
+const ACTION_LANDED = { merge: 'Merged', 'review-others': 'Reviewed', 'address-review': 'Answered' };
+
 /**
- * The word a dispatched action puts in the verdict, and the color it takes. An action waiting to be run states
- * nothing: its control is the whole message.
+ * The word a dispatched run puts in the verdict, and the color it takes. An action waiting to be run states
+ * nothing: its control is the whole message. A worktree run asked for on its own is the newest fact while it runs.
  *
  * @param {LanedCard['action']} action
+ * @param {LanedCard['creation']} creation
  * @returns {{ text: string, outcome: string } | null}
  */
-function actionState(action) {
-  if (!action || action.state === 'available') {
-    return null;
+function actionState(action, creation) {
+  if (action?.state === 'running') {
+    // The worktree the action needs is still being made; the action itself has not started (R46).
+    const running = ACTION_RUNNING[/** @type {keyof typeof ACTION_RUNNING} */ (action.action)] ?? 'Working…';
+
+    return { text: action.stage === 'worktree' ? 'Creating worktree…' : running, outcome: 'running' };
   }
 
-  if (action.state === 'running') {
-    // The worktree the action needs is still being made; the action itself has not started (R46).
-    return { text: action.stage === 'worktree' ? 'Creating worktree…' : 'Working…', outcome: 'running' };
+  if (creation?.state === 'running') {
+    return { text: 'Creating worktree…', outcome: 'running' };
+  }
+
+  if (!action || action.state === 'available') {
+    return null;
   }
 
   if (action.state === 'refused') {
@@ -2600,7 +2613,10 @@ function actionState(action) {
   }
 
   return {
-    text: ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (action.outcome)] ?? ACTION_OUTCOMES.failed,
+    text:
+      (action.outcome === 'landed' ? ACTION_LANDED[/** @type {keyof typeof ACTION_LANDED} */ (action.action)] : undefined) ??
+      ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (action.outcome)] ??
+      ACTION_OUTCOMES.failed,
     outcome: action.outcome,
   };
 }
@@ -2839,7 +2855,8 @@ function runButton(doc, card, actions) {
     return null;
   }
 
-  const label = TRIAGE_LABELS[action.action] ?? action.action;
+  // One row per action and qualifier, so the control names both (R39).
+  const label = `${TRIAGE_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
 
   if (action.state === 'running') {
     const stop = toolButton(

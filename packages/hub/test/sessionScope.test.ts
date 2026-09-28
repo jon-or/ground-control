@@ -110,10 +110,10 @@ function harness(options: {
   if (options.running) {
     actions.write({
       runs: { 'issue:1': {
-        key: 'issue:1', action: 'merge-upstream', revision: ACTION_REVISION, evidence: 'test-evidence',
+        key: 'issue:1', action: 'merge', qualifier: 'upstream', revision: ACTION_REVISION, evidence: 'test-evidence',
         startedAt: clock.clock.now(), endedAt: null, agent: 'fake', sessionId: 'private-session-id', shortId: 'private-session-id',
         outcome: 'running', detail: 'Working in private-checkout.',
-      } }, refusals: {}, gates: {}, dispatches: [clock.clock.now()],
+      } }, refusals: {}, gates: {}, dispatches: [clock.clock.now()], links: {},
     });
   }
   const hub = new Hub({

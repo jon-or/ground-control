@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ACTION_REVISION, AUTOMATABLE_ACTIONS, CREATE_WORKTREE } from '@ground-control/core';
+import { ACTION_REVISION, AUTOMATABLE_ACTIONS, CREATE_WORKTREE, MERGE_TYPES } from '@ground-control/core';
 import type {
   ActionOutcome,
   ActionRefusalRecord,
@@ -9,8 +9,11 @@ import type {
   AutomatableAction,
   CardAction,
   Lane,
+  TriageQualifier,
   WorktreeCreation,
 } from '@ground-control/core';
+
+const qualifier = z.enum(['initial', 'followup', ...MERGE_TYPES]).nullable().default(null);
 
 /** Rolling dispatch-count window, preserved across hub restarts. */
 export const DISPATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -18,10 +21,30 @@ export const DISPATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** Minimum interval between automatic action checks, each of which requires fresh GitHub context. */
 export const ACTION_GATE_MS = 30 * 60 * 1000;
 
-const actionRun = z.object({
+/** Records written before the action table name the one merge there was, which was always an upstream merge. */
+const LEGACY_MERGE = 'merge-upstream';
+
+const legacyRun = (value: unknown): unknown => {
+  if (value === null || typeof value !== 'object') return value;
+
+  const run = value as Record<string, unknown>;
+
+  return run['action'] === LEGACY_MERGE || run['next'] === LEGACY_MERGE
+    ? {
+        ...run,
+        ...(run['action'] === LEGACY_MERGE ? { action: 'merge' } : {}),
+        ...(run['next'] === LEGACY_MERGE ? { next: 'merge' } : {}),
+        qualifier: 'upstream',
+      }
+    : run;
+};
+
+const actionRun = z.preprocess(legacyRun, z.object({
   key: z.string(),
   action: z.enum([...AUTOMATABLE_ACTIONS, CREATE_WORKTREE]),
   next: z.enum(AUTOMATABLE_ACTIONS).optional(),
+  qualifier,
+  issueNumber: z.number().int().positive().optional(),
   revision: z.number(),
   evidence: z.string(),
   startedAt: z.number(),
@@ -31,10 +54,19 @@ const actionRun = z.object({
   shortId: z.string(),
   outcome: z.enum(['running', 'landed', 'halted', 'failed', 'stopped']),
   detail: z.string().default(''),
-});
+}));
 
 // Drop refusals from older rules, including for actions no longer enabled.
-const actionRefusal = z.object({ kind: z.string(), message: z.string(), at: z.number(), revision: z.number().default(0) });
+const actionRefusal = z.object({
+  action: z.enum(AUTOMATABLE_ACTIONS).nullable().default(null),
+  qualifier,
+  kind: z.string(),
+  message: z.string(),
+  at: z.number(),
+  revision: z.number().default(0),
+});
+
+const sessionLink = z.object({ issueNumber: z.number().int().positive(), at: z.number() });
 
 const actionState = z.object({
   runs: z.record(z.string(), z.unknown()).default({}),
@@ -42,7 +74,11 @@ const actionState = z.object({
   // Validate entries separately so one invalid timestamp does not reset every retry interval.
   gates: z.record(z.string(), z.unknown()).catch({}).default({}),
   dispatches: z.array(z.number()).default([]),
+  links: z.record(z.string(), z.unknown()).catch({}).default({}),
 });
+
+/** How long a link survives its session's absence, since a history read can begin before the link's session was dispatched. */
+export const LINK_GRACE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Parse durable action state, filtering invalid run/refusal/gate entries individually. An invalid outer shape
@@ -52,7 +88,7 @@ export function readActionState(stored: unknown): ActionState {
   const outer = actionState.safeParse(stored);
 
   if (!outer.success) {
-    return { runs: {}, refusals: {}, gates: {}, dispatches: [] };
+    return { runs: {}, refusals: {}, gates: {}, dispatches: [], links: {} };
   }
 
   const runs: Record<string, ActionRun> = {};
@@ -81,15 +117,22 @@ export function readActionState(stored: unknown): ActionState {
       Object.entries(outer.data.gates).flatMap(([key, at]) => (typeof at === 'number' && Number.isFinite(at) ? [[key, at]] : [])),
     ),
     dispatches: outer.data.dispatches.filter((at) => Number.isFinite(at)),
+    links: Object.fromEntries(
+      Object.entries(outer.data.links).flatMap(([key, value]) => {
+        const link = sessionLink.safeParse(value);
+
+        return link.success ? [[key, link.data]] : [];
+      }),
+    ),
   };
 }
 
 /**
- * Session-reported outcome. `pushed` maps to landed; completion is not independently verified (R39). A worktree
- * run reports `ready` with the worktree's path (R46).
+ * Session-reported outcome. `done`, or the earlier `pushed`, maps to landed; completion is not independently
+ * verified (R39). A worktree run reports `ready` with the worktree's path (R46).
  */
 const actionReport = z.object({
-  outcome: z.enum(['pushed', 'halted', 'ready']),
+  outcome: z.enum(['done', 'pushed', 'halted', 'ready']),
   detail: z.string().min(1),
   auditPath: z.string().optional(),
   worktree: z.string().min(1).optional(),
@@ -103,11 +146,19 @@ export function readActionReport(stored: unknown): ActionReport | null {
 }
 
 /**
- * Block automatic repeats under the current revision for unchanged evidence. A landed run also blocks changed
- * evidence so its own push cannot trigger another merge. Failed starts and older revisions do not block; the
- * read gate limits retries. Manual requests bypass this check.
+ * Block automatic repeats of the action under the current revision for unchanged evidence, whatever the qualifier:
+ * a follow-up review of a head the initial review already read has nothing new to read. A landed run also blocks
+ * changed evidence until the card's status changes after it ended, so a merge's own push cannot trigger another; a
+ * reread alone is not a new request. Failed starts, older revisions, and other actions do not block; the read gate
+ * limits retries. Manual requests bypass this check.
  */
-export function alreadyRun(state: ActionState, key: string, evidence: string): boolean {
+export function alreadyRun(
+  state: ActionState,
+  key: string,
+  evidence: string,
+  action: AutomatableAction,
+  statusChangedAt: number | null,
+): boolean {
   const run = state.runs[key];
 
   // A worktree run has no PR evidence and is not the action; the action after it reads its own (R46).
@@ -115,7 +166,15 @@ export function alreadyRun(state: ActionState, key: string, evidence: string): b
     return false;
   }
 
-  return run.outcome === 'landed' || run.evidence === evidence;
+  if (run.action !== action) {
+    return false;
+  }
+
+  if (run.outcome === 'landed') {
+    return (statusChangedAt ?? 0) <= (run.endedAt ?? run.startedAt);
+  }
+
+  return run.evidence === evidence;
 }
 
 /** Whether a card has a running action, preventing another dispatch. */
@@ -147,6 +206,7 @@ export function withDispatch(state: ActionState, run: ActionRun, now: number, co
     refusals,
     gates: { ...state.gates, [run.key]: now + ACTION_GATE_MS },
     dispatches: counted ? [...dispatches, now] : dispatches,
+    links: state.links,
   };
 }
 
@@ -167,23 +227,52 @@ export function withOutcome(
   return { ...state, runs: { ...state.runs, [key]: { ...run, outcome, detail, endedAt: now } } };
 }
 
-/** Record the session ID resolved from the dispatch ID (M33). */
-export function withSession(state: ActionState, key: string, sessionId: string): ActionState {
+/** Record the session ID resolved from the dispatch ID (M33), and link the session to the run's issue (R3). */
+export function withSession(state: ActionState, key: string, sessionId: string, now: number): ActionState {
   const run = state.runs[key];
 
-  return run === undefined ? state : { ...state, runs: { ...state.runs, [key]: { ...run, sessionId } } };
+  if (run === undefined) {
+    return state;
+  }
+
+  const links = run.issueNumber === undefined
+    ? state.links
+    : { ...state.links, [`${run.agent}:${sessionId}`]: { issueNumber: run.issueNumber, at: now } };
+
+  return { ...state, runs: { ...state.runs, [key]: { ...run, sessionId } }, links };
 }
 
-/** Persist a refusal for display and defer the next automatic context read. */
+/**
+ * Drop links whose session is in neither the roster nor history. `present` must come from complete reads of both;
+ * a link younger than LINK_GRACE_MS stays, since a history read can start before its session was dispatched.
+ */
+export function withoutAbsentLinks(state: ActionState, present: ReadonlySet<string>, now: number): ActionState {
+  const links = Object.fromEntries(
+    Object.entries(state.links).filter(([key, link]) => present.has(key) || now - link.at < LINK_GRACE_MS),
+  );
+
+  return Object.keys(links).length === Object.keys(state.links).length ? state : { ...state, links };
+}
+
+/** The issue each linked session belongs to, by `agent:sessionId`. */
+export function sessionLinks(state: ActionState): ReadonlyMap<string, number> {
+  return new Map(Object.entries(state.links).map(([key, link]) => [key, link.issueNumber]));
+}
+
+/** Persist a refusal of the row, where one was known, for display, and defer the next automatic context read. */
 export function withRefusal(
   state: ActionState,
   key: string,
   refusal: { kind: string; message: string },
   now: number,
+  row: { action: AutomatableAction; qualifier: TriageQualifier | null } | null = null,
 ): ActionState {
   return {
     ...state,
-    refusals: { ...state.refusals, [key]: { ...refusal, at: now, revision: ACTION_REVISION } },
+    refusals: {
+      ...state.refusals,
+      [key]: { action: row?.action ?? null, qualifier: row?.qualifier ?? null, ...refusal, at: now, revision: ACTION_REVISION },
+    },
     gates: { ...state.gates, [key]: now + ACTION_GATE_MS },
   };
 }
@@ -214,12 +303,17 @@ export function nextActionState(
     }
   }
 
-  return { runs, refusals: kept(state.refusals), gates: kept(state.gates), dispatches };
+  // Links belong to sessions, not cards, so a card leaving the board keeps its sessions' links.
+  return { runs, refusals: kept(state.refusals), gates: kept(state.gates), dispatches, links: state.links };
 }
 
-/** What the card's triage says now. A card the board does not read has a settled reading of no action and no time. */
+/**
+ * What the card's triage says now, where the action table has a row for it. A card the board does not read has a
+ * settled reading of no action and no time.
+ */
 export interface CardReading {
   action: AutomatableAction | null;
+  qualifier: TriageQualifier | null;
   /** False while the card is being read again, or where its read failed: neither replaces the reading it has. */
   settled: boolean;
   /** When the reading was taken, or null where there is none. */
@@ -247,17 +341,24 @@ export function cardActionOf(
   if (shown !== undefined && shown.outcome === 'running') {
     return shown.action === CREATE_WORKTREE
       ? undefined
-      : { state: 'running', action: shown.action, since: shown.startedAt, ...(run?.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : {}) };
+      : {
+          state: 'running',
+          action: shown.action,
+          qualifier: shown.qualifier,
+          since: shown.startedAt,
+          ...(run?.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : {}),
+        };
   }
 
   if (shown !== undefined && shown.action !== CREATE_WORKTREE) {
     const ended = shown.endedAt ?? shown.startedAt;
-    // A finished run describes the reading it ran under. A settled reading naming another action, or taken after
-    // the run ended, replaces it; one still being read, or failed, leaves the outcome rather than blinking it out.
-    const superseded = reading.settled && (reading.action !== shown.action || (reading.at ?? 0) > ended);
+    // A finished run describes the reading it ran under. A settled reading naming another row, or taken after the
+    // run ended, replaces it; one still being read, or failed, leaves the outcome rather than blinking it out.
+    const superseded =
+      reading.settled && (reading.action !== shown.action || reading.qualifier !== shown.qualifier || (reading.at ?? 0) > ended);
 
     if (!superseded) {
-      return { state: 'done', action: shown.action, outcome: shown.outcome, detail: shown.detail, at: ended };
+      return { state: 'done', action: shown.action, qualifier: shown.qualifier, outcome: shown.outcome, detail: shown.detail, at: ended };
     }
   }
 
@@ -265,15 +366,15 @@ export function cardActionOf(
     return undefined;
   }
 
+  const row = { action: reading.action, qualifier: reading.qualifier };
   const refusal = state.refusals[key];
 
-  if (refusal !== undefined) {
-    return { state: 'refused', action: reading.action, reason: refusal.message };
+  // A refusal of another row, or one made before any row was known, says nothing about this reading's row.
+  if (refusal !== undefined && refusal.action === reading.action && refusal.qualifier === reading.qualifier) {
+    return { state: 'refused', ...row, reason: refusal.message };
   }
 
-  return offerRefusal === null
-    ? { state: 'available', action: reading.action }
-    : { state: 'refused', action: reading.action, reason: offerRefusal };
+  return offerRefusal === null ? { state: 'available', ...row } : { state: 'refused', ...row, reason: offerRefusal };
 }
 
 /**

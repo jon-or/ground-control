@@ -18,15 +18,18 @@ function checkoutDir(session: Session): string {
 /**
  * Rank recorded session checkouts by recent activity, then stable agent/session ID ties. Do not derive paths
  * from branch names. Distinct checkouts require the caller to identify its selection; multiple sessions in one
- * checkout do not.
+ * checkout do not. A linked session started where the board sent it, such as a worktree run in the clone, so its
+ * directory need not be the card's.
  */
 function ranked(card: Pick<BoardCard, 'sessions' | 'lastSession'>): string[] {
-  const order = [...card.sessions].sort(
+  const order = card.sessions.filter((session) => session.linked !== true).sort(
     (a, b) => activeAt(b) - activeAt(a) || a.agent.localeCompare(b.agent) || a.sessionId.localeCompare(b.sessionId),
   );
 
   // `lastSession` applies only when there are no live sessions.
-  return order.length > 0 ? order.map(checkoutDir) : card.lastSession ? [card.lastSession.cwd] : [];
+  return order.length > 0
+    ? order.map(checkoutDir)
+    : card.lastSession && card.lastSession.linked !== true ? [card.lastSession.cwd] : [];
 }
 
 /**

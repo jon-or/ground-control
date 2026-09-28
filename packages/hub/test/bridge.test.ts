@@ -101,7 +101,7 @@ describe('what the browser may ask the hub for', () => {
 
   /**
    * Actions.runAction and stopAction apply every R39 safety check and limit; the hub additionally requires
-   * actions.fromBrowser, a watching client, a daily allowance, and an enabled action before starting one.
+   * actions.fromBrowser, a watching client, a daily allowance, and an automatic row before starting one.
    */
   it('forwards a card action, rebuilding the message so only the card key survives', () => {
     expect(

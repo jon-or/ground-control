@@ -1290,7 +1290,7 @@ describe('what a second costs', () => {
             {
               ...liveCard,
               sessions: [{ ...session, activity: { phase: 'running', since: Date.now() - 600_000, at: Date.now() - 600_000, event: 'PostToolBatch' } }],
-              triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: Date.now() - 7_200_000, stale: false },
+              triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: Date.now() - 7_200_000, stale: false },
               issue: { ...liveCard.issue!, statusChangedAt: '2026-09-06T12:00:00Z' },
             },
             {
@@ -1988,7 +1988,7 @@ it('makes a historical title openable when the host offers it, including after a
 
 /** Keep GitHub issue details separate from the Ground Control footer, matching the overlay. */
 describe('what GitHub says, and what the board adds', () => {
-  const triage: NonNullable<LanedCard['triage']> = { state: 'done', action: 'address-review', qualifier: 'followup', detail: 'Answer the naming notes.', at: Date.now(), stale: false };
+  const triage: NonNullable<LanedCard['triage']> = { state: 'done', action: 'address-review', qualifier: 'followup', target: null, detail: 'Answer the naming notes.', at: Date.now(), stale: false };
   const waiting: Session = { ...session, activity: { phase: 'waiting', since: Date.now(), at: Date.now(), event: 'Notification' } };
 
   const rows: [string, string][] = [
@@ -2080,8 +2080,8 @@ describe('what GitHub says, and what the board adds', () => {
     expect(document.querySelector('.card-foot .verdict')?.textContent).toBe('Answer review · followup');
     expect(tipOf(document.querySelector('.card-foot .verdict'))).toContain('Answer the naming notes.');
 
-    send(message({ lanes: lanes({ build: [{ ...bare, triage, action: { state: 'available', action: 'merge-upstream' } }] }) }));
-    expect(document.querySelector('.card-foot .tool[aria-label="Run merge upstream"]')).not.toBeNull();
+    send(message({ lanes: lanes({ build: [{ ...bare, triage, action: { state: 'available', action: 'merge', qualifier: 'upstream' } }] }) }));
+    expect(document.querySelector('.card-foot .tool[aria-label="Run merge · upstream"]')).not.toBeNull();
   });
 
   // Settled: the footer is where this board's controls go, so it is drawn on a card that has nothing in it yet.
@@ -2176,7 +2176,7 @@ describe("the card's own menu", () => {
       reason: 'Ad-hoc work with no issue.',
       sessions: [{ ...session, ...checkout }],
       checkout: { root: 'c:/work/example-repo', source: 'session', only: true },
-      action: { state: 'available', action: 'merge-upstream' },
+      action: { state: 'available', action: 'merge', qualifier: 'upstream' },
     };
 
     send(message({ lanes: lanes({ build: [adHoc] }), triage: { mode: 'manual', message: null, canRequest: true } }));
@@ -2190,7 +2190,7 @@ describe("the card's own menu", () => {
     // No issue to read, so no read control, whatever the mode; the checkout and the action still have theirs.
     expect(Array.from(card.querySelectorAll('.cmdbar .tail .tool')).map((el) => el.getAttribute('aria-label'))).toEqual([
       'Open in VS Code',
-      'Run merge upstream',
+      'Run merge · upstream',
     ]);
   });
 
@@ -2529,6 +2529,7 @@ describe('card triage (R38)', () => {
                   state: 'done',
                   action: 'address-review',
                   qualifier: 'followup',
+                  target: null,
                   detail: 'Answer the naming notes on the paging fix.',
                   at: Date.now() - 3_600_000,
                   stale: false,
@@ -2554,7 +2555,7 @@ describe('card triage (R38)', () => {
   it('writes no age where GitHub records no status move', () => {
     send(
       message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: false })] }),
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at, stale: false })] }),
       }),
     );
 
@@ -2572,7 +2573,7 @@ describe('card triage (R38)', () => {
           lanes: lanes({
             unstarted: [
               triaged(
-                { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: Date.now(), stale: false },
+                { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: Date.now(), stale: false },
                 '2026-09-06T18:00:00Z',
               ),
             ],
@@ -2595,11 +2596,11 @@ describe('card triage (R38)', () => {
   it('writes no qualifier where there is none', () => {
     send(
       message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'merge-upstream', qualifier: null, detail: 'Merge it.', at, stale: false })] }),
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'merge', qualifier: null, target: null, detail: 'Merge it.', at, stale: false })] }),
       }),
     );
 
-    expect(chip()?.textContent).toBe('Merge upstream');
+    expect(chip()?.textContent).toBe('Merge');
   });
 
   it('marks stale classifications', () => {
@@ -2609,7 +2610,7 @@ describe('card triage (R38)', () => {
     try {
       send(
         message({
-          lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: true })] }),
+          lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at, stale: true })] }),
         }),
       );
 
@@ -2676,7 +2677,7 @@ describe('card triage (R38)', () => {
   });
 
   it.each([
-    { state: 'done', action: 'develop', qualifier: null, detail: 'Saved result.', at, stale: false },
+    { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Saved result.', at, stale: false },
     { state: 'failed', attempts: 1, exhausted: false },
   ] satisfies NonNullable<LanedCard['triage']>[])('retains archived $state state without classification controls', (triage) => {
     const entry = { ...triaged(triage, '2026-09-01T19:00:00Z'), lane: 'archived' as const };
@@ -2693,7 +2694,7 @@ describe('card triage (R38)', () => {
   it.each([
     { state: 'failed', attempts: 5, exhausted: true },
     { state: 'failed', attempts: 1, exhausted: false },
-    { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: false },
+    { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at, stale: false },
   ] satisfies NonNullable<LanedCard['triage']>[])('preserves $state results with no request control while off', (triage) => {
     const shown = lanes({ unstarted: [triaged(triage)] });
 
@@ -2745,7 +2746,7 @@ describe('card triage (R38)', () => {
   it('keeps triage separate from attention colors', () => {
     send(
       message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'merge-upstream', qualifier: null, detail: 'Merge it.', at, stale: false })] }),
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'merge', qualifier: 'upstream', target: null, detail: 'Merge it.', at, stale: false })] }),
       }),
     );
 
@@ -2760,7 +2761,7 @@ describe('card triage (R38)', () => {
       message({
         lanes: lanes({
           unstarted: [
-            triaged({ state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at, stale: false }, '2026-09-04T19:00:00Z'),
+            triaged({ state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at, stale: false }, '2026-09-04T19:00:00Z'),
           ],
         }),
       }),
@@ -2779,7 +2780,7 @@ describe('card triage (R38)', () => {
   it('requests retriage only from its dedicated control', () => {
     send(
       message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'other', qualifier: null, detail: 'Unclear.', at, stale: false })] }),
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'other', qualifier: null, target: null, detail: 'Unclear.', at, stale: false })] }),
       }),
     );
 
@@ -2797,7 +2798,7 @@ describe('card triage (R38)', () => {
   it('is not a drag handle, through the attribute the platform reflects rather than the property', () => {
     send(
       message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'other', qualifier: null, detail: 'Unclear.', at, stale: false })] }),
+        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'other', qualifier: null, target: null, detail: 'Unclear.', at, stale: false })] }),
       }),
     );
 
@@ -2823,20 +2824,20 @@ describe('card actions (R39)', () => {
   }
 
   it('offers to run an action the board could take, and sends the card key when pressed', () => {
-    send(message({ lanes: lanes({ unstarted: [acting({ state: 'available', action: 'merge-upstream' })] }) }));
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'available', action: 'merge', qualifier: 'upstream' })] }) }));
 
-    expect(chip()?.getAttribute('aria-label')).toBe('Run merge upstream');
-    expect(tipOf(chip())).toBe('Start Merge upstream in this card’s worktree.');
+    expect(chip()?.getAttribute('aria-label')).toBe('Run merge · upstream');
+    expect(tipOf(chip())).toBe('Start Merge · upstream in this card’s worktree.');
     chip()?.click();
 
     expect(sent()).toContainEqual({ type: 'runAction', key: 'issue:18953' });
   });
 
   it('offers stop for a running action', () => {
-    send(message({ lanes: lanes({ unstarted: [acting({ state: 'running', action: 'merge-upstream', since: at })] }) }));
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'running', action: 'merge', qualifier: 'upstream', since: at })] }) }));
 
-    expect(said()).toBe('Working…');
-    expect(chip()?.getAttribute('aria-label')).toBe('Stop merge upstream');
+    expect(said()).toBe('Merging…');
+    expect(chip()?.getAttribute('aria-label')).toBe('Stop merge · upstream');
     chip()?.click();
 
     expect(sent()).toContainEqual({ type: 'stopAction', key: 'issue:18953' });
@@ -2845,7 +2846,7 @@ describe('card actions (R39)', () => {
   });
 
   it('removes scoped-out session details while keeping the running action stoppable', () => {
-    const action = { state: 'running', action: 'merge-upstream', since: at } as const;
+    const action = { state: 'running', action: 'merge', qualifier: 'upstream', since: at } as const;
     send(message({ lanes: lanes({ build: [{ ...liveCard, action }] }) }));
     expect(document.querySelectorAll('.session')).toHaveLength(1);
     document.querySelector<HTMLElement>('.card-menu')!.click();
@@ -2860,7 +2861,7 @@ describe('card actions (R39)', () => {
     expect(document.body.innerHTML).not.toContain(liveCard.checkout!.root);
     expect(document.body.innerHTML).not.toContain('cache-remediation');
     expect(document.body.textContent).toContain(liveCard.issue!.title);
-    expect(said()).toBe('Working…');
+    expect(said()).toBe('Merging…');
     chip()?.click();
     expect(sent()).toContainEqual({ type: 'stopAction', key: liveCard.key });
   });
@@ -2869,7 +2870,7 @@ describe('card actions (R39)', () => {
     const card: LanedCard = {
       key: 'issue:18953', issue: null, issueNumber: null, sessions: [], lane: 'build', returned: false,
       attention: null, reason: 'Ground Control action is running.',
-      action: { state: 'running', action: 'merge-upstream', since: at },
+      action: { state: 'running', action: 'merge', qualifier: 'upstream', since: at },
     };
     send(message({ lanes: lanes({ build: [card] }) }));
     expect(document.body.textContent).toContain('Ground Control action');
@@ -2879,10 +2880,10 @@ describe('card actions (R39)', () => {
   });
 
   const outcomes: [NonNullable<LanedCard['action']> & { state: 'done' }, string][] = [
-    [{ state: 'done', action: 'merge-upstream', outcome: 'landed', detail: 'Merged master.', at }, 'Merged'],
-    [{ state: 'done', action: 'merge-upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at }, 'Stopped short'],
-    [{ state: 'done', action: 'merge-upstream', outcome: 'failed', detail: 'Claude Code was not found.', at }, 'Did not run'],
-    [{ state: 'done', action: 'merge-upstream', outcome: 'stopped', detail: 'Stopped by you.', at }, 'Stopped'],
+    [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'landed', detail: 'Merged master.', at }, 'Merged'],
+    [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at }, 'Stopped short'],
+    [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'failed', detail: 'Claude Code was not found.', at }, 'Did not run'],
+    [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'stopped', detail: 'Stopped by you.', at }, 'Stopped'],
   ];
 
   for (const [action, text] of outcomes) {
@@ -2893,7 +2894,7 @@ describe('card actions (R39)', () => {
       expect(document.querySelector<HTMLElement>('.verdict')?.dataset['outcome']).toBe(action.outcome);
       // Pinned, not contained: the overlay pins the same sentence, and a drift caught on one side only is
       // how the two clients stop matching (`docs/testing.md` parity tables).
-      expect(tipOf(chip())).toBe(`${action.detail} Click to run Merge upstream again.`);
+      expect(tipOf(chip())).toBe(`${action.detail} Click to run Merge · upstream again.`);
     });
   }
 
@@ -2910,7 +2911,7 @@ describe('card actions (R39)', () => {
     send(
       message({
         lanes: lanes({
-          unstarted: [acting({ state: 'refused', action: 'merge-upstream', reason: 'It merges into a feature branch.' })],
+          unstarted: [acting({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'It merges into a feature branch.' })],
         }),
       }),
     );
@@ -2929,9 +2930,26 @@ describe('card actions (R39)', () => {
   });
 
   it('is not a drag handle, through the attribute the platform reflects rather than the property', () => {
-    send(message({ lanes: lanes({ unstarted: [acting({ state: 'available', action: 'merge-upstream' })] }) }));
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'available', action: 'merge', qualifier: 'upstream' })] }) }));
 
     expect(chip()?.getAttribute('draggable')).toBe('false');
+  });
+
+  it('names what each action is doing while it runs and what it did when it lands', () => {
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'running', action: 'review-others', qualifier: 'initial', since: at })] }) }));
+
+    expect(said()).toBe('Reviewing…');
+
+    send(
+      message({
+        lanes: lanes({
+          unstarted: [acting({ state: 'done', action: 'address-review', qualifier: 'followup', outcome: 'landed', detail: 'Answered the notes.', at })],
+        }),
+      }),
+    );
+
+    expect(said()).toBe('Answered');
+    expect(tipOf(chip())).toBe('Answered the notes. Click to run Answer review · followup again.');
   });
 });
 
@@ -2947,7 +2965,9 @@ describe('triage labels read the same on every board', () => {
     ['address-review', 'initial', 'Answer review · initial'],
     ['address-review', 'followup', 'Answer review · followup'],
     ['fix-checks', null, 'Fix failing checks'],
-    ['merge-upstream', null, 'Merge upstream'],
+    ['merge', 'upstream', 'Merge · upstream'],
+    ['merge', 'stacked', 'Merge · stacked'],
+    ['merge', 'test', 'Merge · test'],
     ['other', null, 'Other'],
   ];
 
@@ -2963,6 +2983,7 @@ describe('triage labels read the same on every board', () => {
                 state: 'done',
                 action: action as never,
                 qualifier: qualifier as never,
+                target: null,
                 detail: 'x',
                 at: Date.now(),
                 stale: false,
@@ -2996,6 +3017,7 @@ describe("the board's own menu", () => {
       'Stream hub log',
       'Show board log',
       'Refresh',
+      'Action table',
       'Settings',
     ]);
     expect(control().getAttribute('aria-expanded')).toBe('true');
@@ -3011,6 +3033,7 @@ describe("the board's own menu", () => {
       'Stream hub log',
       'Show board log',
       'Refresh',
+      'Action table',
       'Settings',
     ]);
   });
@@ -3027,6 +3050,13 @@ describe("the board's own menu", () => {
     control().click();
     item('Settings').click();
     expect(sent()).toEqual([{ type: 'showBoardLog' }, { type: 'refresh' }, { type: 'openSettings' }]);
+  });
+
+  it('asks the extension to open the action table from its item', () => {
+    control().click();
+    item('Action table').click();
+
+    expect(sent()).toEqual([{ type: 'editActions' }]);
   });
 
   it('asks the extension to toggle the hub log rather than deciding for itself', () => {
@@ -3236,7 +3266,7 @@ describe('the tooltip', () => {
             {
               ...liveCard,
               sessions: [],
-              triage: { state: 'done', action: 'develop', qualifier: 'followup', detail: 'Pick it up.', at: Date.now(), stale: false },
+              triage: { state: 'done', action: 'develop', qualifier: 'followup', target: null, detail: 'Pick it up.', at: Date.now(), stale: false },
             },
           ],
         }),
@@ -3335,7 +3365,7 @@ describe('the tooltip', () => {
               ...liveCard,
               returned: true,
               attention: 'blocked' as Attention,
-              triage: { state: 'done', action: 'qa-failure', qualifier: null, detail: 'It came back.', at: Date.now(), stale: false },
+              triage: { state: 'done', action: 'qa-failure', qualifier: null, target: null, detail: 'It came back.', at: Date.now(), stale: false },
               lastSession: { agent: 'claude', sessionId: 'past', title: 'Past attempt', cwd: '/work/18953-test', branch: '18953-test', issueNumber: 18953, repository: 'github.com/org/repo', updatedAt: Date.now() - 60000 },
             },
           ],
@@ -3372,7 +3402,7 @@ describe('the age attribute both boards share', () => {
           : {
               ...liveCard,
               sessions: [{ ...session, activity: { phase: 'running', since: at, at, event: 'PreToolUse' } }],
-              triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Pick it up.', at: held - 60_000, stale: false },
+              triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: held - 60_000, stale: false },
               issue: { ...liveCard.issue!, statusChangedAt: new Date(at).toISOString() },
             };
 
@@ -4474,22 +4504,34 @@ describe('the worktree in the bar', () => {
 
   // The action before its worktree exists is one press: the run control says it will make the worktree first.
   it('says the run control will make the worktree first where the card has none', () => {
-    show({ creation: { state: 'available' }, action: { state: 'available', action: 'merge-upstream' } });
+    show({ creation: { state: 'available' }, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
 
-    expect(tipOf(run())).toBe('Create a worktree for this card, then start Merge upstream in it.');
+    expect(tipOf(run())).toBe('Create a worktree for this card, then start Merge · upstream in it.');
 
-    show({ worktree: WORKTREE, checkout: AS_CHECKOUT, action: { state: 'available', action: 'merge-upstream' } });
+    show({ worktree: WORKTREE, checkout: AS_CHECKOUT, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
 
-    expect(tipOf(run())).toBe('Start Merge upstream in this card’s worktree.');
+    expect(tipOf(run())).toBe('Start Merge · upstream in this card’s worktree.');
     expect(create()).toBeNull();
   });
 
-  it('says the action is at its worktree stage, and stops from either control', () => {
-    show({ creation: { state: 'running', since: at }, action: { state: 'running', action: 'merge-upstream', since: at, stage: 'worktree' } });
+  // Pointing at the bar is how the worktree control is reached, so the run it started has to show without that (R45).
+  it('states a worktree run asked for on its own at rest, over the last outcome of the action', () => {
+    show({ creation: { state: 'running', since: at }, action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts.', at } });
 
     expect(said()).toBe('Creating worktree…');
-    expect(run()?.getAttribute('aria-label')).toBe('Stop merge upstream');
-    expect(tipOf(run())).toBe('Merge upstream is waiting for its worktree, which a session is creating. Click to stop.');
+    expect(document.querySelector<HTMLElement>('.verdict')?.dataset.outcome).toBe('running');
+
+    show({ creation: { state: 'done', outcome: 'landed', detail: 'Made.', at }, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
+
+    expect(said()).toBeUndefined();
+  });
+
+  it('says the action is at its worktree stage, and stops from either control', () => {
+    show({ creation: { state: 'running', since: at }, action: { state: 'running', action: 'merge', qualifier: 'upstream', since: at, stage: 'worktree' } });
+
+    expect(said()).toBe('Creating worktree…');
+    expect(run()?.getAttribute('aria-label')).toBe('Stop merge · upstream');
+    expect(tipOf(run())).toBe('Merge · upstream is waiting for its worktree, which a session is creating. Click to stop.');
 
     run()!.click();
 

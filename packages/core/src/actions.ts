@@ -1,10 +1,11 @@
-import type { TriageAction } from './triage.js';
+import { MERGE_TYPES } from './merge.js';
+import type { TriageAction, TriageQualifier } from './triage.js';
 
 /**
- * Supported unattended card action: merge the requested base branch into the PR head (R39). General conflict
- * resolution is not a separate action.
+ * Triage actions an action table row can name: the ones with refusal rules (R39). Fixing checks and general
+ * conflict resolution are not among them.
  */
-export const AUTOMATABLE_ACTIONS = ['merge-upstream'] as const;
+export const AUTOMATABLE_ACTIONS = ['merge', 'review-others', 'address-review'] as const;
 
 export type AutomatableAction = (typeof AUTOMATABLE_ACTIONS)[number];
 
@@ -12,22 +13,43 @@ export function isAutomatable(action: TriageAction): action is AutomatableAction
   return (AUTOMATABLE_ACTIONS as readonly string[]).includes(action);
 }
 
+/** The qualifiers a row for each action may name. */
+export const ROW_QUALIFIERS: Readonly<Record<AutomatableAction, readonly TriageQualifier[]>> = {
+  merge: MERGE_TYPES,
+  'review-others': ['initial', 'followup'],
+  'address-review': ['initial', 'followup'],
+};
+
+/**
+ * One line of the action table (R39). A null qualifier matches any reading of the action. Prompt placeholders are
+ * filled from fresh card context: {issue}, {repo}, {pr}, {branch}, {base}, {default}, {target}, {checkout}, and
+ * {resultPath}. Claude supports leading slash commands (mechanics M33); Codex receives plain prompt text.
+ */
+export interface ActionRow {
+  action: AutomatableAction;
+  qualifier: TriageQualifier | null;
+  prompt: string;
+  /** Start the row when triage names it, without a click (R32). */
+  automatic: boolean;
+}
+
+/** The row for a reading: the one naming its qualifier, else the one naming none. */
+export function rowFor(
+  table: readonly ActionRow[],
+  action: AutomatableAction,
+  qualifier: TriageQualifier | null,
+): ActionRow | undefined {
+  return (
+    table.find((row) => row.action === action && row.qualifier !== null && row.qualifier === qualifier) ??
+    table.find((row) => row.action === action && row.qualifier === null)
+  );
+}
+
 /** The run that makes a card's worktree (R46). Not a triage action: it is asked for, or prepended to one. */
 export const CREATE_WORKTREE = 'create-worktree';
 
 /** Anything the board dispatches as a session: a card action, or the worktree run that precedes one. */
 export type DispatchedAction = AutomatableAction | typeof CREATE_WORKTREE;
-
-/** Action enablement and prompt. Missing settings or an empty prompt disable automatic runs (R32). */
-export interface ActionSetting {
-  enabled: boolean;
-  /**
-   * Prompt placeholders are filled from fresh card context: {issue}, {repo}, {pr}, {branch}, {base},
-   * {checkout}, and {resultPath}. Claude supports leading slash commands (mechanics M33); Codex receives plain
-   * prompt text.
-   */
-  prompt: string;
-}
 
 /**
  * Dispatch permissions and limits. Configuration parsing supplies defaults and clamps numeric bounds.
@@ -58,19 +80,26 @@ export interface ActionSettings {
   fromBrowser: boolean;
   /** Timeout for a dispatched session to appear on the roster. */
   resultTimeoutMs: number;
-  actions: Partial<Record<AutomatableAction, ActionSetting>>;
+  /** The action table; the first row for an action and qualifier wins (R39). */
+  table: ActionRow[];
+  /** A merge whose destination matches this regular expression is a test merge (R39). */
+  testBranchPattern: string;
 }
 
 /**
- * Persisted dispatch attempt and authorization evidence. Failed attempts may retry; landed outcomes block
- * automatic repeats even after a head change. An unreadable dispatch ID can produce failed after process
- * creation.
+ * Persisted dispatch attempt and authorization evidence, one per card. Failed attempts may retry; a landed run
+ * blocks automatic repeats of its row, even after a head change, until a newer reading names the row again. An
+ * unreadable dispatch ID can produce failed after process creation.
  */
 export interface ActionRun {
   key: string;
   action: DispatchedAction;
   /** The action a worktree run was prepended to, dispatched in the worktree once it is reported (R46). */
   next?: AutomatableAction | undefined;
+  /** The reading's qualifier for `action`, or for `next` on a worktree run: with the action, it names the row. */
+  qualifier: TriageQualifier | null;
+  /** The card's issue, which the session this run becomes is linked to (R3). Absent in older records. */
+  issueNumber?: number | undefined;
   /** Action-rule revision; older runs do not block a new dispatch. */
   revision: number;
   evidence: string;
@@ -96,6 +125,9 @@ export type ActionOutcome = 'running' | 'landed' | 'halted' | 'failed' | 'stoppe
 
 /** Persisted action refusal for display and retry scheduling. */
 export interface ActionRefusalRecord {
+  /** The row it refused; a reading naming another row does not show it. Null where no row was known yet. */
+  action: AutomatableAction | null;
+  qualifier: TriageQualifier | null;
   kind: string;
   message: string;
   at: number;
@@ -104,11 +136,11 @@ export interface ActionRefusalRecord {
 }
 
 /**
- * Session-written result used to settle an action; not independent verification. A worktree run reports
- * `ready` and the absolute path of the worktree it made (R46).
+ * Session-written result used to settle an action; not independent verification. `pushed` is the earlier word for
+ * `done`. A worktree run reports `ready` and the absolute path of the worktree it made (R46).
  */
 export interface ActionReport {
-  outcome: 'pushed' | 'halted' | 'ready';
+  outcome: 'done' | 'pushed' | 'halted' | 'ready';
   detail: string;
   /** Optional report path for display. */
   auditPath?: string | undefined;
@@ -126,9 +158,17 @@ export interface ActionState {
   gates: Record<string, number>;
   /** Dispatch timestamps in the rolling day, oldest first, for daily-limit checks. */
   dispatches: number[];
+  /** The issue each dispatched session belongs to, by `agent:sessionId` (R3). Outlives the run record. */
+  links: Record<string, SessionLink>;
 }
 
-export const EMPTY_ACTIONS: ActionState = { runs: {}, refusals: {}, gates: {}, dispatches: [] };
+export interface SessionLink {
+  issueNumber: number;
+  /** Epoch milliseconds the link was recorded. */
+  at: number;
+}
+
+export const EMPTY_ACTIONS: ActionState = { runs: {}, refusals: {}, gates: {}, dispatches: [], links: {} };
 
 /**
  * Increment when action rules change enough to invalidate prior refusals and automatic-repeat checks.
@@ -139,12 +179,13 @@ export const ACTION_REVISION = 2;
  * Editor action state. available permits a manual request regardless of automatic enablement; refused supplies
  * the failed check. Running and completed results take precedence.
  */
-export type CardAction =
-  | { state: 'available'; action: AutomatableAction }
-  | { state: 'refused'; action: AutomatableAction; reason: string }
+export type CardAction = { action: AutomatableAction; qualifier: TriageQualifier | null } & (
+  | { state: 'available' }
+  | { state: 'refused'; reason: string }
   /** `stage` is `worktree` while the run that precedes the action is still making the worktree (R46). */
-  | { state: 'running'; action: AutomatableAction; since: number; stage?: 'worktree' }
-  | { state: 'done'; action: AutomatableAction; outcome: ActionOutcome; detail: string; at: number };
+  | { state: 'running'; since: number; stage?: 'worktree' }
+  | { state: 'done'; outcome: ActionOutcome; detail: string; at: number }
+);
 
 /**
  * The worktree control's state on a card with no worktree (R46). Absent where the card has one, has no issue, or
