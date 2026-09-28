@@ -1,5 +1,6 @@
+import { homedir } from 'node:os';
 import { z } from 'zod';
-import { PERMISSION_MODES, linkOf, runJsonCli, runTextCli } from '@ground-control/core';
+import { PERMISSION_MODES, agentRootVariable, linkOf, runJsonCli, runTextCli } from '@ground-control/core';
 import type {
   AgentAdapter,
   AgentReading,
@@ -252,11 +253,22 @@ export function neverPrompted(session: Session, entry: AgentEntry): boolean {
   );
 }
 
-/** Inject separate transports for JSON roster reads and text --bg output (M33). */
-export function makeClaudeAdapter(run: ExecJson = runJsonCli, runText: ExecText = runTextCli, env: NodeJS.ProcessEnv = process.env): AgentAdapter {
-  const base = { ...env };
+/**
+ * Inject separate transports for JSON roster reads and text --bg output (M33). `home` locates the default
+ * profile, which launches select by leaving CLAUDE_CONFIG_DIR unset unless `env` set it (M62).
+ */
+export function makeClaudeAdapter(
+  run: ExecJson = runJsonCli,
+  runText: ExecText = runTextCli,
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+): AgentAdapter {
+  const { CLAUDE_CONFIG_DIR: inherited, ...base } = env;
   let root: string | undefined;
-  const environment = () => ({ ...base, ...(root === undefined ? {} : { CLAUDE_CONFIG_DIR: root }) });
+  const environment = (): NodeJS.ProcessEnv => {
+    const selected = root === undefined ? (inherited ?? null) : agentRootVariable(root, `${home.replace(/[\\/]+$/, '')}/.claude`, inherited);
+    return selected === null ? { ...base } : { ...base, CLAUDE_CONFIG_DIR: selected };
+  };
   const dispatched = new Map<string, NodeJS.ProcessEnv>();
   return {
     id: CLAUDE_AGENT_ID,

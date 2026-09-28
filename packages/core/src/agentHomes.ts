@@ -1,7 +1,17 @@
 import { z } from 'zod';
 import { posix, win32 } from 'node:path';
 import type { AgentAdapter } from './agent.js';
+import { scopeDirectory } from './sessionScope.js';
 import type { ReadFailure } from './types.js';
+
+/**
+ * The environment value selecting `root`, or null to leave the variable unset for the default root unless the launcher
+ * set it. Setting CLAUDE_CONFIG_DIR at all moves Claude's global config, including folder trust, out of ~/.claude.json (M62).
+ */
+export function agentRootVariable(root: string, defaultRoot: string, inherited?: string): string | null {
+  const explicit = inherited !== undefined && scopeDirectory(inherited) === scopeDirectory(root);
+  return !explicit && scopeDirectory(root) === scopeDirectory(defaultRoot) ? null : root;
+}
 
 /** Agent roots are absolute paths, without shell expansion or launcher-relative interpretation. */
 export const agentHomeSchema = z.string().refine((root) =>

@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { agentHomeSchema, join, resolveAgentHomes, scopeDirectory } from '@ground-control/core';
+import { agentHomeSchema, agentRootVariable, join, resolveAgentHomes, scopeDirectory } from '@ground-control/core';
 import { registries } from './registry.js';
 
 /** Preserve invalid environment values so hub configuration validation can report them. */
@@ -32,10 +32,11 @@ export function editorProfileRefusal(agentId: string, acceptedHome?: string): st
   return `Restart VS Code with ${selected.environment} matching the hub's accepted profile, then reopen the board.`;
 }
 
-/** Terminals can select a profile explicitly without changing the editor's environment. */
-export function attachEnvironment(agentId: string, acceptedHome?: string): Record<string, string> | null {
+/** Terminals select a profile without changing the editor's environment; null unsets the variable (M62). */
+export function attachEnvironment(agentId: string, acceptedHome?: string): Record<string, string | null> | null {
   const storage = registries.agents.find((candidate) => candidate.id === agentId)?.storage;
   if (!storage) return null;
-  const home = agentHomeSchema.safeParse(acceptedHome ?? join(homedir(), storage.defaultDirectory));
-  return home.success ? { [storage.environment]: home.data } : null;
+  const defaultHome = join(homedir(), storage.defaultDirectory);
+  const home = agentHomeSchema.safeParse(acceptedHome ?? defaultHome);
+  return home.success ? { [storage.environment]: agentRootVariable(home.data, defaultHome, process.env[storage.environment]) } : null;
 }

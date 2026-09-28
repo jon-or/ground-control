@@ -87,6 +87,20 @@ describe('agent storage at editor execution', () => {
     assert.equal(terminals.length, 1);
   });
 
+  it('attaches to the default profile with CLAUDE_CONFIG_DIR unset unless the editor set it there', async () => {
+    process.env.CLAUDE_CONFIG_DIR = profile('editor-profile');
+    assert.equal(await entry.attachTo(session, async () => ({
+      allowed: true, targetActive: true, cardActive: true, agentHome: profile('.claude'),
+    })), true);
+    assert.equal(terminals.length, 1);
+    assert.deepEqual(terminals[0].env, { CLAUDE_CONFIG_DIR: null });
+    process.env.CLAUDE_CONFIG_DIR = profile('.claude');
+    assert.equal(await entry.attachTo(session, async () => ({
+      allowed: true, targetActive: true, cardActive: true, agentHome: profile('.claude'),
+    })), true);
+    assert.deepEqual(terminals[1].env, { CLAUDE_CONFIG_DIR: profile('.claude') });
+  });
+
   it('refuses mismatched reveal and new-session profiles before invoking editor commands', async () => {
     process.env.CLAUDE_CONFIG_DIR = profile('editor-profile');
     const check = async () => ({ allowed: true, targetActive: true, cardActive: true, agentHome: profile('hub-profile') });

@@ -44,6 +44,7 @@ describe('the package public surface', () => {
       'agentHomeSchema',
       'agentOfKnownSession',
       'agentOfSession',
+      'agentRootVariable',
       'basename',
       'bootstrapDirOf',
       'branchOf',

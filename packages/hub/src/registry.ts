@@ -39,7 +39,7 @@ export function makeRegistries(log?: Logger, injectedHome?: string, injectedEnv?
     trust: makeTrustOnMachine(),
   });
 
-  return { agents: [makeClaudeAdapter(undefined, undefined, environment), codex], hosts: [makeVscodeHost(undefined, environment)], sources: [makeGithubSource(log ? { log } : {})], agentEnvironment: environment };
+  return { agents: [makeClaudeAdapter(undefined, undefined, environment, home), codex], hosts: [makeVscodeHost(undefined, environment)], sources: [makeGithubSource(log ? { log } : {})], agentEnvironment: environment };
 }
 
 /** Rebind existing adapters so profile changes do not discard their process ownership maps. */

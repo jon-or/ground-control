@@ -18,6 +18,14 @@ Repository inspection found Claude transcript/history and hook paths using the d
 
 The measured editor commands in M44/M51 have no per-call environment argument. Ground Control therefore requires the performing editor's inherited profile to match before executing them, and checks again in the target resident for cross-window requests. This supports one profile per agent for the shared hub; it does not establish general multiple-profile editor support. POSIX agent roots containing literal backslashes are unsupported because existing adapter path readers interpret them as separators; reject those roots before any write.
 
+**Record M62. Runtime and source inspection, 2026-09-28, CLI 2.1.282. Used by agent profile resolution and actions.**
+
+`claude --bg` exits 1 before starting a session in a directory without persisted folder trust, printing ``Workspace not trusted. Run `claude` in <dir> once and accept the trust prompt, then retry.`` Trust is `projects["<path>"].hasTrustDialogAccepted` in Claude's global config file. That file is `~/.claude.json` while `CLAUDE_CONFIG_DIR` is unset, and `<CLAUDE_CONFIG_DIR>/.claude.json` whenever the variable is set, including when it names `~/.claude`. With `CLAUDE_CONFIG_DIR=C:/Users/<user>/.claude`, a trusted main checkout and its linked worktree were both refused; with the variable unset, both started. The hub had been setting the variable to the default root, and `~/.claude/.claude.json` listed five projects, none trusted. `claude agents --json` returned the same 12 entries either way.
+
+A linked worktree inherits its main checkout's trust. With only `<main>` trusted in an isolated config, `--bg` started in a worktree at `<main>.worktrees/<name>` and in a scratch worktree beside its repository. Keys use forward slashes and compare case-sensitively: a lowercase drive-letter key for the worktree was refused. The VS Code extension records folders as `hasTrustDialogAccepted: false` without prompting, so editor use never persists trust.
+
+Claude launches therefore leave `CLAUDE_CONFIG_DIR` unset for the default root, unless the launching environment set it to that root, and set it for any other root. The redirected-resume pointer (M52, VS Code section) still sets it, because the project directory override applies only while both variables are set. Evidence: scratch probes with isolated config copies; no fixture survives.
+
 ## Claude Code
 
 ### Claude roster and session identity

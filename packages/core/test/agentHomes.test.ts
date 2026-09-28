@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { agentHomeSchema, resolveAgentHomes } from '../src/agentHomes.js';
+import { agentHomeSchema, agentRootVariable, resolveAgentHomes } from '../src/agentHomes.js';
 
 const agents = [
   { id: 'claude', storage: { environment: 'CLAUDE_CONFIG_DIR', defaultDirectory: '.claude', configure() {} } },
@@ -21,6 +21,20 @@ describe('agent homes', () => {
     expect(agentHomeSchema.parse('C:\\')).toBe('C:/');
     expect(agentHomeSchema.parse('/Profiles/Other/../Selected')).toBe('/Profiles/Selected');
     expect(agentHomeSchema.parse('\\\\server\\share\\profile\\')).toBe('//server/share/profile');
+  });
+  it.each([
+    ['C:/Users/Dev/.claude', 'C:/Users/Dev/.claude', null],
+    ['c:\\users\\dev\\.claude\\', 'C:/Users/Dev/.claude', null],
+    ['/home/dev/.claude/', '/home/dev/.claude', null],
+    ['/home/dev/.Claude', '/home/dev/.claude', '/home/dev/.Claude'],
+    ['C:/Users/Dev/.claude-work', 'C:/Users/Dev/.claude', 'C:/Users/Dev/.claude-work'],
+  ])('selects %s against default %s by the variable value %s', (root, defaultRoot, expected) => {
+    expect(agentRootVariable(root, defaultRoot)).toBe(expected);
+  });
+  it('keeps the variable for the default root only when the launcher set it to that root', () => {
+    expect(agentRootVariable('C:/Users/Dev/.claude', 'C:/Users/Dev/.claude', 'c:\\users\\dev\\.claude\\')).toBe('C:/Users/Dev/.claude');
+    expect(agentRootVariable('C:/Users/Dev/.claude', 'C:/Users/Dev/.claude', 'D:/other')).toBeNull();
+    expect(agentRootVariable('D:/other', 'C:/Users/Dev/.claude', 'C:/Users/Dev/.claude')).toBe('D:/other');
   });
   it('rejects explicit unknown agents and ignores adapters without storage', () => {
     expect(resolveAgentHomes(agents, { unknown: '/profile' }, '/isolated', {})).toMatchObject({ failure: { kind: 'bad-config', subject: 'unknown' } });

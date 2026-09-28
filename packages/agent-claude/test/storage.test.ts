@@ -45,6 +45,43 @@ describe('Claude storage profiles', () => {
     expect(adapter.activity!.writer!.path('/legacy')).toBe('/legacy/.claude/ground-control/hook.mjs');
   });
 
+  it.each(['C:/Users/Dev/.claude', 'c:\\users\\dev\\.claude\\'])('launches the default profile %s with CLAUDE_CONFIG_DIR unset', async (root) => {
+    const envs: (NodeJS.ProcessEnv | undefined)[] = [];
+    const run: ExecJson = async (_path, args, options) => {
+      envs.push(options?.env);
+      return args[0] === 'agents' ? { ok: true, value: [] } : { ok: true, value: { structured_output: { action: 'develop' } } };
+    };
+    const runText: ExecText = async (_path, _args, options) => {
+      envs.push(options?.env);
+      return { ok: true, text: 'backgrounded · abcdef12 · Test' };
+    };
+    const adapter = makeClaudeAdapter(run, runText, { CLAUDE_CONFIG_DIR: 'D:/ambient', TOKEN: 'test-only' }, 'C:/Users/Dev/');
+    adapter.storage!.configure(root);
+    const common = { path: 'claude', cwd: 'D:/work/repo', model: null, prompt: 'Test', timeoutMs: 5_000, signal: new AbortController().signal };
+    await adapter.listSessions('claude', { ...recordedReaders(), pattern: null });
+    await adapter.classify!({ ...common, sessionId: 'test', systemPrompt: '', schema: {} });
+    await adapter.dispatch!({ ...common, name: 'Test', permissionMode: 'auto' });
+    await adapter.stopDispatch!('claude', 'abcdef12');
+    expect(envs).toEqual([{ TOKEN: 'test-only' }, { TOKEN: 'test-only' }, { TOKEN: 'test-only' }, { TOKEN: 'test-only' }]);
+    expect(adapter.activity!.settingsPath('C:/Users/Dev')).toBe('C:/Users/Dev/.claude/settings.json');
+  });
+
+  it('keeps CLAUDE_CONFIG_DIR for the default profile when the launcher set it there', async () => {
+    let env: NodeJS.ProcessEnv | undefined;
+    const runText: ExecText = async (_path, _args, options) => { env = options?.env; return { ok: true, text: 'backgrounded · abcdef12 · Test' }; };
+    const adapter = makeClaudeAdapter(undefined, runText, { CLAUDE_CONFIG_DIR: 'C:\\Users\\Dev\\.claude', TOKEN: 'test-only' }, 'C:/Users/Dev');
+    adapter.storage!.configure('C:/Users/Dev/.claude');
+    await adapter.dispatch!({ path: 'claude', cwd: 'D:/work/repo', model: null, prompt: 'Test', name: 'Test', permissionMode: 'auto', timeoutMs: 5_000, signal: new AbortController().signal });
+    expect(env).toEqual({ CLAUDE_CONFIG_DIR: 'C:/Users/Dev/.claude', TOKEN: 'test-only' });
+  });
+
+  it('keeps the inherited CLAUDE_CONFIG_DIR until a profile is accepted', async () => {
+    let env: NodeJS.ProcessEnv | undefined;
+    const adapter = makeClaudeAdapter(async (_path, _args, options) => { env = options?.env; return { ok: true, value: [] }; }, undefined, { CLAUDE_CONFIG_DIR: '/inherited' }, '/home/dev');
+    await adapter.listSessions('claude', { ...recordedReaders(), pattern: null });
+    expect(env).toEqual({ CLAUDE_CONFIG_DIR: '/inherited' });
+  });
+
   it('keeps a delayed roster and transcript lookup on the profile where the request began', async () => {
     let finish!: (result: ExecOutcome) => void;
     let used: ExecOptions | undefined;
