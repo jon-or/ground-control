@@ -207,6 +207,10 @@ const DURATION_TITLE = 'Time since the phase was reported.';
 const ATTENTION_ATTR = 'data-gc-attention';
 /** Present when the attention is retained from an ended session; the outline dims to match its hollow dot (R6). */
 const RETAINED_ATTR = 'data-gc-attention-retained';
+/** The card's lane, so CSS can mute a whole Icebox card (R7). */
+const LANE_ATTR = 'data-gc-lane';
+/** An Icebox card, frosted (R7). */
+const ICED = `${CARD}[${LANE_ATTR}="icebox"]`;
 
 /** The group bars of a grouped board, sized like the columns. */
 const GROUP_BAR_ATTR = 'data-gc-group-bar';
@@ -421,6 +425,31 @@ ${CARD}[${ATTENTION_ATTR}="failed"] { --gc-attention: var(--gc-failed);
   background: color-mix(in srgb, var(--gc-attention) calc(7% * var(--gc-attention-strength)), transparent); }
 /* Match the hollow dot of an ended session: same color at half strength. */
 ${CARD}[${RETAINED_ATTR}] { --gc-attention-strength: 0.5; }
+/* Icebox work is set aside, so the card is iced until pointed at (R7): a cold tint, frost gathered in two corners,
+   a pale rim, and muted colour. The frost layer resets every box property because GitHub styles its card
+   pseudo-elements; isolation keeps it above the card content and below everything outside the card. */
+${ICED} { position: relative; isolation: isolate; transition: opacity 0.15s ease;
+  --gc-ice: #54aeff; --gc-frost: 30%; --gc-ice-tint: 8%; --gc-rim: 45%; }
+[data-color-mode="dark"] ${ICED} { --gc-ice: #9fd8ff; --gc-frost: 22%; --gc-ice-tint: 7%; --gc-rim: 30%; }
+@media (prefers-color-scheme: dark) {
+  [data-color-mode="auto"] ${ICED} { --gc-ice: #9fd8ff; --gc-frost: 22%; --gc-ice-tint: 7%; --gc-rim: 30%; }
+}
+${ICED}::after { content: ""; display: block; position: absolute; inset: 0; z-index: 1; width: auto; height: auto;
+  margin: 0; border: 0; opacity: 1; transform: none; border-radius: inherit; pointer-events: none;
+  transition: opacity 0.15s ease;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gc-ice) var(--gc-rim), transparent),
+    inset 0 0 14px color-mix(in srgb, var(--gc-ice) calc(var(--gc-rim) / 2), transparent);
+  background:
+    radial-gradient(90% 70% at 0% 0%, color-mix(in srgb, var(--gc-ice) var(--gc-frost), transparent),
+      transparent 70%),
+    radial-gradient(90% 70% at 100% 100%, color-mix(in srgb, var(--gc-ice) var(--gc-frost), transparent),
+      transparent 70%),
+    color-mix(in srgb, var(--gc-ice) var(--gc-ice-tint), transparent); }
+/* Muting the children, not the card, leaves the frost its colour. */
+${ICED} > * { transition: filter 0.15s ease; }
+${ICED}:not(:hover, :focus-within) { opacity: 0.6; }
+${ICED}:not(:hover, :focus-within) > * { filter: saturate(0.35); }
+${ICED}:is(:hover, :focus-within)::after { opacity: 0; }
 
 /* Distinguish running sessions with a faded, dashed green border, separate from attention states (R6). */
 ${CARD}[${ATTENTION_ATTR}="running"] { outline-style: dashed;
@@ -473,7 +502,10 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   .gc-session[data-phase="running"] .gc-name {
     background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
   ${CARD}[${ATTENTION_ATTR}="running"] { animation: none; }
+  ${ICED}, ${ICED}::after, ${ICED} > * { transition: none; }
 }
+[${MOTION_ATTR}="reduced"] ${ICED}, [${MOTION_ATTR}="reduced"] ${ICED}::after,
+[${MOTION_ATTR}="reduced"] ${ICED} > * { transition: none; }
 [${MOTION_ATTR}="reduced"] .gc-session[data-phase="running"] .gc-name {
   background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
 [${MOTION_ATTR}="reduced"] ${CARD}[${ATTENTION_ATTR}="running"] { animation: none; }
@@ -491,6 +523,8 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   ${CARD}[${RETAINED_ATTR}] { outline-color: GrayText; }
   /* Retain the dashed running border in forced colors; reserve Highlight for attention. */
   ${CARD}[${ATTENTION_ATTR}="running"] { outline-color: CanvasText; animation: none; }
+  /* Forced colors have no translucent tint; the fade alone marks Icebox. */
+  ${ICED}::after { display: none; }
   /* Use dot fill to distinguish live and ended sessions in forced colors. */
   .gc-dot { border-color: CanvasText; }
   .gc-dot[data-live="true"] { background: CanvasText; }
@@ -2378,21 +2412,25 @@ function renderReturned(doc, element, card) {
 }
 
 /** @param {Element} element */
-function clearAttention(element) {
+function clearCardMarks(element) {
+  element.removeAttribute(LANE_ATTR);
   element.removeAttribute(ATTENTION_ATTR);
   element.removeAttribute(RETAINED_ATTR);
 }
 
 /**
- * Set attention on the GitHub card for border and session-dot styling. Session rows already identify the
+ * Set the lane and attention on the GitHub card for card-wide styling. Session rows already identify the
  * affected session (R6).
  *
  * @param {Element} element
  * @param {LanedCard} card
  */
-function renderAttention(element, card) {
+function renderCardMarks(element, card) {
+  element.setAttribute(LANE_ATTR, card.lane);
+
   if (card.attention === null) {
-    clearAttention(element);
+    element.removeAttribute(ATTENTION_ATTR);
+    element.removeAttribute(RETAINED_ATTR);
 
     return;
   }
@@ -2456,7 +2494,7 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest, sta
 
   head.appendChild(lane);
 
-  renderAttention(element, card);
+  renderCardMarks(element, card);
   head.appendChild(verdict(doc, card, now));
   head.appendChild(tail(doc, card, now, actions, canRequest));
 
@@ -3519,8 +3557,8 @@ export function clearHub(doc) {
     card.removeAttribute('data-gc-issue');
   }
 
-  for (const card of doc.querySelectorAll(`[${ATTENTION_ATTR}]`)) {
-    clearAttention(card);
+  for (const card of doc.querySelectorAll(`[${LANE_ATTR}], [${ATTENTION_ATTR}]`)) {
+    clearCardMarks(card);
   }
 }
 
@@ -3730,7 +3768,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
       }
 
       element.removeAttribute('data-gc-issue');
-      clearAttention(element);
+      clearCardMarks(element);
     }
 
     // The lane menu this names went with its card, and a stale key reopens it when the rows come back.
@@ -3763,7 +3801,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
 
     if (ref === null) {
       element.removeAttribute('data-gc-issue');
-      clearAttention(element);
+      clearCardMarks(element);
 
       continue;
     }
@@ -3771,7 +3809,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     element.setAttribute('data-gc-issue', `${ref.repo}#${ref.number}`);
 
     if (card === undefined) {
-      clearAttention(element);
+      clearCardMarks(element);
 
       continue;
     }

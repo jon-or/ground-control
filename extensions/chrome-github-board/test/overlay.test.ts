@@ -2561,6 +2561,34 @@ describe('card attention', () => {
     expect(element().hasAttribute('data-gc-attention-retained')).toBe(false);
   });
 
+  /** GitHub's columns follow project status, so the card itself carries Icebox for the fade (R7). */
+  it('marks the card with its lane, and follows the card into and out of Icebox', () => {
+    const iced = (attention: LanedCard['attention']) =>
+      snapshot({ lanes: [{ id: 'icebox', title: 'Icebox', cards: [card(4501, { lane: 'icebox', attention })] }] });
+    const element = () => document.querySelector(`[data-gc-issue="${REPO}#4501"]`)!;
+
+    paint(document, state({ snapshot: iced(null) }), NOW, actions);
+
+    expect(element().getAttribute('data-gc-lane')).toBe('icebox');
+    expect(element().hasAttribute('data-gc-attention')).toBe(false);
+
+    // Attention does not take the card out of Icebox.
+    paint(document, state({ snapshot: iced('blocked') }), NOW, actions);
+
+    expect(element().getAttribute('data-gc-lane')).toBe('icebox');
+    expect(element().getAttribute('data-gc-attention')).toBe('blocked');
+
+    paint(document, state({ snapshot: marked(null) }), NOW, actions);
+
+    expect(element().getAttribute('data-gc-lane')).toBe('build');
+
+    // A card the snapshot stops carrying must not stay faded.
+    paint(document, state({ snapshot: iced(null) }), NOW, actions);
+    paint(document, state({ snapshot: snapshot({ lanes: [] }) }), NOW, actions);
+
+    expect(element().hasAttribute('data-gc-lane')).toBe(false);
+  });
+
   /** Returned states the card, not its work, so it rides in the card header line with its pills (R45). */
   it('marks returned cards in the card header, and takes the mark off again', () => {
     paint(document, state({ snapshot: marked(null, { returned: true }) }), NOW, actions);
@@ -2651,7 +2679,7 @@ describe('card attention', () => {
     paint(document, state({ snapshot: marked('blocked', { returned: true }) }), NOW, actions);
     clear(document);
 
-    expect(document.querySelector('[data-gc-attention]')).toBeNull();
+    expect(document.querySelector('[data-gc-lane], [data-gc-attention]')).toBeNull();
     // The label sits in GitHub's own header, so the footer sweep alone would leave it behind.
     expect(document.querySelector('.gc-returned')).toBeNull();
   });
@@ -2664,11 +2692,11 @@ describe('card attention', () => {
     setLogOpen(document, true, actions);
     document.getElementById('gc-collapse')!.click();
     paint(document, shown, NOW, actions);
-    expect(document.querySelectorAll('.gc-badge, .gc-returned, [data-gc-attention], #gc-log, #gc-toasts').length).toBeGreaterThan(4);
+    expect(document.querySelectorAll('.gc-badge, .gc-returned, [data-gc-lane], [data-gc-attention], #gc-log, #gc-toasts').length).toBeGreaterThan(4);
 
     clearHub(document);
 
-    expect(document.querySelectorAll('.gc-badge, .gc-returned, [data-gc-attention], [data-gc-issue], #gc-log, #gc-toasts')).toHaveLength(0);
+    expect(document.querySelectorAll('.gc-badge, .gc-returned, [data-gc-lane], [data-gc-attention], [data-gc-issue], #gc-log, #gc-toasts')).toHaveLength(0);
     expect(document.getElementById('gc-menu')).not.toBeNull();
     expect(document.querySelector<HTMLElement>('#gc-menu button')!.dataset.stale).toBe('false');
     expect(document.getElementById('gc-style')).not.toBeNull();

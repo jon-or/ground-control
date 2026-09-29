@@ -211,7 +211,7 @@ Lanes are independent of GitHub project statuses.
 | Icebox | Work deliberately set aside |
 | Archived | Issues outside active board membership; optionally displayed |
 
-Hide an empty Icebox lane except during a drag, when it must be available as a destination. There is no Blocked lane: attention remains on the card in its existing lane. There is no Done lane: the board holds work assigned to the developer, and finished work leaves it through a status outside the membership set (R9).
+Hide an empty Icebox lane except during a drag, when it must be available as a destination. The Chrome overlay ices an Icebox card with a cold tint, corner frost, a pale rim, muted colour, and partial opacity, and clears it while the card is hovered or holds focus. GitHub's columns follow project status, so the frost is the overlay's only card-wide sign of Icebox; the board already groups those cards in their own lane and does not frost them. There is no Blocked lane: attention remains on the card in its existing lane. There is no Done lane: the board holds work assigned to the developer, and finished work leaves it through a status outside the membership set (R9).
 
 ### R8. Arrival and manual placement
 
