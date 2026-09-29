@@ -7,6 +7,7 @@ export { LANE_ORDER, LANE_TITLES } from './board.js';
 export type { Attention, BoardCard, Lane, LaneId, LanedCard } from './board.js';
 export { checkoutFor } from './checkout.js';
 export type { CardCheckout, CheckoutSource } from './checkout.js';
+export { sharedAssignment } from './cards.js';
 export type { CardAvatar, CardPullRequest, IssueCard } from './cards.js';
 export { readableLink } from './detail.js';
 export { CUSTODY_FUNCTIONS, DEFAULT_CUSTODY, custodySettings } from './custody.js';

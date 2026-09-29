@@ -1785,8 +1785,11 @@ function card(boardCard, avatarPool, placeable) {
   const avatarSlot = document.createElement('span');
   avatarSlot.className = 'avatar-slot';
 
-  if (issue?.avatar) {
-    avatarSlot.appendChild(avatar(issue.avatar, avatarPool));
+  // A shared issue shows every assignee, the developer first (R5).
+  for (const actor of [issue?.avatar, ...(issue?.coAssignees ?? [])]) {
+    if (actor) {
+      avatarSlot.appendChild(avatar(actor, avatarPool));
+    }
   }
 
   // Group issue type, project status, and PR under the title.

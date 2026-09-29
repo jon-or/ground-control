@@ -102,6 +102,7 @@ describe('the package public surface', () => {
       'sessionLabel',
       'sessionOf',
       'sessionScopeSchema',
+      'sharedAssignment',
       'spawnable',
       'stateDirSchema',
       'statePointerPathOf',

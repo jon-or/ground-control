@@ -913,7 +913,7 @@ function replacingRole(card) {
 }
 
 /**
- * Replace GitHub's assignee figure with the avatar selected by selectCardAvatar in @ground-control/github. Use
+ * Replace GitHub's assignee figure with the avatar selected by selectCardAvatars in @ground-control/github. Use
  * the shared selection so both clients identify the same person.
  *
  * @param {Document} doc

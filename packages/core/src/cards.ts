@@ -15,7 +15,10 @@ export interface IssueCard {
   /** Last status-change time, or null off the project board; triggers triage (R38). */
   statusChangedAt: string | null;
   assignees: string[];
+  /** The developer's assignee when the issue is shared (`sharedAssignment`), otherwise the avatar policy's choice (R5). */
   avatar: CardAvatar | null;
+  /** The other assignees' avatars, present only when the issue is shared (R5). */
+  coAssignees?: CardAvatar[];
   /** The most recently updated pull request that would close this issue, or null when none is linked. */
   pullRequest: CardPullRequest | null;
   updatedAt: string;
@@ -48,4 +51,15 @@ export interface CardAvatar {
   source: 'pull-request' | 'issue-author' | 'issue';
   /** The login GitHub recorded, when a linked account stands in for it (R28). */
   aliasOf?: string;
+}
+
+/**
+ * Whether more than one person is assigned. The developer's logins count as one person; pass both lists after
+ * linked accounts resolve (R28), so a developer assigned beside their bot is not shared.
+ */
+export function sharedAssignment(assignees: readonly string[], logins: readonly string[]): boolean {
+  const developer = new Set(logins.map((login) => login.toLowerCase()));
+  const others = assignees.filter((login) => !developer.has(login.toLowerCase())).length;
+
+  return others + (others < assignees.length ? 1 : 0) > 1;
 }

@@ -568,6 +568,34 @@ main.dragging .lane-idle {
   height: 1.4rem;
 }
 
+/* A shared issue's assignees overlap, the developer's face on top; the ring separates the faces. */
+.avatar-slot {
+  display: flex;
+  isolation: isolate;
+  width: auto;
+  min-width: 1.4rem;
+}
+
+.avatar-slot .avatar + .avatar {
+  margin-inline-start: -0.35rem;
+}
+
+.avatar-slot .avatar:not(:only-child) {
+  box-shadow: 0 0 0 2px var(--vscode-editor-background);
+}
+
+.avatar-slot .avatar:first-child {
+  z-index: 3;
+}
+
+.avatar-slot .avatar:nth-child(2) {
+  z-index: 2;
+}
+
+.avatar-slot .avatar:nth-child(3) {
+  z-index: 1;
+}
+
 .avatar {
   position: relative;
   overflow: hidden;

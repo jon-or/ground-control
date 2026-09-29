@@ -295,6 +295,23 @@ describe('board webview', () => {
     expect(avatar.textContent).toContain('DE');
   });
 
+  /** A shared issue shows who else holds it, so it does not read as the developer's alone (R5). */
+  it('shows every assignee of a shared issue, the developer first', () => {
+    const issue = {
+      ...liveCard.issue!,
+      assignees: ['dev-1', 'dev-2'],
+      avatar: { login: 'dev-1', url: 'https://avatars.githubusercontent.com/dev-1?s=40', source: 'issue' as const },
+      coAssignees: [{ login: 'dev-2', url: 'https://avatars.githubusercontent.com/dev-2?s=40', source: 'issue' as const }],
+    };
+
+    send(message({ lanes: lanes({ unstarted: [{ ...liveCard, issue }] }) }));
+
+    const avatars = Array.from(document.querySelectorAll<HTMLElement>('.card .avatar-slot .avatar'));
+
+    expect(avatars.map((avatar) => avatar.getAttribute('aria-label'))).toEqual(['dev-1, issue assignee', 'dev-2, issue assignee']);
+    expect(tipOf(avatars[1]!)).toBe('dev-2 · issue assignee');
+  });
+
   /** A face standing in for a linked account names the account GitHub recorded on hover and to a screen reader (R28). */
   it('says whose activity a linked account is showing, in the tooltip and the accessible name alike', () => {
     const issue = { ...liveCard.issue!, avatar: { ...liveCard.issue!.avatar!, login: 'dev-1', aliasOf: 'dev-1-bot' } };

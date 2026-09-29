@@ -73,6 +73,8 @@ describe('fetchAssignedIssues', () => {
       statusChangedAt: null,
       assignees: ['dev-1', 'dev-1-bot'],
       avatar: { login: 'dev-1', url: 'https://avatars.githubusercontent.com/dev-1?s=40', source: 'issue' },
+      // No linked account is configured here, so the bot is a second person.
+      coAssignees: [{ login: 'dev-1-bot', url: 'https://avatars.githubusercontent.com/dev-1-bot?s=40', source: 'issue' }],
       pullRequest: {
         number: 19296,
         url: "https://github.com/example-org/example-repo/pull/19296",
@@ -222,6 +224,44 @@ describe('fetchAssignedIssues', () => {
     );
 
     expect(value.cards.find((c) => c.number === 19400)?.avatar).toMatchObject({ login: 'dev-2', source: 'issue' });
+  });
+
+  /** Derived: the recording's other assignee and pull request author added to an issue's assignees. */
+  function shared(number: number, extra: { login: string; avatarUrl: string }[]) {
+    const response = authored(REPORTER);
+    const node = response.data.cards.nodes.find((n) => n.number === number) as unknown as { assignees: { nodes: unknown[] } };
+
+    node.assignees.nodes.push(...extra);
+
+    return response;
+  }
+
+  const DEV_1 = { login: 'dev-1', avatarUrl: 'https://avatars.githubusercontent.com/dev-1?s=40' };
+  const DEV_3 = { login: 'dev-3', avatarUrl: 'https://avatars.githubusercontent.com/dev-3?s=40' };
+
+  /** A shared issue shows who holds it whatever either side names, so it never reads as the developer's alone (R5). */
+  it('shows every assignee of a shared issue, the developer first, in place of either author', async () => {
+    const policy = { avatar: { review: 'pull-request-author', offReview: 'issue-author' } } as const;
+    const review = await unwrap(config({ logins: ['dev-2'], ...policy }), runnerOf(shared(19400, [DEV_1])));
+    const unstarted = await unwrap(config({ logins: ['dev-1'], ...policy }), runnerOf(shared(18954, [DEV_3])));
+
+    expect(review.cards.find((c) => c.number === 19400)).toMatchObject({
+      avatar: { login: 'dev-2', source: 'issue' },
+      coAssignees: [{ login: 'dev-1', url: DEV_1.avatarUrl, source: 'issue' }],
+    });
+    expect(unstarted.cards.find((c) => c.number === 18954)).toMatchObject({
+      avatar: { login: 'dev-1', source: 'issue' },
+      coAssignees: [{ login: 'dev-3', url: DEV_3.avatarUrl, source: 'issue' }],
+    });
+  });
+
+  it("shows the developer's own logins as one face on a shared issue", async () => {
+    const value = await unwrap(config({ logins: ['dev-2', 'dev-1'] }), runnerOf(shared(19400, [DEV_1, DEV_3])));
+
+    expect(value.cards.find((c) => c.number === 19400)).toMatchObject({
+      avatar: { login: 'dev-2', source: 'issue' },
+      coAssignees: [{ login: 'dev-3', source: 'issue' }],
+    });
   });
 
   it('names the pull request that would close the issue', async () => {
@@ -443,6 +483,7 @@ describe('fetchAssignedIssues', () => {
 
       expect(value.cards[0]?.assignees).toEqual(['dev-2', 'dev-1']);
       expect(value.cards[0]?.avatar).toEqual({ login: 'dev-1', url: PROFILE.avatarUrl, source: 'issue', aliasOf: 'dev-1-bot' });
+      expect(value.cards[0]?.coAssignees?.map((actor) => actor.login)).toEqual(['dev-2']);
     });
 
     it('lists the developer once when the bot is assigned beside them, as directly assigned, whichever GitHub lists first', async () => {

@@ -1,3 +1,4 @@
+import { sharedAssignment } from '@ground-control/core';
 import { ASSIGNED_ISSUES_QUERY, ISSUE_BY_NUMBER_QUERY } from './queries.js';
 import type { GhRunner } from './gh.js';
 import { dedupeActors, resolveActor, resolveLogin } from './accounts.js';
@@ -71,13 +72,28 @@ function resolveNode(node: SearchNode, cfg: GithubConfig): ResolvedNode {
 
 /**
  * The person the policy names for the card's side of the review boundary, falling through to an assignee where
- * that person is unavailable: a review card with no pull request, a deleted account (R5).
+ * that person is unavailable: a review card with no pull request, a deleted account. A shared issue shows every
+ * assignee instead, the developer first (R5).
  */
-function selectCardAvatar(
+function selectCardAvatars(
   node: ResolvedNode,
   cfg: Pick<GithubConfig, 'logins' | 'reviewStatuses' | 'avatar' | 'linkedAccounts' | 'profiles'>,
   status: string | null,
-): CardAvatar | null {
+): Pick<IssueCard, 'avatar' | 'coAssignees'> {
+  // The assignees are already resolved, so the preference list has to be resolved the same way (R28).
+  const preferred = cfg.logins.map((login) => resolveLogin(cfg.linkedAccounts, cfg.profiles, login).toLowerCase());
+  const byLogin = new Map(node.assignees.map((actor) => [actor.login.toLowerCase(), actor]));
+  const assignee = preferred.map((login) => byLogin.get(login)).find(Boolean) ?? node.assignees[0];
+
+  if (sharedAssignment(node.assignees.map((actor) => actor.login), preferred)) {
+    const others = node.assignees.filter((actor) => !preferred.includes(actor.login.toLowerCase()));
+
+    return {
+      avatar: assignee === undefined || !preferred.includes(assignee.login.toLowerCase()) ? null : withAvatar(assignee, 'issue'),
+      coAssignees: others.map((actor) => withAvatar(actor, 'issue')).filter((avatar) => avatar !== null),
+    };
+  }
+
   const review = status !== null && cfg.reviewStatuses.includes(status);
   const wanted = review ? cfg.avatar.review : cfg.avatar.offReview;
 
@@ -87,20 +103,15 @@ function selectCardAvatar(
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
 
     if (pullRequest?.author) {
-      return withAvatar(pullRequest.author, 'pull-request');
+      return { avatar: withAvatar(pullRequest.author, 'pull-request') };
     }
   }
 
   if (wanted === 'issue-author' && node.author) {
-    return withAvatar(node.author, 'issue-author');
+    return { avatar: withAvatar(node.author, 'issue-author') };
   }
 
-  // The assignees are already resolved, so the preference list has to be resolved the same way (R28).
-  const assignees = new Map(node.assignees.map((actor) => [actor.login.toLowerCase(), actor]));
-  const preferred = cfg.logins.map((login) => resolveLogin(cfg.linkedAccounts, cfg.profiles, login).toLowerCase());
-  const assignee = preferred.map((login) => assignees.get(login)).find(Boolean) ?? node.assignees[0];
-
-  return assignee === undefined ? null : withAvatar(assignee, 'issue');
+  return { avatar: assignee === undefined ? null : withAvatar(assignee, 'issue') };
 }
 
 /** Select the most recently updated open closing PR, or the most recently updated PR when none is open. */
@@ -169,7 +180,7 @@ function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
     statusColor: item?.fieldValueByName?.color ?? null,
     statusChangedAt: item?.fieldValueByName?.updatedAt ?? null,
     assignees: people.assignees.map((a) => a.login),
-    avatar: selectCardAvatar(people, cfg, status),
+    ...selectCardAvatars(people, cfg, status),
     pullRequest: selectPullRequest(people),
     updatedAt: node.updatedAt,
   };

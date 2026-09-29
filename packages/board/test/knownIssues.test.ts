@@ -42,6 +42,16 @@ describe('the issues the board has looked up', () => {
     expect(readKnownIssues(stored)).toEqual({ entries: { [key]: { card, at: 1000 } } });
   });
 
+  /** A card that lost its other assignees on reading would differ from the live one and be rewritten every poll. */
+  it('keeps the other assignees of a shared issue', () => {
+    const face = (login: string) => ({ login, url: `https://avatars.githubusercontent.com/${login}?s=40`, source: 'issue' as const });
+    const shared: IssueCard = { ...card, assignees: ['dev-2', 'dev-3'], avatar: face('dev-2'), coAssignees: [{ ...face('dev-3'), aliasOf: 'dev-3-bot' }] };
+    const read = readKnownIssues(JSON.parse(JSON.stringify(withKnownIssue({ entries: {} }, key, shared, 1000))));
+
+    expect(read).toEqual({ entries: { [key]: { card: shared, at: 1000 } } });
+    expect(sameKnownCard(read.entries[key], shared)).toBe(true);
+  });
+
   it('records a number that named nothing, so the board asks once rather than every poll', () => {
     expect(withKnownIssue({ entries: {} }, key, null, 1000)).toEqual({ entries: { [key]: { missing: true, at: 1000 } } });
   });
