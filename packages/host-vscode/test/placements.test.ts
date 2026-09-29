@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLACEMENTS, claudeDirOf } from '../src/placements.js';
+import { PLACEMENTS, claudeDirOf, opensInSidebar } from '../src/placements.js';
 import { planOpen } from '../src/open.js';
 import { session } from './helpers.js';
 
@@ -45,6 +45,35 @@ describe('the placement table', () => {
     });
 
     expect(PLACEMENTS['codex']!.start!('do the thing')).toEqual({ command: 'chatgpt.newCodexPanel', args: [] });
+  });
+
+  /** M63: the sixth argument makes Claude route by its preferred location without writing it. */
+  it('opens a Claude session, or starts one, through the preferred-location route', () => {
+    const route = PLACEMENTS['claude']!.sidebarOpen!;
+    const preferred = { kind: 'object', value: { programmatic: 'honor-preferred-location' } };
+    const gap = { kind: 'absent' };
+
+    expect(route.command('abc', null)).toEqual({
+      command: 'claude-vscode.editor.open',
+      args: [{ kind: 'text', value: 'abc' }, gap, gap, gap, gap, preferred],
+    });
+    expect(route.command(null, 'do the thing')).toEqual({
+      command: 'claude-vscode.editor.open',
+      args: [gap, { kind: 'text', value: 'do the thing' }, gap, gap, gap, preferred],
+    });
+    expect(`${route.section}.${route.key}`).toBe('claudeCode.preferredLocation');
+    expect(PLACEMENTS['codex']!.sidebarOpen).toBeUndefined();
+  });
+
+  it('sends an open to the sidebar only when the developer chose it and Claude prefers the sidebar', () => {
+    const claude = PLACEMENTS['claude']!;
+
+    expect(opensInSidebar(claude, 'preferred', 'sidebar')).toBe(true);
+    expect(opensInSidebar(claude, 'editor', 'sidebar')).toBe(false);
+    // Claude would open a tab, and a session the sidebar holds would gain a second process (M6).
+    expect(opensInSidebar(claude, 'preferred', 'panel')).toBe(false);
+    expect(opensInSidebar(claude, 'preferred', undefined)).toBe(false);
+    expect(opensInSidebar(PLACEMENTS['codex']!, 'preferred', 'sidebar')).toBe(false);
   });
 
   it('identifies agents whose start command accepts a prompt', () => {

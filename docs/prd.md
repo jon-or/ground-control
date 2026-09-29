@@ -273,7 +273,7 @@ Show the phase and its duration without converting running to idle merely becaus
 An editor session opens by ID, with the prior conversation available. On hover and keyboard focus, a row replaces its duration with the destination: the Visual Studio Code mark for an editor open or resume, and a terminal glyph for an attach. Use the agent's supported operation and apply these rules:
 
 - Reveal an existing tab in its owning window.
-- For Claude in a sidebar, focus the sidebar/window and identify the requested session; opening another surface can duplicate its process.
+- For Claude in a sidebar, focus the sidebar/window and identify the requested session; opening another surface can duplicate its process. Where R48 sends opens to the sidebar, switch that sidebar to the session instead.
 - When the owning window is known but its surface is not, reveal only if the agent's operation is idempotent. Otherwise focus the window and explain the limitation.
 - Attach to a live detached Claude run in a terminal (R39).
 - Recheck history before resuming: confirm readable liveness, valid saved data, no conflicting live session on the card, and no pending resume. Use a final fresh roster check and an expiry deadline. A window opened for the resume restores its Claude tabs, which can resume the session first; report a session already live in its checkout as open rather than refusing it.
@@ -284,7 +284,7 @@ Historical resumes use the saved directory and a standalone window. Reuse a suit
 
 Opening or raising another window obeys `openWindowsForSessions`, enabled by default. A refusal caused by this setting offers to enable it. Do not modify the agent extension's preferred location as a side effect.
 
-Browser and cross-window links use the connected editor's own URI scheme, reported by the extension as `vscode.env.uriScheme` and carried in the snapshot; without a connected editor the stored last value applies, and `vscode` is the default. VS Code stable and Insiders are the supported distributions; a fork works only where it registers its scheme and runs the extension. There is no session-surface preference: an agent API that opened one session in a chosen surface would change the agent's preferred location or create a second session, so existing sessions are revealed where they are.
+Browser and cross-window links use the connected editor's own URI scheme, reported by the extension as `vscode.env.uriScheme` and carried in the snapshot; without a connected editor the stored last value applies, and `vscode` is the default. VS Code stable and Insiders are the supported distributions; a fork works only where it registers its scheme and runs the extension. Existing sessions are revealed where they are. The only surface choice is R48's, which defers to the agent's own preferred location and never writes it.
 
 Check cross-window focus and unexpected session creation. Refuse editor launches when the staged-update check detects a version mismatch; explain the required restart. This protection has a known detection limit recorded in [mechanics](mechanics.md#vs-code-updates-and-window-launches).
 
@@ -327,6 +327,18 @@ Scope is Claude checkouts at `<repository>/.claude/worktrees/<name>`. Any other 
 Refuse, naming the cause, rather than resuming a session that would run in the wrong directory or resuming an empty one: an unreadable checkout, no saved transcript for it, a name the redirect cannot express, or a second redirect while one is in progress.
 
 Two limitations are accepted. A repository opened as a saved `.code-workspace` reports that file as its root, so a routed resume does not recognize the window it reached; plain resume has the same shape, and opening the repository as a folder is the supported arrangement. A session the developer sends in another tab of that window during the redirect is recorded against the worktree; the redirect is held for as little as the reveal allows.
+
+### R48. Claude session location
+
+`claudeSessionLocation` chooses where Claude sessions open: `editor`, the default, opens an editor tab; `preferred` follows `claudeCode.preferredLocation` without changing it ([mechanics](mechanics.md#opening-a-claude-session-in-the-sidebar) M63). While that preference is `sidebar`:
+
+- A resume and a new session, with its prefilled prompt, open in the window's Claude sidebar.
+- A session the sidebar holds is switched to in place, in this window or, through a handover, in its owning window.
+- A session in an editor tab still reveals that tab.
+
+With the preference on `panel`, every route keeps its editor behavior; a sidebar session is focused and explained, because opening it by ID would open a tab and a second process. The setting applies to opens requested from either client, since the editor window performs them. Codex has no route to a given sidebar thread and is unaffected.
+
+A sidebar open adds no tab, so it is confirmed by the session appearing in its working directory. A redirected worktree resume (R44) holds its redirect until the session runs, bounded at six seconds.
 
 ### R46. A card's worktree, and the run that makes one
 

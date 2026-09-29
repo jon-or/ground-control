@@ -5,12 +5,13 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { dirKey, routeKey, sessionLabel } from '@ground-control/core';
 import type { HistoricalSession, OpenOutcome, OpenRefusal, OpenRoute, Session } from '@ground-control/core';
-import { PLACEMENTS, handOverUri, resumeRefusal, stagedUpdate, stagedUpdateRefusal, strayFrom, verifyOpen, worktreePointer } from '@ground-control/host-vscode';
+import { PLACEMENTS, handOverUri, opensInSidebar, resumeRefusal, stagedUpdate, stagedUpdateRefusal, strayFrom, verifyOpen, worktreePointer } from '@ground-control/host-vscode';
 import type { AgentPlacement, CommandArg } from '@ground-control/host-vscode';
 import { spawnEnvironment } from '@ground-control/hub';
 import { routeAllowed, sessionAllowed } from './sessionScope.js';
 import type { SessionChecker } from './sessionScope.js';
 import { editorProfileRefusal } from './agentStorage.js';
+import { claudeSessionLocation } from './config.js';
 
 const SCOPE_REFUSAL = 'This work is hidden by the current session settings. Refresh the board.';
 
@@ -176,6 +177,8 @@ function commandArg(arg: CommandArg): unknown {
       return vscode.Uri.parse(arg.value);
     case 'text':
       return arg.value;
+    case 'object':
+      return { ...arg.value };
     case 'absent':
       return undefined;
   }
@@ -183,6 +186,61 @@ function commandArg(arg: CommandArg): unknown {
 
 /** Hold the override past the tab so the panel reads the worktree's sessions, and no longer (M52). */
 const PROJECT_DIR_SETTLE_MS = 2000;
+
+/** A sidebar open adds no tab, so a redirect is held until the session runs, within a tab hold's bound (M63). */
+const SIDEBAR_HOLD_MS = 6000;
+
+/** The agent's sidebar route when the settings send this open there (R48), otherwise null for an editor tab. */
+function sidebarRoute(placement: AgentPlacement): NonNullable<AgentPlacement['sidebarOpen']> | null {
+  const route = placement.sidebarOpen;
+
+  if (route === undefined) {
+    return null;
+  }
+
+  const preference = vscode.workspace.getConfiguration(route.section).get<unknown>(route.key);
+
+  return opensInSidebar(placement, claudeSessionLocation(), preference) ? route : null;
+}
+
+/** Wait until the roster lists the session running, or the hold ends. */
+async function untilRunning(roster: Roster, sessionId: string): Promise<void> {
+  const deadline = Date.now() + SIDEBAR_HOLD_MS;
+
+  while (Date.now() < deadline) {
+    const now = await roster();
+
+    if (now?.some((s) => s.sessionId === sessionId && !s.finished)) {
+      return;
+    }
+
+    await delay(POLL_MS);
+  }
+}
+
+/**
+ * Open a session in the agent's sidebar: a session the sidebar holds switches back to its running process, and
+ * one in a tab reveals that tab (M63). `heldFor` keeps a worktree redirect in place until the session runs.
+ */
+async function openInSidebar(
+  session: { agent: string; sessionId: string },
+  route: NonNullable<AgentPlacement['sidebarOpen']>,
+  heldFor: Roster | null,
+): Promise<string | null> {
+  const { command, args } = route.command(session.sessionId, null);
+
+  try {
+    await vscode.commands.executeCommand(command, ...args.map(commandArg));
+  } catch (error) {
+    return `${command} failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  if (heldFor !== null) {
+    await untilRunning(heldFor, session.sessionId);
+  }
+
+  return null;
+}
 
 function assign(name: string, value: string | undefined): void {
   if (value === undefined) {
@@ -195,7 +253,7 @@ function assign(name: string, value: string | undefined): void {
 /** One redirect at a time: overlapping holds would restore each other's values and leak the override. */
 let pointing = false;
 
-/** Longer than a hold, which is bounded by the tab plus the settle delay. */
+/** Longer than a hold, which is bounded by the tab plus the settle delay, or by the sidebar hold. */
 const POINTER_WAIT_MS = 8000;
 
 const POINTER_BUSY = 'Another worktree session is still opening in this window. Refresh the board and try again.';
@@ -251,9 +309,10 @@ function pointAtWorktree(sessionId: string, worktree: string): { restore: () => 
 
 /**
  * Reveal through the agent command: Claude takes a session ID; Codex takes its custom-editor resource URI
- * (M44). `worktree` resumes a session whose checkout is not this window's folder (R44).
+ * (M44). `worktree` resumes a session whose checkout is not this window's folder (R44). A resume passes its
+ * `roster`, and goes to the sidebar when the settings say so (R48).
  */
-async function revealHere(session: { agent: string; sessionId: string }, worktree?: string): Promise<string | null> {
+async function revealHere(session: { agent: string; sessionId: string }, worktree?: string, roster?: Roster): Promise<string | null> {
   const placement = placementOf(session.agent);
 
   if (placement === null) {
@@ -268,7 +327,11 @@ async function revealHere(session: { agent: string; sessionId: string }, worktre
 
   // Restore whatever the reveal does, including a throw before the command is built.
   try {
-    return await reveal(session, placement, pointer !== null);
+    const sidebar = roster === undefined ? null : sidebarRoute(placement);
+
+    return sidebar === null
+      ? await reveal(session, placement, pointer !== null)
+      : await openInSidebar(session, sidebar, pointer === null ? null : roster ?? null);
   } finally {
     pointer?.restore();
   }
@@ -423,7 +486,7 @@ async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: Sessi
       const refusal = resumeRefusal(plan.session.sessionId, before);
       if (refusal) return refusal;
       if (Date.now() >= plan.expiresAt) return 'This resume request expired. Refresh the board and try again.';
-      const failure = await revealHere(plan.session, plan.worktree);
+      const failure = await revealHere(plan.session, plan.worktree, roster);
       if (!failure && before !== null) void confirmLanding(roster, plan.worktree ?? plan.root, before, plan.session.sessionId);
       return failure;
     }
@@ -439,6 +502,11 @@ async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: Sessi
 
     case 'sidebar-here': {
       const placement = placementOf(plan.session.agent);
+      const route = placement === null ? null : sidebarRoute(placement);
+
+      if (route !== null) {
+        return openInSidebar(plan.session, route, null);
+      }
 
       const focused = placement !== null && await focusSidebar(placement);
       if (!routeAllowed(plan)) return SCOPE_REFUSAL;
@@ -456,6 +524,13 @@ async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: Sessi
     }
 
     case 'sidebar-elsewhere': {
+      const placement = placementOf(plan.session.agent);
+
+      // The owning window receives the handover as its own sidebar-here route and switches its sidebar.
+      if (placement !== null && sidebarRoute(placement) !== null) {
+        return revealElsewhere(roster, check, plan.session, plan.root);
+      }
+
       const raised = await raise(plan.root);
       if (!routeAllowed(plan)) return SCOPE_REFUSAL;
       if (raised !== null) return raised;
@@ -518,7 +593,8 @@ async function startHere(agent: string, root: string, prompt: string | null): Pr
     return `The ${agent} extension is not available. Install it, or reload the window if it already is.`;
   }
 
-  const { command, args } = placement.start(prompt);
+  const sidebar = sidebarRoute(placement);
+  const { command, args } = sidebar === null ? placement.start(prompt) : sidebar.command(null, prompt);
 
   try {
     await vscode.commands.executeCommand(command, ...args.map(commandArg));

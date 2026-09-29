@@ -2,7 +2,7 @@
 
 This document records experiments and source inspections relevant to Ground Control. Some support implemented features; others establish options or constraints for future work. A successful experiment is not a claim that the product implements it. Product scope is in the [requirements](prd.md), and current use is described in [architecture](architecture.md).
 
-Record IDs retain the experiment identifiers M1–M60, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
+Record IDs retain the experiment identifiers M1–M63, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
 
 Code references use these M IDs rather than the former numbered sections. A record grouped under a topic keeps its original ID. Source inspections of Ground Control distinguish current implementation from the external experiment; they do not re-verify the measured CLI or editor version.
 
@@ -375,13 +375,43 @@ A saved session from another worktree did not open through the local command in 
 
 Claude's sidebar is not in `sessionPanels`. Opening its session as an editor tab produced two PIDs for one session ID. Another sidebar session whose transcript had moved to a worktree produced a new session in the window's original directory. Surface identity, not cwd alone, determines safe reveal behavior.
 
-There was no session-addressed sidebar reveal. `sidebar.open` takes no arguments and also changes preferred location. Focus the registered view directly through `claudeVSCodeSidebarSecondary.focus` or `claudeVSCodeSidebar.focus`; only the applicable view command exists.
+`sidebar.open` takes no arguments and also changes preferred location. Focus the registered view directly through `claudeVSCodeSidebarSecondary.focus` or `claudeVSCodeSidebar.focus`; only the applicable view command exists. A session-addressed sidebar open exists through a sixth `editor.open` argument (M63).
 
 Tab titles start as `Claude Code` and change asynchronously through the webview. They can also be renamed manually. A title is not session identity. Source inspection predicts that an existing editor tab can reveal after its transcript moves because map lookup precedes transcript lookup; that specific moved-tab case was not measured.
 
 `claude-vscode.window.open` was inspected as creating a new panel and then moving it to a new window. `newConversation` sends a message to an existing panel. Their broader runtime behavior, and `reopenClosedSession`, remain uncharacterized.
 
 The official URI `vscode://anthropic.claude-code/open?session=<id>` calls primaryEditor.open. Four fires in the 2.1.258 probe showed focus-based routing: three produced a new session in the wrong window; the one immediately following `code <target-folder>` resumed the intended saved session. Routing did not locate the window by session ID. Focus can change between raise and URI delivery.
+
+### Opening a Claude session in the sidebar
+
+**Record M63. Source inspection and runtime, 2026-09-29, Claude extension 2.1.284 (the argument is also in 2.1.282 and 2.1.283), on an isolated profile and Claude configuration directory driven by a command-inbox probe. Used by the Claude session location setting.**
+
+```text
+claude-vscode.editor.open(sessionId?, initialPrompt?, viewColumn?, newSessionGroupId?, fullEditor?, { programmatic })
+```
+
+With `programmatic: 'honor-preferred-location'`, the route goes to the sidebar when `claudeCode.preferredLocation` is `sidebar` and no editor tab holds the session; otherwise it creates or reveals a tab. Neither route writes the preference. The sidebar route parks the request for up to 15 seconds, focuses `claudeVSCodeSidebarSecondary` (or `claudeVSCodeSidebar`), and sends the sidebar webview `activate_session`. Claude's own sessions list passes this value; `pin-to-panel` always opens a tab. The URI handler still calls `primaryEditor.open`. The command resolves before the sidebar acts.
+
+Measured with two saved sessions A and B, observing tabs, `claude.exe` command lines, and window captures:
+
+| Call | `preferredLocation` | Result |
+|---|---|---|
+| Open A | `sidebar` | A's conversation in the sidebar, no tab, one `--resume=A` process |
+| Open B | `sidebar` | Sidebar shows B; A's process stays alive |
+| Open A again | `sidebar` | Sidebar shows A on its existing process; no new process |
+| Open A | `panel` | A opens in an editor tab |
+| Open A while it has a tab | `sidebar` | The tab stays; no sidebar change, no new process |
+| Close A's tab | — | A's process exits; B, in the sidebar, keeps running |
+| Start with a prompt, no ID | `sidebar` | New untitled sidebar session with the prompt prefilled and not sent |
+
+A webview panel holds a channel per session it has shown and closes them all only when it is disposed; switching sessions closes none. Both sidebar views register `retainContextWhenHidden`, so sidebar sessions live as long as the window, and an editor tab's end when the tab closes.
+
+A JSON `null` in the column slot reaches `createWebviewPanel` as a column and throws; pass `undefined` for unused positions.
+
+The M52 redirect also works through this route. With `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_PROJECT_DIR_NAME` set before the call and held two seconds after it, a session saved in `<repo>/.claude/worktrees/w` resumed in the sidebar of a window on `<repo>` with the worktree banner, and `claude agents --json` reported the worktree as its `cwd`.
+
+Version-fragile: the sixth argument, the routing function, and the 15-second park are internal to a minified bundle. Recheck after upgrading the Claude extension. Evidence: scratch probes with synthetic transcripts; no fixture survives.
 
 ### Claude session working directories
 

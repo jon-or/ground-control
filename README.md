@@ -73,6 +73,8 @@ An empty `agents` object enables Claude and detects Codex from its home director
 
 Hook changes preserve unrelated agent settings, hooks, and Codex trust entries, with backups before writes and refusal for malformed settings. Writer scripts remain for sessions that cached their paths, so existing sessions may keep reporting until restarted. Codex live discovery depends on hook markers and is reduced with its hooks off; saved history remains available. Disabling hooks does not disable session discovery.
 
+`claudeSessionLocation` chooses where Claude sessions open, from either board. `editor`, the default, opens an editor tab. `preferred` follows Claude Code's own `claudeCode.preferredLocation` and never changes it: while that is `sidebar`, resumed and new sessions open in the Claude sidebar, and a session the sidebar already holds is switched to in place, even in another window. A session in an editor tab still opens its tab. This relies on an undocumented Claude Code command argument ([M63](docs/mechanics.md#opening-a-claude-session-in-the-sidebar)).
+
 `newSession.prompt` prefills Claude's composer without submitting. It accepts `{issue}`, `{repo}`, `{title}`, `{url}`, and `{checkout}`; unknown placeholders remain unchanged. Empty prompts and new Codex sessions start without a prompt.
 
 `branchIssuePattern` reads the issue number from a branch or directory name. Its first capture group must be the digits. It links both sessions and worktrees.

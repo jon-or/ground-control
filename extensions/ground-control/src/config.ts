@@ -2,6 +2,7 @@ import { dirname } from 'node:path';
 import * as vscode from 'vscode';
 import { boardStatuses, statusLanes } from '@ground-control/board';
 import { VSCODE_HOST_ID } from '@ground-control/host-vscode';
+import type { SessionLocation } from '@ground-control/host-vscode';
 import { GITHUB_SOURCE_ID } from '@ground-control/github';
 import type { CardSource, GithubSettings } from '@ground-control/github';
 import { DEFAULT_TEST_BRANCH_PATTERN, LOG_FLOORS, OFF_REVIEW_AVATARS, REVIEW_AVATARS, diskReaders, idsFrom, readActionTable } from '@ground-control/core';
@@ -205,6 +206,11 @@ export function mayOpenWindow(): boolean {
 /** Resume Claude worktree sessions in the repository's window instead of one window per worktree (R44). */
 export function resumeWorktreesInRepositoryWindow(): boolean {
   return vscode.workspace.getConfiguration(SECTION).get<boolean>('resumeWorktreesInRepositoryWindow', false);
+}
+
+/** Where Claude sessions open (R48). An unknown value keeps the editor tab. */
+export function claudeSessionLocation(): SessionLocation {
+  return vscode.workspace.getConfiguration(SECTION).get<unknown>('claudeSessionLocation') === 'preferred' ? 'preferred' : 'editor';
 }
 
 /**

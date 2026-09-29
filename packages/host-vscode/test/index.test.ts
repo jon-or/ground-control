@@ -25,6 +25,7 @@ describe('the package public surface', () => {
       'makeVscodeHost',
       'noRepository',
       'openableSessions',
+      'opensInSidebar',
       'planCheckout',
       'planOpen',
       'planStart',

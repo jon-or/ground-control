@@ -187,6 +187,88 @@ describe('session scope at editor execution', () => {
     }
   });
 
+  describe('with claudeSessionLocation set to preferred', () => {
+    const preferred = { programmatic: 'honor-preferred-location' };
+    let getConfiguration;
+    let getExtension;
+    let claudePrefers;
+    let shown;
+    let info;
+
+    beforeEach(async () => {
+      await settings().update('claudeSessionLocation', 'preferred', vscode.ConfigurationTarget.Global);
+      // This host has no Claude extension, so its setting is not registered and cannot be written.
+      getConfiguration = vscode.workspace.getConfiguration;
+      vscode.workspace.getConfiguration = (section, ...rest) =>
+        section === 'claudeCode' ? { get: (key) => (key === 'preferredLocation' ? claudePrefers : undefined) } : getConfiguration(section, ...rest);
+      getExtension = vscode.extensions.getExtension;
+      vscode.extensions.getExtension = (id) =>
+        String(id).toLowerCase() === 'anthropic.claude-code' ? { isActive: true, activate: async () => undefined } : getExtension(id);
+      vscode.commands.executeCommand = async (...args) => {
+        commands.push(args);
+      };
+      shown = [];
+      info = vscode.window.showInformationMessage;
+      vscode.window.showInformationMessage = (message) => (shown.push(message), Promise.resolve(undefined));
+    });
+
+    afterEach(async () => {
+      vscode.workspace.getConfiguration = getConfiguration;
+      vscode.extensions.getExtension = getExtension;
+      vscode.window.showInformationMessage = info;
+      await settings().update('claudeSessionLocation', undefined, vscode.ConfigurationTarget.Global);
+    });
+
+    /** A sidebar open adds no tab, so the tab check that fails an editor resume must not run (M63). */
+    it('resumes in the sidebar Claude prefers, without waiting for a tab', async () => {
+      claudePrefers = 'sidebar';
+
+      const failure = await entry.performRoute(resume(), async () => [], saved);
+
+      assert.equal(failure, null);
+      assert.deepEqual(commands, [['claude-vscode.editor.open', session.sessionId, undefined, undefined, undefined, undefined, preferred]]);
+    });
+
+    it('resumes in an editor tab while Claude prefers the panel, and reports the tab that never came', async () => {
+      claudePrefers = 'panel';
+
+      const failure = await entry.performRoute(resume(), async () => [], saved);
+
+      assert.match(failure, /no tab appeared/);
+      assert.deepEqual(commands, [['claude-vscode.primaryEditor.open', session.sessionId]]);
+    });
+
+    it('starts a prefilled session in the sidebar', async () => {
+      claudePrefers = 'sidebar';
+      const plan = { route: 'start-session', key: 'issue:42', agent: 'claude', root: entry.boardRoot(), prompt: 'Fix the paging' };
+
+      assert.equal(await entry.performRoute(plan, async () => [], saved), null);
+      assert.deepEqual(commands, [['claude-vscode.editor.open', undefined, 'Fix the paging', undefined, undefined, undefined, preferred]]);
+    });
+
+    /** The sidebar switches back to the session's running process instead of only being focused (M63). */
+    it('switches the sidebar to a session it holds, with no guidance message', async () => {
+      claudePrefers = 'sidebar';
+
+      const failure = await entry.performRoute({ route: 'sidebar-here', session, root: session.cwd }, async () => [], live);
+
+      assert.equal(failure, null);
+      assert.deepEqual(commands, [['claude-vscode.editor.open', session.sessionId, undefined, undefined, undefined, undefined, preferred]]);
+      assert.deepEqual(shown, []);
+    });
+
+    /** With Claude preferring a tab, opening a sidebar session by ID would start a second process (M6). */
+    it('only focuses the sidebar while Claude prefers the panel', async () => {
+      claudePrefers = 'panel';
+
+      const failure = await entry.performRoute({ route: 'sidebar-here', session, root: session.cwd }, async () => [], live);
+
+      assert.equal(failure, null);
+      assert.deepEqual(commands, [['claudeVSCodeSidebarSecondary.focus']]);
+      assert.match(shown[0], /sidebar should be showing/);
+    });
+  });
+
   it('refuses resume after history is hidden while the roster read is pending', async () => {
     let release;
     let reading;

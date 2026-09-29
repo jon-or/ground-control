@@ -7,7 +7,11 @@ export type SessionInTab =
 
 /** `uri` arguments become vscode.Uri instances in the extension host; vscode.open rejects raw custom-scheme strings.
  * `absent` preserves positional gaps, including the session-ID slot before a new Claude prompt. */
-export type CommandArg = { kind: 'text'; value: string } | { kind: 'uri'; value: string } | { kind: 'absent' };
+export type CommandArg =
+  | { kind: 'text'; value: string }
+  | { kind: 'uri'; value: string }
+  | { kind: 'object'; value: Readonly<Record<string, string>> }
+  | { kind: 'absent' };
 
 /** A command plan built without vscode and executed in the extension host. */
 export interface CommandCall {
@@ -43,6 +47,32 @@ export interface AgentPlacement {
   idempotentReveal: boolean;
   /** Sidebar focus commands in fallback order; unavailable commands reject. */
   sidebarFocusCommands: readonly string[];
+  /**
+   * Open a session, or start one when the ID is null, in the agent's preferred location: its sidebar when that
+   * setting names it. Absent when the agent has no such route (M63).
+   */
+  sidebarOpen?: {
+    command(sessionId: string | null, prompt: string | null): CommandCall;
+    /** The agent setting, read as `section.key`, and the value that selects the sidebar. */
+    section: string;
+    key: string;
+    sidebar: string;
+  };
+}
+
+/** Where Ground Control opens Claude sessions: an editor tab, or wherever Claude's own setting prefers (R48). */
+export type SessionLocation = 'editor' | 'preferred';
+
+/**
+ * Whether an open lands in the agent's sidebar. It requires the developer's choice and the agent's current
+ * preference; with the agent preferring a tab, its sidebar sessions would start a second process (M6, M63).
+ */
+export function opensInSidebar(placement: AgentPlacement, location: SessionLocation, agentPreference: unknown): boolean {
+  return location === 'preferred' && placement.sidebarOpen !== undefined && agentPreference === placement.sidebarOpen.sidebar;
+}
+
+function text(value: string | null): CommandArg {
+  return value === null ? { kind: 'absent' } : { kind: 'text', value };
 }
 
 /** Resolve Claude storage, respecting CLAUDE_CONFIG_DIR for session and window discovery. */
@@ -77,10 +107,21 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     // preferred location; editor.open would change it (M6).
     start: (prompt) => ({
       command: 'claude-vscode.primaryEditor.open',
-      args: [{ kind: 'absent' }, prompt === null ? { kind: 'absent' } : { kind: 'text', value: prompt }],
+      args: [{ kind: 'absent' }, text(prompt)],
     }),
     startTakesPrompt: true,
     sidebarFocusCommands: ['claudeVSCodeSidebarSecondary.focus', 'claudeVSCodeSidebar.focus'],
+    // The sixth argument is the one Claude's own session list passes. It routes by preferred location without
+    // writing it; a session already in a tab reveals that tab (M63).
+    sidebarOpen: {
+      command: (sessionId, prompt) => ({
+        command: 'claude-vscode.editor.open',
+        args: [text(sessionId), text(prompt), { kind: 'absent' }, { kind: 'absent' }, { kind: 'absent' }, { kind: 'object', value: { programmatic: 'honor-preferred-location' } }],
+      }),
+      section: 'claudeCode',
+      key: 'preferredLocation',
+      sidebar: 'sidebar',
+    },
   },
 
   /**
