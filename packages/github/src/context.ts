@@ -344,6 +344,7 @@ export async function fetchCardContext(
       stateEvents: stateEventsOf(issue.timelineItems.nodes, config, resolve),
       comments: commentsOf(issue.comments.nodes, resolve),
       pullRequest: pullRequestOf(parsed.data.data.repository.pullRequest, resolve),
+      assignees: card.assignees,
       logins: dedupeLogins(config.logins.map((login) => resolveLogin(config.linkedAccounts, config.profiles, login))),
       repository: `${repository.owner}/${repository.name}`,
       defaultBranch: parsed.data.data.repository.defaultBranchRef?.name ?? null,

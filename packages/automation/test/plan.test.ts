@@ -50,6 +50,7 @@ function context(pr: Partial<TriagePullRequest> | null = {}, over: Partial<Triag
     stateEvents: [],
     comments: [],
     pullRequest: pr === null ? null : pullRequest(pr),
+    assignees: ['dev-1'],
     logins: ['dev-1', 'dev-1-bot'],
     repository: 'example-org/example-repo',
     defaultBranch: 'master',

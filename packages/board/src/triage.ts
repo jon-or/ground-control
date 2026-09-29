@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DEFAULT_TEST_BRANCH_PATTERN, MERGE_TYPES, TRIAGE_ACTIONS, mergeTypeOf } from '@ground-control/core';
+import { DEFAULT_TEST_BRANCH_PATTERN, MERGE_TYPES, TRIAGE_ACTIONS, mergeTypeOf, sharedAssignment } from '@ground-control/core';
 import type {
   CardTriage,
   IssueCard,
@@ -36,7 +36,7 @@ const SPENT_ATTEMPTS_MS = 60 * 60 * 1000;
  * Increment when prompt or decision changes invalidate stored triage. Older revisions are discarded and classified
  * again.
  */
-export const TRIAGE_REVISION = 8;
+export const TRIAGE_REVISION = 9;
 
 const detailProperty = { type: 'string', maxLength: DETAIL_LIMIT } as const;
 
@@ -139,11 +139,11 @@ export function evidenceOf(issue: IssueCard): string {
 }
 
 /**
- * Status-change timestamp that triggers automatic triage (R38). Other evidence changes only mark results stale.
- * Empty off the project board.
+ * Status-change timestamp and assignees that trigger automatic triage (R38); assignees decide whether Unstarted
+ * settles as Develop. Other evidence changes only mark results stale. The timestamp is empty off the project board.
  */
 export function triggerOf(issue: IssueCard): string {
-  return issue.statusChangedAt ?? '';
+  return [issue.statusChangedAt ?? '', ...issue.assignees.map((login) => login.toLowerCase()).sort()].join('|');
 }
 
 const triageEntry = z.object({
@@ -414,12 +414,17 @@ export function statusAction(status: string | null, statusLanes: Readonly<Record
 
 /**
  * Prefer deterministic status rules, then PR facts. Review status on the developer's own open PR leaves the
- * action undecided because the outstanding review may belong to someone else.
+ * action undecided because the outstanding review may belong to someone else. Unstarted work assigned to more
+ * than one person is a dev question: who does it is unsettled.
  */
 export function settledAction(context: TriageContext, statusLanes: Readonly<Record<string, LaneId>>): TriageAction | null {
   const mappedAction = statusAction(context.status, statusLanes);
   const pr = context.pullRequest;
   const ownOpenReview = mappedAction === 'review-others' && pr !== null && pr.state === 'OPEN' && isDeveloperLogin(pr.author, context.logins);
+
+  if (mappedAction === 'develop' && sharedAssignment(context.assignees, context.logins)) {
+    return 'dev-question';
+  }
 
   return (ownOpenReview ? null : mappedAction) ?? derivedAction(context);
 }

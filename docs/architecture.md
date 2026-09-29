@@ -245,7 +245,7 @@ The runner reserves automatic attempts synchronously in `triage-usage.json` befo
 Two values have different purposes:
 
 - Evidence includes issue timestamp/status and selected PR number, state, timestamp, head commit, and failing-check state. Changes mark a result stale. Check rollup is reduced to red-or-not to avoid invalidating results during every build.
-- Trigger tracks status changes and membership eligibility. These make automatic classification due. Age alone does neither.
+- Trigger tracks status changes, the assignee set, and membership eligibility. These make automatic classification due. Age alone does neither.
 
 `reviewDecision` is absent from triage evidence and prompts because it can lag the team's status-based handover. Arrival lane rules still use it.
 

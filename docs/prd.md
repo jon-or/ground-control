@@ -363,7 +363,7 @@ Determine the action from status and PR facts where possible; ask the model for 
 | Input | Rule |
 |---|---|
 | Status mapped to Review | Review, except an own open PR requires further interpretation |
-| Status mapped to Unstarted | Develop |
+| Status mapped to Unstarted | Develop, except Dev question where anyone besides the developer is also assigned, because they need to agree who does the work |
 | Status mapped to Build, or unmapped | Inspect PR facts and conversation |
 | Failing checks | Deterministic evidence, subject to status precedence |
 | Merge | Requires a written request or a deliberate action; never infer from mergeability. Record the branch the request names; R39 derives the merge type from it |
@@ -374,7 +374,7 @@ The qualifier refines the action from PR facts, never from the model: initial or
 
 The explanation describes status and responsibility, not technical implementation. Address the developer as “you”; use colleagues' first names, or logins where GitHub has no name, with a linked account (R28) named as the account it links to. Do not invent counts from a partial conversation. Other covers waiting with no identified action. The action is visible; the explanation and classification time are on hover. The age beside it is time in the current status (R45).
 
-Mark triage stale when issue/PR evidence changes. Age alone does not invalidate it. Automatically reread only on eligibility or status changes; other changes mark it stale without spending another model call. Triage never moves a card.
+Mark triage stale when issue/PR evidence changes. Age alone does not invalidate it. Automatically reread only on eligibility, status, or assignee changes; other changes mark it stale without spending another model call. Triage never moves a card.
 
 Run only while a board is visible or on an explicit client request, with bounded concurrency, timeout, and retry backoff. Stop automatic retries after the retry budget. A failed classification reads as not read, with the reason on hover; show the failure once above the board and retain a retry control. Either client can request classification; the hub applies the same eligibility, concurrency, and cooldown checks whichever asks.
 

@@ -67,6 +67,7 @@ function contextOf(card: IssueCard): TriageContext {
       { author: 'buildfriday', authorName: 'Friday', authorAssociation: 'MEMBER', body: 'Rebased.', createdAt: '2026-09-01T09:00:00Z' },
     ],
     stateEvents: [],
+    assignees: card.assignees,
     logins: ['dev-1'],
     pullRequest: null,
     repository: 'example-org/example-repo',

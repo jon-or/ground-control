@@ -307,6 +307,7 @@ function harness(
         stateEvents: [],
         comments: [],
         pullRequest: control.pr === null ? null : pullRequest(control.pr),
+        assignees: card.assignees,
         logins: ['dev-1'],
         repository: 'example-org/example-repo',
         defaultBranch: 'master',

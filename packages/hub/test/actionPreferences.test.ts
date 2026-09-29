@@ -37,7 +37,7 @@ function harness(over: Partial<ActionSettings> = {}, enabled = configured) {
   const agents: AgentAdapter[] = [claude, codex];
   const context: TriageContext = {
     repository: 'example/repo', issueNumber: 1, title: 'Merge upstream', body: '', status: 'Dev', stateEvents: [], comments: [],
-    logins: ['developer'], defaultBranch: 'main',
+    assignees: ['developer'], logins: ['developer'], defaultBranch: 'main',
     pullRequest: {
       number: 2, title: 'Fix bug', body: '', state: 'OPEN', isDraft: false, author: 'developer', authorName: null,
       baseRefName: 'main', headRefName: '1-fix', headOid: 'abcd1234', checkState: 'SUCCESS', comments: [], reviews: [], reviewRequests: [], threads: [],

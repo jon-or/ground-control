@@ -102,6 +102,15 @@ describe('which cards are due', () => {
     expect(dueForTriage(lanesOf(card()), state({ entries: { 'issue:17198': entry() } }), NONE, 0)).toEqual([]);
   });
 
+  /** Assignees decide whether unstarted work is Develop or a dev question, so a change rereads the card. */
+  it('reads a card again when its assignees change, whatever order GitHub lists them in', () => {
+    const read = state({ entries: { 'issue:17198': entry({ trigger: triggerOf(issue({ assignees: ['dev-1', 'dev-2'] })) }) } });
+    const due = (assignees: string[]) => dueForTriage(lanesOf(card({ issue: issue({ assignees }) })), read, NONE, 0);
+
+    expect(due(['dev-2', 'dev-1'])).toEqual([]);
+    expect(due(['dev-1'])).toEqual(['issue:17198']);
+  });
+
   it('never reads an archived card, however many passes run over it', () => {
     // Archived cards remain in snapshots; retaining marked entries prevents repeated classification.
     const gone = lanesOf(card({ issue: issue({ status: '🚀 Released' }) }));
@@ -322,6 +331,7 @@ describe('what the evidence settles before the model is asked', () => {
       status: '⚒️ Dev',
       stateEvents: [],
       comments: [],
+      assignees: ['dev-1'],
       logins,
       pullRequest: {
         number: 42,
@@ -396,6 +406,18 @@ describe('what the evidence settles before the model is asked', () => {
     expect(statusAction('🎁 Assigned', lanes)).toBe('develop');
     expect(settledAction({ ...context({ author: 'dev-9', checkState: 'FAILURE' }), status: '🔍 Dev Review' }, lanes)).toBe('review-others');
     expect(settledAction({ ...context({ checkState: 'FAILURE' }), status: '🎁 Assigned' }, lanes)).toBe('develop');
+  });
+
+  /** Two people holding unstarted work have to agree who does it before either develops (R38). */
+  it('settles unstarted work assigned to somebody else as well as a dev question', () => {
+    const lanes = { '🎁 Assigned': 'unstarted', '🔍 Dev Review': 'review' } as const;
+    const assigned = (assignees: string[], status = '🎁 Assigned') => ({ ...context(), status, assignees });
+
+    expect(settledAction(assigned(['dev-1', 'dev-2']), lanes)).toBe('dev-question');
+    // The developer's own second login is the same person.
+    expect(settledAction({ ...assigned(['dev-1', 'dev-1-alt']), logins: ['dev-1', 'dev-1-alt'] }, lanes)).toBe('develop');
+    // Review is normally shared between the author and the reviewer.
+    expect(settledAction({ ...assigned(['dev-1', 'dev-2'], '🔍 Dev Review'), pullRequest: { ...context().pullRequest!, author: 'dev-2' } }, lanes)).toBe('review-others');
   });
 
   it('never calls the developer own open pull request theirs to review, whatever the status says', () => {

@@ -43,6 +43,7 @@ Merge requests and failing checks are reported evidence. Prefer the latest repor
 as pending after someone reports it fixed. A branch that will not merge is not yours to fix.
 
 An assigned issue with no discussion or pull request is develop, not other. Use other only if no listed action fits.
+When dev-question is decided for an issue assigned to you and somebody else, name them and say that you and they need to agree who does the work.
 For merge, target is the branch the latest request names as the destination, exactly as written; null if it names none.
 For every other action, target is null.
 Do not speculate about unsupported causes.`;
@@ -123,6 +124,14 @@ function instructionLine(instruction: TriageInstruction, status: string | null, 
     : `${actor} last changed its state on ${instruction.at}, ${moved}.`;
 }
 
+/** Current assignees, with the developer's logins as one "you". */
+function assignedTo(assignees: readonly string[], logins: readonly string[]): string {
+  const others = assignees.filter((login) => !isDeveloperLogin(login, logins)).map((login) => nameOf(login, null));
+  const names = others.length < assignees.length ? ['you', ...others] : others;
+
+  return names.join(' and ') || NO_TEXT;
+}
+
 /** Build the classifier input from recorded context. A settled action requests only its explanation. */
 export function buildTriagePrompt(
   context: TriageContext,
@@ -149,6 +158,7 @@ export function buildTriagePrompt(
     '',
     `ISSUE #${context.issueNumber}: ${context.title}`,
     `Board status: ${context.status ?? NO_TEXT}`,
+    `Assigned to: ${assignedTo(context.assignees, context.logins)}`,
   ];
 
   if (instruction !== null) {

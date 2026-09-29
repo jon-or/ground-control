@@ -20,6 +20,7 @@ function context(over: Partial<TriageContext> = {}): TriageContext {
     status: '⚒️ Dev',
     stateEvents: [],
     comments: [comment('dev-2', 'Still broken on Safari.', 'CONTRIBUTOR')],
+    assignees: ['dev-1'],
     logins: ['dev-1'],
     pullRequest: null,
     repository: 'example-org/example-repo',
@@ -146,6 +147,14 @@ describe('building the prompt', () => {
     expect(prompt).toContain('Board status: ⚒️ Dev');
     expect(prompt).toContain('The second page comes back empty.');
     expect(prompt.indexOf('First.')).toBeLessThan(prompt.indexOf('Second.'));
+  });
+
+  it('lists the current assignees, the developer once as you', () => {
+    const shared = buildTriagePrompt(context({ assignees: ['dev-2', 'dev-1', 'dev-1-alt'], logins: ['dev-1', 'dev-1-alt'] }), NOW);
+
+    expect(shared).toContain('Assigned to: you and dev-2');
+    expect(buildTriagePrompt(context({ assignees: ['dev-2'] }), NOW)).toContain('Assigned to: dev-2');
+    expect(buildTriagePrompt(context({ assignees: [] }), NOW)).toContain('Assigned to: (none)');
   });
 
   it('addresses the developer as you', () => {

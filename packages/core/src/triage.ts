@@ -159,6 +159,8 @@ export interface TriageContext {
   stateEvents: TriageStateEvent[];
   comments: TriageComment[];
   pullRequest: TriagePullRequest | null;
+  /** Current assignees after linked accounts resolve (R28); a shared issue settles Unstarted as a dev question. */
+  assignees: string[];
   /** The developer's own logins, so the prompt can say which words are theirs. */
   logins: string[];
   /** `owner/name`, as the card's own URL carries it. What a dispatched run is told it is working in. */
