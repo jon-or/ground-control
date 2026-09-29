@@ -386,8 +386,21 @@ export async function performRoute(plan: OpenRoute, roster: Roster, check: Sessi
   return failure !== null && !routeAllowed(plan) ? SCOPE_REFUSAL : failure;
 }
 
+/**
+ * A window opened for a resume restores its Claude tabs, which can resume the session before the route runs (M11).
+ * The hub found it saved when it planned the route, so a live copy in the checkout needs no second launch.
+ */
+function alreadyOpen(plan: { session: HistoricalSession; root: string; worktree?: string }, roster: readonly Session[] | null): boolean {
+  const cwd = plan.worktree ?? plan.root;
+  const live = roster?.find((s) => s.sessionId === plan.session.sessionId && !s.finished);
+  if (!live || dirKey(live.cwd) !== dirKey(cwd)) return false;
+  void vscode.window.showInformationMessage(`${plan.session.title ?? 'This session'} is already open in ${cwd}.`);
+  return true;
+}
+
 async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: SessionChecker): Promise<string | null> {
   if (!routeAllowed(plan)) return SCOPE_REFUSAL;
+  if (plan.route === 'resume-here' && alreadyOpen(plan, await roster())) return null;
   if (plan.route === 'start-session') {
     const profile = editorProfileRefusal(plan.agent, plan.agentHome);
     if (profile) return profile;
@@ -404,6 +417,7 @@ async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: Sessi
         return POINTER_BUSY;
       }
       const before = await roster();
+      if (alreadyOpen(plan, before)) return null;
       const checked = await checkSession(plan.session, plan.root, true, check);
       if (checked) return checked;
       const refusal = resumeRefusal(plan.session.sessionId, before);

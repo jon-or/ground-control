@@ -109,6 +109,33 @@ describe('session scope at editor execution', () => {
     assert.equal(commands.length, 1, 'an authorized saved session must reach the editor command');
   });
 
+  /** A window opened for a resume restores its Claude tabs, and one can resume the session before the handover arrives. */
+  it('reports a resume the window already restored instead of refusing it, running no command', async () => {
+    const reopened = [{ ...session, attachId: null }];
+    const info = vscode.window.showInformationMessage;
+    const shown = [];
+    vscode.window.showInformationMessage = (message) => (shown.push(message), Promise.resolve(undefined));
+
+    try {
+      const failure = await entry.performRoute(resume(), async () => reopened, live);
+
+      assert.equal(failure, null);
+      assert.equal(commands.length, 0, 'a restored session must not be opened a second time');
+      assert.match(shown[0], /is already open in /);
+
+      // The tab can register while the route checks scope and profile, after its first roster read.
+      let reads = 0;
+      const late = await entry.performRoute(resume(), async () => (reads++ === 0 ? [] : reopened), saved);
+      assert.equal(late, null);
+      assert.equal(commands.length, 0, 'a session restored during the checks must not be opened a second time');
+
+      const elsewhere = await entry.performRoute(resume(), async () => [{ ...reopened[0], cwd: 'd:/elsewhere' }], live);
+      assert.match(elsewhere, /no longer be opened safely/);
+    } finally {
+      vscode.window.showInformationMessage = info;
+    }
+  });
+
   /**
    * A browser start carries no extension readiness, so the hub plans one assuming it and the window that
    * performs the start is the one that has to check. This host has no Claude extension installed.

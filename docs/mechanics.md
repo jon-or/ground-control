@@ -42,7 +42,7 @@ Claude launches therefore leave `CLAUDE_CONFIG_DIR` unset for the default root, 
 
 `--all` includes stopped/exited sessions; `--cwd <path>` filters by directory. Three reads returned 17 sessions and 3,450 bytes in 218, 217, and 212 ms. This cost supports a slower roster poll with hooks for activity changes.
 
-Interactive entries often omit short ID, `status`, and `state`. Background entries have additional lifecycle words; M33 below records that completed background entries can remain on the ordinary roster. Thus roster membership is the discovery source, but must be interpreted with agent lifecycle fields. It is not universally proof of an active process doing work.
+Interactive entries often omit short ID, `status`, and `state`. On CLI 2.1.285 (2026-09-29) an unprompted editor tab listed `status: idle` with no transcript or phase, so the unprompted filter accepts an absent or idle status. Background entries have additional lifecycle words; M33 below records that completed background entries can remain on the ordinary roster. Thus roster membership is the discovery source, but must be interpreted with agent lifecycle fields. It is not universally proof of an active process doing work.
 
 ### Claude transcripts and titles
 
@@ -58,7 +58,7 @@ Transcripts are buffered: two subagents were running before their parent transcr
 
 The project slug replaces each non-alphanumeric path character with `-`, without collapsing runs. A probe containing space, `_`, `+`, and `~` confirmed each replacement. Preserve directory casing from the actual listing: recorded cwd drive-letter case can differ from the directory originally created. NTFS can conceal a faulty case-sensitive lookup.
 
-Transcripts were created at the first user turn, not process startup. Four of 15 live sessions had none and were unprompted editor tabs. Resumed sessions write the original transcript, whose mtime may predate the new process. `.claude/session-env/<id>` exists before prompting and cannot distinguish these cases. Product filtering therefore requires absence of transcript, activity, and agent status together.
+Transcripts were created at the first user turn, not process startup. Four of 15 live sessions had none and were unprompted editor tabs. Resumed sessions write the original transcript, whose mtime may predate the new process. `.claude/session-env/<id>` exists before prompting and cannot distinguish these cases. Product filtering therefore requires absence of transcript, activity, and background state, with no status or an idle one (M2).
 
 The CLI's `name` is often a directory-derived label, not the session title. Transcript title records are:
 
@@ -840,7 +840,7 @@ A clean round trip without concurrent writers preserved the developer's marker; 
 
 ### Tab release and automatic resume
 
-**Record M11. Runtime/prototype, baseline 2026-09-01. Experimental.**
+**Record M11. Runtime/prototype, baseline 2026-09-01; restored-tab resume 2026-09-29. Experimental; the restored-tab observation is used by session opening.**
 
 `tabGroups.onDidChangeTabs` fired on closure. The probe observed the event after 3 ms and successfully resumed the original background session on its first attempt after about 4.1 seconds. A manual close behaved the same, taking 4.18 seconds to resume.
 
@@ -848,7 +848,7 @@ The prototype mapped newly observed tab labels to session IDs and persisted that
 
 The probe retried up to six times, 1.5 seconds apart, stopping any copied session before retrying. Only first-attempt success was observed in the cited run. That does not prove retries safely cover all still-releasing or live-tab cases. Measure release readiness and identity directly before adopting the loop.
 
-Reopening a window restored prior Claude tabs and started live processes for them. A coordinator must reconcile restored tabs rather than assuming a previously released session remains unheld. A programmatic release must not race an independent auto-resume triggered by the same close event.
+Reopening a window restored prior Claude tabs and started live processes for them. A coordinator must reconcile restored tabs rather than assuming a previously released session remains unheld. A programmatic release must not race an independent auto-resume triggered by the same close event. On 2026-09-29 (extension 2.1.284), a window Ground Control opened for a resume restored a Claude tab that resumed the session before the handover arrived; a restored tab the extension declined to resume started an empty session instead.
 
 ### Subagent recovery
 

@@ -106,6 +106,18 @@ describe('the Claude adapter', () => {
     expect(snapshot.failures).toEqual([]);
   });
 
+  /** CLI 2.1.285 lists a blank editor tab as `status: idle`; its first turn reads busy before the transcript is written (M3). */
+  it('omits an unprompted session listed as idle, and keeps one listed as busy', async () => {
+    const idle = active.find((entry) => !prompted.includes(entry))!;
+    const listed = (status: string) => active.map((e) => (e === idle ? { ...e, status } : e));
+
+    const quiet = await read(config(), deps(listed('idle')));
+    const started = await read(config(), deps(listed('busy')));
+
+    expect(quiet.sessions.map((s) => s.sessionId)).not.toContain(idle.sessionId);
+    expect(started.sessions.map((s) => s.sessionId)).toContain(idle.sessionId);
+  });
+
   it('keeps a session with no transcript that the hooks have reported activity for', async () => {
     const idle = active.find((entry) => !prompted.includes(entry))!;
     const marker = JSON.stringify({

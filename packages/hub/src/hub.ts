@@ -228,7 +228,7 @@ export class Hub {
   #history: HistoricalSession[] = [];
   #historyFailures: ReadFailure[] = [];
   readonly #resuming = new Map<string, number>();
-  readonly #resumeTransfers = new Map<string, { token: string; root: string; lease: number; expiresAt: number }>();
+  readonly #resumeTransfers = new Map<string, { token: string; root: string; cwd: string; lease: number; expiresAt: number }>();
   /** In-flight starts keyed by card and agent until a session ID exists (mechanics M51). */
   readonly #starting = new Map<string, number>();
   /** In-flight checkout opens keyed by card across clients. */
@@ -1669,11 +1669,12 @@ export class Hub {
   /** Plan session routes in the host and send resident routes to the requesting client. */
   async #open(client: Connected, sessionId: string, extensionReady: boolean, handedOver = false, resumeToken?: string): Promise<void> {
     const revision = this.#profileRevision;
-    let transferred: { lease: number; expiresAt: number } | undefined;
+    let transferred: { cwd: string; lease: number; expiresAt: number } | undefined;
     if (resumeToken !== undefined) {
       const transfer = this.#resumeTransfers.get(sessionId);
+      // The lease is checked after the roster read below: a restored tab that resumed the session has ended it.
       if (!handedOver || !transfer || transfer.token !== resumeToken || transfer.expiresAt <= this.#deps.clock.now() ||
-        this.#resuming.get(sessionId) !== transfer.lease || client.hello.workspaceRoot === null ||
+        client.hello.workspaceRoot === null ||
         dirKey(client.hello.workspaceRoot) !== dirKey(transfer.root)) {
         client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'This session handover is no longer valid. Open it from the board again.' });
         return;
@@ -1703,6 +1704,13 @@ export class Hub {
     // A card can have been drawn before this session resumed elsewhere. Never resume from a cached roster.
     await this.#refreshSessions(true);
     if (this.#disposed || revision !== this.#profileRevision) return;
+    // A window opened for the resume restores its Claude tabs, which can resume the session before this handover (M11).
+    const reopened = transferred && this.#sessions?.sessions.find((s) => s.sessionId === sessionId && !s.finished);
+    if (transferred && reopened && dirKey(reopened.cwd) === dirKey(transferred.cwd)) {
+      this.#deps.log.info(`${client.hello.id} found ${sessionId} already open in ${reopened.cwd}`, 'open');
+      client.send({ type: 'notice', level: 'info', message: `This session is already open in ${reopened.cwd}.` });
+      return;
+    }
     if (transferred && (transferred.expiresAt <= this.#deps.clock.now() || this.#resuming.get(sessionId) !== transferred.lease)) {
       client.send({ type: 'notice', level: 'warning', refusal: 'resume-pending', message: 'This session handover expired. Open it from the board again.' });
       return;
@@ -1803,7 +1811,7 @@ export class Hub {
         if (transferred) plan.expiresAt = Math.min(plan.expiresAt, transferred.expiresAt);
         if (plan.route === 'resume-elsewhere') {
           const token = randomUUID();
-          this.#resumeTransfers.set(sessionId, { token, root: plan.root, lease: resumeLease!, expiresAt: plan.expiresAt });
+          this.#resumeTransfers.set(sessionId, { token, root: plan.root, cwd: plan.worktree ?? plan.root, lease: resumeLease!, expiresAt: plan.expiresAt });
           plan.resumeToken = token;
         }
       }

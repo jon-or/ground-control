@@ -276,7 +276,7 @@ An editor session opens by ID, with the prior conversation available. On hover a
 - For Claude in a sidebar, focus the sidebar/window and identify the requested session; opening another surface can duplicate its process.
 - When the owning window is known but its surface is not, reveal only if the agent's operation is idempotent. Otherwise focus the window and explain the limitation.
 - Attach to a live detached Claude run in a terminal (R39).
-- Recheck history before resuming: confirm readable liveness, valid saved data, no conflicting live session on the card, and no pending resume. Use a final fresh roster check and an expiry deadline.
+- Recheck history before resuming: confirm readable liveness, valid saved data, no conflicting live session on the card, and no pending resume. Use a final fresh roster check and an expiry deadline. A window opened for the resume restores its Claude tabs, which can resume the session first; report a session already live in its checkout as open rather than refusing it.
 
 Determine the owning window from process and host records, not from session cwd alone. Explain missing, stale, or not-yet-persisted placement. Do not substitute a newly opened empty window for the owner of an active session.
 

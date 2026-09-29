@@ -24,7 +24,7 @@ import { claudeHomeOf } from './hookScript.js';
 
 
 /**
- * `status` and `state` are the `--bg` shape; interactive sessions carry neither, and neither does a short `id`.
+ * `state` and a short `id` are the `--bg` shape; interactive sessions can carry `status` (M2).
  * `kind` stays a string so an unfamiliar kind shows up rather than dropping the session.
  */
 const agentEntry = z.object({
@@ -242,14 +242,14 @@ function toSession(entry: AgentEntry, deps: MachineDeps, env: NodeJS.ProcessEnv)
 }
 
 /**
- * Identify unprompted editor sessions by absent transcript, activity phase, and background status. Claude
- * creates transcripts at the first user turn (M3).
+ * Identify unprompted editor sessions by absent transcript, activity phase, and background state, and by a status
+ * that is absent or idle. Claude creates transcripts at the first user turn (M3).
  */
 export function neverPrompted(session: Session, entry: AgentEntry): boolean {
   return (
     session.transcriptWrittenAt === null &&
     session.activity === null &&
-    entry.status === undefined &&
+    (entry.status === undefined || entry.status === 'idle') &&
     entry.state === undefined
   );
 }

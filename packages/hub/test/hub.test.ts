@@ -2168,6 +2168,33 @@ describe('opening a historical session', () => {
     if (kind !== 'valid') expect(target.inbox.some((entry) => entry.type === 'notice' && entry.refusal === 'resume-pending')).toBe(true);
     h.hub.dispose();
   });
+  /** The new window restores its Claude tabs; one can resume the session before the handover arrives (M11). */
+  it.each(['in its checkout', 'elsewhere'])('reports a handover whose session a restored tab already resumed %s', async (where) => {
+    const h = setup(); h.host.resident.push('resume-elsewhere');
+    const first = connect(h, hello({ id: 'source', workspaceRoot: '/other', residentRoutes: ['resume-here', 'resume-elsewhere'] }));
+    const target = connect(h, hello({ id: 'target', workspaceRoot: past.cwd, residentRoutes: ['resume-here', 'resume-elsewhere'] }));
+    await h.hub.refresh('asked');
+    h.host.plan = { route: 'resume-elsewhere', session: past, root: past.cwd, expiresAt: h.clock.clock.now() + 30_000, newWindow: true };
+    ask(h, first.client); await settle();
+    const initial = first.inbox.find((message) => message.type === 'perform');
+    if (initial?.type !== 'perform') throw new Error('Expected initial handover');
+
+    const cwd = where === 'elsewhere' ? '/elsewhere' : past.cwd;
+    h.agent.sessions = [fakeSession({ sessionId: 'past', cwd, checkoutRoot: cwd, issueNumber: 42, repository: 'github.com/org/repo' })];
+    // A roster read before the handover ends the resume lease.
+    await h.hub.refresh('asked');
+    h.host.plan = { route: 'resume-here', session: past, root: past.cwd, expiresAt: h.clock.clock.now() + 30_000 };
+    h.hub.receive(target.client, { type: 'open', sessionId: 'past', extensionReady: true, handedOver: true, resumeToken: initial.route.resumeToken! });
+    await settle();
+
+    expect(target.inbox.filter((entry) => entry.type === 'perform')).toHaveLength(0);
+    if (where === 'elsewhere') {
+      expect(target.inbox.some((entry) => entry.type === 'notice' && entry.refusal === 'resume-pending')).toBe(true);
+    } else {
+      expect(target.inbox).toContainEqual({ type: 'notice', level: 'info', message: `This session is already open in ${past.cwd}.` });
+    }
+    h.hub.dispose();
+  });
   it('uses the live reveal path if the clicked session resumed since rendering', async () => {
     const h = setup(); const { client, inbox } = connect(h);
     await h.hub.refresh('asked'); h.agent.sessions = [fakeSession({ sessionId: 'past', issueNumber: 42, repository: 'github.com/org/repo' })];
