@@ -1185,6 +1185,90 @@ describe('following a run to its end', () => {
     expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed', detail: 'Review written; not posted.' });
   });
 
+  /** A background process keeps its session from resuming in an editor until it exits (M33). */
+  describe('stopping the background process a settled run leaves', () => {
+    const ID = '46af2ac8-f232-4406-8e8f-2579df5eb08f';
+
+    /** The hub reads each session's phase from its agent's markers, not from the roster. */
+    function on(control: Control, phase: 'running' | 'waiting' | 'idle' | null, over: Partial<Session> = {}): void {
+      control.agent.sessions = [sessionOn({ agent: 'claude', sessionId: ID, attachId: '46af2ac8', ...over })];
+
+      if (phase === null) control.agent.phases.delete(ID);
+      else control.agent.phases.set(ID, { phase, since: 1, at: 1, event: 'Stop' });
+    }
+
+    async function dispatched(): Promise<Control> {
+      const control = harness();
+      watch(control);
+      await control.pass();
+      on(control, 'running');
+      await control.pass();
+      await control.pass();
+
+      return control;
+    }
+
+    it('stops a run waiting on a question once its result is written, and only once', async () => {
+      const control = await dispatched();
+      on(control, 'waiting');
+      await control.pass();
+
+      expect(control.stopped).toEqual([]);
+
+      control.report({ outcome: 'halted', detail: 'Which base should the merge use?' });
+      await control.pass();
+      await control.pass();
+
+      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'halted' });
+      expect(control.stopped).toEqual(['46af2ac8']);
+    });
+
+    it('waits for the turn that wrote the result to end', async () => {
+      const control = await dispatched();
+      control.report({ outcome: 'done', detail: 'Merged master.' });
+      await control.pass();
+
+      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+      expect(control.stopped).toEqual([]);
+
+      on(control, 'idle');
+      await control.pass();
+
+      expect(control.stopped).toEqual(['46af2ac8']);
+    });
+
+    it('stops a finished run whose process is still listed', async () => {
+      const control = await dispatched();
+      control.report({ outcome: 'done', detail: 'Merged master.' });
+      on(control, null, { finished: true });
+      await control.pass();
+
+      expect(control.stopped).toEqual(['46af2ac8']);
+    });
+
+    it('leaves a session with no background process alone', async () => {
+      const control = await dispatched();
+      control.report({ outcome: 'done', detail: 'Merged master.' });
+      on(control, 'idle', { finished: true, attachId: null });
+      await control.pass();
+
+      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+      expect(control.stopped).toEqual([]);
+    });
+
+    it('does not repeat a stop that failed', async () => {
+      const control = await dispatched();
+      control.stopFails = true;
+      control.report({ outcome: 'done', detail: 'Merged master.' });
+      on(control, 'idle');
+      await control.pass();
+      await control.pass();
+
+      expect(control.stopped).toEqual(['46af2ac8']);
+      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+    });
+  });
+
   /** Use the session report to resolve the run; later repository changes do not establish its outcome. */
   it('settles from what the run wrote, without reading the pull request again', async () => {
     const control = harness();
@@ -1672,14 +1756,14 @@ describe('making the worktree an action needs', () => {
     expect(control.dispatched[1]).toMatchObject({ cwd: worktree });
   });
 
-  /** A worktree run can report before its turn ends; its own session is not other work on the card. */
-  it('starts the action while the worktree run’s session is still listed', async () => {
+  /** A worktree run can report before its turn ends; its session is not other work, and the action's record replaces its own (M33). */
+  it('starts the action while the worktree run’s session is still listed, then stops that session’s process', async () => {
     const control = bare();
     await control.pass();
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
     await control.settle();
 
-    const run = fakeSession({ agent: 'claude', sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', cwd: CLONE, checkoutRoot: CLONE, branch: 'master', issueNumber: null });
+    const run = fakeSession({ agent: 'claude', sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', cwd: CLONE, checkoutRoot: CLONE, branch: 'master', issueNumber: null, attachId: '46af2ac8' });
     control.agent.sessions = [run];
     control.agent.phases.set(run.sessionId, { phase: 'running', since: 1, at: 1, event: 'PreToolUse' });
     await control.pass();
@@ -1690,9 +1774,13 @@ describe('making the worktree an action needs', () => {
     await control.settle();
 
     expect(control.dispatched).toHaveLength(2);
-    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge', qualifier: 'upstream' });
-  });
+    expect(control.stopped).toEqual([]);
 
+    control.agent.phases.set(run.sessionId, { phase: 'idle', since: 2, at: 2, event: 'Stop' });
+    await control.pass();
+
+    expect(control.stopped).toEqual(['46af2ac8']);
+  });
 
   it('keeps a worktree run on the issue card once only its saved transcript remains, until it is gone for a day', async () => {
     const control = bare();

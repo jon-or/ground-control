@@ -156,7 +156,7 @@ An absolute `createFileSystemWatcher` outside the workspace was exercised in a d
 
 ### Claude background dispatch and attach
 
-**Records M1 and M33. Runtime/source, 2026-09-01 and 2026-09-05–08; later probes CLI 2.1.261, argument handling 2026-09-16 on CLI 2.1.273. Used by actions.**
+**Records M1 and M33. Runtime/source, 2026-09-01 and 2026-09-05–08; later probes CLI 2.1.261, argument handling 2026-09-16 on CLI 2.1.273, process lifetime 2026-09-29 on CLI 2.1.285. Used by actions.**
 
 ```text
 claude --bg --permission-mode <mode> -n <name> <prompt>
@@ -185,7 +185,7 @@ Background `Write`/`Edit` in the main checkout was blocked by `worktree.bgIsolat
 
 Open a live background job with `claude attach <short-id>` in a TTY. Leaving the attachment keeps the job running. `claude logs` returns ANSI terminal frames, not structured events; one recorded result was 94.5 kB. `attach` and `logs` reject interactive sessions, whether given short or full IDs.
 
-A live background session refused `-p --resume`, directing the caller to attach or stop first. An editor resume hit the same refusal. This differs from resuming a stopped background job and from print-mode concurrent-writer experiments.
+A live background session refused `-p --resume`, directing the caller to attach or stop first. An editor resume hit the same refusal. The process outlives its turn: on CLI 2.1.285 (2026-09-29), a one-turn probe listed `state: done`, `status: idle` and a pid, refused `-p --resume` with exit 1, and resumed with its context after `claude stop`, after which `--all` listed it with `state: done` and no pid or status. An action run ending on a question (`state: blocked`) refused an editor resume the same way on CLI 2.1.284. A listed pid therefore marks a process that holds the session; `state` does not. This differs from resuming a stopped background job and from print-mode concurrent-writer experiments.
 
 `status` is `idle|busy|waiting`; waiting can include `waitingFor`. `state` is `working|blocked|done|stopped`; blocked derives from reply/approval needs. A one-turn probe reported done, while a run ending with a choice reported blocked. Completed entries can remain on the ordinary roster; interpret lifecycle data explicitly.
 

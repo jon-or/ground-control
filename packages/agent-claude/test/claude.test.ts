@@ -193,6 +193,17 @@ describe('the Claude adapter', () => {
     expect(gone.sessions.find((s) => s.sessionId === interactive.sessionId)?.attachId).toBeNull();
   });
 
+  /** A finished turn leaves its background process running, listed with a pid, and a resume is refused until it exits (M33). */
+  it('includes attach IDs for finished background sessions whose process is still listed', async () => {
+    const ended = all.find((e) => e.kind === 'background' && e.state === 'stopped' && e.id !== undefined)!;
+    const lingering = all.map((e) => (e === ended ? { ...e, state: 'done', status: 'idle', pid: 24860 } : e));
+
+    const { sessions } = await read(config(), deps(lingering));
+    const session = sessions.find((s) => s.sessionId === ended.sessionId);
+
+    expect(session).toMatchObject({ finished: true, attachId: ended.id });
+  });
+
   /** Verify finished against --all and active responses; only --all includes terminated background sessions. */
   it('marks completion only for CLI terminal states', async () => {
     const { sessions } = await read(config(), deps(all));

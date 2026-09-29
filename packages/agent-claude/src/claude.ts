@@ -234,8 +234,9 @@ function toSession(entry: AgentEntry, deps: MachineDeps, env: NodeJS.ProcessEnv)
     activity: readActivity(deps.stateDir, entry.sessionId, deps.readText),
     // Idle is not terminal for interactive sessions. Only explicit CLI terminal states mark completion (R24).
     finished: entry.state !== undefined && FINISHED_STATES.has(entry.state),
-    // Only live background sessions support attach; ended sessions return No job matching (M33).
-    attachId: entry.kind === 'background' && !FINISHED_STATES.has(entry.state ?? '') ? (entry.id ?? null) : null,
+    // A background process attaches until it exits, which a finished turn does not do; its pid is listed while it runs.
+    // An ended process returns No job matching and holds nothing a resume needs (M33).
+    attachId: entry.kind === 'background' && (entry.pid !== undefined || !FINISHED_STATES.has(entry.state ?? '')) ? (entry.id ?? null) : null,
     details: detailsOf(entry),
   };
 }

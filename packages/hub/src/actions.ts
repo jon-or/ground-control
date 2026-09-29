@@ -95,7 +95,7 @@ interface Request {
   chained: boolean;
   /** For a chained request, the row the worktree run was started for; a reading that moved since starts nothing. */
   row?: Row;
-  /** For a chained request, the worktree run's session, whose work is reported and so is not other work on the card. */
+  /** For a chained request, the worktree run's session: its work is reported and #release stops its process. */
   after?: string;
 }
 
@@ -109,12 +109,23 @@ interface InFlight {
   shown: 'action' | 'worktree' | null;
 }
 
+/** A settled run whose background process #release may stop. */
+interface SettledRun {
+  key: string;
+  agent: string;
+  shortId: string;
+}
+
 /** Run supported card actions without changing lane placement. Outcomes come from session reports (R39). */
 export class ActionRunner {
   readonly #deps: ActionDeps;
   readonly #inFlight = new Map<string, InFlight>();
   /** Keys with pending stop requests, excluded from outcome checks. */
   readonly #stopping = new Set<string>();
+  /** Runs settled this hub lifetime by session ID, kept after the next run on the card replaces their record. */
+  readonly #settledRuns = new Map<string, SettledRun>();
+  /** Session IDs #release has stopped or tried, so a failed stop is not repeated every pass. */
+  readonly #released = new Set<string>();
   /** Disable automatic dispatch until a client supplies settings. */
   #settings: ActionSettings = { ...DEFAULT_ACTIONS, dailyLimit: 0 };
   #worktree: WorktreeSettings = DEFAULT_WORKTREE;
@@ -226,6 +237,7 @@ export class ActionRunner {
       // Resolve outcomes before pruning so active runs retain their stop controls.
       if (sessionsRead) {
         this.#settle(lanes, sessions, sourcesRead);
+        this.#release(sessions);
       }
 
       this.#write(nextActionState(lanes, this.#deps.store.read(), sourcesRead, this.#deps.now()));
@@ -541,6 +553,13 @@ export class ActionRunner {
       this.#write(next);
     }
 
+    // A worktree run's chained action replaces its record below; its session still needs releasing.
+    for (const [key, run] of Object.entries(next.runs)) {
+      if (state.runs[key]?.outcome === 'running' && (run.outcome === 'landed' || run.outcome === 'halted') && run.sessionId !== null) {
+        this.#settledRuns.set(run.sessionId, { key, agent: run.agent, shortId: run.shortId });
+      }
+    }
+
     // The action the worktree run preceded starts now, in the worktree the card carries after the write above.
     for (const { key, row, after } of continued) {
       void this.#run(key, this.#deps.currentCard?.(key), { asked: false, chained: true, row, after });
@@ -549,6 +568,57 @@ export class ActionRunner {
     // After the chained starts, so the card shows them starting; the next broadcast may be a roster poll away.
     if (next !== state) {
       this.#deps.changed();
+    }
+  }
+
+  /**
+   * Stop the background process a settled run leaves idle or waiting, so its session resumes in an editor: the CLI
+   * refuses to resume a session its background process still holds, even after the turn ends (M33).
+   */
+  #release(sessions: readonly Session[]): void {
+    // Stored runs cover those settled before this hub started.
+    const candidates = new Map(this.#settledRuns);
+
+    for (const [key, run] of Object.entries(this.#deps.store.read().runs)) {
+      if ((run.outcome === 'landed' || run.outcome === 'halted') && run.sessionId !== null) {
+        candidates.set(run.sessionId, { key, agent: run.agent, shortId: run.shortId });
+      }
+    }
+
+    for (const [sessionId, { key, agent: agentId, shortId }] of candidates) {
+      const session = sessions.find((candidate) => candidate.sessionId === sessionId);
+      const agent = this.#deps.agents.find((candidate) => candidate.id === agentId);
+      const configured = this.#agentPaths.get(agentId);
+
+      if (session?.attachId == null) {
+        this.#settledRuns.delete(sessionId);
+        continue;
+      }
+
+      if (
+        // A run can write its result before its last message; wait for the turn to end.
+        !(session.finished || (session.activity !== null && session.activity.phase !== 'running')) ||
+        this.#released.has(sessionId) ||
+        shortId === '' ||
+        agent?.stopDispatch === undefined ||
+        configured === undefined
+      ) {
+        continue;
+      }
+
+      this.#released.add(sessionId);
+      this.#settledRuns.delete(sessionId);
+      this.#deps.log.info(`${key}: stopping the settled run's background process`, 'actions');
+
+      const failed = (message: string): void =>
+        this.#deps.log.warn(`${key}: could not stop the settled run's background process: ${message}`, 'actions');
+
+      void agent.stopDispatch(configured.path, shortId).then(
+        (failure) => {
+          if (failure !== null) failed(failure.message);
+        },
+        (error: unknown) => failed(error instanceof Error ? error.message : String(error)),
+      );
     }
   }
 
