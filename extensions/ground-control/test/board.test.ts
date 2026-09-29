@@ -237,12 +237,12 @@ const toggleArchived = () => {
 
 /** Each state glyph's drawing, pinned as the other client pins it so a shape changed on one side alone fails. */
 const GLYPH_SVG: Record<string, string> = {
-  ring: '<circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="2"></circle>',
-  check: '<path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>',
-  alert: '<path d="M8 3v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><circle cx="8" cy="12.5" r="1.25" fill="currentColor"></circle>',
-  cross: '<path d="M4 4 12 12M12 4 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
-  square: '<rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"></rect>',
-  slash: '<circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.5"></circle><path d="M4.5 11.5 11.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5"></path>',
+  spinner: '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" opacity="0.3"></circle><path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>',
+  check: '<path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.751.751 0 0 0-.018-1.042.751.751 0 0 0-1.042-.018L6.75 9.19 5.28 7.72a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042l2 2a.75.75 0 0 0 1.06 0Z" fill="currentColor"></path>',
+  alert: '<path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm1 6a1 1 0 1 0-2 0 1 1 0 0 0 2 0Z" fill="currentColor"></path>',
+  cross: '<path d="M2.343 13.657A8 8 0 1 1 13.658 2.343 8 8 0 0 1 2.343 13.657ZM6.03 4.97a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042L6.94 8 4.97 9.97a.749.749 0 0 0 .326 1.275.749.749 0 0 0 .734-.215L8 9.06l1.97 1.97a.749.749 0 0 0 1.275-.326.749.749 0 0 0-.215-.734L9.06 8l1.97-1.97a.749.749 0 0 0-.326-1.275.749.749 0 0 0-.734.215L8 6.94Z" fill="currentColor"></path>',
+  square: '<path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16ZM5.75 5a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75Z" fill="currentColor" fill-rule="evenodd"></path>',
+  slash: '<path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM3.965 13.096a6.5 6.5 0 0 0 9.131-9.131ZM1.5 8a6.474 6.474 0 0 0 1.404 4.035l9.131-9.131A6.499 6.499 0 0 0 1.5 8Z" fill="currentColor"></path>',
 };
 
 describe('board webview', () => {
@@ -2935,9 +2935,9 @@ describe('card actions (R39)', () => {
   });
 
   it.each([
-    ['running', { state: 'running', action: 'review-others', qualifier: 'initial', since: at }, 'ring', 'Reviewing…'],
+    ['running', { state: 'running', action: 'review-others', qualifier: 'initial', since: at }, 'spinner', 'Reviewing…'],
     ['at its worktree stage', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'worktree' }, 'branch', 'Creating worktree…'],
-    ['starting', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'starting' }, 'ring', 'Starting…'],
+    ['starting', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'starting' }, 'spinner', 'Starting…'],
     ['landed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'landed', detail: 'Merged into Test-Payments.', at }, 'check', 'Merged'],
     ['halted', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'halted', detail: 'Conflicts.', at }, 'alert', 'Stopped short'],
     ['failed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'failed', detail: 'Not found.', at }, 'cross', 'Did not run'],

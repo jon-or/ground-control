@@ -1130,6 +1130,13 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 
 .state-mark[data-outcome='running'] {
   color: var(--gc-working);
+}
+
+.state-mark [data-glyph='spinner'] {
+  animation: mark-spin 1s linear infinite;
+}
+
+.state-mark[data-outcome='running'] .worktree-mark {
   animation: mark-colour-pulse 1.8s ease-in-out infinite;
 }
 
@@ -1153,6 +1160,12 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   }
   50% {
     color: var(--gc-working);
+  }
+}
+
+@keyframes mark-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -1306,7 +1319,8 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 
 @media (prefers-reduced-motion: reduce) {
   .verdict[data-state='triaging'] .note,
-  .state-mark[data-outcome='running'] {
+  .state-mark [data-glyph='spinner'],
+  .state-mark[data-outcome='running'] .worktree-mark {
     animation: none;
   }
 
@@ -1321,7 +1335,8 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 }
 
 body[data-motion='reduced'] .verdict[data-state='triaging'] .note,
-body[data-motion='reduced'] .state-mark[data-outcome='running'] {
+body[data-motion='reduced'] .state-mark [data-glyph='spinner'],
+body[data-motion='reduced'] .state-mark[data-outcome='running'] .worktree-mark {
   animation: none;
 }
 

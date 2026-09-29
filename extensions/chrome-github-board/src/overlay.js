@@ -296,8 +296,10 @@ ${COLUMN} { margin-right: -1px !important;
 /* An even box, so the 16-unit glyph lands on whole pixels (R45). */
 .gc-state-mark { display: inline-flex; flex: none; width: 12px; height: 12px; color: var(--fgColor-muted, #59636e); }
 .gc-state-mark svg { width: 12px; height: 12px; }
-.gc-state-mark[data-outcome="running"] { color: var(--fgColor-success, #1a7f37);
-  animation: gc-mark-colour-pulse 1.8s ease-in-out infinite; }
+.gc-state-mark[data-outcome="running"] { color: var(--fgColor-success, #1a7f37); }
+.gc-state-mark [data-glyph="spinner"] { animation: gc-mark-spin 1s linear infinite; }
+.gc-state-mark[data-outcome="running"] .gc-worktree-mark { animation: gc-mark-colour-pulse 1.8s ease-in-out infinite; }
+@keyframes gc-mark-spin { to { transform: rotate(360deg); } }
 .gc-state-mark[data-outcome="landed"] { color: var(--fgColor-success, #1a7f37); }
 .gc-state-mark[data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
 .gc-state-mark[data-outcome="failed"] { color: var(--gc-failed); }
@@ -404,7 +406,8 @@ span.gc-returned { margin-left: 6px; font-size: 11px; line-height: 18px; font-we
   50% { color: var(--fgColor-muted, #59636e); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .gc-verdict[data-state="triaging"] .gc-note, .gc-state-mark[data-outcome="running"] { animation: none; }
+  .gc-verdict[data-state="triaging"] .gc-note, .gc-state-mark [data-glyph="spinner"],
+  .gc-state-mark[data-outcome="running"] .gc-worktree-mark { animation: none; }
   .${BADGE_CLASS} button.gc-tool[data-state="running"] { animation: none; }
   .gc-tail .gc-age, .gc-tools { transition: none; }
 }
@@ -475,7 +478,8 @@ ${CARD}[${ATTENTION_ATTR}="your-turn"] .gc-session[data-phase="idle"] .gc-dot {
   background-image: none; color: var(--fgColor-default, #1f2328); animation-name: none; }
 [${MOTION_ATTR}="reduced"] ${CARD}[${ATTENTION_ATTR}="running"] { animation: none; }
 [${MOTION_ATTR}="reduced"] .gc-verdict[data-state="triaging"] .gc-note,
-[${MOTION_ATTR}="reduced"] .gc-state-mark[data-outcome="running"] { animation: none; }
+[${MOTION_ATTR}="reduced"] .gc-state-mark [data-glyph="spinner"],
+[${MOTION_ATTR}="reduced"] .gc-state-mark[data-outcome="running"] .gc-worktree-mark { animation: none; }
 [${MOTION_ATTR}="reduced"] .${BADGE_CLASS} button.gc-tool[data-state="running"] { animation: none; }
 
 /* Restore text color when forced colors suppress the gradient. */
@@ -2592,23 +2596,21 @@ function stateMark(doc, state) {
 }
 
 /**
- * Glyphs drawn on a 16-unit grid, stroked or filled in the mark's colour. Same shapes as the editor board.
+ * Glyphs on a 16-unit grid in the mark's colour: the GitHub Actions spinner, octicons from @primer/octicons 19.15.1,
+ * and a disc with a stop square cut out, which octicons lack. Same shapes as the editor board.
  *
  * @type {Record<string, [string, Record<string, string>][]>}
  */
 const STATE_GLYPHS = {
-  ring: [['circle', { cx: '8', cy: '8', r: '5', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }]],
-  check: [['path', { d: 'M3.5 8.5 6.5 11.5 12.5 4.5', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }]],
-  alert: [
-    ['path', { d: 'M8 3v6', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }],
-    ['circle', { cx: '8', cy: '12.5', r: '1.25', fill: 'currentColor' }],
+  spinner: [
+    ['circle', { cx: '8', cy: '8', r: '6', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', opacity: '0.3' }],
+    ['path', { d: 'M8 2a6 6 0 0 1 6 6', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }],
   ],
-  cross: [['path', { d: 'M4 4 12 12M12 4 4 12', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' }]],
-  square: [['rect', { x: '4', y: '4', width: '8', height: '8', rx: '1.5', fill: 'currentColor' }]],
-  slash: [
-    ['circle', { cx: '8', cy: '8', r: '5', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' }],
-    ['path', { d: 'M4.5 11.5 11.5 4.5', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' }],
-  ],
+  check: [['path', { d: 'M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.751.751 0 0 0-.018-1.042.751.751 0 0 0-1.042-.018L6.75 9.19 5.28 7.72a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042l2 2a.75.75 0 0 0 1.06 0Z', fill: 'currentColor' }]],
+  alert: [['path', { d: 'M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm1 6a1 1 0 1 0-2 0 1 1 0 0 0 2 0Z', fill: 'currentColor' }]],
+  cross: [['path', { d: 'M2.343 13.657A8 8 0 1 1 13.658 2.343 8 8 0 0 1 2.343 13.657ZM6.03 4.97a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042L6.94 8 4.97 9.97a.749.749 0 0 0 .326 1.275.749.749 0 0 0 .734-.215L8 9.06l1.97 1.97a.749.749 0 0 0 1.275-.326.749.749 0 0 0-.215-.734L9.06 8l1.97-1.97a.749.749 0 0 0-.326-1.275.749.749 0 0 0-.734.215L8 6.94Z', fill: 'currentColor' }]],
+  square: [['path', { d: 'M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16ZM5.75 5a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75Z', fill: 'currentColor', 'fill-rule': 'evenodd' }]],
+  slash: [['path', { d: 'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM3.965 13.096a6.5 6.5 0 0 0 9.131-9.131ZM1.5 8a6.474 6.474 0 0 0 1.404 4.035l9.131-9.131A6.499 6.499 0 0 0 1.5 8Z', fill: 'currentColor' }]],
 };
 
 /**
@@ -2680,13 +2682,13 @@ const OUTCOME_GLYPHS = { landed: 'check', halted: 'alert', failed: 'cross', stop
 function actionState(action, creation) {
   if (action?.state === 'running') {
     if (action.stage === 'starting') {
-      return { text: 'Starting…', outcome: 'running', glyph: 'ring' };
+      return { text: 'Starting…', outcome: 'running', glyph: 'spinner' };
     }
 
     // The worktree the action needs is still being made; the action itself has not started (R46).
     return action.stage === 'worktree'
       ? { text: 'Creating worktree…', outcome: 'running', glyph: 'branch' }
-      : { text: ACTION_RUNNING[/** @type {keyof typeof ACTION_RUNNING} */ (action.action)] ?? 'Working…', outcome: 'running', glyph: 'ring' };
+      : { text: ACTION_RUNNING[/** @type {keyof typeof ACTION_RUNNING} */ (action.action)] ?? 'Working…', outcome: 'running', glyph: 'spinner' };
   }
 
   if (creation?.state === 'running') {
