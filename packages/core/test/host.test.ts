@@ -12,7 +12,7 @@ describe('what a route is held by while it is being performed', () => {
       { route: 'reveal-here', session, root: 'd:/work/repo' },
       { route: 'reveal-elsewhere', session, root: 'd:/work/repo' },
       { route: 'sidebar-here', session, root: 'd:/work/repo' },
-      { route: 'unknown-surface-elsewhere', session, root: 'd:/work/repo' },
+      { route: 'unknown-surface-elsewhere', session, root: 'd:/work/repo', inEditor: false },
     ];
 
     for (const route of routes) {

@@ -63,6 +63,7 @@ describe('the placement table', () => {
     });
     expect(`${route.section}.${route.key}`).toBe('claudeCode.preferredLocation');
     expect(PLACEMENTS['codex']!.sidebarOpen).toBeUndefined();
+    expect(PLACEMENTS['codex']!.editorExecutable).toBeUndefined();
   });
 
   it('sends an open to the sidebar only when the developer chose it and Claude prefers the sidebar', () => {

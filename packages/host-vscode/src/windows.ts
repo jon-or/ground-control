@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Session } from '@ground-control/core';
 import {
   ideWindowsFrom,
+  launchedByEditor,
   listeningFrom,
   liveWindows,
   processNames,
@@ -54,8 +55,8 @@ async function readPorts(): Promise<ListeningPort[]> {
 }
 
 /**
- * Use Get-CimInstance only for parent PIDs (650 ms measured). Node cannot read other processes' parents, and
- * Windows 11 no longer includes wmic.
+ * Use Get-CimInstance only for parent PIDs and executables (650 ms measured). Node cannot read other processes'
+ * parents, and Windows 11 no longer includes wmic.
  */
 async function readProcesses(names: readonly string[]): Promise<ProcessEntry[]> {
   // Skip empty executable lists to avoid an invalid empty WHERE clause.
@@ -133,6 +134,8 @@ export interface Windows {
   live: IdeWindow[];
   /** Session window, or null when its parent is not a known extension host. */
   holding: IdeWindow | null;
+  /** Whether the session runs the executable its agent's editor extension launches (M63). */
+  launchedByEditor: boolean;
 }
 
 /**
@@ -152,5 +155,6 @@ export async function readWindows(
   return {
     live,
     holding: session ? windowForProcess(session.pid, table, ports, live) : null,
+    launchedByEditor: session ? launchedByEditor(session, table, placements) : false,
   };
 }

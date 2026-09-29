@@ -1,5 +1,5 @@
 const assert = require('node:assert');
-const { readFileSync } = require('node:fs');
+const { mkdirSync, readFileSync, writeFileSync } = require('node:fs');
 const { Module } = require('node:module');
 const { join } = require('node:path');
 const { buildSync } = require('esbuild');
@@ -222,8 +222,10 @@ describe('session scope at editor execution', () => {
     /** A sidebar open adds no tab, so the tab check that fails an editor resume must not run (M63). */
     it('resumes in the sidebar Claude prefers, without waiting for a tab', async () => {
       claudePrefers = 'sidebar';
+      // Report the session running once opened, so the landing check settles instead of warning during a later test.
+      const roster = async () => (commands.length === 0 ? [] : [{ ...session, attachId: null }]);
 
-      const failure = await entry.performRoute(resume(), async () => [], saved);
+      const failure = await entry.performRoute(resume(), roster, saved);
 
       assert.equal(failure, null);
       assert.deepEqual(commands, [['claude-vscode.editor.open', session.sessionId, undefined, undefined, undefined, undefined, preferred]]);
@@ -255,6 +257,181 @@ describe('session scope at editor execution', () => {
       assert.equal(failure, null);
       assert.deepEqual(commands, [['claude-vscode.editor.open', session.sessionId, undefined, undefined, undefined, undefined, preferred]]);
       assert.deepEqual(shown, []);
+    });
+
+    it('reports a sidebar open the editor command refused', async () => {
+      claudePrefers = 'sidebar';
+      vscode.commands.executeCommand = async (...args) => {
+        commands.push(args);
+        throw new Error('sidebar refused');
+      };
+
+      const failure = await entry.performRoute(resume(), async () => [], saved);
+
+      assert.equal(failure, 'claude-vscode.editor.open failed: sidebar refused');
+      assert.equal(commands.length, 1);
+    });
+
+    /**
+     * The editor extension's own binary under this window's extension host means a tab or the sidebar holds it. A
+     * sidebar keeps every session it has shown running but records only the visible one (M21, M63).
+     */
+    it('opens a session this window holds on an unrecorded surface through the sidebar route', async () => {
+      claudePrefers = 'sidebar';
+      const unrecorded = (inEditor) => ({ route: 'unknown-surface-here', session, root: session.cwd, inEditor });
+
+      const failure = await entry.performRoute(unrecorded(true), async () => [], live);
+
+      assert.equal(failure, null);
+      assert.deepEqual(commands, [['claude-vscode.editor.open', session.sessionId, undefined, undefined, undefined, undefined, preferred]]);
+      assert.deepEqual(shown, []);
+
+      claudePrefers = 'panel';
+      commands.length = 0;
+      assert.equal(await entry.performRoute(unrecorded(true), async () => [], live), null);
+      assert.equal(commands.length, 0, 'with Claude preferring a tab, an ID open could start a second process');
+      assert.match(shown[0], /Locate it manually/);
+
+      // Another program's copy of Claude under this host is held by neither, so opening it by ID would duplicate it.
+      claudePrefers = 'sidebar';
+      assert.equal(await entry.performRoute(unrecorded(false), async () => [], live), null);
+      assert.equal(commands.length, 0, 'a session the editor extension did not launch must not be opened by ID');
+      assert.match(shown[1], /Locate it manually/);
+    });
+
+    describe('handing a sidebar session to the window that holds it', () => {
+      const childProcess = require('node:child_process');
+      let execFile;
+      let state;
+      let launches;
+
+      beforeEach(() => {
+        launches = [];
+        execFile = childProcess.execFile;
+        childProcess.execFile = (_file, args, _options, callback) => {
+          launches.push(args.slice(1));
+          callback(null, '', '');
+        };
+        state = Object.getOwnPropertyDescriptor(vscode.window, 'state');
+        // The raised window taking focus is what lets the handover URI go out.
+        Object.defineProperty(vscode.window, 'state', { get: () => ({ focused: false }), configurable: true });
+      });
+
+      afterEach(() => {
+        childProcess.execFile = execFile;
+        if (state) Object.defineProperty(vscode.window, 'state', state);
+        else delete vscode.window.state;
+      });
+
+      it('raises the owning window, then sends it the session through the handover link', async () => {
+        claudePrefers = 'sidebar';
+
+        const failure = await entry.performRoute({ route: 'sidebar-elsewhere', session, root: 'd:/other-window' }, async () => [], live);
+
+        assert.equal(failure, null);
+        assert.deepEqual(launches[0], ['d:/other-window']);
+        assert.equal(launches[1][0], '--open-url');
+        assert.ok(launches[1][1].includes(session.sessionId), launches[1][1]);
+        assert.deepEqual(commands, []);
+      });
+
+      it('only raises the owning window while Claude prefers the panel', async () => {
+        claudePrefers = 'panel';
+
+        const failure = await entry.performRoute({ route: 'sidebar-elsewhere', session, root: 'd:/other-window' }, async () => [], live);
+
+        assert.equal(failure, null);
+        assert.deepEqual(launches, [['d:/other-window']]);
+        assert.match(shown[0], /is in the claude sidebar of the window on d:\/other-window/);
+      });
+
+      it('hands an unrecorded session the editor extension launched to the window that holds it', async () => {
+        claudePrefers = 'sidebar';
+        const unrecorded = (inEditor) => ({ route: 'unknown-surface-elsewhere', session, root: 'd:/other-window', inEditor });
+
+        assert.equal(await entry.performRoute(unrecorded(true), async () => [], live), null);
+        assert.equal(launches[1][0], '--open-url');
+        assert.ok(launches[1][1].includes(session.sessionId), launches[1][1]);
+
+        launches.length = 0;
+        assert.equal(await entry.performRoute(unrecorded(false), async () => [], live), null);
+        assert.deepEqual(launches, [['d:/other-window']], 'a session the editor extension did not launch is only raised');
+      });
+    });
+
+    /**
+     * A worktree resume redirects Claude's project directory (M52) and, with no tab to wait for, holds it until
+     * the session runs. `SystemRoot` stands in for the worktree: its project-directory name fits Claude's
+     * 64-character limit, which a path under the test home does not.
+     */
+    describe('a worktree resume through the sidebar', () => {
+      const worktree = process.env.SystemRoot;
+      const name = worktree.replace(/[^A-Za-z0-9]/g, '-');
+      const redirect = () => ({ ...resume(), worktree });
+      let seen;
+
+      beforeEach(() => {
+        claudePrefers = 'sidebar';
+        const projects = join(process.env.CLAUDE_CONFIG_DIR, 'projects', name);
+        mkdirSync(projects, { recursive: true });
+        writeFileSync(join(projects, `${session.sessionId}.jsonl`), '{}\n');
+        seen = [];
+        vscode.commands.executeCommand = async (...args) => {
+          commands.push(args);
+          seen.push({ project: process.env.CLAUDE_CODE_PROJECT_DIR_NAME, config: process.env.CLAUDE_CONFIG_DIR });
+        };
+      });
+
+      const restored = (before) => {
+        assert.equal(process.env.CLAUDE_CODE_PROJECT_DIR_NAME, undefined);
+        assert.equal(process.env.CLAUDE_CONFIG_DIR, before);
+      };
+
+      it('holds the redirect until the roster lists the session running, then restores it', async () => {
+        const config = process.env.CLAUDE_CONFIG_DIR;
+        const running = [{ ...session, attachId: null, cwd: worktree }];
+        let heldAtRead = null;
+        const roster = async () => {
+          if (commands.length === 0) return [];
+          heldAtRead ??= process.env.CLAUDE_CODE_PROJECT_DIR_NAME;
+          return running;
+        };
+
+        const started = Date.now();
+        const failure = await entry.performRoute(redirect(), roster, saved);
+
+        assert.equal(failure, null);
+        assert.ok(Date.now() - started < 5000, 'the hold ran on after the session was running');
+        assert.deepEqual(seen, [{ project: name, config }]);
+        assert.equal(heldAtRead, name, 'the redirect ended before the session was seen running');
+        restored(config);
+      });
+
+      it('ends the hold at its bound when a roster read never answers', async function () {
+        this.timeout(30_000);
+        const config = process.env.CLAUDE_CONFIG_DIR;
+        const roster = () => (commands.length === 0 ? Promise.resolve([]) : new Promise(() => {}));
+        const started = Date.now();
+
+        const failure = await entry.performRoute(redirect(), roster, saved);
+
+        const held = Date.now() - started;
+        assert.equal(failure, null);
+        assert.ok(held >= 14_000 && held < 20_000, `held for ${held} ms`);
+        restored(config);
+      });
+
+      it('restores the redirect when the editor command fails', async () => {
+        const config = process.env.CLAUDE_CONFIG_DIR;
+        vscode.commands.executeCommand = async () => {
+          throw new Error('sidebar refused');
+        };
+
+        const failure = await entry.performRoute(redirect(), async () => [], saved);
+
+        assert.equal(failure, 'claude-vscode.editor.open failed: sidebar refused');
+        restored(config);
+      });
     });
 
     /** With Claude preferring a tab, opening a sidebar session by ID would start a second process (M6). */

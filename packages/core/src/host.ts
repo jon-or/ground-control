@@ -52,8 +52,9 @@ export type OpenRoute =
   | { route: 'reveal-elsewhere'; session: Session; root: string }
   | { route: 'sidebar-here'; session: Session; root: string }
   | { route: 'sidebar-elsewhere'; session: Session; root: string }
-  | { route: 'unknown-surface-here'; session: Session; root: string }
-  | { route: 'unknown-surface-elsewhere'; session: Session; root: string }
+  // `inEditor`: the agent's editor extension launched the process, so a tab or its sidebar holds the session (M63).
+  | { route: 'unknown-surface-here'; session: Session; root: string; inEditor: boolean }
+  | { route: 'unknown-surface-elsewhere'; session: Session; root: string; inEditor: boolean }
   // Open a checkout without a session. Deduplicate by card key (R18).
   | { route: 'open-checkout'; key: string; root: string; newWindow: boolean }
   // Start in the performing window; no session ID exists for cross-window routing yet (mechanics M51).
@@ -110,6 +111,8 @@ export interface OpenRequest {
   surfaces: readonly SessionSurface[];
   /** Window identified by session PID and extension-host parent PID (mechanics M22). Null when no window parent matches. */
   window: HostWindow | null;
+  /** Whether the session runs its agent editor extension's own executable, so a tab or the sidebar holds it. */
+  launchedByEditor?: boolean;
   /** Folders a live window has open. The fallback for confirming a recorded root when the join names no window. */
   liveRoots: readonly string[];
   /** Full folder sets are needed to distinguish a standalone resume directory from a multi-root workspace. */
@@ -137,6 +140,8 @@ export interface HostWindows {
   live: HostWindow[];
   /** The window holding the session that was asked about, or null where the host cannot tie one to it. */
   holding: HostWindow | null;
+  /** Whether that session runs the executable its agent's editor extension launches, rather than a terminal copy. */
+  launchedByEditor?: boolean;
 }
 
 /** Host-specific state, window discovery, and session-opening operations. residentRoutes require a client in that host. */

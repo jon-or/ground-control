@@ -1774,6 +1774,7 @@ export class Hub {
       ...(historical ? { historicalSession: historical } : {}),
       surfaces,
       window: windows.holding,
+      launchedByEditor: windows.launchedByEditor === true,
       liveRoots: windows.live.flatMap((window) => window.folders),
       liveWindows: windows.live,
       workspaceRoot: client.hello.workspaceRoot,

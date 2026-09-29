@@ -92,7 +92,7 @@ describe('what it reads the machine for', () => {
   });
 
   it('finds no window under a home no agent has announced itself in', async () => {
-    expect(await makeVscodeHost().windows(held, deps)).toEqual({ live: [], holding: null });
+    expect(await makeVscodeHost().windows(held, deps)).toEqual({ live: [], holding: null, launchedByEditor: false });
   });
 
   it('warms its reads without being asked for anything', () => {

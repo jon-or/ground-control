@@ -448,7 +448,7 @@
             "scope": "application",
             "type": "string",
             "enum": ["editor", "preferred"],
-            "enumDescriptions": [
+            "markdownEnumDescriptions": [
               "Open Claude sessions in an editor tab.",
               "Open Claude sessions where `#claudeCode.preferredLocation#` points; with `sidebar`, sessions open and switch in the Claude sidebar."
             ],

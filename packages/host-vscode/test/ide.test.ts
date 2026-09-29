@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ideWindowsFrom,
+  launchedByEditor,
   listeningFrom,
   liveRootsOf,
   liveWindows,
@@ -87,10 +88,10 @@ describe('liveRootsOf', () => {
  */
 const WINDOWS = ideWindowsFrom([lock(24477, ['d:\\git\\tier3']), lock(18634, ['d:\\git\\orez'])]);
 const PROCESSES = [
-  { pid: 24320, parentPid: 9172 },
-  { pid: 16160, parentPid: 9172 },
-  { pid: 54048, parentPid: 38088 },
-  { pid: 40040, parentPid: 3040 },
+  { pid: 24320, parentPid: 9172, executable: null },
+  { pid: 16160, parentPid: 9172, executable: null },
+  { pid: 54048, parentPid: 38088, executable: null },
+  { pid: 40040, parentPid: 3040, executable: null },
 ];
 const LISTENING = [
   { port: 53529, owningPid: 9172 },
@@ -199,6 +200,7 @@ describe('processQuery', () => {
 
     expect(query).toContain(`WHERE Name='claude.exe' or Name='codex.exe'`);
     expect(query.match(/Get-CimInstance/g)).toHaveLength(1);
+    expect(query).toContain('SELECT ProcessId,ParentProcessId,ExecutablePath FROM Win32_Process');
   });
 
   /** Query every configured agent executable so process ancestry can locate each agent's windows. */
@@ -207,19 +209,48 @@ describe('processQuery', () => {
   });
 });
 
+/** M63: only the Claude extension's own binary means a tab or the sidebar holds the session. */
+describe('launchedByEditor', () => {
+  const table = [
+    { pid: 1, parentPid: 9, executable: String.raw`c:\Users\dev\.vscode\extensions\anthropic.claude-code-2.1.284-win32-x64\resources\native-binary\claude.exe` },
+    { pid: 2, parentPid: 9, executable: String.raw`c:\Users\dev\.vscode-insiders\extensions\anthropic.claude-code-2.1.290\resources\native-binary\claude.exe` },
+    { pid: 3, parentPid: 9, executable: String.raw`C:\Users\dev\.local\bin\claude.exe` },
+    { pid: 4, parentPid: 9, executable: null },
+  ];
+
+  it('recognizes the Claude extension binary, whatever editor installed it', () => {
+    expect(launchedByEditor({ agent: 'claude', pid: 1 }, table, PLACEMENTS)).toBe(true);
+    expect(launchedByEditor({ agent: 'claude', pid: 2 }, table, PLACEMENTS)).toBe(true);
+  });
+
+  it('refuses a terminal copy, a withheld path, an unlisted process, and an agent with no editor binary', () => {
+    expect(launchedByEditor({ agent: 'claude', pid: 3 }, table, PLACEMENTS)).toBe(false);
+    expect(launchedByEditor({ agent: 'claude', pid: 4 }, table, PLACEMENTS)).toBe(false);
+    expect(launchedByEditor({ agent: 'claude', pid: 5 }, table, PLACEMENTS)).toBe(false);
+    expect(launchedByEditor({ agent: 'claude', pid: null }, table, PLACEMENTS)).toBe(false);
+    expect(launchedByEditor({ agent: 'codex', pid: 1 }, table, PLACEMENTS)).toBe(false);
+    expect(launchedByEditor({ agent: 'constructor', pid: 1 }, table, PLACEMENTS)).toBe(false);
+  });
+});
+
 describe('processesFrom', () => {
-  it('reads the parent of each process out of what PowerShell wrote', () => {
-    const stdout = '[{"ProcessId":24320,"ParentProcessId":9172},{"ProcessId":16160,"ParentProcessId":9172}]';
+  it('reads the parent and executable of each process out of what PowerShell wrote', () => {
+    const extension = String.raw`c:\Users\dev\.vscode\extensions\anthropic.claude-code-2.1.284-win32-x64\resources\native-binary\claude.exe`;
+    const stdout = JSON.stringify([
+      { ProcessId: 24320, ParentProcessId: 9172, ExecutablePath: extension },
+      { ProcessId: 16160, ParentProcessId: 9172, ExecutablePath: null },
+    ]);
 
     expect(processesFrom(stdout)).toEqual([
-      { pid: 24320, parentPid: 9172 },
-      { pid: 16160, parentPid: 9172 },
+      { pid: 24320, parentPid: 9172, executable: extension },
+      // Windows withholds the path of another user's or an elevated process.
+      { pid: 16160, parentPid: 9172, executable: null },
     ]);
   });
 
   /** Windows PowerShell 5.1 has no `-AsArray`, so one running session arrives as a bare object and must still read. */
   it('reads a single row, which arrives unwrapped', () => {
-    expect(processesFrom('{"ProcessId":24320,"ParentProcessId":9172}')).toEqual([{ pid: 24320, parentPid: 9172 }]);
+    expect(processesFrom('{"ProcessId":24320,"ParentProcessId":9172}')).toEqual([{ pid: 24320, parentPid: 9172, executable: null }]);
   });
 
   it('reads nothing out of an empty run, a null, or output that is not JSON', () => {
@@ -231,6 +262,6 @@ describe('processesFrom', () => {
   it('excludes rows without both process and parent IDs', () => {
     const stdout = '[{"ProcessId":24320},{"ParentProcessId":9172},{"ProcessId":1,"ParentProcessId":2}]';
 
-    expect(processesFrom(stdout)).toEqual([{ pid: 1, parentPid: 2 }]);
+    expect(processesFrom(stdout)).toEqual([{ pid: 1, parentPid: 2, executable: null }]);
   });
 });

@@ -48,6 +48,11 @@ export interface AgentPlacement {
   /** Sidebar focus commands in fallback order; unavailable commands reject. */
   sidebarFocusCommands: readonly string[];
   /**
+   * The executable the agent's editor extension launches for its tabs and sidebar. A terminal session runs
+   * another copy, so a match means a tab or the sidebar holds the session (M63).
+   */
+  editorExecutable?: RegExp;
+  /**
    * Open a session, or start one when the ID is null, in the agent's preferred location: its sidebar when that
    * setting names it. Absent when the agent has no such route (M63).
    */
@@ -111,6 +116,7 @@ export const PLACEMENTS: Readonly<Record<string, AgentPlacement>> = {
     }),
     startTakesPrompt: true,
     sidebarFocusCommands: ['claudeVSCodeSidebarSecondary.focus', 'claudeVSCodeSidebar.focus'],
+    editorExecutable: /[/\\]anthropic\.claude-code-[^/\\]+[/\\]resources[/\\]native-binary[/\\]claude\.exe$/i,
     // The sixth argument is the one Claude's own session list passes. It routes by preferred location without
     // writing it; a session already in a tab reveals that tab (M63).
     sidebarOpen: {

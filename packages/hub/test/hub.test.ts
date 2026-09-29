@@ -1925,8 +1925,26 @@ describe('host requests', () => {
       workspaceRoot: 'd:/checkouts/project-9',
       liveRoots: ['d:/checkouts/project-1'],
       extensionReady: false,
+      launchedByEditor: false,
       now: 1_788_000_000_000,
     });
+  });
+
+  /** The resident may open an unrecorded session by ID only when the editor extension launched it (M63). */
+  it('passes on whether the editor extension launched the session', async () => {
+    const h = harness();
+    const session = fakeSession();
+    h.agent.sessions = [session];
+    h.host.plan = { route: 'reveal-here', session, root: session.cwd };
+    h.host.adapter.windows = async () => ({ live: [], holding: { folders: [session.cwd] }, launchedByEditor: true });
+
+    const { client } = connect(h);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+    h.hub.receive(client, { type: 'open', sessionId: session.sessionId, extensionReady: true });
+    await settle();
+
+    expect(h.host.planned[0]).toMatchObject({ window: { folders: [session.cwd] }, launchedByEditor: true });
   });
 
   it('reads the CLI at the path the configuration named, not at the adapter default', async () => {

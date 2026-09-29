@@ -405,7 +405,7 @@ Measured with two saved sessions A and B, observing tabs, `claude.exe` command l
 | Close A's tab | — | A's process exits; B, in the sidebar, keeps running |
 | Start with a prompt, no ID | `sidebar` | New untitled sidebar session with the prompt prefilled and not sent |
 
-A webview panel holds a channel per session it has shown and closes them all only when it is disposed; switching sessions closes none. Both sidebar views register `retainContextWhenHidden`, so sidebar sessions live as long as the window, and an editor tab's end when the tab closes.
+A webview panel holds a channel per session it has shown and closes them all only when it is disposed; switching sessions closes none. Both sidebar views register `retainContextWhenHidden`, so sidebar sessions live as long as the window, and an editor tab's end when the tab closes. The sidebar memento records only the visible session (M21), so the others run with no recorded surface; their `claude.exe` is still a direct child of the window's extension host (M22). A `Win32_Process` query on 2026-09-29 showed every extension-launched session running `<extensions>\anthropic.claude-code-<version>-<platform>\resources\native-binary\claude.exe`, and terminal sessions running the separately installed CLI (`~\.local\bin\claude.exe`), so `ExecutablePath` separates them where a parent PID alone would also admit another program's copy of Claude under the same host. Adding the column did not slow the filtered query: five runs each, median 519 ms without it and 471 ms with it, both dominated by PowerShell startup.
 
 A JSON `null` in the column slot reaches `createWebviewPanel` as a column and throws; pass `undefined` for unused positions.
 

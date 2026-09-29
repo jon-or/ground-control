@@ -52,6 +52,8 @@ export function ideWindowsFrom(locks: readonly IdeLock[]): IdeWindow[] {
 export interface ProcessEntry {
   pid: number;
   parentPid: number;
+  /** Null when Windows withholds it, as it does for another user's or an elevated process. */
+  executable: string | null;
 }
 
 /** TCP listener and owning process, used to identify a window's extension host. */
@@ -97,8 +99,8 @@ export function processQuery(names: readonly string[]): string {
 
   return [
     '$ErrorActionPreference = "SilentlyContinue";',
-    `$r = @(Get-CimInstance -Query "SELECT ProcessId,ParentProcessId FROM Win32_Process WHERE ${where}" |`,
-    'Select-Object ProcessId,ParentProcessId);',
+    `$r = @(Get-CimInstance -Query "SELECT ProcessId,ParentProcessId,ExecutablePath FROM Win32_Process WHERE ${where}" |`,
+    'Select-Object ProcessId,ParentProcessId,ExecutablePath);',
     'ConvertTo-Json -Compress -InputObject $r',
   ].join(' ');
 }
@@ -117,9 +119,10 @@ export function processesFrom(stdout: string): ProcessEntry[] {
   }
 
   return (Array.isArray(rows) ? rows : [rows]).flatMap((row) => {
-    const { ProcessId: pid, ParentProcessId: parentPid } = (row ?? {}) as Record<string, unknown>;
+    const { ProcessId: pid, ParentProcessId: parentPid, ExecutablePath: path } = (row ?? {}) as Record<string, unknown>;
+    const executable = typeof path === 'string' && path.length > 0 ? path : null;
 
-    return typeof pid === 'number' && typeof parentPid === 'number' ? [{ pid, parentPid }] : [];
+    return typeof pid === 'number' && typeof parentPid === 'number' ? [{ pid, parentPid, executable }] : [];
   });
 }
 
@@ -140,6 +143,18 @@ export function windowForProcess(
   const held = new Set(listening.filter((port) => port.owningPid === parent).map((port) => port.port));
 
   return windows.find((window) => held.has(window.port)) ?? null;
+}
+
+/** Whether the session runs the executable its agent's editor extension launches, not a terminal copy (M63). */
+export function launchedByEditor(
+  session: { agent: string; pid: number | null },
+  processes: readonly ProcessEntry[],
+  placements: Readonly<Record<string, AgentPlacement>>,
+): boolean {
+  const pattern = Object.hasOwn(placements, session.agent) ? placements[session.agent]?.editorExecutable : undefined;
+  const executable = processes.find((process) => process.pid === session.pid)?.executable;
+
+  return pattern !== undefined && typeof executable === 'string' && pattern.test(executable);
 }
 
 /** Keep windows whose lock ports are still listening. */

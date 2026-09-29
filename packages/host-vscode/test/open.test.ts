@@ -248,6 +248,16 @@ describe('planOpen routes by the surface holding the session', () => {
     );
 
     expect(routeOf(plan)).toBe('unknown-surface-here');
+    expect('inEditor' in plan && plan.inEditor).toBe(false);
+  });
+
+  /** The resident may open it by ID only when the editor extension launched it (M63). */
+  it('marks an unrecorded session the editor extension launched, here and elsewhere', () => {
+    const here = decide(request(live, { surfaces: [], window: { folders: [live.cwd] }, liveRoots: [], launchedByEditor: true }));
+    const elsewhere = decide(request(live, { surfaces: [], window: { folders: [away.cwd] }, liveRoots: [], launchedByEditor: true }));
+
+    expect(here).toMatchObject({ route: 'unknown-surface-here', inEditor: true });
+    expect(elsewhere).toMatchObject({ route: 'unknown-surface-elsewhere', inEditor: true });
   });
 
   /** Idempotent Codex reveal only needs the target window, including sessions in its unrecorded sidebar (M44). */

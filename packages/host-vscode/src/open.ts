@@ -179,9 +179,11 @@ export function planOpen(
   // start a duplicate agent (M21, M44).
   if (!held) {
     if (!placement.idempotentReveal) {
+      const inEditor = request.launchedByEditor === true;
+
       return here
-        ? { route: 'unknown-surface-here', session, root }
-        : { route: 'unknown-surface-elsewhere', session, root };
+        ? { route: 'unknown-surface-here', session, root, inEditor }
+        : { route: 'unknown-surface-elsewhere', session, root, inEditor };
     }
 
     return here ? { route: 'reveal-here', session, root } : { route: 'reveal-elsewhere', session, root };

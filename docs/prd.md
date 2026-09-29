@@ -274,7 +274,7 @@ An editor session opens by ID, with the prior conversation available. On hover a
 
 - Reveal an existing tab in its owning window.
 - For Claude in a sidebar, focus the sidebar/window and identify the requested session; opening another surface can duplicate its process. Where R48 sends opens to the sidebar, switch that sidebar to the session instead.
-- When the owning window is known but its surface is not, reveal only if the agent's operation is idempotent. Otherwise focus the window and explain the limitation.
+- When the owning window is known but its surface is not, reveal only if the agent's operation is idempotent, or through R48's sidebar route. Otherwise focus the window and explain the limitation.
 - Attach to a live detached Claude run in a terminal (R39).
 - Recheck history before resuming: confirm readable liveness, valid saved data, no conflicting live session on the card, and no pending resume. Use a final fresh roster check and an expiry deadline. A window opened for the resume restores its Claude tabs, which can resume the session first; report a session already live in its checkout as open rather than refusing it.
 
@@ -333,12 +333,12 @@ Two limitations are accepted. A repository opened as a saved `.code-workspace` r
 `claudeSessionLocation` chooses where Claude sessions open: `editor`, the default, opens an editor tab; `preferred` follows `claudeCode.preferredLocation` without changing it ([mechanics](mechanics.md#opening-a-claude-session-in-the-sidebar) M63). While that preference is `sidebar`:
 
 - A resume and a new session, with its prefilled prompt, open in the window's Claude sidebar.
-- A session the sidebar holds is switched to in place, in this window or, through a handover, in its owning window.
+- A session the sidebar holds is switched to in place, in this window or, through a handover, in its owning window. This includes a session the sidebar keeps running but no longer shows, which VS Code does not record. It qualifies only when its process is the Claude extension's own executable and a child of that window's extension host, so a tab or the sidebar holds it and the route reveals the one that does; a terminal session or another program's copy of Claude keeps the explanation.
 - A session in an editor tab still reveals that tab.
 
-With the preference on `panel`, every route keeps its editor behavior; a sidebar session is focused and explained, because opening it by ID would open a tab and a second process. The setting applies to opens requested from either client, since the editor window performs them. Codex has no route to a given sidebar thread and is unaffected.
+With the preference on `panel`, every route keeps its editor behavior: a sidebar session is focused and explained, and an unrecorded session is explained, because opening either by ID would open a tab and a second process. The setting applies to opens requested from either client, since the editor window performs them. Codex has no route to a given sidebar thread and is unaffected.
 
-A sidebar open adds no tab, so it is confirmed by the session appearing in its working directory. A redirected worktree resume (R44) holds its redirect until the session runs, bounded at six seconds.
+A sidebar open adds no tab, so it is confirmed by the session appearing in its working directory. A redirected worktree resume (R44) holds its redirect until the session runs, bounded at 15 seconds, the time Claude waits for a sidebar that is not ready. A sidebar slower than that reads its list without the redirect, so it opens a new empty session in the repository instead of resuming (M52), and the landing check reports that unexpected session.
 
 ### R46. A card's worktree, and the run that makes one
 

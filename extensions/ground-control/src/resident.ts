@@ -187,8 +187,14 @@ function commandArg(arg: CommandArg): unknown {
 /** Hold the override past the tab so the panel reads the worktree's sessions, and no longer (M52). */
 const PROJECT_DIR_SETTLE_MS = 2000;
 
-/** A sidebar open adds no tab, so a redirect is held until the session runs, within a tab hold's bound (M63). */
-const SIDEBAR_HOLD_MS = 6000;
+/**
+ * A sidebar open adds no tab, so a redirect is held until the session runs. Claude waits up to 15 s for a cold
+ * sidebar before acting, so the hold covers that wait (M63).
+ */
+const SIDEBAR_HOLD_MS = 15_000;
+
+/** Each roster read refreshes every session in the hub. */
+const SIDEBAR_POLL_MS = 1000;
 
 /** The agent's sidebar route when the settings send this open there (R48), otherwise null for an editor tab. */
 function sidebarRoute(placement: AgentPlacement): NonNullable<AgentPlacement['sidebarOpen']> | null {
@@ -203,18 +209,18 @@ function sidebarRoute(placement: AgentPlacement): NonNullable<AgentPlacement['si
   return opensInSidebar(placement, claudeSessionLocation(), preference) ? route : null;
 }
 
-/** Wait until the roster lists the session running, or the hold ends. */
+/** Wait until the roster lists the session running, or the hold ends; a slow roster read cannot extend it. */
 async function untilRunning(roster: Roster, sessionId: string): Promise<void> {
   const deadline = Date.now() + SIDEBAR_HOLD_MS;
 
-  while (Date.now() < deadline) {
-    const now = await roster();
+  for (let left = SIDEBAR_HOLD_MS; left > 0; left = deadline - Date.now()) {
+    const now = await Promise.race([roster(), delay(left).then(() => null)]);
 
     if (now?.some((s) => s.sessionId === sessionId && !s.finished)) {
       return;
     }
 
-    await delay(POLL_MS);
+    await delay(Math.min(SIDEBAR_POLL_MS, Math.max(0, deadline - Date.now())));
   }
 }
 
@@ -254,7 +260,7 @@ function assign(name: string, value: string | undefined): void {
 let pointing = false;
 
 /** Longer than a hold, which is bounded by the tab plus the settle delay, or by the sidebar hold. */
-const POINTER_WAIT_MS = 8000;
+const POINTER_WAIT_MS = SIDEBAR_HOLD_MS + 2000;
 
 const POINTER_BUSY = 'Another worktree session is still opening in this window. Refresh the board and try again.';
 
@@ -544,14 +550,31 @@ async function performAllowedRoute(plan: OpenRoute, roster: Roster, check: Sessi
       return null;
     }
 
-    case 'unknown-surface-here':
+    case 'unknown-surface-here': {
+      // The editor extension's own executable under this window's extension host means a tab or the sidebar holds
+      // the session; the route reveals the tab or switches the sidebar to it (M22, M63).
+      const placement = placementOf(plan.session.agent);
+      const route = placement === null || !plan.inEditor ? null : sidebarRoute(placement);
+
+      if (route !== null) {
+        return openInSidebar(plan.session, route, null);
+      }
+
       void vscode.window.showInformationMessage(
         `${sessionLabel(plan.session)} is in this window, but its tab or sidebar is unknown. Locate it manually to avoid starting a duplicate session.`,
       );
 
       return null;
+    }
 
     case 'unknown-surface-elsewhere': {
+      const placement = placementOf(plan.session.agent);
+
+      // The owning window receives the handover as its own unknown-surface-here route.
+      if (placement !== null && plan.inEditor && sidebarRoute(placement) !== null) {
+        return revealElsewhere(roster, check, plan.session, plan.root);
+      }
+
       const raised = await raise(plan.root);
       if (!routeAllowed(plan)) return SCOPE_REFUSAL;
       if (raised !== null) return raised;
