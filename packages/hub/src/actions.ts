@@ -95,6 +95,8 @@ interface Request {
   chained: boolean;
   /** For a chained request, the row the worktree run was started for; a reading that moved since starts nothing. */
   row?: Row;
+  /** For a chained request, the worktree run's session, whose work is reported and so is not other work on the card. */
+  after?: string;
 }
 
 /**
@@ -484,7 +486,7 @@ export class ActionRunner {
     // Finished background sessions remain listed (M33); presence alone would prevent completion.
     const live = new Set(sessions.filter((session) => !session.finished).map((session) => session.sessionId));
     const cards = new Map(lanes.flatMap((lane) => lane.cards).map((card) => [card.key, card]));
-    const continued: { key: string; row: Row }[] = [];
+    const continued: { key: string; row: Row; after: string }[] = [];
     let next = state;
 
     for (const [key, run] of Object.entries(state.runs)) {
@@ -528,7 +530,7 @@ export class ActionRunner {
         next = made.state;
 
         if (made.linked && run.next !== undefined) {
-          continued.push({ key, row: { action: run.next, qualifier: run.qualifier } });
+          continued.push({ key, row: { action: run.next, qualifier: run.qualifier }, after: run.sessionId });
         }
       } else {
         next = this.#settled(next, key);
@@ -540,8 +542,8 @@ export class ActionRunner {
     }
 
     // The action the worktree run preceded starts now, in the worktree the card carries after the write above.
-    for (const { key, row } of continued) {
-      void this.#run(key, this.#deps.currentCard?.(key), { asked: false, chained: true, row });
+    for (const { key, row, after } of continued) {
+      void this.#run(key, this.#deps.currentCard?.(key), { asked: false, chained: true, row, after });
     }
 
     // After the chained starts, so the card shows them starting; the next broadcast may be a roster poll away.
@@ -675,7 +677,7 @@ export class ActionRunner {
         target,
         context: reading.context,
         lane: card.lane,
-        liveSessions: activeSessions(card),
+        liveSessions: activeSessions(card, request.after),
         testBranchPattern: this.#settings.testBranchPattern,
       });
 
@@ -1031,8 +1033,8 @@ function statusChangedAt(card: LanedCard): number | null {
 }
 
 /** Sessions still running on the card. A finished background session stays listed (M33) but is not active work. */
-function activeSessions(card: LanedCard): number {
-  return card.sessions.filter((session) => !session.finished).length;
+function activeSessions(card: LanedCard, except?: string): number {
+  return card.sessions.filter((session) => !session.finished && session.sessionId !== except).length;
 }
 
 /** The card's pull request as a worktree run needs it (R46). */

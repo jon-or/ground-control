@@ -1672,6 +1672,28 @@ describe('making the worktree an action needs', () => {
     expect(control.dispatched[1]).toMatchObject({ cwd: worktree });
   });
 
+  /** A worktree run can report before its turn ends; its own session is not other work on the card. */
+  it('starts the action while the worktree run’s session is still listed', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    const run = fakeSession({ agent: 'claude', sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', cwd: CLONE, checkoutRoot: CLONE, branch: 'master', issueNumber: null });
+    control.agent.sessions = [run];
+    control.agent.phases.set(run.sessionId, { phase: 'running', since: 1, at: 1, event: 'PreToolUse' });
+    await control.pass();
+
+    control.dispatch = { shortId: '9c0d1e2f' };
+    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    await control.pass();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(2);
+    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge', qualifier: 'upstream' });
+  });
+
+
   it('keeps a worktree run on the issue card once only its saved transcript remains, until it is gone for a day', async () => {
     const control = bare();
     await control.pass();
