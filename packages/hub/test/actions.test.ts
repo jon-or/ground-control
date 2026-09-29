@@ -1169,6 +1169,22 @@ describe('following a run to its end', () => {
     expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
   });
 
+  /** A run ending on a question stays listed as blocked, not finished (M33); the result it wrote settles it. */
+  it('settles a run whose session is still live once it writes its result', async () => {
+    const control = harness();
+    watch(control);
+    await control.pass();
+    await control.appear();
+    await control.pass();
+
+    expect(control.cardAction()).toMatchObject({ state: 'running' });
+
+    control.report({ outcome: 'done', detail: 'Review written; not posted.' });
+    await control.pass();
+
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed', detail: 'Review written; not posted.' });
+  });
+
   /** Use the session report to resolve the run; later repository changes do not establish its outcome. */
   it('settles from what the run wrote, without reading the pull request again', async () => {
     const control = harness();

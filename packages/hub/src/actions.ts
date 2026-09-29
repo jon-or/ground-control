@@ -506,7 +506,8 @@ export class ActionRunner {
         continue;
       }
 
-      if (live.has(run.sessionId)) {
+      // A run that ends on a question stays listed as blocked, not finished (M33); its written result settles it.
+      if (live.has(run.sessionId) && readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key))) === null) {
         continue;
       }
 
