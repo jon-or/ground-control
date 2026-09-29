@@ -2679,6 +2679,10 @@ const OUTCOME_GLYPHS = { landed: 'check', halted: 'alert', failed: 'cross', stop
  */
 function actionState(action, creation) {
   if (action?.state === 'running') {
+    if (action.stage === 'starting') {
+      return { text: 'Starting…', outcome: 'running', glyph: 'ring' };
+    }
+
     // The worktree the action needs is still being made; the action itself has not started (R46).
     return action.stage === 'worktree'
       ? { text: 'Creating worktree…', outcome: 'running', glyph: 'branch' }
@@ -2686,7 +2690,7 @@ function actionState(action, creation) {
   }
 
   if (creation?.state === 'running') {
-    return { text: 'Creating worktree…', outcome: 'running', glyph: 'branch' };
+    return { text: creation.stage === 'starting' ? 'Starting…' : 'Creating worktree…', outcome: 'running', glyph: 'branch' };
   }
 
   if (!action || action.state === 'available') {
@@ -2945,6 +2949,17 @@ function runButton(doc, card, actions) {
   // One row per action and qualifier, so the control names both (R39).
   const label = `${TRIAGE_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
 
+  // Read and dispatched in the hub; there is no session to stop until the dispatch returns.
+  if (action.state === 'running' && action.stage === 'starting') {
+    const starting = toolButton(doc, `Starting ${label.toLowerCase()}`, `${label} is starting. It can be stopped once its session starts.`, stopMark(doc), null);
+
+    starting.classList.add('gc-run');
+    starting.dataset.state = 'running';
+    starting.setAttribute('aria-disabled', 'true');
+
+    return starting;
+  }
+
   if (action.state === 'running') {
     const stop = toolButton(
       doc,
@@ -3021,6 +3036,15 @@ function createWorktreeButton(doc, card, actions) {
 
   if (!creation) {
     return null;
+  }
+
+  if (creation.state === 'running' && creation.stage === 'starting') {
+    const starting = toolButton(doc, 'Starting the worktree run', 'A session is starting to create a worktree for this issue. It can be stopped once it starts.', worktreeMark(doc), null);
+
+    starting.dataset.state = 'running';
+    starting.setAttribute('aria-disabled', 'true');
+
+    return starting;
   }
 
   if (creation.state === 'running') {

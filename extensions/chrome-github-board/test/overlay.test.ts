@@ -3088,6 +3088,21 @@ describe('card actions (R39)', () => {
     expect(actions.stopAction).toHaveBeenCalledWith('issue-4501');
   });
 
+  // The hub reads the card and dispatches for seconds before there is a session to stop (R39).
+  it('says a clicked action is starting, with nothing to press until its session starts', () => {
+    show(acting({ state: 'running', action: 'merge', qualifier: 'upstream', since: at, stage: 'starting' }));
+
+    expect(said()).toBe('Starting…');
+    expect(mark()?.getAttribute('aria-label')).toBe('Starting merge · upstream');
+    expect(tipOf(mark())).toBe('Merge · upstream is starting. It can be stopped once its session starts.');
+    expect(mark()?.getAttribute('aria-disabled')).toBe('true');
+
+    mark()!.click();
+
+    expect(actions.stopAction).not.toHaveBeenCalled();
+    expect(actions.runAction).not.toHaveBeenCalled();
+  });
+
   // Left out rather than drawn to refuse, which is the rule every other control here follows.
   it('carries a refusal and its reason, with nothing to press', () => {
     show(acting({ state: 'refused', action: 'merge', qualifier: 'upstream', reason: 'The pull request is a draft.' }));
@@ -3162,6 +3177,7 @@ describe('card actions (R39)', () => {
   it.each([
     ['running', { state: 'running', action: 'review-others', qualifier: 'initial', since: at }, 'ring', 'Reviewing…'],
     ['at its worktree stage', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'worktree' }, 'branch', 'Creating worktree…'],
+    ['starting', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'starting' }, 'ring', 'Starting…'],
     ['landed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'landed', detail: 'Merged into Test-Payments.', at }, 'check', 'Merged'],
     ['halted', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'halted', detail: 'Conflicts.', at }, 'alert', 'Stopped short'],
     ['failed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'failed', detail: 'Not found.', at }, 'cross', 'Did not run'],
@@ -3929,6 +3945,21 @@ describe('the worktree in the bar', () => {
 
     expect(actions.createWorktree).not.toHaveBeenCalled();
     expect(reached).not.toHaveBeenCalled();
+  });
+
+  it('says a clicked worktree run is starting, with nothing to press until its session starts', () => {
+    show({ creation: { state: 'running', since: at, stage: 'starting' } });
+
+    const busy = document.querySelector<HTMLButtonElement>('.gc-tail .gc-tool[aria-label="Starting the worktree run"]')!;
+
+    expect(tipOf(busy)).toBe('A session is starting to create a worktree for this issue. It can be stopped once it starts.');
+    expect(busy.getAttribute('aria-disabled')).toBe('true');
+    expect(said()).toBe('Starting…');
+
+    busy.click();
+
+    expect(actions.stopAction).not.toHaveBeenCalled();
+    expect(actions.createWorktree).not.toHaveBeenCalled();
   });
 
   it('says the worktree is being made while the run is on, and stops it on press', () => {

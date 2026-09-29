@@ -6,6 +6,7 @@ import type {
   ActionState,
   AgentAdapter,
   AutomatableAction,
+  CardAction,
   Clone,
   Lane,
   LanedCard,
@@ -15,6 +16,7 @@ import type {
   TriageContext,
   TriageQualifier,
   WorkSource,
+  WorktreeCreation,
   WorktreeSettings,
 } from '@ground-control/core';
 import {
@@ -95,10 +97,20 @@ interface Request {
   row?: Row;
 }
 
+/**
+ * A request being read and dispatched, before its run record exists. `shown` names the control that says it is
+ * starting: set for a click and for the action after its worktree run, not for an automatic check that may refuse.
+ */
+interface InFlight {
+  controller: AbortController;
+  since: number;
+  shown: 'action' | 'worktree' | null;
+}
+
 /** Run supported card actions without changing lane placement. Outcomes come from session reports (R39). */
 export class ActionRunner {
   readonly #deps: ActionDeps;
-  readonly #inFlight = new Map<string, AbortController>();
+  readonly #inFlight = new Map<string, InFlight>();
   /** Keys with pending stop requests, excluded from outcome checks. */
   readonly #stopping = new Set<string>();
   /** Disable automatic dispatch until a client supplies settings. */
@@ -282,6 +294,12 @@ export class ActionRunner {
       void this.#run(key, card, { asked: true, chained: false });
     }
 
+    // Show the click as starting now; reading the card and dispatching take seconds before a run record exists. A
+    // request refused before its first await has already broadcast.
+    if (this.#inFlight.has(key)) {
+      this.#deps.changed();
+    }
+
     return null;
   }
 
@@ -293,7 +311,7 @@ export class ActionRunner {
       return refusal('action-not-running', 'No action is running on this card.');
     }
 
-    this.#inFlight.get(key)?.abort();
+    this.#inFlight.get(key)?.controller.abort();
 
     const agent = this.#deps.agents.find((candidate) => candidate.id === run.agent);
     const configured = this.#agentPaths.get(run.agent);
@@ -334,14 +352,14 @@ export class ActionRunner {
   dispose(): void {
     this.#disposed = true;
 
-    for (const controller of this.#inFlight.values()) {
+    for (const { controller } of this.#inFlight.values()) {
       controller.abort();
     }
   }
 
   /**
-   * Display stored outcomes and refusals, then available manual actions regardless of automatic enablement, and
-   * the worktree control's state on a card that has none (R46).
+   * Display a request still starting, stored outcomes and refusals, then available manual actions regardless of
+   * automatic enablement, and the worktree control's state on a card that has none (R46).
    */
   decorate(lanes: readonly Lane[]): Lane[] {
     const state = this.#deps.store.read();
@@ -351,8 +369,16 @@ export class ActionRunner {
       ...lane,
       cards: lane.cards.map((card): LanedCard => {
         const reading = readingOf(card, this.#settings.table);
-        const decorated = cardActionOf(state, card.key, reading, this.#offerRefusal(reading, card, clones));
-        const creation = this.#creatable(card) ? worktreeCreationOf(state, card.key, this.#worktreeRefusal(card, clones)) : undefined;
+        const starting = this.#inFlight.get(card.key);
+        const decorated: CardAction | undefined = starting?.shown === 'action' && reading.action !== null
+          ? { state: 'running', action: reading.action, qualifier: reading.qualifier, since: starting.since, stage: 'starting' }
+          : cardActionOf(state, card.key, reading, this.#offerRefusal(reading, card, clones));
+        // An action on a card with no worktree starts with the worktree run, so that control starts too (R46).
+        const creation: WorktreeCreation | undefined = !this.#creatable(card)
+          ? undefined
+          : starting !== undefined && starting.shown !== null
+            ? { state: 'running', since: starting.since, stage: 'starting' }
+            : worktreeCreationOf(state, card.key, this.#worktreeRefusal(card, clones));
 
         return {
           ...card,
@@ -510,12 +536,16 @@ export class ActionRunner {
 
     if (next !== state) {
       this.#write(next);
-      this.#deps.changed();
     }
 
     // The action the worktree run preceded starts now, in the worktree the card carries after the write above.
     for (const { key, row } of continued) {
       void this.#run(key, this.#deps.currentCard?.(key), { asked: false, chained: true, row });
+    }
+
+    // After the chained starts, so the card shows them starting; the next broadcast may be a roster poll away.
+    if (next !== state) {
+      this.#deps.changed();
     }
   }
 
@@ -571,7 +601,7 @@ export class ActionRunner {
   /** Read fresh context, validate, then dispatch or record the refusal. */
   async #run(key: string, card: LanedCard | undefined, request: Request): Promise<void> {
     const controller = new AbortController();
-    this.#inFlight.set(key, controller);
+    this.#inFlight.set(key, { controller, since: this.#deps.now(), shown: request.asked || request.chained ? 'action' : null });
     // Known once the reading is; a crash after that is a refusal of this row.
     let row: Row | null = null;
 
@@ -697,7 +727,7 @@ export class ActionRunner {
    */
   async #runWorktree(key: string, card: LanedCard | undefined, request: Request): Promise<void> {
     const controller = new AbortController();
-    this.#inFlight.set(key, controller);
+    this.#inFlight.set(key, { controller, since: this.#deps.now(), shown: request.asked ? 'worktree' : null });
 
     try {
       const agent = this.#agent();

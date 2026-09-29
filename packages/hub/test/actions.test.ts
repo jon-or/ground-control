@@ -406,6 +406,20 @@ function watch(control: Control, watching = true, hostId: string | null = 'vscod
   });
 }
 
+/** Hold the fresh read, and keep the card each broadcast carried, so a missing broadcast shows. */
+function held(control: Control): { release(): void; sent(): LanedCard | undefined; all(): LanedCard[] } {
+  let release!: () => void;
+  const sent: LanedCard[] = [];
+
+  control.contextHolding = new Promise<void>((resolve) => { release = resolve; });
+  control.hub.connect({ id: 'board-2', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+    const card = message.type === 'snapshot' || message.type === 'changed' ? message.snapshot.lanes.flatMap((lane) => lane.cards)[0] : undefined;
+    if (card !== undefined) sent.push(card);
+  });
+
+  return { release, sent: () => sent.at(-1), all: () => sent };
+}
+
 /** A page may ask, but the developer decides through `fromBrowser` and the row's automatic setting (R32, R39). */
 describe('a card action asked for from the browser', () => {
   const SCOPED = 'This session or checkout is not available under the current session settings.';
@@ -554,6 +568,64 @@ describe('a card action asked for from the browser', () => {
     await ask(control, 'stopAction', 'issue:absent');
 
     expect(control.notices.at(-1)).not.toBe(SCOPED);
+  });
+});
+
+/** Reading the card and dispatching take seconds; a click is shown as starting at once, in every client (R39). */
+describe('a request that is still starting', () => {
+  it('broadcasts a click as starting before the card is read, then as running once dispatched', async () => {
+    const control = harness({ table: [MANUAL_ROW] });
+    watch(control);
+    await control.pass();
+    const hold = held(control);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+
+    expect(hold.sent()?.action).toEqual({ state: 'running', action: 'merge', qualifier: 'upstream', since: control.clock.clock.now(), stage: 'starting' });
+
+    hold.release();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(hold.sent()?.action).toEqual({ state: 'running', action: 'merge', qualifier: 'upstream', since: control.clock.clock.now() });
+  });
+
+  it('goes back to the offer, with the notice, when the fresh read refuses the click', async () => {
+    const control = harness({ table: [MANUAL_ROW] });
+    watch(control);
+    await control.pass();
+    const hold = held(control);
+    control.pr = { isDraft: true };
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+
+    expect(hold.sent()?.action).toMatchObject({ state: 'running', stage: 'starting' });
+
+    hold.release();
+    await control.settle();
+
+    expect(control.notices).toContain('Pull request #4021 is a draft.');
+    expect(hold.sent()?.action).toEqual({ state: 'available', action: 'merge', qualifier: 'upstream' });
+  });
+
+  /** The automatic check refuses most of the time; showing it as starting would flash every eligible card. */
+  it('does not show an automatic check as starting', async () => {
+    const control = harness({ table: [MANUAL_ROW] });
+    watch(control);
+    await control.pass();
+    const hold = held(control);
+    const reads = control.reads.length;
+
+    control.hub.configure(config());
+    await control.pass();
+
+    expect(control.reads).toHaveLength(reads + 1);
+    expect(hold.sent()?.action).toEqual({ state: 'available', action: 'merge', qualifier: 'upstream' });
+
+    hold.release();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
   });
 });
 
@@ -1728,6 +1800,65 @@ describe('making the worktree an action needs', () => {
     expect(card(control).worktree?.root).toBe(worktree);
     expect(card(control).creation).toBeUndefined();
     expect(card(control).checkout).toEqual({ root: worktree, source: 'worktree', only: true });
+  });
+
+  it('shows a worktree click as starting until its run is dispatched', async () => {
+    const control = bare();
+    await control.pass();
+    const hold = held(control);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'createWorktree', key: control.key() });
+
+    expect(hold.sent()?.creation).toEqual({ state: 'running', since: control.clock.clock.now(), stage: 'starting' });
+    expect(hold.sent()?.action).toEqual({ state: 'available', action: 'merge', qualifier: 'upstream' });
+
+    hold.release();
+    await control.settle();
+
+    expect(hold.sent()?.creation).toEqual({ state: 'running', since: control.clock.clock.now() });
+  });
+
+  it('shows both controls starting when an action is clicked on a card with no worktree', async () => {
+    const control = bare();
+    await control.pass();
+    const hold = held(control);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+
+    expect(hold.sent()?.action).toMatchObject({ state: 'running', stage: 'starting' });
+    expect(hold.sent()?.creation).toEqual({ state: 'running', since: control.clock.clock.now(), stage: 'starting' });
+
+    hold.release();
+    await control.settle();
+
+    expect(hold.sent()?.creation).toEqual({ state: 'running', since: control.clock.clock.now() });
+  });
+
+  it('shows the action after its worktree run as starting, not offered, while it is read', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    await control.appear();
+    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    const hold = held(control);
+
+    const before = hold.all().length;
+
+    // A roster poll settles the worktree run; the broadcasts it makes must never offer the action meanwhile.
+    control.agent.sessions = [];
+    await control.hub.roster();
+    await control.settle();
+
+    expect(hold.all().slice(before).map((card) => card.action?.state)).not.toContain('available');
+    expect(hold.sent()?.action).toMatchObject({ state: 'running', action: 'merge', stage: 'starting' });
+
+    hold.release();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(2);
+    expect(hold.sent()?.action).toMatchObject({ state: 'running', action: 'merge' });
+    expect(hold.sent()?.action).not.toHaveProperty('stage');
   });
 
   // A landed worktree run must not read as the action having run, or the automatic path would never start it.

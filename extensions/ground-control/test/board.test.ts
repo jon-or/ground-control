@@ -2855,6 +2855,20 @@ describe('card actions (R39)', () => {
     expect(document.querySelector<HTMLElement>('.card')?.dataset['attention']).toBeUndefined();
   });
 
+  // The hub reads the card and dispatches for seconds before there is a session to stop (R39).
+  it('says a clicked action is starting, with nothing to press until its session starts', () => {
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'running', action: 'merge', qualifier: 'upstream', since: at, stage: 'starting' })] }) }));
+
+    expect(said()).toBe('Starting…');
+    expect(chip()?.getAttribute('aria-label')).toBe('Starting merge · upstream');
+    expect(tipOf(chip())).toBe('Merge · upstream is starting. It can be stopped once its session starts.');
+    expect(chip()?.getAttribute('aria-disabled')).toBe('true');
+    chip()?.click();
+
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'stopAction' }));
+    expect(sent()).not.toContainEqual(expect.objectContaining({ type: 'runAction' }));
+  });
+
   it('removes scoped-out session details while keeping the running action stoppable', () => {
     const action = { state: 'running', action: 'merge', qualifier: 'upstream', since: at } as const;
     send(message({ lanes: lanes({ build: [{ ...liveCard, action }] }) }));
@@ -2923,6 +2937,7 @@ describe('card actions (R39)', () => {
   it.each([
     ['running', { state: 'running', action: 'review-others', qualifier: 'initial', since: at }, 'ring', 'Reviewing…'],
     ['at its worktree stage', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'worktree' }, 'branch', 'Creating worktree…'],
+    ['starting', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'starting' }, 'ring', 'Starting…'],
     ['landed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'landed', detail: 'Merged into Test-Payments.', at }, 'check', 'Merged'],
     ['halted', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'halted', detail: 'Conflicts.', at }, 'alert', 'Stopped short'],
     ['failed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'failed', detail: 'Not found.', at }, 'cross', 'Did not run'],
@@ -4601,6 +4616,21 @@ describe('the worktree in the bar', () => {
     busy.click();
 
     expect(api.postMessage).toHaveBeenCalledWith({ type: 'stopAction', key: liveCard.key });
+    expect(api.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'createWorktree' }));
+  });
+
+  it('says a clicked worktree run is starting, with nothing to press until its session starts', () => {
+    show({ creation: { state: 'running', since: at, stage: 'starting' } });
+
+    const busy = document.querySelector<HTMLButtonElement>('.tools .tool[aria-label="Starting the worktree run"]')!;
+
+    expect(tipOf(busy)).toBe('A session is starting to create a worktree for this issue. It can be stopped once it starts.');
+    expect(busy.getAttribute('aria-disabled')).toBe('true');
+    expect(said()).toBe('Starting…');
+
+    busy.click();
+
+    expect(api.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'stopAction' }));
     expect(api.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'createWorktree' }));
   });
 

@@ -183,8 +183,11 @@ export type CardAction = { action: AutomatableAction; qualifier: TriageQualifier
   | { state: 'available' }
   /** `retryable` marks a refusal recorded from an earlier attempt: a manual request reads the card afresh and may start. */
   | { state: 'refused'; reason: string; retryable?: true }
-  /** `stage` is `worktree` while the run that precedes the action is still making the worktree (R46). */
-  | { state: 'running'; since: number; stage?: 'worktree' }
+  /**
+   * `stage` is `starting` while a request is read and dispatched, before there is a session to stop, and `worktree`
+   * while the run that precedes the action is still making the worktree (R46).
+   */
+  | { state: 'running'; since: number; stage?: 'starting' | 'worktree' }
   | { state: 'done'; outcome: ActionOutcome; detail: string; at: number }
 );
 
@@ -195,5 +198,6 @@ export type CardAction = { action: AutomatableAction; qualifier: TriageQualifier
 export type WorktreeCreation =
   | { state: 'available' }
   | { state: 'refused'; reason: string }
-  | { state: 'running'; since: number }
+  /** `stage` is `starting` while the request is dispatched, before there is a session to stop. */
+  | { state: 'running'; since: number; stage?: 'starting' }
   | { state: 'done'; outcome: ActionOutcome; detail: string; at: number };
