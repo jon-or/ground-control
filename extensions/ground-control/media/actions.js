@@ -14,6 +14,8 @@ const ACTIONS = [
   ['address-review', 'Answer review'],
   ['develop', 'Develop'],
   ['ship', 'Ship'],
+  ['qa-failure', 'QA failure'],
+  ['qa-question', 'QA question'],
 ];
 
 /** Actions that run only on a click, whatever the row says: shipping is the developer's approval (R49). */
@@ -26,15 +28,17 @@ const QUALIFIERS = {
   'address-review': ['initial', 'followup'],
   develop: [],
   ship: [],
+  'qa-failure': [],
+  'qa-question': [],
 };
 
 /** Each placeholder, what fills it, and the actions it is filled for. Merge · base fills them from the base's pull request. */
 const PLACEHOLDERS = [
   ['{issue}', 'Issue number', 'All'],
   ['{repo}', 'Repository, owner/name', 'All'],
-  ['{pr}', 'Pull request number', 'All; Develop and Ship only with your own open pull request, else empty'],
-  ['{branch}', 'Pull request head branch', 'All; Develop and Ship only with your own open pull request, else empty'],
-  ['{base}', 'Pull request base branch; on a stacked pull request, the board first merges the default branch into it with Merge · base', 'All; Develop and Ship only with your own open pull request, else empty'],
+  ['{pr}', 'Pull request number', 'All; Develop, Ship, and the QA rows only with your own open pull request, else empty'],
+  ['{branch}', 'Pull request head branch', 'All; Develop, Ship, and the QA rows only with your own open pull request, else empty'],
+  ['{base}', 'Pull request base branch; on a stacked pull request, the board first merges the default branch into it with Merge · base', 'All; Develop, Ship, and the QA rows only with your own open pull request, else empty'],
   ['{default}', 'Repository default branch, where every merge leg starts', 'All'],
   ['{target}', 'Test branch the request named', 'Merge · test; empty for every other row'],
   ['{checkout}', 'The worktree the run works in', 'All'],

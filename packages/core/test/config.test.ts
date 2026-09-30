@@ -446,6 +446,26 @@ describe('what the board may do on its own', () => {
     });
   });
 
+  it('takes QA rows qualifier-free and keeps their automatic setting (R39)', () => {
+    const base = { permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 };
+
+    expect(
+      actionsOf({
+        ...base,
+        table: [
+          { action: 'qa-question', prompt: '/address-qa {issue} result:{resultPath}', automatic: true },
+          { action: 'qa-failure', prompt: '/address-qa {issue} result:{resultPath}' },
+          { action: 'qa-failure', qualifier: 'initial', prompt: '/wrong-qualifier' },
+        ],
+      }),
+    ).toMatchObject({
+      table: [
+        { action: 'qa-question', qualifier: null, prompt: '/address-qa {issue} result:{resultPath}', automatic: true },
+        { action: 'qa-failure', qualifier: null, prompt: '/address-qa {issue} result:{resultPath}', automatic: false },
+      ],
+    });
+  });
+
   it('refuses an actions block that is not one, rather than acting on a default nobody chose', () => {
     expect(actionsOf('on')).toMatchObject({ kind: 'bad-config' });
     expect(actionsOf({ permissionMode: 'manual', concurrency: 'two', dailyLimit: 1, resultTimeoutMs: 60_000 })).toMatchObject({

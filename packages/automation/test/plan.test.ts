@@ -367,3 +367,32 @@ describe('develop and ship, which work on the issue (R49)', () => {
     expect(refusedAs(workflow('develop', null, { lane: 'icebox' }))).toBe('lane-parked');
   });
 });
+
+describe('answering QA, which works on the issue (R39)', () => {
+  function qa(action: 'qa-failure' | 'qa-question', pr: Partial<TriagePullRequest> | null, over: { lane?: LaneId; liveSessions?: number } = {}) {
+    return planAction({
+      action,
+      qualifier: null,
+      target: null,
+      context: context(pr),
+      lane: over.lane ?? 'review',
+      liveSessions: over.liveSessions ?? 0,
+      testBranchPattern: '^Test-',
+    });
+  }
+
+  it('answers QA on an issue whose pull request is merged or absent, and fills the prompt from the developer’s own open one', () => {
+    const own = qa('qa-failure', {});
+    const merged = qa('qa-failure', { state: 'MERGED' });
+    const none = qa('qa-question', null);
+
+    expect(own.ok && [own.plan.action, own.plan.pullRequest, own.plan.branch]).toEqual(['qa-failure', 4021, '17198-channel-mapping']);
+    expect(merged.ok && [merged.plan.pullRequest, merged.plan.branch]).toEqual([null, '']);
+    expect(none.ok && [none.plan.action, none.plan.pullRequest]).toEqual(['qa-question', null]);
+  });
+
+  it('refuses while a session is running on the card, and in a parked lane', () => {
+    expect(refusedAs(qa('qa-failure', {}, { liveSessions: 1 }))).toBe('session-running');
+    expect(refusedAs(qa('qa-question', {}, { lane: 'icebox' }))).toBe('lane-parked');
+  });
+});

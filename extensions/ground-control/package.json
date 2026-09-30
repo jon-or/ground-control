@@ -540,8 +540,8 @@
               "properties": {
                 "action": {
                   "type": "string",
-                  "enum": ["merge", "review-others", "address-review", "develop", "ship"],
-                  "enumDescriptions": ["Merge", "Review their PR", "Answer review", "Develop", "Ship; runs only on a click, so automatic is ignored"]
+                  "enum": ["merge", "review-others", "address-review", "develop", "ship", "qa-failure", "qa-question"],
+                  "enumDescriptions": ["Merge", "Review their PR", "Answer review", "Develop", "Ship; runs only on a click, so automatic is ignored", "QA failure", "QA question"]
                 },
                 "qualifier": {
                   "type": ["string", "null"],

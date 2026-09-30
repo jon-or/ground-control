@@ -3452,6 +3452,10 @@ describe('workflow stages (R49)', () => {
     ['landed develop', { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Opened the pull request.', at: reported }, 'Developed'],
     ['running ship', { state: 'running', action: 'ship', qualifier: null, since: reported }, 'Shipping…'],
     ['landed ship', { state: 'done', action: 'ship', qualifier: null, outcome: 'landed', detail: 'Shipped it.', at: reported }, 'Shipped'],
+    ['running QA failure', { state: 'running', action: 'qa-failure', qualifier: null, since: reported }, 'Addressing QA…'],
+    ['landed QA failure', { state: 'done', action: 'qa-failure', qualifier: null, outcome: 'landed', detail: 'Fixed step 3.', at: reported }, 'Addressed'],
+    ['running QA question', { state: 'running', action: 'qa-question', qualifier: null, since: reported }, 'Answering QA…'],
+    ['landed QA question', { state: 'done', action: 'qa-question', qualifier: null, outcome: 'landed', detail: 'Rewrote step 1.', at: reported }, 'Answered'],
   ] as const)('names a %s run as "%s"', (_, action, text) => {
     show(card(4501, { sessions: [], action }));
 

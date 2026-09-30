@@ -207,21 +207,34 @@ describe('the action table page', () => {
     expect($<HTMLInputElement>('#pattern')?.value).toBe('^Test-');
   });
 
-  it('offers develop and ship rows, which take no qualifier', () => {
-    send({ type: 'table', rows: [{ action: 'develop', qualifier: null, prompt: '/develop {issue}', automatic: true }], pattern: '^Test-' });
+  it('offers every action a row can name', () => {
+    send({ type: 'table', rows: [review], pattern: '^Test-' });
 
-    const [action, qualifier] = all<HTMLSelectElement>('#rows tbody select');
-
-    expect(Array.from(action!.options).map((option) => [option.value, option.textContent])).toEqual([
+    expect(Array.from(all<HTMLSelectElement>('#rows tbody select')[0]!.options).map((option) => [option.value, option.textContent])).toEqual([
       ['merge', 'Merge'],
       ['review-others', 'Review their PR'],
       ['address-review', 'Answer review'],
       ['develop', 'Develop'],
       ['ship', 'Ship'],
+      ['qa-failure', 'QA failure'],
+      ['qa-question', 'QA question'],
     ]);
-    expect(Array.from(qualifier!.options).map((option) => option.value)).toEqual(['']);
-    expect($<HTMLInputElement>('#rows tbody input[type=checkbox]')?.checked).toBe(true);
+  });
+
+  it.each(['develop', 'qa-failure', 'qa-question'])('takes no qualifier on a row changed to %s, and saves it automatic', (name) => {
+    send({ type: 'table', rows: [review], pattern: '^Test-' });
+    change(all<HTMLSelectElement>('#rows tbody select')[0]!, name);
+
+    expect(Array.from(all<HTMLSelectElement>('#rows tbody select')[1]!.options).map((option) => option.value)).toEqual(['']);
     expect($<HTMLInputElement>('#rows tbody input[type=checkbox]')?.disabled).toBe(false);
+
+    saveButton().click();
+
+    expect(api.postMessage).toHaveBeenLastCalledWith({
+      type: 'save',
+      rows: [{ action: name, qualifier: null, prompt: review.prompt, automatic: true }],
+      pattern: '^Test-',
+    });
   });
 
   /** Shipping is the developer's approval, so a ship row runs only on a click (R49). */
@@ -262,9 +275,9 @@ describe('the action table page', () => {
     expect(listed).toEqual([
       ['{issue}', 'All'],
       ['{repo}', 'All'],
-      ['{pr}', 'All; Develop and Ship only with your own open pull request, else empty'],
-      ['{branch}', 'All; Develop and Ship only with your own open pull request, else empty'],
-      ['{base}', 'All; Develop and Ship only with your own open pull request, else empty'],
+      ['{pr}', 'All; Develop, Ship, and the QA rows only with your own open pull request, else empty'],
+      ['{branch}', 'All; Develop, Ship, and the QA rows only with your own open pull request, else empty'],
+      ['{base}', 'All; Develop, Ship, and the QA rows only with your own open pull request, else empty'],
       ['{default}', 'All'],
       ['{target}', 'Merge · test; empty for every other row'],
       ['{checkout}', 'All'],

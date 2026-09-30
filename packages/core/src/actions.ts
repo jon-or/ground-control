@@ -5,7 +5,7 @@ import type { TriageAction, TriageQualifier } from './triage.js';
  * Actions an action table row can name: the ones with refusal rules (R39). `ship` is no triage action: a card's
  * workflow stage offers it (R49). Fixing checks and general conflict resolution are not among them.
  */
-export const AUTOMATABLE_ACTIONS = ['merge', 'review-others', 'address-review', 'develop', 'ship'] as const;
+export const AUTOMATABLE_ACTIONS = ['merge', 'review-others', 'address-review', 'develop', 'ship', 'qa-failure', 'qa-question'] as const;
 
 export type AutomatableAction = (typeof AUTOMATABLE_ACTIONS)[number];
 
@@ -32,6 +32,8 @@ export const ROW_QUALIFIERS: Readonly<Record<AutomatableAction, readonly RowQual
   'address-review': ['initial', 'followup'],
   develop: [],
   ship: [],
+  'qa-failure': [],
+  'qa-question': [],
 };
 
 /**

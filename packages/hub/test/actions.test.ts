@@ -215,6 +215,15 @@ describe('the reading a card carries', () => {
     expect(readingOf(card({ triage: checks }), table)).toEqual({ action: null, qualifier: null, settled: true, at: 5 });
   });
 
+  it('settles on a QA reading where the table has a row for it', () => {
+    const failure = { state: 'done', action: 'qa-failure', qualifier: null, target: null, detail: 'Step 3 failed on Test-C.', at: 7, stale: false } as const;
+    const question = { state: 'done', action: 'qa-question', qualifier: null, target: null, detail: 'What does "as before" mean?', at: 7, stale: false } as const;
+    const qaTable = [{ action: 'qa-failure', qualifier: null, prompt: '/address-qa {issue}', automatic: false }] as const;
+
+    expect(readingOf(card({ triage: failure }), qaTable)).toEqual({ action: 'qa-failure', qualifier: null, settled: true, at: 7 });
+    expect(readingOf(card({ triage: question }), qaTable)).toEqual({ action: null, qualifier: null, settled: true, at: 7 });
+  });
+
   it('is unsettled while the card is being read, or after its read failed', () => {
     expect(readingOf(card({ triage: { state: 'running' } }), table)).toEqual({ action: null, qualifier: null, settled: false, at: null });
     expect(readingOf(card({ triage: { state: 'failed', attempts: 2, exhausted: false } }), table)).toEqual({ action: null, qualifier: null, settled: false, at: null });

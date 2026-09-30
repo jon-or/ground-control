@@ -78,7 +78,7 @@ export function planAction(input: PlanInput): ActionDecision {
     return refuse('lane-parked', `Card actions are disabled in ${lane}.`);
   }
 
-  if (action === 'develop' || action === 'ship') {
+  if (action === 'develop' || action === 'ship' || action === 'qa-failure' || action === 'qa-question') {
     return planWorkflow(input);
   }
 
@@ -154,8 +154,8 @@ export function planAction(input: PlanInput): ActionDecision {
 }
 
 /**
- * Develop and ship work on the issue rather than a pull request (R49): the developer's own open pull request, where
- * there is one, only fills the prompt.
+ * Develop, ship, and answering QA work on the issue rather than a pull request (R49, R39): the developer's own open
+ * pull request, where there is one, only fills the prompt.
  */
 function planWorkflow(input: PlanInput): ActionDecision {
   const { action, context, liveSessions } = input;

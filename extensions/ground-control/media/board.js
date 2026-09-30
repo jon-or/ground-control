@@ -883,6 +883,8 @@ const ACTION_RUNNING = {
   'address-review': 'Answering review…',
   develop: 'Developing…',
   ship: 'Shipping…',
+  'qa-failure': 'Addressing QA…',
+  'qa-question': 'Answering QA…',
 };
 
 /** What a run that reported its work complete did, by action (R39). */
@@ -892,6 +894,8 @@ const ACTION_LANDED = {
   'address-review': 'Answered',
   develop: 'Developed',
   ship: 'Shipped',
+  'qa-failure': 'Addressed',
+  'qa-question': 'Answered',
 };
 
 /**
