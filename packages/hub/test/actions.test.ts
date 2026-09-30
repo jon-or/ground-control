@@ -2942,3 +2942,39 @@ describe('the action history', () => {
     expect(historyOf(control)).toEqual([]);
   });
 });
+
+describe('a run waiting for the developer', () => {
+  it('shows the run as waiting while its session waits, and as running again once it works', async () => {
+    const control = harness();
+    watch(control);
+    await control.pass();
+
+    const id = '46af2ac8-f232-4406-8e8f-2579df5eb08f';
+    control.agent.sessions = [sessionOn({ agent: 'claude', sessionId: id, attachId: '46af2ac8' })];
+    control.agent.phases.set(id, { phase: 'waiting', since: 1, at: 1, event: 'Notification' });
+    await control.pass();
+
+    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge', stage: 'waiting' });
+
+    control.agent.phases.set(id, { phase: 'running', since: 2, at: 2, event: 'PostToolBatch' });
+    await control.pass();
+
+    expect(control.cardAction()).toEqual({ state: 'running', action: 'merge', qualifier: 'upstream', since: expect.any(Number) });
+  });
+
+  it('does not take another session’s question on the card for the run’s', async () => {
+    const control = harness();
+    watch(control);
+    await control.pass();
+
+    const other = 'b7777777-0000-4000-8000-000000000000';
+    control.agent.sessions = [
+      sessionOn({ agent: 'claude', sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', attachId: '46af2ac8' }),
+      sessionOn({ agent: 'claude', sessionId: other }),
+    ];
+    control.agent.phases.set(other, { phase: 'waiting', since: 1, at: 1, event: 'Notification' });
+    await control.pass();
+
+    expect(control.cardAction()).toEqual({ state: 'running', action: 'merge', qualifier: 'upstream', since: expect.any(Number) });
+  });
+});

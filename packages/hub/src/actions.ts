@@ -506,9 +506,13 @@ export class ActionRunner {
       cards: lane.cards.map((card): LanedCard => {
         const reading = readingOf(card, this.#settings.table);
         const starting = this.#inFlight.get(card.key);
-        const decorated: CardAction | undefined = starting?.shown === 'action' && reading.action !== null
+        const found: CardAction | undefined = starting?.shown === 'action' && reading.action !== null
           ? { state: 'running', action: reading.action, qualifier: reading.qualifier, since: starting.since, stage: 'starting' }
           : cardActionOf(state, card.key, reading, this.#offerRefusal(reading, card, clones));
+        // A run stopped on a question is still running, but nothing moves until the developer answers (R45).
+        const decorated: CardAction | undefined = found?.state === 'running' && found.stage === undefined && runWaiting(state, card)
+          ? { ...found, stage: 'waiting' }
+          : found;
         // An action on a card with no worktree starts with the worktree run, so that control starts too (R46).
         const creation: WorktreeCreation | undefined = !this.#creatable(card)
           ? undefined
@@ -1676,6 +1680,15 @@ function statusChangedAt(card: LanedCard): number | null {
   const at = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
 
   return Number.isFinite(at) ? at : null;
+}
+
+/** Whether a run going on the card, or its base merge, has a live session waiting for the developer. */
+function runWaiting(state: ActionState, card: LanedCard): boolean {
+  const ids = new Set(Object.values(state.runs)
+    .filter((run) => run.outcome === 'running' && run.sessionId !== null && (run.key === card.key || run.for?.key === card.key))
+    .map((run) => run.sessionId));
+
+  return card.sessions.some((session) => ids.has(session.sessionId) && !session.finished && session.activity?.phase === 'waiting');
 }
 
 /**

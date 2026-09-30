@@ -262,10 +262,10 @@ export type CardAction = { action: AutomatableAction; qualifier: TriageQualifier
   /**
    * `stage` is `starting` while a request is read and dispatched, before there is a session to stop; `worktree`
    * while the run that precedes the action is still making the worktree (R46); `base` while the default branch is
-   * merged into the pull request's base first, which `detail` names; and `verifying` while GitHub is checked for a
-   * merge's push (R39).
+   * merged into the pull request's base first, which `detail` names; `verifying` while GitHub is checked for a
+   * merge's push (R39); and `waiting` while the run's session waits for the developer, such as on a question (R45).
    */
-  | { state: 'running'; since: number; stage?: 'starting' | 'worktree' | 'base' | 'verifying'; detail?: string }
+  | { state: 'running'; since: number; stage?: 'starting' | 'worktree' | 'base' | 'verifying' | 'waiting'; detail?: string }
   | { state: 'done'; outcome: ActionOutcome; detail: string; at: number }
 );
 

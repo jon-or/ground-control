@@ -1067,6 +1067,7 @@ const STATE_GLYPHS = {
   cross: [['path', { d: 'M2.343 13.657A8 8 0 1 1 13.658 2.343 8 8 0 0 1 2.343 13.657ZM6.03 4.97a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042L6.94 8 4.97 9.97a.749.749 0 0 0 .326 1.275.749.749 0 0 0 .734-.215L8 9.06l1.97 1.97a.749.749 0 0 0 1.275-.326.749.749 0 0 0-.215-.734L9.06 8l1.97-1.97a.749.749 0 0 0-.326-1.275.749.749 0 0 0-.734.215L8 6.94Z', fill: 'currentColor' }]],
   square: [['path', { d: 'M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16ZM5.75 5a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75Z', fill: 'currentColor', 'fill-rule': 'evenodd' }]],
   slash: [['path', { d: 'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM3.965 13.096a6.5 6.5 0 0 0 9.131-9.131ZM1.5 8a6.474 6.474 0 0 0 1.404 4.035l9.131-9.131A6.499 6.499 0 0 0 1.5 8Z', fill: 'currentColor' }]],
+  question: [['path', { d: 'M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.92 6.085h.001a.749.749 0 1 1-1.342-.67c.169-.339.436-.701.849-.977C6.845 4.16 7.369 4 8 4a2.756 2.756 0 0 1 1.637.525c.503.377.863.965.863 1.725 0 .448-.115.83-.329 1.15-.205.307-.47.513-.692.662-.109.072-.22.138-.313.195l-.006.004a6.24 6.24 0 0 0-.26.16.952.952 0 0 0-.276.245.75.75 0 0 1-1.248-.832c.184-.264.42-.489.692-.661.103-.067.207-.132.313-.195l.007-.004c.1-.061.182-.11.258-.161a.969.969 0 0 0 .277-.245C8.96 6.514 9 6.427 9 6.25a.612.612 0 0 0-.262-.525A1.27 1.27 0 0 0 8 5.5c-.369 0-.595.09-.74.187a1.01 1.01 0 0 0-.34.398ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z', fill: 'currentColor' }]],
 };
 
 function stateGlyph(kind) {
@@ -1119,6 +1120,11 @@ function actionState(action, creation) {
     // A stacked pull request's base takes the default branch first; a merge lands once GitHub shows its push (R39).
     if (action.stage === 'base') {
       return { text: 'Merging base…', outcome: 'running', glyph: 'branch', detail: action.detail };
+    }
+
+    // The run's session waits for the developer, as on a question; nothing moves until they answer (R45).
+    if (action.stage === 'waiting') {
+      return { text: 'Waiting for you', outcome: 'waiting', glyph: 'question', detail: 'The run is waiting for your answer. Attach to its session to answer.' };
     }
 
     return action.stage === 'verifying'

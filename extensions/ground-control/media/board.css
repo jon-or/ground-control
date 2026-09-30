@@ -1172,6 +1172,10 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   color: var(--vscode-charts-green);
 }
 
+.state-mark[data-outcome='waiting'] {
+  color: var(--vscode-charts-yellow);
+}
+
 .state-mark[data-outcome='halted'] {
   color: var(--vscode-charts-orange);
 }
