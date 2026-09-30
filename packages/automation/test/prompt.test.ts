@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionPrompt, dispatchName, promptValues, worktreePrompt, worktreePromptValues } from '../src/prompt.js';
+import { actionPrompt, basePromptValues, dispatchName, promptValues, worktreePrompt, worktreePromptValues } from '../src/prompt.js';
 import { fillTemplate } from '@ground-control/core';
 import type { ActionPlan } from '../src/plan.js';
 
@@ -15,6 +15,7 @@ const PLAN: ActionPlan = {
   defaultBranch: 'master',
   target: '',
   role: 'author',
+  defaultOid: '',
 };
 
 const VALUES = promptValues(PLAN, 'd:/work/repo.worktrees/17198-channel-mapping', 'C:/Users/dev/.claude/ground-control/runs/issue-17198.json');
@@ -51,6 +52,30 @@ describe('dispatch prompt values', () => {
 
   it('supplies the result-file path', () => {
     expect(VALUES.resultPath).toBe('C:/Users/dev/.claude/ground-control/runs/issue-17198.json');
+  });
+});
+
+/** A base merge is the base pull request's upstream merge, so the placeholders keep their meanings (R39). */
+describe('base merge prompt values', () => {
+  it('fills the base pull request, its branch, the default branch, and the base worktree', () => {
+    const values = basePromptValues(
+      { repository: 'example-org/example-repo', issueNumber: 17000, pullRequest: 4000, branch: '17000-parent-feature', defaultBranch: 'master', headOid: 'b1b1b1b' },
+      'd:/work/repo.worktrees/17000-parent-feature',
+      'C:/Users/dev/.claude/ground-control/runs/merge-0123.json',
+    );
+
+    expect(values).toEqual({
+      issue: '17000',
+      repo: 'example-org/example-repo',
+      pr: '4000',
+      branch: '17000-parent-feature',
+      base: 'master',
+      default: 'master',
+      target: '',
+      checkout: 'd:/work/repo.worktrees/17000-parent-feature',
+      resultPath: 'C:/Users/dev/.claude/ground-control/runs/merge-0123.json',
+    });
+    expect(fillTemplate('/or-merge {base} {branch} {issue}', values)).toBe('/or-merge master 17000-parent-feature 17000');
   });
 });
 

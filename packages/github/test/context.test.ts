@@ -193,6 +193,20 @@ describe('reading a card context', () => {
     expect(context.pullRequest?.baseRefName).not.toBe(context.defaultBranch);
   });
 
+  /**
+   * The recordings predate `target{ oid }`, so it is derived from the tip `branch-tip.json` recorded. A merge from the
+   * default branch must push that commit (R39); without it the merge settles on its report alone.
+   */
+  it('carries the default branch\'s tip where GitHub gave it, and none where it did not', async () => {
+    const recorded = fixture('context-review') as { data: { repository: { defaultBranchRef: Record<string, unknown> } } };
+    recorded.data.repository.defaultBranchRef['target'] = { oid: 'bed53b87b5ac652eaa0bc616cce67fd694eb85bd' };
+
+    const reading = await fetchCardContext(config(), card(), runnerOf(recorded), new AbortController().signal);
+
+    expect(reading.context?.defaultOid).toBe('bed53b87b5ac652eaa0bc616cce67fd694eb85bd');
+    expect((await contextOf('context-review')).defaultOid).toBeNull();
+  });
+
   it('reports no default branch rather than assuming one, where GitHub named none', async () => {
     const recorded = fixture('context-review') as { data: { repository: Record<string, unknown> } };
     recorded.data.repository['defaultBranchRef'] = null;

@@ -2724,8 +2724,17 @@ function actionState(action, creation) {
     }
 
     // The worktree the action needs is still being made; the action itself has not started (R46).
-    return action.stage === 'worktree'
-      ? { text: 'Creating worktree…', outcome: 'running', glyph: 'branch' }
+    if (action.stage === 'worktree') {
+      return { text: 'Creating worktree…', outcome: 'running', glyph: 'branch' };
+    }
+
+    // A stacked pull request's base takes the default branch first; a merge lands once GitHub shows its push (R39).
+    if (action.stage === 'base') {
+      return { text: 'Merging base…', outcome: 'running', glyph: 'branch', ...(action.detail ? { detail: action.detail } : {}) };
+    }
+
+    return action.stage === 'verifying'
+      ? { text: 'Checking push…', outcome: 'running', glyph: 'spinner' }
       : { text: ACTION_RUNNING[/** @type {keyof typeof ACTION_RUNNING} */ (action.action)] ?? 'Working…', outcome: 'running', glyph: 'spinner' };
   }
 
@@ -3006,7 +3015,9 @@ function runButton(doc, card, actions) {
       `Stop ${label.toLowerCase()}`,
       action.stage === 'worktree'
         ? `${label} is waiting for its worktree, which a session is creating. Click to stop.`
-        : `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
+        : action.stage === 'base'
+          ? `${action.detail ?? 'The base is being merged first.'} Click to stop that merge; other cards on the same base may be waiting on it.`
+          : `${label} is running. Click to stop. Changes remain in the checkout and may be incomplete.`,
       stopMark(doc),
       () => actions.stopAction(card.key),
     );

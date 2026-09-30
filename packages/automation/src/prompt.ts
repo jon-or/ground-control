@@ -1,5 +1,5 @@
 import { fillTemplate } from '@ground-control/core';
-import type { ActionPlan, PullRequestRole } from './plan.js';
+import type { ActionPlan, BasePlan, PullRequestRole } from './plan.js';
 
 /** Supported action prompt placeholders, including the result-file path. `checkout` is the worktree the run works in. */
 export type PromptValues = {
@@ -23,6 +23,21 @@ export function promptValues(plan: ActionPlan, checkout: string, resultPath: str
     base: plan.base,
     default: plan.defaultBranch,
     target: plan.target,
+    checkout,
+    resultPath,
+  };
+}
+
+/** A base merge's placeholders take the base's pull request: an upstream merge of it, in its worktree (R39). */
+export function basePromptValues(base: BasePlan, checkout: string, resultPath: string): PromptValues {
+  return {
+    issue: String(base.issueNumber),
+    repo: base.repository,
+    pr: String(base.pullRequest),
+    branch: base.branch,
+    base: base.defaultBranch,
+    default: base.defaultBranch,
+    target: '',
     checkout,
     resultPath,
   };

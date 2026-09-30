@@ -13,9 +13,18 @@ export function isAutomatable(action: TriageAction): action is AutomatableAction
   return (AUTOMATABLE_ACTIONS as readonly string[]).includes(action);
 }
 
+/**
+ * The Merge row that merges the default branch into a stacked pull request's base, in the base's worktree (R39). No
+ * reading names it; the board runs it before a merge on a pull request based on another branch.
+ */
+export const BASE_MERGE = 'base';
+
+/** What a row's qualifier can name: a reading's qualifier, or the base merge. */
+export type RowQualifier = TriageQualifier | typeof BASE_MERGE;
+
 /** The qualifiers a row for each action may name. */
-export const ROW_QUALIFIERS: Readonly<Record<AutomatableAction, readonly TriageQualifier[]>> = {
-  merge: MERGE_TYPES,
+export const ROW_QUALIFIERS: Readonly<Record<AutomatableAction, readonly RowQualifier[]>> = {
+  merge: [...MERGE_TYPES, BASE_MERGE],
   'review-others': ['initial', 'followup'],
   'address-review': ['initial', 'followup'],
 };
@@ -27,7 +36,7 @@ export const ROW_QUALIFIERS: Readonly<Record<AutomatableAction, readonly TriageQ
  */
 export interface ActionRow {
   action: AutomatableAction;
-  qualifier: TriageQualifier | null;
+  qualifier: RowQualifier | null;
   prompt: string;
   /** Start the row when triage names it, without a click (R32). */
   automatic: boolean;
@@ -43,6 +52,11 @@ export function rowFor(
     table.find((row) => row.action === action && row.qualifier !== null && row.qualifier === qualifier) ??
     table.find((row) => row.action === action && row.qualifier === null)
   );
+}
+
+/** The Merge · base row, which only a row naming it supplies: a row for any merge must not merge into another branch. */
+export function baseRowOf(table: readonly ActionRow[]): ActionRow | undefined {
+  return table.find((row) => row.action === 'merge' && row.qualifier === BASE_MERGE);
 }
 
 /** The run that makes a card's worktree (R46). Not a triage action: it is asked for, or prepended to one. */
@@ -96,10 +110,19 @@ export interface ActionRun {
   action: DispatchedAction;
   /** The action a worktree run was prepended to, dispatched in the worktree once it is reported (R46). */
   next?: AutomatableAction | undefined;
-  /** The reading's qualifier for `action`, or for `next` on a worktree run: with the action, it names the row. */
-  qualifier: TriageQualifier | null;
+  /**
+   * The reading's qualifier for `action`, or for `next` on a worktree run: with the action, it names the row. A base
+   * merge's is `base`.
+   */
+  qualifier: RowQualifier | null;
   /** The card's issue, which the session this run becomes is linked to (R3). Absent in older records. */
   issueNumber?: number | undefined;
+  /** The merge a merge run performs (R39). Absent on other runs and on records from before the check. */
+  merge?: MergeLeg | undefined;
+  /** Epoch milliseconds a merge run's completion was first read; GitHub is being checked since then. */
+  verifyingSince?: number | undefined;
+  /** On a base merge: the card whose merge follows it, and that card's reading. */
+  for?: { key: string; qualifier: TriageQualifier | null } | undefined;
   /** Action-rule revision; older runs do not block a new dispatch. */
   revision: number;
   evidence: string;
@@ -118,8 +141,22 @@ export interface ActionRun {
 }
 
 /**
- * Runner state and session-reported outcome. landed is not independently verified completion evidence (R39);
- * future R23 requires a separate stage-completion check.
+ * One merge a run performs, which holds `destination` while it runs: `destination` must then contain `sourceSha`, the
+ * tip of `source` read before dispatch, and a named test branch the destination's tip. An empty `sourceSha` is not
+ * checked. `repository` is `owner/name`.
+ */
+export interface MergeLeg {
+  repository: string;
+  source: string;
+  sourceSha: string;
+  destination: string;
+  /** The test branch the request named; empty for any other merge. */
+  target: string;
+}
+
+/**
+ * Runner state and reported outcome. A merge lands only once GitHub shows its push (R39); other runs land on the
+ * session's report. Future R23 requires a separate stage-completion check.
  */
 export type ActionOutcome = 'running' | 'landed' | 'halted' | 'failed' | 'stopped';
 
@@ -184,10 +221,12 @@ export type CardAction = { action: AutomatableAction; qualifier: TriageQualifier
   /** `retryable` marks a refusal recorded from an earlier attempt: a manual request reads the card afresh and may start. */
   | { state: 'refused'; reason: string; retryable?: true }
   /**
-   * `stage` is `starting` while a request is read and dispatched, before there is a session to stop, and `worktree`
-   * while the run that precedes the action is still making the worktree (R46).
+   * `stage` is `starting` while a request is read and dispatched, before there is a session to stop; `worktree`
+   * while the run that precedes the action is still making the worktree (R46); `base` while the default branch is
+   * merged into the pull request's base first, which `detail` names; and `verifying` while GitHub is checked for a
+   * merge's push (R39).
    */
-  | { state: 'running'; since: number; stage?: 'starting' | 'worktree' }
+  | { state: 'running'; since: number; stage?: 'starting' | 'worktree' | 'base' | 'verifying'; detail?: string }
   | { state: 'done'; outcome: ActionOutcome; detail: string; at: number }
 );
 

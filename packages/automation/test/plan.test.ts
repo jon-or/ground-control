@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type {
   ActionRow,
+  BranchPullRequest,
   LaneId,
   TriageContext,
   TriagePullRequest,
   TriageQualifier,
 } from '@ground-control/core';
-import { actionEnabled, planAction, promptFor } from '../src/plan.js';
+import { actionEnabled, needsBaseMerge, planAction, planBaseMerge, promptFor } from '../src/plan.js';
 import { actionEvidence } from '../src/evidence.js';
 
 
@@ -100,6 +101,7 @@ describe('what the board will act on', () => {
       defaultBranch: 'master',
       target: '',
       role: 'author',
+      defaultOid: '',
     });
   });
 
@@ -244,5 +246,72 @@ describe('whether an action is turned on', () => {
     expect(promptFor(row({ prompt: ' ' }))).toBe(null);
     expect(promptFor(row())).toBe('/or-merge {base} {branch} {issue} --single');
     expect(promptFor(undefined)).toBe(null);
+  });
+});
+
+/** The base of a stacked pull request is merged into first, only where it is the developer's own and one level deep (R39). */
+describe('the base merge a stacked merge runs first', () => {
+  const stacked = () => {
+    const decision = plan({ baseRefName: '17000-parent-feature' }, { qualifier: 'stacked', context: { defaultOid: 'd0d0d0d' } });
+
+    if (!decision.ok) throw new Error(decision.refusal.message);
+
+    return decision.plan;
+  };
+
+  function base(over: Partial<BranchPullRequest> = {}): BranchPullRequest {
+    return {
+      number: 4000,
+      author: 'dev-1-bot',
+      isDraft: false,
+      baseRefName: 'master',
+      headRefName: '17000-parent-feature',
+      headOid: 'b1b1b1b',
+      issueNumber: null,
+      crossRepository: false,
+      ...over,
+    };
+  }
+
+  const byName = (branch: string) => (/^(\d+)-/.exec(branch) ? Number(/^(\d+)-/.exec(branch)![1]) : null);
+
+  it('needs one only where the pull request is based on another branch', () => {
+    expect(needsBaseMerge(stacked())).toBe(true);
+    expect(needsBaseMerge((plan() as { ok: true; plan: ReturnType<typeof stacked> }).plan)).toBe(false);
+  });
+
+  it('takes the base pull request\'s facts, its issue from the one it closes, else from the branch name', () => {
+    expect(planBaseMerge(stacked(), [base({ issueNumber: 16999 })], ['dev-1', 'dev-1-bot'], byName)).toEqual({
+      ok: true,
+      plan: {
+        repository: 'example-org/example-repo',
+        issueNumber: 16999,
+        pullRequest: 4000,
+        branch: '17000-parent-feature',
+        defaultBranch: 'master',
+        headOid: 'b1b1b1b',
+      },
+    });
+    expect(planBaseMerge(stacked(), [base()], ['dev-1-bot'], byName)).toMatchObject({ ok: true, plan: { issueNumber: 17000 } });
+  });
+
+  it.each([
+    ['no open pull request', [], 'base-no-pull-request'],
+    ['only a fork\'s pull request', [base({ crossRepository: true })], 'base-no-pull-request'],
+    ['several pull requests', [base(), base({ number: 4001 })], 'base-several-pull-requests'],
+    ['someone else\'s pull request', [base({ author: 'someone-else' })], 'base-not-yours'],
+    ['a draft', [base({ isDraft: true })], 'base-draft'],
+    ['a base that is itself stacked', [base({ baseRefName: '16000-grandparent' })], 'base-stacked'],
+    ['no commit', [base({ headOid: '' })], 'base-no-tip'],
+  ])('refuses %s', (_name, found, kind) => {
+    const decision = planBaseMerge(stacked(), found, ['dev-1', 'dev-1-bot'], byName);
+
+    expect(decision.ok ? 'ok' : decision.refusal.kind).toBe(kind);
+  });
+
+  it('refuses a base whose issue neither its pull request nor its name gives', () => {
+    const decision = planBaseMerge(stacked(), [base()], ['dev-1-bot'], () => null);
+
+    expect(decision.ok ? 'ok' : decision.refusal.kind).toBe('base-no-issue');
   });
 });

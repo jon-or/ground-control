@@ -113,7 +113,7 @@ export interface TriageThread {
 /**
  * Use the PR selected for the card. Exclude mergeability because merge requests come from instructions, and
  * exclude reviewDecision because it can lag status-based handovers. Reviews and status determine review
- * rounds; action completion is session-reported (R39).
+ * rounds; action completion is session-reported, apart from a merge's push (R39).
  */
 export interface TriagePullRequest {
   number: number;
@@ -167,4 +167,6 @@ export interface TriageContext {
   repository: string;
   /** Observed repository default branch, which every merge leg starts from (R39). */
   defaultBranch: string | null;
+  /** The default branch's tip when read, which a merge from it must push (R39). Absent where the source does not read it. */
+  defaultOid?: string | null | undefined;
 }

@@ -16,18 +16,18 @@ const ACTIONS = [
 
 /** The qualifiers each action's rows may name; a row with none matches any. */
 const QUALIFIERS = {
-  merge: ['upstream', 'stacked', 'test'],
+  merge: ['upstream', 'stacked', 'test', 'base'],
   'review-others': ['initial', 'followup'],
   'address-review': ['initial', 'followup'],
 };
 
-/** Each placeholder, what fills it, and the actions it is filled for. */
+/** Each placeholder, what fills it, and the actions it is filled for. Merge · base fills them from the base's pull request. */
 const PLACEHOLDERS = [
   ['{issue}', 'Issue number', 'All'],
   ['{repo}', 'Repository, owner/name', 'All'],
   ['{pr}', 'Pull request number', 'All'],
   ['{branch}', 'Pull request head branch', 'All'],
-  ['{base}', 'Pull request base branch; a stacked merge merges into it first', 'All'],
+  ['{base}', 'Pull request base branch; on a stacked pull request, the board first merges the default branch into it with Merge · base', 'All'],
   ['{default}', 'Repository default branch, where every merge leg starts', 'All'],
   ['{target}', 'Test branch the request named', 'Merge · test; empty for every other row'],
   ['{checkout}', 'The worktree the run works in', 'All'],
@@ -218,7 +218,10 @@ function render() {
     'p',
     { class: 'lead' },
     'Each row runs its prompt on a card whose triage names that action. A row with a qualifier takes precedence over one with Any. ' +
-      'An automatic row starts without a click; every row can be started from the card.',
+      'An automatic row starts without a click; every row can be started from the card. ' +
+      'Merge · base runs first on a pull request based on another branch: it merges the default branch into that base, in the base’s worktree, ' +
+      'with the base’s pull request filling the placeholders. Give it a single merge with no test merge or status change. ' +
+      'The card’s own row decides whether it starts automatically.',
   );
 
   const table = el('table', { id: 'rows' });

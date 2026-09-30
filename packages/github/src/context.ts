@@ -56,7 +56,10 @@ const contextResponse = z.object({
     repository: z
       .object({
         // Older fixtures omit this field. An unknown default branch blocks actions (R39).
-        defaultBranchRef: z.object({ name: z.string() }).nullable().default(null),
+        defaultBranchRef: z
+          .object({ name: z.string(), target: z.object({ oid: z.string() }).nullable().default(null) })
+          .nullable()
+          .default(null),
         issue: z
           .object({
             number: z.number(),
@@ -348,6 +351,7 @@ export async function fetchCardContext(
       logins: dedupeLogins(config.logins.map((login) => resolveLogin(config.linkedAccounts, config.profiles, login))),
       repository: `${repository.owner}/${repository.name}`,
       defaultBranch: parsed.data.data.repository.defaultBranchRef?.name ?? null,
+      defaultOid: parsed.data.data.repository.defaultBranchRef?.target?.oid ?? null,
     },
     failure: null,
   };

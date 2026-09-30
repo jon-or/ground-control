@@ -1,7 +1,8 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { ACTION_REVISION, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, isAutomatable, repositoryKey, rowFor } from '@ground-control/core';
+import { ACTION_REVISION, BASE_MERGE, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, baseRowOf, isAutomatable, repositoryKey, rowFor } from '@ground-control/core';
 import type {
   ActionRow,
+  ActionRun,
   ActionSettings,
   ActionState,
   AgentAdapter,
@@ -11,6 +12,7 @@ import type {
   Lane,
   LanedCard,
   Logger,
+  MergeLeg,
   ReadFailure,
   Session,
   TriageContext,
@@ -20,16 +22,24 @@ import type {
   WorktreeSettings,
 } from '@ground-control/core';
 import {
+  ACTION_GATE_MS,
   actionEnabled,
   actionPrompt,
   alreadyRun,
+  baseKeyOf,
+  basePromptValues,
+  baseRunFor,
   cardActionOf,
   dispatchName,
   dispatchesInWindow,
   gateOpen,
+  isBaseKey,
   isDeveloperLogin,
+  mergeInto,
+  needsBaseMerge,
   nextActionState,
   planAction,
+  planBaseMerge,
   promptFor,
   promptValues,
   readActionReport,
@@ -43,7 +53,7 @@ import {
   worktreePrompt,
   worktreePromptValues,
 } from '@ground-control/automation';
-import type { ActionPlan, ActionRefusal, CardReading, WorktreePullRequest } from '@ground-control/automation';
+import type { ActionPlan, ActionRefusal, BasePlan, CardReading, WorktreePullRequest } from '@ground-control/automation';
 import { triageable, triageLabel } from '@ground-control/board';
 import { read } from './fs.js';
 import { actionReportPathOf } from './paths.js';
@@ -70,10 +80,31 @@ export interface ActionDeps {
   clones(): readonly Clone[];
   /** Record the worktree a run reported for the card once git registers it in the card's repository; else why not. */
   linkWorktree(key: string, root: string): string | null;
+  /**
+   * The one worktree of a clone of `repository` (a `repositoryKey`) with `branch` checked out and no session running
+   * in it, where a stacked pull request's base is merged (R39); else why there is none.
+   */
+  branchWorktree(repository: string, branch: string): { root: string } | { refusal: string };
+  /** The issue a branch name links to under the configured pattern, or null. */
+  issueOfBranch(branch: string): number | null;
 }
 
 /** Time allowed for the CLI to print its dispatch ID (M33). */
 const DISPATCH_TIMEOUT_MS = 60_000;
+
+/** The first retry of a failed GitHub check of a merge's push; each later one doubles, up to the ceiling. */
+const VERIFY_RETRY_MS = 60_000;
+const VERIFY_RETRY_CEILING_MS = 10 * 60_000;
+
+/** A merge into a branch another merge is going into waits for it (R39); its gate opens when that merge ends. */
+const MERGE_BUSY = 'merge-busy';
+
+/** What a stacked merge does before the card's own merge: nothing more, or the base merge. */
+type BaseStep =
+  | { kind: 'refused'; refusal: ActionRefusal }
+  /** The base already has the default branch: the card's merge runs from the base at `baseOid`. */
+  | { kind: 'current'; baseOid: string }
+  | { kind: 'merge'; base: BasePlan; worktree: string; defaultOid: string };
 
 /** A card with an issue, which a worktree run needs to name the branch after. */
 type IssueCard = LanedCard & { issueNumber: number; issue: NonNullable<LanedCard['issue']> };
@@ -97,6 +128,8 @@ interface Request {
   row?: Row;
   /** For a chained request, the worktree run's session: its work is reported and #release stops its process. */
   after?: string;
+  /** The request follows its base merge, so it starts no second one (R39). */
+  afterBase?: boolean;
 }
 
 /**
@@ -126,6 +159,22 @@ export class ActionRunner {
   readonly #settledRuns = new Map<string, SettledRun>();
   /** Session IDs #release has stopped or tried, so a failed stop is not repeated every pass. */
   readonly #released = new Set<string>();
+  /**
+   * Merge destinations (`owner/name#branch`) of requests between their last read and their run record, so two
+   * requests read at once cannot both merge into one branch (R39). Running records hold the rest.
+   */
+  readonly #destinations = new Map<string, string>();
+  /** Run keys whose push GitHub is being checked for, so a later pass does not check again meanwhile. */
+  readonly #verifying = new Set<string>();
+  /** When each run's next check may start after a failed read, and how many have failed. */
+  readonly #verifyRetry = new Map<string, { at: number; failures: number }>();
+  /** Cancels GitHub checks still waiting when the board shuts down. */
+  readonly #lifetime = new AbortController();
+  /**
+   * Runs a GitHub check settled between passes, whose follow-on starts on the next pass: the board mid-refresh can
+   * lack a card's worktree.
+   */
+  #checked: { before: ActionState; after: ActionState }[] = [];
   /** Disable automatic dispatch until a client supplies settings. */
   #settings: ActionSettings = { ...DEFAULT_ACTIONS, dailyLimit: 0 };
   #worktree: WorktreeSettings = DEFAULT_WORKTREE;
@@ -148,13 +197,18 @@ export class ActionRunner {
     this.#configuration = JSON.stringify([settings, agents, worktree]);
   }
 
-  /** Card keys with running actions, used for display and duplicate prevention. */
+  /** Card keys with running actions, used for display and duplicate prevention. A base merge counts for its card. */
   running(): ReadonlySet<string> {
     return new Set(
       Object.entries(this.#deps.store.read().runs)
         .filter(([, run]) => run.outcome === 'running')
-        .map(([key]) => key),
+        .map(([key, run]) => run.for?.key ?? key),
     );
+  }
+
+  /** Whether the card's own run, or the base merge started for it, is running. */
+  #runningFor(state: ActionState, key: string): boolean {
+    return state.runs[key]?.outcome === 'running' || baseRunFor(state, key)?.outcome === 'running';
   }
 
   /** The issue each dispatched session belongs to, by `agent:sessionId` (R3). */
@@ -292,7 +346,7 @@ export class ActionRunner {
 
     const state = this.#deps.store.read();
 
-    if (state.runs[key]?.outcome === 'running' || this.#inFlight.has(key)) {
+    if (this.#runningFor(state, key) || this.#inFlight.has(key)) {
       return refusal('action-running', 'A card action is already running.');
     }
 
@@ -317,15 +371,21 @@ export class ActionRunner {
     return null;
   }
 
-  /** Stop the dispatched session. Mark stopped only on success; a failed stop leaves the run stoppable (R24). */
-  async stopAction(key: string): Promise<ReadFailure | null> {
-    const run = this.#deps.store.read().runs[key];
+  /**
+   * Stop the dispatched session: the card's own, else the base merge started for it (R39). Mark stopped only on
+   * success; a failed stop leaves the run stoppable (R24).
+   */
+  async stopAction(cardKey: string): Promise<ReadFailure | null> {
+    const state = this.#deps.store.read();
+    const base = baseRunFor(state, cardKey);
+    const own = state.runs[cardKey];
+    const [key, run] = own?.outcome !== 'running' && base?.outcome === 'running' ? [base.key, base] : [cardKey, own];
 
     if (run === undefined || run.outcome !== 'running') {
       return refusal('action-not-running', 'No action is running on this card.');
     }
 
-    this.#inFlight.get(key)?.controller.abort();
+    this.#inFlight.get(cardKey)?.controller.abort();
 
     const agent = this.#deps.agents.find((candidate) => candidate.id === run.agent);
     const configured = this.#agentPaths.get(run.agent);
@@ -353,18 +413,20 @@ export class ActionRunner {
         }));
 
       if (failure === null) {
-        this.#write(withOutcome(this.#deps.store.read(), key, 'stopped', 'Stopped by you.', this.#deps.now()));
+        this.#write(waitersReleased(withOutcome(this.#deps.store.read(), key, 'stopped', 'Stopped by you.', this.#deps.now())));
       }
 
       return failure;
     } finally {
       this.#stopping.delete(key);
+      this.#verifyRetry.delete(key);
       this.#deps.changed();
     }
   }
 
   dispose(): void {
     this.#disposed = true;
+    this.#lifetime.abort();
 
     for (const { controller } of this.#inFlight.values()) {
       controller.abort();
@@ -477,7 +539,7 @@ export class ActionRunner {
           due.length < free &&
           action !== null &&
           actionEnabled(rowFor(this.#settings.table, action, qualifier)) &&
-          state.runs[card.key]?.outcome !== 'running' &&
+          !this.#runningFor(state, card.key) &&
           !this.#inFlight.has(card.key) &&
           // Wait for a worktree, or the means to make one, before checking GitHub; an early refusal would delay an eligible card.
           (card.worktree !== undefined || (hasIssue(card) && this.#worktreeRefusal(card, clones) === null)) &&
@@ -499,6 +561,8 @@ export class ActionRunner {
     const live = new Set(sessions.filter((session) => !session.finished).map((session) => session.sessionId));
     const cards = new Map(lanes.flatMap((lane) => lane.cards).map((card) => [card.key, card]));
     const continued: { key: string; row: Row; after: string }[] = [];
+    const checker = this.#checker();
+    const verify: string[] = [];
     let next = state;
 
     for (const [key, run] of Object.entries(state.runs)) {
@@ -525,9 +589,8 @@ export class ActionRunner {
         continue;
       }
 
-      const card = cards.get(key)?.issue;
-
-      if (card == null) {
+      // A base merge belongs to no card, so its card cannot leave the board (R39).
+      if (!isBaseKey(key) && cards.get(key)?.issue == null) {
         // Require a successful source read to confirm the card left the board (R24).
         if (sourcesRead) {
           next = withOutcome(next, key, 'halted', 'The card left the board while this was running.', this.#deps.now());
@@ -542,33 +605,182 @@ export class ActionRunner {
         next = made.state;
 
         if (made.linked && run.next !== undefined) {
-          continued.push({ key, row: { action: run.next, qualifier: run.qualifier }, after: run.sessionId });
+          continued.push({ key, row: { action: run.next, qualifier: readingQualifier(run.qualifier) }, after: run.sessionId });
         }
+      } else if (run.merge?.sourceSha && checker !== undefined && landed(readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key))))) {
+        // A reported merge lands once GitHub shows its push (R39).
+        if (run.verifyingSince === undefined) {
+          next = { ...next, runs: { ...next.runs, [key]: { ...run, verifyingSince: this.#deps.now() } } };
+        }
+
+        verify.push(key);
       } else {
         next = this.#settled(next, key);
       }
     }
 
     if (next !== state) {
+      next = mergeEnded(state, next) ? waitersReleased(next) : next;
       this.#write(next);
     }
 
-    // A worktree run's chained action replaces its record below; its session still needs releasing.
-    for (const [key, run] of Object.entries(next.runs)) {
-      if (state.runs[key]?.outcome === 'running' && (run.outcome === 'landed' || run.outcome === 'halted') && run.sessionId !== null) {
-        this.#settledRuns.set(run.sessionId, { key, agent: run.agent, shortId: run.shortId });
-      }
+    this.#afterSettle(state, next, continued);
+
+    for (const { before, after } of this.#checked.splice(0)) {
+      this.#afterSettle(before, after, []);
     }
 
-    // The action the worktree run preceded starts now, in the worktree the card carries after the write above.
-    for (const { key, row, after } of continued) {
-      void this.#run(key, this.#deps.currentCard?.(key), { asked: false, chained: true, row, after });
+    const now = this.#deps.now();
+
+    for (const key of verify) {
+      if (!this.#verifying.has(key) && (this.#verifyRetry.get(key)?.at ?? 0) <= now) {
+        void this.#verify(key);
+      }
     }
 
     // After the chained starts, so the card shows them starting; the next broadcast may be a roster poll away.
     if (next !== state) {
       this.#deps.changed();
     }
+  }
+
+  /**
+   * After runs settle: note sessions to release, then start what follows a settled run — the action after its
+   * worktree run, and a card's merge after the base merge started for it (R39, R46).
+   */
+  #afterSettle(before: ActionState, after: ActionState, continued: { key: string; row: Row; after: string; afterBase?: boolean }[]): void {
+    const chained = [...continued];
+
+    for (const [key, run] of Object.entries(after.runs)) {
+      if (before.runs[key]?.outcome !== 'running' || run.outcome === 'running') {
+        continue;
+      }
+
+      // A worktree run's chained action replaces its record below; its session still needs releasing.
+      if ((run.outcome === 'landed' || run.outcome === 'halted') && run.sessionId !== null) {
+        this.#settledRuns.set(run.sessionId, { key, agent: run.agent, shortId: run.shortId });
+      }
+
+      if (isBaseKey(key) && run.outcome === 'landed' && run.for !== undefined && run.sessionId !== null) {
+        chained.push({ key: run.for.key, row: { action: 'merge', qualifier: run.for.qualifier }, after: run.sessionId, afterBase: true });
+      }
+    }
+
+    // The action starts now, in the worktree the card carries after the write that settled what preceded it.
+    for (const { key, row, after: session, afterBase } of chained) {
+      void this.#run(key, this.#deps.currentCard?.(key), { asked: false, chained: true, row, after: session, ...(afterBase ? { afterBase } : {}) });
+    }
+  }
+
+  /** The work source that can check a merge's push, or undefined, in which case merges settle on their report. */
+  #checker(): (WorkSource & Required<Pick<WorkSource, 'contains' | 'readBranchTip'>>) | undefined {
+    return this.#deps.sources.find(
+      (source): source is WorkSource & Required<Pick<WorkSource, 'contains' | 'readBranchTip'>> =>
+        source.contains !== undefined && source.readBranchTip !== undefined,
+    );
+  }
+
+  /**
+   * Check GitHub for a merge's push, then settle the run: landed where the destination contains the source commit
+   * (and a named test branch the destination's tip), halted where it does not (R39). A failed read retries with
+   * backoff until the result timeout, counted from when the run reported done, has passed.
+   */
+  async #verify(key: string): Promise<void> {
+    const checker = this.#checker();
+    const run = this.#deps.store.read().runs[key];
+    const merge = run?.merge;
+
+    if (checker === undefined || run?.outcome !== 'running' || merge === undefined) {
+      return;
+    }
+
+    this.#verifying.add(key);
+
+    try {
+      // A source that throws is a failed read, retried and bounded like one.
+      const result = await this.#pushed(checker, merge).catch((error: unknown) => ({ retry: error instanceof Error ? error.message : String(error) }));
+      const now = this.#deps.now();
+      const current = this.#deps.store.read();
+      const still = current.runs[key];
+
+      // A stop, or another run on the card, decided the record meanwhile.
+      if (this.#disposed || still?.outcome !== 'running' || still.startedAt !== run.startedAt || this.#stopping.has(key)) {
+        return;
+      }
+
+      let outcome: 'landed' | 'halted';
+      let detail: string;
+
+      if ('retry' in result) {
+        const failures = (this.#verifyRetry.get(key)?.failures ?? 0) + 1;
+
+        if (now - (still.verifyingSince ?? now) <= this.#settings.resultTimeoutMs) {
+          this.#verifyRetry.set(key, { at: now + Math.min(VERIFY_RETRY_MS * 2 ** (failures - 1), VERIFY_RETRY_CEILING_MS), failures });
+          this.#deps.log.warn(`${key}: could not check GitHub for the push: ${result.retry}`, 'actions');
+
+          return;
+        }
+
+        [outcome, detail] = ['halted', `The run reported done, but GitHub could not be checked for its push: ${result.retry}`];
+      } else if (result.pushed) {
+        const report = readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)));
+
+        [outcome, detail] = ['landed', report?.detail ?? 'The run reported done.'];
+      } else {
+        [outcome, detail] = ['halted', result.reason];
+      }
+
+      this.#verifyRetry.delete(key);
+      this.#deps.log.info(`${key}: ${outcome === 'landed' ? 'push confirmed on GitHub' : `push not confirmed: ${detail}`}`, 'actions');
+
+      const next = waitersReleased(withOutcome(current, key, outcome, detail, now));
+
+      this.#write(next);
+      this.#checked.push({ before: current, after: next });
+      this.#deps.changed();
+    } catch (error: unknown) {
+      this.#deps.log.warn(`${key}: checking GitHub for the push failed: ${error instanceof Error ? error.message : String(error)}`, 'actions');
+    } finally {
+      this.#verifying.delete(key);
+    }
+  }
+
+  /** Whether GitHub shows the merge pushed; `retry` where a read failed that a later one may not. */
+  async #pushed(
+    checker: Required<Pick<WorkSource, 'contains' | 'readBranchTip'>>,
+    merge: MergeLeg,
+  ): Promise<{ pushed: true } | { pushed: false; reason: string } | { retry: string }> {
+    const signal = this.#lifetime.signal;
+    const { repository, source, sourceSha, destination, target } = merge;
+    const into = await checker.contains(repository, sourceSha, destination, signal);
+
+    if (into.failure !== null) {
+      return into.missing ? { pushed: false, reason: into.failure.message } : { retry: into.failure.message };
+    }
+
+    if (!into.contained) {
+      return { pushed: false, reason: `The run reported done, but ${destination} does not contain ${source} at ${sha7(sourceSha)}.` };
+    }
+
+    if (target === '') {
+      return { pushed: true };
+    }
+
+    const tip = await checker.readBranchTip(repository, destination, signal);
+
+    if (tip.failure !== null) {
+      return { retry: tip.failure.message };
+    }
+
+    const test = await checker.contains(repository, tip.sha, target, signal);
+
+    if (test.failure !== null) {
+      return test.missing ? { pushed: false, reason: test.failure.message } : { retry: test.failure.message };
+    }
+
+    return test.contained
+      ? { pushed: true }
+      : { pushed: false, reason: `The run reported done, but ${target} does not contain ${destination} at ${sha7(tip.sha)}.` };
   }
 
   /**
@@ -781,7 +993,63 @@ export class ActionRunner {
         return;
       }
 
-      await this.#dispatch(key, decision.plan, card.worktree.root, agent, controller.signal, request);
+      const plan = decision.plan;
+      const checkout = card.worktree.root;
+      // A pull request based on another branch takes the default branch through that base first (R39).
+      const step: BaseStep | null = needsBaseMerge(plan)
+        ? await this.#baseStep(card, plan, reading.context.logins, request, controller.signal)
+        : null;
+
+      if (this.#deps.currentCard) card = this.#deps.currentCard(key);
+      if (controller.signal.aborted || card === undefined) {
+        this.#refuse(key, request, { kind: 'action-unavailable', message: 'This card is no longer available. Nothing was started.' }, row);
+        return;
+      }
+
+      if (configuration !== this.#configuration) {
+        this.#refuse(key, request, { kind: 'action-settings-changed', message: 'Action settings changed while reading the card. Retry with the current settings.' }, row);
+
+        return;
+      }
+
+      if (step?.kind === 'refused') {
+        this.#refuse(key, request, step.refusal, row);
+
+        return;
+      }
+
+      // The last check before dispatch, with no wait after it: a second request for the branch sees this one (R39).
+      const destination = step?.kind === 'merge' ? step.base.branch : plan.branch;
+      const busy = plan.action === 'merge' ? this.#mergeBusy(plan.repository, destination) : null;
+
+      if (busy !== null) {
+        const then = request.asked ? 'Run this again when it finishes.' : 'This card is read again when it finishes.';
+
+        this.#refuse(key, request, { kind: MERGE_BUSY, message: `${busy} ${then}` }, row);
+
+        return;
+      }
+
+      const reserved = plan.action === 'merge' ? destinationKey(plan.repository, destination) : null;
+
+      if (reserved !== null) this.#destinations.set(reserved, key);
+
+      try {
+        if (step?.kind === 'merge') {
+          await this.#dispatchBase(key, row, step, agent, controller.signal, request);
+        } else {
+          await this.#dispatch(key, plan, checkout, agent, controller.signal, request, mergeLegOf(plan, step));
+        }
+      } finally {
+        if (reserved !== null) {
+          this.#destinations.delete(reserved);
+
+          // A dispatch that failed or was refused held the branch without a running record; cards it held back read again.
+          if (mergeInto(this.#deps.store.read(), plan.repository, destination) === undefined) {
+            this.#write(waitersReleased(this.#deps.store.read()));
+          }
+        }
+      }
     } catch (error: unknown) {
       // Record adapter exceptions as refusals so subsequent broadcasts respect retry limits.
       this.#refuse(key, request, {
@@ -893,20 +1161,79 @@ export class ActionRunner {
     return { agent, configured };
   }
 
-  async #dispatch(
+  #dispatch(
     key: string,
     plan: ActionPlan,
     checkout: string,
-    { agent, configured }: { agent: AgentAdapter; configured: { path: string; model: string | null } },
+    agent: { agent: AgentAdapter; configured: { path: string; model: string | null } },
+    signal: AbortSignal,
+    request: Request,
+    merge: MergeLeg | undefined,
+  ): Promise<void> {
+    const row: Row = { action: plan.action, qualifier: plan.qualifier };
+
+    return this.#start(key, row, request, agent, signal, {
+      runKey: key,
+      label: triageLabel(plan.action, plan.qualifier),
+      template: promptFor(rowFor(this.#settings.table, plan.action, plan.qualifier)),
+      values: (reportPath) => promptValues(plan, checkout, reportPath),
+      checkout,
+      issueNumber: plan.issueNumber,
+      record: { action: plan.action, qualifier: plan.qualifier, evidence: plan.evidence, ...(merge === undefined ? {} : { merge }) },
+    });
+  }
+
+  /**
+   * Merge the default branch into a stacked pull request's base, in the base's worktree, with the Merge · base row
+   * (R39). The run is keyed by the base, so one runs per branch whichever card asked; the card's merge follows it.
+   */
+  #dispatchBase(
+    cardKey: string,
+    row: Row,
+    { base, worktree, defaultOid }: Extract<BaseStep, { kind: 'merge' }>,
+    agent: { agent: AgentAdapter; configured: { path: string; model: string | null } },
     signal: AbortSignal,
     request: Request,
   ): Promise<void> {
-    const row: Row = { action: plan.action, qualifier: plan.qualifier };
-    const label = triageLabel(plan.action, plan.qualifier);
-    const template = promptFor(rowFor(this.#settings.table, plan.action, plan.qualifier));
+    return this.#start(cardKey, row, request, agent, signal, {
+      runKey: baseKeyOf(base.repository, base.branch),
+      label: triageLabel('merge', BASE_MERGE),
+      template: promptFor(baseRowOf(this.#settings.table)),
+      values: (reportPath) => basePromptValues(base, worktree, reportPath),
+      checkout: worktree,
+      issueNumber: base.issueNumber,
+      record: {
+        action: 'merge',
+        qualifier: BASE_MERGE,
+        // The branches' tips: a halted merge is not retried automatically until one of them moves.
+        evidence: `${defaultOid}:${base.headOid}`,
+        merge: { repository: base.repository, source: base.defaultBranch, sourceSha: defaultOid, destination: base.branch, target: '' },
+        for: { key: cardKey, qualifier: row.qualifier },
+      },
+    });
+  }
+
+  /** Dispatch a prompt and record the run under `spec.runKey`; refusals belong to the card that asked. */
+  async #start(
+    cardKey: string,
+    row: Row,
+    request: Request,
+    { agent, configured }: { agent: AgentAdapter; configured: { path: string; model: string | null } },
+    signal: AbortSignal,
+    spec: {
+      runKey: string;
+      label: string;
+      template: string | null;
+      values(reportPath: string): Parameters<typeof actionPrompt>[1];
+      checkout: string;
+      issueNumber: number;
+      record: Pick<ActionRun, 'action' | 'qualifier' | 'evidence' | 'merge' | 'for'>;
+    },
+  ): Promise<void> {
+    const { runKey, label, template, checkout, issueNumber } = spec;
 
     if (template === null) {
-      this.#refuse(key, request, {
+      this.#refuse(cardKey, request, {
         kind: 'no-prompt',
         message: `Set a prompt for ${label} in the action table before starting it.`,
       }, row);
@@ -914,10 +1241,12 @@ export class ActionRunner {
       return;
     }
 
-    const reportPath = actionReportPathOf(this.#deps.stateDir, key);
+    const reportPath = actionReportPathOf(this.#deps.stateDir, runKey);
+
+    this.#verifyRetry.delete(runKey);
 
     if (!clearReport(reportPath)) {
-      this.#refuse(key, request, {
+      this.#refuse(cardKey, request, {
         kind: 'report-unclearable',
         message: `Could not clear the previous result at ${reportPath}. No new run was started.`,
       }, row);
@@ -927,8 +1256,8 @@ export class ActionRunner {
 
     const outcome = await agent.dispatch!({
       path: configured.path,
-      prompt: actionPrompt(template, promptValues(plan, checkout, reportPath)),
-      name: dispatchName(plan.action, plan.issueNumber, plan.qualifier),
+      prompt: actionPrompt(template, spec.values(reportPath)),
+      name: dispatchName(spec.record.action, issueNumber, spec.record.qualifier),
       cwd: checkout,
       permissionMode: this.#settings.permissionMode,
       model: this.#settings.model === undefined ? configured.model : this.#settings.model || null,
@@ -940,21 +1269,22 @@ export class ActionRunner {
     const failed = 'failure' in outcome;
 
     if ('failure' in outcome) {
-      this.#deps.log.warn(`${key}: ${label} could not be started: ${outcome.failure.message}`, 'actions');
+      this.#deps.log.warn(`${runKey}: ${label} could not be started: ${outcome.failure.message}`, 'actions');
     } else {
-      this.#deps.log.info(`${key}: started ${label} as ${outcome.shortId} in ${checkout}`, 'actions');
+      this.#deps.log.info(`${runKey}: started ${label} as ${outcome.shortId} in ${checkout}`, 'actions');
     }
+
+    // A base merge's record gates its own key; the card that started it waits for it too, not only on a later pass.
+    const state = runKey === cardKey ? this.#deps.store.read() : withCardGated(this.#deps.store.read(), cardKey, now);
 
     this.#write(
       withDispatch(
-        this.#deps.store.read(),
+        state,
         {
-          key,
-          action: plan.action,
-          qualifier: plan.qualifier,
-          issueNumber: plan.issueNumber,
+          key: runKey,
+          ...spec.record,
+          issueNumber,
           revision: ACTION_REVISION,
-          evidence: plan.evidence,
           startedAt: now,
           endedAt: failed ? now : null,
           agent: agent.id,
@@ -971,10 +1301,118 @@ export class ActionRunner {
     // Announce only successful starts so a failed dispatch does not consume the one-time notice.
     if (!failed) {
       this.#deps.announce(
-        `Started ${label} for #${plan.issueNumber} in ${checkout}. ` +
+        `Started ${label} for #${issueNumber} in ${checkout}. ` +
           'The agent may edit and push changes. Turn off automatic runs in the action table.',
       );
     }
+  }
+
+  /**
+   * What a stacked merge does first (R39): refuse, run the card's merge from a base that already has the default
+   * branch, or merge the default branch into the base in its worktree. Every read comes before the caller's last
+   * check, which reserves the branch.
+   */
+  async #baseStep(card: LanedCard, plan: ActionPlan, logins: readonly string[], request: Request, signal: AbortSignal): Promise<BaseStep> {
+    const refused = (kind: string, message: string): BaseStep => ({ kind: 'refused', refusal: { kind, message } });
+
+    if (promptFor(baseRowOf(this.#settings.table)) === null) {
+      return refused(
+        'no-base-prompt',
+        `${plan.branch} is based on ${plan.base}. Set a Merge · base prompt in the action table; it merges ${plan.defaultBranch} into ${plan.base} before this card's merge.`,
+      );
+    }
+
+    const reader = this.#deps.sources.find((source) => source.readBranchPullRequests !== undefined);
+    const checker = this.#checker();
+
+    if (reader === undefined || checker === undefined) {
+      return refused('base-unsupported', `The work source cannot read ${plan.base}, so a merge based on it cannot run.`);
+    }
+
+    if (plan.defaultOid === '') {
+      return refused('base-unreadable', `GitHub gave no commit for ${plan.defaultBranch}.`);
+    }
+
+    const found = await reader.readBranchPullRequests!(plan.repository, plan.base, signal);
+
+    if (found.failure !== null) {
+      return refused('base-unreadable', `Could not read ${plan.base} from GitHub: ${found.failure.message}`);
+    }
+
+    const decision = planBaseMerge(plan, found.pullRequests, logins, (branch) => this.#deps.issueOfBranch(branch));
+
+    if (!decision.ok) {
+      return { kind: 'refused', refusal: decision.refusal };
+    }
+
+    const base = decision.plan;
+    // After its base merge landed, the base is current as far as this request goes, even where the default branch
+    // has moved since: that merge was checked against the tip it started from.
+    const current = request.afterBase === true
+      ? { contained: true, failure: null }
+      : await checker.contains(plan.repository, plan.defaultOid, base.branch, signal);
+
+    if (current.failure !== null) {
+      return refused('base-unreadable', `Could not check ${base.branch} on GitHub: ${current.failure.message}`);
+    }
+
+    if (current.contained) {
+      // The branch's own tip, not the pull request's head, which can lag a push: the card's merge must bring it in.
+      const tip = await checker.readBranchTip(plan.repository, base.branch, signal);
+
+      return tip.failure === null
+        ? { kind: 'current', baseOid: tip.sha }
+        : refused('base-unreadable', `Could not read ${base.branch} from GitHub: ${tip.failure.message}`);
+    }
+
+    // Another merge into the base, this one's or the base card's own, is running in its worktree.
+    const busy = this.#mergeBusy(plan.repository, base.branch);
+
+    if (busy !== null) {
+      return refused(MERGE_BUSY, `${busy} ${request.asked ? 'Run this again when it finishes.' : 'This card is read again when it finishes.'}`);
+    }
+
+    // One halted or stopped merge of these tips is enough: every card on the base would otherwise try it again. A dispatch
+    // that failed never ran, so it may be retried.
+    const previous = this.#deps.store.read().runs[baseKeyOf(base.repository, base.branch)];
+
+    if (
+      !request.asked &&
+      previous !== undefined &&
+      (previous.outcome === 'halted' || previous.outcome === 'stopped') &&
+      previous.evidence === `${plan.defaultOid}:${base.headOid}`
+    ) {
+      return refused(
+        'base-halted',
+        `Merging ${plan.defaultBranch} into ${base.branch} ${previous.outcome}: ${previous.detail} It is not retried automatically until either branch changes.`,
+      );
+    }
+
+    const repository = card.issue === null ? null : repositoryKey(card.issue.url);
+    const worktree = repository === null ? { refusal: 'The card names no repository.' } : this.#deps.branchWorktree(repository, base.branch);
+
+    if ('refusal' in worktree) {
+      return refused('base-no-worktree', worktree.refusal);
+    }
+
+    return { kind: 'merge', base, worktree: worktree.root, defaultOid: plan.defaultOid };
+  }
+
+  /** Why nothing may merge into `branch` now: another merge into it is starting or running (R39). Null where free. */
+  #mergeBusy(repository: string, branch: string): string | null {
+    if (this.#destinations.has(destinationKey(repository, branch))) {
+      return `Another merge into ${branch} is starting.`;
+    }
+
+    const run = mergeInto(this.#deps.store.read(), repository, branch);
+
+    if (run === undefined) {
+      return null;
+    }
+
+    const issue = run.issueNumber === undefined ? '' : ` for #${run.issueNumber}`;
+
+    return `Merging ${run.merge?.source ?? 'another branch'} into ${branch}${issue}.`;
   }
 
   /**
@@ -1088,6 +1526,72 @@ export class ActionRunner {
 
     this.#write(withRefusal(this.#deps.store.read(), key, refused, this.#deps.now(), row));
   }
+}
+
+/**
+ * Open the gates of cards that waited for a merge into the same branch, so the next pass reads them again: the merge
+ * that held the branch has ended, whatever its outcome (R39).
+ */
+function waitersReleased(state: ActionState): ActionState {
+  const waiting = Object.entries(state.refusals).filter(([, refused]) => refused.kind === MERGE_BUSY).map(([key]) => key);
+
+  if (waiting.length === 0) {
+    return state;
+  }
+
+  const gates = { ...state.gates };
+
+  for (const key of waiting) delete gates[key];
+
+  return { ...state, gates };
+}
+
+/**
+ * The merge a card's run performs, which reserves its destination and, where the source tip is known, is checked on
+ * GitHub (R39): from the base where the base already has the default branch, else from the default branch.
+ */
+function mergeLegOf(plan: ActionPlan, step: BaseStep | null): MergeLeg | undefined {
+  if (plan.action !== 'merge') {
+    return undefined;
+  }
+
+  const fromBase = step?.kind === 'current';
+
+  return {
+    repository: plan.repository,
+    source: fromBase ? plan.base : plan.defaultBranch,
+    sourceSha: fromBase ? step.baseOid : plan.defaultOid,
+    destination: plan.branch,
+    target: plan.target,
+  };
+}
+
+/** The card a base merge was started for: its earlier refusal is spent, and it waits a gate like any dispatched card. */
+function withCardGated(state: ActionState, key: string, now: number): ActionState {
+  const refusals = { ...state.refusals };
+  delete refusals[key];
+
+  return { ...state, refusals, gates: { ...state.gates, [key]: now + ACTION_GATE_MS } };
+}
+
+/** Whether a merge run that was running has ended, freeing its destination. */
+function mergeEnded(before: ActionState, after: ActionState): boolean {
+  return Object.entries(before.runs).some(
+    ([key, run]) => run.outcome === 'running' && run.action === 'merge' && after.runs[key]?.outcome !== 'running',
+  );
+}
+
+/** A record's qualifier as a reading names it: a base merge's names no reading. */
+function readingQualifier(qualifier: ActionRun['qualifier']): TriageQualifier | null {
+  return qualifier === BASE_MERGE ? null : qualifier;
+}
+
+function destinationKey(repository: string, branch: string): string {
+  return `${repository}#${branch}`;
+}
+
+function sha7(sha: string): string {
+  return sha.slice(0, 7);
 }
 
 /** Whether the run reported its work complete: `done`, or `pushed`, which merge prompts written before `done` use. */

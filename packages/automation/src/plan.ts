@@ -2,6 +2,7 @@ import { mergeTypeOf } from '@ground-control/core';
 import type {
   ActionRow,
   AutomatableAction,
+  BranchPullRequest,
   LaneId,
   TriageContext,
   TriageQualifier,
@@ -34,6 +35,8 @@ export interface ActionPlan {
   /** The test branch a test merge ends in; empty otherwise. */
   target: string;
   role: PullRequestRole;
+  /** The default branch's tip when the card was read; empty where the source does not read it. */
+  defaultOid: string;
 }
 
 export type ActionDecision = { ok: true; plan: ActionPlan } | { ok: false; refusal: ActionRefusal };
@@ -137,8 +140,84 @@ export function planAction(input: PlanInput): ActionDecision {
       defaultBranch: context.defaultBranch ?? '',
       target,
       role: mine ? 'author' : 'reviewer',
+      defaultOid: context.defaultOid ?? '',
     },
   };
+}
+
+/** Whether a merge must first merge the default branch into the pull request's base, in the base's worktree (R39). */
+export function needsBaseMerge(plan: ActionPlan): boolean {
+  return plan.action === 'merge' && plan.base !== '' && plan.base !== plan.defaultBranch;
+}
+
+/** The base merge a stacked merge runs first: the base's pull request, as the prompt's placeholders take it (R39). */
+export interface BasePlan {
+  repository: string;
+  issueNumber: number;
+  pullRequest: number;
+  /** The card's base: the branch this merge goes into. */
+  branch: string;
+  defaultBranch: string;
+  /** The base's tip before the merge. */
+  headOid: string;
+}
+
+export type BaseDecision = { ok: true; plan: BasePlan } | { ok: false; refusal: ActionRefusal };
+
+/**
+ * Check the pull requests whose head is the card's base. Only the developer's own open pull request, based on the
+ * default branch, is merged into: a push to another person's branch is not the developer's to make, and a longer
+ * chain is left to the developer.
+ */
+export function planBaseMerge(
+  plan: ActionPlan,
+  found: readonly BranchPullRequest[],
+  logins: readonly string[],
+  issueOfBranch: (branch: string) => number | null,
+): BaseDecision {
+  const base = plan.base;
+  const same = found.filter((pr) => !pr.crossRepository);
+
+  if (same.length === 0) {
+    return refuseBase('base-no-pull-request', `${base} has no open pull request, so the board cannot merge ${plan.defaultBranch} into it.`);
+  }
+
+  if (same.length > 1) {
+    return refuseBase('base-several-pull-requests', `${base} is the head of ${same.length} open pull requests; merge ${plan.defaultBranch} into it by hand.`);
+  }
+
+  const pr = same[0]!;
+
+  if (!isDeveloperLogin(pr.author, logins)) {
+    return refuseBase('base-not-yours', `${base} belongs to pull request #${pr.number}, which is not yours.`);
+  }
+
+  if (pr.isDraft) {
+    return refuseBase('base-draft', `${base} belongs to pull request #${pr.number}, which is a draft.`);
+  }
+
+  if (pr.baseRefName !== plan.defaultBranch) {
+    return refuseBase('base-stacked', `${base} is itself based on ${pr.baseRefName}; merge that chain by hand.`);
+  }
+
+  const issueNumber = pr.issueNumber ?? issueOfBranch(base);
+
+  if (issueNumber === null) {
+    return refuseBase('base-no-issue', `No issue could be found for ${base}: pull request #${pr.number} closes none, and the branch name holds no issue number.`);
+  }
+
+  if (pr.headOid === '') {
+    return refuseBase('base-no-tip', `GitHub gave no commit for ${base}.`);
+  }
+
+  return {
+    ok: true,
+    plan: { repository: plan.repository, issueNumber, pullRequest: pr.number, branch: base, defaultBranch: plan.defaultBranch, headOid: pr.headOid },
+  };
+}
+
+function refuseBase(kind: string, message: string): BaseDecision {
+  return { ok: false, refusal: { kind, message } };
 }
 
 /** Whether the row starts without a click: marked automatic, with a nonempty prompt. */

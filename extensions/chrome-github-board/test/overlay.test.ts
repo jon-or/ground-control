@@ -3206,6 +3206,8 @@ describe('card actions (R39)', () => {
     ['running', { state: 'running', action: 'review-others', qualifier: 'initial', since: at }, 'spinner', 'Reviewing…'],
     ['at its worktree stage', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'worktree' }, 'branch', 'Creating worktree…'],
     ['starting', { state: 'running', action: 'merge', qualifier: 'test', since: at, stage: 'starting' }, 'spinner', 'Starting…'],
+    ['merging its base first', { state: 'running', action: 'merge', qualifier: 'stacked', since: at, stage: 'base', detail: 'Merging master into 17000-parent-feature first.' }, 'branch', 'Merging base…'],
+    ['checking its push', { state: 'running', action: 'merge', qualifier: 'upstream', since: at, stage: 'verifying' }, 'spinner', 'Checking push…'],
     ['landed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'landed', detail: 'Merged into Test-Payments.', at }, 'check', 'Merged'],
     ['halted', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'halted', detail: 'Conflicts.', at }, 'alert', 'Stopped short'],
     ['failed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'failed', detail: 'Not found.', at }, 'cross', 'Did not run'],
@@ -3221,6 +3223,15 @@ describe('card actions (R39)', () => {
     if (glyph !== 'branch') expect(drawn!.innerHTML).toBe(GLYPH_SVG[glyph]);
     expect(mark.getAttribute('role')).toBe('img');
     expect(said()).toBe(text);
+  });
+
+  /** The base merge runs before the card's own and belongs to the base's worktree, which the tooltip names (R39). */
+  it('names the base being merged first in the mark’s tooltip', () => {
+    show(acting({ state: 'running', action: 'merge', qualifier: 'stacked', since: at, stage: 'base', detail: 'Merging master into 17000-parent-feature first.' }));
+
+    const mark = document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')!;
+
+    expect(tipOf(mark)).toBe('Merging base…: Merging master into 17000-parent-feature first.');
   });
 
   it('puts what the run said about itself in the mark’s tooltip and description', () => {

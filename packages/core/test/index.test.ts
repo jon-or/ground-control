@@ -6,6 +6,7 @@ describe('the package public surface', () => {
     expect(Object.keys(api).sort()).toEqual([
       'ACTION_REVISION',
       'AUTOMATABLE_ACTIONS',
+      'BASE_MERGE',
       'CHROME_EXTENSION_ID',
       'CREATE_WORKTREE',
       'CUSTODY_FUNCTIONS',
@@ -45,6 +46,7 @@ describe('the package public surface', () => {
       'agentOfKnownSession',
       'agentOfSession',
       'agentRootVariable',
+      'baseRowOf',
       'basename',
       'bootstrapDirOf',
       'branchOf',

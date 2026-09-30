@@ -545,9 +545,9 @@
                 },
                 "qualifier": {
                   "type": ["string", "null"],
-                  "enum": [null, "upstream", "stacked", "test", "initial", "followup"],
+                  "enum": [null, "upstream", "stacked", "test", "base", "initial", "followup"],
                   "default": null,
-                  "description": "upstream, stacked, or test for merge; initial or followup for reviews; null for any."
+                  "description": "upstream, stacked, or test for merge, or base for the merge of the default branch into a stacked pull request's base; initial or followup for reviews; null for any."
                 },
                 "prompt": {
                   "type": "string"

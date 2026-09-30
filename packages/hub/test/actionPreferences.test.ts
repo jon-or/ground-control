@@ -63,6 +63,7 @@ function harness(over: Partial<ActionSettings> = {}, enabled = configured) {
     stateDir: home, agents, sources: [source], store, log: captureLog().log, now: () => 1000,
     changed: () => {}, announce: () => {}, notify: (message) => notices.push(message),
     clones: () => [], linkWorktree: () => null,
+    branchWorktree: () => ({ refusal: 'No worktree.' }), issueOfBranch: () => null,
   });
   runner.configure(settings, enabled, { prompt: '' });
   const settle = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };

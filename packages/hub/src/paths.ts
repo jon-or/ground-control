@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { bootstrapDirOf } from '@ground-control/core';
 
 /** Files below take the resolved state directory; only the bundle and relocation lock live in the fixed bootstrap directory. */
@@ -77,9 +78,16 @@ export function actionsPathOf(stateDir: string): string {
   return `${stateDir}/actions.json`;
 }
 
-/** Result path per card; concurrent cards use separate files. */
+/**
+ * Result path per run; concurrent runs use separate files. A base merge's key holds a repository and branch, whose
+ * sanitized forms can collide, so it is hashed instead (R39).
+ */
 export function actionReportPathOf(stateDir: string, key: string): string {
-  return `${stateDir}/runs/${key.replace(/[^A-Za-z0-9._-]/g, '-')}.json`;
+  const name = key.startsWith('merge:')
+    ? `merge-${createHash('sha1').update(key).digest('hex').slice(0, 16)}`
+    : key.replace(/[^A-Za-z0-9._-]/g, '-');
+
+  return `${stateDir}/runs/${name}.json`;
 }
 
 /** Cached session-linked issue metadata (R4, R9). */

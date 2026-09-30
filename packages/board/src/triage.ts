@@ -6,6 +6,7 @@ import type {
   Lane,
   LaneId,
   LanedCard,
+  RowQualifier,
   TriageAction,
   TriageContext,
   TriageEntry,
@@ -105,16 +106,17 @@ export const TRIAGE_LABELS: Readonly<Record<TriageAction, string>> = {
   other: 'Other',
 };
 
-export const TRIAGE_QUALIFIERS: Readonly<Record<TriageQualifier, string>> = {
+export const TRIAGE_QUALIFIERS: Readonly<Record<RowQualifier, string>> = {
   initial: 'initial',
   followup: 'followup',
   upstream: 'upstream',
   stacked: 'stacked',
   test: 'test',
+  base: 'base',
 };
 
 /** Shared action and review-round label. */
-export function triageLabel(action: TriageAction, qualifier: TriageQualifier | null): string {
+export function triageLabel(action: TriageAction, qualifier: RowQualifier | null): string {
   return qualifier === null ? TRIAGE_LABELS[action] : `${TRIAGE_LABELS[action]} · ${TRIAGE_QUALIFIERS[qualifier]}`;
 }
 

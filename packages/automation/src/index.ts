@@ -1,17 +1,22 @@
 export { actionEvidence } from './evidence.js';
-export { actionEnabled, isDeveloperLogin, planAction, promptFor } from './plan.js';
-export type { ActionDecision, ActionPlan, ActionRefusal, PlanInput, PullRequestRole } from './plan.js';
-export { actionPrompt, dispatchName, promptValues, worktreePrompt, worktreePromptValues } from './prompt.js';
+export { actionEnabled, isDeveloperLogin, needsBaseMerge, planAction, planBaseMerge, promptFor } from './plan.js';
+export type { ActionDecision, ActionPlan, ActionRefusal, BaseDecision, BasePlan, PlanInput, PullRequestRole } from './plan.js';
+export { actionPrompt, basePromptValues, dispatchName, promptValues, worktreePrompt, worktreePromptValues } from './prompt.js';
 export type { PromptValues, WorktreePromptValues, WorktreePullRequest } from './prompt.js';
 export type { CardReading } from './state.js';
 export {
   ACTION_GATE_MS,
+  BASE_BLOCK_MS,
   DISPATCH_WINDOW_MS,
   LINK_GRACE_MS,
   alreadyRun,
+  baseKeyOf,
+  baseRunFor,
   cardActionOf,
   dispatchesInWindow,
   gateOpen,
+  isBaseKey,
+  mergeInto,
   nextActionState,
   readActionReport,
   readActionState,

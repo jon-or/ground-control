@@ -1,6 +1,6 @@
 import { assignLanes, buildCustody, linkSessions, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
-import { CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex } from '@ground-control/core';
+import { BASE_MERGE, CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, issueNumberFrom, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex, worktreesOf } from '@ground-control/core';
 import type { WorktreeScan } from '@ground-control/board';
 import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, CustodyHistory, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
@@ -305,10 +305,17 @@ export class Hub {
       announce: (message) => this.#notifyActionsOnce(message),
       clones: () => this.#clones(),
       linkWorktree: (key, root) => this.#linkWorktree(key, root),
+      branchWorktree: (repository, branch) => this.#branchWorktree(repository, branch),
+      issueOfBranch: (branch) => {
+        const { pattern } = compilePattern(this.#config.branchIssuePattern);
+        return pattern === null ? null : issueNumberFrom(branch, pattern);
+      },
       // Broadcast manual action refusals because the runner does not identify the requesting client (R25).
       notify: (message, kind) => {
         const safe = ['action-permission-unsupported', 'action-agent-unavailable', 'action-settings-changed', 'not-a-merge',
-          'action-unavailable', 'session-running', 'no-worktree', 'no-clone', 'worktree-unavailable', 'no-prompt', 'no-default-branch', 'no-pull-request', 'already-run'].includes(kind ?? '');
+          'action-unavailable', 'session-running', 'no-worktree', 'no-clone', 'worktree-unavailable', 'no-prompt', 'no-default-branch', 'no-pull-request', 'already-run',
+          'no-base-prompt', 'merge-busy', 'base-no-pull-request', 'base-several-pull-requests', 'base-not-yours', 'base-draft', 'base-stacked', 'base-no-issue',
+          'base-halted', 'base-unreadable', 'base-unsupported', 'base-no-tip'].includes(kind ?? '');
         for (const client of this.#clients.values()) {
           client.send({ type: 'notice', level: 'info', message: safe ? message : this.#scopeMessage(message) });
         }
@@ -1926,6 +1933,36 @@ export class Hub {
   }
 
   /**
+   * The working tree with `branch` checked out in a clone of `repository`, where a stacked pull request's base is
+   * merged (R39). Refused where none or several have it, scope excludes it, or a session is running in it.
+   */
+  #branchWorktree(repository: string, branch: string): { root: string } | { refusal: string } {
+    const readers = this.#readers();
+    const trees = this.#clones()
+      .filter((clone) => clone.repository === repository)
+      .flatMap((clone) => worktreesOf(clone, readers))
+      .filter((tree) => tree.branch === branch);
+    const [tree] = trees;
+
+    if (tree === undefined) {
+      return { refusal: `No worktree has ${branch} checked out. Create one, then run this again.` };
+    }
+
+    if (trees.length > 1) {
+      return { refusal: `${trees.length} worktrees have ${branch} checked out; remove all but one.` };
+    }
+
+    if (!this.#rootAllowed(tree.root)) {
+      return { refusal: `The ${branch} worktree is outside the session settings.` };
+    }
+
+    const root = dirKey(tree.root);
+    const busy = (this.#sessions?.sessions ?? []).some((session) => !session.finished && session.checkoutRoot !== null && dirKey(session.checkoutRoot) === root);
+
+    return busy ? { refusal: `A session is running in the ${branch} worktree at ${tree.root}.` } : { root: tree.root };
+  }
+
+  /**
    * Record the worktree a run reported for a card (R46), once git registers the directory in a clone of the
    * card's repository and scope admits it. The reason is returned where it cannot be recorded.
    */
@@ -2038,13 +2075,19 @@ export class Hub {
     }) }));
     const present = new Set(shown.flatMap((lane) => lane.cards).map((card) => card.key));
     for (const run of Object.values(this.#deps.actions.read().runs)) {
-      if (run.outcome !== 'running' || present.has(run.key)) continue;
+      // A base merge shows on the card it was started for (R39).
+      const key = run.for?.key ?? run.key;
+      if (run.outcome !== 'running' || present.has(key)) continue;
       // A worktree run shows as the action it precedes; one asked for alone shows on the worktree control (R46).
       const action = run.action === CREATE_WORKTREE ? run.next : run.action;
+      const qualifier = run.for?.qualifier ?? (run.qualifier === BASE_MERGE ? null : run.qualifier);
+      const stage = run.for !== undefined && run.merge !== undefined
+        ? { stage: 'base' as const, detail: `Merging ${run.merge.source} into ${run.merge.destination} first.` }
+        : run.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : run.verifyingSince !== undefined ? { stage: 'verifying' as const } : {};
       shown.find((lane) => lane.id === 'build')?.cards.push({
-        key: run.key, issue: null, issueNumber: null, sessions: [], lane: 'build', returned: false,
+        key, issue: null, issueNumber: null, sessions: [], lane: 'build', returned: false,
         attention: null, reason: 'Ground Control action is running.',
-        ...(action === undefined ? {} : { action: { state: 'running', action, qualifier: run.qualifier, since: run.startedAt, ...(run.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : {}) } }),
+        ...(action === undefined ? {} : { action: { state: 'running', action, qualifier, since: run.startedAt, ...stage } }),
         ...(run.action === CREATE_WORKTREE ? { creation: { state: 'running', since: run.startedAt } } : {}),
       });
     }

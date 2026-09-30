@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ACTION_REVISION, AUTOMATABLE_ACTIONS, CREATE_WORKTREE, MERGE_TYPES } from '@ground-control/core';
+import { ACTION_REVISION, AUTOMATABLE_ACTIONS, BASE_MERGE, CREATE_WORKTREE, MERGE_TYPES } from '@ground-control/core';
 import type {
   ActionOutcome,
   ActionRefusalRecord,
@@ -13,10 +13,22 @@ import type {
   WorktreeCreation,
 } from '@ground-control/core';
 
-const qualifier = z.enum(['initial', 'followup', ...MERGE_TYPES]).nullable().default(null);
+const readingQualifier = z.enum(['initial', 'followup', ...MERGE_TYPES]).nullable().default(null);
+const qualifier = z.enum(['initial', 'followup', ...MERGE_TYPES, BASE_MERGE]).nullable().default(null);
+
+const mergeLeg = z.object({
+  repository: z.string().min(1),
+  source: z.string().min(1),
+  sourceSha: z.string(),
+  destination: z.string().min(1),
+  target: z.string().default(''),
+});
 
 /** Rolling dispatch-count window, preserved across hub restarts. */
 export const DISPATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** How long a base merge that did not land blocks automatic retries of the same tips (R39). */
+export const BASE_BLOCK_MS = 30 * DISPATCH_WINDOW_MS;
 
 /** Minimum interval between automatic action checks, each of which requires fresh GitHub context. */
 export const ACTION_GATE_MS = 30 * 60 * 1000;
@@ -45,6 +57,9 @@ const actionRun = z.preprocess(legacyRun, z.object({
   next: z.enum(AUTOMATABLE_ACTIONS).optional(),
   qualifier,
   issueNumber: z.number().int().positive().optional(),
+  merge: mergeLeg.optional().catch(undefined),
+  verifyingSince: z.number().optional().catch(undefined),
+  for: z.object({ key: z.string().min(1), qualifier: readingQualifier }).optional().catch(undefined),
   revision: z.number(),
   evidence: z.string(),
   startedAt: z.number(),
@@ -59,7 +74,7 @@ const actionRun = z.preprocess(legacyRun, z.object({
 // Drop refusals from older rules, including for actions no longer enabled.
 const actionRefusal = z.object({
   action: z.enum(AUTOMATABLE_ACTIONS).nullable().default(null),
-  qualifier,
+  qualifier: readingQualifier,
   kind: z.string(),
   message: z.string(),
   at: z.number(),
@@ -128,8 +143,8 @@ export function readActionState(stored: unknown): ActionState {
 }
 
 /**
- * Session-reported outcome. `done`, or the earlier `pushed`, maps to landed; completion is not independently
- * verified (R39). A worktree run reports `ready` with the worktree's path (R46).
+ * Session-reported outcome. `done`, or the earlier `pushed`, maps to landed; only a merge's push is checked on GitHub
+ * (R39). A worktree run reports `ready` with the worktree's path (R46).
  */
 const actionReport = z.object({
   outcome: z.enum(['done', 'pushed', 'halted', 'ready']),
@@ -180,6 +195,32 @@ export function alreadyRun(
 /** Whether a card has a running action, preventing another dispatch. */
 export function running(state: ActionState, key: string): boolean {
   return state.runs[key]?.outcome === 'running';
+}
+
+const BASE_KEY_PREFIX = 'merge:';
+
+/** The run key of the merge into a stacked pull request's base, one per repository and branch (R39). */
+export function baseKeyOf(repository: string, branch: string): string {
+  return `${BASE_KEY_PREFIX}${repository}#${branch}`;
+}
+
+export function isBaseKey(key: string): boolean {
+  return key.startsWith(BASE_KEY_PREFIX);
+}
+
+/** The running merge into `branch` of `repository`, whichever card or base merge it is, or undefined (R39). */
+export function mergeInto(state: ActionState, repository: string, branch: string): ActionRun | undefined {
+  return Object.values(state.runs).find(
+    (run) => run.outcome === 'running' && run.merge?.repository === repository && run.merge.destination === branch,
+  );
+}
+
+/** The latest base merge started for the card, running or not. */
+export function baseRunFor(state: ActionState, key: string): ActionRun | undefined {
+  return Object.entries(state.runs)
+    .filter(([runKey, run]) => isBaseKey(runKey) && run.for?.key === key)
+    .map(([, run]) => run)
+    .sort((a, b) => b.startedAt - a.startedAt)[0];
 }
 
 /** Whether the next automatic action check is due. */
@@ -298,7 +339,11 @@ export function nextActionState(
   const runs = kept(state.runs);
 
   for (const [key, run] of Object.entries(state.runs)) {
-    if (run.outcome === 'running') {
+    // A base merge belongs to no card. One that did not land blocks automatic retries of its tips (R39); a branch that
+    // never moves again is abandoned, so the block ends after BASE_BLOCK_MS.
+    const kept = run.outcome === 'landed' ? DISPATCH_WINDOW_MS : BASE_BLOCK_MS;
+
+    if (run.outcome === 'running' || (isBaseKey(key) && now - (run.endedAt ?? run.startedAt) < kept)) {
       runs[key] = run;
     }
   }
@@ -332,26 +377,36 @@ export function cardActionOf(
   reading: CardReading,
   offerRefusal: string | null,
 ): CardAction | undefined {
-  const run = state.runs[key];
+  const own = state.runs[key];
+  const base = baseRunFor(state, key);
+  // The base merge started for the card is its newest fact while newer than the card's own run; one that landed is
+  // over, and the merge after it has its own record (R39).
+  const run = base !== undefined && base.outcome !== 'landed' && (own === undefined || base.startedAt > own.startedAt) ? base : own;
   // A worktree run stands for the action it precedes while running, and where it ended short of the action; one
   // that linked its worktree is over, and the action's own record or refusal follows.
-  const shown = run === undefined || run.action !== CREATE_WORKTREE
-    ? run
-    : run.next === undefined || run.outcome === 'landed' ? undefined : { ...run, action: run.next };
+  const shown = run === undefined
+    ? undefined
+    : run === base
+      ? { ...run, qualifier: run.for?.qualifier ?? null, detail: `${run.merge?.destination ?? 'Base'}: ${run.detail}` }
+      : run.action !== CREATE_WORKTREE
+        ? run
+        : run.next === undefined || run.outcome === 'landed' ? undefined : { ...run, action: run.next };
 
   if (shown !== undefined && shown.outcome === 'running') {
-    return shown.action === CREATE_WORKTREE
-      ? undefined
-      : {
-          state: 'running',
-          action: shown.action,
-          qualifier: shown.qualifier,
-          since: shown.startedAt,
-          ...(run?.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : {}),
-        };
+    if (shown.action === CREATE_WORKTREE || shown.qualifier === BASE_MERGE) {
+      return undefined;
+    }
+
+    const stage = base !== undefined && run === base
+      ? { stage: 'base' as const, detail: `Merging ${base.merge?.source ?? 'the default branch'} into ${base.merge?.destination ?? 'the base'} first.` }
+      : run?.action === CREATE_WORKTREE
+        ? { stage: 'worktree' as const }
+        : run?.verifyingSince !== undefined ? { stage: 'verifying' as const } : {};
+
+    return { state: 'running', action: shown.action, qualifier: shown.qualifier, since: shown.startedAt, ...stage };
   }
 
-  if (shown !== undefined && shown.action !== CREATE_WORKTREE) {
+  if (shown !== undefined && shown.action !== CREATE_WORKTREE && shown.qualifier !== BASE_MERGE) {
     const ended = shown.endedAt ?? shown.startedAt;
     // A finished run describes the reading it ran under. A settled reading naming another row, or taken after the
     // run ended, replaces it; one still being read, or failed, leaves the outcome rather than blinking it out.

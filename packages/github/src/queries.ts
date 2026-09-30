@@ -214,7 +214,7 @@ ${WHO_FRAGMENTS}`;
 export const CARD_CONTEXT_QUERY = `
 query($owner:String!, $name:String!, $issue:Int!, $pr:Int!, $withPr:Boolean!){
   repository(owner:$owner, name:$name){
-    defaultBranchRef{ name }
+    defaultBranchRef{ name target{ oid } }
     issue(number:$issue){
       number title body
       comments(last:5){ nodes{ body createdAt authorAssociation author{ login ...profile } } }
@@ -266,5 +266,20 @@ query($owner:String!, $name:String!, $number:Int!, $after:String){
         }
       }
     }
+  }
+}`;
+
+/**
+ * Read the open pull requests whose head is one branch: the base of a stacked pull request, which the board merges
+ * the default branch into first (R39). Two are enough to tell one from several.
+ */
+export const BRANCH_PULL_REQUESTS_QUERY = `
+query($owner:String!, $name:String!, $branch:String!){
+  repository(owner:$owner, name:$name){
+    pullRequests(headRefName:$branch, states:[OPEN], first:2){ nodes{
+      number isDraft isCrossRepository baseRefName headRefName headRefOid
+      author{ login }
+      closingIssuesReferences(first:2){ nodes{ number } }
+    }}
   }
 }`;

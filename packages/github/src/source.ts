@@ -3,9 +3,10 @@ import { z } from 'zod';
 import { DEFAULT_BOARD_POLICY, spawnable } from '@ground-control/core';
 import type { BoardPolicy, Logger, ReadFailure } from '@ground-control/core';
 import type { CardReading, ContextReading, IssueCard, SourceReading, WorkSource } from '@ground-control/core';
-import type { CustodyReading, DetailReading, DetailSubject } from '@ground-control/core';
+import type { BranchPullRequestReading, BranchTipReading, ContainsReading, CustodyReading, DetailReading, DetailSubject } from '@ground-control/core';
 import { dedupeLogins, fetchProfiles, linkTargets, normalizeLinks, resolveLogin } from './accounts.js';
 import type { ProfileEntry } from './accounts.js';
+import { fetchBranchPullRequests, fetchBranchTip, fetchContains } from './branches.js';
 import { fetchCardContext } from './context.js';
 import { fetchCustody } from './custody.js';
 import { fetchDetail, itemAddress } from './detail.js';
@@ -98,7 +99,17 @@ export interface GithubSourceDeps {
   readCard(config: GithubConfig, owner: string, name: string, number: number, signal: AbortSignal): Promise<Result<IssueCard | null>>;
   readDetail(config: GithubConfig, card: IssueCard, subject: DetailSubject, signal: AbortSignal): Promise<DetailReading>;
   readCustody(config: GithubConfig, card: IssueCard, signal: AbortSignal): Promise<CustodyReading>;
+  readBranchPullRequests(config: GithubConfig, repository: string, branch: string, signal: AbortSignal): Promise<BranchPullRequestReading>;
+  readBranchTip(config: GithubConfig, repository: string, branch: string, signal: AbortSignal): Promise<BranchTipReading>;
+  contains(config: GithubConfig, repository: string, sha: string, branch: string, signal: AbortSignal): Promise<ContainsReading>;
 }
+
+const UNCONFIGURED: ReadFailure = {
+  subject: GITHUB_SOURCE_ID,
+  kind: 'bad-config',
+  message: 'No GitHub repository is configured.',
+  remedy: 'Set groundControl.github.repo in Settings.',
+};
 
 /** Match github.com owner/name repositories only. Enterprise checkouts remain unlinked (R4). */
 function repositoryKeyOf(config: GithubConfig): string {
@@ -134,6 +145,19 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
   const custody =
     deps.readCustody ??
     ((config: GithubConfig, card: IssueCard, signal: AbortSignal) => fetchCustody(config, card, makeGhRunner(config.ghPath, deps.log), signal));
+
+  const branchPullRequests =
+    deps.readBranchPullRequests ??
+    ((config: GithubConfig, repository: string, branch: string, signal: AbortSignal) =>
+      fetchBranchPullRequests(repository, branch, makeGhRunner(config.ghPath, deps.log), signal));
+  const branchTip =
+    deps.readBranchTip ??
+    ((config: GithubConfig, repository: string, branch: string, signal: AbortSignal) =>
+      fetchBranchTip(repository, branch, makeGhRunner(config.ghPath, deps.log), signal));
+  const contains =
+    deps.contains ??
+    ((config: GithubConfig, repository: string, sha: string, branch: string, signal: AbortSignal) =>
+      fetchContains(repository, sha, branch, makeGhRunner(config.ghPath, deps.log), signal));
 
   let currentConfig: GithubConfig | null = null;
   const profileCache = new Map<string, ProfileEntry>();
@@ -218,15 +242,7 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
     readContext(card, signal): Promise<ContextReading> {
       // Use only accepted settings for context reads.
       return currentConfig === null
-        ? Promise.resolve({
-            context: null,
-            failure: {
-              subject: GITHUB_SOURCE_ID,
-              kind: 'bad-config',
-              message: 'No GitHub repository is configured.',
-              remedy: 'Set groundControl.github.repo in Settings.',
-            },
-          })
+        ? Promise.resolve({ context: null, failure: UNCONFIGURED })
         : withProfiles(currentConfig).then((config) => context(config, card, signal));
     },
 
@@ -255,6 +271,22 @@ export function makeGithubSource(deps: Partial<GithubSourceDeps> = {}): WorkSour
       return currentConfig === null || itemAddress(card, 'issue') === null
         ? Promise.resolve(null)
         : withProfiles(currentConfig).then((config) => custody(config, card, signal));
+    },
+
+    readBranchPullRequests(repository, branch, signal): Promise<BranchPullRequestReading> {
+      return currentConfig === null
+        ? Promise.resolve({ pullRequests: null, failure: UNCONFIGURED })
+        : branchPullRequests(currentConfig, repository, branch, signal);
+    },
+
+    readBranchTip(repository, branch, signal): Promise<BranchTipReading> {
+      return currentConfig === null ? Promise.resolve({ sha: null, failure: UNCONFIGURED }) : branchTip(currentConfig, repository, branch, signal);
+    },
+
+    contains(repository, sha, branch, signal): Promise<ContainsReading> {
+      return currentConfig === null
+        ? Promise.resolve({ contained: null, failure: UNCONFIGURED, missing: false })
+        : contains(currentConfig, repository, sha, branch, signal);
     },
   };
 }

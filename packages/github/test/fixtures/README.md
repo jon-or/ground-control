@@ -19,6 +19,20 @@ Scrub recordings before saving them in this public repository.
 | `profile.json`, `profile-bot.json` | `gh api graphql -f query="$PROFILE_Q" -f login=<login>` for the first configured login and its bot; `$PROFILE_Q` is `PROFILE_QUERY`. Tests derive a nameless profile from the bot recording, since neither recording account lacks a display name. The linked-account cases in `issues.test.ts` rearrange `avatars.json`'s recorded actors (the bot PR author assigned ahead of the developer), and those in `detail.test.ts` compose assignment, review-request, and thread nodes the way the rest of that file does |
 | `untyped.json` | `-f cards='repo:$REPO is:issue -type:Bug -type:Feature -type:Task -type:Epic' -f all=<same>`, nodes trimmed to 2 |
 
+## Branches
+
+Recorded by hand with `gh` and scrubbed by hand: the repository becomes `example-org/example-repo`, the author `dev-1`, and the branch `16080-parent-feature`. `$BRANCH_Q` is `BRANCH_PULL_REQUESTS_QUERY`.
+
+| File | Command |
+|---|---|
+| `branch-pull-requests.json` | `gh api graphql -f query="$BRANCH_Q" -f owner=$REPO_OWNER -f name=$REPO_NAME -f branch=<base of a stacked pull request>` |
+| `branch-pull-requests-none.json` | Same query with a branch no open pull request has as its head |
+| `branch-tip.json` | `gh api repos/$REPO/branches/master --jq '{sha: .commit.sha}'` |
+| `compare-identical.json` | `gh api repos/$REPO/compare/<master tip>...master --jq '{status: .status, behind_by: .behind_by}'` |
+| `compare-diverged.json` | Same, against a branch behind master with commits of its own |
+
+`gh` prints `gh: Not Found (HTTP 404)` on stderr for a compare against a missing branch; `branches.test.ts` passes that message to its runner.
+
 ## Scrubbing
 
 Run from `packages/github`. Scrub all fixtures together to preserve account mappings:

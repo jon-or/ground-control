@@ -1,4 +1,7 @@
-/** Which branches a merge moves between (R39). The prompt performs the legs; the board names the branches. */
+/**
+ * Which branches a merge request names (R39). On a pull request based on another branch, the board first merges the
+ * default branch into that base; the row's prompt performs the rest.
+ */
 export const MERGE_TYPES = ['upstream', 'stacked', 'test'] as const;
 
 export type MergeType = (typeof MERGE_TYPES)[number];

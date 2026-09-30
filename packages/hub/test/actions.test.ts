@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { DEFAULT_SESSION_SCOPE } from '@ground-control/core';
@@ -7,6 +7,9 @@ import { bootstrapDirOf } from '@ground-control/core';
 import type {
   ActionRow,
   AgentAdapter,
+  BranchPullRequestReading,
+  BranchTipReading,
+  ContainsReading,
   ContextReading,
   DispatchInput,
   DispatchResult,
@@ -57,6 +60,17 @@ const UPSTREAM: ActionRow = { action: 'merge', qualifier: 'upstream', prompt: '/
 
 /** The row left to the developer's click. */
 const MANUAL_ROW: ActionRow = { ...UPSTREAM, automatic: false };
+
+/** The card's merge on a pull request based on another branch: from that base (R39). */
+const STACKED: ActionRow = { action: 'merge', qualifier: 'stacked', prompt: '/or-merge {base}', automatic: true };
+
+/** The merge of the default branch into that base, in the base's worktree, as the base's pull request. */
+const BASE_ROW: ActionRow = { action: 'merge', qualifier: 'base', prompt: '/or-merge {base} {branch} {issue}', automatic: false };
+
+const PARENT = '17000-parent-feature';
+const BASE_KEY = `merge:example-org/example-repo#${PARENT}`;
+const MASTER_TIP = 'd0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0';
+const PARENT_TIP = 'b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1';
 
 /** A row with nothing to run, so nothing starts on its own and a click reaches the checks before the prompt one. */
 const NO_PROMPT: Partial<HubConfig['actions']> = { table: [{ ...UPSTREAM, prompt: '' }] };
@@ -120,6 +134,8 @@ interface Control {
   history: HistoricalSession[];
   /** What the fresh read answers. A test changes this to move the card under the runner. */
   pr: Partial<TriagePullRequest> | null;
+  /** Per-issue changes to `pr`, for boards with more than one card. */
+  prs: Record<number, Partial<TriagePullRequest>>;
   /** Classifier result requesting a merge (R39). */
   classified: { action: TriageAction; detail: string; target: string | null };
   /** Every context read the runner made, so a gate that should have stopped one is visible. */
@@ -148,6 +164,17 @@ interface Control {
   cardAction(): Snapshot['lanes'][number]['cards'][number]['action'];
   key(): string;
   cardCheckout(): Snapshot['lanes'][number]['cards'][number]['checkout'];
+  /** The default branch's tip the fresh read gives; null gives none, so a merge settles on its report alone. */
+  defaultOid: string | null;
+  /** What GitHub answers for the open pull requests whose head is a branch (R39). */
+  branchPulls: (branch: string) => BranchPullRequestReading;
+  /** Whether GitHub shows `branch` containing `sha`: how a merge's push is checked (R39). */
+  contains: (sha: string, branch: string) => ContainsReading;
+  /** Each containment check asked, as `sha...branch`. */
+  compared: string[];
+  tips: Record<string, string>;
+  /** What a run wrote about itself, at the path of run `key`. */
+  reportAt(key: string, body: unknown): void;
 }
 
 /** What the card carries decides whether a finished run's outcome still stands (R39). */
@@ -230,6 +257,7 @@ function harness(
       },
     ],
     pr: {},
+    prs: {},
     classified: { action: 'merge', detail: 'Behind master.', target: null },
     reads: [],
     readThrows: false,
@@ -262,11 +290,17 @@ function harness(
       control.agent.sessions = [];
       await control.pass();
     },
-    report: (body: unknown) => {
-      const path = actionReportPathOf(stateDir, control.key());
+    report: (body: unknown) => control.reportAt(control.key(), body),
+    reportAt: (key: string, body: unknown) => {
+      const path = actionReportPathOf(stateDir, key);
       mkdirSync(path.slice(0, path.lastIndexOf('/')), { recursive: true });
       writeFileSync(path, JSON.stringify(body));
     },
+    defaultOid: null,
+    branchPulls: () => ({ pullRequests: [], failure: null }),
+    contains: () => ({ contained: true, failure: null }),
+    compared: [],
+    tips: {},
     cardAction: () => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]?.action,
     key: () => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]!.key,
     cardCheckout: () => control.snapshot().lanes.flatMap((lane) => lane.cards)[0]?.checkout,
@@ -306,14 +340,28 @@ function harness(
         status: card.status,
         stateEvents: [],
         comments: [],
-        pullRequest: control.pr === null ? null : pullRequest(control.pr),
+        pullRequest: control.pr === null ? null : pullRequest({ ...control.pr, ...control.prs[card.number] }),
         assignees: card.assignees,
         logins: ['dev-1'],
         repository: 'example-org/example-repo',
         defaultBranch: 'master',
+        ...(control.defaultOid === null ? {} : { defaultOid: control.defaultOid }),
       };
 
       return { context, failure: null };
+    },
+    readBranchPullRequests: async (_repository, branch) => control.branchPulls(branch),
+    readBranchTip: async (_repository, branch): Promise<BranchTipReading> => {
+      const sha = control.tips[branch];
+
+      return sha === undefined
+        ? { sha: null, failure: { subject: 'github', kind: 'query-failed', message: `no tip for ${branch}`, remedy: 'r' } }
+        : { sha, failure: null };
+    },
+    contains: async (_repository, sha, branch) => {
+      control.compared.push(`${sha}...${branch}`);
+
+      return control.contains(sha, branch);
     },
   };
 
@@ -397,6 +445,32 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
       ...actions,
     },
   };
+}
+
+/**
+ * A card whose pull request is based on another open pull request of the developer's, #4000 on `17000-parent-feature`,
+ * which a worktree beside the card's has checked out. GitHub shows the base lacking master until a test says otherwise.
+ */
+function stackedHarness(
+  over: Partial<HubConfig['actions']> = { table: [STACKED, BASE_ROW] },
+  cards: IssueCard[] = [issue()],
+  sessions: (baseWorktree: string) => Session[] = () => [],
+): Control & { baseWorktree: string } {
+  const baseWorktree = worktreeAt(CHECKOUT, join(home, PARENT).replace(/\\/g, '/'), PARENT);
+  const control = harness(over, cards, sessions(baseWorktree));
+
+  control.pr = { baseRefName: PARENT };
+  control.defaultOid = MASTER_TIP;
+  control.tips = { [PARENT]: PARENT_TIP };
+  control.branchPulls = (branch) => ({
+    pullRequests: branch === PARENT
+      ? [{ number: 4000, author: 'dev-1', isDraft: false, baseRefName: 'master', headRefName: PARENT, headOid: PARENT_TIP, issueNumber: null, crossRepository: false }]
+      : [],
+    failure: null,
+  });
+  control.contains = () => ({ contained: false, failure: null });
+
+  return Object.assign(control, { baseWorktree });
 }
 
 function watch(control: Control, watching = true, hostId: string | null = 'vscode'): void {
@@ -1024,14 +1098,27 @@ describe('the action table', () => {
 describe('what the board refuses to act on', () => {
   /** A base other than the default branch makes the merge stacked, which runs its own row (R39). */
   it('runs a pull request based on another branch as a stacked merge, under the stacked row', async () => {
-    const control = harness({ table: [{ ...UPSTREAM, qualifier: 'stacked', prompt: '/or-git-merge source:{default} target:{base} then source:{base} target:{branch}' }] });
-    control.pr = { baseRefName: '17000-parent-feature' };
+    const control = stackedHarness();
+    control.contains = () => ({ contained: true, failure: null });
     watch(control);
     await control.pass();
 
     expect(control.dispatched).toHaveLength(1);
-    expect(control.dispatched[0]).toMatchObject({ name: 'ground-control · merge stacked · #17198' });
-    expect(control.dispatched[0]?.prompt).toMatch(/^\/or-git-merge source:master target:17000-parent-feature then source:17000-parent-feature target:17198-channel-mapping\n\n/);
+    expect(control.dispatched[0]).toMatchObject({ name: 'ground-control · merge stacked · #17198', cwd: CHECKOUT });
+    expect(control.dispatched[0]?.prompt).toMatch(/^\/or-merge 17000-parent-feature\n\n/);
+  });
+
+  /** A row for any merge would merge into the base with the card's prompt; only a row naming the base merge may. */
+  it('refuses a merge based on another branch where no Merge · base row is set', async () => {
+    const control = stackedHarness({ table: [STACKED] });
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.cardAction()).toMatchObject({
+      state: 'refused',
+      reason: '17198-channel-mapping is based on 17000-parent-feature. Set a Merge · base prompt in the action table; it merges master into 17000-parent-feature before this card\'s merge.',
+    });
   });
 
   /** The row was chosen for the type the card was read as; a base that moved since would run the wrong legs. */
@@ -2110,5 +2197,461 @@ describe('making the worktree an action needs', () => {
 
     expect(control.dispatched).toHaveLength(2);
     expect(makeActionStore(stateDir).read().dispatches).toHaveLength(1);
+  });
+});
+
+/** A merge on a pull request based on another branch merges the default branch into that base first, in its worktree (R39). */
+describe('a merge based on another branch', () => {
+  const BASE_SESSION = '46af2ac8-f232-4406-8e8f-2579df5eb08f';
+
+  /** The base merge's session, in the base's worktree, appears. */
+  function baseAppears(control: Control & { baseWorktree: string }): Promise<void> {
+    control.agent.sessions = [
+      sessionOn({ sessionId: BASE_SESSION, cwd: control.baseWorktree, checkoutRoot: control.baseWorktree, branch: PARENT, issueNumber: 17000 }),
+    ];
+
+    return control.pass();
+  }
+
+  /** The base merge's session appears, reports, and ends. */
+  async function baseMerged(control: Control & { baseWorktree: string }, detail = 'Merged master into 17000.'): Promise<void> {
+    await baseAppears(control);
+    control.reportAt(BASE_KEY, { outcome: 'done', detail });
+    control.dispatch = { shortId: '5c5c5c5c' };
+    await control.finish();
+    await control.pass();
+  }
+
+  it('merges master into the base in its worktree first, as the base pull request', async () => {
+    const control = stackedHarness();
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched[0]).toMatchObject({ name: 'ground-control · merge base · #17000', cwd: control.baseWorktree });
+    expect(control.dispatched[0]?.prompt).toMatch(/^\/or-merge master 17000-parent-feature 17000\n\n/);
+    expect(control.cardAction()).toMatchObject({
+      state: 'running',
+      action: 'merge',
+      qualifier: 'stacked',
+      stage: 'base',
+      detail: 'Merging master into 17000-parent-feature first.',
+    });
+  });
+
+  it('runs the card\'s merge from the base once GitHub shows master in it', async () => {
+    const control = stackedHarness();
+    watch(control);
+    await control.pass();
+    control.contains = () => ({ contained: true, failure: null });
+    await baseMerged(control);
+
+    expect(control.compared).toContain(`${MASTER_TIP}...${PARENT}`);
+    expect(control.dispatched).toHaveLength(2);
+    expect(control.dispatched[1]).toMatchObject({ name: 'ground-control · merge stacked · #17198', cwd: CHECKOUT });
+    expect(control.dispatched[1]?.prompt).toMatch(/^\/or-merge 17000-parent-feature\n\n/);
+    expect(control.cardAction()).toMatchObject({ state: 'running', qualifier: 'stacked' });
+    expect(control.cardAction()).not.toHaveProperty('stage');
+  });
+
+  it('halts, and runs nothing after, where the base run reports done but GitHub shows no push', async () => {
+    const control = stackedHarness();
+    watch(control);
+    await control.pass();
+    await baseMerged(control);
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.cardAction()).toMatchObject({
+      state: 'done',
+      outcome: 'halted',
+      detail: '17000-parent-feature: The run reported done, but 17000-parent-feature does not contain master at d0d0d0d.',
+    });
+  });
+
+  it('runs only the card\'s merge where the base already has master', async () => {
+    const control = stackedHarness();
+    control.contains = () => ({ contained: true, failure: null });
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched[0]).toMatchObject({ name: 'ground-control · merge stacked · #17198', cwd: CHECKOUT });
+  });
+
+  it('merges into a base once for two cards based on it, then runs each card\'s merge', async () => {
+    const other = issue({ number: 17199, title: 'Second card', url: 'https://github.com/example-org/example-repo/issues/17199' });
+    const control = stackedHarness({ table: [STACKED, BASE_ROW], concurrency: 3 }, [issue(), other]);
+    const second = cloneAt(join(home, '17199-second').replace(/\\/g, '/'), '17199-second');
+
+    control.history.push({ ...control.history[0]!, sessionId: 'old00000-0000-4000-8000-000000000002', cwd: second, branch: '17199-second', issueNumber: 17199 });
+    control.prs = { 17199: { number: 4022, headRefName: '17199-second' } };
+    watch(control);
+    await control.pass();
+    await control.pass();
+
+    const bases = () => control.dispatched.filter((input) => input.name.includes('merge base'));
+    const waiting = control.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.issueNumber === 17199);
+
+    expect(bases()).toHaveLength(1);
+    expect(waiting?.action).toMatchObject({ state: 'refused', reason: expect.stringMatching(/into 17000-parent-feature.* This card is read again when it finishes\.$/) });
+
+    control.contains = () => ({ contained: true, failure: null });
+    await baseMerged(control);
+    await control.pass();
+
+    expect(bases()).toHaveLength(1);
+    expect(control.dispatched.map((input) => input.name).sort()).toEqual([
+      'ground-control · merge base · #17000',
+      'ground-control · merge stacked · #17198',
+      'ground-control · merge stacked · #17199',
+    ]);
+  });
+
+  /** The base merge's session runs in the base worktree; a card arriving then waits on the merge, not on the session. */
+  it('holds a second card on a base being merged, and reads it again once that merge ends', async () => {
+    const other = issue({ number: 17199, title: 'Second card', url: 'https://github.com/example-org/example-repo/issues/17199' });
+    const control = stackedHarness({ table: [STACKED, BASE_ROW], concurrency: 3 }, [issue()]);
+    const second = cloneAt(join(home, '17199-second').replace(/\\/g, '/'), '17199-second');
+
+    control.history.push({ ...control.history[0]!, sessionId: 'old00000-0000-4000-8000-000000000002', cwd: second, branch: '17199-second', issueNumber: 17199 });
+    control.prs = { 17199: { number: 4022, headRefName: '17199-second' } };
+    watch(control);
+    await control.pass();
+    await baseAppears(control);
+
+    control.cards = [issue(), other];
+    await control.pass();
+
+    const waiting = () => control.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.issueNumber === 17199)?.action;
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(waiting()).toMatchObject({ state: 'refused', reason: 'Merging master into 17000-parent-feature for #17000. This card is read again when it finishes.' });
+
+    control.contains = () => ({ contained: true, failure: null });
+    control.reportAt(BASE_KEY, { outcome: 'done', detail: 'Merged.' });
+    control.dispatch = { shortId: '5c5c5c5c' };
+    await control.finish();
+    await control.pass();
+    await control.pass();
+
+    expect(control.dispatched.map((input) => input.name).sort()).toEqual([
+      'ground-control · merge base · #17000',
+      'ground-control · merge stacked · #17198',
+      'ground-control · merge stacked · #17199',
+    ]);
+  });
+
+  it('reads a card held back by a merge that failed to start again, and then waits out its gate', async () => {
+    const other = issue({ number: 17199, title: 'Second card', url: 'https://github.com/example-org/example-repo/issues/17199' });
+    const control = stackedHarness({ table: [STACKED, BASE_ROW], concurrency: 3 }, [issue(), other]);
+    const second = cloneAt(join(home, '17199-second').replace(/\\/g, '/'), '17199-second');
+
+    control.history.push({ ...control.history[0]!, sessionId: 'old00000-0000-4000-8000-000000000002', cwd: second, branch: '17199-second', issueNumber: 17199 });
+    control.prs = { 17199: { number: 4022, headRefName: '17199-second' } };
+    control.dispatch = { failure: { subject: 'claude', kind: 'dispatch-failed', message: 'claude exited.', remedy: 'r' } };
+    watch(control);
+    await control.pass();
+
+    // The first card's start failed and freed the base; the second, held back, was read again and tried it.
+    expect(control.dispatched.map((input) => input.name)).toEqual(['ground-control · merge base · #17000', 'ground-control · merge base · #17000']);
+
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(2);
+  });
+
+  /** The base merge landed against the tip it started from; what master gained since comes with the next request. */
+  it('runs the card\'s merge from the base where master moved while the base merge ran', async () => {
+    const control = stackedHarness();
+    watch(control);
+    await control.pass();
+    control.defaultOid = 'e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2';
+    control.contains = (sha) => ({ contained: sha !== 'e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2', failure: null });
+    control.tips = { [PARENT]: 'c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3' };
+    await baseMerged(control);
+
+    expect(control.dispatched.map((input) => input.name)).toEqual(['ground-control · merge base · #17000', 'ground-control · merge stacked · #17198']);
+    expect(makeActionStore(stateDir).read().runs['issue:17198']?.merge).toMatchObject({ source: PARENT, sourceSha: 'c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3' });
+  });
+
+  it('runs a test merge on a stacked pull request after its base merge, and checks the test branch', async () => {
+    const control = stackedHarness({ table: [{ ...STACKED, qualifier: 'test' }, BASE_ROW] });
+    control.classified = { action: 'merge', detail: 'Merge into test.', target: 'Test-B-may-1' };
+    control.tips = { [PARENT]: PARENT_TIP, '17198-channel-mapping': '9ab0cde1111111111111111111111111111111ff' };
+    watch(control);
+    await control.pass();
+    control.contains = () => ({ contained: true, failure: null });
+    await baseMerged(control);
+
+    expect(control.dispatched).toHaveLength(2);
+    expect(control.dispatched[1]).toMatchObject({ name: 'ground-control · merge test · #17198', cwd: CHECKOUT });
+
+    control.agent.sessions = [sessionOn({ sessionId: '5c5c5c5c-0000-4000-8000-000000000000' })];
+    await control.pass();
+    control.report({ outcome: 'done', detail: 'Merged into test.' });
+    await control.finish();
+    await control.settle();
+
+    expect(control.compared.slice(-2)).toEqual([`${PARENT_TIP}...17198-channel-mapping`, '9ab0cde1111111111111111111111111111111ff...Test-B-may-1']);
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed', detail: 'Merged into test.' });
+  });
+  it('does not retry a halted base merge automatically on the same tips, but does on a click', async () => {
+    const control = stackedHarness();
+    watch(control);
+    await control.pass();
+    await baseMerged(control);
+    await control.pass(PAST_GATE);
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(1);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(2);
+    expect(control.dispatched[1]).toMatchObject({ name: 'ground-control · merge base · #17000' });
+  });
+
+  it('does not merge into the base while the base\'s own card is merging into it', async () => {
+    const parent = issue({ number: 17000, title: 'Parent', url: 'https://github.com/example-org/example-repo/issues/17000' });
+    const control = stackedHarness({ table: [UPSTREAM, STACKED, BASE_ROW], concurrency: 3 }, [parent]);
+
+    control.history.push({ ...control.history[0]!, sessionId: 'old00000-0000-4000-8000-000000000003', cwd: control.baseWorktree, branch: PARENT, issueNumber: 17000 });
+    control.prs = { 17000: { number: 4000, baseRefName: 'master', headRefName: PARENT } };
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched[0]).toMatchObject({ name: 'ground-control · merge upstream · #17000' });
+
+    control.cards = [parent, issue()];
+    await control.pass();
+    await control.pass();
+
+    const stacked = control.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.issueNumber === 17198);
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(stacked?.action).toMatchObject({
+      state: 'refused',
+      reason: 'Merging master into 17000-parent-feature for #17000. This card is read again when it finishes.',
+    });
+  });
+
+  it.each([
+    ['the base pull request is not the developer\'s', { author: 'someone-else' }, '17000-parent-feature belongs to pull request #4000, which is not yours.'],
+    ['the base pull request is a draft', { isDraft: true }, '17000-parent-feature belongs to pull request #4000, which is a draft.'],
+    ['the base is itself stacked', { baseRefName: '16000-grandparent' }, '17000-parent-feature is itself based on 16000-grandparent; merge that chain by hand.'],
+  ])('refuses where %s', async (_name, change, reason) => {
+    const control = stackedHarness();
+    const found = control.branchPulls(PARENT);
+
+    control.branchPulls = () => ({ pullRequests: found.pullRequests!.map((pr) => ({ ...pr, ...change })), failure: null });
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.cardAction()).toMatchObject({ state: 'refused', reason });
+  });
+
+  it('refuses where the base has no open pull request', async () => {
+    const control = stackedHarness();
+    control.branchPulls = () => ({ pullRequests: [], failure: null });
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.cardAction()).toMatchObject({ state: 'refused', reason: '17000-parent-feature has no open pull request, so the board cannot merge master into it.' });
+  });
+
+  it('refuses where GitHub cannot say whether the base has master', async () => {
+    const control = stackedHarness();
+    control.contains = () => ({ contained: null, failure: { subject: 'github', kind: 'offline', message: 'GitHub could not be reached.', remedy: 'r' }, missing: false });
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.cardAction()).toMatchObject({ state: 'refused', reason: 'Could not check 17000-parent-feature on GitHub: GitHub could not be reached.' });
+  });
+
+  it('refuses where no worktree has the base checked out', async () => {
+    const control = stackedHarness();
+    rmSync(join(CHECKOUT, '.git', 'worktrees'), { recursive: true, force: true });
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(0);
+    expect(control.cardAction()).toMatchObject({ state: 'refused', reason: 'No worktree has 17000-parent-feature checked out. Create one, then run this again.' });
+  });
+
+  it('refuses where a session is running in the base worktree', async () => {
+    const control = stackedHarness(undefined, undefined, (root) => [
+      sessionOn({ sessionId: 'c3c3c3c3-0000-4000-8000-000000000000', cwd: root, checkoutRoot: root, branch: PARENT, issueNumber: 17000 }),
+    ]);
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(0);
+    const card = control.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === 'issue:17198');
+
+    expect(card?.action).toMatchObject({ state: 'refused', reason: `A session is running in the 17000-parent-feature worktree at ${control.baseWorktree}.` });
+  });
+
+  it('stops the base merge from the card it was started for', async () => {
+    const control = stackedHarness();
+    watch(control);
+    await control.pass();
+    await baseAppears(control);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'stopAction', key: 'issue:17198' });
+    await control.settle();
+
+    const card = control.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === 'issue:17198');
+
+    expect(control.stopped).toEqual(['46af2ac8']);
+    expect(card?.action).toMatchObject({ state: 'done', outcome: 'stopped' });
+  });
+
+  it('links the base merge\'s session to the base\'s issue', async () => {
+    const control = stackedHarness();
+    watch(control);
+    await control.pass();
+    await baseAppears(control);
+
+    expect(makeActionStore(stateDir).read().links[`claude:${BASE_SESSION}`]).toMatchObject({ issueNumber: 17000 });
+  });
+});
+
+/** A merge lands once GitHub shows its push, not on the run's word alone (R39). */
+describe('checking a merge\'s push', () => {
+  it('lands a reported merge whose destination contains master\'s tip', async () => {
+    const control = harness();
+    control.defaultOid = MASTER_TIP;
+    watch(control);
+    await control.pass();
+    await control.appear();
+    control.report({ outcome: 'done', detail: 'Merged master.' });
+    await control.finish();
+    await control.settle();
+
+    expect(control.compared).toEqual([`${MASTER_TIP}...17198-channel-mapping`]);
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed', detail: 'Merged master.' });
+  });
+
+  it('halts a reported merge whose destination lacks master\'s tip', async () => {
+    const control = harness();
+    control.defaultOid = MASTER_TIP;
+    control.contains = () => ({ contained: false, failure: null });
+    watch(control);
+    await control.pass();
+    await control.appear();
+    control.report({ outcome: 'done', detail: 'Merged master.' });
+    await control.finish();
+    await control.settle();
+
+    expect(control.cardAction()).toMatchObject({
+      state: 'done',
+      outcome: 'halted',
+      detail: 'The run reported done, but 17198-channel-mapping does not contain master at d0d0d0d.',
+    });
+  });
+
+  it('keeps checking after a failed read, showing the check, and lands once GitHub answers', async () => {
+    const control = harness();
+    control.defaultOid = MASTER_TIP;
+    control.contains = () => ({ contained: null, failure: { subject: 'github', kind: 'offline', message: 'GitHub could not be reached.', remedy: 'r' }, missing: false });
+    watch(control);
+    await control.pass();
+    await control.appear();
+    control.report({ outcome: 'done', detail: 'Merged master.' });
+    await control.finish();
+    await control.settle();
+
+    expect(control.cardAction()).toMatchObject({ state: 'running', stage: 'verifying' });
+
+    control.contains = () => ({ contained: true, failure: null });
+    await control.pass();
+    await control.settle();
+
+    expect(control.compared).toHaveLength(2);
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+  });
+
+  it('halts once reads have failed past the result timeout counted from the report', async () => {
+    const control = harness({ resultTimeoutMs: 600_000 });
+    control.defaultOid = MASTER_TIP;
+    control.contains = () => ({ contained: null, failure: { subject: 'github', kind: 'offline', message: 'GitHub could not be reached.', remedy: 'r' }, missing: false });
+    watch(control);
+    await control.pass();
+    await control.appear();
+    control.report({ outcome: 'done', detail: 'Merged master.' });
+    await control.finish();
+
+    for (let i = 0; i < 4; i++) await control.pass();
+    await control.settle();
+
+    expect(control.cardAction()).toMatchObject({
+      state: 'done',
+      outcome: 'halted',
+      detail: 'The run reported done, but GitHub could not be checked for its push: GitHub could not be reached.',
+    });
+  });
+
+  it('halts at once where GitHub has no such branch', async () => {
+    const control = harness();
+    control.defaultOid = MASTER_TIP;
+    control.contains = () => ({ contained: null, failure: { subject: 'github', kind: 'not-found', message: 'GitHub has no branch 17198-channel-mapping, or no commit d0d0d0d.', remedy: 'r' }, missing: true });
+    watch(control);
+    await control.pass();
+    await control.appear();
+    control.report({ outcome: 'done', detail: 'Merged master.' });
+    await control.finish();
+    await control.settle();
+
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'halted', detail: 'GitHub has no branch 17198-channel-mapping, or no commit d0d0d0d.' });
+  });
+
+  it('checks that a named test branch contains the merged head', async () => {
+    const control = harness({ table: [{ ...UPSTREAM, qualifier: 'test', prompt: '/or-merge' }] });
+    control.classified = { action: 'merge', detail: 'Merge into test.', target: 'Test-B-may-1' };
+    control.defaultOid = MASTER_TIP;
+    control.tips = { '17198-channel-mapping': PARENT_TIP };
+    control.contains = (_sha, branch) => ({ contained: branch !== 'Test-B-may-1', failure: null });
+    watch(control);
+    await control.pass();
+    await control.appear();
+    control.report({ outcome: 'done', detail: 'Merged into test.' });
+    await control.finish();
+    await control.settle();
+
+    expect(control.compared).toEqual([`${MASTER_TIP}...17198-channel-mapping`, `${PARENT_TIP}...Test-B-may-1`]);
+    expect(control.cardAction()).toMatchObject({
+      state: 'done',
+      outcome: 'halted',
+      detail: 'The run reported done, but Test-B-may-1 does not contain 17198-channel-mapping at b1b1b1b.',
+    });
+  });
+
+  it('settles on the report alone where the default branch\'s tip was not read', async () => {
+    const control = harness();
+    control.contains = () => ({ contained: false, failure: null });
+    watch(control);
+    await control.pass();
+    await control.appear();
+    control.report({ outcome: 'done', detail: 'Merged master.' });
+    await control.finish();
+
+    expect(control.compared).toEqual([]);
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+  });
+});
+
+/** A base merge's key holds a repository and a branch, whose sanitized forms can collide (R39). */
+describe('where a run writes its result', () => {
+  it('keeps a card\'s file named by its key, and gives base merges whose names would collide separate files', () => {
+    expect(actionReportPathOf('/state', 'issue:17198')).toBe('/state/runs/issue-17198.json');
+    expect(actionReportPathOf('/state', 'merge:a/b#c-d')).toMatch(/^\/state\/runs\/merge-[0-9a-f]{16}\.json$/);
+    expect(actionReportPathOf('/state', 'merge:a/b#c-d')).not.toBe(actionReportPathOf('/state', 'merge:a/b-c#d'));
+    expect(actionReportPathOf('/state', 'merge:a/b#c-d')).toBe(actionReportPathOf('/state', 'merge:a/b#c-d'));
   });
 });

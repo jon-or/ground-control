@@ -1,0 +1,1 @@
+{"data":{"repository":{"pullRequests":{"nodes":[{"number":17589,"isDraft":false,"isCrossRepository":false,"baseRefName":"master","headRefName":"16080-parent-feature","headRefOid":"4235c514e84cd772144c23acfb8f3cb4a1ef3f90","author":{"login":"dev-1"},"closingIssuesReferences":{"nodes":[{"number":16080}]}}]}}}}

@@ -75,7 +75,36 @@ export interface WorkSource {
   readDetail?(card: IssueCard, subject: DetailSubject, signal: AbortSignal): Promise<DetailReading | null>;
   /** Optional custody history for one card's issue. Return null for a card this source does not serve. */
   readCustody?(card: IssueCard, signal: AbortSignal): Promise<CustodyReading | null>;
+  /**
+   * Optional open pull requests whose head is `branch`, in `repository` (`owner/name`): the base of a stacked
+   * pull request, which a merge updates first (R39).
+   */
+  readBranchPullRequests?(repository: string, branch: string, signal: AbortSignal): Promise<BranchPullRequestReading>;
+  /** Optional commit `branch` points at, which a merge records before dispatch and a test merge checks after (R39). */
+  readBranchTip?(repository: string, branch: string, signal: AbortSignal): Promise<BranchTipReading>;
+  /** Optional check that `branch` contains commit `sha`: what shows a merge's push (R39). */
+  contains?(repository: string, sha: string, branch: string, signal: AbortSignal): Promise<ContainsReading>;
 }
+
+/** An open pull request found by its head branch. `issueNumber` is the one issue it closes, else null. */
+export interface BranchPullRequest {
+  number: number;
+  author: string | null;
+  isDraft: boolean;
+  baseRefName: string;
+  headRefName: string;
+  headOid: string;
+  issueNumber: number | null;
+  /** Whether the head is in another repository, which the board does not push to. */
+  crossRepository: boolean;
+}
+
+export type BranchPullRequestReading = { pullRequests: BranchPullRequest[]; failure: null } | { pullRequests: null; failure: ReadFailure };
+
+export type BranchTipReading = { sha: string; failure: null } | { sha: null; failure: ReadFailure };
+
+/** `missing` marks a branch or commit GitHub does not have, which waiting will not change. */
+export type ContainsReading = { contained: boolean; failure: null } | { contained: null; failure: ReadFailure; missing: boolean };
 
 /** One item read by number. `card` null beside no failure is a number the source served and found nothing for. */
 export interface CardReading {

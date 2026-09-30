@@ -3,12 +3,16 @@ import { ACTION_REVISION, EMPTY_ACTIONS } from '@ground-control/core';
 import type { ActionRun, ActionState, Lane, LanedCard, TriageQualifier } from '@ground-control/core';
 import {
   ACTION_GATE_MS,
+  BASE_BLOCK_MS,
   DISPATCH_WINDOW_MS,
   LINK_GRACE_MS,
   alreadyRun,
+  baseKeyOf,
   cardActionOf,
   dispatchesInWindow,
   gateOpen,
+  isBaseKey,
+  mergeInto,
   nextActionState,
   readActionReport,
   readActionState,
@@ -580,5 +584,98 @@ describe('what a chained run costs', () => {
 
     expect(second.dispatches).toEqual([NOW]);
     expect(second.runs['issue:17198']?.action).toBe('merge');
+  });
+});
+
+/** A base merge is keyed by its branch, not a card, and shows on the card it was started for (R39). */
+describe('a base merge and a merge being checked', () => {
+  const BASE = 'merge:example-org/example-repo#17000-parent-feature';
+  const leg = { repository: 'example-org/example-repo', source: 'master', sourceSha: 'd0d0d0d0', destination: '17000-parent-feature', target: '' };
+  const baseRun = (over: Partial<ActionRun> = {}) =>
+    run({ key: BASE, qualifier: 'base', issueNumber: 17000, merge: leg, for: { key: 'issue:17198', qualifier: 'stacked' }, ...over });
+  const stackedReading = reads('merge', true, NOW - 1, 'stacked');
+
+  it('keeps the merge, the check, and the card it is for through storage', () => {
+    const stored = { ...EMPTY_ACTIONS, runs: { [BASE]: baseRun({ verifyingSince: NOW + 5 }) } };
+
+    expect(readActionState(JSON.parse(JSON.stringify(stored)))).toEqual(stored);
+  });
+
+  it('names a base merge by its repository and branch, and finds the running merge into a branch', () => {
+    const state = { ...EMPTY_ACTIONS, runs: { [BASE]: baseRun() } };
+
+    expect(baseKeyOf('example-org/example-repo', '17000-parent-feature')).toBe(BASE);
+    expect(isBaseKey(BASE)).toBe(true);
+    expect(isBaseKey('issue:17198')).toBe(false);
+    expect(mergeInto(state, 'example-org/example-repo', '17000-parent-feature')?.key).toBe(BASE);
+    expect(mergeInto(state, 'example-org/example-repo', '17198-channel-mapping')).toBeUndefined();
+    expect(mergeInto({ ...state, runs: { [BASE]: baseRun({ outcome: 'landed' }) } }, 'example-org/example-repo', '17000-parent-feature')).toBeUndefined();
+  });
+
+  it('shows a running base merge on its card as the card\'s merge at the base stage', () => {
+    const state = { ...EMPTY_ACTIONS, runs: { [BASE]: baseRun() } };
+
+    expect(cardActionOf(state, 'issue:17198', stackedReading, null)).toEqual({
+      state: 'running',
+      action: 'merge',
+      qualifier: 'stacked',
+      since: NOW,
+      stage: 'base',
+      detail: 'Merging master into 17000-parent-feature first.',
+    });
+  });
+
+  it('shows a halted base merge on its card, naming the base, over the card\'s older run', () => {
+    const state = {
+      ...EMPTY_ACTIONS,
+      runs: {
+        'issue:17198': run({ outcome: 'landed', startedAt: NOW - 10_000, endedAt: NOW - 9_000 }),
+        [BASE]: baseRun({ outcome: 'halted', endedAt: NOW + 10, detail: 'Conflicts.' }),
+      },
+    };
+
+    expect(cardActionOf(state, 'issue:17198', stackedReading, null)).toMatchObject({
+      state: 'done',
+      qualifier: 'stacked',
+      outcome: 'halted',
+      detail: '17000-parent-feature: Conflicts.',
+    });
+  });
+
+  it('shows the card\'s own merge once the base merge landed', () => {
+    const state = {
+      ...EMPTY_ACTIONS,
+      runs: {
+        [BASE]: baseRun({ outcome: 'landed', endedAt: NOW + 10 }),
+        'issue:17198': run({ qualifier: 'stacked', startedAt: NOW + 20 }),
+      },
+    };
+
+    expect(cardActionOf(state, 'issue:17198', stackedReading, null)).toEqual({ state: 'running', action: 'merge', qualifier: 'stacked', since: NOW + 20 });
+  });
+
+  it('shows a merge whose push is being checked at the verifying stage', () => {
+    const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ merge: { ...leg, destination: '17198-channel-mapping' }, verifyingSince: NOW + 5 }) } };
+
+    expect(cardActionOf(state, 'issue:17198', reads('merge'), null)).toMatchObject({ state: 'running', stage: 'verifying' });
+  });
+
+  /** No card has a base merge's key; a landed one has nothing left to block, a halted one blocks its tips. */
+  it('keeps a landed base merge a day and one that did not land for BASE_BLOCK_MS, then drops them', () => {
+    const landed = { ...EMPTY_ACTIONS, runs: { [BASE]: baseRun({ outcome: 'landed', endedAt: NOW }) } };
+    const halted = { ...EMPTY_ACTIONS, runs: { [BASE]: baseRun({ outcome: 'halted', endedAt: NOW }) } };
+    const at = (state: ActionState, now: number) => nextActionState(laneWith('issue:17198'), state, true, now).runs[BASE];
+
+    expect(at(landed, NOW + 1_000)).toBeDefined();
+    expect(at(landed, NOW + DISPATCH_WINDOW_MS)).toBeUndefined();
+    expect(at(halted, NOW + DISPATCH_WINDOW_MS)).toBeDefined();
+    expect(at(halted, NOW + BASE_BLOCK_MS)).toBeUndefined();
+  });
+
+  it('keeps the merge and the card it is for through a dispatch and a pass', () => {
+    const dispatched = withDispatch(EMPTY_ACTIONS, baseRun(), NOW);
+
+    expect(dispatched.runs[BASE]).toEqual(baseRun());
+    expect(nextActionState(laneWith('issue:17198'), dispatched, true, NOW + 1).runs[BASE]).toEqual(baseRun());
   });
 });
