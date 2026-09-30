@@ -1204,6 +1204,12 @@ function tail(boardCard, canRequest) {
     tools.appendChild(create);
   }
 
+  const report = reportButton(boardCard);
+
+  if (report) {
+    tools.appendChild(report);
+  }
+
   const run = runButton(boardCard);
 
   if (run) {
@@ -2557,17 +2563,19 @@ function behindDetail() {
   return [...document.body.children].filter((el) => el.id !== 'detail' && el.id !== 'detail-scrim');
 }
 
-function closeDetail() {
+/** `restore` false leaves focus to the caller, as Back does when it hands the panel back to the history. */
+function closeDetail(restore = true) {
   const panel = document.getElementById('detail');
 
   if (panel === null) {
     return;
   }
 
-  const opener = detailFor?.opener ?? null;
+  const opener = detailFor?.opener ?? reportFor?.opener ?? null;
 
   detailFor = null;
   detailState = null;
+  reportFor = null;
   panel.remove();
   document.getElementById('detail-scrim')?.remove();
 
@@ -2576,7 +2584,9 @@ function closeDetail() {
   }
 
   // A redraw can replace the control that opened the panel; focus the board rather than dropping it on the body.
-  (opener?.isConnected === true ? opener : lanesEl).focus();
+  if (restore) {
+    (opener?.isConnected === true ? opener : lanesEl).focus();
+  }
 }
 
 /**
@@ -2705,6 +2715,12 @@ const OCTICONS = {
   ],
   'link-external': [
     'M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z',
+  ],
+  file: [
+    'M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z',
+  ],
+  'arrow-left': [
+    'M7.78 12.53a.75.75 0 0 1-1.06 0L2.47 8.28a.75.75 0 0 1 0-1.06l4.25-4.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L4.81 7h7.44a.75.75 0 0 1 0 1.5H4.81l2.97 2.97a.75.75 0 0 1 0 1.06Z',
   ],
   copy: [
     'M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z',
@@ -3633,7 +3649,7 @@ function openPullRequestFrom(event, boardCard, opener) {
  */
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && detailFor !== null) {
+  if (event.key === 'Escape' && (detailFor !== null || reportFor !== null)) {
     closeDetail();
   }
 });
@@ -4057,7 +4073,7 @@ function openHistory() {
   vscode.postMessage({ type: 'readActionHistory' });
 }
 
-function closeHistory() {
+function closeHistory(restore = true) {
   const panel = document.getElementById('history');
 
   historyFor = null;
@@ -4073,7 +4089,9 @@ function closeHistory() {
     outside.removeAttribute('inert');
   }
 
-  boardMenuEl.focus();
+  if (restore) {
+    boardMenuEl.focus();
+  }
 }
 
 /** Everything the scrim covers; the panel is modal, as the conversation panel is. */
@@ -4122,7 +4140,7 @@ function historyPanel() {
 
   const body = el('div', 'history-scroll');
 
-  // The list has no controls, so the scrolling region takes the keyboard itself.
+  // Only rows with a report have a control, so the scrolling region takes the keyboard itself.
   body.tabIndex = 0;
   body.setAttribute('role', 'region');
   setAccessibleName(body, 'Actions');
@@ -4189,6 +4207,10 @@ function historyRows(entry) {
   state.append(mark, outcome.text);
   ended.appendChild(state);
 
+  if (entry.reportId !== null && entry.reportId !== undefined) {
+    ended.appendChild(historyReportButton(entry.reportId));
+  }
+
   if (entry.endedAt !== null) {
     took.textContent = ago(entry.endedAt - entry.startedAt);
   } else if (entry.outcome === 'running') {
@@ -4230,6 +4252,9 @@ function paintHistory() {
 
   const body = historyPanel().querySelector('.history-scroll');
   const { entries } = historyFor;
+  // Each answer redraws the rows; a Report button that held focus keeps it in the new rows.
+  const held = document.activeElement;
+  const focused = held instanceof HTMLElement && body.contains(held) ? held.dataset.reportId ?? null : null;
 
   if (entries === null) {
     body.replaceChildren(el('p', 'history-note', 'Reading action history…'));
@@ -4256,6 +4281,10 @@ function paintHistory() {
   table.createTHead().appendChild(head);
   table.createTBody().append(...entries.flatMap(historyRows));
   body.replaceChildren(table);
+
+  if (focused !== null) {
+    (historyReportControl(focused) ?? body).focus();
+  }
 }
 
 document.addEventListener('keydown', (event) => {
@@ -4263,6 +4292,288 @@ document.addEventListener('keydown', (event) => {
     closeHistory();
   }
 });
+
+/*
+ * Run reports (R51): the Markdown report a finished run's result named, rendered by the hub and shown in the
+ * conversation panel. Opened from the action history, it takes the history's place until Back returns to it.
+ */
+
+/**
+ * Report markup kept from the hub's Markdown render (R51). The hub escapes raw HTML and inlines only verified
+ * images; this is the client's own guard, identical in both boards (testing.md, client parity).
+ */
+const REPORT_TAGS = new Set([
+  'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'img', 'input', 'li',
+  'ol', 'p', 'pre', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul',
+]);
+
+/** Elements whose children are source text rather than markup; their subtrees are dropped. */
+const REPORT_OPAQUE = new Set(['script', 'style', 'template', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'svg', 'math']);
+
+/** Attributes kept per element; no `class`, `style`, `id`, or `srcset` on any. @type {Record<string, string[]>} */
+const REPORT_ATTRS = {
+  a: ['href'],
+  img: ['src', 'alt'],
+  input: ['type', 'checked', 'disabled'],
+  ol: ['start'],
+  td: ['align'],
+  th: ['align'],
+};
+
+/** An image the hub inlined from a verified file; nothing else loads, so a report cannot reach the network. */
+const REPORT_IMAGE = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+const REPORT_HTTP = /^https?:\/\//i;
+
+/**
+ * Rebuild report HTML from an inert document with only the elements and attributes above. A checkbox stays a
+ * disabled checkbox, since the report is read here, never edited.
+ * @param {Document} doc The document the fragment is built for.
+ * @param {string} html The hub's render.
+ * @returns {DocumentFragment}
+ */
+function sanitizeReport(doc, html) {
+  const parsed = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+  const out = doc.createDocumentFragment();
+
+  /** @param {Node} source @param {Node} into */
+  const copy = (source, into) => {
+    for (const node of /** @type {NodeListOf<Element>} */ (source.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        into.appendChild(doc.createTextNode(node.nodeValue ?? ''));
+        continue;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+      const tag = node.localName;
+
+      if (REPORT_OPAQUE.has(tag)) continue;
+
+      // Keep the text of an unknown element, re-filtered.
+      if (!REPORT_TAGS.has(tag)) {
+        copy(node, into);
+        continue;
+      }
+
+      if (tag === 'input' && node.getAttribute('type') !== 'checkbox') continue;
+
+      if (tag === 'img' && !REPORT_IMAGE.test(node.getAttribute('src') ?? '')) {
+        into.appendChild(doc.createTextNode(`[Image ${node.getAttribute('alt') ?? ''}]`));
+        continue;
+      }
+
+      const el = doc.createElement(tag);
+
+      for (const name of REPORT_ATTRS[tag] ?? []) {
+        if (!node.hasAttribute(name)) continue;
+
+        const value = node.getAttribute(name) ?? '';
+
+        if (name === 'href' && !REPORT_HTTP.test(value)) continue;
+        el.setAttribute(name, value);
+      }
+
+      if (tag === 'input') el.setAttribute('disabled', '');
+      copy(node, el);
+      into.appendChild(el);
+    }
+  };
+
+  copy(parsed.body, out);
+
+  return out;
+}
+
+const REPORT_NAME = 'Open report';
+const REPORT_HINT = 'Open the report this run wrote.';
+
+/**
+ * The report being shown. `request` pairs the hub's answer with the latest read; `history` holds the history's rows
+ * when the report was opened from there, for Back to restore.
+ * @type {{ id: string, request: number, opener: Element | null, history: import('@ground-control/core').ActionHistoryView[] | null, answer: import('@ground-control/core').ReportMessage | null } | null}
+ */
+let reportFor = null;
+let reportRequests = 0;
+
+/** A finished run with a report has a control beside the run control to open it. */
+function reportButton(boardCard) {
+  const action = boardCard.action;
+
+  if (action?.state !== 'done' || !action.reportId) {
+    return null;
+  }
+
+  const { reportId } = action;
+  const button = toolButton(REPORT_NAME, REPORT_HINT, octicon('file'), () => openReport(reportId, button, null));
+
+  button.classList.add('report');
+
+  return button;
+}
+
+function historyReportButton(reportId) {
+  const button = el('button', 'history-report');
+
+  button.type = 'button';
+  button.dataset.reportId = reportId;
+  button.append(octicon('file'), 'Report');
+  setAccessibleName(button, REPORT_NAME);
+  setTooltip(button, REPORT_HINT);
+  button.addEventListener('click', () => {
+    const entries = historyFor?.entries ?? [];
+
+    closeHistory(false);
+    openReport(reportId, boardMenuEl, entries);
+  });
+
+  return button;
+}
+
+function historyReportControl(reportId) {
+  return [...document.querySelectorAll('#history .history-report')].find((button) => button instanceof HTMLElement && button.dataset.reportId === reportId) ?? null;
+}
+
+function openReport(id, opener, history) {
+  reportRequests += 1;
+  reportFor = { id, request: reportRequests, opener, history, answer: null };
+  paintReport(true);
+  vscode.postMessage({ type: 'readReport', id, request: reportRequests });
+}
+
+/** Only the latest read is drawn; an earlier answer can arrive after a later open. */
+function reportAnswered(message) {
+  if (reportFor === null || message.request !== reportFor.request || message.id !== reportFor.id) {
+    return;
+  }
+
+  reportFor.answer = message;
+  paintReport(false);
+}
+
+/** Return to the history the report was opened from, with focus on the row's Report button. */
+function backToHistory() {
+  const id = reportFor?.id ?? '';
+  const entries = reportFor?.history ?? null;
+
+  closeDetail(false);
+  historyFor = { entries };
+  paintHistory();
+  vscode.postMessage({ type: 'readActionHistory' });
+  /** @type {HTMLElement | null} */ (historyReportControl(id) ?? document.querySelector('#history .history-close'))?.focus();
+}
+
+function paintReport(opening) {
+  if (reportFor === null) {
+    return;
+  }
+
+  const panel = detailPanel();
+  const held = document.activeElement;
+  const inside = held !== null && (held === document.body || panel.contains(held));
+  const wanted = inside && !opening ? (held?.className ?? '').split(' ')[0] ?? '' : '';
+
+  panel.removeAttribute('data-paired');
+  panel.setAttribute('aria-label', 'Report');
+  applyDetailWidth(panel);
+
+  const grip = detailGrip(panel);
+
+  setAccessibleName(grip, 'Resize report');
+  panel.replaceChildren(grip, reportPane(reportFor));
+
+  if (opening || inside) {
+    const fallback = reportFor.history === null ? '.detail-close' : '.report-back';
+    const named = wanted === '' ? null : panel.querySelector(`.${wanted}:not(:disabled)`);
+
+    /** @type {HTMLElement} */ (named ?? panel.querySelector(fallback)).focus();
+  }
+}
+
+function reportButtonWithText(className, icon, text) {
+  const button = el('button', className);
+
+  button.type = 'button';
+  button.append(octicon(icon), text);
+  setAccessibleName(button, text);
+
+  return button;
+}
+
+/** The report's header (title, file, modified time, controls), then its body, in one scrolling region. */
+function reportPane({ id, history, answer }) {
+  const body = el('div', 'detail-scroll report-scroll');
+
+  body.tabIndex = 0;
+  body.setAttribute('role', 'region');
+  setAccessibleName(body, 'Report');
+
+  const head = el('header', 'report-head');
+  const bar = el('div', 'report-bar');
+
+  if (history !== null) {
+    const back = reportButtonWithText('report-back', 'arrow-left', 'Back to history');
+
+    back.addEventListener('click', () => backToHistory());
+    bar.appendChild(back);
+  }
+
+  const actions = el('div', 'detail-actions');
+  const open = reportButtonWithText('report-open', 'file', 'Open in editor');
+
+  open.disabled = answer === null;
+  open.addEventListener('click', () => vscode.postMessage({ type: 'openReport', id }));
+
+  const close = el('button', 'detail-close');
+
+  close.type = 'button';
+  close.appendChild(octicon('x'));
+  setAccessibleName(close, 'Close report');
+  close.addEventListener('click', () => closeDetail());
+  actions.append(open, close);
+  bar.append(el('span', 'report-spacer'), actions);
+  head.appendChild(bar);
+
+  if (answer?.title) {
+    head.appendChild(el('h2', 'report-title', answer.title));
+  }
+
+  if (answer?.name) {
+    const meta = el('div', 'report-meta');
+
+    meta.appendChild(el('span', 'report-file', answer.name));
+
+    if (answer.failure === null) {
+      const time = el('time', 'report-when');
+      const since = el('span', '');
+
+      time.dateTime = new Date(answer.modifiedAt).toISOString();
+      age(since, answer.modifiedAt);
+      time.append('modified ', since, ' ago');
+      setTooltip(time, new Date(answer.modifiedAt).toLocaleString());
+      meta.append(' · ', time);
+    }
+
+    head.appendChild(meta);
+  }
+
+  const content = el('div', 'detail-content');
+
+  if (answer === null) {
+    content.appendChild(detailNote('Reading the report…'));
+  } else if (answer.failure !== null) {
+    content.appendChild(detailNote(answer.failure, true));
+  } else {
+    const markdown = el('div', 'markdown-body report-body');
+
+    markdown.appendChild(sanitizeReport(document, answer.html));
+    content.appendChild(markdown);
+  }
+
+  body.append(head, content);
+
+  return body;
+}
 
 function countCards(lanes) {
   return lanes.reduce((total, lane) => total + lane.cards.length, 0);
@@ -4461,6 +4772,12 @@ window.addEventListener('message', (event) => {
     return;
   }
 
+  if (message.type === 'report') {
+    reportAnswered(message);
+
+    return;
+  }
+
   if (message.type === 'reading') {
     reading = message.enabled !== false;
     pairing = message.paired === true;
@@ -4468,7 +4785,7 @@ window.addEventListener('message', (event) => {
     pairWidth = typeof message.pairWidth === 'number' ? message.pairWidth : null;
 
     // A board turned off while a conversation is open closes it; the setting is what says it should not be there.
-    if (!reading) {
+    if (!reading && detailFor !== null) {
       closeDetail();
     }
 

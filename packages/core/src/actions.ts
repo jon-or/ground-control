@@ -93,12 +93,18 @@ export interface ActionHistoryEntry {
   endedAt: number | null;
   outcome: ActionOutcome;
   detail: string;
+  /** The absolute Markdown report the run's result named (R51). Never sent to a client. */
+  auditPath?: string | undefined;
 }
 
-/** What a client is sent: the entry, with the card's title and address where the hub knows them. */
-export interface ActionHistoryView extends ActionHistoryEntry {
+/**
+ * What a client is sent: the entry without its report path, with the card's title and address where the hub knows
+ * them, and the id to read the run's report by where it has one that scope allows (R51).
+ */
+export interface ActionHistoryView extends Omit<ActionHistoryEntry, 'auditPath'> {
   title: string | null;
   url: string | null;
+  reportId: string | null;
 }
 
 /** Anything the board dispatches as a session: a card action, or the worktree run that precedes one. */
@@ -179,6 +185,8 @@ export interface ActionRun {
   outcome: ActionOutcome;
   /** One-sentence reported outcome or runner failure explanation. */
   detail: string;
+  /** The absolute Markdown report the result file named (R51); absent where it named none or a relative path. */
+  auditPath?: string | undefined;
 }
 
 /**
@@ -268,8 +276,14 @@ export type CardAction = { action: AutomatableAction; qualifier: TriageQualifier
    * merge's push (R39); and `waiting` while the run's session waits for the developer, such as on a question (R45).
    */
   | { state: 'running'; since: number; stage?: 'starting' | 'worktree' | 'base' | 'verifying' | 'waiting'; detail?: string }
-  | { state: 'done'; outcome: ActionOutcome; detail: string; at: number }
+  /** `reportId` reads the run's report (R51); absent where it has none or session scope hides it. */
+  | { state: 'done'; outcome: ActionOutcome; detail: string; at: number; reportId?: string }
 );
+
+/** The id a run's history entry and its report go by: the run's state key and start time (R50, R51). */
+export function runIdOf(key: string, startedAt: number): string {
+  return `${key}@${startedAt}`;
+}
 
 /**
  * The worktree control's state on a card with no worktree (R46). Absent where the card has one, has no issue, or

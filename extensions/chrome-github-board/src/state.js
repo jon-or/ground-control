@@ -5,13 +5,15 @@
  * @typedef {import('@ground-control/core').Snapshot} Snapshot
  * @typedef {import('@ground-control/core').Custody} Custody
  * @typedef {import('@ground-control/core').ActionHistoryView} ActionHistoryView
+ * @typedef {import('@ground-control/core').ReportMessage} ReportMessage
  * @typedef {{ key: string, loading: boolean, custody: Custody | null, failure: string | null }} CustodyState
- * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody: CustodyState | null, history: ActionHistoryView[] | null }} State
+ * @typedef {{ id: string, request: number, answer: ReportMessage | null }} ReportState
+ * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody: CustodyState | null, history: ActionHistoryView[] | null, report: ReportState | null }} State
  */
 
 /** @returns {State} */
 export function initialState() {
-  return { snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null, history: null };
+  return { snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null, history: null, report: null };
 }
 
 /**
@@ -19,7 +21,7 @@ export function initialState() {
  * connection (R24).
  *
  * @param {State} state
- * @param {{ type?: string, snapshot?: Snapshot, message?: string | null, key?: string, custody?: Custody | null, failure?: string | null, entries?: ActionHistoryView[] }} message
+ * @param {{ type?: string, snapshot?: Snapshot, message?: string | null, key?: string, custody?: Custody | null, failure?: string | null, entries?: ActionHistoryView[], id?: string, request?: number }} message
  * @returns {State}
  */
 export function applyMessage(state, message) {
@@ -55,6 +57,17 @@ export function applyMessage(state, message) {
   // The worker hands every board tab the answer; a tab whose panel is closed keeps it unseen.
   if (message.type === 'actionHistory' && Array.isArray(message.entries)) {
     return { ...state, history: message.entries };
+  }
+
+  // One report read at a time: an answer to an earlier read, or to another tab's, is dropped (R51).
+  if (message.type === 'reportPending' && typeof message.id === 'string' && typeof message.request === 'number') {
+    return { ...state, report: { id: message.id, request: message.request, answer: null } };
+  }
+
+  if (message.type === 'report') {
+    return state.report !== null && state.report.request === message.request && state.report.id === message.id
+      ? { ...state, report: { ...state.report, answer: /** @type {ReportMessage} */ (message) } }
+      : state;
   }
 
   return state;

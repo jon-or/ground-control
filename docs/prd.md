@@ -279,6 +279,12 @@ A list of every run the board started, newest first, in both clients: from the e
 
 The hub keeps the history in its own file, apart from the per-card run records that a later run replaces, for 90 days and at most 500 runs, the oldest going first. A failed write loses history, not dispatch safety, and is logged. The history is answered to the client that asked and never broadcast; an open panel asks again when the board changes. Session scope hides what every run reported, running ones included, since a report names the checkout. A history file the hub cannot read is left as it is and not added to until it can be read. Refused requests are not runs and are not listed.
 
+### R51. Run reports
+
+A run whose result file names `auditPath` has a report: a Markdown file the run wrote, such as a review, a review answer, or a QA answer. A card whose finished run has one offers an Open report control beside the run's mark, and each action history row with one offers it too, in both clients. The report opens rendered, with its title, file name, and when it last changed, in the editor's conversation panel and the overlay's history sidebar; opened from the history, a Back to history control returns to the list. The editor adds Open in editor, which opens the file itself; the overlay has no editor to open it in.
+
+The report is read and rendered each time it is opened, never kept, because the developer edits it and a later run can rewrite it. Only an absolute path counts: a run's directory is not kept, so a relative one has nothing to resolve against. A client asks for a report by its run, never by a path, and the board reads only the file that run named. Images are shown only from inside the report's folder: named from the report, or, as older reviews name them, from the worktree root. Only PNG, JPEG, GIF, and WebP files, checked by their contents, are shown; other images, and any over 2 MB, show as a line naming the file and why. Raw HTML in the report shows as text, and only web links stay links. A report over 512 kB, or whose rendered text is too large for the overlay's messages, says so instead; images past that bound show as a line naming the file, so the editor's Open in editor shows the rest. Session scope hides reports as it hides what runs reported (R50).
+
 ### R10. Counts
 
 Show a card count per lane. Do not hide or refuse developer-started sessions to enforce work-in-progress limits. Limits apply to board-dispatched work (R33).

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AUTOMATABLE_ACTIONS, CREATE_WORKTREE } from '@ground-control/core';
+import { AUTOMATABLE_ACTIONS, CREATE_WORKTREE, runIdOf } from '@ground-control/core';
 import type { ActionHistoryEntry, ActionState } from '@ground-control/core';
 
 /** Entries the history keeps; the oldest go first when it overflows (R50). */
@@ -21,6 +21,7 @@ const entry = z.object({
   endedAt: z.number().nullable(),
   outcome: z.enum(['running', 'landed', 'halted', 'failed', 'stopped']),
   detail: z.string(),
+  auditPath: z.string().min(1).optional().catch(undefined),
 });
 
 /** Parse stored history, dropping entries it cannot read one by one. */
@@ -45,7 +46,7 @@ export function historyWith(history: readonly ActionHistoryEntry[], state: Actio
   const byId = new Map(history.map((one) => [one.id, one]));
 
   for (const [key, run] of Object.entries(state.runs)) {
-    const id = `${key}@${run.startedAt}`;
+    const id = runIdOf(key, run.startedAt);
     const next: ActionHistoryEntry = {
       id,
       key: run.for?.key ?? key,
@@ -59,6 +60,7 @@ export function historyWith(history: readonly ActionHistoryEntry[], state: Actio
       endedAt: run.endedAt,
       outcome: run.outcome,
       detail: run.detail,
+      ...(run.auditPath === undefined ? {} : { auditPath: run.auditPath }),
     };
 
     byId.set(id, next);

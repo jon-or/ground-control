@@ -679,3 +679,34 @@ describe('a base merge and a merge being checked', () => {
     expect(nextActionState(laneWith('issue:17198'), dispatched, true, NOW + 1).runs[BASE]).toEqual(baseRun());
   });
 });
+
+describe('a run’s report (R51)', () => {
+  const REPORT = 'D:/git/orez/.wip/review-pr/round-1/review.md';
+
+  it('keeps an absolute report path with the outcome, and none for a relative one', () => {
+    const started = withDispatch(EMPTY_ACTIONS, run(), NOW);
+
+    expect(withOutcome(started, 'issue:17198', 'landed', 'Reviewed.', NOW + 60, REPORT).runs['issue:17198']?.auditPath).toBe(REPORT);
+    expect(withOutcome(started, 'issue:17198', 'halted', 'Stopped at the gate.', NOW + 60, REPORT).runs['issue:17198']?.auditPath).toBe(REPORT);
+    expect(withOutcome(started, 'issue:17198', 'landed', 'Reviewed.', NOW + 60, '.wip/review.md').runs['issue:17198']).not.toHaveProperty('auditPath');
+  });
+
+  it('drops an earlier outcome’s report when a later one names none', () => {
+    const reported = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Gate.', NOW + 60, REPORT);
+
+    expect(withOutcome(reported, 'issue:17198', 'landed', 'Published.', NOW + 120).runs['issue:17198']).not.toHaveProperty('auditPath');
+  });
+
+  it('gives a finished run with a report the id its history entry goes by', () => {
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'landed', 'Merged.', NOW + 60, REPORT);
+    const plain = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'landed', 'Merged.', NOW + 60);
+
+    expect(cardActionOf(state, 'issue:17198', reads('merge', false), null)).toMatchObject({ state: 'done', reportId: `issue:17198@${NOW}` });
+    expect(cardActionOf(plain, 'issue:17198', reads('merge', false), null)).not.toHaveProperty('reportId');
+  });
+
+  it('reads an older record with no report, and drops a malformed one', () => {
+    expect(readActionState({ runs: { 'issue:17198': run() } })?.runs['issue:17198']).not.toHaveProperty('auditPath');
+    expect(readActionState({ runs: { 'issue:17198': { ...run(), auditPath: 7 } } })?.runs['issue:17198']?.action).toBe('merge');
+  });
+});

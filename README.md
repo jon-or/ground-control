@@ -148,10 +148,10 @@ Reviews refuse your own pull request; merges and answers refuse someone else's; 
 
 `actions.model` selects the coding model; empty uses that CLI's default. `triage.model` affects classification only. Saved hub configurations from older clients inherit each agent's legacy `model` only while the corresponding new model field is absent; an explicit empty field clears that inheritance. The current VS Code client sends both fields, so upgrades stop using the classification model for actions unless it is also set in `actions.model`.
 
-Action prompts accept `{issue}`, `{repo}`, `{pr}`, `{branch}` (the pull request head), `{base}` (its base), `{default}` (the repository default branch), `{target}` (the test branch of a test merge, else empty), `{checkout}` (the worktree), and `{resultPath}`. A prompt beginning with `/` invokes a slash command. The session must write JSON to `{resultPath}` with `outcome` (`done` or `halted`), `detail`, and optionally `auditPath`, for example:
+Action prompts accept `{issue}`, `{repo}`, `{pr}`, `{branch}` (the pull request head), `{base}` (its base), `{default}` (the repository default branch), `{target}` (the test branch of a test merge, else empty), `{checkout}` (the worktree), and `{resultPath}`. A prompt beginning with `/` invokes a slash command. The session must write JSON to `{resultPath}` with `outcome` (`done` or `halted`), `detail`, and optionally `auditPath`, the absolute path of a Markdown report the run wrote, for example:
 
 ```json
-{"outcome": "done", "detail": "Merged the base branch and pushed.", "auditPath": "merge-audit.md"}
+{"outcome": "done", "detail": "Reviewed round 2: 3 findings.", "auditPath": "D:/git/orez.worktrees/17198-x/.wip/review-pr/round-2/review.md"}
 ```
 
 A prompt that does not place `{resultPath}` itself has that instruction appended before dispatch, so an unattended run reports without you writing the contract into every prompt. A slash command that reads positional arguments (`$1`, `$2`) rather than `$ARGUMENTS` does not receive the appended text; place `{resultPath}` in the prompt yourself for those. The board reports `done` as Merged, Reviewed, Answered, Developed, Shipped, or Addressed, and missing output as stopped short; it does not independently verify the work on GitHub. `pushed`, which earlier merge prompts wrote, still counts as `done`. Cards with no worktree and no worktree prompt are refused. See [card action requirements](docs/prd.md#r39-card-actions).
@@ -189,6 +189,10 @@ Triage reads a tester's report on a card as QA failure or QA question. A row for
 ```
 
 Both rows can name the same prompt, since one report usually mixes failures and questions; separate rows let one start automatically while the other waits for a click. A run that stops for your approval before posting should write `halted` with the reason; click the card's run control to run it again, or answer in its session. A run that landed is not started automatically again until the issue's status changes, which is how the next QA round arrives.
+
+### Run reports
+
+A run that names `auditPath` gets an **Open report** control on its card and in the action history, in both clients. The report is rendered from the file each time you open it, so your edits show; in VS Code, **Open in editor** opens the file. Embed screenshots by paths relative to the report, such as `![step 3](screenshots/step-3.png)`: only PNG, JPEG, GIF, and WebP files inside the report's folder are shown. Raw HTML shows as text. See [R51](docs/prd.md#r51-run-reports).
 
 ### Action history
 

@@ -38,7 +38,7 @@ describe('what a message from the worker changes', () => {
   /** Opening the history drops the last list so the panel reads; an answer fills it, and anything else leaves it. */
   it('drops the history on a new request and takes the answer', () => {
     const entries = [
-      { id: 'a', key: 'issue-4501', issueNumber: 4501, action: 'merge', qualifier: null, trigger: 'browser', agent: 'claude', startedAt: 1, endedAt: 2, outcome: 'landed', detail: '', title: 'Issue 4501', url: null },
+      { id: 'a', key: 'issue-4501', issueNumber: 4501, action: 'merge', qualifier: null, trigger: 'browser', agent: 'claude', startedAt: 1, endedAt: 2, outcome: 'landed', detail: '', title: 'Issue 4501', url: null, reportId: null },
     ] as const;
     const answered = applyMessage(initialState(), { type: 'actionHistory', entries: [...entries] });
 
@@ -48,8 +48,22 @@ describe('what a message from the worker changes', () => {
     expect(applyMessage(answered, { type: 'snapshot', snapshot: SNAPSHOT }).history).toEqual(entries);
   });
 
+  /** A report read replaces the last; only the answer with its id and request number fills it (R51). */
+  it('holds one report read and takes only the answer to it', () => {
+    const answer = { type: 'report', id: 'issue-4501@1', request: 2, title: 'Round 1', name: 'round-1.md', modifiedAt: 1, html: '<p>ok</p>', failure: null } as const;
+    const first = applyMessage(initialState(), { type: 'reportPending', id: 'issue-4501@1', request: 1 });
+    const asked = applyMessage(first, { type: 'reportPending', id: 'issue-4501@1', request: 2 });
+
+    expect(asked.report).toEqual({ id: 'issue-4501@1', request: 2, answer: null });
+    expect(applyMessage(asked, { ...answer, request: 1 })).toBe(asked);
+    expect(applyMessage(asked, { ...answer, id: 'issue-4502@1' })).toBe(asked);
+    expect(applyMessage(initialState(), answer)).toEqual(initialState());
+    expect(applyMessage(asked, answer).report).toEqual({ id: 'issue-4501@1', request: 2, answer });
+    expect(applyMessage(initialState(), { type: 'reportPending', id: 'issue-4501@1' })).toEqual(initialState());
+  });
+
   it('starts out saying nothing has answered', () => {
-    expect(initialState()).toEqual({ snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null, history: null });
+    expect(initialState()).toEqual({ snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null, history: null, report: null });
   });
 
   it('takes a snapshot, and takes a change the same way', () => {

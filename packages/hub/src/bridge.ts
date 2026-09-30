@@ -80,7 +80,7 @@ export function bridgeAction(raw: unknown): BridgeAction {
     return { refused: 'Invalid overlay message.' };
   }
 
-  const message = raw as { type?: unknown; key?: unknown; lane?: unknown; watching?: unknown; agent?: unknown };
+  const message = raw as { type?: unknown; key?: unknown; lane?: unknown; watching?: unknown; agent?: unknown; id?: unknown; request?: unknown };
 
   if (message.type === 'refresh') {
     return { send: { type: 'refresh' } };
@@ -164,6 +164,13 @@ export function bridgeAction(raw: unknown): BridgeAction {
   // Read-only, and answered to this client alone (R50).
   if (message.type === 'readActionHistory') {
     return { send: { type: 'readActionHistory' } };
+  }
+
+  // Forward only the run id; the hub looks up the report the run recorded and never reads a page-named path (R51).
+  if (message.type === 'readReport') {
+    return typeof message.id === 'string' && message.id.length > 0 && message.id.length <= 512 && Number.isSafeInteger(message.request)
+      ? { send: { type: 'readReport', id: message.id, request: message.request as number } }
+      : { refused: 'That report cannot be read.' };
   }
 
   return { refused: `The overlay may not send ${String(message.type)}.` };

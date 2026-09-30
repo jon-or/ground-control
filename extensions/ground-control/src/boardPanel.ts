@@ -63,6 +63,10 @@ type Inbound =
   | { type: 'readCustody'; key: string }
   // The hub answers this board alone, newest first (R50).
   | { type: 'readActionHistory' }
+  // The hub answers this board alone with the rendered report; the path stays in the extension host (R51).
+  | { type: 'readReport'; id: unknown; request: unknown }
+  // Open the file the latest read of this report named.
+  | { type: 'openReport'; id: unknown }
   // A link inside rendered conversation HTML. Only http(s) is opened.
   | { type: 'openLink'; url: string }
   // Panel width the developer dragged to, retained for the next conversation, or pair, they open.
@@ -79,6 +83,11 @@ function cardLabel(card: { issueNumber: number | null; issue: { title: string } 
         : `#${card.issueNumber}`;
 
   return checkout.only ? named : `${named} (${basename(checkout.root)})`;
+}
+
+/** Report ids are the hub's run ids: a state key and a start time, never a path. */
+function isReportId(id: unknown): id is string {
+  return typeof id === 'string' && id.length > 0 && id.length <= 512;
 }
 
 function nonce(): string {
@@ -279,6 +288,20 @@ export class BoardPanel {
 
         return;
 
+      case 'readReport':
+        if (isReportId(msg.id) && Number.isSafeInteger(msg.request) && (msg.request as number) >= 0) {
+          this.#tell({ type: 'readReport', id: msg.id, request: msg.request as number });
+        }
+
+        return;
+
+      case 'openReport':
+        if (isReportId(msg.id)) {
+          void this.#openReport(msg.id);
+        }
+
+        return;
+
       // Links come from source-rendered HTML, which anyone who can comment may write.
       case 'openLink':
         this.#openExternal(readableLink(msg.url) ?? undefined);
@@ -428,6 +451,22 @@ export class BoardPanel {
     }
   }
 
+  async #openReport(id: string): Promise<void> {
+    const path = await this.#client.reportPath(id);
+
+    if (path === null) {
+      void vscode.window.showWarningMessage('This report is not available. Open it from the board again.');
+
+      return;
+    }
+
+    try {
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(path)));
+    } catch (error) {
+      void vscode.window.showWarningMessage(`Could not open ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async #changes(key: string): Promise<void> {
     const card = this.#last?.lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
 
@@ -558,7 +597,7 @@ export class BoardPanel {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://*.githubusercontent.com https://github.com/user-attachments/ https://github.githubassets.com; style-src ${webview.cspSource}; script-src 'nonce-${n}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://*.githubusercontent.com https://github.com/user-attachments/ https://github.githubassets.com data:; style-src ${webview.cspSource}; script-src 'nonce-${n}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link href="${media('board.css')}" rel="stylesheet">
 <title>Ground Control</title>

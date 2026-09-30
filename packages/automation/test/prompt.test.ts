@@ -127,7 +127,7 @@ describe('result contract', () => {
       '/or-merge master 17198-channel-mapping 17198 --single' + BREAK +
         'This run is unattended. Before you finish, write JSON to C:/runs/issue-17198.json: ' +
         '{"outcome":"done","detail":"<what happened>"} only once the work is complete, otherwise ' +
-        '{"outcome":"halted","detail":"<why it stopped>"}; add "auditPath":"<file>" when the run wrote one. ' +
+        '{"outcome":"halted","detail":"<why it stopped>"}; add "auditPath":"<absolute path>" when the run wrote a Markdown report. ' +
         'Write every key of whichever object you write, however the run ends, and ask no questions.',
     );
   });

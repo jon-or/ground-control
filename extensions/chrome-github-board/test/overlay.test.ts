@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ActionHistoryView, CardStage, Custody, IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
+import type { ActionHistoryView, CardStage, Custody, IssueCard, Lane, LaneId, LanedCard, ReportMessage, Session, Snapshot } from '@ground-control/core';
 import { LANE_SHAPES, LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, HUB_DATA_LABEL, cardsByIssue, clear, clearHub, filterBox, filterText, foldedRows, historyShown, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, viewerLogin } from '../src/overlay.js';
 
 /**
@@ -114,6 +114,7 @@ interface State {
   notice: string | null;
   custody?: CustodyState | null;
   history?: ActionHistoryView[] | null;
+  report?: { id: string; request: number; answer: ReportMessage | null } | null;
 }
 
 function state(over: Partial<State> = {}): State {
@@ -4543,6 +4544,7 @@ describe('the action history', () => {
       detail: '',
       title: 'Issue 4501',
       url: `https://github.com/${REPO}/issues/4501`,
+      reportId: null,
       ...over,
     };
   }
@@ -4695,5 +4697,269 @@ describe('the action history', () => {
 
     expect(panel()).toBeNull();
     expect(historyShown()).toBe(false);
+  });
+});
+
+/** The report sanitizer's cases, which the editor board's suite loads too (R51). */
+const SANITIZER_CASES = JSON.parse(readFileSync(join(__dirname, '../../../tools/fixtures/report-sanitizer.json'), 'utf8')) as { name: string; html: string; expected: string }[];
+
+describe('run reports (R51)', () => {
+  const at = Date.UTC(2026, 9, 1, 19, 0, 0);
+  const reading = { ...actions, readActionHistory: vi.fn(), readReport: vi.fn() };
+  const panel = () => document.getElementById('gc-history');
+  const rowButtons = () => [...document.querySelectorAll<HTMLButtonElement>('#gc-history .gc-history-report')];
+  const cardReport = () => document.querySelector<HTMLButtonElement>('.gc-tools button[aria-label="Open report"]');
+  const back = () => document.querySelector<HTMLButtonElement>('#gc-history .gc-report-back');
+  const reportBody = () => document.querySelector<HTMLElement>('#gc-history .gc-report-body');
+  const menuItems = () => [...document.querySelectorAll<HTMLButtonElement>('#gc-menu .gc-popover button[role]')];
+
+  function run(over: Partial<ActionHistoryView>): ActionHistoryView {
+    return {
+      id: 'issue-4501@1',
+      key: 'issue-4501',
+      issueNumber: 4501,
+      action: 'merge',
+      qualifier: null,
+      trigger: 'automatic',
+      agent: 'claude',
+      startedAt: NOW - 5 * 60_000,
+      endedAt: NOW - 2 * 60_000,
+      outcome: 'landed',
+      detail: '',
+      title: 'Issue 4501',
+      url: `https://github.com/${REPO}/issues/4501`,
+      reportId: null,
+      ...over,
+    };
+  }
+
+  const entries: ActionHistoryView[] = [
+    run({ id: 'a', reportId: 'issue-4501@1' }),
+    run({ id: 'b' }),
+    run({ id: 'c', reportId: 'issue-4502@2', key: 'issue-4502', issueNumber: 4502 }),
+  ];
+
+  function answer(id: string, request: number, over: Partial<Extract<ReportMessage, { failure: null }>> = {}): ReportMessage {
+    return { type: 'report', id, request, title: 'Review round 1', name: 'review-round-1.md', modifiedAt: NOW - 3 * 60_000, html: '<p>All fixed.</p>', failure: null, ...over };
+  }
+
+  function shown(report: State['report'] = null, over: Partial<State> = {}): State {
+    return state({ history: entries, report, ...over });
+  }
+
+  /** Open the history from the menu and draw its list, repainting after each click as the content script would. */
+  function openHistory(): void {
+    paint(document, shown(), NOW, reading);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, shown(), NOW, reading);
+    menuItems().find((button) => button.textContent === 'Action history')!.click();
+    paint(document, shown(), NOW, reading);
+  }
+
+  /** The request the latest readReport carried. */
+  const lastRequest = () => reading.readReport.mock.calls.at(-1)![1] as number;
+
+  function showCard(action: NonNullable<LanedCard['action']>): void {
+    paint(document, shown(null, { snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [], action })] }], openable: [] }) }), NOW, reading);
+  }
+
+  beforeEach(() => {
+    reading.readActionHistory.mockReset();
+    reading.readReport.mockReset();
+    reading.repaint.mockReset();
+  });
+
+  it('offers Open report on a card whose finished run wrote one, and on no other card', () => {
+    showCard({ state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Built it.', at, reportId: 'issue-4501@1' });
+
+    expect(cardReport()).not.toBeNull();
+    expect(tipOf(cardReport())).toBe('Open the report this run wrote.');
+    expect(cardReport()!.nextElementSibling?.classList.contains('gc-run')).toBe(true);
+
+    for (const action of [
+      { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Built it.', at },
+      { state: 'running', action: 'develop', qualifier: null, since: at },
+      { state: 'refused', action: 'develop', qualifier: null, reason: 'No worktree.' },
+      { state: 'available', action: 'develop', qualifier: null },
+    ] as const) {
+      showCard(action);
+
+      expect(cardReport()).toBeNull();
+    }
+  });
+
+  it('offers Report only on history rows that have one', () => {
+    openHistory();
+
+    expect(rowButtons().map((button) => [button.textContent, button.getAttribute('aria-label'), button.dataset.reportId])).toEqual([
+      ['Report', 'Open report', 'issue-4501@1'],
+      ['Report', 'Open report', 'issue-4502@2'],
+    ]);
+    expect(rowButtons()[0]!.closest('tr')?.querySelector('.gc-history-outcome')?.contains(rowButtons()[0]!)).toBe(true);
+  });
+
+  it('opens a report from the list, reads it, and shows its header and body', () => {
+    openHistory();
+    rowButtons()[0]!.click();
+
+    expect(reading.readReport).toHaveBeenCalledWith('issue-4501@1', lastRequest());
+
+    paint(document, shown({ id: 'issue-4501@1', request: lastRequest(), answer: null }), NOW, reading);
+
+    expect(panel()!.querySelector('.gc-history-row')).toBeNull();
+    expect(back()?.textContent).toBe('Back to history');
+    expect(document.activeElement).toBe(back());
+    expect(panel()!.querySelector('.gc-report .gc-empty')?.textContent).toBe('Reading the report…');
+
+    paint(document, shown({ id: 'issue-4501@1', request: lastRequest(), answer: answer('issue-4501@1', lastRequest()) }), NOW, reading);
+
+    expect(panel()!.querySelector('.gc-report-head h3')?.textContent).toBe('Review round 1');
+    expect(panel()!.querySelector('.gc-report-meta')?.textContent).toBe('review-round-1.md · modified 3m ago');
+    expect(tipOf(panel()!.querySelector('.gc-report-meta time'))).toBe(new Date(NOW - 3 * 60_000).toLocaleString());
+    expect(reportBody()?.innerHTML).toBe('<p>All fixed.</p>');
+    expect(reportBody()?.className).toBe('gc-report-body');
+    // Focus stays on Back when the answer replaces the reading line.
+    expect(document.activeElement).toBe(back());
+    expect(panel()!.textContent).not.toContain('Open in editor');
+  });
+
+  it('sends an increasing request on each open and draws only the answer to the latest', () => {
+    openHistory();
+    rowButtons()[0]!.click();
+    const first = lastRequest();
+    paint(document, shown({ id: 'issue-4501@1', request: first, answer: answer('issue-4501@1', first, { html: '<p>First.</p>' }) }), NOW, reading);
+
+    expect(reportBody()?.textContent).toBe('First.');
+
+    back()!.click();
+    paint(document, shown(), NOW, reading);
+    rowButtons()[1]!.click();
+    const second = lastRequest();
+
+    expect(second).toBeGreaterThan(first);
+    expect(reading.readReport).toHaveBeenLastCalledWith('issue-4502@2', second);
+
+    // The earlier answer arriving late is not drawn, and reopening cleared the old body.
+    paint(document, shown({ id: 'issue-4501@1', request: first, answer: answer('issue-4501@1', first, { html: '<p>First.</p>' }) }), NOW, reading);
+
+    expect(reportBody()).toBeNull();
+    expect(panel()!.querySelector('.gc-report .gc-empty')?.textContent).toBe('Reading the report…');
+
+    paint(document, shown({ id: 'issue-4502@2', request: second, answer: answer('issue-4502@2', second, { html: '<p>Second.</p>' }) }), NOW, reading);
+
+    expect(reportBody()?.textContent).toBe('Second.');
+  });
+
+  it('shows a failure as text', () => {
+    openHistory();
+    rowButtons()[0]!.click();
+    const failure: ReportMessage = { type: 'report', id: 'issue-4501@1', request: lastRequest(), title: null, name: 'gone.md', failure: 'The report <b>file</b> no longer exists.' };
+    paint(document, shown({ id: 'issue-4501@1', request: lastRequest(), answer: failure }), NOW, reading);
+
+    expect(panel()!.querySelector('.gc-report-failure')?.textContent).toBe('The report <b>file</b> no longer exists.');
+    expect(panel()!.querySelector('.gc-report-failure b')).toBeNull();
+    expect(panel()!.querySelector('.gc-report-meta')?.textContent).toBe('gone.md');
+    expect(panel()!.querySelector('.gc-report-head h3')).toBeNull();
+    expect(reportBody()).toBeNull();
+  });
+
+  it('returns from Back to the list with focus on the row’s Report control', () => {
+    openHistory();
+    rowButtons()[1]!.click();
+    paint(document, shown({ id: 'issue-4502@2', request: lastRequest(), answer: answer('issue-4502@2', lastRequest()) }), NOW, reading);
+    back()!.click();
+    paint(document, shown(), NOW, reading);
+
+    expect(back()).toBeNull();
+    expect(panel()!.querySelectorAll('.gc-history-row')).toHaveLength(3);
+    expect(document.activeElement).toBe(rowButtons()[1]);
+    expect(panel()!.querySelector('.gc-history-scroll')?.getAttribute('aria-label')).toBe('Actions');
+  });
+
+  it('opens the sidebar straight to the report from a card, with Back to the list', () => {
+    showCard({ state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Built it.', at, reportId: 'issue-4501@1' });
+    cardReport()!.click();
+
+    expect(historyShown()).toBe(true);
+    expect(reading.readActionHistory).toHaveBeenCalledTimes(1);
+    expect(reading.readReport).toHaveBeenCalledWith('issue-4501@1', lastRequest());
+
+    paint(document, shown({ id: 'issue-4501@1', request: lastRequest(), answer: null }), NOW, reading);
+
+    expect(panel()!.querySelector('.gc-report .gc-empty')?.textContent).toBe('Reading the report…');
+    expect(document.activeElement).toBe(back());
+
+    back()!.click();
+    paint(document, shown(null, { history: null }), NOW, reading);
+
+    expect(panel()!.querySelector('.gc-empty')?.textContent).toBe('Reading action history…');
+
+    paint(document, shown(), NOW, reading);
+
+    expect(document.activeElement).toBe(rowButtons()[0]);
+  });
+
+  it('keeps focus in the list when the row the report came from is gone', () => {
+    showCard({ state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Built it.', at, reportId: 'issue-4501@9' });
+    cardReport()!.click();
+    paint(document, shown({ id: 'issue-4501@9', request: lastRequest(), answer: null }), NOW, reading);
+    back()!.click();
+    paint(document, shown(), NOW, reading);
+
+    expect(document.activeElement).toBe(panel()!.querySelector('.gc-history-scroll'));
+  });
+
+  it('opens report links in a new tab without the page as opener or referrer', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+
+    openHistory();
+    rowButtons()[0]!.click();
+    paint(document, shown({ id: 'issue-4501@1', request: lastRequest(), answer: answer('issue-4501@1', lastRequest(), { html: '<p><a href="https://github.com/o/r/pull/1"><code>pr</code></a> and <a>none</a></p>' }) }), NOW, reading);
+
+    const link = reportBody()!.querySelector('a')!;
+    const clicked = new MouseEvent('click', { bubbles: true, cancelable: true });
+
+    link.querySelector('code')!.dispatchEvent(clicked);
+
+    expect(clicked.defaultPrevented).toBe(true);
+    expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/1', '_blank', 'noopener,noreferrer');
+
+    link.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 2 }));
+    reportBody()!.querySelectorAll('a')[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(open).toHaveBeenCalledTimes(1);
+
+    link.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }));
+
+    expect(open).toHaveBeenCalledTimes(2);
+    open.mockRestore();
+  });
+
+  it('drops the report when the history closes, so reopening shows the list', () => {
+    openHistory();
+    rowButtons()[0]!.click();
+    paint(document, shown({ id: 'issue-4501@1', request: lastRequest(), answer: null }), NOW, reading);
+    document.querySelector<HTMLButtonElement>('#gc-history .gc-close')!.click();
+    paint(document, shown(), NOW, reading);
+    openHistory();
+
+    expect(back()).toBeNull();
+    expect(rowButtons()).toHaveLength(2);
+
+    rowButtons()[0]!.click();
+    clearHub(document);
+    openHistory();
+
+    expect(back()).toBeNull();
+  });
+
+  describe('the sanitizer both boards share', () => {
+    it.each(SANITIZER_CASES.map((entry) => [entry.name, entry] as const))('%s', (_name, entry) => {
+      openHistory();
+      rowButtons()[0]!.click();
+      paint(document, shown({ id: 'issue-4501@1', request: lastRequest(), answer: answer('issue-4501@1', lastRequest(), { html: entry.html }) }), NOW, reading);
+
+      expect(reportBody()!.innerHTML).toBe(entry.expected);
+    });
   });
 });

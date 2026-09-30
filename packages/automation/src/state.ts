@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { ACTION_REVISION, AUTOMATABLE_ACTIONS, BASE_MERGE, CREATE_WORKTREE, MERGE_TYPES } from '@ground-control/core';
+import { isAbsolute } from 'node:path';
+import { ACTION_REVISION, AUTOMATABLE_ACTIONS, BASE_MERGE, CREATE_WORKTREE, MERGE_TYPES, runIdOf } from '@ground-control/core';
 import type {
   ActionOutcome,
   ActionRefusalRecord,
@@ -70,6 +71,7 @@ const actionRun = z.preprocess(legacyRun, z.object({
   shortId: z.string(),
   outcome: z.enum(['running', 'landed', 'halted', 'failed', 'stopped']),
   detail: z.string().default(''),
+  auditPath: z.string().min(1).optional().catch(undefined),
 }));
 
 // Drop refusals from older rules, including for actions no longer enabled.
@@ -252,13 +254,17 @@ export function withDispatch(state: ActionState, run: ActionRun, now: number, co
   };
 }
 
-/** Record an outcome if the run exists. */
+/**
+ * Record an outcome if the run exists, with the report its result named (R51). Only an absolute path counts: a run's
+ * directory is not kept, so a relative one has nothing to resolve against.
+ */
 export function withOutcome(
   state: ActionState,
   key: string,
   outcome: ActionOutcome,
   detail: string,
   now: number,
+  auditPath?: string,
 ): ActionState {
   const run = state.runs[key];
 
@@ -266,7 +272,10 @@ export function withOutcome(
     return state;
   }
 
-  return { ...state, runs: { ...state.runs, [key]: { ...run, outcome, detail, endedAt: now } } };
+  const { auditPath: _earlier, ...rest } = run;
+  const report = auditPath !== undefined && isAbsolute(auditPath) ? { auditPath } : {};
+
+  return { ...state, runs: { ...state.runs, [key]: { ...rest, outcome, detail, endedAt: now, ...report } } };
 }
 
 /** Record the session ID resolved from the dispatch ID (M33), and link the session to the run's issue (R3). */
@@ -415,7 +424,9 @@ export function cardActionOf(
       reading.settled && (reading.action !== shown.action || reading.qualifier !== shown.qualifier || (reading.at ?? 0) > ended);
 
     if (!superseded) {
-      return { state: 'done', action: shown.action, qualifier: shown.qualifier, outcome: shown.outcome, detail: shown.detail, at: ended };
+      const report = shown.auditPath === undefined ? {} : { reportId: runIdOf(run?.key ?? key, shown.startedAt) };
+
+      return { state: 'done', action: shown.action, qualifier: shown.qualifier, outcome: shown.outcome, detail: shown.detail, at: ended, ...report };
     }
   }
 

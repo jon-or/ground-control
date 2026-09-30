@@ -19,6 +19,17 @@ const reports = new Map();
 let preferences = null;
 
 /**
+ * Report reads in flight, by the number the worker gave the hub: the tab that asked, its page token, and its own
+ * number. A report goes back to that tab alone, never to every board (R51).
+ * @type {Map<number, { port: chrome.runtime.Port, token: number, request: number }>}
+ */
+const reportReads = new Map();
+let reportRequests = 0;
+
+/** Reads the worker keeps waiting on at once; the oldest is forgotten past this. */
+const REPORT_READS = 32;
+
+/**
  * Keep log subscribers and history in memory through makeLogSpool. Reconnecting tabs restore subscriptions;
  * durable hub logs remain in the hub file.
  */
@@ -154,6 +165,16 @@ function connectNative() {
       cacheLogins(message.snapshot?.owners);
     }
 
+    if (message.type === 'report') {
+      const read = reportReads.get(message.request);
+
+      reportReads.delete(message.request);
+      // `send` drops it where the tab has since navigated, closed, or lost permission.
+      if (read !== undefined) send(read.port, { ...message, request: read.request }, read.token);
+
+      return;
+    }
+
     broadcast(message);
   });
 
@@ -244,6 +265,19 @@ chrome.runtime.onConnect.addListener((port) => {
       return;
     }
 
+    if (message?.type === 'readReport') {
+      if (!Number.isSafeInteger(message.request)) return;
+      reportRequests += 1;
+      reportReads.set(reportRequests, { port, token: reports.get(port)?.token ?? 0, request: message.request });
+      for (const held of reportReads.keys()) {
+        if (reportReads.size <= REPORT_READS) break;
+        reportReads.delete(held);
+      }
+      toNative({ ...message, request: reportRequests });
+
+      return;
+    }
+
     // Only aggregate visibility may reach the hub.
     if (message?.type !== 'watching') toNative(message);
   });
@@ -254,6 +288,9 @@ chrome.runtime.onConnect.addListener((port) => {
     boards.delete(port);
     reports.delete(port);
     watchers.delete(port);
+    for (const [request, read] of reportReads) {
+      if (read.port === port) reportReads.delete(request);
+    }
     watchLog(port, false);
     say('debug', `board tab disconnected; ${boards.size} open`, 'tabs');
 

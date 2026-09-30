@@ -2952,6 +2952,134 @@ describe('the action history', () => {
   });
 });
 
+describe('run reports (R51)', () => {
+  const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex');
+
+  function reportIn(markdown: string): string {
+    const round = join(CHECKOUT, '.wip', 'review-pr', 'round-1');
+    mkdirSync(join(round, 'screenshots'), { recursive: true });
+    writeFileSync(join(round, 'screenshots', 'one.png'), PNG);
+    writeFileSync(join(round, 'review.md'), markdown);
+
+    return join(round, 'review.md');
+  }
+
+  async function landedWith(control: Control, auditPath: string): Promise<void> {
+    watch(control);
+    await control.pass();
+    control.report({ outcome: 'done', detail: 'Merged master.', auditPath });
+    await control.appear();
+    await control.finish();
+  }
+
+  function read(control: Control, id: string, hostId: string | null): HubMessage | undefined {
+    const answers: HubMessage[] = [];
+    control.hub.connect({ id: 'reader', hostId, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => answers.push(message));
+    control.hub.receive({ id: 'reader' }, { type: 'readReport', id, request: 7 });
+
+    return answers.find((message) => message.type === 'report');
+  }
+
+  async function answered(control: Control, id: string, hostId: string | null): Promise<HubMessage | undefined> {
+    const answers: HubMessage[] = [];
+    control.hub.connect({ id: `reader-${String(hostId)}`, hostId, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => answers.push(message));
+    control.hub.receive({ id: `reader-${String(hostId)}` }, { type: 'readReport', id, request: 7 });
+    await new Promise((settle) => setTimeout(settle, 50));
+
+    return answers.find((message) => message.type === 'report');
+  }
+
+  function historyOf(control: Control): ActionHistoryView[] {
+    const answers: HubMessage[] = [];
+    control.hub.connect({ id: 'history-1', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => answers.push(message));
+    control.hub.receive({ id: 'history-1' }, { type: 'readActionHistory' });
+    const history = answers.find((message) => message.type === 'actionHistory');
+
+    return history?.type === 'actionHistory' ? history.entries : [];
+  }
+
+  it('offers the report a landed run named, on its card and in the history, without sending its path', async () => {
+    const control = harness();
+    const path = reportIn('# Round 1\n\n![shot](screenshots/one.png)');
+    await landedWith(control, path);
+
+    const action = control.cardAction();
+    const entry = historyOf(control)[0]!;
+
+    expect(action?.state === 'done' && action.reportId).toBe(entry.id);
+    expect(entry.reportId).toBe(entry.id);
+    expect(Object.keys(entry)).not.toContain('auditPath');
+    expect(JSON.stringify(control.snapshot())).not.toContain('review.md');
+  });
+
+  it('renders the report for an editor with its path, and for the browser without it', async () => {
+    const control = harness();
+    const path = reportIn('# Round 1\n\n![shot](screenshots/one.png)');
+    await landedWith(control, path);
+    const id = historyOf(control)[0]!.id;
+
+    const editor = await answered(control, id, 'vscode');
+    const browser = await answered(control, id, null);
+
+    expect(editor).toMatchObject({ type: 'report', id, request: 7, title: 'Merge · #17198', name: 'review.md', failure: null, path });
+    expect(editor?.type === 'report' && editor.failure === null && editor.html).toContain('<h1>Round 1</h1>');
+    expect(editor?.type === 'report' && editor.failure === null && editor.html).toContain('src="data:image/png;base64,');
+    expect(browser).toMatchObject({ type: 'report', id, name: 'review.md', failure: null });
+    expect(browser).not.toHaveProperty('path');
+  });
+
+  it('refuses an id no run recorded a report under', async () => {
+    const control = harness();
+    await landedWith(control, reportIn('# Round 1'));
+
+    expect(await answered(control, 'issue:1@1', 'vscode')).toMatchObject({ type: 'report', id: 'issue:1@1', failure: 'That run has no report.' });
+  });
+
+  it('keeps no report a result named by a relative path, which has nothing to resolve against', async () => {
+    const control = harness();
+    await landedWith(control, '.wip/review-pr/round-1/review.md');
+
+    const action = control.cardAction();
+
+    expect(action?.state === 'done' && action.reportId).toBeUndefined();
+    expect(historyOf(control)[0]!.reportId).toBeNull();
+  });
+
+  it('hides reports and refuses reading one under a restricted session scope', async () => {
+    const control = harness();
+    await landedWith(control, reportIn('# Round 1'));
+    const id = historyOf(control)[0]!.id;
+
+    control.hub.configure({ ...config(), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeRepositories: ['github.com/example-org/elsewhere'] } });
+
+    const action = control.cardAction();
+
+    expect(action?.state === 'done' && action.reportId).toBeUndefined();
+    expect(historyOf(control)[0]!.reportId).toBeNull();
+    // Open in editor asks the hub each time, so an editor gets no path to open once scope hides the report.
+    const refused = read(control, id, 'vscode');
+
+    expect(refused).toMatchObject({ type: 'report', failure: 'Reports are hidden by session scope.' });
+    expect(refused).not.toHaveProperty('path');
+  });
+
+  it('refuses a report whose read the session scope narrowed while it was rendered', async () => {
+    const control = harness();
+    await landedWith(control, reportIn('# Round 1'));
+    const id = historyOf(control)[0]!.id;
+    const answers: HubMessage[] = [];
+    control.hub.connect({ id: 'reader', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => answers.push(message));
+
+    control.hub.receive({ id: 'reader' }, { type: 'readReport', id, request: 3 });
+    control.hub.configure({ ...config(), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeRepositories: ['github.com/example-org/elsewhere'] } });
+    await new Promise((settle) => setTimeout(settle, 50));
+
+    expect(answers.filter((message) => message.type === 'report')).toEqual([
+      { type: 'report', id, request: 3, title: null, name: null, failure: 'Reports are hidden by session scope.' },
+    ]);
+  });
+});
+
 describe('a run waiting for the developer', () => {
   it('shows the run as waiting while its session waits, and as running again once it works', async () => {
     const control = harness();

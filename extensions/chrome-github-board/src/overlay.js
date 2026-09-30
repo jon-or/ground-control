@@ -13,8 +13,10 @@
  * @typedef {import('@ground-control/core').CardStage} CardStage
  * @typedef {import('@ground-control/core').ActionHistoryView} ActionHistoryView
  * @typedef {import('./custody.js').CustodyState} CustodyState
- * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody?: CustodyState | null, history?: ActionHistoryView[] | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, createWorktree: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void, readCustody?: (key: string) => void, readActionHistory?: () => void }} Actions
+ * @typedef {import('@ground-control/core').ReportMessage} ReportMessage
+ * @typedef {{ id: string, request: number, answer: ReportMessage | null }} ReportState
+ * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody?: CustodyState | null, history?: ActionHistoryView[] | null, report?: ReportState | null }} State
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, createWorktree: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void, readCustody?: (key: string) => void, readActionHistory?: () => void, readReport?: (id: string, request: number) => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -674,6 +676,38 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${HISTORY_ID} .gc-history-action, #${HISTORY_ID} .gc-history-outcome { white-space: nowrap; }
 #${HISTORY_ID} .gc-history-state { display: inline-flex; align-items: center; gap: 4px; }
 #${HISTORY_ID} .gc-history-detail td { padding-top: 0; color: var(--fgColor-muted, #59636e); overflow-wrap: anywhere; }
+#${HISTORY_ID} .gc-history-report, #${HISTORY_ID} .gc-report-back { font: inherit; margin-left: 8px; padding: 0 6px;
+  border: 1px solid var(--borderColor-default, #d1d9e0); border-radius: 4px; cursor: pointer;
+  color: var(--fgColor-accent, #0969da); background: var(--bgColor-default, #ffffff); }
+#${HISTORY_ID} .gc-report-back { margin: 8px 0 0; }
+#${HISTORY_ID} .gc-history-report:focus-visible, #${HISTORY_ID} .gc-report-back:focus-visible {
+  outline: 2px solid var(--focus-outlineColor, #0969da); outline-offset: 1px; }
+#${HISTORY_ID} .gc-report-head { padding: 8px 0; border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+#${HISTORY_ID} .gc-report-head h3 { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
+#${HISTORY_ID} .gc-report-meta { margin: 0; color: var(--fgColor-muted, #59636e); }
+#${HISTORY_ID} .gc-report-failure { padding: 8px 0; color: var(--fgColor-danger, #d1242f); overflow-wrap: anywhere; }
+#${HISTORY_ID} .gc-report-body { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+#${HISTORY_ID} .gc-report-body :is(h1, h2, h3, h4, h5, h6) { margin: 16px 0 8px; font-weight: 600; line-height: 1.25; }
+#${HISTORY_ID} .gc-report-body h1 { font-size: 18px; }
+#${HISTORY_ID} .gc-report-body h2 { font-size: 16px; }
+#${HISTORY_ID} .gc-report-body :is(h3, h4, h5, h6) { font-size: 13px; }
+#${HISTORY_ID} .gc-report-body :is(p, ul, ol, blockquote, pre, table) { margin: 0 0 10px; }
+#${HISTORY_ID} .gc-report-body :is(ul, ol) { padding-left: 2em; list-style: revert; }
+#${HISTORY_ID} .gc-report-body blockquote { padding: 0 1em; color: var(--fgColor-muted, #59636e);
+  border-left: 3px solid var(--borderColor-default, #d1d9e0); }
+#${HISTORY_ID} .gc-report-body code { padding: 0.1em 0.3em; border-radius: 4px; font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--bgColor-neutral-muted, #818b981f); }
+#${HISTORY_ID} .gc-report-body pre { padding: 8px; overflow: auto; border-radius: 6px; background: var(--bgColor-muted, #f6f8fa); }
+#${HISTORY_ID} .gc-report-body pre code { padding: 0; background: none; }
+#${HISTORY_ID} .gc-report-body img { max-width: 100%; }
+#${HISTORY_ID} .gc-report-body a { color: var(--fgColor-accent, #0969da); }
+#${HISTORY_ID} .gc-report-body table { width: auto; }
+#${HISTORY_ID} .gc-report-body th { position: static; padding: 4px 10px; color: inherit;
+  border: 1px solid var(--borderColor-default, #d1d9e0); }
+#${HISTORY_ID} .gc-report-body td { padding: 4px 10px; border: 1px solid var(--borderColor-default, #d1d9e0); }
+#${HISTORY_ID} .gc-report-body th[align="right"], #${HISTORY_ID} .gc-report-body td[align="right"] { text-align: right; }
+#${HISTORY_ID} .gc-report-body th[align="center"], #${HISTORY_ID} .gc-report-body td[align="center"] { text-align: center; }
+#${HISTORY_ID} .gc-report-body hr { border: 0; border-top: 1px solid var(--borderColor-default, #d1d9e0); }
 ${PANEL_CSS}
 ${CUSTODY_CSS}
 `;
@@ -720,6 +754,16 @@ let logPinned = false;
 let historyOpen = false;
 /** The history just opened, so the next paint puts focus in it. */
 let historyFocus = false;
+/** The report the history sidebar shows in place of its list, and the read it waits on (R51). */
+/** @type {{ id: string, request: number } | null} */
+let reportShown = null;
+/** Numbers each report read, so only the answer to the latest one is drawn. */
+let reportRequests = 0;
+/** The report just opened, so the next paint puts focus on its Back control. */
+let reportFocus = false;
+/** The run whose Report control focus returns to when the list comes back. */
+/** @type {string | null} */
+let reportReturn = null;
 
 /**
  * Cache header visibility from page storage; update on user changes and reapply on each scan. Null until first
@@ -3032,6 +3076,12 @@ function tail(doc, card, now, actions, canRequest) {
     tools.appendChild(create);
   }
 
+  const report = card.action?.state === 'done' ? card.action.reportId : undefined;
+
+  if (report && actions.readReport) {
+    tools.appendChild(toolButton(doc, 'Open report', 'Open the report this run wrote.', reportMark(doc), () => openReport(doc, report, actions, null)));
+  }
+
   const run = runButton(doc, card, actions);
 
   if (run) {
@@ -3493,6 +3543,26 @@ function playMark(doc) {
 }
 
 /**
+ * The octicon file mark, from @primer/octicons 19.15.1.
+ *
+ * @param {Document} doc
+ * @returns {SVGElement}
+ */
+function reportMark(doc) {
+  const svg = markSvg(doc, '0 0 16 16');
+  const path = doc.createElementNS(SVG_NS, 'path');
+
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute(
+    'd',
+    'M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z',
+  );
+  svg.appendChild(path);
+
+  return svg;
+}
+
+/**
  * @param {Document} doc
  * @returns {SVGElement}
  */
@@ -3728,6 +3798,9 @@ export function historyShown() {
 export function setHistoryOpen(doc, open, actions) {
   historyOpen = open;
   panelOpen = false;
+  reportShown = null;
+  reportFocus = false;
+  reportReturn = null;
 
   if (open) {
     historyFocus = true;
@@ -3773,7 +3846,7 @@ function buildHistory(doc, actions) {
 
   const body = doc.createElement('div');
 
-  // The list has no controls, so the scrolling region takes the keyboard itself.
+  // The region takes the keyboard itself, so a list without Report controls still scrolls.
   body.className = 'gc-history-scroll';
   body.tabIndex = 0;
   body.setAttribute('role', 'region');
@@ -3872,9 +3945,10 @@ function node(doc, tag, className, text) {
  * @param {Document} doc
  * @param {ActionHistoryView} entry
  * @param {number} now
+ * @param {Actions} actions
  * @returns {HTMLElement[]}
  */
-function historyRows(doc, entry, now) {
+function historyRows(doc, entry, now, actions) {
   const row = node(doc, 'tr', 'gc-history-row');
   const time = /** @type {HTMLTimeElement} */ (node(doc, 'time', 'gc-history-when'));
   const since = node(doc, 'span', '');
@@ -3896,6 +3970,22 @@ function historyRows(doc, entry, now) {
   mark.appendChild(stateGlyph(doc, outcome.glyph));
   state.append(mark, outcome.text);
   ended.appendChild(state);
+
+  const report = entry.reportId;
+
+  if (report && actions.readReport) {
+    const open = node(doc, 'button', 'gc-history-report', 'Report');
+
+    /** @type {HTMLButtonElement} */ (open).type = 'button';
+    open.dataset.reportId = report;
+    setAccessibleName(open, 'Open report');
+    open.addEventListener('click', (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      openReport(doc, report, actions, report);
+    });
+    ended.appendChild(open);
+  }
 
   if (entry.endedAt !== null) {
     took.textContent = ago(entry.endedAt - entry.startedAt);
@@ -3948,10 +4038,19 @@ export function renderHistory(doc, state, now, actions) {
 
   const panel = existing ?? buildHistory(doc, actions);
   const body = /** @type {HTMLElement} */ (panel.querySelector('.gc-history-scroll'));
+
+  if (reportShown !== null) {
+    renderReport(doc, panel, body, reportShown, state.report ?? null, now, actions);
+
+    return panel;
+  }
+
   const entries = state.history ?? null;
   const sig = JSON.stringify(entries);
 
   if (panel.dataset.sig !== sig) {
+    delete panel.dataset.view;
+    body.setAttribute('aria-label', 'Actions');
     panel.dataset.sig = sig;
 
     if (entries === null) {
@@ -3971,7 +4070,7 @@ export function renderHistory(doc, state, now, actions) {
       }
 
       table.createTHead().appendChild(head);
-      table.createTBody().append(...entries.flatMap((entry) => historyRows(doc, entry, now)));
+      table.createTBody().append(...entries.flatMap((entry) => historyRows(doc, entry, now, actions)));
       body.replaceChildren(table);
     }
   }
@@ -3981,7 +4080,261 @@ export function renderHistory(doc, state, now, actions) {
     /** @type {HTMLElement | null} */ (panel.querySelector('.gc-close'))?.focus();
   }
 
+  if (reportReturn !== null) {
+    const id = reportReturn;
+    const control = [...body.querySelectorAll('.gc-history-report')].find((button) => button instanceof HTMLElement && button.dataset.reportId === id);
+
+    // While the list is still being read, focus waits for the row to be drawn.
+    if (control instanceof HTMLElement) {
+      reportReturn = null;
+      control.focus();
+    } else if (entries !== null) {
+      reportReturn = null;
+      body.focus();
+    }
+  }
+
   return panel;
+}
+
+/**
+ * Report markup kept from the hub's Markdown render (R51). The hub escapes raw HTML and inlines only verified
+ * images; this is the client's own guard, identical in both boards (testing.md, client parity).
+ */
+const REPORT_TAGS = new Set([
+  'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'img', 'input', 'li',
+  'ol', 'p', 'pre', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul',
+]);
+
+/** Elements whose children are source text rather than markup; their subtrees are dropped. */
+const REPORT_OPAQUE = new Set(['script', 'style', 'template', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'svg', 'math']);
+
+/** Attributes kept per element; no `class`, `style`, `id`, or `srcset` on any. @type {Record<string, string[]>} */
+const REPORT_ATTRS = {
+  a: ['href'],
+  img: ['src', 'alt'],
+  input: ['type', 'checked', 'disabled'],
+  ol: ['start'],
+  td: ['align'],
+  th: ['align'],
+};
+
+/** An image the hub inlined from a verified file; nothing else loads, so a report cannot reach the network. */
+const REPORT_IMAGE = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+const REPORT_HTTP = /^https?:\/\//i;
+
+/**
+ * Rebuild report HTML from an inert document with only the elements and attributes above. A checkbox stays a
+ * disabled checkbox, since the report is read here, never edited.
+ * @param {Document} doc The document the fragment is built for.
+ * @param {string} html The hub's render.
+ * @returns {DocumentFragment}
+ */
+function sanitizeReport(doc, html) {
+  const parsed = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+  const out = doc.createDocumentFragment();
+
+  /** @param {Node} source @param {Node} into */
+  const copy = (source, into) => {
+    for (const node of /** @type {NodeListOf<Element>} */ (source.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        into.appendChild(doc.createTextNode(node.nodeValue ?? ''));
+        continue;
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+      const tag = node.localName;
+
+      if (REPORT_OPAQUE.has(tag)) continue;
+
+      // Keep the text of an unknown element, re-filtered.
+      if (!REPORT_TAGS.has(tag)) {
+        copy(node, into);
+        continue;
+      }
+
+      if (tag === 'input' && node.getAttribute('type') !== 'checkbox') continue;
+
+      if (tag === 'img' && !REPORT_IMAGE.test(node.getAttribute('src') ?? '')) {
+        into.appendChild(doc.createTextNode(`[Image ${node.getAttribute('alt') ?? ''}]`));
+        continue;
+      }
+
+      const el = doc.createElement(tag);
+
+      for (const name of REPORT_ATTRS[tag] ?? []) {
+        if (!node.hasAttribute(name)) continue;
+
+        const value = node.getAttribute(name) ?? '';
+
+        if (name === 'href' && !REPORT_HTTP.test(value)) continue;
+        el.setAttribute(name, value);
+      }
+
+      if (tag === 'input') el.setAttribute('disabled', '');
+      copy(node, el);
+      into.appendChild(el);
+    }
+  };
+
+  copy(parsed.body, out);
+
+  return out;
+}
+
+/**
+ * Show a run's report in the history sidebar and ask the hub for it. From a card the sidebar opens straight to the
+ * report, and the history is read too for Back to return to (R51).
+ *
+ * @param {Document} doc
+ * @param {string} id
+ * @param {Actions} actions
+ * @param {string | null} row the run whose Report control Back returns focus to, where the list opened it
+ */
+function openReport(doc, id, actions, row) {
+  if (!historyOpen) {
+    historyOpen = true;
+    actions.readActionHistory?.();
+  }
+
+  panelOpen = false;
+  reportRequests += 1;
+  reportShown = { id, request: reportRequests };
+  reportFocus = true;
+  reportReturn = row;
+  actions.readReport?.(id, reportRequests);
+  actions.repaint();
+}
+
+/**
+ * Leave the report for the list, redrawing it and returning focus to the row the report was opened from.
+ *
+ * @param {Document} doc
+ * @param {Actions} actions
+ */
+function closeReport(doc, actions) {
+  reportReturn = reportReturn ?? reportShown?.id ?? null;
+  reportShown = null;
+
+  const panel = doc.getElementById(HISTORY_ID);
+
+  if (panel !== null) {
+    delete panel.dataset.sig;
+  }
+
+  actions.repaint();
+}
+
+/**
+ * Open a report link in a new tab without the page's referrer or a handle back to GitHub. Handled here rather than
+ * with link attributes, so the drawn report is exactly what the sanitizer built.
+ *
+ * @param {Document} doc
+ * @param {MouseEvent} event
+ */
+function followReportLink(doc, event) {
+  const link = /** @type {Element | null} */ (event.target)?.closest?.('a[href]') ?? null;
+
+  if (link === null || (event.type === 'auxclick' && event.button !== 1)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  doc.defaultView?.open(link.getAttribute('href') ?? '', '_blank', 'noopener,noreferrer');
+}
+
+/**
+ * Draw the report in the sidebar's scrolling region: Back, then the answer or that it is still being read. Back is
+ * kept across the answer so focus on it survives.
+ *
+ * @param {Document} doc
+ * @param {HTMLElement} panel
+ * @param {HTMLElement} body
+ * @param {{ id: string, request: number }} shown
+ * @param {ReportState | null} report
+ * @param {number} now
+ * @param {Actions} actions
+ */
+function renderReport(doc, panel, body, shown, report, now, actions) {
+  const view = `report:${shown.request}`;
+
+  if (panel.dataset.view !== view) {
+    panel.dataset.view = view;
+    delete panel.dataset.sig;
+
+    const back = node(doc, 'button', 'gc-report-back', 'Back to history');
+
+    /** @type {HTMLButtonElement} */ (back).type = 'button';
+    back.addEventListener('click', (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      closeReport(doc, actions);
+    });
+    body.setAttribute('aria-label', 'Report');
+    body.replaceChildren(back, node(doc, 'div', 'gc-report'));
+  }
+
+  const answer = report !== null && report.request === shown.request && report.id === shown.id ? report.answer : null;
+  const sig = answer === null ? 'reading' : 'answered';
+  const content = /** @type {HTMLElement} */ (body.querySelector('.gc-report'));
+
+  if (panel.dataset.sig !== sig) {
+    panel.dataset.sig = sig;
+    content.replaceChildren(...reportContent(doc, answer, now));
+  }
+
+  if (reportFocus) {
+    reportFocus = false;
+    /** @type {HTMLElement | null} */ (body.querySelector('.gc-report-back'))?.focus();
+  }
+}
+
+/**
+ * @param {Document} doc
+ * @param {ReportMessage | null} answer
+ * @param {number} now
+ * @returns {HTMLElement[]}
+ */
+function reportContent(doc, answer, now) {
+  if (answer === null) {
+    return [node(doc, 'p', 'gc-empty', 'Reading the report…')];
+  }
+
+  const head = node(doc, 'div', 'gc-report-head');
+
+  if (answer.title) {
+    head.appendChild(node(doc, 'h3', '', answer.title));
+  }
+
+  if (answer.failure !== null) {
+    if (answer.name) {
+      head.appendChild(node(doc, 'p', 'gc-report-meta', answer.name));
+    }
+
+    return [head, node(doc, 'p', 'gc-report-failure', answer.failure)];
+  }
+
+  const meta = node(doc, 'p', 'gc-report-meta', `${answer.name} · modified `);
+  const time = /** @type {HTMLTimeElement} */ (node(doc, 'time', ''));
+  const since = node(doc, 'span', '');
+
+  time.dateTime = new Date(answer.modifiedAt).toISOString();
+  age(since, answer.modifiedAt, now);
+  time.append(since, ' ago');
+  setTooltip(time, new Date(answer.modifiedAt).toLocaleString());
+  meta.appendChild(time);
+  head.appendChild(meta);
+
+  const body = node(doc, 'div', 'gc-report-body');
+
+  body.appendChild(sanitizeReport(doc, answer.html));
+  body.addEventListener('click', (event) => followReportLink(doc, event));
+  body.addEventListener('auxclick', (event) => followReportLink(doc, event));
+
+  return [head, body];
 }
 
 /**
@@ -4030,6 +4383,9 @@ export function clearHub(doc) {
   openCustody = null;
   historyOpen = false;
   historyFocus = false;
+  reportShown = null;
+  reportFocus = false;
+  reportReturn = null;
   logOpen = false;
   logPinned = false;
   Object.assign(logShows, LOG_SHOWS_BY_DEFAULT);

@@ -7,13 +7,19 @@ import { boardLog, hubLog, showHubEntries } from './logging.js';
 import { host } from './registry.js';
 import { boardRoot, perform, refuse } from './resident.js';
 
-/** The hub's answer to one readDetail, readCustody, or readActionHistory, forwarded to whichever board asked for it. */
-export type DetailMessage = Extract<HubMessage, { type: 'detail' | 'custody' | 'actionHistory' }>;
+/**
+ * The hub's answer to one readDetail, readCustody, readActionHistory, or readReport, forwarded to whichever board
+ * asked for it. A report's path stays in the extension host.
+ */
+export type DetailMessage = Extract<HubMessage, { type: 'detail' | 'custody' | 'actionHistory' | 'report' }>;
 
 /**
  * Keep one client per extension host so configuration works after the board closes (R34) and the hub remains
  * available to browser clients (R35).
  */
+/** How long Open in editor waits for the hub to name a report's file. */
+const REPORT_PATH_TIMEOUT_MS = 30_000;
+
 export class HubClient {
   /** One per extension host, and the stream and the hello must name the same one or the hub refuses the hello. */
   readonly #id = `vscode-${process.pid}`;
@@ -22,6 +28,12 @@ export class HubClient {
   readonly #snapshots = new vscode.EventEmitter<Snapshot>();
   readonly #streaming = new vscode.EventEmitter<boolean>();
   readonly #details = new vscode.EventEmitter<DetailMessage>();
+  /**
+   * The extension host's own report reads, which carry negative request numbers so no board takes their answers: Open
+   * in editor asks the hub each time, so the current session scope decides (R51).
+   */
+  readonly #pathReads = new Map<number, (path: string | null) => void>();
+  #pathRequests = 0;
 
   #config: HubConfig | undefined;
   #watching = false;
@@ -109,6 +121,25 @@ export class HubClient {
 
   send(message: ClientMessage): void {
     this.#transport.send(message);
+  }
+
+  /** The report's file, as the hub names it now to this editor, or null where it refuses or does not answer. */
+  reportPath(id: string): Promise<string | null> {
+    this.#pathRequests += 1;
+    const request = -this.#pathRequests;
+
+    return new Promise((settle) => {
+      const timer = setTimeout(() => {
+        this.#pathReads.delete(request);
+        settle(null);
+      }, REPORT_PATH_TIMEOUT_MS);
+
+      this.#pathReads.set(request, (path) => {
+        clearTimeout(timer);
+        settle(path);
+      });
+      this.#transport.send({ type: 'readReport', id, request });
+    });
   }
 
   roster(): Promise<readonly Session[] | null> {
@@ -213,6 +244,20 @@ export class HubClient {
         this.#details.fire(message);
 
         return;
+
+      case 'report': {
+        const { path, ...shown } = message;
+        const read = this.#pathReads.get(message.request);
+
+        if (read !== undefined) {
+          this.#pathReads.delete(message.request);
+          read(path ?? null);
+        } else if (message.request >= 0) {
+          this.#details.fire(shown);
+        }
+
+        return;
+      }
 
       case 'notice':
         if (message.refusal) {

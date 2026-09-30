@@ -19,6 +19,7 @@
     "@ground-control/core": "*",
     "@ground-control/github": "*",
     "@ground-control/host-vscode": "*",
+    "marked": "^16.4.2",
     "zod": "^3.25.0"
   },
   "devDependencies": {

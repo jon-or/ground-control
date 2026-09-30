@@ -17,7 +17,7 @@ export { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSIO
 export type { HubConfig, LogSettings, NewSessionSettings, TriageSettings, WorktreeSettings } from './config.js';
 export { DEFAULT_AVATAR_POLICY, DEFAULT_BOARD_POLICY, OFF_REVIEW_AVATARS, REVIEW_AVATARS } from './source.js';
 export type { AvatarPolicy, BoardPolicy, OffReviewAvatar, ReviewAvatar } from './source.js';
-export { ACTION_REVISION, AUTOMATABLE_ACTIONS, BASE_MERGE, CREATE_WORKTREE, EMPTY_ACTIONS, MANUAL_ACTIONS, ROW_QUALIFIERS, baseRowOf, isAutomatable, rowFor } from './actions.js';
+export { ACTION_REVISION, AUTOMATABLE_ACTIONS, BASE_MERGE, CREATE_WORKTREE, EMPTY_ACTIONS, MANUAL_ACTIONS, ROW_QUALIFIERS, baseRowOf, isAutomatable, rowFor, runIdOf } from './actions.js';
 export type {
   ActionHistoryEntry,
   ActionHistoryView,
@@ -68,7 +68,7 @@ export type {
 } from './triage.js';
 export { CHROME_EXTENSION_ID, NATIVE_HOST_NAME } from './chrome.js';
 export { PROTOCOL } from './protocol.js';
-export type { BoardMessage, Client, ClientHello, ClientMessage, HubMessage, SessionCheck, Snapshot, SnapshotMessage } from './protocol.js';
+export type { BoardMessage, Client, ClientHello, ClientMessage, HubMessage, ReportMessage, SessionCheck, Snapshot, SnapshotMessage } from './protocol.js';
 export { LOG_FLOORS, LOG_LEVELS, formatLogLine, meetsLevel, parseLogLines } from './log.js';
 export type { LogEntry, LogFloor, LogLevel, LogSource, Logger } from './log.js';
 export { basename, bootstrapDirOf, dirKey, isAbsolute, join, normalize, parent, GROUND_CONTROL_DIR } from './paths.js';

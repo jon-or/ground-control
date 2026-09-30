@@ -1875,6 +1875,69 @@ body.vscode-high-contrast .detail-label {
   border-color: hsl(calc(var(--label-h) * 1deg) calc(var(--label-s) * 1%) calc((var(--label-l) + var(--lighten-by)) * 1%) / 0.3);
 }
 
+/* Run report (R51): a bar of controls, the title, and the file line, over the rendered Markdown. */
+
+.report-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-spacer {
+  flex: 1;
+}
+
+.report-back,
+.report-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  font: inherit;
+  color: var(--gh-fg-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.report-back:hover,
+.report-open:hover:not(:disabled) {
+  color: var(--gh-fg);
+  background: color-mix(in srgb, var(--vscode-foreground) 8%, var(--vscode-editor-background));
+}
+
+.report-open:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.report-back:focus-visible,
+.report-open:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+#detail .report-title {
+  margin: 8px 0 0;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.report-meta {
+  padding-top: 4px;
+  color: var(--gh-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.report-file {
+  font-family: var(--gh-mono);
+  font-size: 12px;
+}
+
 /* Conversation ------------------------------------------------------------ */
 
 .detail-scroll {
@@ -3089,6 +3152,32 @@ body.vscode-dark .markdown-body .pl-ent {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+}
+
+.history-report {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 1.5rem;
+  margin-left: 0.5rem;
+  padding: 0 0.35rem;
+  font: inherit;
+  vertical-align: middle;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.history-report:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.history-report:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
 }
 
 .history-detail td {

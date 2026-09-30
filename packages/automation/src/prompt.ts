@@ -98,7 +98,7 @@ function reportContract(resultPath: string, shape: string): string {
 
 const ACTION_SHAPE =
   '{"outcome":"done","detail":"<what happened>"} only once the work is complete, otherwise ' +
-  '{"outcome":"halted","detail":"<why it stopped>"}; add "auditPath":"<file>" when the run wrote one.';
+  '{"outcome":"halted","detail":"<why it stopped>"}; add "auditPath":"<absolute path>" when the run wrote a Markdown report.';
 
 const WORKTREE_SHAPE =
   '{"outcome":"ready","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +

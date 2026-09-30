@@ -101,6 +101,7 @@ describe('the package public surface', () => {
       'rosterIsStale',
       'routeKey',
       'rowFor',
+      'runIdOf',
       'runJsonCli',
       'runTextCli',
       'scopeDirectory',

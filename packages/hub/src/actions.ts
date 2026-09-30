@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync } from 'node:fs';
-import { ACTION_REVISION, BASE_MERGE, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, MANUAL_ACTIONS, baseRowOf, isAutomatable, repositoryKey, rowFor } from '@ground-control/core';
+import { ACTION_REVISION, BASE_MERGE, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, MANUAL_ACTIONS, baseRowOf, isAutomatable, repositoryKey, rowFor, runIdOf } from '@ground-control/core';
 import type {
   ActionHistoryEntry,
   ActionRow,
@@ -380,6 +380,23 @@ export class ActionRunner {
   /** The action history, newest first (R50). */
   history(): ActionHistoryEntry[] {
     return [...(this.#deps.history?.read() ?? [])].reverse();
+  }
+
+  /**
+   * The report a run recorded, by run id (R51): the run in the state, else its history entry. The id is only looked
+   * up; it never becomes a path.
+   */
+  reportOf(id: string): { auditPath: string; key: string; action: ActionHistoryEntry['action']; issueNumber: number | null } | null {
+    const current = Object.entries(this.#deps.store.read().runs).find(([key, run]) => runIdOf(key, run.startedAt) === id);
+    const run = current?.[1];
+
+    if (run?.auditPath !== undefined) {
+      return { auditPath: run.auditPath, key: run.for?.key ?? run.key, action: run.action, issueNumber: run.issueNumber ?? null };
+    }
+
+    const entry = (this.#deps.history?.read() ?? []).find((one) => one.id === id);
+
+    return entry?.auditPath === undefined ? null : { auditPath: entry.auditPath, key: entry.key, action: entry.action, issueNumber: entry.issueNumber };
   }
 
   /**
@@ -775,6 +792,7 @@ export class ActionRunner {
         return;
       }
 
+      const report = readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)));
       let outcome: 'landed' | 'halted';
       let detail: string;
 
@@ -790,8 +808,6 @@ export class ActionRunner {
 
         [outcome, detail] = ['halted', `The run reported done, but GitHub could not be checked for its push: ${result.retry}`];
       } else if (result.pushed) {
-        const report = readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)));
-
         [outcome, detail] = ['landed', report?.detail ?? 'The run reported done.'];
       } else {
         [outcome, detail] = ['halted', result.reason];
@@ -800,7 +816,7 @@ export class ActionRunner {
       this.#verifyRetry.delete(key);
       this.#deps.log.info(`${key}: ${outcome === 'landed' ? 'push confirmed on GitHub' : `push not confirmed: ${detail}`}`, 'actions');
 
-      const next = waitersReleased(withOutcome(current, key, outcome, detail, now));
+      const next = waitersReleased(withOutcome(current, key, outcome, detail, now, report?.auditPath));
 
       this.#write(next);
       this.#checked.push({ before: current, after: next });
@@ -919,6 +935,7 @@ export class ActionRunner {
       landed(report) ? 'landed' : 'halted',
       report?.detail ?? 'The run ended without a readable result.',
       this.#deps.now(),
+      report?.auditPath,
     );
   }
 

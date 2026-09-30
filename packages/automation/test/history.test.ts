@@ -29,6 +29,14 @@ function state(runs: Record<string, ActionRun>): ActionState {
 }
 
 describe('the action history (R50)', () => {
+  it('keeps the report a run recorded, through a write and a read (R51)', () => {
+    const reported = historyWith([], state({ 'issue:17198': run({ outcome: 'landed', endedAt: NOW, auditPath: 'D:/r/review.md' }) }), NOW);
+
+    expect(reported[0]?.auditPath).toBe('D:/r/review.md');
+    expect(readActionHistory({ entries: reported })[0]?.auditPath).toBe('D:/r/review.md');
+    expect(readActionHistory({ entries: [{ ...reported[0], auditPath: '' }] })[0]?.auditPath).toBeUndefined();
+  });
+
   it('adds a new run, then takes its outcome, keeping the trigger', () => {
     const started = historyWith([], state({ 'issue:17198': run() }), NOW);
     const ended = historyWith(started, state({ 'issue:17198': run({ outcome: 'landed', endedAt: NOW, detail: 'Ready for review.' }) }), NOW);

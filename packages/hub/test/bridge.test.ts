@@ -221,6 +221,13 @@ describe('what the browser may ask the hub for', () => {
     expect(bridgeAction({ type: 'readActionHistory', extra: 'dropped' })).toEqual({ send: { type: 'readActionHistory' } });
   });
 
+  it('forwards a report read by run id and request number alone, never a path (R51)', () => {
+    expect(bridgeAction({ type: 'readReport', id: 'issue:17198@1', request: 4, path: 'C:/secret.md' })).toEqual({ send: { type: 'readReport', id: 'issue:17198@1', request: 4 } });
+    expect(bridgeAction({ type: 'readReport', id: '', request: 4 })).toEqual({ refused: 'That report cannot be read.' });
+    expect(bridgeAction({ type: 'readReport', id: 'x'.repeat(513), request: 4 })).toEqual({ refused: 'That report cannot be read.' });
+    expect(bridgeAction({ type: 'readReport', id: 'issue:17198@1', request: 1.5 })).toEqual({ refused: 'That report cannot be read.' });
+  });
+
   it('refuses everything else by name', () => {
     expect(bridgeAction({ type: 'configure', config: {} })).toEqual({ refused: 'The overlay may not send configure.' });
     expect(bridgeAction({ type: 'hello' })).toEqual({ refused: 'The overlay may not send hello.' });

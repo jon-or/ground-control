@@ -115,6 +115,10 @@
       state = helpers.applyMessage(state, { type: 'historyPending' });
       post({ type: 'readActionHistory' });
     },
+    readReport: (id, request) => {
+      state = helpers.applyMessage(state, { type: 'reportPending', id, request });
+      post({ type: 'readReport', id, request });
+    },
     showCardRows: (shown) => showCardRows(shown),
     openOptions: () => { if (onProject()) post({ type: 'openOptions' }); },
     repaint: () => schedule(),

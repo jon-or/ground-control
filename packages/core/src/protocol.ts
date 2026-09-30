@@ -103,7 +103,9 @@ export type ClientMessage =
   // Read where one card's issue has been and who held it. Answered to the requesting client alone.
   | { type: 'readCustody'; key: string }
   // Read the action history (R50). Answered to the requesting client alone.
-  | { type: 'readActionHistory' };
+  | { type: 'readActionHistory' }
+  // Read one run's report by its run id, never a path (R51). `request` pairs the answer with the latest read.
+  | { type: 'readReport'; id: string; request: number };
 
 export type HubMessage =
   | { type: 'snapshot'; snapshot: Snapshot }
@@ -117,7 +119,19 @@ export type HubMessage =
   // Answer one readCustody. `custody` null with no failure is an issue the source found nothing for.
   | { type: 'custody'; key: string; custody: Custody | null; failure: string | null }
   // Answer one readActionHistory, newest first.
-  | { type: 'actionHistory'; entries: ActionHistoryView[] };
+  | { type: 'actionHistory'; entries: ActionHistoryView[] }
+  // Answer one readReport to the client that asked (R51).
+  | ReportMessage;
+
+/**
+ * One run's report, rendered from Markdown by the hub, or why it cannot be shown (R51). `name` is the file's base
+ * name; `modifiedAt` is epoch milliseconds. `html` still needs the client's report sanitizer. `path`, the file
+ * itself, goes to editor clients only, whose extension host opens it; the webview and the browser never see it.
+ */
+export type ReportMessage = { type: 'report'; id: string; request: number; path?: string } & (
+  | { title: string; name: string; modifiedAt: number; html: string; failure: null }
+  | { title: string | null; name: string | null; failure: string }
+);
 
 /** Flattened snapshot fields consumed by the webview. */
 export type SnapshotMessage = { type: 'board' } & Snapshot;
@@ -142,6 +156,8 @@ export type BoardMessage =
   | { type: 'custody'; key: string; custody: Custody | null; failure: string | null }
   // The action history the webview asked for, newest first (R50).
   | { type: 'actionHistory'; entries: ActionHistoryView[] }
+  // The report the webview asked for (R51).
+  | ReportMessage
   // Whether card controls read a conversation on the board, whether a pull request opens beside its issue, and the
   // widths the developer dragged the single panel and the pair to (R43).
   | { type: 'reading'; enabled: boolean; width: number | null; paired: boolean; pairWidth: number | null }

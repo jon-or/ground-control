@@ -1,0 +1,42 @@
+[
+  {
+    "name": "keeps report markup",
+    "html": "<h1>Round 1</h1><table><thead><tr><th align=\"left\">Finding</th></tr></thead><tbody><tr><td align=\"left\">B1</td></tr></tbody></table><ul><li><input checked=\"\" disabled=\"\" type=\"checkbox\"> fixed</li></ul><pre><code>a &lt; b</code></pre>",
+    "expected": "<h1>Round 1</h1><table><thead><tr><th align=\"left\">Finding</th></tr></thead><tbody><tr><td align=\"left\">B1</td></tr></tbody></table><ul><li><input type=\"checkbox\" checked=\"\" disabled=\"\"> fixed</li></ul><pre><code>a &lt; b</code></pre>"
+  },
+  {
+    "name": "keeps an inlined image and a web link",
+    "html": "<p><img src=\"data:image/png;base64,iVBORw0KGgo=\" alt=\"shot\"> <a href=\"https://github.com/o/r/pull/1\">pr</a></p>",
+    "expected": "<p><img src=\"data:image/png;base64,iVBORw0KGgo=\" alt=\"shot\"> <a href=\"https://github.com/o/r/pull/1\">pr</a></p>"
+  },
+  {
+    "name": "drops scripts, styles, and frames with their content",
+    "html": "<p>a<script>alert(1)</script><style>p{}</style><iframe src=\"https://x\"></iframe><svg><image href=\"x\"/></svg>b</p>",
+    "expected": "<p>ab</p>"
+  },
+  {
+    "name": "drops event handlers, classes, styles, and ids",
+    "html": "<p onclick=\"alert(1)\" class=\"card-popover\" style=\"position:fixed\" id=\"x\">text</p>",
+    "expected": "<p>text</p>"
+  },
+  {
+    "name": "drops unsafe link addresses and keeps their text",
+    "html": "<a href=\"javascript:alert(1)\">js</a> <a href=\"JaVaScRiPt:alert(1)\">mixed</a> <a href=\"data:text/html,x\">data</a> <a href=\"file:///C:/x\">file</a> <a href=\"vscode://x\">editor</a>",
+    "expected": "<a>js</a> <a>mixed</a> <a>data</a> <a>file</a> <a>editor</a>"
+  },
+  {
+    "name": "replaces an image that is not a hub-inlined one with its alt text",
+    "html": "<img src=\"https://example.com/track.png\" alt=\"remote\"><img src=\"data:image/svg+xml;base64,PHN2Zz4=\" alt=\"svg\"><img src=\"x\" srcset=\"https://example.com/a.png 1x\" alt=\"srcset\"><img src=\"data:image/png;base64,AAA=&quot; onerror=&quot;x\" alt=\"broken\">",
+    "expected": "[Image remote][Image svg][Image srcset][Image broken]"
+  },
+  {
+    "name": "keeps only a disabled checkbox of the inputs",
+    "html": "<input type=\"text\" value=\"x\"><input type=\"checkbox\" checked=\"\">",
+    "expected": "<input type=\"checkbox\" checked=\"\" disabled=\"\">"
+  },
+  {
+    "name": "keeps the text of unknown elements",
+    "html": "<div><span>kept</span><details><summary>also kept</summary></details></div>",
+    "expected": "keptalso kept"
+  }
+]

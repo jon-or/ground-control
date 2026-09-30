@@ -5,7 +5,7 @@ import { LANE_ORDER, LANE_TITLES, boardStatuses, statusLanes } from '@ground-con
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
 import { DEFAULT_CUSTODY } from '@ground-control/core';
 import type { ActionHistoryView, CardStage, HistoricalSession, Session } from '@ground-control/core';
-import type { BoardMessage, Custody, DetailNote, DetailPost, DetailThread, ItemDetail, SnapshotMessage } from '@ground-control/core';
+import type { BoardMessage, Custody, DetailNote, DetailPost, DetailThread, ItemDetail, ReportMessage, SnapshotMessage } from '@ground-control/core';
 
 const api = {
   postMessage: vi.fn(),
@@ -3292,6 +3292,7 @@ describe('the action history', () => {
       detail: '',
       title: 'Cached counts do not update',
       url: 'https://github.com/example-org/example-repo/issues/18953',
+      reportId: null,
       ...over,
     };
   }
@@ -3421,6 +3422,261 @@ describe('the action history', () => {
 
     expect(panel()).toBeNull();
     expect(document.getElementById('history-scrim')).toBeNull();
+    expect(document.querySelectorAll('[inert]')).toHaveLength(0);
+    expect(document.activeElement?.id).toBe('board-menu');
+  });
+});
+
+describe('run reports (R51)', () => {
+  const now = Date.parse('2026-09-06T19:00:00Z');
+  const reportId = 'issue:18953@1788721200000';
+  const cases = JSON.parse(readFileSync(resolve('../../tools/fixtures/report-sanitizer.json'), 'utf8')) as { name: string; html: string; expected: string }[];
+  const control = () => document.querySelector<HTMLButtonElement>('.tool.report');
+  const panel = () => document.getElementById('detail');
+  const body = () => document.querySelector('#detail .report-body');
+  const note = () => document.querySelector('#detail .detail-note');
+  const named = (name: string) => document.querySelector<HTMLButtonElement>(`#detail button[aria-label="${name}"]`);
+
+  type ReadReport = { type: 'readReport'; id: string; request: number };
+
+  function acting(action: NonNullable<LanedCard['action']>): LanedCard {
+    return { ...liveCard, sessions: [], action };
+  }
+
+  const finished = { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Opened the pull request.', at: now - 60_000 } as const;
+
+  function showCard(): void {
+    send(message({ lanes: lanes({ review: [acting({ ...finished, reportId })] }) }));
+  }
+
+  /** The latest readReport the board sent: its request number is what an answer must carry. */
+  function lastRead(): ReadReport {
+    const read = sent().filter((m) => (m as { type: string }).type === 'readReport').at(-1) as ReadReport | undefined;
+
+    if (read === undefined) {
+      throw new Error('the board sent no readReport');
+    }
+
+    return read;
+  }
+
+  function report(request: number, html = '<h1>Round 1</h1><p>Two findings.</p>'): ReportMessage {
+    return { type: 'report', id: reportId, request, title: 'Review of #19403', name: 'review.md', modifiedAt: now - 5 * 60_000, html, failure: null };
+  }
+
+  function history(over: Partial<ActionHistoryView>): ActionHistoryView {
+    return {
+      id: reportId,
+      key: 'issue:18953',
+      issueNumber: 18953,
+      action: 'develop',
+      qualifier: null,
+      trigger: 'editor',
+      agent: 'claude',
+      startedAt: now - 5 * 60_000,
+      endedAt: now - 2 * 60_000,
+      outcome: 'landed',
+      detail: '',
+      title: 'Cached counts do not update',
+      url: 'https://github.com/example-org/example-repo/issues/18953',
+      reportId,
+      ...over,
+    };
+  }
+
+  function openHistoryFromMenu(): void {
+    document.getElementById('board-menu')!.click();
+
+    const item = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button')).find((button) => button.lastChild?.nodeValue === 'Action history');
+
+    if (item === undefined) {
+      throw new Error('the board menu offers no action history');
+    }
+
+    item.click();
+  }
+
+  const escape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+  });
+
+  afterEach(() => {
+    escape();
+    escape();
+    vi.useRealTimers();
+  });
+
+  it('reads the shared sanitizer cases', () => {
+    expect(cases.length).toBeGreaterThan(0);
+  });
+
+  it.each(cases.map((one) => [one.name, one] as const))('renders the shared sanitizer case: %s', (_, one) => {
+    showCard();
+    control()!.click();
+    send(report(lastRead().request, one.html));
+
+    expect(body()!.innerHTML).toBe(one.expected);
+  });
+
+  it('offers the report of a finished run beside the run control', () => {
+    showCard();
+
+    expect(control()?.getAttribute('aria-label')).toBe('Open report');
+    expect(tipOf(control())).toBe('Open the report this run wrote.');
+    expect(control()?.nextElementSibling?.classList.contains('run')).toBe(true);
+  });
+
+  it.each([
+    ['a running run', { state: 'running', action: 'develop', qualifier: null, since: now }],
+    ['a refused run', { state: 'refused', action: 'develop', qualifier: null, reason: 'No worktree.' }],
+    ['an available run', { state: 'available', action: 'develop', qualifier: null }],
+    ['a finished run with no report', finished],
+  ] as const)('offers no report for %s', (_, action) => {
+    send(message({ lanes: lanes({ review: [acting(action)] }) }));
+
+    expect(control()).toBeNull();
+  });
+
+  it('asks the hub with a new request number on each open and says it is reading', () => {
+    showCard();
+    control()!.click();
+
+    const first = lastRead();
+
+    expect(first).toEqual({ type: 'readReport', id: reportId, request: first.request });
+    expect(Number.isSafeInteger(first.request)).toBe(true);
+    expect(panel()!.getAttribute('role')).toBe('dialog');
+    expect(panel()!.getAttribute('aria-modal')).toBe('true');
+    expect(note()?.textContent).toBe('Reading the report…');
+    expect(named('Open in editor')?.disabled).toBe(true);
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close report');
+    expect(document.getElementById('lanes')!.closest('[inert]')).not.toBeNull();
+
+    escape();
+    control()!.click();
+
+    expect(lastRead().request).toBe(first.request + 1);
+  });
+
+  it('draws the title, the file and its age, and the body, and ignores an answer to an earlier open', () => {
+    showCard();
+    control()!.click();
+
+    const stale = lastRead().request;
+
+    escape();
+    control()!.click();
+    send(report(stale, '<p>stale</p>'));
+
+    expect(note()?.textContent).toBe('Reading the report…');
+    expect(body()).toBeNull();
+
+    send(report(lastRead().request));
+
+    expect(document.querySelector('#detail .report-title')?.textContent).toBe('Review of #19403');
+    expect(document.querySelector('#detail .report-meta')?.textContent).toBe('review.md · modified 5m ago');
+    expect(tipOf(document.querySelector('#detail .report-when'))).toBe(new Date(now - 5 * 60_000).toLocaleString());
+    expect(body()!.innerHTML).toBe('<h1>Round 1</h1><p>Two findings.</p>');
+    expect(note()).toBeNull();
+    expect(named('Open in editor')?.disabled).toBe(false);
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close report');
+  });
+
+  it('shows a failure as text', () => {
+    showCard();
+    control()!.click();
+    send({ type: 'report', id: reportId, request: lastRead().request, title: null, name: 'review.md', failure: 'The report <b>is</b> gone.' });
+
+    expect(note()?.textContent).toBe('The report <b>is</b> gone.');
+    expect(note()?.classList.contains('error')).toBe(true);
+    expect(note()?.children).toHaveLength(0);
+    expect(body()).toBeNull();
+    expect(document.querySelector('#detail .report-meta')?.textContent).toBe('review.md');
+  });
+
+  it('clears the previous report when opened again', () => {
+    showCard();
+    control()!.click();
+    send(report(lastRead().request));
+    escape();
+    control()!.click();
+
+    expect(body()).toBeNull();
+    expect(document.querySelector('#detail .report-title')).toBeNull();
+    expect(note()?.textContent).toBe('Reading the report…');
+  });
+
+  it('asks the editor to open the report by its id', () => {
+    showCard();
+    control()!.click();
+    send(report(lastRead().request));
+    named('Open in editor')!.click();
+
+    expect(sent()).toContainEqual({ type: 'openReport', id: reportId });
+  });
+
+  it('closes on its close control and returns focus to the card control', () => {
+    showCard();
+    control()!.click();
+    named('Close report')!.click();
+
+    expect(panel()).toBeNull();
+    expect(document.querySelectorAll('[inert]')).toHaveLength(0);
+    expect(document.activeElement).toBe(control());
+  });
+
+  it('offers a report on each history row that has one', () => {
+    openHistoryFromMenu();
+    send({ type: 'actionHistory', entries: [history({}), history({ id: 'issue:18953@1', reportId: null })] });
+
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('#history .history-report'));
+
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.getAttribute('aria-label')).toBe('Open report');
+    expect(buttons[0]!.textContent).toBe('Report');
+    expect(tipOf(buttons[0])).toBe('Open the report this run wrote.');
+    expect(buttons[0]!.closest('.history-row')).toBe(document.querySelectorAll('#history .history-row')[0]);
+  });
+
+  it('takes the history’s place, and Back returns to the history with focus on the row control', () => {
+    const entries = [history({ id: 'issue:18953@1', reportId: 'issue:18953@1' }), history({})];
+
+    openHistoryFromMenu();
+    send({ type: 'actionHistory', entries });
+    document.querySelectorAll<HTMLButtonElement>('#history .history-report')[1]!.click();
+
+    expect(document.getElementById('history')).toBeNull();
+    expect(document.getElementById('history-scrim')).toBeNull();
+    expect(lastRead()).toEqual({ type: 'readReport', id: reportId, request: lastRead().request });
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Back to history');
+
+    send(report(lastRead().request));
+    api.postMessage.mockClear();
+    named('Back to history')!.click();
+
+    expect(panel()).toBeNull();
+    expect(document.getElementById('detail-scrim')).toBeNull();
+    expect(document.querySelectorAll('#history .history-row')).toHaveLength(2);
+    expect(sent()).toEqual([{ type: 'readActionHistory' }]);
+    expect(document.activeElement).toBe(document.querySelectorAll('#history .history-report')[1]);
+    expect(document.getElementById('lanes')!.closest('[inert]')).not.toBeNull();
+
+    send({ type: 'actionHistory', entries });
+
+    expect(document.activeElement).toBe(document.querySelectorAll('#history .history-report')[1]);
+  });
+
+  it('closes on Escape from the history and gives the board back', () => {
+    openHistoryFromMenu();
+    send({ type: 'actionHistory', entries: [history({})] });
+    document.querySelector<HTMLButtonElement>('#history .history-report')!.click();
+    escape();
+
+    expect(panel()).toBeNull();
+    expect(document.getElementById('history')).toBeNull();
     expect(document.querySelectorAll('[inert]')).toHaveLength(0);
     expect(document.activeElement?.id).toBe('board-menu');
   });

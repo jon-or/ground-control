@@ -23,25 +23,36 @@ beforeAll(async () => {
   writeFileSync(manifestPath, JSON.stringify(manifest));
   expect(JSON.parse(readFileSync(manifestPath, 'utf8')).permissions).not.toContain('nativeMessaging');
 
-  // Replace only the native boundary in the isolated copy. Track real content ports for reconnect tests.
+  // Replace only the native boundary in the isolated copy. Track real content ports for reconnect tests, what each
+  // tab sent and was sent by port index, and let a test answer as the hub.
   const workerPath = join(extension, 'src/worker.js');
   writeFileSync(workerPath, `
-globalThis.probe = { messages: [], opens: 0, closes: 0, ports: [] };
+globalThis.probe = { messages: [], opens: 0, closes: 0, ports: [], received: [], sent: [], closed: [] };
 chrome.runtime.onConnect.addListener(port => {
-  probe.ports.push(port);
+  const index = probe.ports.push(port) - 1;
   const listeners = [];
   const add = port.onDisconnect.addListener.bind(port.onDisconnect);
+  add(() => probe.closed.push(index));
   port.onDisconnect.addListener = listener => { listeners.push(listener); add(listener); };
   probe.dropContent = () => { port.disconnect(); listeners.forEach(listener => listener()); };
+  const heard = [];
+  const hear = port.onMessage.addListener.bind(port.onMessage);
+  port.onMessage.addListener = listener => { heard.push(listener); hear(listener); };
+  hear(message => probe.received.push({ port: index, message }));
+  port.fromTab = message => heard.forEach(listener => listener(message, port));
+  const post = port.postMessage.bind(port);
+  port.postMessage = message => { probe.sent.push({ port: index, message }); post(message); };
 });
 chrome.runtime.connectNative = () => {
   probe.opens++;
   const listeners = [];
+  const hub = [];
   probe.drop = () => listeners.forEach(listener => listener());
+  probe.hub = message => hub.forEach(listener => listener(message));
   return {
     postMessage: message => probe.messages.push(message),
     disconnect: () => { probe.closes++; },
-    onMessage: { addListener() {} },
+    onMessage: { addListener: listener => hub.push(listener) },
     onDisconnect: { addListener: listener => listeners.push(listener) }
   };
 };
@@ -143,5 +154,136 @@ it('aggregates visible project tabs across navigation, disconnects, and reconnec
   await first.close();
   await expect.poll(() => worker.evaluate('probe.closes')).toBe(2);
   expect(await watching()).toBe(false);
+  expect(offsite).toEqual([]);
+});
+
+/** One finished run with a report, as the hub lists it (R50, R51). */
+const REPORTED_RUN = {
+  id: 'issue-4501@1', key: 'issue-4501', issueNumber: 4501, action: 'develop', qualifier: null, trigger: 'browser', agent: 'claude',
+  startedAt: Date.now() - 300_000, endedAt: Date.now() - 60_000, outcome: 'landed', detail: '', title: 'Issue 4501', url: null, reportId: 'issue-4501@1',
+};
+
+/** A 1×1 PNG, decodable, as the hub inlines a report's image. */
+const PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+type Routed = { port: number; message: { type: string; id?: string; request?: unknown; html?: string } };
+
+/** The readReport messages the hub was sent, in order. */
+async function hubReads(): Promise<{ id: string; request: number }[]> {
+  return worker.evaluate('probe.messages.filter(m => m.type === "readReport")');
+}
+
+/** Open a board tab's action history, which the hub then fills with one reported run. */
+async function historyTab(): Promise<Page> {
+  const page = await context.newPage();
+  await page.goto(BOARD);
+  await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
+  await page.locator('#gc-menu button').first().click();
+  await page.getByRole('menuitem', { name: 'Action history' }).click();
+  await expect.poll(() => page.locator('#gc-history').count()).toBe(1);
+
+  return page;
+}
+
+async function answerAsHub(message: object): Promise<void> {
+  await worker.evaluate((message) => (globalThis as unknown as { probe: { hub: (message: object) => void } }).probe.hub(message), message);
+}
+
+function answer(id: string, request: number, html: string) {
+  return { type: 'report', id, request, title: 'Round 1', name: 'round-1.md', modifiedAt: Date.now() - 60_000, html, failure: null };
+}
+
+/** Open the report from the history row and wait for the hub to be asked; returns the number the hub was given. */
+async function openRowReport(page: Page): Promise<number> {
+  const before = (await hubReads()).length;
+  await page.locator('#gc-history .gc-history-report').click();
+  await expect.poll(async () => (await hubReads()).length).toBe(before + 1);
+
+  return (await hubReads()).at(-1)!.request;
+}
+
+const reportText = (page: Page) => page.locator('#gc-history .gc-report').textContent();
+
+it('sends a report only to the tab that asked, under that tab’s own request number (R51)', async () => {
+  const first = await historyTab();
+  const second = await historyTab();
+
+  await answerAsHub({ type: 'actionHistory', entries: [REPORTED_RUN] });
+  await expect.poll(() => first.locator('#gc-history .gc-history-report').count()).toBe(1);
+  await expect.poll(() => second.locator('#gc-history .gc-history-report').count()).toBe(1);
+
+  // Each tab numbers its own reads from 1; the worker gives the hub numbers of its own.
+  const firstHub = await openRowReport(first);
+  const secondHub = await openRowReport(second);
+  const reads = (await worker.evaluate('probe.received.filter(r => r.message.type === "readReport")')) as Routed[];
+  const [firstPort, secondPort] = reads.map((read) => read.port);
+
+  expect(reads.map((read) => read.message.request)).toEqual([1, 1]);
+  expect(firstPort).not.toBe(secondPort);
+  expect(secondHub).not.toBe(1);
+  expect(secondHub).not.toBe(firstHub);
+
+  await answerAsHub(answer('issue-4501@1', secondHub, '<p>Second.</p>'));
+  await expect.poll(() => reportText(second)).toBe('Round 1round-1.md · modified 1m agoSecond.');
+  expect(await reportText(first)).toBe('Reading the report…');
+
+  await answerAsHub(answer('issue-4501@1', firstHub, '<p>First.</p>'));
+  await expect.poll(() => reportText(first)).toContain('First.');
+  expect(await reportText(second)).toContain('Second.');
+
+  const reports = ((await worker.evaluate('probe.sent')) as Routed[]).filter((sent) => sent.message.type === 'report');
+
+  expect(reports.map((sent) => [sent.port, sent.message.request, sent.message.html])).toEqual([
+    [secondPort, 1, '<p>Second.</p>'],
+    [firstPort, 1, '<p>First.</p>'],
+  ]);
+
+  // A read whose tab closed before the answer goes nowhere.
+  await second.locator('#gc-history .gc-report-back').click();
+  const orphan = await openRowReport(second);
+  await second.close();
+  await expect.poll(() => worker.evaluate(`probe.closed.includes(${secondPort})`)).toBe(true);
+  await answerAsHub(answer('issue-4501@1', orphan, '<p>Late.</p>'));
+  await first.locator('#gc-history .gc-report-back').click();
+  const latest = await openRowReport(first);
+  await answerAsHub(answer('issue-4501@1', latest, '<p>Latest.</p>'));
+  await expect.poll(() => reportText(first)).toContain('Latest.');
+
+  const after = ((await worker.evaluate('probe.sent')) as Routed[]).filter((sent) => sent.message.type === 'report');
+
+  expect(after.map((sent) => [sent.port, sent.message.html])).toEqual([
+    [secondPort, '<p>Second.</p>'],
+    [firstPort, '<p>First.</p>'],
+    [firstPort, '<p>Latest.</p>'],
+  ]);
+
+  // A request that is not an integer is not forwarded; a valid one after it shows the port still reads.
+  const before = (await hubReads()).length;
+  await worker.evaluate(`probe.ports[${firstPort}].fromTab({ type: 'readReport', id: 'issue-4501@1', request: 1.5 })`);
+  await worker.evaluate(`probe.ports[${firstPort}].fromTab({ type: 'readReport', id: 'issue-4501@1', request: '3' })`);
+  await worker.evaluate(`probe.ports[${firstPort}].fromTab({ type: 'readReport', id: 'issue-4501@1', request: 9 })`);
+  await expect.poll(async () => (await hubReads()).length).toBe(before + 1);
+  expect((await hubReads()).at(-1)).toMatchObject({ id: 'issue-4501@1' });
+
+  await first.close();
+  expect(offsite).toEqual([]);
+});
+
+it('loads an image the hub inlined into a report', async () => {
+  const page = await historyTab();
+
+  await answerAsHub({ type: 'actionHistory', entries: [REPORTED_RUN] });
+  await expect.poll(() => page.locator('#gc-history .gc-history-report').count()).toBe(1);
+
+  const request = await openRowReport(page);
+
+  await answerAsHub(answer('issue-4501@1', request, `<p><img src="${PIXEL}" alt="shot"></p>`));
+
+  const image = page.locator('#gc-history .gc-report-body img');
+
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth), { timeout: 20_000 }).toBe(1);
+  expect(await image.getAttribute('alt')).toBe('shot');
+
+  await page.close();
   expect(offsite).toEqual([]);
 });

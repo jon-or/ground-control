@@ -1,5 +1,6 @@
-import { assignLanes, buildCustody, checkEvidence, linkSessions, mergeBoard, nextMemory, withCheckouts, withPlacement, withStage, withTriage } from '@ground-control/board';
+import { assignLanes, buildCustody, checkEvidence, linkSessions, mergeBoard, nextMemory, triageLabel, withCheckouts, withPlacement, withStage, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
+import { basename } from 'node:path';
 import { BASE_MERGE, CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, MANUAL_ACTIONS, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, issueNumberFrom, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex, worktreesOf } from '@ground-control/core';
 import type { WorktreeScan } from '@ground-control/board';
 import type { ActionHistoryView, ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, CustodyHistory, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StageAnswer, StageRequest, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
@@ -16,6 +17,7 @@ import { makeActionHistoryStore, makeActionStore } from './actionStore.js';
 import { makeCheckoutStore, makeWorktreeStore } from './checkoutStore.js';
 import type { CheckoutStore } from './checkoutStore.js';
 import type { ActionHistoryStore, ActionStore } from './actionStore.js';
+import { renderReport } from './report.js';
 import { TriageRunner } from './triage.js';
 import { makeTriageStore } from './triageStore.js';
 import type { TriageStore } from './triageStore.js';
@@ -469,6 +471,14 @@ export class Hub {
 
       case 'readActionHistory':
         connected.send({ type: 'actionHistory', entries: this.#actionHistory() });
+
+        return;
+
+      case 'readReport':
+        void this.#readReport(connected, message.id, message.request).catch((error: unknown) => {
+          this.#deps.log.warn(`reading report ${message.id} failed: ${error instanceof Error ? error.message : String(error)}`, 'actions');
+          connected.send({ type: 'report', id: message.id, request: message.request, title: null, name: null, failure: 'The report could not be read.' });
+        });
 
         return;
 
@@ -1750,18 +1760,61 @@ export class Hub {
     const hidden = restrictedSessionScope(this.#scope());
 
     // A browser frame holds at most a megabyte, so the answer is bounded in rows and in each row's detail.
-    return this.#actions.history().slice(0, HISTORY_SENT).map((entry) => {
+    return this.#actions.history().slice(0, HISTORY_SENT).map(({ auditPath, ...entry }) => {
       const issue = cards.get(entry.key)?.issue ?? null;
       const detail = entry.detail.length > HISTORY_DETAIL_SENT ? `${entry.detail.slice(0, HISTORY_DETAIL_SENT - 1)}…` : entry.detail;
 
       return {
         ...entry,
-        // A run's detail names its checkout, which scope hides wherever it appears.
+        // A run's detail and report name its checkout, which scope hides wherever it appears.
         detail: hidden ? 'Session details are hidden by session scope.' : detail,
         title: issue?.title ?? null,
         url: issue?.url ?? null,
+        reportId: hidden || auditPath === undefined ? null : entry.id,
       };
     });
+  }
+
+  /**
+   * Answer one client's report read (R51). The id names a run whose result recorded the report; it is looked up, never
+   * used as a path. Scope is checked again after the read, since it can change while the file is rendered.
+   */
+  async #readReport(client: Connected, id: string, request: number): Promise<void> {
+    const refuse = (failure: string, title: string | null = null, name: string | null = null): void =>
+      client.send({ type: 'report', id, request, title, name, failure });
+
+    if (restrictedSessionScope(this.#scope())) {
+      refuse('Reports are hidden by session scope.');
+
+      return;
+    }
+
+    const run = this.#actions.reportOf(id);
+
+    if (run === null) {
+      refuse('That run has no report.');
+
+      return;
+    }
+
+    const label = run.action === CREATE_WORKTREE ? 'Worktree' : triageLabel(run.action, null);
+    const title = run.issueNumber === null ? label : `${label} · #${run.issueNumber}`;
+    const editor = client.hello.hostId !== null ? { path: run.auditPath } : {};
+    const rendered = await renderReport(run.auditPath, (html) => ({ type: 'report', id, request, title, name: basename(run.auditPath), modifiedAt: Number.MAX_SAFE_INTEGER, html, failure: null, ...editor }));
+
+    if (this.#disposed) {
+      return;
+    }
+
+    if (restrictedSessionScope(this.#scope())) {
+      refuse('Reports are hidden by session scope.');
+
+      return;
+    }
+
+    client.send(rendered.ok
+      ? { type: 'report', id, request, title, name: rendered.name, modifiedAt: rendered.modifiedAt, html: rendered.html, failure: null, ...editor }
+      : { type: 'report', id, request, title, name: rendered.name, failure: rendered.failure, ...editor });
   }
 
   /** Plan session routes in the host and send resident routes to the requesting client. */
@@ -2161,7 +2214,11 @@ export class Hub {
       if (original?.action) result.action = original.action;
       else delete result.action;
       if (restrictedSessionScope(scope)) {
-        if (result.action?.state === 'done') result.action = { ...result.action, detail: 'Action finished. Session details are hidden by session scope.' };
+        // A report names the checkout and holds what the run found, which scope hides (R51).
+        if (result.action?.state === 'done') {
+          const { reportId: _hidden, ...done } = result.action;
+          result.action = { ...done, detail: 'Action finished. Session details are hidden by session scope.' };
+        }
         if (result.action?.state === 'refused') result.action = { ...result.action, reason: 'This action was refused. The reason is hidden by session scope.' };
         // A worktree run's detail names the directory it made, and a refusal names the clones it found.
         if (result.creation?.state === 'done') result.creation = { ...result.creation, detail: 'The worktree run finished. Session details are hidden by session scope.' };
