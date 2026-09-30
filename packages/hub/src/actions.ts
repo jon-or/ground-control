@@ -1020,7 +1020,8 @@ export class ActionRunner {
 
       // The last check before dispatch, with no wait after it: a second request for the branch sees this one (R39).
       const destination = step?.kind === 'merge' ? step.base.branch : plan.branch;
-      const busy = plan.action === 'merge' ? this.#mergeBusy(plan.repository, destination) : null;
+      // A base merge runs in the base card's worktree, so none of that card's actions may run there meanwhile.
+      const busy = (plan.action === 'merge' ? this.#mergeBusy(plan.repository, destination) : null) ?? this.#mergeBusy(plan.repository, plan.branch);
 
       if (busy !== null) {
         const then = request.asked ? 'Run this again when it finishes.' : 'This card is read again when it finishes.';
@@ -1036,7 +1037,7 @@ export class ActionRunner {
 
       try {
         if (step?.kind === 'merge') {
-          await this.#dispatchBase(key, row, step, agent, controller.signal, request);
+          await this.#dispatchBase(key, plan.issueNumber, row, step, agent, controller.signal, request);
         } else {
           await this.#dispatch(key, plan, checkout, agent, controller.signal, request, mergeLegOf(plan, step));
         }
@@ -1186,9 +1187,11 @@ export class ActionRunner {
   /**
    * Merge the default branch into a stacked pull request's base, in the base's worktree, with the Merge · base row
    * (R39). The run is keyed by the base, so one runs per branch whichever card asked; the card's merge follows it.
+   * Its session shows on the card that asked, whose own merge waits on it; the base's card may be off the board.
    */
   #dispatchBase(
     cardKey: string,
+    cardIssue: number,
     row: Row,
     { base, worktree, defaultOid }: Extract<BaseStep, { kind: 'merge' }>,
     agent: { agent: AgentAdapter; configured: { path: string; model: string | null } },
@@ -1202,6 +1205,7 @@ export class ActionRunner {
       values: (reportPath) => basePromptValues(base, worktree, reportPath),
       checkout: worktree,
       issueNumber: base.issueNumber,
+      sessionIssue: cardIssue,
       record: {
         action: 'merge',
         qualifier: BASE_MERGE,
@@ -1227,6 +1231,8 @@ export class ActionRunner {
       values(reportPath: string): Parameters<typeof actionPrompt>[1];
       checkout: string;
       issueNumber: number;
+      /** The issue whose card shows the session, where it is not `issueNumber`. */
+      sessionIssue?: number;
       record: Pick<ActionRun, 'action' | 'qualifier' | 'evidence' | 'merge' | 'for'>;
     },
   ): Promise<void> {
@@ -1283,7 +1289,7 @@ export class ActionRunner {
         {
           key: runKey,
           ...spec.record,
-          issueNumber,
+          issueNumber: spec.sessionIssue ?? issueNumber,
           revision: ACTION_REVISION,
           startedAt: now,
           endedAt: failed ? now : null,

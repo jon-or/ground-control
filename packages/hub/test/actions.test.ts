@@ -459,6 +459,8 @@ function stackedHarness(
   const baseWorktree = worktreeAt(CHECKOUT, join(home, PARENT).replace(/\\/g, '/'), PARENT);
   const control = harness(over, cards, sessions(baseWorktree));
 
+  // Configured, as a developer's clone is: the card's worktree is then found without a session's history to lead to it.
+  control.hub.configure({ ...config(over), repositoryRoots: [CHECKOUT] });
   control.pr = { baseRefName: PARENT };
   control.defaultOid = MASTER_TIP;
   control.tips = { [PARENT]: PARENT_TIP };
@@ -2207,7 +2209,7 @@ describe('a merge based on another branch', () => {
   /** The base merge's session, in the base's worktree, appears. */
   function baseAppears(control: Control & { baseWorktree: string }): Promise<void> {
     control.agent.sessions = [
-      sessionOn({ sessionId: BASE_SESSION, cwd: control.baseWorktree, checkoutRoot: control.baseWorktree, branch: PARENT, issueNumber: 17000 }),
+      sessionOn({ agent: 'claude', sessionId: BASE_SESSION, cwd: control.baseWorktree, checkoutRoot: control.baseWorktree, branch: PARENT, issueNumber: 17000 }),
     ];
 
     return control.pass();
@@ -2325,7 +2327,7 @@ describe('a merge based on another branch', () => {
     const waiting = () => control.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.issueNumber === 17199)?.action;
 
     expect(control.dispatched).toHaveLength(1);
-    expect(waiting()).toMatchObject({ state: 'refused', reason: 'Merging master into 17000-parent-feature for #17000. This card is read again when it finishes.' });
+    expect(waiting()).toMatchObject({ state: 'refused', reason: 'Merging master into 17000-parent-feature for #17198. This card is read again when it finishes.' });
 
     control.contains = () => ({ contained: true, failure: null });
     control.reportAt(BASE_KEY, { outcome: 'done', detail: 'Merged.' });
@@ -2512,13 +2514,40 @@ describe('a merge based on another branch', () => {
     expect(card?.action).toMatchObject({ state: 'done', outcome: 'stopped' });
   });
 
-  it('links the base merge\'s session to the base\'s issue', async () => {
+  it('shows the base merge\'s session on the card it was started for', async () => {
     const control = stackedHarness();
     watch(control);
     await control.pass();
     await baseAppears(control);
 
-    expect(makeActionStore(stateDir).read().links[`claude:${BASE_SESSION}`]).toMatchObject({ issueNumber: 17000 });
+    const card = control.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === 'issue:17198');
+
+    expect(card?.sessions.map((session) => session.sessionId)).toContain(BASE_SESSION);
+    expect(card?.checkout?.root).toBe(CHECKOUT);
+  });
+
+  it('runs none of the base card\'s actions in its worktree while the base merge runs there', async () => {
+    const parent = issue({ number: 17000, title: 'Parent', url: 'https://github.com/example-org/example-repo/issues/17000' });
+    const control = stackedHarness({ table: [STACKED, BASE_ROW, { action: 'address-review', qualifier: null, prompt: '/address-pr-review pr:{pr}', automatic: true }], concurrency: 3 }, [issue()]);
+
+    control.history.push({ ...control.history[0]!, sessionId: 'old00000-0000-4000-8000-000000000003', cwd: control.baseWorktree, branch: PARENT, issueNumber: 17000 });
+    control.prs = { 17000: { number: 4000, baseRefName: 'master', headRefName: PARENT } };
+    watch(control);
+    await control.pass();
+    await baseAppears(control);
+
+    control.cards = [parent, issue()];
+    control.classified = { action: 'address-review', detail: 'Changes requested.', target: null };
+    await control.pass();
+    await control.pass();
+
+    const base = control.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.issueNumber === 17000);
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(base?.action).toMatchObject({
+      state: 'refused',
+      reason: 'Merging master into 17000-parent-feature for #17198. This card is read again when it finishes.',
+    });
   });
 });
 
