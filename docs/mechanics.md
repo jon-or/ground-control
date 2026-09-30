@@ -803,7 +803,7 @@ GitHub's Primer TooltipV2 used a popover node next to each anchor. Recorded valu
 | Timing | 120 ms delay, 0.1-second opacity fade |
 | Colors | Emphasis background and on-emphasis foreground |
 
-The clients use a shared tooltip element per document rather than GitHub's node-per-anchor popover mechanism. The editor uses theme hover colors/border/shadow. Native `title` and SVG title tooltips are excluded from client-owned content to avoid duplicate system tooltips.
+The clients use a shared tooltip element per document rather than GitHub's node-per-anchor popover mechanism. A tooltip whose text has several lines, such as a stage verdict's report history, is a list: it reads from the start edge and allows 480px, less 8px on each side of a narrower viewport, so each report stays on one or two lines. The editor uses theme hover colors/border/shadow. Native `title` and SVG title tooltips are excluded from client-owned content to avoid duplicate system tooltips.
 
 Measured card ancestors had no transform, filter, or paint containment that would constrain the fixed tooltip. Recheck that condition after GitHub layout changes.
 

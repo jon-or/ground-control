@@ -602,8 +602,8 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
   font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.625;
   text-align: center; white-space: pre-line; overflow-wrap: break-word;
   color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-emphasis, #25292e); }
-/* A tooltip of several lines lists them, so it reads from the start edge. */
-#${TIP_ID}[data-lines="true"] { text-align: start; }
+/* A tooltip of several lines lists them, so it reads from the start edge and is wider to keep each line whole. */
+#${TIP_ID}[data-lines="true"] { max-width: min(480px, calc(100vw - 16px)); text-align: start; }
 #${TIP_ID}[data-open="true"] { display: block; animation: gc-tip-appear 0.1s ease-out; }
 @keyframes gc-tip-appear { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #${TIP_ID}[data-open="true"] { animation: none; } }
@@ -2903,6 +2903,8 @@ const ACTION_RUNNING = {
   'address-review': 'Answering review…',
   develop: 'Developing…',
   ship: 'Shipping…',
+  'qa-failure': 'Addressing QA…',
+  'qa-question': 'Answering QA…',
 };
 
 /** What a run that reported its work complete did, by action (R39). */
@@ -2912,6 +2914,8 @@ const ACTION_LANDED = {
   'address-review': 'Answered',
   develop: 'Developed',
   ship: 'Shipped',
+  'qa-failure': 'Addressed',
+  'qa-question': 'Answered',
 };
 
 /** The glyph each finished outcome is drawn with. */

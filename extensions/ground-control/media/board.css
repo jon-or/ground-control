@@ -1398,8 +1398,9 @@ body[data-motion='reduced'] .tool[data-state='running'] {
   box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
 }
 
-/* A tooltip of several lines lists them, so it reads from the start edge. */
+/* A tooltip of several lines lists them, so it reads from the start edge and is wider to keep each line whole. */
 #tip[data-lines='true'] {
+  max-width: min(480px, calc(100vw - 16px));
   text-align: start;
 }
 
