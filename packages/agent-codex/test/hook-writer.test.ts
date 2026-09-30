@@ -33,12 +33,12 @@ let writer: string;
 let activity: string;
 
 /** Run the standalone writer with USERPROFILE or HOME redirected to an isolated directory. */
-function run(input: HookPayload | string, home = root): number {
+function run(input: HookPayload | string, home = root, extra: NodeJS.ProcessEnv = {}): number {
   try {
     execFileSync(process.execPath, [writer], {
       input: typeof input === 'string' ? input : JSON.stringify(input),
       encoding: 'utf8',
-      env: { ...process.env, USERPROFILE: home, HOME: home, CODEX_HOME: join(home, 'selected-profile') },
+      env: { ...process.env, USERPROFILE: home, HOME: home, CODEX_HOME: join(home, 'selected-profile'), ...extra },
       windowsHide: true,
     });
 
@@ -125,6 +125,16 @@ describe('the Codex activity writer', () => {
 
     expect(after.turnId).toBe('a-second-turn');
     expect(after.turnAt).not.toBe(before.turnAt);
+  });
+
+  it('records nothing for a debrief fork, neither a new marker nor the removal of one', () => {
+    expect(run(payload('SessionStart'), root, { FRICTION_DEBRIEF: '1' })).toBe(0);
+    expect(markers()).toEqual([]);
+
+    run(payload('SessionStart'));
+    run({ ...payload('SessionStart'), hook_event_name: 'SessionEnd' }, root, { FRICTION_DEBRIEF: '1' });
+
+    expect(markers()).toEqual([`${SESSION}.json`]);
   });
 
   it('removes the marker on SessionEnd', () => {

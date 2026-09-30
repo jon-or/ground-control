@@ -28,7 +28,7 @@ let writer: string;
 let activity: string;
 
 /** Run the standalone writer with USERPROFILE or HOME redirected to an isolated directory. */
-function run(input: string, home = root): { status: number; stdout: string } {
+function run(input: string, home = root, extra: NodeJS.ProcessEnv = {}): { status: number; stdout: string } {
   let stdout = '';
   let status = 0;
 
@@ -36,7 +36,7 @@ function run(input: string, home = root): { status: number; stdout: string } {
     stdout = execFileSync(process.execPath, [writer], {
       input,
       encoding: 'utf8',
-      env: { ...process.env, USERPROFILE: home, HOME: home },
+      env: { ...process.env, USERPROFILE: home, HOME: home, ...extra },
       windowsHide: true,
     });
   } catch (error) {
@@ -87,6 +87,18 @@ describe('the activity writer', () => {
   });
 
   /** Preserve prompt time across tool events so running duration does not reset. */
+  it('records nothing for a debrief fork, neither a new marker nor the removal of one', () => {
+    const debrief = { FRICTION_DEBRIEF: '1' };
+
+    expect(run(JSON.stringify({ session_id: 'forked', hook_event_name: 'UserPromptSubmit', prompt: 'debrief' }), root, debrief)).toEqual({ status: 0, stdout: '' });
+    expect(existsSync(join(activity, 'forked.json'))).toBe(false);
+
+    run(JSON.stringify({ session_id: 'kept', hook_event_name: 'Stop' }));
+    run(JSON.stringify({ session_id: 'kept', hook_event_name: 'SessionEnd' }), root, debrief);
+
+    expect(markerFor('kept')).toMatchObject({ event: 'Stop' });
+  });
+
   it('stamps the turn on the prompt and carries it across the events inside the turn', () => {
     run(JSON.stringify({ session_id: 'turning', hook_event_name: 'UserPromptSubmit' }));
 

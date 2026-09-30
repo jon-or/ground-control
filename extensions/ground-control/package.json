@@ -642,9 +642,44 @@
         }
       },
       {
+        "id": "groundControl.debrief",
+        "title": "Debriefs",
+        "order": 6,
+        "properties": {
+          "groundControl.debrief.enabled": {
+            "scope": "application",
+            "type": "boolean",
+            "default": false,
+            "order": 1,
+            "markdownDescription": "Ask each finished Claude session, in any project, what slowed it down: 45 minutes after its last turn, a one-turn fork of the session reports its friction to the debrief log. Each debrief is a paid model turn, read mostly from the session's prompt cache. See [debriefs](https://github.com/jon-or/ground-control/blob/master/README.md#debriefs)."
+          },
+          "groundControl.debrief.directory": {
+            "scope": "machine",
+            "type": "string",
+            "default": "",
+            "order": 2,
+            "markdownDescription": "Directory holding `state.json`, `log/` and the daily analyzer's files; empty uses `~/.claude/.wip/debrief`."
+          },
+          "groundControl.debrief.promptPath": {
+            "scope": "machine",
+            "type": "string",
+            "default": "",
+            "order": 3,
+            "markdownDescription": "The debrief prompt; `{{scope}}` in it names the work a debrief covers. Empty uses `~/.claude/skills/friction-review/prompt.md`. No debrief runs while the file is missing or empty."
+          },
+          "groundControl.debrief.codexScript": {
+            "scope": "machine",
+            "type": "string",
+            "default": "",
+            "order": 4,
+            "markdownDescription": "Node script that debriefs one agent-delegate Codex thread; empty uses `~/.claude/tools/agent-delegate/debrief.mjs`. Codex threads are skipped while the file does not exist."
+          }
+        }
+      },
+      {
         "id": "groundControl.advanced",
         "title": "Advanced",
-        "order": 6,
+        "order": 7,
         "properties": {
           "groundControl.github.ghPath": {
             "scope": "application",

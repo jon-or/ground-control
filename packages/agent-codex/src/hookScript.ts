@@ -1,4 +1,4 @@
-import { GROUND_CONTROL_DIR, HOOK_STATE_DIR_SOURCE, normalize } from '@ground-control/core';
+import { DEBRIEF_ENV, GROUND_CONTROL_DIR, HOOK_STATE_DIR_SOURCE, normalize } from '@ground-control/core';
 
 /**
  * Increment for changed field semantics, not compatible additions. Shared-home readers reject incompatible
@@ -144,8 +144,11 @@ try {
   const id = payload.session_id;
   const event = typeof payload.hook_event_name === 'string' ? payload.hook_event_name : null;
 
+  // A friction debrief fork is transient and must stay off the board (R52).
+  const isDebrief = process.env.${DEBRIEF_ENV} === '1';
+
   // Validate the external session ID before using it as a filename.
-  if (typeof id === 'string' && /^[A-Za-z0-9._-]+$/.test(id)) {
+  if (!isDebrief && typeof id === 'string' && /^[A-Za-z0-9._-]+$/.test(id)) {
     const marker = DIR + '/' + id + '.json';
 
     if (event === 'SessionEnd') {

@@ -23,6 +23,8 @@ import type { LogEntry } from '@ground-control/core';
 import { defaultConfig } from '../src/registry.js';
 import { captureLog, fakeClock, fakeHost, fakeReaders, fakeSession, reportingAgent, tempHome } from './helpers.js';
 import type { FakeAgentControl, FakeHostControl } from './helpers.js';
+import type { DebriefForkInput, DebriefForkResult, DebriefSignal } from '@ground-control/core';
+import type { DebriefLogEntry, DebriefState, DebriefStore } from '../src/debriefStore.js';
 
 let home: string;
 let stateDir: string;
@@ -116,9 +118,10 @@ function harness(
     readCard?: GithubSourceDeps['readCard'];
     readDetail?: GithubSourceDeps['readDetail'];
     readCustody?: GithubSourceDeps['readCustody'];
+    agent?: FakeAgentControl;
   } = {},
 ): Harness {
-  const agent = reportingAgent();
+  const agent = extra.agent ?? reportingAgent();
   const host = fakeHost();
   const clock = fakeClock();
   const sent = new Map<string, HubMessage[]>();
@@ -3573,3 +3576,151 @@ describe('reading one card’s custody', () => {
     expect(custodyIn(inbox)[0]).toMatchObject({ custody: null, failure: 'No configured source can read that issue. Check the GitHub settings for this board.' });
   });
 });
+
+describe('friction debriefs (R52)', () => {
+  const MINUTE = 60_000;
+  const SESSION = 'a1b2c3d4-0000-4000-8000-00000000000a';
+
+  /** A Claude agent whose debrief fork waits for the test, and the forks it was asked for. */
+  function debriefingAgent() {
+    const control = reportingAgent('claude');
+    const forks: DebriefForkInput[] = [];
+    let release: (result: DebriefForkResult) => void = () => undefined;
+    const debrief: DebriefSignal = {
+      transcriptWrittenAt: () => 1,
+      readRange: () => ({ throughMessageUuid: 'm-12', toolCalls: 12, skills: [], delegated: [], fromPrompt: null }),
+      fork: (input) => {
+        forks.push(input);
+        return new Promise((resolve) => { release = resolve; });
+      },
+    };
+    (control.adapter as { debrief?: DebriefSignal }).debrief = debrief;
+
+    return { control, forks, release: (result: DebriefForkResult) => release(result) };
+  }
+
+  function memoryStore(): DebriefStore & { logs: DebriefLogEntry[] } {
+    let state: DebriefState = { v: 1, sessions: {}, codex: {} };
+    const logs: DebriefLogEntry[] = [];
+
+    return {
+      logs,
+      readState: () => structuredClone(state),
+      writeState: (next) => { state = structuredClone(next); return true; },
+      appendLog: (entry) => { logs.push(entry); return true; },
+      logged: (sessionId) => {
+        const last = logs.filter((entry) => entry.sessionId === sessionId).at(-1);
+        return { latest: last === undefined ? null : { throughMessageUuid: last.throughMessageUuid!, at: last.at } };
+      },
+    };
+  }
+
+  it('does not trust the last roster of a closed board for a scan: a session that resumed since is not forked', async () => {
+    const agent = debriefingAgent();
+    mkdirSync(join(home, '.claude', 'skills', 'friction-review'), { recursive: true });
+    writeFileSync(join(home, '.claude', 'skills', 'friction-review', 'prompt.md'), 'Report friction in {{scope}}.');
+    const h = harness({ debriefStore: () => memoryStore() }, { agent: agent.control });
+    const idleAt = h.clock.clock.now() - 45 * MINUTE;
+    const stopped = { phase: 'idle' as const, since: idleAt, at: idleAt, event: 'Stop' };
+    agent.control.sessions = [fakeSession({ agent: 'claude', sessionId: SESSION, details: { kind: 'interactive' }, activity: stopped })];
+    agent.control.phases.set(SESSION, stopped);
+
+    h.hub.configure(h.config({ debrief: { enabled: true, directory: '', promptPath: '', codexScript: '' } }));
+    const watcher = connect(h);
+    h.hub.receive(watcher.client, { type: 'refresh' });
+    await settle();
+    await settle();
+    h.hub.disconnect(watcher.client);
+
+    // The session resumes after the board closed; nothing tells the board, which no longer polls.
+    const resumed = { phase: 'running' as const, since: h.clock.clock.now(), at: h.clock.clock.now(), event: 'UserPromptSubmit' };
+    agent.control.sessions = [fakeSession({ agent: 'claude', sessionId: SESSION, details: { kind: 'interactive' }, activity: resumed })];
+    agent.control.phases.set(SESSION, resumed);
+
+    // Fire the scan 30 seconds after the board's last read, inside the minute a polled roster would be trusted.
+    h.clock.advance(-30_000);
+    h.clock.fire(60_000);
+    await settle();
+    await settle();
+
+    expect(agent.forks).toEqual([]);
+    h.hub.dispose();
+  });
+
+  it('scans once a minute while debriefs are enabled, with no board watching, and stops when they are turned off', () => {
+    const h = harness();
+
+    h.hub.configure(h.config({ debrief: { enabled: true, directory: '', promptPath: '', codexScript: '' } }));
+    expect(h.clock.cadences()).toEqual([60_000]);
+
+    h.hub.configure(h.config({ debrief: { enabled: false, directory: '', promptPath: '', codexScript: '' } }));
+    expect(h.clock.cadences()).toEqual([]);
+
+    h.hub.configure(h.config({ debrief: { enabled: true, directory: '', promptPath: '', codexScript: '' } }));
+    h.hub.dispose();
+    expect(h.clock.cadences()).toEqual([]);
+  });
+
+  it('reads the roster for a scan without touching the board, forks the idle session, and keeps the running fork off the board', async () => {
+    const agent = debriefingAgent();
+    const store = memoryStore();
+    mkdirSync(join(home, '.claude', 'skills', 'friction-review'), { recursive: true });
+    writeFileSync(join(home, '.claude', 'skills', 'friction-review', 'prompt.md'), 'Report friction in {{scope}}.');
+    let cardReads = 0;
+    const h = harness({ debriefStore: () => store }, {
+      agent: agent.control,
+      readCard: async () => {
+        cardReads++;
+        return { ok: true, value: null };
+      },
+    });
+    const idleAt = h.clock.clock.now() - 45 * MINUTE;
+    // The adapter reads its own marker into the session; the board also reads it through the phase signal.
+    const idle = fakeSession({ agent: 'claude', sessionId: SESSION, details: { kind: 'interactive' }, activity: { phase: 'idle', since: idleAt, at: idleAt, event: 'Stop' } });
+    agent.control.phases.set(SESSION, { phase: 'idle', since: idleAt, at: idleAt, event: 'Stop' });
+
+    h.hub.configure(h.config({ debrief: { enabled: true, directory: '', promptPath: '', codexScript: '' } }));
+    // A board read the sources, then closed: polling stops, and the session's issue is no longer the board's to look up.
+    const watcher = connect(h);
+    h.hub.receive(watcher.client, { type: 'refresh' });
+    await settle();
+    await settle();
+    h.hub.disconnect(watcher.client);
+    h.clock.advance(2 * MINUTE);
+    // The session, and the issue its branch names, first appear to the scan.
+    agent.control.sessions = [idle];
+    const before = agent.control.calls;
+    const readsBefore = cardReads;
+
+    h.clock.fire(60_000);
+    await settle();
+    await settle();
+
+    expect(agent.control.calls).toBe(before + 1);
+    expect(agent.forks.map((fork) => [fork.sessionId, fork.prompt])).toEqual([[SESSION, 'Report friction in the whole conversation.']]);
+    // With no board watching, the scan's roster read looks up no issue for the session's branch (R35).
+    expect(cardReads).toBe(readsBefore);
+
+    // The fork is listed as an interactive session while it runs.
+    const forkId = agent.forks[0]!.forkId;
+    agent.control.sessions = [...agent.control.sessions, fakeSession({ agent: 'claude', sessionId: forkId, pid: 13916 })];
+    const { client, inbox } = connect(h);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    expect(latest(inbox).sessions?.count).toBe(1);
+
+    agent.release({ friction: [], cache: null });
+    await settle();
+
+    expect(store.logs.map((entry) => entry.sessionId)).toEqual([SESSION]);
+
+    h.clock.advance(2000);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+
+    expect(latest(inbox).sessions?.count).toBe(2);
+    h.hub.dispose();
+  });
+});
+

@@ -507,6 +507,22 @@ A browser request repeats what a manual request already permits: it can start an
 
 Implementation limits: run records are written after dispatch returns, so persistence failure can leave an already started process unrecorded. Concurrent starts can exceed the remaining daily allowance because pending requests do not reserve it. Failed attempts count toward that allowance and can include a process whose ID could not be read. Codex stop authorization is lost on hub restart, even though the action record remains. A test branch's existence on GitHub is not checked before dispatch; the prompt receives the name as the request gave it. A branch is held only while its merge is being started or has a run record, so a process left unrecorded by a hub exit holds nothing after restart; the prompt's own checks for an unpublished or behind branch remain. A source branch force-pushed during a run still passes the push check, because the destination contains the tip recorded before dispatch. A test merge whose request named no test branch, as the OwnerRez merge bot's do, has only its first leg checked. These gaps require implementation work to meet the intended dispatch and recovery guarantees.
 
+## Friction debriefs
+
+### R52. Friction debriefs
+
+When a Claude session in any project has finished its work, the hub asks a one-turn fork of the session what slowed it down, and appends the answer to a log a daily analyzer reads. Off by default, because each debrief is a paid model turn.
+
+A session is debriefed 45 minutes after its last finished turn: a `Stop` with no background tasks for an open session, the last transcript write for a closed one. Past 60 minutes the session's one-hour prompt cache has expired and the session is skipped rather than run cold. A session with no activity hook reports cannot be told from one running a long tool call, so an open session needs the hooks; a closed one does not. The work since the last debrief must include at least 10 tool calls in the main transcript. A session that continues after a debrief is debriefed again, only for the work after the last message the previous debrief covered; the fork sees messages, not IDs, so the prompt names that work by the opening of its first message. A live background job is skipped while its process holds the session. Subagents are not debriefed; the parent reports what they showed.
+
+The fork resumes the session with no model, tool, or setting changes, so it reads the session's cache; it writes no transcript, reports no activity, and stays off the board while it runs. One fork runs at a time, for at most five minutes. A failed debrief is retried five minutes later, and after three failures on the same work it waits for new work. An answer counts only when every item fills all six fields — what, source, workaround, cost, evidence, and fix — because the analyzer groups and counts by them; the log keeps each item as answered. Only successful debriefs are logged, including those that report no friction. Codex threads the session opened through agent-delegate are debriefed by agent-delegate's own command in the same pass and logged against the session; a thread that appears again in a later debrief, as a recheck does, is asked only about its turns since its last debrief. A thread whose debrief fails is retried five minutes later, at most three times, whether or not its session is debriefed again. Codex sessions the developer started directly are not debriefed.
+
+Debriefs run while the hub runs, whether or not a board is open, and reading sessions for them looks up no issue for the board. A session whose 60 minutes pass while the hub is not running is not debriefed later; one still inside them when the hub starts is. A debrief already in the log is not run again, even where the hub could not record it or stopped before it did. When debriefs are turned off or their settings change, no further fork starts.
+
+The prompt, the log, the debrief state, and the analyzer's proposals live outside Ground Control's state directory, in paths the settings name, because another tool owns the prompt and the analyzer. The log line and the proposal line are a contract with that tool.
+
+Implementation gap: the board does not yet show the open proposal count or open the analyzer's report.
+
 ## Setup, permissions, and lifecycle
 
 ### R26. First-run setup

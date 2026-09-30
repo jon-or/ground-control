@@ -198,6 +198,10 @@ A run that names `auditPath` gets an **Open report** control on its card and in 
 
 **Action history** in the editor board's menu, or in the overlay's menu, lists every run the board started — merges, reviews, answers, develop, ship, and QA runs, and worktree runs — newest first, with the card, who started it (automatically, or a click in the editor or the browser), how it ended, and how long it took. It keeps 90 days, up to 500 runs. See [R50](docs/prd.md#r50-action-history).
 
+### Debriefs
+
+With `debrief.enabled` on (Debriefs, default off), the hub asks each finished Claude session, in any project, what slowed it down: 45 minutes after its last turn, and only if the work since its last debrief made at least 10 tool calls, a one-turn fork of the session answers with a list of friction, which the hub appends to `log/YYYY-MM.jsonl` under `debrief.directory` (default `~/.claude/.wip/debrief`). Each debrief is a paid model turn, mostly read from the session's prompt cache; a session found more than an hour after its last turn is skipped. The prompt is `debrief.promptPath` (default `~/.claude/skills/friction-review/prompt.md`); nothing runs while it is missing. Codex threads a session opened through agent-delegate are debriefed by `debrief.codexScript` (default `~/.claude/tools/agent-delegate/debrief.mjs`) when that file exists. Debriefs run only while the hub runs. See [R52](docs/prd.md#r52-friction-debriefs).
+
 ### Settings this guide does not cover
 
 Every setting is described in the Settings editor under Ground Control. The ones with no paragraph here are `refreshIntervalSeconds` and `sessionRefreshSeconds` (poll intervals), `openWindowsForSessions` and the experimental `resumeWorktreesInRepositoryWindow` (which window a session opens in), `triage.concurrency` and `triage.timeoutSeconds`, `actions.concurrency`, `github.ghPath`, and the `hosts` and `sources` objects.

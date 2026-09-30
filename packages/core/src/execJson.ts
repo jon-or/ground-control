@@ -8,6 +8,8 @@ export type ExecFailure = {
   ok: false;
   reason: 'missing' | 'not-executable' | 'failed' | 'unparsable' | 'aborted';
   detail: string;
+  /** The process's exit code, for a process that ran and exited non-zero. */
+  exitCode?: number;
 };
 
 /** CLI text output or failure; text calls do not produce `unparsable`. */
@@ -118,6 +120,7 @@ function spawn(path: string, args: string[], options: ExecOptions, resolved: boo
             ok: false,
             reason: missing ? (resolved ? 'not-executable' : 'missing') : 'failed',
             detail: `${code}${stderr.trim() || err.message}`.slice(0, DETAIL_LIMIT),
+            ...(typeof err.code === 'number' ? { exitCode: err.code } : {}),
           });
 
           return;

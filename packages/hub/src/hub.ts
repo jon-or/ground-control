@@ -1,7 +1,7 @@
 import { assignLanes, buildCustody, checkEvidence, linkSessions, mergeBoard, nextMemory, triageLabel, withCheckouts, withPlacement, withStage, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
-import { BASE_MERGE, CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, MANUAL_ACTIONS, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, issueNumberFrom, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex, worktreesOf } from '@ground-control/core';
+import { BASE_MERGE, CREATE_WORKTREE, runTextCli, DEFAULT_SESSION_SCOPE, MANUAL_ACTIONS, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, issueNumberFrom, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex, worktreesOf } from '@ground-control/core';
 import type { WorktreeScan } from '@ground-control/board';
 import type { ActionHistoryView, ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, CustodyHistory, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StageAnswer, StageRequest, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
@@ -19,6 +19,9 @@ import type { CheckoutStore } from './checkoutStore.js';
 import type { ActionHistoryStore, ActionStore } from './actionStore.js';
 import { renderReport } from './report.js';
 import { TriageRunner } from './triage.js';
+import { DEBRIEF_SCAN_MS, DebriefRunner, codexDebriefEnv } from './debrief.js';
+import type { DebriefDeps, DebriefSessions } from './debrief.js';
+import { makeDebriefStore } from './debriefStore.js';
 import { makeTriageStore } from './triageStore.js';
 import type { TriageStore } from './triageStore.js';
 import { makeStatusStore, pruned, retaining } from './statusStore.js';
@@ -67,6 +70,10 @@ export interface HubDeps {
   settings: SettingsStore;
   /** Write hub.log and stream entries to subscribed clients. */
   log: Logger;
+  /** Friction debrief files under a directory (R52); absent uses the real files. */
+  debriefStore?: DebriefDeps['store'];
+  /** Run the Codex debrief command (R52); absent runs it with this process's executable as Node. */
+  runCodexDebrief?: DebriefDeps['runCodex'];
   /** Inject activity installation to isolate tests from agent settings. */
   syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string, stateDir: string, enabled?: ReadonlySet<string>): ActivityState;
 }
@@ -266,6 +273,9 @@ export class Hub {
   #disposed = false;
   readonly #triage: TriageRunner;
   readonly #actions: ActionRunner;
+  readonly #debrief: DebriefRunner;
+  /** The debrief scan, armed only while debriefs are enabled (R52). */
+  #debriefTimer: NodeJS.Timeout | null = null;
   readonly #issues: IssueLookup;
 
   constructor(deps: HubDeps) {
@@ -332,6 +342,19 @@ export class Hub {
       },
     });
     this.#actions.configure(this.#config.actions, this.#config.agents, this.#config.worktree);
+    this.#debrief = new DebriefRunner({
+      now: () => deps.clock.now(),
+      log: deps.log,
+      home: deps.home,
+      readers: () => diskReaders(deps.home, deps.stateDir),
+      agents: deps.registries.agents,
+      sessions: () => this.#debriefSessions(),
+      store: deps.debriefStore ?? makeDebriefStore,
+      runCodex: deps.runCodexDebrief ?? ((script, thread, prompt, since, timeoutMs, signal) =>
+        runTextCli(process.execPath, [script, thread, '--prompt', prompt, ...(since === null ? [] : ['--since', since])], { env: codexDebriefEnv(process.env), timeoutMs, signal })),
+      newId: () => randomUUID(),
+    });
+    this.#armDebrief();
     this.#issues = new IssueLookup({
       store: deps.issues,
       sources: () => this.#enabledSources(),
@@ -1058,8 +1081,53 @@ export class Hub {
 
     this.#sourcesRefused = refused;
     this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources(), this.#config.actions.testBranchPattern);
+    if (this.#debrief) this.#armDebrief();
 
     return [...configureHosts(this.#deps.registries, this.#config.hosts), ...refused];
+  }
+
+  /** Scan for idle sessions once a minute while debriefs are enabled, whether or not a board is watched (R52). */
+  #armDebrief(): void {
+    const settings = this.#config.debrief;
+
+    this.#debrief.configure(settings, this.#config.agents);
+
+    if (settings.enabled && this.#debriefTimer === null && !this.#disposed) {
+      this.#debriefTimer = this.#deps.clock.setInterval(() => void this.#debrief.scan(), DEBRIEF_SCAN_MS);
+    } else if (!settings.enabled && this.#debriefTimer !== null) {
+      this.#deps.clock.clearInterval(this.#debriefTimer);
+      this.#debriefTimer = null;
+    }
+  }
+
+  /**
+   * A roster and history no older than a scan: the board's while polling keeps it and its activity current, otherwise a
+   * read of the agents alone, which leaves the board and its issue lookups untouched while nothing is watched (R35).
+   */
+  async #debriefSessions(): Promise<DebriefSessions | null> {
+    const readAt = this.#rosterReadAt;
+    const polling = this.#timers.length > 0;
+
+    if (polling && this.#sessions !== undefined && readAt !== undefined && this.#deps.clock.now() - readAt < DEBRIEF_SCAN_MS) {
+      return {
+        live: this.#sessions.sessions,
+        history: this.#history,
+        unreadable: new Set([...this.#sessions.failures, ...this.#historyFailures].map((failure) => failure.subject)),
+      };
+    }
+
+    if (!this.#storageReady) return null;
+
+    const readers = this.#readers();
+    const config = { agents: this.#config.agents, branchIssuePattern: this.#config.branchIssuePattern };
+    const roster = await fetchSessions(config, this.#deps.registries.agents, readers);
+    const history = await fetchSessionHistory(config, this.#deps.registries.agents, readers);
+
+    return {
+      live: roster.sessions,
+      history: history.sessions,
+      unreadable: new Set([...roster.failures, ...history.failures].map((failure) => failure.subject)),
+    };
   }
 
   #triageSources(): ReadonlySet<string> {
@@ -1558,8 +1626,8 @@ export class Hub {
 
     this.#rosterReadAt = this.#deps.clock.now();
 
-    // Preserve successful agent reads when another fails and refresh activity after polling. Exclude classification sessions even if adapter filtering changes (R2, M31).
-    const ours = this.#triage.sessionIds();
+    // Preserve successful agent reads when another fails and refresh activity after polling. Exclude classification sessions even if adapter filtering changes (R2, M31), and running debrief forks (R52, M64).
+    const ours = new Set([...this.#triage.sessionIds(), ...this.#debrief.sessionIds()]);
 
     if (ours.size > 0) {
       snapshot = { ...snapshot, sessions: snapshot.sessions.filter((session) => !ours.has(session.sessionId)) };
@@ -2546,6 +2614,12 @@ export class Hub {
     this.#triage.dispose();
     this.#actions.dispose();
     this.#issues.dispose();
+    this.#debrief.dispose();
+
+    if (this.#debriefTimer !== null) {
+      this.#deps.clock.clearInterval(this.#debriefTimer);
+      this.#debriefTimer = null;
+    }
 
     while (this.#timers.length > 0) {
       this.#deps.clock.clearInterval(this.#timers.pop()!);

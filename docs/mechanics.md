@@ -2,7 +2,7 @@
 
 This document records experiments and source inspections relevant to Ground Control. Some support implemented features; others establish options or constraints for future work. A successful experiment is not a claim that the product implements it. Product scope is in the [requirements](prd.md), and current use is described in [architecture](architecture.md).
 
-Record IDs retain the experiment identifiers M1–M63, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
+Record IDs retain the experiment identifiers M1–M64, including M3b and M3c, independently of topic order. Dates and versions belong to the evidence, not to this document's editing date. The baseline for undated early records is 2026-09-01 with the installed Claude CLI and `anthropic.claude-code` 2.1.252. An exact CLI version was not recorded for every experiment.
 
 Code references use these M IDs rather than the former numbered sections. A record grouped under a topic keeps its original ID. Source inspections of Ground Control distinguish current implementation from the external experiment; they do not re-verify the measured CLI or editor version.
 
@@ -240,6 +240,14 @@ These are historical estimates, not current pricing. Ten real-card Haiku runs to
 GitHub context reads took 357–604 ms. The recorded total budget was 180 seconds for fetch plus classification. Full model names avoid changes in alias resolution; `haiku` resolved locally but was not among the aliases named by that help output.
 
 An inline `... on User { name }` fragment on GitHub's `Actor` fields returned profile names without extra requests; bots lacked that field. Login is the fallback.
+
+### Debrief forks
+
+**Record M64. Runtime, 2026-09-30, CLI 2.1.286. Used by friction debriefs.**
+
+`claude -p --resume <id> --fork-session --session-id <uuid> --no-session-persistence --output-format json --max-turns 1`, with the prompt on stdin, answered as a new session with the given ID and left the original transcript unchanged; no transcript was written for the fork. With `--output-format json` the CLI printed an array of stream events (`rate_limit_event`, `system`/`init`, `assistant`, `result`), not a single result object; the `result` event carries `result`, `usage`, and `total_cost_usd`. While it ran, `claude agents --json` listed the fork as `kind: interactive`, `status: busy`, with its PID, so the board must drop it by ID.
+
+A fork of an open VS Code session read 75,491 tokens from cache and wrote 4,023, at $0.048. A fork of a print-mode session read 27,702 and wrote 26,129. Passing `--model`, `--effort`, `--disallowedTools`, `--mcp-config`, or `--strict-mcp-config` changes the prompt prefix and loses the cache. A live `--bg` job refuses `-p --resume` until `claude stop`. Evidence: scratch probes; the recorded output is `packages/agent-claude/test/fixtures/debrief-output.json`.
 
 ## Codex
 

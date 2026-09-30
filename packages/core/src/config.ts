@@ -11,6 +11,8 @@ import { DEFAULT_AVATAR_POLICY, OFF_REVIEW_AVATARS, REVIEW_AVATARS } from './sou
 import type { AvatarPolicy } from './source.js';
 import { agentHomeSchema } from './agentHomes.js';
 import { custodySettings } from './custody.js';
+import { DEFAULT_DEBRIEF } from './debrief.js';
+import type { DebriefSettings } from './debrief.js';
 import type { CustodySettings } from './custody.js';
 import type { SessionScope } from './sessionScope.js';
 import type { AgentConfig, ReadFailure } from './types.js';
@@ -52,6 +54,8 @@ export interface HubConfig {
   newSession: NewSessionSettings;
   /** Stages and bots the custody popup reads an issue's history with. */
   custody: CustodySettings;
+  /** Friction debriefs of finished Claude sessions (R52). */
+  debrief: DebriefSettings;
 }
 
 /** Hub log rotation and dispatch-output retention. Markers and settings backups are safety state with fixed limits. */
@@ -309,6 +313,16 @@ export const hubConfig = z.object({
   newSession: newSession.default(DEFAULT_NEW_SESSION),
   // Absent from a configuration written by a client that predates the custody popup.
   custody: custodySettings,
+  // Absent from a configuration written by a client that predates debriefs, which must not enable them.
+  debrief: z
+    .object({
+      enabled: z.boolean().catch(false).default(false),
+      directory: z.string().trim().catch('').default(''),
+      promptPath: z.string().trim().catch('').default(''),
+      codexScript: z.string().trim().catch('').default(''),
+    })
+    .catch({ ...DEFAULT_DEBRIEF })
+    .default({ ...DEFAULT_DEBRIEF }),
 });
 
 /** Parse client configuration or return a classified failure for display (R25). */

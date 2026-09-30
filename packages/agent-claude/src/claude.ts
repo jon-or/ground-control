@@ -15,6 +15,7 @@ import type {
 } from '@ground-control/core';
 import { makeClaudeActivity } from './activity.js';
 import { makeClaudeClassifier } from './classify.js';
+import { makeClaudeDebrief } from './debrief.js';
 import { makeClaudeDispatcher, makeClaudeStopper } from './dispatch.js';
 import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from './ids.js';
 import { readActivity } from './phase.js';
@@ -281,6 +282,7 @@ export function makeClaudeAdapter(
     enabledByDefault: () => true,
     activity: makeClaudeActivity(environment),
     classify: makeClaudeClassifier((path, args, options) => run(path, args, { ...options, env: environment() })),
+    debrief: makeClaudeDebrief(run, environment),
     async dispatch(input) {
       const env = environment();
       const result = await makeClaudeDispatcher((path, args, options) => runText(path, args, { ...options, env }))(input);

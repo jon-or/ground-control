@@ -1,0 +1,30 @@
+[
+ {
+  "type": "system",
+  "subtype": "init",
+  "session_id": "11111111-2222-4333-8444-555555555555"
+ },
+ {
+  "type": "assistant",
+  "session_id": "11111111-2222-4333-8444-555555555555"
+ },
+ {
+  "type": "rate_limit_event",
+  "session_id": "11111111-2222-4333-8444-555555555555"
+ },
+ {
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "num_turns": 1,
+  "result": "{\"friction\":[]}",
+  "total_cost_usd": 0.4357966,
+  "usage": {
+   "input_tokens": 2,
+   "output_tokens": 10,
+   "cache_read_input_tokens": 27702,
+   "cache_creation_input_tokens": 26129
+  },
+  "session_id": "11111111-2222-4333-8444-555555555555"
+ }
+]

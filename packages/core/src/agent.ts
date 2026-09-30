@@ -1,3 +1,4 @@
+import type { DebriefSignal } from './debrief.js';
 import type { MachineDeps, MachineReaders, ReadText } from './machine.js';
 import type { HistoricalSession, ReadFailure, Session, SessionActivity } from './types.js';
 
@@ -129,4 +130,6 @@ export interface AgentAdapter {
   /** Stop a session started by this adapter using its dispatch ID. */
   stopDispatch?(path: string, shortId: string): Promise<ReadFailure | null>;
   readonly activity?: ActivitySignal;
+  /** Friction debrief of a finished session (R52). */
+  readonly debrief?: DebriefSignal;
 }

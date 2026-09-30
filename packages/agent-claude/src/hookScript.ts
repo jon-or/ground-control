@@ -1,4 +1,4 @@
-import { GROUND_CONTROL_DIR, HOOK_STATE_DIR_SOURCE, normalize } from '@ground-control/core';
+import { DEBRIEF_ENV, GROUND_CONTROL_DIR, HOOK_STATE_DIR_SOURCE, normalize } from '@ground-control/core';
 
 /**
  * Increment for changed field semantics, not compatible additions. Readers reject incompatible versions;
@@ -86,8 +86,11 @@ try {
   // for input (R6).
   const isParentSession = typeof payload.agent_id !== 'string';
 
+  // A friction debrief fork is transient and must stay off the board (R52).
+  const isDebrief = process.env.${DEBRIEF_ENV} === '1';
+
   // Validate the external session ID before using it as a filename.
-  if (isParentSession && typeof id === 'string' && /^[A-Za-z0-9._-]+$/.test(id)) {
+  if (isParentSession && !isDebrief && typeof id === 'string' && /^[A-Za-z0-9._-]+$/.test(id)) {
     const marker = DIR + '/' + id + '.json';
 
     if (payload.hook_event_name === 'SessionEnd') {

@@ -454,6 +454,7 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
     avatar: { review: 'pull-request-author', offReview: 'assignee' },
     newSession: { prompt: '' },
     custody: { stages: [], bots: [] },
+    debrief: { enabled: false, directory: '', promptPath: '', codexScript: '' },
     installActivity: false,
     triage: { enabled: true, concurrency: 2, timeoutMs: 60_000 },
     actions: {

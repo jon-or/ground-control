@@ -85,6 +85,12 @@ export function readHubConfig(userDir: string): HubConfig {
     newSession: { prompt: cfg.get<string>('newSession.prompt', '') },
     // The hub validates the entries; a malformed one drops itself.
     custody: { stages: cfg.get<CustodyStage[]>('custody.stages', defaults.custody.stages), bots: cfg.get<string[]>('custody.bots', defaults.custody.bots) },
+    debrief: {
+      enabled: cfg.get<boolean>('debrief.enabled', false),
+      directory: cfg.get<string>('debrief.directory', ''),
+      promptPath: cfg.get<string>('debrief.promptPath', ''),
+      codexScript: cfg.get<string>('debrief.codexScript', ''),
+    },
   };
 }
 

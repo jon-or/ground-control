@@ -524,3 +524,25 @@ describe('what a session started from a card is prefilled with', () => {
     expect(promptOf({ prompt: bad })).toBe('');
   });
 });
+
+describe('debrief settings (R52)', () => {
+  function debriefOf(raw: unknown) {
+    const parsed = parseHubConfig(raw === undefined ? config() : config({ debrief: raw } as never));
+
+    return 'config' in parsed ? parsed.config.debrief : parsed.failure;
+  }
+
+  it('leaves debriefs off for a configuration written before they existed, and for one it cannot read', () => {
+    const off = { enabled: false, directory: '', promptPath: '', codexScript: '' };
+
+    expect(debriefOf(undefined)).toEqual(off);
+    expect(debriefOf('on')).toEqual(off);
+    expect(debriefOf({ enabled: 'yes' })).toEqual(off);
+  });
+
+  it('takes what a client asked for, trimming the paths', () => {
+    expect(debriefOf({ enabled: true, directory: ' d:/notes/debrief ', promptPath: '~/prompt.md', codexScript: 3 })).toEqual({
+      enabled: true, directory: 'd:/notes/debrief', promptPath: '~/prompt.md', codexScript: '',
+    });
+  });
+});

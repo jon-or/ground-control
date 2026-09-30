@@ -15,6 +15,8 @@ export type { Custody, CustodyEvent, CustodyFigure, CustodyFunction, CustodyHeal
 export type { DetailEvent, DetailIcon, DetailLabel, DetailNote, DetailPost, DetailReaction, DetailReading, DetailSubject, DetailThread, ItemDetail } from './detail.js';
 export { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSION, DEFAULT_TRIAGE, DEFAULT_WORKTREE, IDLE_EXIT_CEILING_MS, IDLE_EXIT_FLOOR_MS, PERMISSION_MODES, agentCommand, hubConfig, idsFrom, parseHubConfig, readActionTable, spawnable, triageMode } from './config.js';
 export type { HubConfig, LogSettings, NewSessionSettings, TriageSettings, WorktreeSettings } from './config.js';
+export { DEBRIEF_ENV, DEFAULT_DEBRIEF, frictionAnswer } from './debrief.js';
+export type { DebriefCache, DebriefForkInput, DebriefForkResult, DebriefRange, DebriefSettings, DebriefSignal, FrictionEntry } from './debrief.js';
 export { DEFAULT_AVATAR_POLICY, DEFAULT_BOARD_POLICY, OFF_REVIEW_AVATARS, REVIEW_AVATARS } from './source.js';
 export type { AvatarPolicy, BoardPolicy, OffReviewAvatar, ReviewAvatar } from './source.js';
 export { ACTION_REVISION, AUTOMATABLE_ACTIONS, BASE_MERGE, CREATE_WORKTREE, EMPTY_ACTIONS, MANUAL_ACTIONS, ROW_QUALIFIERS, baseRowOf, isAutomatable, rowFor, runIdOf } from './actions.js';

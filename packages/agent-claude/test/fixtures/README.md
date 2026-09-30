@@ -12,6 +12,8 @@ Run from `packages/agent-claude`:
 | `transcripts.json` | Project listings, cwd, resolved directory, mtime, title records, and distance of the last title from EOF | Same command |
 | `hook-payloads.json` | Captured hook stdin | `node test/fixtures/record-hooks.js` |
 | `history-records.json` | Prompted-parent and title metadata from a real session | `node test/fixtures/record-history.mjs` |
+| `debrief-transcript.json` | Skeleton of one session's main transcript and two subagent transcripts, one of which called agent-delegate: record type, uuid, time, `isMeta`, tool calls, Skill names, and agent-delegate results with their structure kept; user text becomes numbered placeholders or a harness notice's tag, other text is dropped or redacted, and skill names and IDs are replaced | `node test/fixtures/record-debrief.mjs <main.jsonl>` |
+| `debrief-output.json` | Stdout of a debrief fork (`-p --resume --fork-session --output-format json --max-turns 1`, CLI 2.1.286) answering `{"friction":[]}`; every event but the result keeps only its type, and the result keeps its outcome, answer, cost, and token counts | `node test/fixtures/record-debrief.mjs --output <stdout.json>` |
 
 `record.js` writes only the first four files. Its two roster calls are separate invocations; tests must not assume `agents-all.json` is a strict superset of `agents-active.json`. A plain clone's `.git` is a directory and cannot be read as text; the recorded null distinguishes it from a worktree's pointer file.
 
