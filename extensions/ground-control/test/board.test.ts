@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { LANE_ORDER, LANE_TITLES, boardStatuses, statusLanes } from '@ground-control/board';
 import type { Attention, Lane, LaneId, LanedCard } from '@ground-control/board';
 import { DEFAULT_CUSTODY } from '@ground-control/core';
-import type { HistoricalSession, Session } from '@ground-control/core';
+import type { ActionHistoryView, CardStage, HistoricalSession, Session } from '@ground-control/core';
 import type { BoardMessage, Custody, DetailNote, DetailPost, DetailThread, ItemDetail, SnapshotMessage } from '@ground-control/core';
 
 const api = {
@@ -1186,6 +1186,20 @@ describe('reported activity', () => {
     expect(tipOf(idle)).toBe('Time since the phase was reported. Last event: PostToolBatch.');
   });
 
+  /** A Stop with background tasks still running is a working session, so the tooltip says why rather than "Stop". */
+  it.each([
+    [1, 'Time in this turn, from its prompt when recorded. Turn ended; 1 background task still running.'],
+    [3, 'Time in this turn, from its prompt when recorded. Turn ended; 3 background tasks still running.'],
+    [undefined, 'Time in this turn, from its prompt when recorded. Last event: Stop.'],
+  ])('states a Stop with %s background tasks as the overlay does', (backgroundTasks, tip) => {
+    const since = Date.now();
+    const stopped = { ...session, activity: { phase: 'running' as const, since, at: since, event: 'Stop', ...(backgroundTasks === undefined ? {} : { backgroundTasks }) } };
+    const state = sendCard([stopped]).querySelector<HTMLElement>('.state')!;
+
+    expect(tipOf(state)).toBe(tip);
+    expect(state.getAttribute('aria-description')).toBe(tip);
+  });
+
   /** Describe phase and liveness in dot tooltips, with matching literal expectations in both clients. */
   it.each([
     ['running', false, 'Turn in progress.'],
@@ -1655,6 +1669,19 @@ describe('lanes', () => {
 
     card.dispatchEvent(new Event('dragend', { bubbles: true }));
     expect(card.classList).not.toContain('dragging');
+  });
+
+  /** A move would end the card's workflow stage (R49), so a drag that ends where it began sends nothing. */
+  it('sends no move for a card dropped back onto its own lane', () => {
+    send(message({ lanes: lanes({ plan: [planCard] }) }));
+
+    const card = document.querySelector<HTMLElement>('.card')!;
+
+    card.dispatchEvent(new Event('dragstart', { bubbles: true }));
+    laneEl('plan')!.dispatchEvent(new Event('drop', { bubbles: true }));
+    card.dispatchEvent(new Event('dragend', { bubbles: true }));
+
+    expect(api.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'moveCard' }));
   });
 
   it('hides an empty Icebox, and brings it back as a drop target while a card is dragged', () => {
@@ -3075,6 +3102,324 @@ describe('card actions (R39)', () => {
   });
 });
 
+/** A developer's skill reports its card's stage; the note takes the verdict's words, and the run control stays (R49). */
+describe('workflow stages (R49)', () => {
+  const now = Date.parse('2026-09-06T19:00:00Z');
+  const reported = now - 5 * 60_000;
+  const triage = { state: 'done', action: 'merge', qualifier: 'test', target: 'Test-Payments', detail: 'Rich asked.', at: reported, stale: false } as const;
+
+  /** A report made five minutes ago that set its note then, in a stage entered an hour ago, with nothing before it. */
+  function report(over: Partial<CardStage> = {}): CardStage {
+    return { stage: 'build', note: '', at: reported, changedAt: reported, since: now - 60 * 60_000, history: [], ...over };
+  }
+
+  function staged(stage: CardStage, action?: LanedCard['action']): LanedCard {
+    return { ...liveCard, sessions: [], stage, triage, ...(action ? { action } : {}) };
+  }
+
+  const running = { state: 'running', action: 'develop', qualifier: null, since: now - 2 * 60 * 60_000 } as const;
+
+  const verdict = () => document.querySelector<HTMLElement>('.verdict')!;
+  const said = () => document.querySelector<HTMLElement>('.verdict .state-mark')?.getAttribute('aria-label') ?? undefined;
+  const chip = () => document.querySelector<HTMLButtonElement>('.tool.run');
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it('shows the stage note in place of the triage words and qualifier, capitalized, with the stage in the tooltip', () => {
+    send(message({ lanes: lanes({ build: [staged(report({ note: 'wiring the stage command' }))] }) }));
+
+    expect(verdict().querySelector('.words')?.textContent).toBe('Wiring the stage command');
+    expect(tipOf(verdict())).toBe('In Build for 1h · updated 5m ago\nWiring the stage command');
+    expect(verdict().getAttribute('aria-description')).toBe('In Build for 1h · updated 5m ago\nWiring the stage command');
+  });
+
+  it.each([
+    ['plan', 'Planning', 'In Plan for 1h · updated 5m ago\nPlanning'],
+    ['build', 'Building', 'In Build for 1h · updated 5m ago\nBuilding'],
+    ['review', 'Ready for your review', 'In Review for 1h · updated 5m ago\nReady for your review'],
+  ] as const)('says what a %s stage with no note is doing', (stage, words, tip) => {
+    send(message({ lanes: lanes({ build: [staged(report({ stage }))] }) }));
+
+    expect(verdict().querySelector('.words')?.textContent).toBe(words);
+    expect(tipOf(verdict())).toBe(tip);
+  });
+
+  it.each([
+    ['a step and a note', report({ note: 'plan', step: { n: 2, of: 3 } }), running, 'Develop · 2/3 Plan'],
+    ['a note with its own separator', report({ note: 'tests and UAT · test run', step: { n: 4, of: 9 } }), running, 'Develop · 4/9 Tests and UAT · test run'],
+    ['no note', report({ stage: 'review' }), { state: 'available', action: 'ship', qualifier: null } as const, 'Ship · Ready for your review'],
+    ['a step and no note', report({ step: { n: 1, of: 5 } }), running, 'Develop · 1/5 Building'],
+    ['no action', report({ note: 'reading the issue', step: { n: 1, of: 3 } }), undefined, '1/3 Reading the issue'],
+  ] as const)('leads the verdict with the card’s action, then the step and note, for %s', (_, stage, action, words) => {
+    send(message({ lanes: lanes({ build: [staged(stage, action)] }) }));
+
+    expect(verdict().querySelector('.words')?.textContent).toBe(words);
+  });
+
+  it('lists earlier reports newest first, each with how long it stood, up to the current note’s change', () => {
+    const stage = report({
+      note: 'tests and UAT',
+      step: { n: 4, of: 9 },
+      at: now - 3 * 60_000,
+      changedAt: now - 10 * 60_000,
+      since: now - 2 * 60 * 60_000,
+      history: [
+        { stage: 'plan', note: 'research', at: now - 3 * 60 * 60_000 },
+        { stage: 'build', note: 'implement', step: { n: 1, of: 9 }, at: now - 2 * 60 * 60_000 },
+        { stage: 'build', note: '', step: { n: 3, of: 9 }, at: now - 40 * 60_000 },
+      ],
+    });
+
+    send(message({ lanes: lanes({ build: [staged(stage, running)] }) }));
+
+    expect(tipOf(verdict()).split('\n')).toEqual([
+      'In Build for 2h · updated 3m ago',
+      '4/9 Tests and UAT',
+      'Build · 3/9 — 30m',
+      'Build · 1/9 Implement — 1h',
+      'Plan · Research — 1h',
+    ]);
+  });
+
+  it('lists the eight newest earlier reports and leaves out older ones', () => {
+    const history = Array.from({ length: 10 }, (_, at) => ({ stage: 'build' as const, note: `step ${at + 1}`, at: now - (60 - at * 5) * 60_000 }));
+
+    send(message({ lanes: lanes({ build: [staged(report({ history, changedAt: now - 10 * 60_000 }))] }) }));
+
+    const lines = tipOf(verdict()).split('\n');
+
+    expect(lines).toHaveLength(10);
+    expect(lines[2]).toBe('Build · Step 10 — 5m');
+    expect(lines[9]).toBe('Build · Step 3 — 5m');
+  });
+
+  it('marks a running card’s stage stale at 20 minutes without a report, from the clock alone', () => {
+    send(message({ lanes: lanes({ build: [staged(report({ note: 'writing tests', at: now - 20 * 60_000 + 1_000 }), running)] }) }));
+
+    expect(verdict().dataset.stale).toBe('false');
+    expect(tipOf(verdict())).toBe('In Build for 1h · updated 19m ago\nWriting tests');
+
+    vi.setSystemTime(now + 1_000);
+    tick!();
+
+    expect(verdict().dataset.stale).toBe('true');
+    expect(tipOf(verdict())).toBe('In Build for 1h · updated 20m ago\nNo update for 20m.\nWriting tests');
+    expect(verdict().getAttribute('aria-description')).toBe('In Build for 1h · updated 20m ago\nNo update for 20m.\nWriting tests');
+  });
+
+  it.each([
+    ['waiting to run', { state: 'available', action: 'develop', qualifier: null } as const],
+    ['finished', { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Done.', at: reported } as const],
+    ['with no action', undefined],
+  ])('does not mark a card’s old stage stale while its action is %s', (_, action) => {
+    send(message({ lanes: lanes({ build: [staged(report({ at: now - 60 * 60_000, changedAt: now - 60 * 60_000 }), action)] }) }));
+
+    expect(verdict().dataset.stale).toBe('false');
+    expect(tipOf(verdict())).not.toContain('No update');
+  });
+
+  it('redraws the verdict when only the note changes', () => {
+    send(message({ lanes: lanes({ build: [staged(report({ note: 'Writing tests' }))] }) }));
+    send(message({ lanes: lanes({ build: [staged(report({ note: 'Fixing the typecheck' }))] }) }));
+
+    expect(verdict().querySelector('.words')?.textContent).toBe('Fixing the typecheck');
+  });
+
+  it('redraws the verdict when only the step changes', () => {
+    send(message({ lanes: lanes({ build: [staged(report({ note: 'tests', step: { n: 2, of: 3 } }), running)] }) }));
+    send(message({ lanes: lanes({ build: [staged(report({ note: 'tests', step: { n: 3, of: 3 } }), running)] }) }));
+
+    expect(verdict().querySelector('.words')?.textContent).toBe('Develop · 3/3 Tests');
+  });
+
+  it('keeps the run state mark after the stage note', () => {
+    send(message({ lanes: lanes({ build: [staged(report({ note: 'Writing tests' }), { state: 'running', action: 'develop', qualifier: null, since: reported })] }) }));
+
+    expect(verdict().lastElementChild?.classList.contains('state-mark')).toBe(true);
+    expect(said()).toBe('Developing…');
+  });
+
+  it.each([
+    ['running develop', { state: 'running', action: 'develop', qualifier: null, since: reported }, 'Developing…'],
+    ['landed develop', { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Opened the pull request.', at: reported }, 'Developed'],
+    ['running ship', { state: 'running', action: 'ship', qualifier: null, since: reported }, 'Shipping…'],
+    ['landed ship', { state: 'done', action: 'ship', qualifier: null, outcome: 'landed', detail: 'Shipped it.', at: reported }, 'Shipped'],
+  ] as const)('names a %s run as "%s"', (_, action, text) => {
+    send(message({ lanes: lanes({ review: [{ ...liveCard, sessions: [], action }] }) }));
+
+    expect(said()).toBe(text);
+  });
+
+  it('names the ship control', () => {
+    send(message({ lanes: lanes({ review: [staged(report({ stage: 'review' }), { state: 'available', action: 'ship', qualifier: null })] }) }));
+
+    expect(chip()?.getAttribute('aria-label')).toBe('Run ship');
+    expect(tipOf(chip())).toBe('Start Ship in this card’s worktree.');
+  });
+});
+
+/** R50: the runs the hub recorded, read into a panel over the board from its menu. The overlay's suite pins the same rows. */
+describe('the action history', () => {
+  const now = Date.parse('2026-09-06T19:00:00Z');
+  const panel = () => document.getElementById('history');
+  const rows = () => Array.from(document.querySelectorAll<HTMLTableRowElement>('#history .history-row'));
+  const cells = (row: HTMLTableRowElement) => Array.from(row.cells).map((cell) => cell.textContent);
+  const asked = () => sent().filter((m) => (m as { type: string }).type === 'readActionHistory');
+
+  function run(over: Partial<ActionHistoryView>): ActionHistoryView {
+    return {
+      id: 'issue:18953@1',
+      key: 'issue:18953',
+      issueNumber: 18953,
+      action: 'merge',
+      qualifier: null,
+      trigger: 'automatic',
+      agent: 'claude',
+      startedAt: now - 5 * 60_000,
+      endedAt: now - 2 * 60_000,
+      outcome: 'landed',
+      detail: '',
+      title: 'Cached counts do not update',
+      url: 'https://github.com/example-org/example-repo/issues/18953',
+      ...over,
+    };
+  }
+
+  /** One of each outcome, trigger, and naming case, newest first as the hub sends them. */
+  const entries: ActionHistoryView[] = [
+    run({ id: 'a', action: 'develop', trigger: undefined, startedAt: now - 90_000, endedAt: null, outcome: 'running' }),
+    run({ id: 'b', qualifier: 'upstream', detail: 'Merged master into the branch.' }),
+    run({ id: 'c', action: 'create-worktree', next: 'develop', trigger: 'editor' }),
+    run({ id: 'd', action: 'create-worktree', trigger: 'browser', outcome: 'failed', detail: 'No worktree prompt.' }),
+    run({ id: 'e', action: 'ship', issueNumber: 4501, title: null, outcome: 'halted' }),
+    run({ id: 'f', action: 'address-review', key: 'session:17000-parent', issueNumber: null, title: null, qualifier: 'followup', outcome: 'stopped' }),
+    run({ id: 'g', action: 'review-others', qualifier: 'initial', startedAt: now - 3 * 60 * 60_000, endedAt: now - 2 * 60 * 60_000 }),
+  ];
+
+  function openHistory(): void {
+    document.getElementById('board-menu')!.click();
+
+    const item = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button')).find((button) => button.lastChild?.nodeValue === 'Action history');
+
+    if (item === undefined) {
+      throw new Error('the board menu offers no action history');
+    }
+
+    item.click();
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+  });
+
+  afterEach(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    vi.useRealTimers();
+  });
+
+  it('is offered after the action table in the board menu', () => {
+    document.getElementById('board-menu')!.click();
+
+    const labels = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button')).map((button) => button.lastChild?.nodeValue);
+
+    expect(labels.indexOf('Action history')).toBe(labels.indexOf('Action table') + 1);
+    document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+
+  it('asks the hub once on opening and says it is reading, as a modal dialog with focus on its close control', () => {
+    openHistory();
+
+    expect(asked()).toEqual([{ type: 'readActionHistory' }]);
+    expect(panel()!.getAttribute('role')).toBe('dialog');
+    expect(panel()!.getAttribute('aria-modal')).toBe('true');
+    expect(document.getElementById(panel()!.getAttribute('aria-labelledby')!)?.textContent).toBe('Action history');
+    expect(panel()!.querySelector('.history-note')?.textContent).toBe('Reading action history…');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close action history');
+    expect(document.getElementById('lanes')!.closest('[inert]')).not.toBeNull();
+  });
+
+  it('lists each run with its start, card, action, trigger, outcome, and duration, and its detail beneath', () => {
+    openHistory();
+    send({ type: 'actionHistory', entries });
+
+    expect(Array.from(panel()!.querySelectorAll('th')).map((cell) => cell.textContent)).toEqual(['Started', 'Card', 'Action', 'Trigger', 'Outcome', 'Duration']);
+    expect(rows().map(cells)).toEqual([
+      ['1m ago', '#18953 Cached counts do not update', 'Develop', '—', 'Running…', '1m'],
+      ['5m ago', '#18953 Cached counts do not update', 'Merge · upstream', 'Automatic', 'Merged', '3m'],
+      ['5m ago', '#18953 Cached counts do not update', 'Worktree for Develop', 'Editor', 'Created', '3m'],
+      ['5m ago', '#18953 Cached counts do not update', 'Worktree', 'Browser', 'Did not run', '3m'],
+      ['5m ago', '#4501', 'Ship', 'Automatic', 'Stopped short', '3m'],
+      ['5m ago', 'session:17000-parent', 'Answer review · followup', 'Automatic', 'Stopped', '3m'],
+      ['3h ago', '#18953 Cached counts do not update', 'Review their PR · initial', 'Automatic', 'Reviewed', '1h'],
+    ]);
+    expect(rows().map((row) => row.querySelector('.state-glyph')?.getAttribute('data-glyph'))).toEqual(['spinner', 'check', 'check', 'cross', 'alert', 'square', 'check']);
+    expect(Array.from(panel()!.querySelectorAll('.history-detail')).map((row) => row.textContent)).toEqual(['Merged master into the branch.', 'No worktree prompt.']);
+    expect(rows()[1]!.nextElementSibling?.classList.contains('history-detail')).toBe(true);
+
+    const started = rows()[1]!.querySelector('time')!;
+
+    expect(started.getAttribute('datetime')).toBe('2026-09-06T18:55:00.000Z');
+    expect(tipOf(started)).toBe(new Date(now - 5 * 60_000).toLocaleString());
+  });
+
+  it('ages a running run’s start and duration with the clock', () => {
+    openHistory();
+    send({ type: 'actionHistory', entries: [entries[0]!] });
+
+    vi.setSystemTime(now + 30_000);
+    tick!();
+
+    expect(cells(rows()[0]!)).toEqual(['2m ago', '#18953 Cached counts do not update', 'Develop', '—', 'Running…', '2m']);
+  });
+
+  it('says so when nothing has run', () => {
+    openHistory();
+    send({ type: 'actionHistory', entries: [] });
+
+    expect(panel()!.querySelector('.history-note')?.textContent).toBe('No actions have run yet.');
+    expect(rows()).toHaveLength(0);
+  });
+
+  it('asks again with each board while open, and not after closing', () => {
+    openHistory();
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    expect(asked()).toHaveLength(3);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    send(message({ lanes: lanes({ build: [liveCard] }) }));
+
+    expect(asked()).toHaveLength(3);
+  });
+
+  it('draws nothing for an answer that arrives while it is closed', () => {
+    send({ type: 'actionHistory', entries });
+
+    expect(panel()).toBeNull();
+  });
+
+  it.each([
+    ['Escape', () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))],
+    ['its close control', () => document.querySelector<HTMLButtonElement>('#history .history-close')!.click()],
+    ['a click outside it', () => document.getElementById('history-scrim')!.click()],
+  ])('closes on %s, gives the board back, and returns focus to the menu control', (_, close) => {
+    openHistory();
+    close();
+
+    expect(panel()).toBeNull();
+    expect(document.getElementById('history-scrim')).toBeNull();
+    expect(document.querySelectorAll('[inert]')).toHaveLength(0);
+    expect(document.activeElement?.id).toBe('board-menu');
+  });
+});
+
 /** Verify literal triage labels against packages/board and both clients, which cannot share runtime imports. */
 describe('triage labels read the same on every board', () => {
   const rows: [string, string | null, string][] = [
@@ -3140,6 +3485,7 @@ describe("the board's own menu", () => {
       'Show board log',
       'Refresh',
       'Action table',
+      'Action history',
       'Settings',
     ]);
     expect(control().getAttribute('aria-expanded')).toBe('true');
@@ -3156,6 +3502,7 @@ describe("the board's own menu", () => {
       'Show board log',
       'Refresh',
       'Action table',
+      'Action history',
       'Settings',
     ]);
   });

@@ -315,6 +315,34 @@ describe('the overlay as Chrome loads it', () => {
   });
 
   /**
+   * The action history's browser half (R50): the menu item, the content script's request, and the worker taking it for
+   * the hub. With no bridge here the worker logs that it could not send it, which is the proof it got that far.
+   */
+  it('opens the action history from the menu and passes its request to the worker for the hub', async () => {
+    const page = await context.newPage();
+
+    await page.goto(BOARD_URL);
+    await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
+
+    await page.locator('#gc-menu button').first().click();
+    await page.getByRole('menuitem', { name: 'Action history' }).click();
+
+    const history = page.locator('#gc-history');
+
+    await expect.poll(() => history.locator('.gc-empty').textContent(), { timeout: 20_000 }).toBe('Reading action history…');
+
+    await page.locator('#gc-history .gc-close').click();
+    await expect.poll(() => history.count()).toBe(0);
+
+    await page.locator('#gc-menu button').first().click();
+    await page.getByRole('menuitemcheckbox', { name: 'Show log' }).click();
+
+    const lines = page.locator('#gc-log-lines .gc-line');
+
+    await expect.poll(() => lines.allTextContents(), { timeout: 20_000 }).toContainEqual(expect.stringContaining('cannot send readActionHistory: hub port disconnected'));
+  });
+
+  /**
    * The other half of the repaint contract, and the half jsdom cannot reach: that a scan the observer really
    * scheduled leaves the item under the pointer where it was. The page is mutated to provoke one, because that is
    * what the observer exists to answer — a board GitHub re-renders, which it does constantly.

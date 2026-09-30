@@ -118,6 +118,11 @@ export function readActivity(
 
   const activity: SessionActivity = { phase, since: sinceOf(phase, marker.data), at: marker.data.at, event: marker.data.event as string };
 
+  // A turn that ended with background tasks still running reads as running; say why, since the event is Stop.
+  if (marker.data.event === 'Stop' && marker.data.backgroundTasks > 0) {
+    return { ...activity, backgroundTasks: marker.data.backgroundTasks };
+  }
+
   // The CLI sends "unknown" when it cannot classify the error, so a failed marker without a kind gets the same word.
   return phase === 'failed' ? { ...activity, error: { kind: marker.data.error ?? 'unknown', message: marker.data.errorMessage } } : activity;
 }

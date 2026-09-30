@@ -540,8 +540,8 @@
               "properties": {
                 "action": {
                   "type": "string",
-                  "enum": ["merge", "review-others", "address-review"],
-                  "enumDescriptions": ["Merge", "Review their PR", "Answer review"]
+                  "enum": ["merge", "review-others", "address-review", "develop", "ship"],
+                  "enumDescriptions": ["Merge", "Review their PR", "Answer review", "Develop", "Ship; runs only on a click, so automatic is ignored"]
                 },
                 "qualifier": {
                   "type": ["string", "null"],
@@ -558,7 +558,7 @@
                 }
               }
             },
-            "markdownDescription": "Which prompt runs for each triage action, and whether it starts without a click. [Edit the action table](command:groundControl.editActions). See the [placeholders and result format](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings)."
+            "markdownDescription": "Which prompt runs for each triage action or `ship`, and whether it starts without a click; a `ship` row never starts automatically. [Edit the action table](command:groundControl.editActions). See the [placeholders and result format](https://github.com/jon-or/ground-control/blob/master/README.md#action-settings)."
           },
           "groundControl.actions.testBranchPattern": {
             "scope": "application",

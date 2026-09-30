@@ -35,8 +35,21 @@ describe('what a message from the worker changes', () => {
     expect(applyMessage(initialState(), { type: 'custody', key: 'issue-4501', custody: null, failure: null })).toEqual(initialState());
   });
 
+  /** Opening the history drops the last list so the panel reads; an answer fills it, and anything else leaves it. */
+  it('drops the history on a new request and takes the answer', () => {
+    const entries = [
+      { id: 'a', key: 'issue-4501', issueNumber: 4501, action: 'merge', qualifier: null, trigger: 'browser', agent: 'claude', startedAt: 1, endedAt: 2, outcome: 'landed', detail: '', title: 'Issue 4501', url: null },
+    ] as const;
+    const answered = applyMessage(initialState(), { type: 'actionHistory', entries: [...entries] });
+
+    expect(answered.history).toEqual(entries);
+    expect(applyMessage(answered, { type: 'historyPending' }).history).toBeNull();
+    expect(applyMessage(answered, { type: 'actionHistory' })).toBe(answered);
+    expect(applyMessage(answered, { type: 'snapshot', snapshot: SNAPSHOT }).history).toEqual(entries);
+  });
+
   it('starts out saying nothing has answered', () => {
-    expect(initialState()).toEqual({ snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null });
+    expect(initialState()).toEqual({ snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null, history: null });
   });
 
   it('takes a snapshot, and takes a change the same way', () => {

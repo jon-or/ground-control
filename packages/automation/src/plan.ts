@@ -25,7 +25,8 @@ export interface ActionPlan {
   evidence: string;
   repository: string;
   issueNumber: number;
-  pullRequest: number;
+  /** Null for a workflow action on a card with no pull request of the developer's (R49). */
+  pullRequest: number | null;
   /** PR head branch. */
   branch: string;
   /** PR base branch. */
@@ -60,7 +61,10 @@ export interface PlanInput {
   target: string | null;
   context: TriageContext;
   lane: LaneId;
-  /** Refuse unattended actions while any session is still running on the card (R39). */
+  /**
+   * Refuse unattended actions while any session is still running on the card (R39). For `ship`, the hub counts only
+   * sessions working or waiting, since the developer reviews in an idle one (R49).
+   */
   liveSessions: number;
   testBranchPattern: string;
 }
@@ -72,6 +76,10 @@ export function planAction(input: PlanInput): ActionDecision {
 
   if (INACTIVE_LANES.includes(lane)) {
     return refuse('lane-parked', `Card actions are disabled in ${lane}.`);
+  }
+
+  if (action === 'develop' || action === 'ship') {
+    return planWorkflow(input);
   }
 
   if (pr === null) {
@@ -140,6 +148,39 @@ export function planAction(input: PlanInput): ActionDecision {
       defaultBranch: context.defaultBranch ?? '',
       target,
       role: mine ? 'author' : 'reviewer',
+      defaultOid: context.defaultOid ?? '',
+    },
+  };
+}
+
+/**
+ * Develop and ship work on the issue rather than a pull request (R49): the developer's own open pull request, where
+ * there is one, only fills the prompt.
+ */
+function planWorkflow(input: PlanInput): ActionDecision {
+  const { action, context, liveSessions } = input;
+
+  if (liveSessions > 0) {
+    return refuse('session-running', action === 'ship' ? 'A session on this card is still working or waiting.' : 'This card has an active session.');
+  }
+
+  const pr = context.pullRequest;
+  const own = pr !== null && pr.state === 'OPEN' && isDeveloperLogin(pr.author, context.logins) ? pr : null;
+
+  return {
+    ok: true,
+    plan: {
+      action,
+      qualifier: null,
+      evidence: actionEvidence(context),
+      repository: context.repository,
+      issueNumber: context.issueNumber,
+      pullRequest: own?.number ?? null,
+      branch: own?.headRefName ?? '',
+      base: own?.baseRefName ?? '',
+      defaultBranch: context.defaultBranch ?? '',
+      target: '',
+      role: 'author',
       defaultOid: context.defaultOid ?? '',
     },
   };

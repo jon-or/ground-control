@@ -207,6 +207,49 @@ describe('the action table page', () => {
     expect($<HTMLInputElement>('#pattern')?.value).toBe('^Test-');
   });
 
+  it('offers develop and ship rows, which take no qualifier', () => {
+    send({ type: 'table', rows: [{ action: 'develop', qualifier: null, prompt: '/develop {issue}', automatic: true }], pattern: '^Test-' });
+
+    const [action, qualifier] = all<HTMLSelectElement>('#rows tbody select');
+
+    expect(Array.from(action!.options).map((option) => [option.value, option.textContent])).toEqual([
+      ['merge', 'Merge'],
+      ['review-others', 'Review their PR'],
+      ['address-review', 'Answer review'],
+      ['develop', 'Develop'],
+      ['ship', 'Ship'],
+    ]);
+    expect(Array.from(qualifier!.options).map((option) => option.value)).toEqual(['']);
+    expect($<HTMLInputElement>('#rows tbody input[type=checkbox]')?.checked).toBe(true);
+    expect($<HTMLInputElement>('#rows tbody input[type=checkbox]')?.disabled).toBe(false);
+  });
+
+  /** Shipping is the developer's approval, so a ship row runs only on a click (R49). */
+  it('shows a ship row as never automatic, and saves it that way', () => {
+    send({ type: 'table', rows: [{ action: 'ship', qualifier: null, prompt: '/ship {pr}', automatic: true }], pattern: '^Test-' });
+
+    const automatic = $<HTMLInputElement>('#rows tbody input[type=checkbox]')!;
+
+    expect(automatic.checked).toBe(false);
+    expect(automatic.disabled).toBe(true);
+    expect(automatic.getAttribute('aria-description')).toBe('Shipping runs only when you click it on the card.');
+  });
+
+  it('clears the automatic choice when a row changes to ship', () => {
+    send({ type: 'table', rows: [review], pattern: '^Test-' });
+    change(all<HTMLSelectElement>('#rows tbody select')[0]!, 'ship');
+
+    expect($<HTMLInputElement>('#rows tbody input[type=checkbox]')?.disabled).toBe(true);
+
+    saveButton().click();
+
+    expect(api.postMessage).toHaveBeenLastCalledWith({
+      type: 'save',
+      rows: [{ action: 'ship', qualifier: null, prompt: '/review-pr {pr}', automatic: false }],
+      pattern: '^Test-',
+    });
+  });
+
   it('lists the placeholders a prompt can use, and the actions each is filled for', () => {
     send({ type: 'table', rows: [], pattern: '^Test-' });
 
@@ -219,9 +262,9 @@ describe('the action table page', () => {
     expect(listed).toEqual([
       ['{issue}', 'All'],
       ['{repo}', 'All'],
-      ['{pr}', 'All'],
-      ['{branch}', 'All'],
-      ['{base}', 'All'],
+      ['{pr}', 'All; Develop and Ship only with your own open pull request, else empty'],
+      ['{branch}', 'All; Develop and Ship only with your own open pull request, else empty'],
+      ['{base}', 'All; Develop and Ship only with your own open pull request, else empty'],
       ['{default}', 'All'],
       ['{target}', 'Merge · test; empty for every other row'],
       ['{checkout}', 'All'],

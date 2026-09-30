@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignLanes, mergeBoard, nextMemory, readMemory, withPlacement, EMPTY_MEMORY, LANE_ORDER } from '../src/index.js';
+import { assignLanes, mergeBoard, nextMemory, readMemory, withPlacement, withStage, EMPTY_MEMORY, LANE_ORDER, STAGE_NOTE_LIMIT } from '../src/index.js';
 import {
   DEFAULT_BOARD_STATUSES,
   DEFAULT_STATUS_LANES,
@@ -10,6 +10,7 @@ import {
   statusLanes,
 } from '../src/lanes.js';
 import type { CardPullRequest } from '@ground-control/github';
+import { STAGE_HISTORY_LIMIT } from '@ground-control/core';
 import type { ActivityPhase } from '@ground-control/core';
 import type { BoardCard, BoardRules, CardMemory, Lane, LaneId } from '../src/index.js';
 import type { IssueCard, Session } from '../src/types.js';
@@ -30,6 +31,7 @@ const AWAY_AT = 5_000;
 function remember(placements: Record<string, LaneId> = {}, away: string[] = []): CardMemory {
   return {
     placements,
+    stages: {},
     pastMyHandsAt: Object.fromEntries(away.map((key) => [key, AWAY_AT])),
     archived: [...away],
     seen: [],
@@ -1082,5 +1084,169 @@ describe('the attention on a card', () => {
 
     expect(silent.length).toBeGreaterThan(0);
     expect(silent.every((c) => c.attention === null)).toBe(true);
+  });
+});
+
+describe('workflow stages (R49)', () => {
+  /** Issue 18954 in Assigned, its status last changed at `changedAt`. */
+  function assigned(changedAt: string | null): IssueCard[] {
+    return issues.map((issue) => (issue.number === 18954 ? { ...issue, status: '🎁 Assigned', statusChangedAt: changedAt } : issue));
+  }
+
+  const REPORTED_AT = Date.parse('2026-09-30T12:00:00Z');
+
+  function staged(stage: 'plan' | 'build' | 'review', memory: CardMemory = remember()): CardMemory {
+    return withStage(memory, 'issue:18954', stage, 'commit 2/4 · Codex review', REPORTED_AT);
+  }
+
+  it('places a card in its reported stage and carries the note', () => {
+    const card = cardFor(lanes(assigned('2026-09-01T00:00:00Z'), [], staged('build')), 18954)!;
+
+    expect(card.lane).toBe('build');
+    expect(card.stage).toEqual({ stage: 'build', note: 'commit 2/4 · Codex review', at: REPORTED_AT, changedAt: REPORTED_AT, since: REPORTED_AT, history: [] });
+  });
+
+  it('outranks a manual placement, and a manual move afterwards takes the card out of its stage', () => {
+    const memory = staged('review', remember({ 'issue:18954': 'icebox' }));
+
+    expect(cardFor(lanes(assigned(null), [], memory), 18954)!.lane).toBe('review');
+
+    const moved = withPlacement(memory, 'issue:18954', 'plan');
+    const card = cardFor(lanes(assigned(null), [], moved), 18954)!;
+
+    expect(card.lane).toBe('plan');
+    expect(card.stage).toBeUndefined();
+  });
+
+  it('holds through a status change made before the report or within a minute of it', () => {
+    expect(cardFor(lanes(assigned('2026-09-30T11:59:00Z'), [], staged('plan')), 18954)!.lane).toBe('plan');
+    expect(cardFor(lanes(assigned('2026-09-30T12:00:59Z'), [], staged('plan')), 18954)!.lane).toBe('plan');
+  });
+
+  it('yields to a status change GitHub records after the report, and keeps the record so a heartbeat stays released', () => {
+    const memory = staged('review');
+    const board = lanes(assigned('2026-09-30T12:01:01Z'), [], memory);
+    const card = cardFor(board, 18954)!;
+    const kept = nextMemory(board, memory, true, REPORTED_AT + 120_000);
+    const beat = withStage(kept, 'issue:18954', 'review', 'commit 2/4 · Codex review', REPORTED_AT + 180_000);
+    const moved = withStage(kept, 'issue:18954', 'review', 'ready for your review', REPORTED_AT + 180_000);
+
+    expect(card.lane).toBe('unstarted');
+    expect(card.stage).toBeUndefined();
+    expect(cardFor(lanes(assigned('2026-09-30T12:01:01Z'), [], beat), 18954)!.stage).toBeUndefined();
+    expect(cardFor(lanes(assigned('2026-09-30T12:01:01Z'), [], moved), 18954)!.lane).toBe('review');
+    expect(nextMemory(board, memory, true, REPORTED_AT + 30 * 86_400_000).stages).toEqual({});
+  });
+
+  it('keeps the stage of an issue the board has not read yet, for thirty days', () => {
+    const memory = withStage(remember(), 'issue:99999', 'plan', '', REPORTED_AT);
+    const board = lanes(issues, []);
+
+    expect(nextMemory(board, memory, true, REPORTED_AT + 1_000).stages['issue:99999']).toMatchObject({ stage: 'plan', note: '', at: REPORTED_AT });
+    expect(nextMemory(board, memory, true, REPORTED_AT + 30 * 86_400_000).stages).toEqual({});
+  });
+
+  it('keeps a stage reported on an archived card for its return, as a claim that moved its status needs', () => {
+    const away = { ...remember(), pastMyHandsAt: { 'issue:18954': REPORTED_AT - 1_000 }, archived: ['issue:18954'] };
+    const memory = withStage(away, 'issue:18954', 'plan', 'setup', REPORTED_AT);
+    const releasable = assigned('2026-09-01T00:00:00Z').map((issue) => (issue.number === 18954 ? { ...issue, status: '🚀 Releasable' } : issue));
+    const kept = nextMemory(lanes(releasable, [], memory), memory, true, REPORTED_AT + 1_000);
+
+    expect(kept.stages['issue:18954']).toMatchObject({ stage: 'plan', note: 'setup', at: REPORTED_AT });
+
+    const claimed = assigned('2026-09-30T11:59:30Z').map((issue) => (issue.number === 18954 ? { ...issue, status: '⚒️ Dev' } : issue));
+
+    expect(cardFor(lanes(claimed, [], kept), 18954)).toMatchObject({ lane: 'plan', stage: { stage: 'plan' } });
+  });
+
+  it('lets no heartbeat undo a status change made since the report that set the note', () => {
+    const first = staged('build');
+    const beat = withStage(first, 'issue:18954', 'build', 'commit 2/4 · Codex review', REPORTED_AT + 12 * 60_000);
+    const card = cardFor(lanes(assigned('2026-09-30T12:10:00Z'), [], beat), 18954)!;
+
+    expect(beat.stages['issue:18954']!.changedAt).toBe(REPORTED_AT);
+    expect(card.stage).toBeUndefined();
+    expect(card.lane).toBe('unstarted');
+  });
+
+  it('releases the card on done, back to status and pull request evidence', () => {
+    const released = withStage(staged('review'), 'issue:18954', 'done', 'ignored', REPORTED_AT + 1);
+    const card = cardFor(lanes(assigned(null), [], released), 18954)!;
+
+    expect(released.stages).toEqual({});
+    expect(card.lane).toBe('unstarted');
+  });
+
+  it('replaces the note on each report, clipped to one line', () => {
+    const long = `first\nsecond ${'x'.repeat(200)}`;
+    const memory = withStage(staged('build'), 'issue:18954', 'build', long, REPORTED_AT + 1);
+    const note = memory.stages['issue:18954']!.note;
+
+    expect(note.startsWith('first second x')).toBe(true);
+    expect(note).toHaveLength(STAGE_NOTE_LIMIT);
+    expect(note.endsWith('…')).toBe(true);
+  });
+
+  it('drops a stage from a card archived after the report', () => {
+    const memory = staged('build');
+    const board = lanes(assigned(null).map((issue) => (issue.number === 18954 ? { ...issue, status: '🚀 Releasable' } : issue)), [], memory);
+
+    expect(issueIn(board, 18954)).toBe('archived');
+    expect(cardFor(board, 18954)!.stage).toBeUndefined();
+    expect(nextMemory(board, memory, true, REPORTED_AT + 1_000).stages).toEqual({});
+  });
+
+  it('reads stored stages one by one, dropping a malformed entry, and dates an older record to its report', () => {
+    const read = readMemory({
+      placements: {},
+      stages: {
+        'issue:1': { stage: 'build', note: 'n', at: 5 },
+        'issue:2': { stage: 'ship', note: '', at: 5 },
+        'issue:3': 'plan',
+        'issue:4': { stage: 'plan', note: 'b', step: { n: 2, of: 3 }, at: 9, changedAt: 8, since: 1, history: [{ stage: 'plan', note: 'a', at: 1 }, 'bad', { stage: 'plan', note: 'x', step: { n: 4, of: 3 }, at: 2 }] },
+      },
+      statuses: [...DEFAULT_BOARD_STATUSES],
+    }, DEFAULT_BOARD_STATUSES);
+
+    expect(read.stages).toEqual({
+      'issue:1': { stage: 'build', note: 'n', at: 5, changedAt: 5, since: 5, history: [] },
+      'issue:4': { stage: 'plan', note: 'b', step: { n: 2, of: 3 }, at: 9, changedAt: 8, since: 1, history: [{ stage: 'plan', note: 'a', at: 1 }] },
+    });
+  });
+
+  it('keeps each distinct report in the history, and treats a repeat as a heartbeat', () => {
+    let memory = withStage(remember(), 'issue:18954', 'plan', 'research', 100, { n: 1, of: 3 });
+    memory = withStage(memory, 'issue:18954', 'plan', 'research', 200, { n: 1, of: 3 });
+    memory = withStage(memory, 'issue:18954', 'plan', 'plan', 300, { n: 2, of: 3 });
+    memory = withStage(memory, 'issue:18954', 'build', 'models', 400, { n: 1, of: 4 });
+    memory = withStage(memory, 'issue:18954', 'build', 'models', 500);
+
+    expect(memory.stages['issue:18954']).toEqual({
+      stage: 'build',
+      note: 'models',
+      at: 500,
+      changedAt: 500,
+      since: 400,
+      history: [
+        { stage: 'plan', note: 'research', step: { n: 1, of: 3 }, at: 100 },
+        { stage: 'plan', note: 'plan', step: { n: 2, of: 3 }, at: 300 },
+        { stage: 'build', note: 'models', step: { n: 1, of: 4 }, at: 400 },
+      ],
+    });
+  });
+
+  it('starts a fresh history after done, and keeps at most the limit', () => {
+    let memory = remember();
+
+    for (let at = 1; at <= STAGE_HISTORY_LIMIT + 5; at++) {
+      memory = withStage(memory, 'issue:18954', 'build', `step ${at}`, at);
+    }
+
+    expect(memory.stages['issue:18954']!.history).toHaveLength(STAGE_HISTORY_LIMIT);
+    expect(memory.stages['issue:18954']!.history[0]!.note).toBe('step 5');
+
+    memory = withStage(withStage(memory, 'issue:18954', 'done', '', 100), 'issue:18954', 'plan', 'research', 101);
+
+    expect(memory.stages['issue:18954']).toMatchObject({ history: [], since: 101 });
   });
 });

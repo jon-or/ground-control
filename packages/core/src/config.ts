@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
-import { AUTOMATABLE_ACTIONS, ROW_QUALIFIERS } from './actions.js';
+import { AUTOMATABLE_ACTIONS, MANUAL_ACTIONS, ROW_QUALIFIERS } from './actions.js';
 import { DEFAULT_TEST_BRANCH_PATTERN } from './merge.js';
 import { LANE_ORDER } from './board.js';
 import type { ActionRow, ActionSettings } from './actions.js';
@@ -219,7 +219,7 @@ export function readActionTable(raw: readonly unknown[]): ActionRow[] {
     const known = qualifier === null || (ROW_QUALIFIERS[action] as readonly string[]).includes(qualifier);
 
     if (known && !rows.some((row) => row.action === action && row.qualifier === qualifier)) {
-      rows.push({ action, qualifier: qualifier as ActionRow['qualifier'], prompt, automatic });
+      rows.push({ action, qualifier: qualifier as ActionRow['qualifier'], prompt, automatic: automatic && !MANUAL_ACTIONS.includes(action) });
     }
   }
 

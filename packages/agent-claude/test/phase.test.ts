@@ -130,6 +130,17 @@ describe('readActivity', () => {
     expect(reads(marker({ event: 'PostToolBatch', at }))?.error).toBeUndefined();
   });
 
+  it('says how many background tasks keep a stopped turn running, and nothing on a turn that stopped with none', () => {
+    expect(reads(marker({ event: 'Stop', at, turnAt: at - 60_000, backgroundTasks: 2 }))).toEqual({
+      phase: 'running',
+      since: at - 60_000,
+      at,
+      event: 'Stop',
+      backgroundTasks: 2,
+    });
+    expect(reads(marker({ event: 'Stop', at, backgroundTasks: 0 }))).toEqual({ phase: 'idle', since: at, at, event: 'Stop' });
+  });
+
   // Tool-batch events must not reset running duration.
   it('counts a running session from the turn it is in, not from the heartbeat that reported it', () => {
     expect(reads(marker({ event: 'PostToolBatch', at, turnAt: at - 600_000 }))?.since).toBe(at - 600_000);

@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { LANE_ORDER, LANE_TITLES } from '@ground-control/core';
-import type { ActivityPhase, Attention, Lane, LaneId, LanedCard, RetainedActivity } from '@ground-control/core';
+import { LANE_ORDER, LANE_TITLES, STAGE_HISTORY_LIMIT, WORKFLOW_STAGES, stageStepSchema } from '@ground-control/core';
+import type { ActivityPhase, Attention, CardStage, Lane, LaneId, LanedCard, RetainedActivity, StageEntry, StageStep, WorkflowStage } from '@ground-control/core';
 import type { BoardCard, IssueCard, Session } from './types.js';
 
 export { LANE_ORDER, LANE_TITLES };
@@ -33,6 +33,8 @@ export interface BoardRules {
 export interface CardMemory {
   /** Manual lanes by card key; otherwise infer the arrival lane. */
   placements: Record<string, LaneId>;
+  /** Reported workflow stages by card key; one takes the place of a manual lane while it holds (R49). */
+  stages: Record<string, CardStage>;
   /** Last archive transition by issue key. Retained activity at or before this timestamp is invalid. */
   pastMyHandsAt: Record<string, number>;
   /** Archived card keys used to detect new archive transitions. */
@@ -43,11 +45,11 @@ export interface CardMemory {
   statuses: string[];
 }
 
-export const EMPTY_MEMORY: CardMemory = { placements: {}, pastMyHandsAt: {}, archived: [], seen: [], statuses: [] };
+export const EMPTY_MEMORY: CardMemory = { placements: {}, stages: {}, pastMyHandsAt: {}, archived: [], seen: [], statuses: [] };
 
 /** Return independent empty state to avoid shared mutable memory. */
 function emptyMemory(statuses: readonly string[]): CardMemory {
-  return { placements: {}, pastMyHandsAt: {}, archived: [], seen: [], statuses: [...statuses] };
+  return { placements: {}, stages: {}, pastMyHandsAt: {}, archived: [], seen: [], statuses: [...statuses] };
 }
 
 /** `mergeBoard` keys a card with no issue by the checkout its sessions share. R4 cards exist only while one runs. */
@@ -55,8 +57,37 @@ const SESSION_KEY_PREFIX = 'session:';
 
 const laneId = z.enum(LANE_ORDER as [LaneId, ...LaneId[]]);
 
+const stageEntry = z.object({ stage: z.enum(WORKFLOW_STAGES), note: z.string(), step: stageStepSchema.optional(), at: z.number() });
+
+/** A stored stage; records written before steps and history read as entering their stage at their report. */
+const cardStage = stageEntry.extend({
+  changedAt: z.number().optional(),
+  since: z.number().optional(),
+  history: z.array(z.unknown()).default([]),
+});
+
+/** Drop an absent step, which `exactOptionalPropertyTypes` would otherwise carry as `undefined`. */
+function entryOf(read: z.infer<typeof stageEntry>): StageEntry {
+  const { step, ...rest } = read;
+
+  return step === undefined ? rest : { ...rest, step };
+}
+
+/** Longest note a stage report keeps; a longer one is clipped (R49). */
+export const STAGE_NOTE_LIMIT = 120;
+
+/**
+ * A stage yields to a status change GitHub records this long after the report. The margin absorbs clock skew between
+ * this machine and GitHub, so a status set just before the report does not release it (R49).
+ */
+export const STAGE_RELEASE_MARGIN_MS = 60_000;
+
+/** How long a stage waits for an issue the board does not show: one that never arrives is forgotten after this. */
+export const UNSEEN_STAGE_MS = 30 * 24 * 60 * 60 * 1000;
+
 const cardMemory = z.object({
   placements: z.record(z.string(), z.string()),
+  stages: z.record(z.string(), z.unknown()).default({}),
   /** Legacy archive keys without timestamps. */
   seenPastMyHands: z.array(z.string()).default([]),
   pastMyHandsAt: z.record(z.string(), z.number()).default({}),
@@ -88,6 +119,23 @@ export function readMemory(stored: unknown, statuses: readonly string[], now: nu
     }
   }
 
+  const stages: Record<string, CardStage> = {};
+
+  for (const [key, stage] of Object.entries(parsed.data.stages)) {
+    const read = cardStage.safeParse(stage);
+
+    if (read.success) {
+      const { changedAt, since, history, ...current } = read.data;
+      const kept = history.flatMap((entry) => {
+        const one = stageEntry.safeParse(entry);
+
+        return one.success ? [entryOf(one.data)] : [];
+      });
+
+      stages[key] = { ...entryOf(current), changedAt: changedAt ?? current.at, since: since ?? current.at, history: kept.slice(-STAGE_HISTORY_LIMIT) };
+    }
+  }
+
   const pastMyHandsAt: Record<string, number> = { ...parsed.data.pastMyHandsAt };
 
   // Date legacy archive entries to this read; an epoch default would accept activity from before departure.
@@ -99,12 +147,13 @@ export function readMemory(stored: unknown, statuses: readonly string[], now: nu
   if (!sameStatuses(parsed.data.statuses, statuses)) {
     for (const key of parsed.data.archived) {
       delete placements[key];
+      delete stages[key];
     }
 
-    return { placements, pastMyHandsAt, archived: [], seen: Object.keys(pastMyHandsAt), statuses: [...statuses] };
+    return { placements, stages, pastMyHandsAt, archived: [], seen: Object.keys(pastMyHandsAt), statuses: [...statuses] };
   }
 
-  return { placements, pastMyHandsAt, archived: parsed.data.archived, seen: parsed.data.seen, statuses: [...statuses] };
+  return { placements, stages, pastMyHandsAt, archived: parsed.data.archived, seen: parsed.data.seen, statuses: [...statuses] };
 }
 
 
@@ -187,8 +236,32 @@ export function inferredLane(card: BoardCard, rules: BoardRules): LaneId {
   return mappedLane ?? 'unstarted';
 }
 
-/** Use a valid manual placement, otherwise infer the lane. */
-function placed(card: BoardCard, rules: BoardRules, placements: Record<string, LaneId>): LaneId {
+/** The lane each workflow stage places its card in (R49). */
+const STAGE_LANES: Readonly<Record<WorkflowStage, LaneId>> = { plan: 'plan', build: 'build', review: 'review' };
+
+/**
+ * The card's reported stage while it holds: a status change GitHub records after the report hands the card back to
+ * status and pull request evidence (R49).
+ */
+export function heldStage(card: BoardCard, stages: Record<string, CardStage>): CardStage | undefined {
+  const stage = stages[card.key];
+
+  if (stage === undefined || card.issue === null) {
+    return undefined;
+  }
+
+  const changed = card.issue.statusChangedAt === null ? Number.NaN : Date.parse(card.issue.statusChangedAt);
+
+  // Counted from the report that set the note, so a heartbeat cannot undo a status change made since.
+  return changed > stage.changedAt + STAGE_RELEASE_MARGIN_MS ? undefined : stage;
+}
+
+/** Use a held workflow stage, then a valid manual placement, otherwise infer the lane. */
+function placed(card: BoardCard, rules: BoardRules, placements: Record<string, LaneId>, stage: CardStage | undefined): LaneId {
+  if (stage !== undefined) {
+    return STAGE_LANES[stage.stage];
+  }
+
   const lane = placements[card.key];
 
   return lane !== undefined && PLACEABLE_LANES.includes(lane) ? lane : inferredLane(card, rules);
@@ -206,14 +279,17 @@ function offBoardReason(issue: IssueCard, rules: BoardRules): string {
   return issue.status === null ? head[0]!.toUpperCase() + head.slice(1) : `${issue.status} — ${head}`;
 }
 
-function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>, placements: Record<string, LaneId>): LanedCard {
-  const lane = placed(card, rules, placements);
+function place(card: BoardCard, rules: BoardRules, onBoard: ReadonlySet<string>, memory: CardMemory): LanedCard {
+  const stage = heldStage(card, memory.stages);
+  const lane = placed(card, rules, memory.placements, stage);
   const retained = card.lastSession?.retained;
   const inLane = (id: LaneId, reason: string): LanedCard => ({
     ...card,
     lane: id,
     returned: false,
     ...attentionFields(card.sessions, id, retained),
+    // An archived card has left the workflow, and `nextMemory` drops its stage.
+    ...(stage === undefined || id === 'archived' ? {} : { stage }),
     reason,
   });
 
@@ -262,7 +338,7 @@ export function assignLanes(cards: BoardCard[], rules: BoardRules, memory: CardM
   const seen = new Set(memory.seen);
 
   const laned = cards.map((card) => {
-    const result = place(withoutExpiredActivity(card, memory.pastMyHandsAt), rules, onBoard, memory.placements);
+    const result = place(withoutExpiredActivity(card, memory.pastMyHandsAt), rules, onBoard, memory);
     const returned =
       card.issueNumber !== null &&
       memory.pastMyHandsAt[card.key] !== undefined &&
@@ -285,18 +361,60 @@ export function assignLanes(cards: BoardCard[], rules: BoardRules, memory: CardM
 
 /**
  * Save manual placement and clear returned attention. Keep the departure timestamp used to invalidate retained
- * activity.
+ * activity. A manual move takes the card out of its workflow stage (R49).
  */
 export function withPlacement(memory: CardMemory, key: string, lane: LaneId): CardMemory {
   if (!PLACEABLE_LANES.includes(lane)) {
     return memory;
   }
 
+  const { [key]: _released, ...stages } = memory.stages;
+
   return {
     ...memory,
     placements: { ...memory.placements, [key]: lane },
+    stages,
     seen: memory.seen.includes(key) ? memory.seen : [...memory.seen, key],
   };
+}
+
+/**
+ * Record a reported workflow stage, which replaces any manual placement, or release the card with `done` so status
+ * and pull request evidence place it again (R49). A report acknowledges a return as a manual move does.
+ */
+export function withStage(
+  memory: CardMemory,
+  key: string,
+  stage: WorkflowStage | 'done',
+  note: string,
+  at: number,
+  step?: StageStep,
+): CardMemory {
+  const { [key]: _placed, ...placements } = memory.placements;
+  const { [key]: previous, ...stages } = memory.stages;
+
+  if (stage !== 'done') {
+    const clipped = clipNote(note);
+    const repeated = previous !== undefined && previous.stage === stage && previous.note === clipped &&
+      previous.step?.n === step?.n && previous.step?.of === step?.of;
+    // A repeated report is a heartbeat: it refreshes the time and adds nothing to the history.
+    const history = previous === undefined || repeated
+      ? previous?.history ?? []
+      : [...previous.history, entryOf({ stage: previous.stage, note: previous.note, step: previous.step, at: previous.changedAt })].slice(-STAGE_HISTORY_LIMIT);
+    const since = previous !== undefined && previous.stage === stage ? previous.since : at;
+    const changedAt = repeated ? previous.changedAt : at;
+
+    stages[key] = { stage, note: clipped, ...(step === undefined ? {} : { step }), at, changedAt, since, history };
+  }
+
+  return { ...memory, placements, stages, seen: memory.seen.includes(key) ? memory.seen : [...memory.seen, key] };
+}
+
+/** One line of at most `STAGE_NOTE_LIMIT` characters. */
+export function clipNote(note: string): string {
+  const line = note.replace(/\s+/g, ' ').trim();
+
+  return line.length > STAGE_NOTE_LIMIT ? `${line.slice(0, STAGE_NOTE_LIMIT - 1)}…` : line;
 }
 
 /** Read active statuses from settings; fall back to defaults for invalid or empty lists. */
@@ -370,5 +488,20 @@ export function nextMemory(lanes: Lane[], memory: CardMemory, sessionsRead: bool
     placements[key] = lane;
   }
 
-  return { ...memory, placements, pastMyHandsAt, archived: [...archived], seen: [...seen] };
+  // An archived card keeps its stage only where the report followed its departure, for its return. A stage a status
+  // change released is kept too, so a heartbeat repeating it stays released; it and an unread issue's go after a while.
+  const holding = new Set(lanes.flatMap((lane) => lane.cards).filter((card) => card.stage !== undefined).map((card) => card.key));
+  const stages: Record<string, CardStage> = {};
+
+  for (const [key, stage] of Object.entries(memory.stages)) {
+    const kept = holding.has(key) ||
+      (nowArchived.has(key) && stage.at > (pastMyHandsAt[key] ?? 0)) ||
+      (!nowArchived.has(key) && now - stage.at < UNSEEN_STAGE_MS);
+
+    if (kept) {
+      stages[key] = stage;
+    }
+  }
+
+  return { ...memory, placements, stages, pastMyHandsAt, archived: [...archived], seen: [...seen] };
 }

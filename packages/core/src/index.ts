@@ -3,8 +3,8 @@ export { DEFAULT_SESSION_SCOPE, restrictedSessionScope, scopeDirectory, scopeRep
 export type { SessionScope } from './sessionScope.js';
 export { agentHomeSchema, agentRootVariable, resolveAgentHomes } from './agentHomes.js';
 export { agentOfKnownSession, agentOfSession, rosterIsStale, sessionLabel, sessionOf, unreportedSessions } from './roster.js';
-export { LANE_ORDER, LANE_TITLES } from './board.js';
-export type { Attention, BoardCard, Lane, LaneId, LanedCard } from './board.js';
+export { LANE_ORDER, LANE_TITLES, STAGE_HISTORY_LIMIT, STAGE_STEP_LIMIT, WORKFLOW_STAGES, readStageRequest, stageStepSchema } from './board.js';
+export type { Attention, BoardCard, CardStage, Lane, LaneId, LanedCard, StageAnswer, StageEntry, StageRequest, StageStep, WorkflowStage } from './board.js';
 export { checkoutFor } from './checkout.js';
 export type { CardCheckout, CheckoutSource } from './checkout.js';
 export { sharedAssignment } from './cards.js';
@@ -17,8 +17,10 @@ export { DEFAULT_ACTIONS, DEFAULT_IDLE_EXIT_MS, DEFAULT_LOGS, DEFAULT_NEW_SESSIO
 export type { HubConfig, LogSettings, NewSessionSettings, TriageSettings, WorktreeSettings } from './config.js';
 export { DEFAULT_AVATAR_POLICY, DEFAULT_BOARD_POLICY, OFF_REVIEW_AVATARS, REVIEW_AVATARS } from './source.js';
 export type { AvatarPolicy, BoardPolicy, OffReviewAvatar, ReviewAvatar } from './source.js';
-export { ACTION_REVISION, AUTOMATABLE_ACTIONS, BASE_MERGE, CREATE_WORKTREE, EMPTY_ACTIONS, ROW_QUALIFIERS, baseRowOf, isAutomatable, rowFor } from './actions.js';
+export { ACTION_REVISION, AUTOMATABLE_ACTIONS, BASE_MERGE, CREATE_WORKTREE, EMPTY_ACTIONS, MANUAL_ACTIONS, ROW_QUALIFIERS, baseRowOf, isAutomatable, rowFor } from './actions.js';
 export type {
+  ActionHistoryEntry,
+  ActionHistoryView,
   ActionOutcome,
   ActionRefusalRecord,
   ActionReport,
@@ -26,6 +28,7 @@ export type {
   ActionRun,
   ActionSettings,
   ActionState,
+  ActionTrigger,
   AutomatableAction,
   CardAction,
   DispatchedAction,

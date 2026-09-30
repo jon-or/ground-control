@@ -4,13 +4,14 @@
  *
  * @typedef {import('@ground-control/core').Snapshot} Snapshot
  * @typedef {import('@ground-control/core').Custody} Custody
+ * @typedef {import('@ground-control/core').ActionHistoryView} ActionHistoryView
  * @typedef {{ key: string, loading: boolean, custody: Custody | null, failure: string | null }} CustodyState
- * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody: CustodyState | null }} State
+ * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody: CustodyState | null, history: ActionHistoryView[] | null }} State
  */
 
 /** @returns {State} */
 export function initialState() {
-  return { snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null };
+  return { snapshot: null, trouble: 'Waiting for the Ground Control hub.', notice: null, custody: null, history: null };
 }
 
 /**
@@ -18,7 +19,7 @@ export function initialState() {
  * connection (R24).
  *
  * @param {State} state
- * @param {{ type?: string, snapshot?: Snapshot, message?: string | null, key?: string, custody?: Custody | null, failure?: string | null }} message
+ * @param {{ type?: string, snapshot?: Snapshot, message?: string | null, key?: string, custody?: Custody | null, failure?: string | null, entries?: ActionHistoryView[] }} message
  * @returns {State}
  */
 export function applyMessage(state, message) {
@@ -44,6 +45,16 @@ export function applyMessage(state, message) {
     return state.custody?.key === message.key
       ? { ...state, custody: { key: message.key, loading: false, custody: message.custody ?? null, failure: message.failure ?? null } }
       : state;
+  }
+
+  // Opening the history drops the last answer, so the panel says it is reading rather than showing an old list.
+  if (message.type === 'historyPending') {
+    return { ...state, history: null };
+  }
+
+  // The worker hands every board tab the answer; a tab whose panel is closed keeps it unseen.
+  if (message.type === 'actionHistory' && Array.isArray(message.entries)) {
+    return { ...state, history: message.entries };
   }
 
   return state;

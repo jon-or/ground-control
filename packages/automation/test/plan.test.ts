@@ -315,3 +315,55 @@ describe('the base merge a stacked merge runs first', () => {
     expect(decision.ok ? 'ok' : decision.refusal.kind).toBe('base-no-issue');
   });
 });
+
+describe('develop and ship, which work on the issue (R49)', () => {
+  function workflow(action: 'develop' | 'ship', pr: Partial<TriagePullRequest> | null, over: { lane?: LaneId; liveSessions?: number } = {}) {
+    return planAction({
+      action,
+      qualifier: null,
+      target: null,
+      context: context(pr),
+      lane: over.lane ?? 'unstarted',
+      liveSessions: over.liveSessions ?? 0,
+      testBranchPattern: '^Test-',
+    });
+  }
+
+  it('develops an issue with no pull request, leaving the pull request facts empty', () => {
+    const decision = workflow('develop', null);
+
+    expect(decision.ok && decision.plan).toEqual({
+      action: 'develop',
+      qualifier: null,
+      evidence: '17198||',
+      repository: 'example-org/example-repo',
+      issueNumber: 17198,
+      pullRequest: null,
+      branch: '',
+      base: '',
+      defaultBranch: 'master',
+      target: '',
+      role: 'author',
+      defaultOid: '',
+    });
+  });
+
+  it('fills the prompt from the developer’s own open pull request, and ignores anyone else’s', () => {
+    const own = workflow('ship', {}, { lane: 'review' });
+    const theirs = workflow('ship', { author: 'someone-else' }, { lane: 'review' });
+    const draft = workflow('ship', { isDraft: true }, { lane: 'review' });
+
+    expect(own.ok && [own.plan.pullRequest, own.plan.branch]).toEqual([4021, '17198-channel-mapping']);
+    expect(theirs.ok && [theirs.plan.pullRequest, theirs.plan.branch]).toEqual([null, '']);
+    // A draft is the developer's own work in progress; shipping marks it ready.
+    expect(draft.ok && draft.plan.pullRequest).toBe(4021);
+  });
+
+  it('refuses while a session counts against it, and in a parked lane', () => {
+    expect(refusedAs(workflow('develop', null, { liveSessions: 1 }))).toBe('session-running');
+    const busy = workflow('ship', null, { liveSessions: 1 });
+
+    expect(busy.ok ? 'ok' : busy.refusal.message).toBe('A session on this card is still working or waiting.');
+    expect(refusedAs(workflow('develop', null, { lane: 'icebox' }))).toBe('lane-parked');
+  });
+});

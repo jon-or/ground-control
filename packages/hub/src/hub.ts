@@ -1,8 +1,8 @@
-import { assignLanes, buildCustody, linkSessions, mergeBoard, nextMemory, withCheckouts, withPlacement, withTriage } from '@ground-control/board';
+import { assignLanes, buildCustody, checkEvidence, linkSessions, mergeBoard, nextMemory, withCheckouts, withPlacement, withStage, withTriage } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
-import { BASE_MERGE, CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, issueNumberFrom, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex, worktreesOf } from '@ground-control/core';
+import { BASE_MERGE, CREATE_WORKTREE, DEFAULT_SESSION_SCOPE, MANUAL_ACTIONS, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, issueNumberFrom, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex, worktreesOf } from '@ground-control/core';
 import type { WorktreeScan } from '@ground-control/board';
-import type { ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, CustodyHistory, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
+import type { ActionHistoryView, ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, CustodyHistory, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StageAnswer, StageRequest, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { actionEnabled } from '@ground-control/automation';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
@@ -12,10 +12,10 @@ import type { IssueStore } from './issueStore.js';
 import type { ActivityState } from './activityInstall.js';
 import type { LaneStore } from './lanes.js';
 import { ActionRunner } from './actions.js';
-import { makeActionStore } from './actionStore.js';
+import { makeActionHistoryStore, makeActionStore } from './actionStore.js';
 import { makeCheckoutStore, makeWorktreeStore } from './checkoutStore.js';
 import type { CheckoutStore } from './checkoutStore.js';
-import type { ActionStore } from './actionStore.js';
+import type { ActionHistoryStore, ActionStore } from './actionStore.js';
 import { TriageRunner } from './triage.js';
 import { makeTriageStore } from './triageStore.js';
 import type { TriageStore } from './triageStore.js';
@@ -51,6 +51,8 @@ export interface HubDeps {
   triage: TriageStore;
   /** Persisted card action runs (R39). */
   actions: ActionStore;
+  /** Every run the board started (R50); absent keeps none. */
+  actionHistory?: ActionHistoryStore;
   /** Cached issue lookups for sessions that outlast assignment (R9). */
   issues: IssueStore;
   /** Retained phases preserve card attention after a session closes (R6). */
@@ -87,6 +89,10 @@ const REFRESH_FLOOR_MS = 1000;
 
 /** Refresh reason determines its minimum interval. */
 type Reason = 'visible' | 'asked' | 'settings';
+
+/** Most recent runs an action history answer carries, and the longest detail it sends for one (R50). */
+const HISTORY_SENT = 200;
+const HISTORY_DETAIL_SENT = 400;
 
 /** Minimum source age for a visibility-triggered refresh; prevents repeated GitHub calls while switching views (R35). */
 const SOURCE_FLOOR_MS = 60_000;
@@ -177,6 +183,7 @@ export function realHubDeps(
     status,
     checkouts,
     worktrees,
+    actionHistory: makeActionHistoryStore(stateDir),
     settings,
     log,
     syncActivity: (regs, wanted, where, state, enabled) => syncActivity(regs.agents, wanted, where, state, false, enabled),
@@ -296,6 +303,7 @@ export class Hub {
     this.#actions = new ActionRunner({
       stateDir: deps.stateDir,
       store: deps.actions,
+      ...(deps.actionHistory === undefined ? {} : { history: deps.actionHistory }),
       log: this.#scopedLog(),
       currentCard: (key) => this.#lanes(false).flatMap((lane) => lane.cards).find((card) => card.key === key),
       agents: deps.registries.agents,
@@ -459,6 +467,11 @@ export class Hub {
 
         return;
 
+      case 'readActionHistory':
+        connected.send({ type: 'actionHistory', entries: this.#actionHistory() });
+
+        return;
+
       case 'refresh':
         void this.refresh('asked');
 
@@ -519,7 +532,7 @@ export class Hub {
           this.#scopeRefusal(connected);
           return;
         }
-        const refused = this.#actions.runAction(this.#lanes(false), message.key);
+        const refused = this.#actions.runAction(this.#lanes(false), message.key, connected.hello.hostId === null ? 'browser' : 'editor');
 
         if (refused) {
           connected.send({ type: 'notice', level: 'info', message: refused.message });
@@ -571,7 +584,7 @@ export class Hub {
           return;
         }
 
-        const refused = this.#actions.createWorktree(this.#lanes(false), message.key);
+        const refused = this.#actions.createWorktree(this.#lanes(false), message.key, connected.hello.hostId === null ? 'browser' : 'editor');
 
         if (refused) {
           connected.send({ type: 'notice', level: 'info', message: refused.message });
@@ -1673,6 +1686,84 @@ export class Hub {
     this.#broadcast();
   }
 
+  /**
+   * Record a workflow stage a developer's skill reports (R49). Entering Review needs the worktree's evidence ledger to
+   * give every row evidence (R23). An issue no card has yet is recorded and a source read asked for.
+   */
+  stage(request: StageRequest): StageAnswer {
+    const key = `issue:${request.issue}`;
+    const card = this.#lanes(false).flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+
+    if (request.stage === 'review') {
+      if (card?.worktree === undefined) {
+        return { ok: false, reason: `Ground Control knows no worktree for issue ${request.issue}, so it cannot read its evidence ledger.` };
+      }
+
+      const path = `${normalize(card.worktree.root).replace(/\/+$/, '')}/.wip/${request.issue}/evidence.md`;
+      const ledger = this.#readers().readText(path);
+
+      if (ledger === null) {
+        return { ok: false, reason: `No evidence ledger at ${path}.` };
+      }
+
+      const checked = checkEvidence(ledger);
+
+      if (!checked.ok) {
+        return { ok: false, reason: `${path}: ${checked.reason}` };
+      }
+    }
+
+    const memory = withStage(this.#memory(), key, request.stage, request.note, this.#deps.clock.now(), request.step);
+
+    if (!this.#deps.lanes.write(memory)) {
+      return { ok: false, reason: 'Ground Control could not save lanes.json, so the stage was not recorded.' };
+    }
+
+    const note = memory.stages[key]?.note ?? '';
+    const step = request.step === undefined ? '' : ` ${request.step.n}/${request.step.of}`;
+    this.#deps.log.info(`${key} stage ${request.stage}${step}${note === '' ? '' : `: ${note}`}`, 'lanes');
+    this.#broadcast();
+
+    const placed = this.#lanes(false).flatMap((l) => l.cards).find((candidate) => candidate.key === key);
+
+    if (request.stage === 'done' || placed?.stage !== undefined) {
+      return { ok: true, lane: placed?.lane ?? null, note, pending: false };
+    }
+
+    // GitHub status already moved past this report, so the board follows the status.
+    if (placed !== undefined && placed.lane !== 'archived') {
+      return { ok: false, reason: `GitHub recorded a status change for issue ${request.issue} after this report; the card follows its status (${placed.issue?.status ?? 'none'}).` };
+    }
+
+    // Not read yet, or archived on what the board last read, which a claim may just have changed.
+    void this.refresh('asked');
+
+    return { ok: true, lane: null, note, pending: true };
+  }
+
+  /**
+   * The action history for a client, newest first, with each card's title and address where the board holds the card
+   * (R50). Session scope hides what a run reported, as it does on the card.
+   */
+  #actionHistory(): ActionHistoryView[] {
+    const cards = new Map(this.#lanes(false).flatMap((lane) => lane.cards).map((card) => [card.key, card]));
+    const hidden = restrictedSessionScope(this.#scope());
+
+    // A browser frame holds at most a megabyte, so the answer is bounded in rows and in each row's detail.
+    return this.#actions.history().slice(0, HISTORY_SENT).map((entry) => {
+      const issue = cards.get(entry.key)?.issue ?? null;
+      const detail = entry.detail.length > HISTORY_DETAIL_SENT ? `${entry.detail.slice(0, HISTORY_DETAIL_SENT - 1)}…` : entry.detail;
+
+      return {
+        ...entry,
+        // A run's detail names its checkout, which scope hides wherever it appears.
+        detail: hidden ? 'Session details are hidden by session scope.' : detail,
+        title: issue?.title ?? null,
+        url: issue?.url ?? null,
+      };
+    });
+  }
+
   /** Plan session routes in the host and send resident routes to the requesting client. */
   async #open(client: Connected, sessionId: string, extensionReady: boolean, handedOver = false, resumeToken?: string): Promise<void> {
     const revision = this.#profileRevision;
@@ -1872,6 +1963,11 @@ export class Hub {
     }
 
     const row = rowFor(this.#config.actions.table, action.action, action.qualifier);
+
+    // Shipping is the developer's approval, which a page script clicking the overlay must not be able to give (R49).
+    if (row !== undefined && MANUAL_ACTIONS.includes(row.action)) {
+      return 'Ship from the editor board: shipping is your approval, which the GitHub page cannot give.';
+    }
 
     return actionEnabled(row) ? null : 'That card action is not automatic in the action table.';
   }

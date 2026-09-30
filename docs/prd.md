@@ -84,7 +84,7 @@ State marks use three meanings: working, waiting for the developer, and idle/unk
 
 Animate the name of a working live session. Respect reduced motion and forced colors. Session names are more prominent than agent marks and durations.
 
-Durations use one unit, rounded down: seconds, minutes, hours, days, or weeks. Update once per second without rereading the machine. A running duration starts at the user's prompt that began the turn and continues through tool calls, subagent results, background-task notifications, and permission prompts; other phases start at the reporting event. For work resumed without a user prompt, use the first observed event. This duration includes waiting within the turn; it is not CPU time. Hover explains the phase, time basis, exact timestamp, and last observation without duplicating the name.
+Durations use one unit, rounded down: seconds, minutes, hours, days, or weeks. Update once per second without rereading the machine. A running duration starts at the user's prompt that began the turn and continues through tool calls, subagent results, background-task notifications, and permission prompts; other phases start at the reporting event. For work resumed without a user prompt, use the first observed event. This duration includes waiting within the turn; it is not CPU time. Hover explains the phase, time basis, exact timestamp, and last observation without duplicating the name. A Claude turn that ended while its background tasks still run stays working, and its hover says `Turn ended;` and how many background tasks are still running rather than naming the Stop event.
 
 The card itself is not clickable. Titles, chips, and session rows have their own controls and hover feedback. Overflow menus contain secondary actions; hide unavailable items. Reveal card menus on hover, keyboard focus, and devices without hover. Keep current state when rebuilding an open menu.
 
@@ -105,7 +105,7 @@ The footer's first line is one command bar: the card's lane, what to do about it
 | Slot | At rest | While the bar is pointed at or focused |
 |---|---|---|
 | Lane (overlay) | Pictogram, in the lane's colour, on a button edge that opens the lane menu | unchanged |
-| Verdict | Triage action and qualifier, then a mark for the dispatched run's state | unchanged |
+| Verdict | Triage action and qualifier, or the workflow stage's note (R49), then a mark for the dispatched run's state | unchanged |
 | Tail | Time in the current status, right-aligned | Reread, open checkout, create worktree (R46), run |
 
 The verdict is the only element that shrinks: a long qualifier truncates its words rather than moving a control, and the state mark after them keeps its width. The tail is one slot painted two ways, so revealing the controls changes no width and the run control lands where the age was, above the session duration below it. Reveal keys on the bar, not the card, so passing over a title arms nothing. Controls stay in the tab order while hidden and appear on keyboard focus; where the device cannot hover, the tail lays the controls out and drops the age.
@@ -120,7 +120,7 @@ Hovering the bar hides the age, and hovering is how the reread is reached, so th
 
 Returned states the card rather than its work, so it is a label in the card's own label row under the title rather than a mark in the bar, on both clients. The overlay joins GitHub's field list under the title and falls back to the card header line on a card carrying no field of its own, because GitHub owns and redraws both (mechanics M27). The row leads with the pull request, then the type and the status, so the card most in need of attention states its pull request first.
 
-The run control carries the card's action (R39): it starts an available action, stops a running one, repeats a finished one, and is present but inert for a refusal that holds now. A refusal recorded from an earlier attempt stays pressable, because a click reads the card afresh (R39). The run control's accessible name and tooltip name the action, because one glyph serves every triage. A click shows as starting at once, while the hub reads the card and dispatches, which takes seconds; the control is inert until the dispatch returns, because until then there is no session to stop. On a card with no worktree the worktree control starts with it. A refusal then returns the controls to what they were, with the refusal's notice. The action after a worktree run shows as starting the same way; an automatic check does not, because it usually refuses. A run dispatched from the card is shown at rest, without pointing at the bar, as a mark after the verdict's words; the qualifier stays, because it names the row the run uses. R39 states how long a finished run's outcome keeps its mark. Each state has its own shape, so colour is never the only difference: a spinner in the working colour while the action starts and runs, the worktree mark pulsing while its worktree is made, including a worktree run asked for on its own (R46), a filled circle with a check when it reports its work done, a filled triangle with an exclamation when it stopped short, a filled circle with a cross when it did not run, a filled circle with a square cut out when the developer stopped it, and a slashed circle for a refusal. The spinner is GitHub Actions' in-progress mark; the others are octicons, except the stopped mark, which octicons lack. The mark's accessible name and tooltip carry the words — `Starting…`, `Merging…`, `Reviewing…`, `Answering review…`, `Creating worktree…`, `Merged`, `Reviewed`, `Answered`, `Stopped short`, `Did not run`, `Stopped`, `Not run` — and the tooltip and description add what the run or the refusal said. The worktree mark's pulse changes colour rather than opacity; the spin and the pulse stop under reduced motion.
+The run control carries the card's action (R39): it starts an available action, stops a running one, repeats a finished one, and is present but inert for a refusal that holds now. A refusal recorded from an earlier attempt stays pressable, because a click reads the card afresh (R39). The run control's accessible name and tooltip name the action, because one glyph serves every triage. A click shows as starting at once, while the hub reads the card and dispatches, which takes seconds; the control is inert until the dispatch returns, because until then there is no session to stop. On a card with no worktree the worktree control starts with it. A refusal then returns the controls to what they were, with the refusal's notice. The action after a worktree run shows as starting the same way; an automatic check does not, because it usually refuses. A run dispatched from the card is shown at rest, without pointing at the bar, as a mark after the verdict's words; the qualifier stays, because it names the row the run uses. R39 states how long a finished run's outcome keeps its mark. Each state has its own shape, so colour is never the only difference: a spinner in the working colour while the action starts and runs, the worktree mark pulsing while its worktree is made, including a worktree run asked for on its own (R46), a filled circle with a check when it reports its work done, a filled triangle with an exclamation when it stopped short, a filled circle with a cross when it did not run, a filled circle with a square cut out when the developer stopped it, and a slashed circle for a refusal. The spinner is GitHub Actions' in-progress mark; the others are octicons, except the stopped mark, which octicons lack. The mark's accessible name and tooltip carry the words — `Starting…`, `Merging…`, `Reviewing…`, `Answering review…`, `Developing…`, `Shipping…`, `Creating worktree…`, `Merged`, `Reviewed`, `Answered`, `Developed`, `Shipped`, `Stopped short`, `Did not run`, `Stopped`, `Not run` — and the tooltip and description add what the run or the refusal said. The worktree mark's pulse changes colour rather than opacity; the spin and the pulse stop under reduced motion.
 
 ### R43. Reading a conversation
 
@@ -227,7 +227,7 @@ A card has exactly one lane. Before manual placement, derive its lane from confi
 
 Closed, merged, and other people's PRs do not override the status. Defaults map Assigned to Unstarted, Dev to Build, and Dev Review to Review.
 
-Dragging or Alt+arrow on a focused card sets its lane. Persist that choice across clients, refreshes, and restarts. Status, PR, and session changes do not override it. R9 defines the departure exception. Future workflow state controls automated stage movement and may move a manually placed card.
+Dragging or Alt+arrow on a focused card sets its lane. Persist that choice across clients, refreshes, and restarts. Status, PR, and session changes do not override it. R9 defines the departure exception. A workflow stage report (R49) outranks it while the stage holds, and a manual move ends the stage.
 
 ### R9. Archive, departure, and return
 
@@ -247,6 +247,37 @@ There are two different rules for live sessions:
 Archived issues outside the assigned set retain inspection and checkout opening, but offer no triage, card action, or new-session start. Do not show triage from their previous assignment. Needs you remains visible in Archived.
 
 If the source cannot establish the issue at all, use an ad-hoc card. Do not treat the initial absence of a source response as an empty assigned set.
+
+### R49. Workflow stages
+
+A developer's own skills report where their work on a card stands, so the board follows an agent through planning, building, and the developer's review without the skills driving GitHub status, which stays the team's signal. A report names the issue, a stage, and an optional one-line note, from a shell in any directory:
+
+```text
+node "$HOME/.claude/ground-control/hub.js" stage <issue> <plan|build|review|done> [--note "<text>"] [--step <n>/<of>]
+```
+
+| Stage | Lane | Meaning |
+|---|---|---|
+| plan | Plan | The agent is setting up, claiming, researching, or planning |
+| build | Build | The agent is implementing, testing, and reviewing its own work |
+| review | Review | The developer's turn: the finished branch waits for their review, nothing pushed |
+| done | Status and PR evidence (R8) | The workflow let go of the card, normally after shipping it |
+
+A report places the card in the stage's lane, replacing any manual placement, and replaces its note and step; a report without one clears it. A note is one line of at most 120 characters, clipped beyond; a step is `n` of `of`, with 1 ≤ n ≤ of ≤ 50. The verdict slot of the command bar (R45) shows, in place of the triage verdict, the action of the card's row, the step, and the note with its first letter capitalized: `Develop · 2/3 Plan`; a stage with no note reads `Planning`, `Building`, or `Ready for your review`. Its hover states how long the card has been in the stage and when the last report came, then the current line, then up to eight earlier reports, newest first, each with how long it lasted. The board keeps up to 20 earlier reports while the workflow holds the card and starts again after `done`. A report that repeats the last one's stage, note, and step is a heartbeat: it changes only the time of the last report, which the stale mark counts from, and adds no history. While the card's action runs, a stage whose last report is 20 minutes old or more is marked stale in a muted colour, with `No update for` its age on hover; a skill running one long job accepts that mark or repeats its report. An issue the board has no card for yet, such as one just self-assigned, or one archived on what the board last read, is recorded and a source read is asked for; the stage applies once the card appears in active work. A stage for an issue that never appears is forgotten after 30 days. A report is refused where GitHub already recorded a status change after it, and where the board could not save it.
+
+A stage holds until `done`, a manual move to another lane, the card being archived after the report (R9), or a status change GitHub records more than a minute after the report that set the current note and step; a heartbeat does not move that time, so repeating a report cannot undo a teammate's status change. The minute absorbs clock skew between the machine and GitHub, so a skill that sets the status and then reports keeps its stage; a skill that reports and then changes status loses it. Shipping therefore sets the team's review status and then reports `done`; the status rule alone releases a card whose skill died before that.
+
+Entering Review needs evidence (R23): the report is refused unless the card's worktree (R46) holds `.wip/<issue>/evidence.md` with at least one Markdown table whose header has a column starting `Evidence`, at least one row, and in every row of every such table an Evidence cell that is not empty or a placeholder (`-`, `—`, `TODO`, `TBD`, `none`, `pending`, `?`, `n/a`). Tables inside fenced code are examples and are skipped. The refusal names the rows that lack evidence, and the card stays where it was. The ledger is the agent's own record; the board checks that every claim names its proof, not that the proof holds.
+
+The command exits 0 when recorded, 1 on a usage error, 2 when no hub answered and nothing was recorded, and 3 when the hub refused, with the reason on stderr. It never starts a hub. A hub that does not answer within ten seconds may still have recorded the report, which is safe to repeat.
+
+While a stage holds, it chooses the card's action (R39) instead of triage: Review offers the Ship row, and Plan and Build the Develop row, so a develop run started from the card stays in view while its skills report. A stage's reading never starts a run on its own; only a triage reading of Develop can, where its row is automatic. Ship runs only on an editor click, because the click is the developer's approval: a Ship row saved as automatic is read as manual, and the overlay shows the offer but refuses a start, since a page script can click it (R39). A session idle on the card, where the developer reviewed, does not refuse shipping; one working, waiting, or with no observed phase does.
+
+### R50. Action history
+
+A list of every run the board started, newest first, in both clients: from the editor board's header menu and the overlay's menu, each as a panel over the board. Each row names when the run started, the card's issue and title, the action and qualifier (a worktree run as `Worktree`, or `Worktree for` the action it preceded), who started it, how it ended, how long it took, and what it reported. Who started it is `Automatic` for the automatic check, `Editor` or `Browser` for a click in that client; the action after a worktree run and a card's merge after its base merge carry the trigger of the request that started the chain. How it ended uses the run control's words (R45). A base merge is listed under the card it was started for. An answer carries the 200 most recent runs, each report clipped to 400 characters, because the overlay's messages are bounded. The editor's panel is modal over the board; the overlay's is a sidebar like its log, with GitHub's page usable beside it.
+
+The hub keeps the history in its own file, apart from the per-card run records that a later run replaces, for 90 days and at most 500 runs, the oldest going first. A failed write loses history, not dispatch safety, and is logged. The history is answered to the client that asked and never broadcast; an open panel asks again when the board changes. Session scope hides what every run reported, running ones included, since a report names the checkout. A history file the hub cannot read is left as it is and not added to until it can be read. Refused requests are not runs and are not listed.
 
 ### R10. Counts
 
@@ -404,7 +435,7 @@ Only Claude currently provides classification. Report absent classifier or confi
 
 A card action is an unattended run of a developer prompt, chosen by the card's triage reading (R38). The action table configures them. Each row names a triage action, optionally a qualifier, the prompt, and whether the board starts it automatically. A row with no qualifier matches any; a row naming the reading's qualifier takes precedence over it. A reading with no row has no action. Nothing is configured by default, and a row needs a nonempty prompt.
 
-Rows choose from the actions that have refusal rules: Merge, Review their PR, and Answer review. The table cannot add triage actions, and the classifier is not told about it.
+Rows choose from the actions that have refusal rules: Merge, Review their PR, Answer review, Develop, and Ship. Ship is no triage action; a card in the review stage offers it (R49). The table cannot add other actions, and the classifier is not told about it.
 
 | Row | Example prompt |
 |---|---|
@@ -415,6 +446,8 @@ Rows choose from the actions that have refusal rules: Merge, Review their PR, an
 | Merge · upstream | `/or-merge` |
 | Merge · stacked, Merge · test | `/or-merge {base}` |
 | Merge · base | `/or-merge {base} {branch} {issue}` |
+| Develop | `/gc-plan {issue} result:{resultPath}` |
+| Ship | `/gc-ship {issue} result:{resultPath}` |
 
 Supply issue, repository, PR, branch, and worktree facts to the prompt: `{issue}`, `{repo}`, `{pr}`, `{branch}` (the PR head), `{base}` (the PR base), `{default}` (the repository default branch), `{target}` (the test branch, empty unless the merge type is test), `{checkout}` (the worktree the run works in), and `{resultPath}`. Merge · base takes them from the base's pull request, described below. Do not define the repository's build, test, push, review-posting, or commenting policy.
 
@@ -444,7 +477,7 @@ Refuse the base merge, and so the card's merge, where the Merge · base row has 
 
 Automatic eligibility comes from a reading whose row is automatic. The run control offers the row matching the card's reading, automatic or not, so a manual editor request can run or retry it; it cannot start another row on the card. Before dispatch, reread the PR and apply all safety checks and configured limits. An automatic run on a card with no worktree runs the worktree prompt first (R46), so making a row automatic is also consent to provision for it.
 
-Refuse, for every row: no PR, a closed or merged PR, a draft, disallowed lanes, and active work on the card. Merge and Answer review also refuse another person's PR; Review their PR refuses the developer's own. Merge also refuses where the default branch is unknown, the merge type fails the checks above, the base merge is refused, or another merge holds the branch. The run works in the card's worktree (R46), except a base merge, which works in the base's; a card with none and no worktree prompt is refused, and a manually selected checkout or a session directory that is not the issue's worktree does not authorize unattended edits. A card whose reading has no row shows no run control and no refusal.
+Refuse, for every row: disallowed lanes and active work on the card; and for every row except Develop and Ship, which work on the issue: no PR, a closed or merged PR, and a draft. Develop and Ship pass the developer's own open pull request, where there is one, to the prompt, and leave `{pr}` and `{branch}` empty otherwise. Merge and Answer review also refuse another person's PR; Review their PR refuses the developer's own. Merge also refuses where the default branch is unknown, the merge type fails the checks above, the base merge is refused, or another merge holds the branch. The run works in the card's worktree (R46), except a base merge, which works in the base's; a card with none and no worktree prompt is refused, and a manually selected checkout or a session directory that is not the issue's worktree does not authorize unattended edits. A card whose reading has no row shows no run control and no refusal.
 
 Bound automatic work by:
 
@@ -613,7 +646,7 @@ These requirements are retained goals, not implemented capabilities. Relevant ex
 | R19 | Redirect work without stopping it | Retain editable working notes as an intended interaction; direct message injection is an experimental alternative requiring a product decision |
 | R20 | Resume after a usage limit resets | Display the reason and expected resume time; do not count such waiting as active automated work |
 | R22 | Recover interrupted work | Resume outstanding work or explicitly report what could not be recovered |
-| R23 | Require evidence before stage completion | Validate runner-produced artifacts; an agent's success report alone cannot advance a stage |
+| R23 | Require evidence before stage completion | Validate runner-produced artifacts; an agent's success report alone cannot advance a stage. Implemented for entering Review (R49); other stages advance on the agent's report |
 
 ### R21. Bounded retries
 
@@ -622,7 +655,7 @@ Implemented: transient source failures and failed triage/dispatch starts retry u
 ## Open product decisions
 
 - First-run repository default and distribution of additional team configuration (R26–R27).
-- Which coordinated stages should be implemented.
+- Whether workflow stages beyond R49's reports, such as automatic stage movement or recovery, should be implemented.
 - Whether finer tool-level activity is needed beyond the current phase view (R11).
 - Redirection through notes, direct messages, or both (R19).
 - Manual issue linking when branch and directory conventions cannot establish a match.

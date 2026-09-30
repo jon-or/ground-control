@@ -1,10 +1,11 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { DEFAULT_SESSION_SCOPE } from '@ground-control/core';
 import { LINK_GRACE_MS } from '@ground-control/automation';
 import { bootstrapDirOf } from '@ground-control/core';
 import type {
+  ActionHistoryView,
   ActionRow,
   AgentAdapter,
   BranchPullRequestReading,
@@ -15,6 +16,7 @@ import type {
   DispatchResult,
   HistoricalSession,
   HubConfig,
+  HubMessage,
   IssueCard,
   LanedCard,
   ReadFailure,
@@ -32,7 +34,7 @@ import { makeLaneStore } from '../src/lanes.js';
 import { makeMarkStore } from '../src/marks.js';
 import { makeTriageStore } from '../src/triageStore.js';
 import { makeCheckoutStore, makeWorktreeStore } from '../src/checkoutStore.js';
-import { makeActionStore } from '../src/actionStore.js';
+import { makeActionHistoryStore, makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeStatusStore } from '../src/statusStore.js';
 import { actionReportPathOf } from '../src/paths.js';
@@ -146,6 +148,10 @@ interface Control {
   permissions: string[];
   /** Set to make every store write fail, which is the one condition that would leave the runner with no ceilings. */
   storeBroken: boolean;
+  /** Set to make lane writes fail, as a locked lanes.json does. */
+  lanesBroken: boolean;
+  /** Source reads of the assigned issues so far. */
+  issueReads: number;
   /** Set to make `claude stop` refuse, so a card cannot claim a stop the board did not achieve. */
   stopFails: boolean;
   dispatched: DispatchInput[];
@@ -264,6 +270,8 @@ function harness(
     contextHolding: null,
     permissions: ['manual', 'acceptEdits', 'auto', 'dontAsk', 'plan', 'bypassPermissions'],
     storeBroken: false,
+    lanesBroken: false,
+    issueReads: 0,
     stopFails: false,
     dispatched: [],
     dispatch: { shortId: '46af2ac8' },
@@ -310,20 +318,24 @@ function harness(
     id: 'github',
     displayName: 'GitHub',
     configure: () => null,
-    read: async (): Promise<SourceReading> => ({
-      items: {
-        cards: control.cards,
-        owners: ['dev-1'],
-        matched: control.cards.length,
-        totalAssigned: control.cards.length,
-        notOnProject: 0,
-        fieldProblem: null,
-        truncated: false,
-        fetchedAt: '2026-09-03T12:00:00Z',
-      },
-      failure: null,
-      needs: null,
-    }),
+    read: async (): Promise<SourceReading> => {
+      control.issueReads += 1;
+
+      return {
+        items: {
+          cards: control.cards,
+          owners: ['dev-1'],
+          matched: control.cards.length,
+          totalAssigned: control.cards.length,
+          notOnProject: 0,
+          fieldProblem: null,
+          truncated: false,
+          fetchedAt: '2026-09-03T12:00:00Z',
+        },
+        failure: null,
+        needs: null,
+      };
+    },
     readContext: async (card): Promise<ContextReading> => {
       control.reads.push(card.number);
       if (control.contextHolding) await control.contextHolding;
@@ -388,6 +400,7 @@ function harness(
 
   const logging = captureLog();
   const store = makeActionStore(stateDir);
+  const lanes = makeLaneStore(stateDir);
 
   control.hub = new Hub({
     clock: clock.clock,
@@ -395,12 +408,13 @@ function harness(
     home,
     stateDir,
     registries: { agents: [dispatching], hosts: [], sources: [source] },
-    lanes: makeLaneStore(stateDir),
+    lanes: { read: (statuses) => lanes.read(statuses), write: (memory) => (control.lanesBroken ? false : lanes.write(memory)) },
     marks: makeMarkStore(stateDir),
     triage: makeTriageStore(stateDir),
     checkouts: makeCheckoutStore(stateDir), worktrees: makeWorktreeStore(stateDir),
     // Reads still work; only the write fails, which is the shape a locked or full disk actually takes.
     actions: { read: () => store.read(), write: (state) => (control.storeBroken ? false : store.write(state)) },
+    actionHistory: makeActionHistoryStore(stateDir),
     issues: makeIssueStore(stateDir),
     status: makeStatusStore(stateDir),
     settings: { read: () => null, write: () => undefined },
@@ -1678,6 +1692,34 @@ describe('making the worktree an action needs', () => {
     return worktreeAt(CLONE, join(home, 'repo.worktrees', 'refund').replace(/\\/g, '/'), 'refund-window');
   }
 
+  /** The action after a worktree run carries the click that started the chain (R50). */
+  it('records the worktree run and the action after it in the history, both as the editor click that started them', async () => {
+    const control = bare();
+    await control.pass();
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    const run = fakeSession({ agent: 'claude', sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', cwd: CLONE, checkoutRoot: CLONE, branch: 'master', issueNumber: null, attachId: '46af2ac8' });
+    control.agent.sessions = [run];
+    await control.pass();
+    control.dispatch = { shortId: '9c0d1e2f' };
+    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    await control.pass();
+    await control.settle();
+
+    const answers: HubMessage[] = [];
+    control.hub.connect({ id: 'history-1', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => answers.push(message));
+    control.hub.receive({ id: 'history-1' }, { type: 'readActionHistory' });
+    const history = answers.find((message) => message.type === 'actionHistory');
+
+    expect(control.dispatched).toHaveLength(2);
+    expect(history?.type === 'actionHistory' && history.entries.map((entry) => [entry.action, entry.next ?? null, entry.trigger, entry.outcome, entry.title]))
+      .toEqual([
+        ['merge', null, 'editor', 'running', 'Channel mapping drops rows past the first page'],
+        ['create-worktree', 'merge', 'editor', 'landed', 'Channel mapping drops rows past the first page'],
+      ]);
+  });
+
   it('offers to make a worktree on a card that has none, and says why it cannot where the prompt is unset', async () => {
     const control = bare(MANUAL, '');
     await control.pass();
@@ -2682,5 +2724,221 @@ describe('where a run writes its result', () => {
     expect(actionReportPathOf('/state', 'merge:a/b#c-d')).toMatch(/^\/state\/runs\/merge-[0-9a-f]{16}\.json$/);
     expect(actionReportPathOf('/state', 'merge:a/b#c-d')).not.toBe(actionReportPathOf('/state', 'merge:a/b-c#d'));
     expect(actionReportPathOf('/state', 'merge:a/b#c-d')).toBe(actionReportPathOf('/state', 'merge:a/b#c-d'));
+  });
+});
+
+/** A skill reports its card's stage; Review offers shipping, and entering it needs every row of evidence (R23, R49). */
+describe('workflow stages', () => {
+  const DEVELOP: ActionRow = { action: 'develop', qualifier: null, prompt: '/gc-plan {issue} result:{resultPath}', automatic: false };
+  const SHIP: ActionRow = { action: 'ship', qualifier: null, prompt: '/gc-ship {issue} result:{resultPath}', automatic: false };
+  /** The status last changed before the harness clock's first reading, so a report made now holds. */
+  const CLAIMED = (): IssueCard => issue({ statusChangedAt: '2026-08-01T09:00:00Z' });
+  const FILLED = '| Criterion | Evidence |\n|---|---|\n| Rows past page one | `ChannelMapping_SecondPage_KeepsRows` |\n';
+
+  function ledger(text: string): void {
+    mkdirSync(join(CHECKOUT, '.wip', '17198'), { recursive: true });
+    writeFileSync(join(CHECKOUT, '.wip', '17198', 'evidence.md'), text);
+  }
+
+  function staged(control: Control): LanedCard {
+    return control.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.key === 'issue:17198')!;
+  }
+
+  it('reads a staged card as its stage’s row, whatever triage said, and as nothing where the table has no row', () => {
+    const card = (stage: 'plan' | 'build' | 'review'): LanedCard => ({
+      key: 'issue:17198', issue: issue(), issueNumber: 17198, sessions: [], lane: stage, returned: false, attention: null, reason: '',
+      stage: { stage, note: '', at: 9, changedAt: 9, since: 9, history: [] },
+      triage: { state: 'done', action: 'merge', qualifier: 'upstream', target: null, detail: '', at: 5, stale: false },
+    });
+
+    expect(readingOf(card('review'), [UPSTREAM, DEVELOP, SHIP])).toEqual({ action: 'ship', qualifier: null, settled: true, at: 9 });
+    expect(readingOf(card('build'), [UPSTREAM, DEVELOP, SHIP])).toEqual({ action: 'develop', qualifier: null, settled: true, at: 9 });
+    expect(readingOf(card('review'), [UPSTREAM])).toEqual({ action: null, qualifier: null, settled: true, at: 9 });
+  });
+
+  it('refuses Review until the worktree’s ledger gives every row evidence, and leaves the card where it was', async () => {
+    const control = harness({ table: [MANUAL_ROW, SHIP] }, [CLAIMED()]);
+    await control.pass();
+    control.hub.stage({ issue: 17198, stage: 'build', note: 'self-review round 2' });
+
+    expect(control.hub.stage({ issue: 17198, stage: 'review', note: '' })).toEqual({
+      ok: false,
+      reason: `No evidence ledger at ${CHECKOUT}/.wip/17198/evidence.md.`,
+    });
+
+    ledger('| Criterion | Evidence |\n|---|---|\n| Rows past page one | |\n');
+
+    expect(control.hub.stage({ issue: 17198, stage: 'review', note: '' })).toEqual({
+      ok: false,
+      reason: `${CHECKOUT}/.wip/17198/evidence.md: 1 of 1 rows have no evidence: Rows past page one.`,
+    });
+    expect(staged(control)).toMatchObject({ lane: 'build', stage: { stage: 'build', note: 'self-review round 2' } });
+  });
+
+  it('puts an evidenced card in Review with its note, and offers shipping there', async () => {
+    const control = harness({ table: [MANUAL_ROW, SHIP] }, [CLAIMED()]);
+    await control.pass();
+    ledger(FILLED);
+
+    expect(control.hub.stage({ issue: 17198, stage: 'review', note: 'ready for your review' })).toEqual({
+      ok: true, lane: 'review', note: 'ready for your review', pending: false,
+    });
+    expect(staged(control)).toMatchObject({
+      lane: 'review',
+      stage: { stage: 'review', note: 'ready for your review' },
+      action: { state: 'available', action: 'ship', qualifier: null },
+    });
+  });
+
+  it('ships only on a click, even from a row saved as automatic, with the issue and result path in the prompt', async () => {
+    const control = harness({ table: [{ ...SHIP, automatic: true }] }, [CLAIMED()]);
+    watch(control);
+    await control.pass();
+    ledger(FILLED);
+    control.hub.stage({ issue: 17198, stage: 'review', note: '' });
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toEqual([]);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: 'issue:17198' });
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.dispatched[0]!.prompt).toBe(`/gc-ship 17198 result:${actionReportPathOf(stateDir, 'issue:17198')}`);
+    expect(control.dispatched[0]!.cwd).toBe(CHECKOUT);
+  });
+
+  it('lets the developer ship beside the idle session they reviewed in, but not beside one still working', async () => {
+    const idle = sessionOn({ agent: 'claude' });
+    const control = harness({ table: [SHIP] }, [CLAIMED()], [idle]);
+    control.agent.phases.set(idle.sessionId, { phase: 'idle', since: 1, at: 1, event: 'Stop' });
+    await control.pass();
+    ledger(FILLED);
+    control.hub.stage({ issue: 17198, stage: 'review', note: '' });
+
+    expect(staged(control).action).toEqual({ state: 'available', action: 'ship', qualifier: null });
+
+    control.agent.phases.set(idle.sessionId, { phase: 'running', since: 1, at: 1, event: 'PreToolUse' });
+    await control.pass();
+
+    expect(staged(control).action).toEqual({
+      state: 'refused', action: 'ship', qualifier: null, reason: 'A session on this card is still working or waiting.',
+    });
+  });
+
+  it('refuses a report GitHub status has already moved past, and one it could not save', async () => {
+    const control = harness({ table: [DEVELOP] }, [issue({ statusChangedAt: '2026-09-30T00:00:00Z' })]);
+    await control.pass();
+
+    expect(control.hub.stage({ issue: 17198, stage: 'build', note: '' })).toEqual({
+      ok: false,
+      reason: 'GitHub recorded a status change for issue 17198 after this report; the card follows its status (⚒️ Dev).',
+    });
+
+    control.lanesBroken = true;
+
+    expect(control.hub.stage({ issue: 17198, stage: 'done', note: '' })).toEqual({
+      ok: false, reason: 'Ground Control could not save lanes.json, so the stage was not recorded.',
+    });
+  });
+
+  it('starts nothing on its own from a stage, even where the Develop row is automatic', async () => {
+    const control = harness({ table: [{ ...DEVELOP, automatic: true }] }, [CLAIMED()]);
+    control.classified = { action: 'other', detail: 'Waiting.', target: null };
+    await control.pass();
+    control.hub.stage({ issue: 17198, stage: 'build', note: '' });
+    await control.pass(PAST_GATE);
+
+    expect(staged(control).action).toEqual({ state: 'available', action: 'develop', qualifier: null });
+    expect(control.dispatched).toEqual([]);
+  });
+
+  it('records a stage for an issue no card has yet, and asks the source for it', async () => {
+    const control = harness({ table: [DEVELOP] }, [CLAIMED()]);
+    await control.pass();
+    const read = control.issueReads;
+    control.clock.advance(400_000);
+
+    // Self-assigned on GitHub, and not read yet.
+    control.cards = [CLAIMED(), issue({ number: 18000, url: 'https://github.com/example-org/example-repo/issues/18000', statusChangedAt: '2026-08-01T09:00:00Z' })];
+
+    expect(control.hub.stage({ issue: 18000, stage: 'plan', note: 'setup' })).toEqual({ ok: true, lane: null, note: 'setup', pending: true });
+
+    await control.settle();
+    await control.settle();
+
+    expect(control.issueReads).toBe(read + 1);
+    expect(control.snapshot().lanes.flatMap((lane) => lane.cards).find((card) => card.key === 'issue:18000'))
+      .toMatchObject({ lane: 'plan', stage: { stage: 'plan', note: 'setup' } });
+  });
+});
+
+describe('the action history', () => {
+  it('records a run the board started on its own as automatic, with how it ended', async () => {
+    const control = harness();
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(1);
+
+    control.report({ outcome: 'done', detail: 'Merged master.' });
+    await control.appear();
+    await control.finish();
+
+    const answers: HubMessage[] = [];
+    control.hub.connect({ id: 'history-1', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => answers.push(message));
+    control.hub.receive({ id: 'history-1' }, { type: 'readActionHistory' });
+    const history = answers.find((message) => message.type === 'actionHistory');
+
+    expect(history?.type === 'actionHistory' && history.entries.map((entry) => [entry.action, entry.qualifier, entry.trigger, entry.outcome, entry.detail]))
+      .toEqual([['merge', 'upstream', 'automatic', 'landed', 'Merged master.']]);
+  });
+
+  function historyOf(control: Control): ActionHistoryView[] {
+    const answers: HubMessage[] = [];
+    control.hub.connect({ id: 'history-1', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => answers.push(message));
+    control.hub.receive({ id: 'history-1' }, { type: 'readActionHistory' });
+    const history = answers.find((message) => message.type === 'actionHistory');
+
+    return history?.type === 'actionHistory' ? history.entries : [];
+  }
+
+  it('records a page’s click as the browser’s', async () => {
+    const control = harness({ fromBrowser: true, dailyLimit: 0 });
+    watch(control, true, null);
+    await control.pass();
+
+    expect(control.dispatched).toEqual([]);
+
+    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(historyOf(control).map((entry) => [entry.action, entry.trigger])).toEqual([['merge', 'browser']]);
+  });
+
+  it('hides what every run reported, running ones included, under a restricted session scope', async () => {
+    const control = harness();
+    watch(control);
+    await control.pass();
+
+    expect(historyOf(control)[0]!.detail).toBe(`Working in ${CHECKOUT}.`);
+
+    control.hub.configure({ ...config(), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeRepositories: ['github.com/example-org/elsewhere'] } });
+
+    expect(historyOf(control).map((entry) => [entry.outcome, entry.detail])).toEqual([['running', 'Session details are hidden by session scope.']]);
+  });
+
+  it('leaves a history file it cannot read as it is, rather than replacing it with what it can see', async () => {
+    const path = join(stateDir, 'action-history.json');
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(path, '{ not json');
+    const control = harness();
+    watch(control);
+    await control.pass();
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(readFileSync(path, 'utf8')).toBe('{ not json');
+    expect(historyOf(control)).toEqual([]);
   });
 });

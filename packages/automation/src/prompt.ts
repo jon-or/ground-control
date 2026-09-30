@@ -18,7 +18,7 @@ export function promptValues(plan: ActionPlan, checkout: string, resultPath: str
   return {
     issue: String(plan.issueNumber),
     repo: plan.repository,
-    pr: String(plan.pullRequest),
+    pr: plan.pullRequest === null ? '' : String(plan.pullRequest),
     branch: plan.branch,
     base: plan.base,
     default: plan.defaultBranch,

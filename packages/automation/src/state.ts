@@ -60,6 +60,7 @@ const actionRun = z.preprocess(legacyRun, z.object({
   merge: mergeLeg.optional().catch(undefined),
   verifyingSince: z.number().optional().catch(undefined),
   for: z.object({ key: z.string().min(1), qualifier: readingQualifier }).optional().catch(undefined),
+  trigger: z.enum(['automatic', 'editor', 'browser']).optional().catch(undefined),
   revision: z.number(),
   evidence: z.string(),
   startedAt: z.number(),

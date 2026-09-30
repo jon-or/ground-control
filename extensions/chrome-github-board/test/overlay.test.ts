@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Custody, IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
-import { LANE_SHAPES, LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, HUB_DATA_LABEL, cardsByIssue, clear, clearHub, filterBox, filterText, foldedRows, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, viewerLogin } from '../src/overlay.js';
+import type { ActionHistoryView, CardStage, Custody, IssueCard, Lane, LaneId, LanedCard, Session, Snapshot } from '@ground-control/core';
+import { LANE_SHAPES, LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, HUB_DATA_LABEL, cardsByIssue, clear, clearHub, filterBox, filterText, foldedRows, historyShown, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, viewerLogin } from '../src/overlay.js';
 
 /**
  * The literal lane titles, matching the table in the editor board's suite. Both clients duplicate the map
@@ -113,6 +113,7 @@ interface State {
   trouble: string | null;
   notice: string | null;
   custody?: CustodyState | null;
+  history?: ActionHistoryView[] | null;
 }
 
 function state(over: Partial<State> = {}): State {
@@ -1041,6 +1042,22 @@ describe('the footer on a card', () => {
     expect(chip.querySelector('svg.gc-agent-icon')!.getAttribute('width')).toBe('13');
   });
 
+  /** A Stop with background tasks still running is a working session, so the tooltip says why rather than "Stop". */
+  it.each([
+    [1, 'Time in this turn, from its prompt when recorded. Turn ended; 1 background task still running.'],
+    [3, 'Time in this turn, from its prompt when recorded. Turn ended; 3 background tasks still running.'],
+    [undefined, 'Time in this turn, from its prompt when recorded. Last event: Stop.'],
+  ])('states a Stop with %s background tasks as the editor board does', (backgroundTasks, tip) => {
+    const activity = { phase: 'running' as const, since: NOW - 60_000, at: NOW - 60_000, event: 'Stop', ...(backgroundTasks === undefined ? {} : { backgroundTasks }) };
+
+    paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [session({ activity })] })] }] }) }), NOW, actions);
+
+    const said = badges()[0]!.querySelector<HTMLElement>('.gc-state')!;
+
+    expect(tipOf(said)).toBe(tip);
+    expect(said.getAttribute('aria-description')).toBe(tip);
+  });
+
   /** Expose phase and liveness through the dot accessible name as well as color and fill. */
   it.each([
     ['running', false, 'var(--fgColor-success, #1a7f37)', 'running, live'],
@@ -1890,6 +1907,16 @@ describe('moving a card from the browser', () => {
     click('.gc-lanes button[data-lane="review"]');
 
     expect(actions.move).toHaveBeenCalledWith('issue-4501', 'review' satisfies LaneId);
+    expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
+  });
+
+  /** A move would end the card's workflow stage (R49), so choosing the lane it is in sends nothing. */
+  it('closes the menu without a move when the ticked lane is chosen', () => {
+    paint(document, state(), NOW, actions);
+    click('.gc-lane');
+    click('.gc-lanes button[aria-checked="true"]');
+
+    expect(actions.move).not.toHaveBeenCalled();
     expect(document.querySelectorAll('.gc-lanes')).toHaveLength(0);
   });
 
@@ -3281,6 +3308,162 @@ describe('card actions (R39)', () => {
   });
 });
 
+/** A developer's skill reports its card's stage; the note takes the verdict's words, and the run control stays (R49). */
+describe('workflow stages (R49)', () => {
+  const reported = NOW - 5 * 60_000;
+  const triage = { state: 'done', action: 'merge', qualifier: 'test', target: 'Test-Payments', detail: 'Rich asked.', at: reported, stale: false } as const;
+  const show = (entry: LanedCard, now = NOW) =>
+    paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), now, actions);
+  const staged = (stage: CardStage, action?: LanedCard['action']): LanedCard =>
+    card(4501, { sessions: [], stage, triage, ...(action ? { action } : {}) });
+  /** A report made five minutes ago that set its note then, in a stage entered an hour ago, with nothing before it. */
+  const report = (over: Partial<CardStage> = {}): CardStage => ({
+    stage: 'build',
+    note: '',
+    at: reported,
+    changedAt: reported,
+    since: NOW - 60 * 60_000,
+    history: [],
+    ...over,
+  });
+  const running = { state: 'running', action: 'develop', qualifier: null, since: NOW - 2 * 60 * 60_000 } as const;
+  const verdict = () => document.querySelector<HTMLElement>('.gc-verdict')!;
+  const said = () => document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')?.getAttribute('aria-label') ?? undefined;
+  const chip = () => document.querySelector<HTMLButtonElement>('button.gc-run');
+
+  it('shows the stage note in place of the triage words and qualifier, capitalized, with the stage in the tooltip', () => {
+    show(staged(report({ note: 'wiring the stage command' })));
+
+    expect(verdict().querySelector('.gc-words')?.textContent).toBe('Wiring the stage command');
+    expect(tipOf(verdict())).toBe('In Build for 1h · updated 5m ago\nWiring the stage command');
+    expect(verdict().getAttribute('aria-description')).toBe('In Build for 1h · updated 5m ago\nWiring the stage command');
+  });
+
+  it.each([
+    ['plan', 'Planning', 'In Plan for 1h · updated 5m ago\nPlanning'],
+    ['build', 'Building', 'In Build for 1h · updated 5m ago\nBuilding'],
+    ['review', 'Ready for your review', 'In Review for 1h · updated 5m ago\nReady for your review'],
+  ] as const)('says what a %s stage with no note is doing', (stage, words, tip) => {
+    show(staged(report({ stage })));
+
+    expect(verdict().querySelector('.gc-words')?.textContent).toBe(words);
+    expect(tipOf(verdict())).toBe(tip);
+  });
+
+  it.each([
+    ['a step and a note', report({ note: 'plan', step: { n: 2, of: 3 } }), running, 'Develop · 2/3 Plan'],
+    ['a note with its own separator', report({ note: 'tests and UAT · test run', step: { n: 4, of: 9 } }), running, 'Develop · 4/9 Tests and UAT · test run'],
+    ['no note', report({ stage: 'review' }), { state: 'available', action: 'ship', qualifier: null } as const, 'Ship · Ready for your review'],
+    ['a step and no note', report({ step: { n: 1, of: 5 } }), running, 'Develop · 1/5 Building'],
+    ['no action', report({ note: 'reading the issue', step: { n: 1, of: 3 } }), undefined, '1/3 Reading the issue'],
+  ] as const)('leads the verdict with the card’s action, then the step and note, for %s', (_, stage, action, words) => {
+    show(staged(stage, action));
+
+    expect(verdict().querySelector('.gc-words')?.textContent).toBe(words);
+  });
+
+  it('lists earlier reports newest first, each with how long it stood, up to the current note’s change', () => {
+    const stage = report({
+      note: 'tests and UAT',
+      step: { n: 4, of: 9 },
+      at: NOW - 3 * 60_000,
+      changedAt: NOW - 10 * 60_000,
+      since: NOW - 2 * 60 * 60_000,
+      history: [
+        { stage: 'plan', note: 'research', at: NOW - 3 * 60 * 60_000 },
+        { stage: 'build', note: 'implement', step: { n: 1, of: 9 }, at: NOW - 2 * 60 * 60_000 },
+        { stage: 'build', note: '', step: { n: 3, of: 9 }, at: NOW - 40 * 60_000 },
+      ],
+    });
+
+    show(staged(stage, running));
+
+    expect(tipOf(verdict()).split('\n')).toEqual([
+      'In Build for 2h · updated 3m ago',
+      '4/9 Tests and UAT',
+      'Build · 3/9 — 30m',
+      'Build · 1/9 Implement — 1h',
+      'Plan · Research — 1h',
+    ]);
+  });
+
+  it('lists the eight newest earlier reports and leaves out older ones', () => {
+    const history = Array.from({ length: 10 }, (_, at) => ({ stage: 'build' as const, note: `step ${at + 1}`, at: NOW - (60 - at * 5) * 60_000 }));
+
+    show(staged(report({ history, changedAt: NOW - 10 * 60_000 })));
+
+    const lines = tipOf(verdict()).split('\n');
+
+    expect(lines).toHaveLength(10);
+    expect(lines[2]).toBe('Build · Step 10 — 5m');
+    expect(lines[9]).toBe('Build · Step 3 — 5m');
+  });
+
+  it('marks a running card’s stage stale at 20 minutes without a report, from the clock alone', () => {
+    show(staged(report({ note: 'writing tests', at: NOW - 20 * 60_000 + 1_000 }), running));
+
+    expect(verdict().dataset.stale).toBe('false');
+    expect(tipOf(verdict())).toBe('In Build for 1h · updated 19m ago\nWriting tests');
+
+    tickDurations(document, NOW + 1_000);
+
+    expect(verdict().dataset.stale).toBe('true');
+    expect(tipOf(verdict())).toBe('In Build for 1h · updated 20m ago\nNo update for 20m.\nWriting tests');
+    expect(verdict().getAttribute('aria-description')).toBe('In Build for 1h · updated 20m ago\nNo update for 20m.\nWriting tests');
+  });
+
+  it.each([
+    ['waiting to run', { state: 'available', action: 'develop', qualifier: null } as const],
+    ['finished', { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Done.', at: reported } as const],
+    ['with no action', undefined],
+  ])('does not mark a card’s old stage stale while its action is %s', (_, action) => {
+    show(staged(report({ at: NOW - 60 * 60_000, changedAt: NOW - 60 * 60_000 }), action));
+
+    expect(verdict().dataset.stale).toBe('false');
+    expect(tipOf(verdict())).not.toContain('No update');
+  });
+
+  /** The footer is cached by signature, so a changed note has to rebuild it or the old note would stand. */
+  it('redraws the verdict when only the note changes', () => {
+    show(staged(report({ note: 'Writing tests' })));
+    show(staged(report({ note: 'Fixing the typecheck' })));
+
+    expect(verdict().querySelector('.gc-words')?.textContent).toBe('Fixing the typecheck');
+  });
+
+  it('redraws the verdict when only the step changes', () => {
+    show(staged(report({ note: 'tests', step: { n: 2, of: 3 } }), running));
+    show(staged(report({ note: 'tests', step: { n: 3, of: 3 } }), running));
+
+    expect(verdict().querySelector('.gc-words')?.textContent).toBe('Develop · 3/3 Tests');
+  });
+
+  it('keeps the run state mark after the stage note', () => {
+    show(staged(report({ note: 'Writing tests' }), { state: 'running', action: 'develop', qualifier: null, since: reported }));
+
+    expect(verdict().lastElementChild?.classList.contains('gc-state-mark')).toBe(true);
+    expect(said()).toBe('Developing…');
+  });
+
+  it.each([
+    ['running develop', { state: 'running', action: 'develop', qualifier: null, since: reported }, 'Developing…'],
+    ['landed develop', { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Opened the pull request.', at: reported }, 'Developed'],
+    ['running ship', { state: 'running', action: 'ship', qualifier: null, since: reported }, 'Shipping…'],
+    ['landed ship', { state: 'done', action: 'ship', qualifier: null, outcome: 'landed', detail: 'Shipped it.', at: reported }, 'Shipped'],
+  ] as const)('names a %s run as "%s"', (_, action, text) => {
+    show(card(4501, { sessions: [], action }));
+
+    expect(said()).toBe(text);
+  });
+
+  it('names the ship control', () => {
+    show(staged(report({ stage: 'review' }), { state: 'available', action: 'ship', qualifier: null }));
+
+    expect(chip()?.getAttribute('aria-label')).toBe('Run ship');
+    expect(tipOf(chip())).toBe('Start Ship in this card’s worktree.');
+  });
+});
+
 describe('card triage (R38)', () => {
   const show = (entry: LanedCard) =>
     paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
@@ -4328,5 +4511,183 @@ describe('the custody popup', () => {
     paint(document, answered({ custody: { ...custody, truncated: true } }), NOW, withCustody);
     expect(popup()!.querySelector('.gc-c-note')!.textContent).toBe('The timeline was cut short; the newest moves are missing.');
     expect(popup()!.querySelector('.gc-c-tabs')).not.toBeNull();
+  });
+});
+
+/** R50: the runs the hub recorded, in a sidebar from the menu. The editor board's suite pins the same rows. */
+describe('the action history', () => {
+  const withHistory = { ...actions, readActionHistory: vi.fn() };
+  const panel = () => document.getElementById('gc-history');
+  const rows = () => [...document.querySelectorAll<HTMLTableRowElement>('#gc-history .gc-history-row')];
+  const cells = (row: HTMLTableRowElement) => [...row.cells].map((cell) => cell.textContent);
+  const menuItems = () => [...document.querySelectorAll<HTMLButtonElement>('#gc-menu .gc-popover button[role]')];
+
+  function run(over: Partial<ActionHistoryView>): ActionHistoryView {
+    return {
+      id: 'issue-4501@1',
+      key: 'issue-4501',
+      issueNumber: 4501,
+      action: 'merge',
+      qualifier: null,
+      trigger: 'automatic',
+      agent: 'claude',
+      startedAt: NOW - 5 * 60_000,
+      endedAt: NOW - 2 * 60_000,
+      outcome: 'landed',
+      detail: '',
+      title: 'Issue 4501',
+      url: `https://github.com/${REPO}/issues/4501`,
+      ...over,
+    };
+  }
+
+  /** One of each outcome, trigger, and naming case, newest first as the hub sends them. */
+  const entries: ActionHistoryView[] = [
+    run({ id: 'a', action: 'develop', trigger: undefined, startedAt: NOW - 90_000, endedAt: null, outcome: 'running' }),
+    run({ id: 'b', qualifier: 'upstream', detail: 'Merged master into the branch.' }),
+    run({ id: 'c', action: 'create-worktree', next: 'develop', trigger: 'editor' }),
+    run({ id: 'd', action: 'create-worktree', trigger: 'browser', outcome: 'failed', detail: 'No worktree prompt.' }),
+    run({ id: 'e', action: 'ship', issueNumber: 4502, title: null, outcome: 'halted' }),
+    run({ id: 'f', action: 'address-review', key: 'session:17000-parent', issueNumber: null, title: null, qualifier: 'followup', outcome: 'stopped' }),
+    run({ id: 'g', action: 'review-others', qualifier: 'initial', startedAt: NOW - 3 * 60 * 60_000, endedAt: NOW - 2 * 60 * 60_000 }),
+  ];
+
+  /** Open the menu and choose the item, repainting after each click as the content script would. */
+  function openHistory(shown: State = state()): void {
+    paint(document, shown, NOW, withHistory);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, shown, NOW, withHistory);
+
+    const item = menuItems().find((button) => button.textContent === 'Action history');
+
+    if (item === undefined) {
+      throw new Error('the menu offers no action history');
+    }
+
+    item.click();
+    paint(document, shown, NOW, withHistory);
+  }
+
+  beforeEach(() => {
+    withHistory.readActionHistory.mockReset();
+    withHistory.repaint.mockReset();
+  });
+
+  it('is offered after Refresh only where the content script can ask for it', () => {
+    paint(document, state(), NOW, withHistory);
+    document.querySelector<HTMLElement>('#gc-menu button')!.click();
+    paint(document, state(), NOW, { ...withHistory, openOptions: vi.fn() });
+
+    expect(menuItems().map((entry) => entry.textContent)).toEqual(['✓Show hub data on cards', 'Show log', 'Refresh', 'Action history', 'Settings']);
+    expect(menuItems()[3]!.getAttribute('role')).toBe('menuitem');
+  });
+
+  it('asks for the history on opening and says it is reading, with focus on its close control', () => {
+    openHistory();
+
+    expect(withHistory.readActionHistory).toHaveBeenCalledTimes(1);
+    expect(historyShown()).toBe(true);
+    expect(panel()!.getAttribute('role')).toBe('dialog');
+    expect(document.getElementById(panel()!.getAttribute('aria-labelledby')!)?.textContent).toBe('Action history');
+    expect(panel()!.querySelector('.gc-empty')?.textContent).toBe('Reading action history…');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close action history');
+    expect(document.querySelectorAll('#gc-menu .gc-popover')).toHaveLength(0);
+  });
+
+  it('lists each run with its start, card, action, trigger, outcome, and duration, and its detail beneath', () => {
+    openHistory();
+    paint(document, state({ history: entries }), NOW, withHistory);
+
+    expect([...panel()!.querySelectorAll('th')].map((cell) => cell.textContent)).toEqual(['Started', 'Card', 'Action', 'Trigger', 'Outcome', 'Duration']);
+    expect(rows().map(cells)).toEqual([
+      ['1m ago', '#4501 Issue 4501', 'Develop', '—', 'Running…', '1m'],
+      ['5m ago', '#4501 Issue 4501', 'Merge · upstream', 'Automatic', 'Merged', '3m'],
+      ['5m ago', '#4501 Issue 4501', 'Worktree for Develop', 'Editor', 'Created', '3m'],
+      ['5m ago', '#4501 Issue 4501', 'Worktree', 'Browser', 'Did not run', '3m'],
+      ['5m ago', '#4502', 'Ship', 'Automatic', 'Stopped short', '3m'],
+      ['5m ago', 'session:17000-parent', 'Answer review · followup', 'Automatic', 'Stopped', '3m'],
+      ['3h ago', '#4501 Issue 4501', 'Review their PR · initial', 'Automatic', 'Reviewed', '1h'],
+    ]);
+    expect(rows().map((row) => row.querySelector('.gc-state-glyph')?.getAttribute('data-glyph'))).toEqual(['spinner', 'check', 'check', 'cross', 'alert', 'square', 'check']);
+    expect([...panel()!.querySelectorAll('.gc-history-detail')].map((row) => row.textContent)).toEqual(['Merged master into the branch.', 'No worktree prompt.']);
+    expect(rows()[1]!.nextElementSibling?.classList.contains('gc-history-detail')).toBe(true);
+
+    const started = rows()[1]!.querySelector('time')!;
+
+    expect(started.getAttribute('datetime')).toBe('2026-09-04T11:55:00.000Z');
+    expect(tipOf(started)).toBe(new Date(NOW - 5 * 60_000).toLocaleString());
+  });
+
+  it('ages a running run’s start and duration with the clock, and keeps its rows across a scan', () => {
+    openHistory();
+    paint(document, state({ history: [entries[0]!] }), NOW, withHistory);
+
+    const row = rows()[0]!;
+
+    tickDurations(document, NOW + 30_000);
+    paint(document, state({ history: [entries[0]!] }), NOW + 30_000, withHistory);
+
+    expect(rows()[0]).toBe(row);
+    expect(cells(row)).toEqual(['2m ago', '#4501 Issue 4501', 'Develop', '—', 'Running…', '2m']);
+  });
+
+  it('says so when nothing has run', () => {
+    openHistory();
+    paint(document, state({ history: [] }), NOW, withHistory);
+
+    expect(panel()!.querySelector('.gc-empty')?.textContent).toBe('No actions have run yet.');
+    expect(rows()).toHaveLength(0);
+  });
+
+  it('closes from its close control and returns focus to the menu control', () => {
+    openHistory();
+    document.querySelector<HTMLButtonElement>('#gc-history .gc-close')!.click();
+    paint(document, state(), NOW, withHistory);
+
+    expect(panel()).toBeNull();
+    expect(historyShown()).toBe(false);
+    expect(document.activeElement).toBe(document.querySelector('#gc-menu button'));
+  });
+
+  it('closes on Escape inside it, and leaves Escape elsewhere to GitHub', () => {
+    openHistory();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    paint(document, state(), NOW, withHistory);
+
+    expect(panel()).not.toBeNull();
+
+    panel()!.querySelector('.gc-history-scroll')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    paint(document, state(), NOW, withHistory);
+
+    expect(panel()).toBeNull();
+    expect(document.activeElement).toBe(document.querySelector('#gc-menu button'));
+  });
+
+  it('closes on a click outside it and stays open for a click inside it', () => {
+    openHistory();
+    panel()!.querySelector<HTMLElement>('.gc-history-scroll')!.click();
+    paint(document, state(), NOW, withHistory);
+
+    expect(panel()).not.toBeNull();
+
+    document.getElementById('project-items-region')!.click();
+    paint(document, state(), NOW, withHistory);
+
+    expect(panel()).toBeNull();
+    expect(historyShown()).toBe(false);
+  });
+
+  it('closes when hub data goes off or the page leaves the board', () => {
+    openHistory();
+    paint(document, state(), NOW, withHistory, { animations: true, replaceAvatars: true, cardRows: false, pairConversations: false });
+
+    expect(panel()).toBeNull();
+    expect(historyShown()).toBe(false);
+
+    openHistory();
+    clearHub(document);
+
+    expect(panel()).toBeNull();
+    expect(historyShown()).toBe(false);
   });
 });

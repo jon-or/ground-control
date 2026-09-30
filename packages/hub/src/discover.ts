@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { request } from 'node:http';
 import { z } from 'zod';
 import { PROTOCOL, normalize } from '@ground-control/core';
+import type { StageAnswer, StageRequest } from '@ground-control/core';
 import { read } from './fs.js';
 import { hubJsonPathOf } from './paths.js';
 import { proofOf } from './server.js';
@@ -88,6 +89,7 @@ function call(
   path: string,
   token: string | null,
   timeoutMs: number,
+  body = '{}',
 ): Promise<Answer | Unanswered> {
   return new Promise((resolve) => {
     const headers: Record<string, string> = { Host: `127.0.0.1:${port}` };
@@ -131,7 +133,7 @@ function call(
     const deadline = setTimeout(() => done('silent'), timeoutMs);
 
     outbound.on('error', () => done('unreachable'));
-    outbound.end(token === null ? undefined : '{}');
+    outbound.end(token === null ? undefined : body);
   });
 }
 
@@ -260,6 +262,46 @@ export async function stopThisHub(hub: LiveHub, timeoutMs = PROBE_TIMEOUT_MS): P
 
   return typeof answer !== 'string' && answer.status === 200;
 }
+
+/** What a stage report came to: the hub's answer, or why no hub took it (R49). */
+export type StageSent = { answer: StageAnswer } | { unreached: string };
+
+/** Send a workflow stage to the running hub. A missing or unproven hub is not started: nothing is recorded. */
+export async function sendStage(stateDir: string, stage: StageRequest, timeoutMs = STAGE_TIMEOUT_MS): Promise<StageSent> {
+  const found = await findHub(stateDir);
+  // The route is newer than the protocol version, so a hub speaking another one may still take it.
+  const hub = 'hub' in found ? found.hub : found.miss.why === 'another-protocol' ? found.miss.hub : null;
+
+  if (hub === null) {
+    return { unreached: 'miss' in found && found.miss.why === 'no-record' ? 'no Ground Control hub is running for this home' : `the recorded hub is ${'miss' in found ? found.miss.why : 'unknown'}` };
+  }
+
+  const answer = await call(hub.record.port, 'POST', '/stage', hub.record.token, timeoutMs, JSON.stringify(stage));
+
+  if (answer === 'unreachable') {
+    return { unreached: 'the hub could not be reached' };
+  }
+
+  // The hub may have recorded the stage and not answered in time; a repeat report is harmless.
+  if (answer === 'silent') {
+    return { unreached: `the hub did not answer within ${timeoutMs / 1000} s; the stage may not be recorded, so report it again` };
+  }
+
+  if (answer.status === 404) {
+    return { unreached: 'the running hub predates stage reports; reload the editor window to update it' };
+  }
+
+  try {
+    const body = JSON.parse(answer.body) as StageAnswer | { error?: unknown };
+
+    return 'ok' in body ? { answer: body } : { answer: { ok: false, reason: String(body.error ?? `HTTP ${answer.status}`) } };
+  } catch {
+    return { answer: { ok: false, reason: `HTTP ${answer.status}` } };
+  }
+}
+
+/** A stage report reads the board, and one for Review reads the evidence ledger too. */
+const STAGE_TIMEOUT_MS = 10_000;
 
 /** Require equal protocol versions; the version changes only for incompatible messages. */
 function protocolMatches(identity: HubIdentity): boolean {

@@ -4,16 +4,23 @@ export type { WorktreeScan } from './checkouts.js';
 export {
   assignLanes,
   boardStatuses,
+  clipNote,
+  heldStage,
   nextMemory,
   readMemory,
   statusLanes,
   withPlacement,
+  withStage,
   DEFAULT_BOARD_STATUSES,
   DEFAULT_STATUS_LANES,
   EMPTY_MEMORY,
   LANE_ORDER,
   LANE_TITLES,
+  STAGE_NOTE_LIMIT,
+  STAGE_RELEASE_MARGIN_MS,
 } from './lanes.js';
+export { checkEvidence } from './stageEvidence.js';
+export type { EvidenceCheck } from './stageEvidence.js';
 export type { BoardCard } from './types.js';
 export type { Attention, BoardRules, CardMemory, Lane, LaneId, LanedCard } from './lanes.js';
 export {

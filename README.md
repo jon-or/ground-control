@@ -10,11 +10,12 @@ A personal board for assigned GitHub issues and local Claude Code and Codex sess
 - Start an editor session at a card's checkout. Claude accepts an unsent prompt; Codex opens a bare session.
 - See on a card whether it has a worktree for its issue, and run your own worktree prompt to make one — on its own, or before a card action that needs it.
 - Classify the next action from issue and pull-request context on request; automatic triage requires opt-in.
-- Run your own prompt for a card's triaged action — merges, reviews, and review answers — in the card's worktree, from a click or automatically. The action table chooses the prompt per action and which start without a click; nothing is configured by default. [R39](docs/prd.md#r39-card-actions) describes checks and implementation limits.
+- Let your own skills report a card's workflow stage — plan, build, or review — with a progress note, and run your develop and ship prompts from the card.
+- Run your own prompt for a card's triaged action — merges, reviews, review answers, and development — in the card's worktree, from a click or automatically. The action table chooses the prompt per action and which start without a click; nothing is configured by default. [R39](docs/prd.md#r39-card-actions) describes checks and implementation limits.
 
 Working lanes are Unstarted, Plan, Build, Review, and Icebox. Archived contains work outside the configured membership set. [Arrival rules](docs/prd.md#r8-arrival-and-manual-placement) determine placement until you move a card.
 
-Automated takeover, resuming after tab closure or usage limits, and coordinated development stages remain [future requirements](docs/prd.md#future-workflow-requirements).
+Automated takeover, resuming after tab closure or usage limits, and automatic stage movement remain [future requirements](docs/prd.md#future-workflow-requirements).
 
 ## Install and configure
 
@@ -127,7 +128,7 @@ Switching to manual cancels automatic readings; switching off cancels all readin
 
 ### Action settings
 
-The action table says which prompt runs for each triage action. Open it with **Ground Control: Edit Action Table**, the board menu's Action table item, or the link in the `actions.table` setting; it saves to `actions.table`, which settings.json also edits. Each row names an action — Merge, Review their PR, or Answer review — a qualifier or Any, the prompt, and whether it runs automatically. A row naming the card's qualifier takes precedence over an Any row; a card whose reading has no row offers no action. Every row can be started from the card's run control; an automatic row also starts without a click. The agent runs in the card's worktree and may push changes; a card with no worktree gets one from `worktree.prompt` first. For example:
+The action table says which prompt runs for each triage action. Open it with **Ground Control: Edit Action Table**, the board menu's Action table item, or the link in the `actions.table` setting; it saves to `actions.table`, which settings.json also edits. Each row names an action — Merge, Review their PR, Answer review, Develop, or Ship — a qualifier or Any, the prompt, and whether it runs automatically. A row naming the card's qualifier takes precedence over an Any row; a card whose reading has no row offers no action. Every row can be started from the card's run control; an automatic row also starts without a click. The agent runs in the card's worktree and may push changes; a card with no worktree gets one from `worktree.prompt` first. For example:
 
 ```json
 "groundControl.actions.table": [
@@ -141,7 +142,7 @@ The qualifier of a review or an answer is `initial` or `followup`, from your own
 
 Before a stacked or test merge on a pull request based on another branch, the board merges the default branch into that base itself, with a `merge` row whose qualifier is `base`, in the worktree that has the base checked out. That run takes the base's pull request as its placeholders: `{branch}` is the base, `{base}` the default branch, `{issue}` and `{pr}` the base's. Give it a single merge, for example `/or-merge {base} {branch} {issue}`, with no test merge or status change. The base's pull request must be yours, not a draft, and based on the default branch, and no session may be running in its worktree. The card's own row decides whether this starts automatically; the base row's `automatic` is not used. One merge runs into a branch at a time: cards stacked on one base share one base merge, and the others are refused until it ends, then read again. A merge lands once GitHub shows its destination containing the source commit read before it started; a run reporting `done` without that push halts. An earlier `actions.merge-upstream` prompt becomes a Merge · upstream row once.
 
-Reviews refuse your own pull request; merges and answers refuse someone else's; every row refuses drafts, closed pull requests, parked lanes, and a card with a session still running.
+Reviews refuse your own pull request; merges and answers refuse someone else's; those rows refuse drafts and closed pull requests; every row refuses parked lanes and a card with a session still running. Develop and Ship work on the issue and need no pull request; see [workflow stages](#workflow-stages).
 
 `actions.agent` chooses `auto`, `claude`, or `codex`; auto preserves registry order, Claude before Codex, among enabled agents that can dispatch. An explicit selection must also be enabled in `agents`. Both agents can remain available for discovery while card actions use one of them.
 
@@ -158,6 +159,29 @@ A prompt that does not place `{resultPath}` itself has that instruction appended
 `actions.permissionMode` defaults to Claude's `auto`. Claude's `manual` and `acceptEdits` modes can wait for approval in unattended runs; `dontAsk` denies operations needing approval, `plan` cannot write, and `bypassPermissions` disables permission checks. Codex supports only `plan`, `dontAsk`, and `bypassPermissions`. Unsupported agent/mode combinations refuse before reading card context or dispatching; unknown modes reject configuration. Ground Control never substitutes broader permissions.
 
 `actions.dailyLimit` caps automatic starts over a rolling 24 hours; zero disables them. Manual starts, from the editor or the overlay, are not limited by it or counted toward it. `actions.fromBrowser` defaults to off; turning it on lets the GitHub overlay start a card action or a worktree run; either also needs a visible project tab, and the action's row must be automatic. Stopping a run needs no setting. `actions.resultMinutes` limits the wait for a dispatched session to appear, not the duration of its work.
+
+### Workflow stages
+
+Skills you write can report where their work on a card stands, from any directory:
+
+```bash
+node "$HOME/.claude/ground-control/hub.js" stage 17198 build --note "tests and UAT" --step 4/5
+```
+
+The stage is `plan`, `build`, or `review`, each placing the card in that lane, or `done`, which hands the card back to its GitHub status and pull request. The note and step replace the last ones (omit them to clear them), and the card shows them in place of the triage verdict, in both clients, as `Develop · 4/5 Tests and UAT`. Hovering shows how long the card has been in its stage and the earlier reports with how long each lasted; while the run is going, a card with no report for 20 minutes is marked as having had no update. Repeating the same report refreshes its time without adding history. A stage holds until `done`, a manual move, the card leaving the board, or a GitHub status change made after the report, so set the status first and then report. `review` is refused unless the card's worktree holds `.wip/<issue>/evidence.md` with a Markdown table whose `Evidence` column is filled in on every row. Exit codes: 0 recorded, 1 usage, 2 no hub running (nothing recorded), 3 refused (reason on stderr).
+
+While a card has a stage, its run control offers the Develop row in plan and build and the Ship row in review. Ship runs only when clicked. For example:
+
+```json
+{ "action": "develop", "qualifier": null, "prompt": "/gc-plan {issue} result:{resultPath}", "automatic": false },
+{ "action": "ship", "qualifier": null, "prompt": "/gc-ship {issue} result:{resultPath}", "automatic": false }
+```
+
+Develop is also offered where triage reads a card as Develop. Placing `{resultPath}` in these prompts keeps the board from appending its unattended-run instructions, which tell the agent to ask no questions. See [R49](docs/prd.md#r49-workflow-stages).
+
+### Action history
+
+**Action history** in the editor board's menu, or in the overlay's menu, lists every run the board started — merges, reviews, answers, develop and ship runs, and worktree runs — newest first, with the card, who started it (automatically, or a click in the editor or the browser), how it ended, and how long it took. It keeps 90 days, up to 500 runs. See [R50](docs/prd.md#r50-action-history).
 
 ### Settings this guide does not cover
 

@@ -10,9 +10,11 @@
  * @typedef {import('@ground-control/core').Session} Session
  * @typedef {import('@ground-control/core').LaneId} LaneId
  * @typedef {import('@ground-control/core').StartableAgent} StartableAgent
+ * @typedef {import('@ground-control/core').CardStage} CardStage
+ * @typedef {import('@ground-control/core').ActionHistoryView} ActionHistoryView
  * @typedef {import('./custody.js').CustodyState} CustodyState
- * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody?: CustodyState | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, createWorktree: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void, readCustody?: (key: string) => void }} Actions
+ * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody?: CustodyState | null, history?: ActionHistoryView[] | null }} State
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, createWorktree: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void, readCustody?: (key: string) => void, readActionHistory?: () => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -49,6 +51,7 @@ export const VIEW_TABS = 'nav[aria-label="Select view"]';
 const MENU_ID = 'gc-menu';
 const LOG_ID = 'gc-log';
 const LOG_LINES_ID = 'gc-log-lines';
+const HISTORY_ID = 'gc-history';
 const MENU_FALLBACK_ID = 'gc-perch';
 const TOASTS_ID = 'gc-toasts';
 const STYLE_ID = 'gc-style';
@@ -169,6 +172,28 @@ const TRIAGE_LABELS = {
   merge: 'Merge',
   other: 'Other',
 };
+
+/**
+ * Run-control labels: the triage actions, and `ship`, which a card's workflow stage offers rather than a reading (R49).
+ *
+ * @type {Record<string, string>}
+ */
+const ACTION_LABELS = { ...TRIAGE_LABELS, ship: 'Ship' };
+
+/**
+ * A reported workflow stage's name, and what the verdict says for it when the report gave no note (R49).
+ *
+ * @type {Record<string, string>}
+ */
+const STAGE_TITLES = { plan: 'Plan', build: 'Build', review: 'Review' };
+/** @type {Record<string, string>} */
+const STAGE_WORDS = { plan: 'Planning', build: 'Building', review: 'Ready for your review' };
+
+/** How long a running card's stage may go without a report before its verdict reads as stale. */
+const STAGE_STALE_MS = 20 * 60_000;
+
+/** Earlier reports the verdict's tooltip lists, newest first. */
+const STAGE_HISTORY_SHOWN = 8;
 
 /** @type {Record<string, string>} */
 /** @type {Record<string, string>} */
@@ -574,8 +599,10 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${TIP_ID} { position: fixed; z-index: 300; display: none; box-sizing: border-box; pointer-events: none;
   width: max-content; max-width: 250px; padding: 4px 8px; border-radius: 6px;
   font-family: inherit; font-size: 12px; font-weight: 400; line-height: 1.625;
-  text-align: center; white-space: normal; overflow-wrap: break-word;
+  text-align: center; white-space: pre-line; overflow-wrap: break-word;
   color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-emphasis, #25292e); }
+/* A tooltip of several lines lists them, so it reads from the start edge. */
+#${TIP_ID}[data-lines="true"] { text-align: start; }
 #${TIP_ID}[data-open="true"] { display: block; animation: gc-tip-appear 0.1s ease-out; }
 @keyframes gc-tip-appear { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #${TIP_ID}[data-open="true"] { animation: none; } }
@@ -621,6 +648,31 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${LOG_ID}[data-shows-hub="false"] .gc-line[data-source="hub"],
 #${LOG_ID}[data-shows-debug="false"] .gc-line[data-level="debug"] { display: none; }
 #${LOG_LINES_ID} .gc-empty { color: var(--fgColor-muted, #59636e); font-family: inherit; }
+/* Action history (R50): a sidebar like the log's, holding one table of runs. */
+#${HISTORY_ID} { position: fixed; top: 0; right: 0; bottom: 0; width: min(120ch, 80vw); z-index: 100;
+  display: flex; flex-direction: column; font-size: 12px; color: var(--fgColor-default, #1f2328);
+  background: var(--bgColor-default, #ffffff); border-left: 1px solid var(--borderColor-default, #d1d9e0);
+  box-shadow: -2px 0 12px rgba(31, 35, 40, 0.12); }
+#${HISTORY_ID} header { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+#${HISTORY_ID} h2 { flex: 1; margin: 0; font-size: 12px; font-weight: 600; }
+#${HISTORY_ID} .gc-close { font: inherit; background: none; border: 0; cursor: pointer; padding: 0 2px;
+  color: var(--fgColor-muted, #59636e); }
+#${HISTORY_ID} .gc-history-scroll { flex: 1; overflow: auto; overscroll-behavior: contain; padding: 0 10px 10px; }
+#${HISTORY_ID} .gc-close:focus-visible, #${HISTORY_ID} .gc-history-scroll:focus-visible {
+  outline: 2px solid var(--focus-outlineColor, #0969da); outline-offset: -2px; }
+#${HISTORY_ID} .gc-empty { padding: 8px 0; color: var(--fgColor-muted, #59636e); }
+#${HISTORY_ID} table { width: 100%; border-collapse: collapse; }
+#${HISTORY_ID} th { position: sticky; top: 0; padding: 6px 10px 4px 0; font-weight: 600; text-align: start;
+  color: var(--fgColor-muted, #59636e); background: var(--bgColor-default, #ffffff);
+  border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+#${HISTORY_ID} td { padding: 5px 10px 5px 0; vertical-align: top; }
+#${HISTORY_ID} .gc-history-row td { border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+#${HISTORY_ID} .gc-history-started, #${HISTORY_ID} .gc-history-trigger, #${HISTORY_ID} .gc-history-took {
+  white-space: nowrap; color: var(--fgColor-muted, #59636e); font-variant-numeric: tabular-nums; }
+#${HISTORY_ID} .gc-history-action, #${HISTORY_ID} .gc-history-outcome { white-space: nowrap; }
+#${HISTORY_ID} .gc-history-state { display: inline-flex; align-items: center; gap: 4px; }
+#${HISTORY_ID} .gc-history-detail td { padding-top: 0; color: var(--fgColor-muted, #59636e); overflow-wrap: anywhere; }
 ${PANEL_CSS}
 ${CUSTODY_CSS}
 `;
@@ -662,6 +714,11 @@ const logShows = { ...LOG_SHOWS_BY_DEFAULT };
  * not cover active cards.
  */
 let logPinned = false;
+
+/** Whether the action history sidebar is open; it is read afresh on opening and with each snapshot (R50). */
+let historyOpen = false;
+/** The history just opened, so the next paint puts focus in it. */
+let historyFocus = false;
 
 /**
  * Cache header visibility from page storage; update on user changes and reapply on each scan. Null until first
@@ -854,12 +911,16 @@ export function tickDurations(doc, now) {
   let moved = 0;
 
   // Update only overlay elements; GitHub elements may use the same attribute name.
-  for (const el of doc.querySelectorAll(`.${BADGE_CLASS} [${AGE_ATTR}], #${MENU_ID} [${AGE_ATTR}]`)) {
+  for (const el of doc.querySelectorAll(`.${BADGE_CLASS} [${AGE_ATTR}], #${MENU_ID} [${AGE_ATTR}], #${HISTORY_ID} [${AGE_ATTR}]`)) {
     const at = Number(el.getAttribute(AGE_ATTR));
 
     if (Number.isFinite(at) && setAge(el, ago(now - at))) {
       moved += 1;
     }
+  }
+
+  for (const held of doc.querySelectorAll(`.${BADGE_CLASS} .gc-verdict[data-stage]`)) {
+    paintStage(/** @type {HTMLElement} */ (held), now);
   }
 
   return moved;
@@ -1230,6 +1291,8 @@ function showTip(doc, anchor) {
   const words = panel.firstChild ?? panel.appendChild(doc.createTextNode(''));
 
   words.nodeValue = text;
+  // A tooltip of several lines is a list, so it reads from the start edge rather than centred.
+  panel.dataset.lines = String(text.includes('\n'));
   panel.dataset.open = 'true';
   placeTip(panel, anchor);
 }
@@ -1422,6 +1485,7 @@ function closeOnOutsideClick(doc, keep, closed) {
     openMenu = null;
     panelOpen = false;
     openCustody = null;
+    historyOpen = false;
     closed();
   };
 
@@ -1796,6 +1860,10 @@ export function renderMenu(doc, state, now, actions, cardRows) {
         actions.repaint();
       }),
     );
+
+    if (actions.readActionHistory) {
+      panel.appendChild(item(doc, 'Action history', () => setHistoryOpen(doc, true, actions)));
+    }
   }
 
   if (actions.openOptions) panel.appendChild(item(doc, 'Settings', actions.openOptions));
@@ -2023,7 +2091,12 @@ function laneMenu(doc, card, actions, startable) {
       LANE_TITLES[lane] ?? lane,
       () => {
         openMenu = null;
-        actions.move(card.key, lane);
+
+        // Choosing the ticked lane is no move; sending one would end a workflow stage (R49).
+        if (!chosen) {
+          actions.move(card.key, lane);
+        }
+
         actions.repaint();
       },
       chosen ? '✓' : '',
@@ -2347,13 +2420,27 @@ function retainedMark(retained) {
 /**
  * Describe the duration and last hook event.
  *
- * @param {{ phase: string, event: string | null }} activity
+ * @param {{ phase: string, event: string | null, backgroundTasks?: number }} activity
  * @returns {string}
  */
 function stateTitle(activity) {
   const durationDescription = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
 
-  return activity.event ? `${durationDescription} Last event: ${activity.event}.` : durationDescription;
+  return activity.event ? `${durationDescription} ${eventTitle(activity)}` : durationDescription;
+}
+
+/**
+ * The last hook event. A Stop with background tasks still running ended the turn but not the work, so it says that.
+ *
+ * @param {{ event: string | null, backgroundTasks?: number }} activity
+ * @returns {string}
+ */
+function eventTitle(activity) {
+  const tasks = activity.backgroundTasks ?? 0;
+
+  return activity.event === 'Stop' && tasks > 0
+    ? `Turn ended; ${tasks} background task${tasks === 1 ? '' : 's'} still running.`
+    : `Last event: ${activity.event}.`;
 }
 
 /**
@@ -2553,7 +2640,8 @@ function canRequestTriage(snapshot, card) {
 
 /**
  * What to do with this card, as one line: the triage action and its qualifier, then a mark for the dispatched
- * run's state (R38, R39, R45). The words truncate; the mark never does. The full explanation stays in the tooltip.
+ * run's state (R38, R39, R45). A reported workflow stage's note takes the words' place (R49). The words truncate;
+ * the mark never does. The full explanation stays in the tooltip.
  *
  * @param {Document} doc
  * @param {LanedCard} card
@@ -2564,12 +2652,18 @@ function verdict(doc, card, now) {
   const held = doc.createElement('span');
   const words = doc.createElement('span');
   const triage = card.triage;
+  const stage = card.stage;
 
   held.className = 'gc-verdict';
   words.className = 'gc-words';
   held.appendChild(words);
 
-  if (!triage) {
+  if (stage) {
+    words.textContent = stageWords(stage, card.action);
+    held.dataset.stage = stage.stage;
+    stageShown.set(held, { stage, running: card.action?.state === 'running' });
+    paintStage(held, now);
+  } else if (!triage) {
     words.textContent = 'Not read';
     setTooltip(held, 'This card has not been read.');
   } else if (triage.state === 'failed') {
@@ -2593,7 +2687,7 @@ function verdict(doc, card, now) {
   }
 
   // The qualifier names the row a run uses, so it stays beside the run's state rather than giving way to it (R39).
-  if (triage?.state === 'done' && triage.qualifier) {
+  if (!stage && triage?.state === 'done' && triage.qualifier) {
     words.append(' · ');
     words.appendChild(note(doc, triage.qualifier));
   }
@@ -2605,6 +2699,107 @@ function verdict(doc, card, now) {
   }
 
   return held;
+}
+
+/**
+ * The stage each drawn verdict shows, so the clock can age its tooltip and stale mark without a redraw.
+ *
+ * @type {WeakMap<Element, { stage: CardStage, running: boolean }>}
+ */
+const stageShown = new WeakMap();
+
+/** @param {string} text */
+function capitalized(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * The step and note of a report, or the stage's default words when it gave no note.
+ *
+ * @param {CardStage} stage
+ * @returns {string}
+ */
+function stageLine(stage) {
+  const note = stage.note ? capitalized(stage.note) : STAGE_WORDS[stage.stage] ?? stage.stage;
+
+  return stage.step ? `${stage.step.n}/${stage.step.of} ${note}` : note;
+}
+
+/**
+ * The verdict's words for a stage: the card's action, then the step and note (R49).
+ *
+ * @param {CardStage} stage
+ * @param {LanedCard['action']} action
+ * @returns {string}
+ */
+function stageWords(stage, action) {
+  return action ? `${ACTION_LABELS[action.action] ?? action.action} · ${stageLine(stage)}` : stageLine(stage);
+}
+
+/**
+ * An earlier report and how long it stood.
+ *
+ * @param {CardStage['history'][number]} entry
+ * @param {number} until
+ * @returns {string}
+ */
+function stageEntryLine(entry, until) {
+  const said = [entry.step ? `${entry.step.n}/${entry.step.of}` : '', entry.note ? capitalized(entry.note) : ''].filter(Boolean).join(' ');
+
+  return `${STAGE_TITLES[entry.stage] ?? entry.stage}${said ? ` · ${said}` : ''} — ${ago(until - entry.at)}`;
+}
+
+/**
+ * Time in the stage and since the last report, the current report, then the earlier ones newest first.
+ *
+ * @param {CardStage} stage
+ * @param {number} now
+ * @param {boolean} stale
+ * @returns {string}
+ */
+function stageTitle(stage, now, stale) {
+  const lines = [`In ${STAGE_TITLES[stage.stage] ?? stage.stage} for ${ago(now - stage.since)} · updated ${ago(now - stage.at)} ago`];
+
+  if (stale) {
+    lines.push(`No update for ${ago(now - stage.at)}.`);
+  }
+
+  lines.push(stageLine(stage));
+
+  const { history } = stage;
+
+  for (let at = history.length - 1; at >= Math.max(0, history.length - STAGE_HISTORY_SHOWN); at--) {
+    const entry = /** @type {CardStage['history'][number]} */ (history[at]);
+
+    lines.push(stageEntryLine(entry, history[at + 1]?.at ?? stage.changedAt));
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Write a stage verdict's tooltip and stale mark for `now`; the clock calls this every second.
+ *
+ * @param {HTMLElement} held
+ * @param {number} now
+ */
+function paintStage(held, now) {
+  const shown = stageShown.get(held);
+
+  if (shown === undefined) {
+    return;
+  }
+
+  const stale = String(shown.running && now - shown.stage.at >= STAGE_STALE_MS);
+  const title = stageTitle(shown.stage, now, stale === 'true');
+
+  if (held.dataset.stale !== stale) {
+    held.dataset.stale = stale;
+  }
+
+  if (held.getAttribute(TIP_ATTR) !== title) {
+    setTooltip(held, title);
+  }
 }
 
 /**
@@ -2700,10 +2895,22 @@ const ACTION_OUTCOMES = {
 const CREATION_OUTCOMES = { ...ACTION_OUTCOMES, landed: 'Created' };
 
 /** What a running action is doing, stated at rest (R45). */
-const ACTION_RUNNING = { merge: 'Merging…', 'review-others': 'Reviewing…', 'address-review': 'Answering review…' };
+const ACTION_RUNNING = {
+  merge: 'Merging…',
+  'review-others': 'Reviewing…',
+  'address-review': 'Answering review…',
+  develop: 'Developing…',
+  ship: 'Shipping…',
+};
 
 /** What a run that reported its work complete did, by action (R39). */
-const ACTION_LANDED = { merge: 'Merged', 'review-others': 'Reviewed', 'address-review': 'Answered' };
+const ACTION_LANDED = {
+  merge: 'Merged',
+  'review-others': 'Reviewed',
+  'address-review': 'Answered',
+  develop: 'Developed',
+  ship: 'Shipped',
+};
 
 /** The glyph each finished outcome is drawn with. */
 const OUTCOME_GLYPHS = { landed: 'check', halted: 'alert', failed: 'cross', stopped: 'square' };
@@ -2996,7 +3203,7 @@ function runButton(doc, card, actions) {
   }
 
   // One row per action and qualifier, so the control names both (R39).
-  const label = `${TRIAGE_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+  const label = `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
 
   // Read and dispatched in the hub; there is no session to stop until the dispatch returns.
   if (action.state === 'running' && action.stage === 'starting') {
@@ -3489,6 +3696,283 @@ function logLine(doc, entry) {
   return line;
 }
 
+/** Who started a run. Runs recorded before the hub kept this have none. */
+const TRIGGER_WORDS = { automatic: 'Automatic', editor: 'Editor', browser: 'Browser' };
+
+/** Column headings, in order. */
+const HISTORY_COLUMNS = ['Started', 'Card', 'Action', 'Trigger', 'Outcome', 'Duration'];
+
+/** Whether the action history is open, which the content script reads to ask for it again with each snapshot. */
+export function historyShown() {
+  return historyOpen;
+}
+
+/**
+ * Open the action history and ask the hub for it, or close it and hand focus back to the menu control.
+ *
+ * @param {Document} doc
+ * @param {boolean} open
+ * @param {Actions} actions
+ */
+export function setHistoryOpen(doc, open, actions) {
+  historyOpen = open;
+  panelOpen = false;
+
+  if (open) {
+    historyFocus = true;
+    actions.readActionHistory?.();
+  } else {
+    doc.getElementById(HISTORY_ID)?.remove();
+    /** @type {HTMLElement | null} */ (doc.querySelector(`#${MENU_ID} button`))?.focus();
+  }
+
+  actions.repaint();
+}
+
+/**
+ * @param {Document} doc
+ * @param {Actions} actions
+ * @returns {HTMLElement}
+ */
+function buildHistory(doc, actions) {
+  const panel = doc.createElement('aside');
+
+  panel.id = HISTORY_ID;
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-labelledby', `${HISTORY_ID}-title`);
+
+  const bar = doc.createElement('header');
+  const title = doc.createElement('h2');
+
+  title.id = `${HISTORY_ID}-title`;
+  title.textContent = 'Action history';
+
+  const close = doc.createElement('button');
+
+  close.type = 'button';
+  close.className = 'gc-close';
+  close.textContent = '×';
+  close.setAttribute('aria-label', 'Close action history');
+  close.addEventListener('click', (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    setHistoryOpen(doc, false, actions);
+  });
+  bar.append(title, close);
+
+  const body = doc.createElement('div');
+
+  // The list has no controls, so the scrolling region takes the keyboard itself.
+  body.className = 'gc-history-scroll';
+  body.tabIndex = 0;
+  body.setAttribute('role', 'region');
+  body.setAttribute('aria-label', 'Actions');
+
+  // Escape inside the panel is the panel's; GitHub's own keys still own the board around it.
+  panel.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      event.preventDefault();
+      setHistoryOpen(doc, false, actions);
+    }
+  });
+
+  panel.append(bar, body);
+  (doc.body ?? doc.documentElement).appendChild(panel);
+
+  return panel;
+}
+
+/**
+ * The card a run was for: its number and title where the hub knows them, else its key.
+ *
+ * @param {ActionHistoryView} entry
+ * @returns {string}
+ */
+function historyCard(entry) {
+  if (entry.issueNumber === null) {
+    return entry.key;
+  }
+
+  return entry.title === null ? `#${entry.issueNumber}` : `#${entry.issueNumber} ${entry.title}`;
+}
+
+/**
+ * @param {ActionHistoryView} entry
+ * @returns {string}
+ */
+function historyAction(entry) {
+  if (entry.action === 'create-worktree') {
+    return entry.next ? `Worktree for ${ACTION_LABELS[entry.next] ?? entry.next}` : 'Worktree';
+  }
+
+  const label = ACTION_LABELS[entry.action] ?? entry.action;
+
+  return entry.qualifier ? `${label} · ${entry.qualifier}` : label;
+}
+
+/**
+ * The run control's words and mark for how a run ended (R45); a worktree run that landed made its worktree.
+ *
+ * @param {ActionHistoryView} entry
+ * @returns {{ text: string, glyph: string }}
+ */
+function historyOutcome(entry) {
+  /** @type {Record<string, string>} */
+  const landed = ACTION_LANDED;
+  /** @type {Record<string, string>} */
+  const outcomes = ACTION_OUTCOMES;
+  /** @type {Record<string, string>} */
+  const glyphs = OUTCOME_GLYPHS;
+
+  if (entry.outcome === 'running') {
+    return { text: 'Running…', glyph: 'spinner' };
+  }
+
+  if (entry.outcome === 'landed') {
+    return { text: entry.action === 'create-worktree' ? 'Created' : landed[entry.action] ?? ACTION_OUTCOMES.landed, glyph: 'check' };
+  }
+
+  return { text: outcomes[entry.outcome] ?? entry.outcome, glyph: glyphs[entry.outcome] ?? 'check' };
+}
+
+/**
+ * @param {Document} doc
+ * @param {string} tag
+ * @param {string} className
+ * @param {string} [text]
+ * @returns {HTMLElement}
+ */
+function node(doc, tag, className, text) {
+  const made = doc.createElement(tag);
+
+  made.className = className;
+
+  if (text !== undefined) {
+    made.textContent = text;
+  }
+
+  return made;
+}
+
+/**
+ * One run, and its detail on a line of its own beneath it.
+ *
+ * @param {Document} doc
+ * @param {ActionHistoryView} entry
+ * @param {number} now
+ * @returns {HTMLElement[]}
+ */
+function historyRows(doc, entry, now) {
+  const row = node(doc, 'tr', 'gc-history-row');
+  const time = /** @type {HTMLTimeElement} */ (node(doc, 'time', 'gc-history-when'));
+  const since = node(doc, 'span', '');
+  const outcome = historyOutcome(entry);
+  const mark = node(doc, 'span', 'gc-state-mark');
+  const state = node(doc, 'span', 'gc-history-state');
+  const ended = node(doc, 'td', 'gc-history-outcome');
+  const took = node(doc, 'td', 'gc-history-took');
+  const started = node(doc, 'td', 'gc-history-started');
+
+  row.dataset.outcome = entry.outcome;
+  time.dateTime = new Date(entry.startedAt).toISOString();
+  age(since, entry.startedAt, now);
+  time.append(since, ' ago');
+  setTooltip(time, new Date(entry.startedAt).toLocaleString());
+  started.appendChild(time);
+
+  mark.dataset.outcome = entry.outcome;
+  mark.appendChild(stateGlyph(doc, outcome.glyph));
+  state.append(mark, outcome.text);
+  ended.appendChild(state);
+
+  if (entry.endedAt !== null) {
+    took.textContent = ago(entry.endedAt - entry.startedAt);
+  } else if (entry.outcome === 'running') {
+    age(took, entry.startedAt, now);
+  } else {
+    took.textContent = '—';
+  }
+
+  row.append(
+    started,
+    node(doc, 'td', 'gc-history-card', historyCard(entry)),
+    node(doc, 'td', 'gc-history-action', historyAction(entry)),
+    node(doc, 'td', 'gc-history-trigger', entry.trigger ? TRIGGER_WORDS[entry.trigger] ?? entry.trigger : '—'),
+    ended,
+    took,
+  );
+
+  if (!entry.detail) {
+    return [row];
+  }
+
+  const said = node(doc, 'tr', 'gc-history-detail');
+  const cell = /** @type {HTMLTableCellElement} */ (node(doc, 'td', '', entry.detail));
+
+  cell.colSpan = HISTORY_COLUMNS.length - 1;
+  said.append(node(doc, 'td', ''), cell);
+
+  return [row, said];
+}
+
+/**
+ * Draw the history sidebar once by ID, and redraw its list only when the hub's answer changed, so scans keep its
+ * scroll position.
+ *
+ * @param {Document} doc
+ * @param {State} state
+ * @param {number} now
+ * @param {Actions} actions
+ * @returns {HTMLElement | null}
+ */
+export function renderHistory(doc, state, now, actions) {
+  const existing = doc.getElementById(HISTORY_ID);
+
+  if (!historyOpen) {
+    existing?.remove();
+
+    return null;
+  }
+
+  const panel = existing ?? buildHistory(doc, actions);
+  const body = /** @type {HTMLElement} */ (panel.querySelector('.gc-history-scroll'));
+  const entries = state.history ?? null;
+  const sig = JSON.stringify(entries);
+
+  if (panel.dataset.sig !== sig) {
+    panel.dataset.sig = sig;
+
+    if (entries === null) {
+      body.replaceChildren(node(doc, 'p', 'gc-empty', 'Reading action history…'));
+    } else if (entries.length === 0) {
+      body.replaceChildren(node(doc, 'p', 'gc-empty', 'No actions have run yet.'));
+    } else {
+      const table = doc.createElement('table');
+      const head = doc.createElement('tr');
+
+      for (const column of HISTORY_COLUMNS) {
+        const cell = doc.createElement('th');
+
+        cell.scope = 'col';
+        cell.textContent = column;
+        head.appendChild(cell);
+      }
+
+      table.createTHead().appendChild(head);
+      table.createTBody().append(...entries.flatMap((entry) => historyRows(doc, entry, now)));
+      body.replaceChildren(table);
+    }
+  }
+
+  if (historyFocus) {
+    historyFocus = false;
+    /** @type {HTMLElement | null} */ (panel.querySelector('.gc-close'))?.focus();
+  }
+
+  return panel;
+}
+
 /**
  * Remove overlay DOM on navigation away from a board. The content script runs across github.com because Chrome
  * does not reinject it on soft navigation.
@@ -3533,12 +4017,14 @@ export function clear(doc) {
 export function clearHub(doc) {
   openMenu = null;
   openCustody = null;
+  historyOpen = false;
+  historyFocus = false;
   logOpen = false;
   logPinned = false;
   Object.assign(logShows, LOG_SHOWS_BY_DEFAULT);
   dismissed.clear();
 
-  for (const id of [TOASTS_ID, LOG_ID]) {
+  for (const id of [TOASTS_ID, LOG_ID, HISTORY_ID]) {
     doc.getElementById(id)?.remove();
   }
 
@@ -3601,6 +4087,7 @@ function badgeSignature(card, openable, canRequest) {
     card.returned,
     card.attention,
     card.retainedAttention,
+    card.stage ?? null,
     card.triage,
     card.action,
     card.issue?.statusChangedAt ?? null,
@@ -3733,8 +4220,13 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     actions.watchLog(false);
   }
 
+  if (!presentation.cardRows) {
+    historyOpen = false;
+  }
+
   const menu = renderMenu(doc, state, now, actions, presentation.cardRows);
   const log = renderLog(doc, actions);
+  const history = renderHistory(doc, state, now, actions);
 
   applyCollapse(doc);
   fitGroupArea(doc);
@@ -3756,6 +4248,10 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
   // Outside clicks close the sidebar and unsubscribe from hub logs (R40).
   if (log !== null) {
     open.push(log);
+  }
+
+  if (history !== null) {
+    open.push(history);
   }
 
   const openable = state.snapshot?.openable ?? [];
@@ -3862,7 +4358,7 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     hideTip(doc);
   }
 
-  closeOnOutsideClick(doc, panelOpen || openMenu !== null || openCustody !== null || (logOpen && !logPinned) ? open : [], () => {
+  closeOnOutsideClick(doc, panelOpen || openMenu !== null || openCustody !== null || historyOpen || (logOpen && !logPinned) ? open : [], () => {
     // Read state after the menu handler runs so an outside click closes all unpinned panels and unsubscribes
     // from logs.
     if (logOpen && !logPinned) {

@@ -1,4 +1,5 @@
 export { actionEvidence } from './evidence.js';
+export { HISTORY_LIMIT, HISTORY_RETENTION_MS, historyWith, readActionHistory } from './history.js';
 export { actionEnabled, isDeveloperLogin, needsBaseMerge, planAction, planBaseMerge, promptFor } from './plan.js';
 export type { ActionDecision, ActionPlan, ActionRefusal, BaseDecision, BasePlan, PlanInput, PullRequestRole } from './plan.js';
 export { actionPrompt, basePromptValues, dispatchName, promptValues, worktreePrompt, worktreePromptValues } from './prompt.js';

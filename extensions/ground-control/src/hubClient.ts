@@ -7,8 +7,8 @@ import { boardLog, hubLog, showHubEntries } from './logging.js';
 import { host } from './registry.js';
 import { boardRoot, perform, refuse } from './resident.js';
 
-/** The hub's answer to one readDetail or readCustody, forwarded to whichever board asked for it. */
-export type DetailMessage = Extract<HubMessage, { type: 'detail' | 'custody' }>;
+/** The hub's answer to one readDetail, readCustody, or readActionHistory, forwarded to whichever board asked for it. */
+export type DetailMessage = Extract<HubMessage, { type: 'detail' | 'custody' | 'actionHistory' }>;
 
 /**
  * Keep one client per extension host so configuration works after the board closes (R34) and the hub remains
@@ -209,6 +209,7 @@ export class HubClient {
 
       case 'detail':
       case 'custody':
+      case 'actionHistory':
         this.#details.fire(message);
 
         return;

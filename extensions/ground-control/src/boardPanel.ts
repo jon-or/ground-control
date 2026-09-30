@@ -61,6 +61,8 @@ type Inbound =
   | { type: 'readDetail'; key: string; subject: DetailSubject }
   // The webview names the card; the hub folds the issue's timeline and answers this board alone.
   | { type: 'readCustody'; key: string }
+  // The hub answers this board alone, newest first (R50).
+  | { type: 'readActionHistory' }
   // A link inside rendered conversation HTML. Only http(s) is opened.
   | { type: 'openLink'; url: string }
   // Panel width the developer dragged to, retained for the next conversation, or pair, they open.
@@ -269,6 +271,11 @@ export class BoardPanel {
 
       case 'readCustody':
         this.#tell({ type: 'readCustody', key: msg.key });
+
+        return;
+
+      case 'readActionHistory':
+        this.#tell({ type: 'readActionHistory' });
 
         return;
 

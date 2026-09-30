@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { CardAction, WorktreeCreation } from './actions.js';
 import type { CardCheckout } from './checkout.js';
 import type { IssueCard } from './cards.js';
@@ -34,6 +35,84 @@ export interface BoardCard {
   unassigned?: true;
 }
 
+/** A workflow stage a developer's skill reports for its card (R49); each names the lane it places the card in. */
+export const WORKFLOW_STAGES = ['plan', 'build', 'review'] as const;
+
+export type WorkflowStage = (typeof WORKFLOW_STAGES)[number];
+
+/** How far through its stage a report says the work is: step `n` of `of`. */
+export interface StageStep {
+  n: number;
+  of: number;
+}
+
+/** Longest step count a report may give. */
+export const STAGE_STEP_LIMIT = 50;
+
+/** One earlier report on a card, kept so the card can show where the time went (R49). */
+export interface StageEntry {
+  stage: WorkflowStage;
+  note: string;
+  step?: StageStep;
+  /** Epoch milliseconds of the report that set it; it lasted until the next entry, or the current report's `changedAt`. */
+  at: number;
+}
+
+/** The stage last reported for a card, with its progress note, step, and the reports before it (R49). */
+export interface CardStage {
+  stage: WorkflowStage;
+  /** One line of progress; empty where the report gave none. */
+  note: string;
+  step?: StageStep;
+  /** Epoch milliseconds of the latest report; a repeated report refreshes it. */
+  at: number;
+  /** Epoch milliseconds of the report that set this note and step; a repeated report leaves it. */
+  changedAt: number;
+  /** Epoch milliseconds the card entered this stage. */
+  since: number;
+  /** Earlier distinct reports of this workflow, oldest first, at most `STAGE_HISTORY_LIMIT`. */
+  history: StageEntry[];
+}
+
+/** Reports a card keeps behind its current one. */
+export const STAGE_HISTORY_LIMIT = 20;
+
+/** What `POST /stage` accepts: `done` releases the card to status and pull request evidence (R49). */
+export interface StageRequest {
+  issue: number;
+  stage: WorkflowStage | 'done';
+  /** Replaces the card's note; empty clears it. */
+  note: string;
+  /** Replaces the card's step; absent clears it. */
+  step?: StageStep;
+}
+
+/** The hub's answer to a stage report. `pending` means no card has that issue yet; the stage applies once one does. */
+export type StageAnswer =
+  | { ok: true; lane: LaneId | null; note: string; pending: boolean }
+  | { ok: false; reason: string };
+
+export const stageStepSchema = z.object({ n: z.number().int().min(1), of: z.number().int().min(1).max(STAGE_STEP_LIMIT) })
+  .refine((step) => step.n <= step.of);
+
+const stageRequest = z.object({
+  issue: z.number().int().positive(),
+  stage: z.enum([...WORKFLOW_STAGES, 'done']),
+  note: z.string().default(''),
+  step: stageStepSchema.optional(),
+});
+
+/** Validate a stage report from outside the hub; null where it is not one. */
+export function readStageRequest(body: unknown): StageRequest | null {
+  const parsed = stageRequest.safeParse(body);
+
+  if (!parsed.success) return null;
+
+  const { step, ...rest } = parsed.data;
+
+  return step === undefined ? rest : { ...rest, step };
+}
+
 /** Card border state, in priority order: failed, blocked, your-turn, running (R6). */
 export type Attention = 'failed' | 'blocked' | 'your-turn' | 'running';
 
@@ -46,6 +125,8 @@ export interface LanedCard extends BoardCard {
   retainedAttention?: true;
   /** Membership explanation, independent of lane placement. */
   reason: string;
+  /** The workflow stage placing the card, while it holds (R49). */
+  stage?: CardStage;
   /** Triage result or progress; absent before classification. */
   triage?: CardTriage;
   /** Available, refused, running, or completed card action; absent for unsupported actions. */

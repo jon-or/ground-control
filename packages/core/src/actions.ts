@@ -2,14 +2,17 @@ import { MERGE_TYPES } from './merge.js';
 import type { TriageAction, TriageQualifier } from './triage.js';
 
 /**
- * Triage actions an action table row can name: the ones with refusal rules (R39). Fixing checks and general
- * conflict resolution are not among them.
+ * Actions an action table row can name: the ones with refusal rules (R39). `ship` is no triage action: a card's
+ * workflow stage offers it (R49). Fixing checks and general conflict resolution are not among them.
  */
-export const AUTOMATABLE_ACTIONS = ['merge', 'review-others', 'address-review'] as const;
+export const AUTOMATABLE_ACTIONS = ['merge', 'review-others', 'address-review', 'develop', 'ship'] as const;
 
 export type AutomatableAction = (typeof AUTOMATABLE_ACTIONS)[number];
 
-export function isAutomatable(action: TriageAction): action is AutomatableAction {
+/** Rows that run only on a click, whatever their `automatic` setting: shipping is the developer's approval (R49). */
+export const MANUAL_ACTIONS: readonly AutomatableAction[] = ['ship'];
+
+export function isAutomatable(action: TriageAction | AutomatableAction): action is AutomatableAction {
   return (AUTOMATABLE_ACTIONS as readonly string[]).includes(action);
 }
 
@@ -27,6 +30,8 @@ export const ROW_QUALIFIERS: Readonly<Record<AutomatableAction, readonly RowQual
   merge: [...MERGE_TYPES, BASE_MERGE],
   'review-others': ['initial', 'followup'],
   'address-review': ['initial', 'followup'],
+  develop: [],
+  ship: [],
 };
 
 /**
@@ -61,6 +66,38 @@ export function baseRowOf(table: readonly ActionRow[]): ActionRow | undefined {
 
 /** The run that makes a card's worktree (R46). Not a triage action: it is asked for, or prepended to one. */
 export const CREATE_WORKTREE = 'create-worktree';
+
+/**
+ * Who started a run: the automatic check, or a click in the editor board or the GitHub overlay. The action after a
+ * worktree run, and a card's merge after its base merge, carry the trigger of the request that started the chain.
+ */
+export type ActionTrigger = 'automatic' | 'editor' | 'browser';
+
+/** One run in the action history (R50): what ran on which card, who started it, and how it ended. */
+export interface ActionHistoryEntry {
+  /** The run's key and start time, which together name one run. */
+  id: string;
+  /** The card's key; a base merge's is the card it was started for. */
+  key: string;
+  issueNumber: number | null;
+  action: DispatchedAction;
+  /** The action a worktree run was prepended to. */
+  next?: AutomatableAction | undefined;
+  qualifier: RowQualifier | null;
+  /** Absent on runs recorded before the trigger was. */
+  trigger?: ActionTrigger | undefined;
+  agent: string;
+  startedAt: number;
+  endedAt: number | null;
+  outcome: ActionOutcome;
+  detail: string;
+}
+
+/** What a client is sent: the entry, with the card's title and address where the hub knows them. */
+export interface ActionHistoryView extends ActionHistoryEntry {
+  title: string | null;
+  url: string | null;
+}
 
 /** Anything the board dispatches as a session: a card action, or the worktree run that precedes one. */
 export type DispatchedAction = AutomatableAction | typeof CREATE_WORKTREE;
@@ -123,6 +160,8 @@ export interface ActionRun {
   verifyingSince?: number | undefined;
   /** On a base merge: the card whose merge follows it, and that card's reading. */
   for?: { key: string; qualifier: TriageQualifier | null } | undefined;
+  /** Who started the run (R50); absent in records from before it was kept. */
+  trigger?: ActionTrigger | undefined;
   /** Action-rule revision; older runs do not block a new dispatch. */
   revision: number;
   evidence: string;

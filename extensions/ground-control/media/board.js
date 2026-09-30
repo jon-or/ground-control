@@ -103,6 +103,8 @@ function showTip(anchor) {
   const words = panel.firstChild ?? panel.appendChild(document.createTextNode(''));
 
   words.nodeValue = text;
+  // A tooltip of several lines is a list, so it reads from the start edge rather than centred.
+  panel.dataset.lines = String(text.includes('\n'));
   panel.dataset.open = 'true';
   placeTip(panel, anchor);
 }
@@ -230,6 +232,11 @@ function boardActions() {
       label: 'Action table',
       hint: 'Choose the prompt each triage action runs, and which start without a click.',
       run: () => vscode.postMessage({ type: 'editActions' }),
+    },
+    {
+      label: 'Action history',
+      hint: 'Show the actions the board has run, newest first.',
+      run: () => openHistory(),
     },
     {
       label: 'Settings',
@@ -683,7 +690,21 @@ function ago(ms) {
 function stateTitle(activity) {
   const durationDescription = DURATION_TITLES[activity.phase] ?? DURATION_TITLE;
 
-  return activity.event ? `${durationDescription} Last event: ${activity.event}.` : durationDescription;
+  return activity.event ? `${durationDescription} ${eventTitle(activity)}` : durationDescription;
+}
+
+/**
+ * The last hook event. A Stop with background tasks still running ended the turn but not the work, so it says that.
+ *
+ * @param {{ event: string | null, backgroundTasks?: number }} activity
+ * @returns {string}
+ */
+function eventTitle(activity) {
+  const tasks = activity.backgroundTasks ?? 0;
+
+  return activity.event === 'Stop' && tasks > 0
+    ? `Turn ended; ${tasks} background task${tasks === 1 ? '' : 's'} still running.`
+    : `Last event: ${activity.event}.`;
 }
 
 /**
@@ -721,12 +742,18 @@ function setAge(el, text) {
 
 /** Update duration text without rebuilding elements, preserving scroll position and keyboard focus. */
 function tickDurations() {
+  const now = Date.now();
+
   for (const el of document.querySelectorAll(`[${AGE_ATTR}]`)) {
     const at = Number(el.getAttribute(AGE_ATTR));
 
     if (Number.isFinite(at)) {
-      setAge(el, ago(Date.now() - at));
+      setAge(el, ago(now - at));
     }
+  }
+
+  for (const held of document.querySelectorAll('.verdict[data-stage]')) {
+    paintStage(held, now);
   }
 }
 
@@ -769,6 +796,19 @@ const TRIAGE_LABELS = {
   merge: 'Merge',
   other: 'Other',
 };
+
+/** Run-control labels: the triage actions, and `ship`, which a card's workflow stage offers rather than a reading (R49). */
+const ACTION_LABELS = { ...TRIAGE_LABELS, ship: 'Ship' };
+
+/** A reported workflow stage's name, and what the verdict says for it when the report gave no note (R49). */
+const STAGE_TITLES = { plan: 'Plan', build: 'Build', review: 'Review' };
+const STAGE_WORDS = { plan: 'Planning', build: 'Building', review: 'Ready for your review' };
+
+/** How long a running card's stage may go without a report before its verdict reads as stale. */
+const STAGE_STALE_MS = 20 * 60_000;
+
+/** Earlier reports the verdict's tooltip lists, newest first. */
+const STAGE_HISTORY_SHOWN = 8;
 
 /**
  * One stroke-only pictogram per lane, drawn in a 16px box. The Chrome overlay carries the same table; both
@@ -837,25 +877,44 @@ const ACTION_OUTCOMES = {
 const CREATION_OUTCOMES = { ...ACTION_OUTCOMES, landed: 'Created' };
 
 /** What a running action is doing, stated at rest (R45). */
-const ACTION_RUNNING = { merge: 'Merging…', 'review-others': 'Reviewing…', 'address-review': 'Answering review…' };
+const ACTION_RUNNING = {
+  merge: 'Merging…',
+  'review-others': 'Reviewing…',
+  'address-review': 'Answering review…',
+  develop: 'Developing…',
+  ship: 'Shipping…',
+};
 
 /** What a run that reported its work complete did, by action (R39). */
-const ACTION_LANDED = { merge: 'Merged', 'review-others': 'Reviewed', 'address-review': 'Answered' };
+const ACTION_LANDED = {
+  merge: 'Merged',
+  'review-others': 'Reviewed',
+  'address-review': 'Answered',
+  develop: 'Developed',
+  ship: 'Shipped',
+};
 
 /**
  * What to do with this card, as one line: the triage action and its qualifier, then a mark for the dispatched
- * run's state (R38, R39, R45). The words truncate; the mark never does. The full explanation stays in the tooltip.
+ * run's state (R38, R39, R45). A reported workflow stage's note takes the words' place (R49). The words truncate;
+ * the mark never does. The full explanation stays in the tooltip.
  */
 function verdict(boardCard) {
   const held = document.createElement('span');
   const words = document.createElement('span');
   const triage = boardCard.triage;
+  const stage = boardCard.stage;
 
   held.className = 'verdict';
   words.className = 'words';
   held.appendChild(words);
 
-  if (!triage) {
+  if (stage) {
+    words.textContent = stageWords(stage, boardCard.action);
+    held.dataset.stage = stage.stage;
+    stageShown.set(held, { stage, running: boardCard.action?.state === 'running' });
+    paintStage(held, Date.now());
+  } else if (!triage) {
     words.textContent = 'Not read';
     setTooltip(held, 'This card has not been read.');
   } else if (triage.state === 'failed') {
@@ -882,7 +941,7 @@ function verdict(boardCard) {
   }
 
   // The qualifier names the row a run uses, so it stays beside the run's state rather than giving way to it (R39).
-  if (triage?.state === 'done' && triage.qualifier) {
+  if (!stage && triage?.state === 'done' && triage.qualifier) {
     words.append(' · ');
     words.appendChild(note(triage.qualifier));
   }
@@ -894,6 +953,69 @@ function verdict(boardCard) {
   }
 
   return held;
+}
+
+/** The stage each drawn verdict shows, so the clock can age its tooltip and stale mark without a redraw. */
+const stageShown = new WeakMap();
+
+function capitalized(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** The step and note of a report, or the stage's default words when it gave no note. */
+function stageLine(stage) {
+  const note = stage.note ? capitalized(stage.note) : STAGE_WORDS[stage.stage] ?? stage.stage;
+
+  return stage.step ? `${stage.step.n}/${stage.step.of} ${note}` : note;
+}
+
+/** The verdict's words for a stage: the card's action, then the step and note (R49). */
+function stageWords(stage, action) {
+  return action ? `${ACTION_LABELS[action.action] ?? action.action} · ${stageLine(stage)}` : stageLine(stage);
+}
+
+/** An earlier report and how long it stood. */
+function stageEntryLine(entry, until) {
+  const said = [entry.step ? `${entry.step.n}/${entry.step.of}` : '', entry.note ? capitalized(entry.note) : ''].filter(Boolean).join(' ');
+
+  return `${STAGE_TITLES[entry.stage] ?? entry.stage}${said ? ` · ${said}` : ''} — ${ago(until - entry.at)}`;
+}
+
+/** Time in the stage and since the last report, the current report, then the earlier ones newest first. */
+function stageTitle(stage, now, stale) {
+  const lines = [`In ${STAGE_TITLES[stage.stage] ?? stage.stage} for ${ago(now - stage.since)} · updated ${ago(now - stage.at)} ago`];
+
+  if (stale) {
+    lines.push(`No update for ${ago(now - stage.at)}.`);
+  }
+
+  lines.push(stageLine(stage));
+
+  const { history } = stage;
+
+  for (let at = history.length - 1; at >= Math.max(0, history.length - STAGE_HISTORY_SHOWN); at--) {
+    lines.push(stageEntryLine(history[at], history[at + 1]?.at ?? stage.changedAt));
+  }
+
+  return lines.join('\n');
+}
+
+/** Write a stage verdict's tooltip and stale mark for `now`; the clock calls this every second. */
+function paintStage(held, now) {
+  const shown = stageShown.get(held);
+
+  if (shown === undefined) {
+    return;
+  }
+
+  const stale = shown.running && now - shown.stage.at >= STAGE_STALE_MS;
+  const title = stageTitle(shown.stage, now, stale);
+
+  held.dataset.stale = String(stale);
+
+  if (held.getAttribute(TIP_ATTR) !== title) {
+    setTooltip(held, title);
+  }
 }
 
 /** A card with no issue has nothing to read, so the verdict names the branch its sessions are working on. */
@@ -1095,7 +1217,7 @@ function runButton(boardCard) {
   }
 
   // One row per action and qualifier, so the control names both (R39).
-  const label = `${TRIAGE_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+  const label = `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
 
   // Read and dispatched in the hub; there is no session to stop until the dispatch returns.
   if (action.state === 'running' && action.stage === 'starting') {
@@ -1963,8 +2085,8 @@ function card(boardCard, avatarPool, placeable) {
   return el;
 }
 
-/** The keys the current board is showing. A drop carrying anything else is not a card and is ignored. */
-const onBoard = new Set();
+/** The lane of each card the current board is showing, by key. A drop carrying anything else is not a card and is ignored. */
+const onBoard = new Map();
 /** Lane chrome and card elements, kept across renders so a refresh does not scroll every lane back to the top. */
 const laneShells = new Map();
 const cardEls = new Map();
@@ -1990,7 +2112,8 @@ function laneShell(lane) {
       // Anything at all can be dropped on a column - a text selection, a file. Only a card the board is showing moves.
       const key = event.dataTransfer?.getData('text/plain') || dragging;
 
-      if (onBoard.has(key)) {
+      // A drop back onto the card's own lane is no move; sending one would end a workflow stage (R49).
+      if (onBoard.has(key) && onBoard.get(key) !== lane.id) {
         move(key, lane.id);
       }
     });
@@ -2033,6 +2156,7 @@ function signature(boardCard) {
     boardCard.returned,
     boardCard.attention,
     boardCard.retainedAttention,
+    boardCard.stage ?? null,
     boardCard.triage,
     board.triage?.canRequest,
     boardCard.action,
@@ -3902,6 +4026,234 @@ function paintCustody() {
   place(panel, openCustody.anchor, 'left');
 }
 
+/*
+ * Action history (R50): the runs the hub recorded, newest first, over the board as the conversation panel is. It is
+ * read when the panel opens and again with each board the hub sends while it stays open.
+ */
+
+/** Who started a run. Runs recorded before the hub kept this have none. */
+const TRIGGER_WORDS = { automatic: 'Automatic', editor: 'Editor', browser: 'Browser' };
+
+/** Column headings, in order. */
+const HISTORY_COLUMNS = ['Started', 'Card', 'Action', 'Trigger', 'Outcome', 'Duration'];
+
+/** @type {{ entries: import('@ground-control/core').ActionHistoryView[] | null } | null} */
+let historyFor = null;
+
+function openHistory() {
+  historyFor = { entries: null };
+  paintHistory();
+  document.querySelector('#history .history-close')?.focus();
+  vscode.postMessage({ type: 'readActionHistory' });
+}
+
+function closeHistory() {
+  const panel = document.getElementById('history');
+
+  historyFor = null;
+
+  if (panel === null) {
+    return;
+  }
+
+  panel.remove();
+  document.getElementById('history-scrim')?.remove();
+
+  for (const outside of behindHistory()) {
+    outside.removeAttribute('inert');
+  }
+
+  boardMenuEl.focus();
+}
+
+/** Everything the scrim covers; the panel is modal, as the conversation panel is. */
+function behindHistory() {
+  return [...document.body.children].filter((node) => node.id !== 'history' && node.id !== 'history-scrim');
+}
+
+function historyAnswered(message) {
+  if (historyFor === null) {
+    return;
+  }
+
+  historyFor = { entries: message.entries };
+  paintHistory();
+}
+
+function historyPanel() {
+  const held = document.getElementById('history');
+
+  if (held) {
+    return held;
+  }
+
+  const scrim = document.createElement('div');
+
+  scrim.id = 'history-scrim';
+  scrim.addEventListener('click', () => closeHistory());
+
+  const panel = document.createElement('aside');
+
+  panel.id = 'history';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-labelledby', 'history-title');
+
+  const head = el('div', 'history-head');
+  const title = el('h2', 'history-title', 'Action history');
+  const close = el('button', 'history-close');
+
+  title.id = 'history-title';
+  close.type = 'button';
+  close.appendChild(octicon('x'));
+  setAccessibleName(close, 'Close action history');
+  close.addEventListener('click', () => closeHistory());
+  head.append(title, close);
+
+  const body = el('div', 'history-scroll');
+
+  // The list has no controls, so the scrolling region takes the keyboard itself.
+  body.tabIndex = 0;
+  body.setAttribute('role', 'region');
+  setAccessibleName(body, 'Actions');
+  panel.append(head, body);
+  document.body.append(scrim, panel);
+
+  for (const outside of behindHistory()) {
+    outside.setAttribute('inert', '');
+  }
+
+  return panel;
+}
+
+/** The card a run was for: its number and title where the hub knows them, else its key. */
+function historyCard(entry) {
+  if (entry.issueNumber === null) {
+    return entry.key;
+  }
+
+  return entry.title === null ? `#${entry.issueNumber}` : `#${entry.issueNumber} ${entry.title}`;
+}
+
+function historyAction(entry) {
+  if (entry.action === 'create-worktree') {
+    return entry.next ? `Worktree for ${ACTION_LABELS[entry.next] ?? entry.next}` : 'Worktree';
+  }
+
+  const label = ACTION_LABELS[entry.action] ?? entry.action;
+
+  return entry.qualifier ? `${label} · ${entry.qualifier}` : label;
+}
+
+/** The run control's words and mark for how a run ended (R45); a worktree run that landed made its worktree. */
+function historyOutcome(entry) {
+  if (entry.outcome === 'running') {
+    return { text: 'Running…', glyph: 'spinner' };
+  }
+
+  if (entry.outcome === 'landed') {
+    return { text: entry.action === 'create-worktree' ? 'Created' : ACTION_LANDED[entry.action] ?? ACTION_OUTCOMES.landed, glyph: 'check' };
+  }
+
+  return { text: ACTION_OUTCOMES[entry.outcome] ?? entry.outcome, glyph: OUTCOME_GLYPHS[entry.outcome] ?? 'check' };
+}
+
+function historyRows(entry) {
+  const row = el('tr', 'history-row');
+  const time = el('time', 'history-when');
+  const since = el('span', '');
+  const outcome = historyOutcome(entry);
+  const mark = el('span', 'state-mark');
+  const state = el('span', 'history-state');
+  const ended = el('td', 'history-outcome');
+  const took = el('td', 'history-took');
+
+  row.dataset.outcome = entry.outcome;
+  time.dateTime = new Date(entry.startedAt).toISOString();
+  age(since, entry.startedAt);
+  time.append(since, ' ago');
+  setTooltip(time, new Date(entry.startedAt).toLocaleString());
+
+  mark.dataset.outcome = entry.outcome;
+  mark.appendChild(stateGlyph(outcome.glyph));
+  state.append(mark, outcome.text);
+  ended.appendChild(state);
+
+  if (entry.endedAt !== null) {
+    took.textContent = ago(entry.endedAt - entry.startedAt);
+  } else if (entry.outcome === 'running') {
+    age(took, entry.startedAt);
+  } else {
+    took.textContent = '—';
+  }
+
+  const started = el('td', 'history-started');
+
+  started.appendChild(time);
+  row.append(
+    started,
+    el('td', 'history-card', historyCard(entry)),
+    el('td', 'history-action', historyAction(entry)),
+    el('td', 'history-trigger', entry.trigger ? TRIGGER_WORDS[entry.trigger] ?? entry.trigger : '—'),
+    ended,
+    took,
+  );
+
+  if (!entry.detail) {
+    return [row];
+  }
+
+  const said = el('tr', 'history-detail');
+  const cell = el('td', '', entry.detail);
+
+  cell.colSpan = HISTORY_COLUMNS.length - 1;
+  said.append(el('td', ''), cell);
+
+  return [row, said];
+}
+
+/** Redraw the list inside the retained panel, so its scroll position survives each answer. */
+function paintHistory() {
+  if (historyFor === null) {
+    return;
+  }
+
+  const body = historyPanel().querySelector('.history-scroll');
+  const { entries } = historyFor;
+
+  if (entries === null) {
+    body.replaceChildren(el('p', 'history-note', 'Reading action history…'));
+
+    return;
+  }
+
+  if (entries.length === 0) {
+    body.replaceChildren(el('p', 'history-note', 'No actions have run yet.'));
+
+    return;
+  }
+
+  const table = el('table', 'history-table');
+  const head = el('tr', '');
+
+  for (const column of HISTORY_COLUMNS) {
+    const cell = el('th', '', column);
+
+    cell.scope = 'col';
+    head.appendChild(cell);
+  }
+
+  table.createTHead().appendChild(head);
+  table.createTBody().append(...entries.flatMap(historyRows));
+  body.replaceChildren(table);
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && historyFor !== null) {
+    closeHistory();
+  }
+});
+
 function countCards(lanes) {
   return lanes.reduce((total, lane) => total + lane.cards.length, 0);
 }
@@ -3959,7 +4311,7 @@ function draw(payload) {
 
   for (const lane of payload.lanes) {
     for (const boardCard of lane.cards) {
-      onBoard.add(boardCard.key);
+      onBoard.set(boardCard.key, lane.id);
     }
   }
   const total = countCards(shown);
@@ -4093,6 +4445,12 @@ window.addEventListener('message', (event) => {
     return;
   }
 
+  if (message.type === 'actionHistory') {
+    historyAnswered(message);
+
+    return;
+  }
+
   if (message.type === 'reading') {
     reading = message.enabled !== false;
     pairing = message.paired === true;
@@ -4129,6 +4487,11 @@ window.addEventListener('message', (event) => {
   }
 
   if (message.type === 'board') {
+    // A new board can mean a run started or ended, so an open history is read again.
+    if (historyFor !== null) {
+      vscode.postMessage({ type: 'readActionHistory' });
+    }
+
     if (dragging === null) {
       render(message);
     } else {

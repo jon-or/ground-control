@@ -6,8 +6,11 @@ import {
   installChromeHost,
   makeLogger,
   parseBrowsers,
+  parseStageArgs,
   realChromeHostDeps,
+  sendStage,
   serveHub,
+  stageOutcome,
   stopHub,
   uninstallAgentActivity,
   uninstallChromeHost,
@@ -38,6 +41,28 @@ async function main(argv: readonly string[]): Promise<number> {
 
   // The hub resolves the state directory itself when serving; commands resolve it here.
   const stateDir = (): string => resolveStateDir(home).stateDir;
+
+  // `stage <issue> <stage> [--note <text>]` reports a workflow stage to the running hub (R49).
+  // `--home=` may come before or after the subcommand; anything else before it means this is not a stage report.
+  const command = argv.filter((argument) => !argument.startsWith('--home='));
+
+  if (command[0] === 'stage') {
+    const request = parseStageArgs(command.slice(1));
+
+    if ('usage' in request) {
+      process.stderr.write(`${request.usage}
+`);
+
+      return 1;
+    }
+
+    const outcome = stageOutcome(request, await sendStage(stateDir(), request));
+
+    (outcome.code === 0 ? process.stdout : process.stderr).write(`${outcome.line}
+`);
+
+    return outcome.code;
+  }
 
   if (flag(argv, 'stop') !== null) {
     const stopped = await stopHub(stateDir());

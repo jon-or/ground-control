@@ -106,6 +106,9 @@ export const TRIAGE_LABELS: Readonly<Record<TriageAction, string>> = {
   other: 'Other',
 };
 
+/** Row labels: the triage actions, and `ship`, which a card's workflow stage offers rather than a reading (R49). */
+const ACTION_LABELS: Readonly<Record<TriageAction | 'ship', string>> = { ...TRIAGE_LABELS, ship: 'Ship' };
+
 export const TRIAGE_QUALIFIERS: Readonly<Record<RowQualifier, string>> = {
   initial: 'initial',
   followup: 'followup',
@@ -116,8 +119,8 @@ export const TRIAGE_QUALIFIERS: Readonly<Record<RowQualifier, string>> = {
 };
 
 /** Shared action and review-round label. */
-export function triageLabel(action: TriageAction, qualifier: RowQualifier | null): string {
-  return qualifier === null ? TRIAGE_LABELS[action] : `${TRIAGE_LABELS[action]} · ${TRIAGE_QUALIFIERS[qualifier]}`;
+export function triageLabel(action: TriageAction | 'ship', qualifier: RowQualifier | null): string {
+  return qualifier === null ? ACTION_LABELS[action] : `${ACTION_LABELS[action]} · ${TRIAGE_QUALIFIERS[qualifier]}`;
 }
 
 /**

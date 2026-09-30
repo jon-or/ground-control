@@ -64,6 +64,8 @@ export interface SessionActivity {
   event: string;
   /** Present for a failed phase. */
   error?: ActivityError;
+  /** Background tasks still running when the turn ended, which keep the session working after Stop. */
+  backgroundTasks?: number;
 }
 
 export interface Session {

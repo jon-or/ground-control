@@ -218,6 +218,7 @@ describe('what the browser may ask the hub for', () => {
   it('forwards a custody read with only the card key, because the page cannot fold the timeline itself', () => {
     expect(bridgeAction({ type: 'readCustody', key: 'issue:17198' })).toEqual({ send: { type: 'readCustody', key: 'issue:17198' } });
     expect(bridgeAction({ type: 'readCustody' })).toEqual({ refused: 'That card cannot be read.' });
+    expect(bridgeAction({ type: 'readActionHistory', extra: 'dropped' })).toEqual({ send: { type: 'readActionHistory' } });
   });
 
   it('refuses everything else by name', () => {

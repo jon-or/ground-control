@@ -3,7 +3,7 @@ import { connect } from 'node:net';
 import type { IncomingMessage } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PROTOCOL } from '@ground-control/core';
-import type { Client, ClientHello, ClientMessage, HubMessage, Session, SessionCheck, Snapshot } from '@ground-control/core';
+import type { Client, ClientHello, ClientMessage, HubMessage, Session, SessionCheck, Snapshot, StageAnswer, StageRequest } from '@ground-control/core';
 import { BODY_LIMIT_BYTES, HEARTBEAT_MS, MAX_EVENT_STREAMS, REFUSALS_PER_MINUTE, createHubServer } from '../src/server.js';
 import type { HubServer, ServerClock } from '../src/server.js';
 import { captureLog } from './helpers.js';
@@ -34,6 +34,7 @@ function fakeHub() {
   const disconnected: string[] = [];
   const roster: Session[] = [];
   const checking: { value: SessionCheck | null; ids: string[] } = { value: null, ids: [] };
+  const staging: { answer: StageAnswer; requests: StageRequest[] } = { answer: { ok: true, lane: 'build', note: '', pending: false }, requests: [] };
 
   return {
     connected,
@@ -43,6 +44,8 @@ function fakeHub() {
     listing: roster,
     checking,
     sessionCheck: async (id: string) => { checking.ids.push(id); return checking.value; },
+    staging,
+    stage: (stage: StageRequest) => { staging.requests.push(stage); return staging.answer; },
     connect(who: ClientHello, send: (message: HubMessage) => void): Client {
       connected.set(who.id, send);
 
@@ -235,6 +238,29 @@ describe('what the hub answers over loopback', () => {
     hub.checking.value = null;
     expect(JSON.parse((await call(server, { path: '/session-check?sessionId=session-2' })).body)).toBeNull();
   });
+  it('takes a stage report from a shell with no event stream, and answers a refusal as a conflict (R49)', async () => {
+    const { hub, server } = await serving();
+    const report = JSON.stringify({ issue: 15619, stage: 'build', note: 'commit 2/4' });
+
+    expect((await call(server, { method: 'POST', path: '/stage', headers: { 'Content-Type': 'application/json' }, token: null, body: report })).status).toBe(401);
+    for (const body of ['{', '{"issue":15619,"stage":"ship"}', '{"issue":"15619","stage":"build"}']) {
+      expect((await call(server, { method: 'POST', path: '/stage', headers: { 'Content-Type': 'application/json' }, body })).status).toBe(400);
+    }
+    expect(hub.staging.requests).toEqual([]);
+
+    const recorded = await call(server, { method: 'POST', path: '/stage', headers: { 'Content-Type': 'application/json' }, body: report });
+
+    expect(recorded.status).toBe(200);
+    expect(JSON.parse(recorded.body)).toEqual({ ok: true, lane: 'build', note: '', pending: false });
+    expect(hub.staging.requests).toEqual([{ issue: 15619, stage: 'build', note: 'commit 2/4' }]);
+
+    hub.staging.answer = { ok: false, reason: 'No evidence ledger.' };
+    const refused = await call(server, { method: 'POST', path: '/stage', headers: { 'Content-Type': 'application/json' }, body: report });
+
+    expect(refused.status).toBe(409);
+    expect(JSON.parse(refused.body)).toEqual({ ok: false, reason: 'No evidence ledger.' });
+  });
+
   it('serves identity without a token or additional data', async () => {
     const { server } = await serving();
 

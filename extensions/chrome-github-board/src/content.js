@@ -111,6 +111,10 @@
       state = helpers.applyMessage(state, { type: 'custodyPending', key });
       post({ type: 'readCustody', key });
     },
+    readActionHistory: () => {
+      state = helpers.applyMessage(state, { type: 'historyPending' });
+      post({ type: 'readActionHistory' });
+    },
     showCardRows: (shown) => showCardRows(shown),
     openOptions: () => { if (onProject()) post({ type: 'openOptions' }); },
     repaint: () => schedule(),
@@ -251,6 +255,12 @@
       }
 
       state = helpers.applyMessage(state, message);
+
+      // A new snapshot can mean a run started or ended, so an open history is read again.
+      if ((message.type === 'snapshot' || message.type === 'changed') && overlay.historyShown()) {
+        post({ type: 'readActionHistory' });
+      }
+
       schedule();
     });
 

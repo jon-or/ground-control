@@ -12,22 +12,29 @@ const ACTIONS = [
   ['merge', 'Merge'],
   ['review-others', 'Review their PR'],
   ['address-review', 'Answer review'],
+  ['develop', 'Develop'],
+  ['ship', 'Ship'],
 ];
+
+/** Actions that run only on a click, whatever the row says: shipping is the developer's approval (R49). */
+const MANUAL = ['ship'];
 
 /** The qualifiers each action's rows may name; a row with none matches any. */
 const QUALIFIERS = {
   merge: ['upstream', 'stacked', 'test', 'base'],
   'review-others': ['initial', 'followup'],
   'address-review': ['initial', 'followup'],
+  develop: [],
+  ship: [],
 };
 
 /** Each placeholder, what fills it, and the actions it is filled for. Merge · base fills them from the base's pull request. */
 const PLACEHOLDERS = [
   ['{issue}', 'Issue number', 'All'],
   ['{repo}', 'Repository, owner/name', 'All'],
-  ['{pr}', 'Pull request number', 'All'],
-  ['{branch}', 'Pull request head branch', 'All'],
-  ['{base}', 'Pull request base branch; on a stacked pull request, the board first merges the default branch into it with Merge · base', 'All'],
+  ['{pr}', 'Pull request number', 'All; Develop and Ship only with your own open pull request, else empty'],
+  ['{branch}', 'Pull request head branch', 'All; Develop and Ship only with your own open pull request, else empty'],
+  ['{base}', 'Pull request base branch; on a stacked pull request, the board first merges the default branch into it with Merge · base', 'All; Develop and Ship only with your own open pull request, else empty'],
   ['{default}', 'Repository default branch, where every merge leg starts', 'All'],
   ['{target}', 'Test branch the request named', 'Merge · test; empty for every other row'],
   ['{checkout}', 'The worktree the run works in', 'All'],
@@ -60,7 +67,7 @@ function readRows(value) {
           action: row.action,
           qualifier: typeof row.qualifier === 'string' ? row.qualifier : null,
           prompt: typeof row.prompt === 'string' ? row.prompt : '',
-          automatic: row.automatic === true,
+          automatic: row.automatic === true && !MANUAL.includes(row.action),
         }]
       : [],
   );
@@ -135,7 +142,12 @@ function rowElement(row, index) {
   action.addEventListener('change', () => {
     const allowed = QUALIFIERS[/** @type {keyof typeof QUALIFIERS} */ (action.value)] ?? [];
 
-    rows[index] = { ...rows[index], action: action.value, qualifier: row.qualifier !== null && allowed.includes(row.qualifier) ? row.qualifier : null };
+    rows[index] = {
+      ...rows[index],
+      action: action.value,
+      qualifier: row.qualifier !== null && allowed.includes(row.qualifier) ? row.qualifier : null,
+      automatic: row.automatic && !MANUAL.includes(action.value),
+    };
     edited();
   });
 
@@ -158,6 +170,11 @@ function rowElement(row, index) {
 
   const automatic = /** @type {HTMLInputElement} */ (el('input', { type: 'checkbox', 'aria-label': `Start without a click, row ${n}` }));
   automatic.checked = row.automatic;
+  if (MANUAL.includes(row.action)) {
+    automatic.disabled = true;
+    automatic.setAttribute('aria-description', 'Shipping runs only when you click it on the card.');
+    automatic.title = 'Shipping runs only when you click it on the card.';
+  }
   automatic.addEventListener('change', () => {
     rows[index] = { ...rows[index], automatic: automatic.checked };
     edited();
@@ -217,8 +234,8 @@ function render() {
   const lead = el(
     'p',
     { class: 'lead' },
-    'Each row runs its prompt on a card whose triage names that action. A row with a qualifier takes precedence over one with Any. ' +
-      'An automatic row starts without a click; every row can be started from the card. ' +
+    'Each row runs its prompt on a card whose triage names that action; Develop also runs on a card in the plan or build stage, and Ship on a card in the review stage. A row with a qualifier takes precedence over one with Any. ' +
+      'An automatic row starts without a click; every row can be started from the card. A Ship row never starts automatically. ' +
       'Merge · base runs first on a pull request based on another branch: it merges the default branch into that base, in the base’s worktree, ' +
       'with the base’s pull request filling the placeholders. Give it a single merge with no test merge or status change. ' +
       'The card’s own row decides whether it starts automatically.',

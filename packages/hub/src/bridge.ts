@@ -161,6 +161,11 @@ export function bridgeAction(raw: unknown): BridgeAction {
       : { refused: 'That card cannot be read.' };
   }
 
+  // Read-only, and answered to this client alone (R50).
+  if (message.type === 'readActionHistory') {
+    return { send: { type: 'readActionHistory' } };
+  }
+
   return { refused: `The overlay may not send ${String(message.type)}.` };
 }
 

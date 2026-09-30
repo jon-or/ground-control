@@ -78,6 +78,11 @@ export function actionsPathOf(stateDir: string): string {
   return `${stateDir}/actions.json`;
 }
 
+/** Every run the board started, with who started it and how it ended (R50). */
+export function actionHistoryPathOf(stateDir: string): string {
+  return `${stateDir}/action-history.json`;
+}
+
 /**
  * Result path per run; concurrent runs use separate files. A base merge's key holds a repository and branch, whose
  * sanitized forms can collide, so it is hashed instead (R39).

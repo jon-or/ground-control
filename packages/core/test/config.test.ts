@@ -426,6 +426,26 @@ describe('what the board may do on its own', () => {
     });
   });
 
+  it('never runs a ship row on its own, and takes develop rows as written, qualifier-free (R49)', () => {
+    const base = { permissionMode: 'manual', concurrency: 1, dailyLimit: 1, resultTimeoutMs: 60_000 };
+
+    expect(
+      actionsOf({
+        ...base,
+        table: [
+          { action: 'develop', prompt: '/gc-plan {issue} result:{resultPath}', automatic: true },
+          { action: 'ship', prompt: '/gc-ship {issue} result:{resultPath}', automatic: true },
+          { action: 'ship', qualifier: 'initial', prompt: '/wrong-qualifier' },
+        ],
+      }),
+    ).toMatchObject({
+      table: [
+        { action: 'develop', qualifier: null, prompt: '/gc-plan {issue} result:{resultPath}', automatic: true },
+        { action: 'ship', qualifier: null, prompt: '/gc-ship {issue} result:{resultPath}', automatic: false },
+      ],
+    });
+  });
+
   it('refuses an actions block that is not one, rather than acting on a default nobody chose', () => {
     expect(actionsOf('on')).toMatchObject({ kind: 'bad-config' });
     expect(actionsOf({ permissionMode: 'manual', concurrency: 'two', dailyLimit: 1, resultTimeoutMs: 60_000 })).toMatchObject({

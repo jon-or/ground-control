@@ -2,7 +2,8 @@ import { createServer } from 'node:http';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { PROTOCOL } from '@ground-control/core';
-import type { Client, ClientHello, ClientMessage, HubMessage, Logger, Session, SessionCheck, Snapshot } from '@ground-control/core';
+import { readStageRequest } from '@ground-control/core';
+import type { Client, ClientHello, ClientMessage, HubMessage, Logger, Session, SessionCheck, Snapshot, StageAnswer, StageRequest } from '@ground-control/core';
 
 /** Minimal hub contract for routing and isolated server tests. */
 export interface ServableHub {
@@ -14,6 +15,8 @@ export interface ServableHub {
   roster(): Promise<readonly Session[] | null>;
   /** Current authorization and duplicate checks without exposing hidden roster details. */
   sessionCheck?(sessionId: string): Promise<SessionCheck | null>;
+  /** Record a workflow stage a skill reports from a shell, which holds no event stream (R49). */
+  stage?(request: StageRequest): StageAnswer;
 }
 
 export interface ServerClock {
@@ -407,6 +410,28 @@ export function createHubServer(deps: HubServerDeps): { server: Server; listen()
     if (path === '/shutdown') {
       send(response, 200, { ok: true });
       deps.onShutdown();
+
+      return;
+    }
+
+    if (path === '/stage') {
+      let request: StageRequest | null = null;
+
+      try {
+        request = readStageRequest(JSON.parse(body));
+      } catch {
+        request = null;
+      }
+
+      if (request === null || deps.hub.stage === undefined) {
+        refuse(response, 400, 'Send {"issue": <number>, "stage": "plan" | "build" | "review" | "done", "note": "<text>"}.');
+
+        return;
+      }
+
+      const answer = deps.hub.stage(request);
+
+      send(response, answer.ok ? 200 : 409, answer);
 
       return;
     }
