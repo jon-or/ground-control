@@ -1024,14 +1024,14 @@ describe('the action table', () => {
 describe('what the board refuses to act on', () => {
   /** A base other than the default branch makes the merge stacked, which runs its own row (R39). */
   it('runs a pull request based on another branch as a stacked merge, under the stacked row', async () => {
-    const control = harness({ table: [{ ...UPSTREAM, qualifier: 'stacked', prompt: '/or-merge {default} {base} {branch}' }] });
+    const control = harness({ table: [{ ...UPSTREAM, qualifier: 'stacked', prompt: '/or-git-merge source:{default} target:{base} then source:{base} target:{branch}' }] });
     control.pr = { baseRefName: '17000-parent-feature' };
     watch(control);
     await control.pass();
 
     expect(control.dispatched).toHaveLength(1);
     expect(control.dispatched[0]).toMatchObject({ name: 'ground-control · merge stacked · #17198' });
-    expect(control.dispatched[0]?.prompt).toMatch(/^\/or-merge master 17000-parent-feature 17198-channel-mapping\n\n/);
+    expect(control.dispatched[0]?.prompt).toMatch(/^\/or-git-merge source:master target:17000-parent-feature then source:17000-parent-feature target:17198-channel-mapping\n\n/);
   });
 
   /** The row was chosen for the type the card was read as; a base that moved since would run the wrong legs. */

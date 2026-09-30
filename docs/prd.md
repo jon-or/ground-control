@@ -420,13 +420,15 @@ The table is edited in an editor panel with one line per row and columns for act
 
 **Merge types.** Triage identifies a merge request and records the branch it names (R38). The board derives the type from branch facts:
 
-| Type | When | Legs, performed by the prompt |
+| Type | When | Legs the request implies |
 |---|---|---|
 | test | The named branch matches `actions.testBranchPattern`, default `^Test-` | Default into head, then head into the test branch; on a stacked PR, default into base first |
 | stacked | Otherwise, the PR base is not the default branch | Default into base, then base into head |
 | upstream | Otherwise | Default into head |
 
-Refuse a named branch that is neither the head, the base, nor a test branch, and a test branch that does not exist on GitHub. Requests always name the test branch; a merge whose destination the classifier could not read is typed from the branches alone. The type is the reading's qualifier. Before dispatch it is derived again from fresh PR facts, and a type that no longer matches the reading is refused until the card is read again.
+The type records only the branches the request names. A request may name only the head even when the repository expects a test merge to follow; OwnerRez's merge bot names the head, and the issue's milestone selects the test branch. The prompt performs the legs and applies any repository rule for further ones, so one prompt can serve every type.
+
+Refuse a named branch that is neither the head, the base, nor a test branch, and a test branch that does not exist on GitHub. A merge whose destination the classifier could not read is typed from the branches alone. The type is the reading's qualifier. Before dispatch it is derived again from fresh PR facts, and a type that no longer matches the reading is refused until the card is read again.
 
 `actions.agent` selects `auto`, `claude`, or `codex` independently of session discovery; explicit selection requires that enabled adapter to support dispatch. Auto preserves registry order among enabled dispatchers. `actions.model` selects the coding model, with empty using the CLI default. `triage.model` affects classification only. Older saved configurations inherit `AgentConfig.model` only when the corresponding model field is absent; an explicit empty field clears inheritance. The current editor sends separate model fields, ending accidental classification-model inheritance for actions.
 
