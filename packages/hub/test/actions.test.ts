@@ -755,7 +755,7 @@ describe('dispatching a card action', () => {
       name: 'ground-control · merge upstream · #17198',
     });
     expect(control.dispatched[0]?.prompt).toMatch(/^\/or-merge master 17198-channel-mapping 17198 --single\n\n/);
-    // A prompt that never names the result file still reports, or every unattended run settles as stopped short.
+    // A prompt that never names the result file still reports, or every unattended run settles as blocked.
     expect(control.dispatched[0]?.prompt).toContain(`write JSON to ${actionReportPathOf(stateDir, control.key())}`);
   });
 
@@ -889,7 +889,7 @@ describe('dispatching a card action', () => {
     expect(control.notices.filter((notice) => notice.includes('Started Merge · upstream for'))).toEqual([]);
   });
 
-  /** The one rule that keeps a merge that halted from being started over on every pass. */
+  /** The one rule that keeps a merge that blocked from being started over on every pass. */
   it('never dispatches twice against the same state of the card', async () => {
     const control = harness();
     watch(control);
@@ -914,8 +914,8 @@ describe('dispatching a card action', () => {
     expect(control.dispatched).toHaveLength(2);
   });
 
-  /** A tester's new comment changes no commit, yet it is new input for a QA run that stopped short (R39). */
-  it('runs a halted QA action again after a tester comments, and not after the developer does', async () => {
+  /** A tester's new comment changes no commit, yet it is new input for a QA run that did not complete (R39). */
+  it('runs a blocked QA action again after a tester comments, and not after the developer does', async () => {
     const control = harness({ table: [{ action: 'qa-failure', qualifier: null, prompt: '/address-qa {issue} result:{resultPath}', automatic: true }] });
     control.classified = { action: 'qa-failure', detail: 'Step 3 failed on Test-C.', target: null };
     const at = (offset: number) => new Date(control.clock.clock.now() + offset).toISOString();
@@ -923,7 +923,7 @@ describe('dispatching a card action', () => {
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'halted', detail: 'Which step 3 result is expected?' });
+    control.report({ outcome: 'blocked', detail: 'Which step 3 result is expected?' });
     await control.finish();
 
     expect(control.dispatched).toHaveLength(1);
@@ -940,7 +940,7 @@ describe('dispatching a card action', () => {
     expect(control.dispatched).toHaveLength(2);
 
     await control.appear();
-    control.report({ outcome: 'halted', detail: 'Still unclear.' });
+    control.report({ outcome: 'blocked', detail: 'Still unclear.' });
     await control.finish();
     control.comments = [...control.comments, { author: 'github-project-automation[bot]', authorName: null, authorAssociation: null, body: 'Moved.', createdAt: at(7_300_000) }];
     await control.pass(PAST_GATE);
@@ -956,7 +956,7 @@ describe('dispatching a card action', () => {
     await control.appear();
     await control.finish();
 
-    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'blocked' });
 
     control.classified = { action: 'fix-checks', detail: 'The build is red.', target: null };
     control.hub.receive({ id: 'board-1' }, { type: 'retriage', key: control.key() });
@@ -969,17 +969,17 @@ describe('dispatching a card action', () => {
    * A successful merge changes its own head commit. Completed runs must block automatic repeats even after that
    * change, until the card is read again after the run.
    */
-  it('never dispatches again once a run landed, however far the branch has moved, until the card’s status changes', async () => {
+  it('never dispatches again once a run completed, however far the branch has moved, until the card’s status changes', async () => {
     // The harness issue's status change is dated after the fake clock; this one moved before the run.
     const control = harness({}, [issue({ statusChangedAt: '2026-08-01T09:00:00Z' })]);
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'done', detail: 'Merged master.' });
+    control.report({ outcome: 'completed', detail: 'Merged master.' });
     await control.finish();
 
     expect(control.dispatched).toHaveLength(1);
-    expect(control.cardAction()).toMatchObject({ outcome: 'landed' });
+    expect(control.cardAction()).toMatchObject({ outcome: 'completed' });
 
     // Simulate the merge push, then advance through two retry intervals.
     control.pr = { headOid: 'ffffffffffffffffffffffffffffffffffffffff' };
@@ -996,7 +996,7 @@ describe('dispatching a card action', () => {
     expect(control.dispatched).toHaveLength(2);
 
     await control.appear();
-    control.report({ outcome: 'done', detail: 'Merged master again.' });
+    control.report({ outcome: 'completed', detail: 'Merged master again.' });
     await control.finish();
     await control.pass(PAST_GATE);
 
@@ -1092,7 +1092,7 @@ describe('the action table', () => {
     expect(control.dispatched).toHaveLength(1);
     expect(control.dispatched[0]).toMatchObject({ cwd: CHECKOUT, name: 'ground-control · review-others initial · #17198' });
     expect(control.dispatched[0]?.prompt).toMatch(/^\/review-pr 4021 17198-channel-mapping\n\n/);
-    expect(control.dispatched[0]?.prompt).toContain('"outcome":"done"');
+    expect(control.dispatched[0]?.prompt).toContain('"outcome":"completed"');
     expect(control.cardAction()).toMatchObject({ state: 'running', action: 'review-others', qualifier: 'initial' });
   });
 
@@ -1296,12 +1296,12 @@ describe('following a run to its end', () => {
 
     expect(control.cardAction()).toMatchObject({ state: 'running' });
 
-    control.report({ outcome: 'done', detail: 'Merged master, tests green.' });
+    control.report({ outcome: 'completed', detail: 'Merged master, tests green.' });
     await control.finish();
 
     expect(control.cardAction()).toMatchObject({
       state: 'done',
-      outcome: 'landed',
+      outcome: 'completed',
       detail: 'Merged master, tests green.',
     });
   });
@@ -1313,11 +1313,11 @@ describe('following a run to its end', () => {
     await control.pass();
     await control.appear();
 
-    control.report({ outcome: 'pushed', detail: 'Merged master, tests green.' });
+    control.report({ outcome: 'completed', detail: 'Merged master, tests green.' });
     control.agent.sessions = [sessionOn({ sessionId: '46af2ac8-f232-4406-8e8f-2579df5eb08f', finished: true })];
     await control.pass();
 
-    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'completed' });
   });
 
   /** A run ending on a question stays listed as blocked, not finished (M33); the result it wrote settles it. */
@@ -1330,10 +1330,10 @@ describe('following a run to its end', () => {
 
     expect(control.cardAction()).toMatchObject({ state: 'running' });
 
-    control.report({ outcome: 'done', detail: 'Review written; not posted.' });
+    control.report({ outcome: 'awaiting-approval', detail: 'Review written; not posted.' });
     await control.pass();
 
-    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed', detail: 'Review written; not posted.' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'awaiting-approval', detail: 'Review written; not posted.' });
   });
 
   /** A background process keeps its session from resuming in an editor until it exits (M33). */
@@ -1366,20 +1366,32 @@ describe('following a run to its end', () => {
 
       expect(control.stopped).toEqual([]);
 
-      control.report({ outcome: 'halted', detail: 'Which base should the merge use?' });
+      control.report({ outcome: 'blocked', detail: 'Which base should the merge use?' });
       await control.pass();
       await control.pass();
 
-      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'halted' });
+      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'blocked' });
+      expect(control.stopped).toEqual(['46af2ac8']);
+    });
+
+    /** The developer approves in the session, which cannot resume in an editor while its process holds it. */
+    it('stops a run awaiting approval once its turn ends', async () => {
+      const control = await dispatched();
+      control.report({ outcome: 'awaiting-approval', detail: 'Reply drafted; publish waits for you.' });
+      on(control, 'idle');
+      await control.pass();
+      await control.pass();
+
+      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'awaiting-approval' });
       expect(control.stopped).toEqual(['46af2ac8']);
     });
 
     it('waits for the turn that wrote the result to end', async () => {
       const control = await dispatched();
-      control.report({ outcome: 'done', detail: 'Merged master.' });
+      control.report({ outcome: 'completed', detail: 'Merged master.' });
       await control.pass();
 
-      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'completed' });
       expect(control.stopped).toEqual([]);
 
       on(control, 'idle');
@@ -1390,7 +1402,7 @@ describe('following a run to its end', () => {
 
     it('stops a finished run whose process is still listed', async () => {
       const control = await dispatched();
-      control.report({ outcome: 'done', detail: 'Merged master.' });
+      control.report({ outcome: 'completed', detail: 'Merged master.' });
       on(control, null, { finished: true });
       await control.pass();
 
@@ -1399,24 +1411,24 @@ describe('following a run to its end', () => {
 
     it('leaves a session with no background process alone', async () => {
       const control = await dispatched();
-      control.report({ outcome: 'done', detail: 'Merged master.' });
+      control.report({ outcome: 'completed', detail: 'Merged master.' });
       on(control, 'idle', { finished: true, attachId: null });
       await control.pass();
 
-      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'completed' });
       expect(control.stopped).toEqual([]);
     });
 
     it('does not repeat a stop that failed', async () => {
       const control = await dispatched();
       control.stopFails = true;
-      control.report({ outcome: 'done', detail: 'Merged master.' });
+      control.report({ outcome: 'completed', detail: 'Merged master.' });
       on(control, 'idle');
       await control.pass();
       await control.pass();
 
       expect(control.stopped).toEqual(['46af2ac8']);
-      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+      expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'completed' });
     });
   });
 
@@ -1428,28 +1440,28 @@ describe('following a run to its end', () => {
     await control.appear();
 
     const before = control.reads.length;
-    control.report({ outcome: 'halted', detail: 'Low-confidence conflicts in Booking.cs.' });
+    control.report({ outcome: 'blocked', detail: 'Low-confidence conflicts in Booking.cs.' });
     await control.finish();
 
     expect(control.cardAction()).toMatchObject({
       state: 'done',
-      outcome: 'halted',
+      outcome: 'blocked',
       detail: 'Low-confidence conflicts in Booking.cs.',
     });
     // Exclude independent triage reads when counting outcome checks.
     expect(control.reads.length).toBe(before);
   });
 
-  /** Clear the previous report so a silent retry cannot reuse an earlier pushed result. */
+  /** Clear the previous report so a silent retry cannot reuse an earlier result. */
   it('does not let the last run report stand as the next run outcome', async () => {
     const control = harness();
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'pushed', detail: 'Merged master.' });
+    control.report({ outcome: 'completed', detail: 'Merged master.' });
     await control.finish();
 
-    expect(control.cardAction()).toMatchObject({ outcome: 'landed', detail: 'Merged master.' });
+    expect(control.cardAction()).toMatchObject({ outcome: 'completed', detail: 'Merged master.' });
 
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
     await control.settle();
@@ -1457,7 +1469,7 @@ describe('following a run to its end', () => {
     await control.finish();
 
     expect(control.cardAction()).toMatchObject({
-      outcome: 'halted',
+      outcome: 'blocked',
       detail: 'The run ended without a readable result.',
     });
   });
@@ -1476,7 +1488,7 @@ describe('following a run to its end', () => {
     });
   });
 
-  it('marks runs without readable results as halted', async () => {
+  it('marks runs without readable results as blocked', async () => {
     const control = harness();
     watch(control);
     await control.pass();
@@ -1485,7 +1497,7 @@ describe('following a run to its end', () => {
 
     expect(control.cardAction()).toMatchObject({
       state: 'done',
-      outcome: 'halted',
+      outcome: 'blocked',
       detail: 'The run ended without a readable result.',
     });
   });
@@ -1751,7 +1763,7 @@ describe('making the worktree an action needs', () => {
     control.agent.sessions = [run];
     await control.pass();
     control.dispatch = { shortId: '9c0d1e2f' };
-    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree: made() });
     await control.pass();
     await control.settle();
 
@@ -1764,7 +1776,7 @@ describe('making the worktree an action needs', () => {
     expect(history?.type === 'actionHistory' && history.entries.map((entry) => [entry.action, entry.next ?? null, entry.trigger, entry.outcome, entry.title]))
       .toEqual([
         ['merge', null, 'editor', 'running', 'Channel mapping drops rows past the first page'],
-        ['create-worktree', 'merge', 'editor', 'landed', 'Channel mapping drops rows past the first page'],
+        ['create-worktree', 'merge', 'editor', 'completed', 'Channel mapping drops rows past the first page'],
       ]);
   });
 
@@ -1879,7 +1891,7 @@ describe('making the worktree an action needs', () => {
     const prompt = control.dispatched[0]?.prompt ?? '';
 
     expect(prompt).toContain(`write JSON to ${actionReportPathOf(stateDir, control.key())}`);
-    expect(prompt).toContain('"outcome":"ready"');
+    expect(prompt).toContain('"outcome":"completed"');
   });
 
   it('records the worktree the run reports, then starts the action in it as the same attempt', async () => {
@@ -1890,7 +1902,7 @@ describe('making the worktree an action needs', () => {
     await control.appear();
 
     const worktree = made();
-    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree });
     await control.finish();
     await control.settle();
 
@@ -1924,7 +1936,7 @@ describe('making the worktree an action needs', () => {
     expect(cards()[0]?.checkout).toBeUndefined();
 
     const worktree = made();
-    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree });
     // Claude keeps a finished background session listed (M33); it is not active work that blocks the action.
     control.agent.sessions = [{ ...run, finished: true }];
     await control.pass();
@@ -1948,7 +1960,7 @@ describe('making the worktree an action needs', () => {
     await control.pass();
 
     control.dispatch = { shortId: '9c0d1e2f' };
-    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree: made() });
     await control.pass();
     await control.settle();
 
@@ -2024,7 +2036,7 @@ describe('making the worktree an action needs', () => {
     await control.settle();
     await control.pass();
 
-    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree: made() });
     await control.finish();
     await control.settle();
 
@@ -2037,7 +2049,7 @@ describe('making the worktree an action needs', () => {
     });
   });
 
-  it('halts, and starts no action, where the run reports a directory git does not register', async () => {
+  it('blocks, and starts no action, where the run reports a directory git does not register', async () => {
     const control = bare();
     await control.pass();
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
@@ -2046,17 +2058,17 @@ describe('making the worktree an action needs', () => {
 
     const stray = join(home, 'elsewhere').replace(/\\/g, '/');
     mkdirSync(stray);
-    control.report({ outcome: 'ready', detail: 'Built.', worktree: stray });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree: stray });
     await control.finish();
     await control.settle();
 
     expect(control.dispatched).toHaveLength(1);
     expect(card(control).worktree).toBeUndefined();
-    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: `The run reported ${stray}, which git does not register as a working tree.` });
-    expect(card(control).creation).toMatchObject({ state: 'done', outcome: 'halted' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'blocked', detail: `The run reported ${stray}, which git does not register as a working tree.` });
+    expect(card(control).creation).toMatchObject({ state: 'done', outcome: 'blocked' });
   });
 
-  it('halts where the run ends without reporting a worktree', async () => {
+  it('blocks where the run ends without reporting a worktree', async () => {
     const control = bare();
     await control.pass();
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
@@ -2065,7 +2077,7 @@ describe('making the worktree an action needs', () => {
     await control.finish();
 
     expect(control.dispatched).toHaveLength(1);
-    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'halted', detail: 'The run ended without reporting a worktree.' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'blocked', detail: 'The run ended without reporting a worktree.' });
   });
 
   it('refuses a worktree of another repository, however the run got there', async () => {
@@ -2076,11 +2088,11 @@ describe('making the worktree an action needs', () => {
     await control.appear();
 
     const other = cloneAt(join(home, 'other').replace(/\\/g, '/'), '17198-channel-mapping', 'https://github.com/example-org/other.git');
-    control.report({ outcome: 'ready', detail: 'Built.', worktree: other });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree: other });
     await control.finish();
 
     expect(control.dispatched).toHaveLength(1);
-    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'halted', detail: `The run reported ${other}, which is not a working tree of example-org/example-repo.` });
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'blocked', detail: `The run reported ${other}, which is not a working tree of example-org/example-repo.` });
   });
 
   it('makes the worktree alone when asked, and starts no action after it', async () => {
@@ -2098,7 +2110,7 @@ describe('making the worktree an action needs', () => {
 
     await control.appear();
     const worktree = made();
-    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree });
     await control.finish();
     await control.settle();
 
@@ -2146,7 +2158,7 @@ describe('making the worktree an action needs', () => {
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
     await control.settle();
     await control.appear();
-    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree: made() });
     const hold = held(control);
 
     const before = hold.all().length;
@@ -2167,7 +2179,7 @@ describe('making the worktree an action needs', () => {
     expect(hold.sent()?.action).not.toHaveProperty('stage');
   });
 
-  // A landed worktree run must not read as the action having run, or the automatic path would never start it.
+  // A completed worktree run must not read as the action having run, or the automatic path would never start it.
   it('starts the automatic action after a worktree made on its own, as a new attempt', async () => {
     const control = bare();
     await control.pass();
@@ -2175,7 +2187,7 @@ describe('making the worktree an action needs', () => {
     await control.settle();
     await control.appear();
     const worktree = made();
-    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree });
     await control.finish();
     await control.settle();
 
@@ -2198,7 +2210,7 @@ describe('making the worktree an action needs', () => {
     await control.settle();
     await control.appear();
     const worktree = made();
-    control.report({ outcome: 'ready', detail: 'Built.', worktree });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree });
     // The PR went draft while the worktree was being made, so the fresh read refuses the action.
     control.pr = { isDraft: true };
     await control.finish();
@@ -2283,7 +2295,7 @@ describe('making the worktree an action needs', () => {
     await control.pass();
     await control.pass(PAST_GATE);
     await control.appear();
-    control.report({ outcome: 'ready', detail: 'Built.', worktree: made() });
+    control.report({ outcome: 'completed', detail: 'Built.', worktree: made() });
     await control.finish();
     await control.settle();
 
@@ -2308,7 +2320,7 @@ describe('a merge based on another branch', () => {
   /** The base merge's session appears, reports, and ends. */
   async function baseMerged(control: Control & { baseWorktree: string }, detail = 'Merged master into 17000.'): Promise<void> {
     await baseAppears(control);
-    control.reportAt(BASE_KEY, { outcome: 'done', detail });
+    control.reportAt(BASE_KEY, { outcome: 'completed', detail });
     control.dispatch = { shortId: '5c5c5c5c' };
     await control.finish();
     await control.pass();
@@ -2346,7 +2358,7 @@ describe('a merge based on another branch', () => {
     expect(control.cardAction()).not.toHaveProperty('stage');
   });
 
-  it('halts, and runs nothing after, where the base run reports done but GitHub shows no push', async () => {
+  it('blocks, and runs nothing after, where the base run reports completion but GitHub shows no push', async () => {
     const control = stackedHarness();
     watch(control);
     await control.pass();
@@ -2355,9 +2367,29 @@ describe('a merge based on another branch', () => {
     expect(control.dispatched).toHaveLength(1);
     expect(control.cardAction()).toMatchObject({
       state: 'done',
-      outcome: 'halted',
-      detail: '17000-parent-feature: The run reported done, but 17000-parent-feature does not contain master at d0d0d0d.',
+      outcome: 'blocked',
+      detail: '17000-parent-feature: The run reported completion, but 17000-parent-feature does not contain master at d0d0d0d.',
     });
+  });
+
+  /** Every card on the base would otherwise start the same merge while the first waits for the developer (R39). */
+  it('does not merge into the base again on its own while the last merge of its tips awaits approval', async () => {
+    const control = stackedHarness();
+    watch(control);
+    await control.pass();
+    await baseAppears(control);
+    control.reportAt(BASE_KEY, { outcome: 'awaiting-approval', detail: 'Merged locally; the push waits for you.' });
+    await control.finish();
+
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'awaiting-approval', detail: '17000-parent-feature: Merged locally; the push waits for you.' });
+
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(Object.values(makeActionStore(stateDir).read().refusals)).toEqual([expect.objectContaining({
+      kind: 'base-blocked',
+      message: 'Merging master into 17000-parent-feature is awaiting approval: Merged locally; the push waits for you. It is not retried automatically until either branch changes.',
+    })]);
   });
 
   it('runs only the card\'s merge where the base already has master', async () => {
@@ -2420,7 +2452,7 @@ describe('a merge based on another branch', () => {
     expect(waiting()).toMatchObject({ state: 'refused', reason: 'Merging master into 17000-parent-feature for #17198. This card is read again when it finishes.' });
 
     control.contains = () => ({ contained: true, failure: null });
-    control.reportAt(BASE_KEY, { outcome: 'done', detail: 'Merged.' });
+    control.reportAt(BASE_KEY, { outcome: 'completed', detail: 'Merged.' });
     control.dispatch = { shortId: '5c5c5c5c' };
     await control.finish();
     await control.pass();
@@ -2452,7 +2484,7 @@ describe('a merge based on another branch', () => {
     expect(control.dispatched).toHaveLength(2);
   });
 
-  /** The base merge landed against the tip it started from; what master gained since comes with the next request. */
+  /** The base merge completed against the tip it started from; what master gained since comes with the next request. */
   it('runs the card\'s merge from the base where master moved while the base merge ran', async () => {
     const control = stackedHarness();
     watch(control);
@@ -2480,14 +2512,14 @@ describe('a merge based on another branch', () => {
 
     control.agent.sessions = [sessionOn({ sessionId: '5c5c5c5c-0000-4000-8000-000000000000' })];
     await control.pass();
-    control.report({ outcome: 'done', detail: 'Merged into test.' });
+    control.report({ outcome: 'completed', detail: 'Merged into test.' });
     await control.finish();
     await control.settle();
 
     expect(control.compared.slice(-2)).toEqual([`${PARENT_TIP}...17198-channel-mapping`, '9ab0cde1111111111111111111111111111111ff...Test-B-may-1']);
-    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed', detail: 'Merged into test.' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'completed', detail: 'Merged into test.' });
   });
-  it('does not retry a halted base merge automatically on the same tips, but does on a click', async () => {
+  it('does not retry a blocked base merge automatically on the same tips, but does on a click', async () => {
     const control = stackedHarness();
     watch(control);
     await control.pass();
@@ -2641,48 +2673,48 @@ describe('a merge based on another branch', () => {
   });
 });
 
-/** A merge lands once GitHub shows its push, not on the run's word alone (R39). */
+/** A merge completes once GitHub shows its push, not on the run's word alone (R39). */
 describe('checking a merge\'s push', () => {
-  it('lands a reported merge whose destination contains master\'s tip', async () => {
+  it('completes a reported merge whose destination contains master\'s tip', async () => {
     const control = harness();
     control.defaultOid = MASTER_TIP;
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'done', detail: 'Merged master.' });
+    control.report({ outcome: 'completed', detail: 'Merged master.' });
     await control.finish();
     await control.settle();
 
     expect(control.compared).toEqual([`${MASTER_TIP}...17198-channel-mapping`]);
-    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed', detail: 'Merged master.' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'completed', detail: 'Merged master.' });
   });
 
-  it('halts a reported merge whose destination lacks master\'s tip', async () => {
+  it('blocks a reported merge whose destination lacks master\'s tip', async () => {
     const control = harness();
     control.defaultOid = MASTER_TIP;
     control.contains = () => ({ contained: false, failure: null });
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'done', detail: 'Merged master.' });
+    control.report({ outcome: 'completed', detail: 'Merged master.' });
     await control.finish();
     await control.settle();
 
     expect(control.cardAction()).toMatchObject({
       state: 'done',
-      outcome: 'halted',
-      detail: 'The run reported done, but 17198-channel-mapping does not contain master at d0d0d0d.',
+      outcome: 'blocked',
+      detail: 'The run reported completion, but 17198-channel-mapping does not contain master at d0d0d0d.',
     });
   });
 
-  it('keeps checking after a failed read, showing the check, and lands once GitHub answers', async () => {
+  it('keeps checking after a failed read, showing the check, and completes once GitHub answers', async () => {
     const control = harness();
     control.defaultOid = MASTER_TIP;
     control.contains = () => ({ contained: null, failure: { subject: 'github', kind: 'offline', message: 'GitHub could not be reached.', remedy: 'r' }, missing: false });
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'done', detail: 'Merged master.' });
+    control.report({ outcome: 'completed', detail: 'Merged master.' });
     await control.finish();
     await control.settle();
 
@@ -2693,17 +2725,17 @@ describe('checking a merge\'s push', () => {
     await control.settle();
 
     expect(control.compared).toHaveLength(2);
-    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'completed' });
   });
 
-  it('halts once reads have failed past the result timeout counted from the report', async () => {
+  it('blocks once reads have failed past the result timeout counted from the report', async () => {
     const control = harness({ resultTimeoutMs: 600_000 });
     control.defaultOid = MASTER_TIP;
     control.contains = () => ({ contained: null, failure: { subject: 'github', kind: 'offline', message: 'GitHub could not be reached.', remedy: 'r' }, missing: false });
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'done', detail: 'Merged master.' });
+    control.report({ outcome: 'completed', detail: 'Merged master.' });
     await control.finish();
 
     for (let i = 0; i < 4; i++) await control.pass();
@@ -2711,23 +2743,23 @@ describe('checking a merge\'s push', () => {
 
     expect(control.cardAction()).toMatchObject({
       state: 'done',
-      outcome: 'halted',
-      detail: 'The run reported done, but GitHub could not be checked for its push: GitHub could not be reached.',
+      outcome: 'blocked',
+      detail: 'The run reported completion, but GitHub could not be checked for its push: GitHub could not be reached.',
     });
   });
 
-  it('halts at once where GitHub has no such branch', async () => {
+  it('blocks at once where GitHub has no such branch', async () => {
     const control = harness();
     control.defaultOid = MASTER_TIP;
     control.contains = () => ({ contained: null, failure: { subject: 'github', kind: 'not-found', message: 'GitHub has no branch 17198-channel-mapping, or no commit d0d0d0d.', remedy: 'r' }, missing: true });
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'done', detail: 'Merged master.' });
+    control.report({ outcome: 'completed', detail: 'Merged master.' });
     await control.finish();
     await control.settle();
 
-    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'halted', detail: 'GitHub has no branch 17198-channel-mapping, or no commit d0d0d0d.' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'blocked', detail: 'GitHub has no branch 17198-channel-mapping, or no commit d0d0d0d.' });
   });
 
   it('checks that a named test branch contains the merged head', async () => {
@@ -2739,15 +2771,15 @@ describe('checking a merge\'s push', () => {
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'done', detail: 'Merged into test.' });
+    control.report({ outcome: 'completed', detail: 'Merged into test.' });
     await control.finish();
     await control.settle();
 
     expect(control.compared).toEqual([`${MASTER_TIP}...17198-channel-mapping`, `${PARENT_TIP}...Test-B-may-1`]);
     expect(control.cardAction()).toMatchObject({
       state: 'done',
-      outcome: 'halted',
-      detail: 'The run reported done, but Test-B-may-1 does not contain 17198-channel-mapping at b1b1b1b.',
+      outcome: 'blocked',
+      detail: 'The run reported completion, but Test-B-may-1 does not contain 17198-channel-mapping at b1b1b1b.',
     });
   });
 
@@ -2757,11 +2789,11 @@ describe('checking a merge\'s push', () => {
     watch(control);
     await control.pass();
     await control.appear();
-    control.report({ outcome: 'done', detail: 'Merged master.' });
+    control.report({ outcome: 'completed', detail: 'Merged master.' });
     await control.finish();
 
     expect(control.compared).toEqual([]);
-    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'landed' });
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'completed' });
   });
 });
 
@@ -2929,7 +2961,7 @@ describe('the action history', () => {
 
     expect(control.dispatched).toHaveLength(1);
 
-    control.report({ outcome: 'done', detail: 'Merged master.' });
+    control.report({ outcome: 'completed', detail: 'Merged master.' });
     await control.appear();
     await control.finish();
 
@@ -2939,7 +2971,7 @@ describe('the action history', () => {
     const history = answers.find((message) => message.type === 'actionHistory');
 
     expect(history?.type === 'actionHistory' && history.entries.map((entry) => [entry.action, entry.qualifier, entry.trigger, entry.outcome, entry.detail]))
-      .toEqual([['merge', 'upstream', 'automatic', 'landed', 'Merged master.']]);
+      .toEqual([['merge', 'upstream', 'automatic', 'completed', 'Merged master.']]);
   });
 
   function historyOf(control: Control): ActionHistoryView[] {
@@ -3003,10 +3035,10 @@ describe('run reports (R51)', () => {
     return join(round, 'review.md');
   }
 
-  async function landedWith(control: Control, auditPath: string): Promise<void> {
+  async function completedWith(control: Control, auditPath: string): Promise<void> {
     watch(control);
     await control.pass();
-    control.report({ outcome: 'done', detail: 'Merged master.', auditPath });
+    control.report({ outcome: 'completed', detail: 'Merged master.', auditPath });
     await control.appear();
     await control.finish();
   }
@@ -3037,10 +3069,10 @@ describe('run reports (R51)', () => {
     return history?.type === 'actionHistory' ? history.entries : [];
   }
 
-  it('offers the report a landed run named, on its card and in the history, without sending its path', async () => {
+  it('offers the report a completed run named, on its card and in the history, without sending its path', async () => {
     const control = harness();
     const path = reportIn('# Round 1\n\n![shot](screenshots/one.png)');
-    await landedWith(control, path);
+    await completedWith(control, path);
 
     const action = control.cardAction();
     const entry = historyOf(control)[0]!;
@@ -3055,7 +3087,7 @@ describe('run reports (R51)', () => {
   it('renders the report for an editor with its path, and for the browser without it', async () => {
     const control = harness();
     const path = reportIn('# Round 1\n\n![shot](screenshots/one.png)');
-    await landedWith(control, path);
+    await completedWith(control, path);
     const id = historyOf(control)[0]!.id;
 
     const editor = await answered(control, id, 'vscode');
@@ -3071,14 +3103,14 @@ describe('run reports (R51)', () => {
   it('gives an editor the path of a report too large to show', async () => {
     const control = harness();
     const path = reportIn('x'.repeat(REPORT_FILE_LIMIT + 1));
-    await landedWith(control, path);
+    await completedWith(control, path);
 
     expect(await answered(control, historyOf(control)[0]!.id, 'vscode')).toMatchObject({ failure: expect.stringMatching(/^The report is \d+ kB/), path });
   });
 
   it('gives an editor no path for a report it cannot read', async () => {
     const control = harness();
-    await landedWith(control, join(CHECKOUT, '.wip', 'gone.md'));
+    await completedWith(control, join(CHECKOUT, '.wip', 'gone.md'));
     const refused = await answered(control, historyOf(control)[0]!.id, 'vscode');
 
     expect(refused).toMatchObject({ failure: 'The report file is missing or cannot be read.' });
@@ -3087,14 +3119,14 @@ describe('run reports (R51)', () => {
 
   it('refuses an id no run recorded a report under', async () => {
     const control = harness();
-    await landedWith(control, reportIn('# Round 1'));
+    await completedWith(control, reportIn('# Round 1'));
 
     expect(await answered(control, 'issue:1@1', 'vscode')).toMatchObject({ type: 'report', id: 'issue:1@1', failure: 'That run has no report.' });
   });
 
   it('keeps no report a result named by a relative path, which has nothing to resolve against', async () => {
     const control = harness();
-    await landedWith(control, '.wip/review-pr/round-1/review.md');
+    await completedWith(control, '.wip/review-pr/round-1/review.md');
 
     const action = control.cardAction();
 
@@ -3104,7 +3136,7 @@ describe('run reports (R51)', () => {
 
   it('hides reports and refuses reading one under a restricted session scope', async () => {
     const control = harness();
-    await landedWith(control, reportIn('# Round 1'));
+    await completedWith(control, reportIn('# Round 1'));
     const id = historyOf(control)[0]!.id;
 
     control.hub.configure({ ...config(), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeRepositories: ['github.com/example-org/elsewhere'] } });
@@ -3124,7 +3156,7 @@ describe('run reports (R51)', () => {
 
   it('refuses a report whose read the session scope narrowed while it was rendered', async () => {
     const control = harness();
-    await landedWith(control, reportIn('# Round 1'));
+    await completedWith(control, reportIn('# Round 1'));
     const id = historyOf(control)[0]!.id;
     const answers: HubMessage[] = [];
     control.hub.connect({ id: 'reader', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => answers.push(message));

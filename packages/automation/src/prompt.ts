@@ -97,12 +97,15 @@ function reportContract(resultPath: string, shape: string): string {
 }
 
 const ACTION_SHAPE =
-  '{"outcome":"done","detail":"<what happened>"} only once the work is complete, otherwise ' +
-  '{"outcome":"halted","detail":"<why it stopped>"}; add "auditPath":"<absolute path>" when the run wrote a Markdown report.';
+  '{"outcome":"completed","detail":"<what happened>"} once the work is complete; ' +
+  '{"outcome":"awaiting-approval","detail":"<what is ready and what approving it does>"} when the work is complete except ' +
+  'for a step the developer must approve, such as posting or publishing; otherwise ' +
+  '{"outcome":"blocked","detail":"<the question or problem that stopped it>"}. ' +
+  'Add "auditPath":"<absolute path>" when the run wrote a Markdown report.';
 
 const WORKTREE_SHAPE =
-  '{"outcome":"ready","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +
-  '{"outcome":"halted","detail":"<why no worktree>"}.';
+  '{"outcome":"completed","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +
+  '{"outcome":"blocked","detail":"<why no worktree>"}.';
 
 /** Fill an action prompt, appending the result contract unless the prompt places `{resultPath}` itself. */
 export function actionPrompt(template: string, values: PromptValues): string {

@@ -30,16 +30,23 @@ function state(runs: Record<string, ActionRun>): ActionState {
 
 describe('the action history (R50)', () => {
   it('keeps the report a run recorded, through a write and a read (R51)', () => {
-    const reported = historyWith([], state({ 'issue:17198': run({ outcome: 'landed', endedAt: NOW, auditPath: 'D:/r/review.md' }) }), NOW);
+    const reported = historyWith([], state({ 'issue:17198': run({ outcome: 'completed', endedAt: NOW, auditPath: 'D:/r/review.md' }) }), NOW);
 
     expect(reported[0]?.auditPath).toBe('D:/r/review.md');
     expect(readActionHistory({ entries: reported })[0]?.auditPath).toBe('D:/r/review.md');
     expect(readActionHistory({ entries: [{ ...reported[0], auditPath: '' }] })[0]?.auditPath).toBeUndefined();
   });
 
+  it('reads entries written with the earlier outcome words as the current ones', () => {
+    const [entry] = historyWith([], state({ 'issue:17198': run({ outcome: 'completed', endedAt: NOW }) }), NOW);
+
+    expect(readActionHistory({ entries: [{ ...entry, outcome: 'landed' }, { ...entry, outcome: 'halted' }] }).map((one) => one.outcome))
+      .toEqual(['completed', 'blocked']);
+  });
+
   it('adds a new run, then takes its outcome, keeping the trigger', () => {
     const started = historyWith([], state({ 'issue:17198': run() }), NOW);
-    const ended = historyWith(started, state({ 'issue:17198': run({ outcome: 'landed', endedAt: NOW, detail: 'Ready for review.' }) }), NOW);
+    const ended = historyWith(started, state({ 'issue:17198': run({ outcome: 'completed', endedAt: NOW, detail: 'Ready for review.' }) }), NOW);
 
     expect(started).toHaveLength(1);
     expect(ended).toEqual([{
@@ -52,20 +59,20 @@ describe('the action history (R50)', () => {
       agent: 'claude',
       startedAt: NOW - 60_000,
       endedAt: NOW,
-      outcome: 'landed',
+      outcome: 'completed',
       detail: 'Ready for review.',
     }]);
   });
 
   it('keeps a replaced run as it last was, lists a base merge under the card it was for, and orders by start', () => {
-    const first = historyWith([], state({ 'issue:17198': run({ action: 'create-worktree', next: 'develop', outcome: 'landed', endedAt: NOW - 30_000 }) }), NOW);
+    const first = historyWith([], state({ 'issue:17198': run({ action: 'create-worktree', next: 'develop', outcome: 'completed', endedAt: NOW - 30_000 }) }), NOW);
     const both = historyWith(first, state({
       'issue:17198': run({ startedAt: NOW - 20_000, trigger: 'automatic' }),
       'merge:o/r#base': run({ key: 'merge:o/r#base', action: 'merge', qualifier: 'base', startedAt: NOW - 25_000, for: { key: 'issue:17198', qualifier: 'stacked' } }),
     }), NOW);
 
     expect(both.map((one) => [one.action, one.key, one.outcome, one.trigger])).toEqual([
-      ['create-worktree', 'issue:17198', 'landed', 'editor'],
+      ['create-worktree', 'issue:17198', 'completed', 'editor'],
       ['merge', 'issue:17198', 'running', 'editor'],
       ['develop', 'issue:17198', 'running', 'automatic'],
     ]);

@@ -2,6 +2,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { ACTION_REVISION, BASE_MERGE, CREATE_WORKTREE, DEFAULT_ACTIONS, DEFAULT_WORKTREE, MANUAL_ACTIONS, baseRowOf, isAutomatable, repositoryKey, rowFor, runIdOf } from '@ground-control/core';
 import type {
   ActionHistoryEntry,
+  ActionOutcome,
   ActionRow,
   ActionRun,
   ActionSettings,
@@ -599,7 +600,7 @@ export class ActionRunner {
 
   /**
    * Select enabled candidate actions with no active run and an expired read gate. Check alreadyRun only after
-   * fetching fresh evidence, so a changed head can permit retry after a halted run.
+   * fetching fresh evidence, so a changed head can permit retry after a run that did not complete.
    */
   #due(lanes: readonly Lane[]): LanedCard[] {
     const state = this.#deps.store.read();
@@ -639,7 +640,7 @@ export class ActionRunner {
     return due;
   }
 
-  /** Resolve completed or unlisted sessions from their result files. A reported push means landed; other results mean halted. */
+  /** Resolve finished or unlisted sessions from their result files; a missing or unreadable result means blocked. */
   #settle(lanes: readonly Lane[], sessions: readonly Session[], sourcesRead: boolean): void {
     const state = this.#deps.store.read();
     // Finished background sessions remain listed (M33); presence alone would prevent completion.
@@ -678,7 +679,7 @@ export class ActionRunner {
       if (!isBaseKey(key) && cards.get(key)?.issue == null) {
         // Require a successful source read to confirm the card left the board (R24).
         if (sourcesRead) {
-          next = withOutcome(next, key, 'halted', 'The card left the board while this was running.', this.#deps.now());
+          next = withOutcome(next, key, 'blocked', 'The card left the board while this was running.', this.#deps.now());
         }
 
         continue;
@@ -692,8 +693,8 @@ export class ActionRunner {
         if (made.linked && run.next !== undefined) {
           continued.push({ key, row: { action: run.next, qualifier: readingQualifier(run.qualifier) }, after: run.sessionId, trigger: run.trigger ?? 'automatic' });
         }
-      } else if (run.merge?.sourceSha && checker !== undefined && landed(readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key))))) {
-        // A reported merge lands once GitHub shows its push (R39).
+      } else if (run.merge?.sourceSha && checker !== undefined && readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)))?.outcome === 'completed') {
+        // A reported merge completes once GitHub shows its push (R39).
         if (run.verifyingSince === undefined) {
           next = { ...next, runs: { ...next.runs, [key]: { ...run, verifyingSince: this.#deps.now() } } };
         }
@@ -742,11 +743,11 @@ export class ActionRunner {
       }
 
       // A worktree run's chained action replaces its record below; its session still needs releasing.
-      if ((run.outcome === 'landed' || run.outcome === 'halted') && run.sessionId !== null) {
+      if (settledBySession(run.outcome) && run.sessionId !== null) {
         this.#settledRuns.set(run.sessionId, { key, agent: run.agent, shortId: run.shortId });
       }
 
-      if (isBaseKey(key) && run.outcome === 'landed' && run.for !== undefined && run.sessionId !== null) {
+      if (isBaseKey(key) && run.outcome === 'completed' && run.for !== undefined && run.sessionId !== null) {
         chained.push({ key: run.for.key, row: { action: 'merge', qualifier: run.for.qualifier }, after: run.sessionId, trigger: run.trigger ?? 'automatic', afterBase: true });
       }
     }
@@ -766,9 +767,9 @@ export class ActionRunner {
   }
 
   /**
-   * Check GitHub for a merge's push, then settle the run: landed where the destination contains the source commit
-   * (and a named test branch the destination's tip), halted where it does not (R39). A failed read retries with
-   * backoff until the result timeout, counted from when the run reported done, has passed.
+   * Check GitHub for a merge's push, then settle the run: completed where the destination contains the source commit
+   * (and a named test branch the destination's tip), blocked where it does not (R39). A failed read retries with
+   * backoff until the result timeout, counted from when the run reported completion, has passed.
    */
   async #verify(key: string): Promise<void> {
     const checker = this.#checker();
@@ -794,7 +795,7 @@ export class ActionRunner {
       }
 
       const report = readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)));
-      let outcome: 'landed' | 'halted';
+      let outcome: 'completed' | 'blocked';
       let detail: string;
 
       if ('retry' in result) {
@@ -807,15 +808,15 @@ export class ActionRunner {
           return;
         }
 
-        [outcome, detail] = ['halted', `The run reported done, but GitHub could not be checked for its push: ${result.retry}`];
+        [outcome, detail] = ['blocked', `The run reported completion, but GitHub could not be checked for its push: ${result.retry}`];
       } else if (result.pushed) {
-        [outcome, detail] = ['landed', report?.detail ?? 'The run reported done.'];
+        [outcome, detail] = ['completed', report?.detail ?? 'The run reported completion.'];
       } else {
-        [outcome, detail] = ['halted', result.reason];
+        [outcome, detail] = ['blocked', result.reason];
       }
 
       this.#verifyRetry.delete(key);
-      this.#deps.log.info(`${key}: ${outcome === 'landed' ? 'push confirmed on GitHub' : `push not confirmed: ${detail}`}`, 'actions');
+      this.#deps.log.info(`${key}: ${outcome === 'completed' ? 'push confirmed on GitHub' : `push not confirmed: ${detail}`}`, 'actions');
 
       const next = waitersReleased(withOutcome(current, key, outcome, detail, now, report?.auditPath));
 
@@ -843,7 +844,7 @@ export class ActionRunner {
     }
 
     if (!into.contained) {
-      return { pushed: false, reason: `The run reported done, but ${destination} does not contain ${source} at ${sha7(sourceSha)}.` };
+      return { pushed: false, reason: `The run reported completion, but ${destination} does not contain ${source} at ${sha7(sourceSha)}.` };
     }
 
     if (target === '') {
@@ -864,7 +865,7 @@ export class ActionRunner {
 
     return test.contained
       ? { pushed: true }
-      : { pushed: false, reason: `The run reported done, but ${target} does not contain ${destination} at ${sha7(tip.sha)}.` };
+      : { pushed: false, reason: `The run reported completion, but ${target} does not contain ${destination} at ${sha7(tip.sha)}.` };
   }
 
   /**
@@ -876,7 +877,7 @@ export class ActionRunner {
     const candidates = new Map(this.#settledRuns);
 
     for (const [key, run] of Object.entries(this.#deps.store.read().runs)) {
-      if ((run.outcome === 'landed' || run.outcome === 'halted') && run.sessionId !== null) {
+      if (settledBySession(run.outcome) && run.sessionId !== null) {
         candidates.set(run.sessionId, { key, agent: run.agent, shortId: run.shortId });
       }
     }
@@ -926,14 +927,14 @@ export class ActionRunner {
     const report = readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)));
 
     this.#deps.log.info(
-      `${key}: ${landed(report) ? 'completion reported' : 'no completion reported'}`,
+      `${key}: ${report === null ? 'no readable result' : `${report.outcome} reported`}`,
       'actions',
     );
 
     return withOutcome(
       state,
       key,
-      landed(report) ? 'landed' : 'halted',
+      report?.outcome ?? 'blocked',
       report?.detail ?? 'The run ended without a readable result.',
       this.#deps.now(),
       report?.auditPath,
@@ -941,18 +942,18 @@ export class ActionRunner {
   }
 
   /**
-   * Settle a worktree run from its result file (R46). Landed means the reported path is now the card's
-   * worktree; a path git does not register, or one outside scope, halts the run with the reason.
+   * Settle a worktree run from its result file (R46). Completed means the reported path is now the card's
+   * worktree; a path git does not register, or one outside scope, blocks the run with the reason.
    */
   #settledWorktree(state: ActionState, key: string): { state: ActionState; linked: boolean } {
     const report = readActionReport(readJson(actionReportPathOf(this.#deps.stateDir, key)));
     const now = this.#deps.now();
 
-    if (report?.outcome !== 'ready' || report.worktree === undefined) {
+    if (report?.outcome !== 'completed' || report.worktree === undefined) {
       this.#deps.log.info(`${key}: no worktree reported`, 'actions');
-      const detail = report?.outcome === 'halted' ? report.detail : 'The run ended without reporting a worktree.';
+      const detail = report === null ? 'The run ended without reporting a worktree.' : report.detail;
 
-      return { state: withOutcome(state, key, 'halted', detail, now), linked: false };
+      return { state: withOutcome(state, key, 'blocked', detail, now), linked: false };
     }
 
     const refused = this.#deps.linkWorktree(key, report.worktree);
@@ -960,12 +961,12 @@ export class ActionRunner {
     if (refused !== null) {
       this.#deps.log.warn(`${key}: reported worktree ${report.worktree} not linked: ${refused}`, 'actions');
 
-      return { state: withOutcome(state, key, 'halted', refused, now), linked: false };
+      return { state: withOutcome(state, key, 'blocked', refused, now), linked: false };
     }
 
     this.#deps.log.info(`${key}: worktree ${report.worktree} reported`, 'actions');
 
-    return { state: withOutcome(state, key, 'landed', `Created ${report.worktree}. ${report.detail}`, now), linked: true };
+    return { state: withOutcome(state, key, 'completed', `Created ${report.worktree}. ${report.detail}`, now), linked: true };
   }
 
   /** Read fresh context, validate, then dispatch or record the refusal. */
@@ -1301,7 +1302,7 @@ export class ActionRunner {
       record: {
         action: 'merge',
         qualifier: BASE_MERGE,
-        // The branches' tips: a halted merge is not retried automatically until one of them moves.
+        // The branches' tips: a merge that did not complete is not retried automatically until one of them moves.
         evidence: `${defaultOid}:${base.headOid}`,
         merge: { repository: base.repository, source: base.defaultBranch, sourceSha: defaultOid, destination: base.branch, target: '' },
         for: { key: cardKey, qualifier: row.qualifier },
@@ -1445,7 +1446,7 @@ export class ActionRunner {
     }
 
     const base = decision.plan;
-    // After its base merge landed, the base is current as far as this request goes, even where the default branch
+    // After its base merge completed, the base is current as far as this request goes, even where the default branch
     // has moved since: that merge was checked against the tip it started from.
     const current = request.afterBase === true
       ? { contained: true, failure: null }
@@ -1471,19 +1472,19 @@ export class ActionRunner {
       return refused(MERGE_BUSY, `${busy} ${request.asked ? 'Run this again when it finishes.' : 'This card is read again when it finishes.'}`);
     }
 
-    // One halted or stopped merge of these tips is enough: every card on the base would otherwise try it again. A dispatch
+    // One merge of these tips that did not complete is enough: every card on the base would otherwise try it again. A dispatch
     // that failed never ran, so it may be retried.
     const previous = this.#deps.store.read().runs[baseKeyOf(base.repository, base.branch)];
 
     if (
       !request.asked &&
       previous !== undefined &&
-      (previous.outcome === 'halted' || previous.outcome === 'stopped') &&
+      (previous.outcome === 'blocked' || previous.outcome === 'awaiting-approval' || previous.outcome === 'stopped') &&
       previous.evidence === `${plan.defaultOid}:${base.headOid}`
     ) {
       return refused(
-        'base-halted',
-        `Merging ${plan.defaultBranch} into ${base.branch} ${previous.outcome}: ${previous.detail} It is not retried automatically until either branch changes.`,
+        'base-blocked',
+        `Merging ${plan.defaultBranch} into ${base.branch} ${ENDED_SHORT[previous.outcome]}: ${previous.detail} It is not retried automatically until either branch changes.`,
       );
     }
 
@@ -1694,12 +1695,15 @@ function sha7(sha: string): string {
   return sha.slice(0, 7);
 }
 
-/** Whether the run reported its work complete: `done`, or `pushed`, which merge prompts written before `done` use. */
-function landed(report: ReturnType<typeof readActionReport>): boolean {
-  return report?.outcome === 'done' || report?.outcome === 'pushed';
+/** A run its session settled, whose background process `#release` stops so the session can resume in an editor. */
+function settledBySession(outcome: ActionOutcome): boolean {
+  return outcome === 'completed' || outcome === 'awaiting-approval' || outcome === 'blocked';
 }
 
-/** When the card's status last changed, the new request a landed run waits for (R39). */
+/** How a base merge that did not complete ended, in the refusal of another attempt at the same tips. */
+const ENDED_SHORT = { blocked: 'was blocked', 'awaiting-approval': 'is awaiting approval', stopped: 'was stopped' } as const;
+
+/** When the card's status last changed, the new request a completed run waits for (R39). */
 function statusChangedAt(card: LanedCard): number | null {
   const at = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
 
@@ -1803,7 +1807,7 @@ function readJson(path: string): unknown {
   }
 }
 
-/** Remove the previous report before dispatch. A stale pushed result could falsely complete a new run. */
+/** Remove the previous report before dispatch. A stale completed result could falsely complete a new run. */
 function clearReport(path: string): boolean {
   try {
     mkdirSync(path.slice(0, path.lastIndexOf('/')), { recursive: true });

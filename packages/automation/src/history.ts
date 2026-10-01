@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AUTOMATABLE_ACTIONS, CREATE_WORKTREE, runIdOf } from '@ground-control/core';
 import type { ActionHistoryEntry, ActionState } from '@ground-control/core';
+import { runOutcome } from './state.js';
 
 /** Entries the history keeps; the oldest go first when it overflows (R50). */
 export const HISTORY_LIMIT = 500;
@@ -19,7 +20,7 @@ const entry = z.object({
   agent: z.string(),
   startedAt: z.number(),
   endedAt: z.number().nullable(),
-  outcome: z.enum(['running', 'landed', 'halted', 'failed', 'stopped']),
+  outcome: runOutcome,
   detail: z.string(),
   auditPath: z.string().min(1).optional().catch(undefined),
 });

@@ -146,7 +146,7 @@ export interface ActionSettings {
 }
 
 /**
- * Persisted dispatch attempt and authorization evidence, one per card. Failed attempts may retry; a landed run
+ * Persisted dispatch attempt and authorization evidence, one per card. Failed attempts may retry; a completed run
  * blocks automatic repeats of its row, even after a head change, until a newer reading names the row again. An
  * unreadable dispatch ID can produce failed after process creation.
  */
@@ -206,10 +206,11 @@ export interface MergeLeg {
 }
 
 /**
- * Runner state and reported outcome. A merge lands only once GitHub shows its push (R39); other runs land on the
- * session's report. Future R23 requires a separate stage-completion check.
+ * Runner state and reported outcome. A merge completes only once GitHub shows its push (R39); other runs complete on
+ * the session's report. `awaiting-approval` finished its work short of a step the developer approves; `blocked`
+ * stopped on a question or problem. Future R23 requires a separate stage-completion check.
  */
-export type ActionOutcome = 'running' | 'landed' | 'halted' | 'failed' | 'stopped';
+export type ActionOutcome = 'running' | 'completed' | 'awaiting-approval' | 'blocked' | 'failed' | 'stopped';
 
 /** Persisted action refusal for display and retry scheduling. */
 export interface ActionRefusalRecord {
@@ -224,11 +225,11 @@ export interface ActionRefusalRecord {
 }
 
 /**
- * Session-written result used to settle an action; not independent verification. `pushed` is the earlier word for
- * `done`. A worktree run reports `ready` and the absolute path of the worktree it made (R46).
+ * Session-written result used to settle an action; not independent verification. A completed worktree run reports
+ * the absolute path of the worktree it made (R46).
  */
 export interface ActionReport {
-  outcome: 'done' | 'pushed' | 'halted' | 'ready';
+  outcome: 'completed' | 'awaiting-approval' | 'blocked';
   detail: string;
   /** Optional report path for display. */
   auditPath?: string | undefined;

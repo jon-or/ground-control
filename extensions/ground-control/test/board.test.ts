@@ -244,6 +244,7 @@ const GLYPH_SVG: Record<string, string> = {
   square: '<path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16ZM5.75 5a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75Z" fill="currentColor" fill-rule="evenodd"></path>',
   slash: '<path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM3.965 13.096a6.5 6.5 0 0 0 9.131-9.131ZM1.5 8a6.474 6.474 0 0 0 1.404 4.035l9.131-9.131A6.499 6.499 0 0 0 1.5 8Z" fill="currentColor"></path>',
   question: '<path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.92 6.085h.001a.749.749 0 1 1-1.342-.67c.169-.339.436-.701.849-.977C6.845 4.16 7.369 4 8 4a2.756 2.756 0 0 1 1.637.525c.503.377.863.965.863 1.725 0 .448-.115.83-.329 1.15-.205.307-.47.513-.692.662-.109.072-.22.138-.313.195l-.006.004a6.24 6.24 0 0 0-.26.16.952.952 0 0 0-.276.245.75.75 0 0 1-1.248-.832c.184-.264.42-.489.692-.661.103-.067.207-.132.313-.195l.007-.004c.1-.061.182-.11.258-.161a.969.969 0 0 0 .277-.245C8.96 6.514 9 6.427 9 6.25a.612.612 0 0 0-.262-.525A1.27 1.27 0 0 0 8 5.5c-.369 0-.595.09-.74.187a1.01 1.01 0 0 0-.34.398ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z" fill="currentColor"></path>',
+  clock: '<path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z" fill="currentColor"></path>',
 };
 
 describe('board webview', () => {
@@ -2949,8 +2950,9 @@ describe('card actions (R39)', () => {
   });
 
   const outcomes: [NonNullable<LanedCard['action']> & { state: 'done' }, string][] = [
-    [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'landed', detail: 'Merged master.', at }, 'Merged'],
-    [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at }, 'Stopped short'],
+    [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'completed', detail: 'Merged master.', at }, 'Merged'],
+    [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'awaiting-approval', detail: 'Merged; the push waits for you.', at }, 'Awaiting approval'],
+    [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'blocked', detail: 'Conflicts in Booking.cs.', at }, 'Blocked'],
     [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'failed', detail: 'Claude Code was not found.', at }, 'Did not run'],
     [{ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'stopped', detail: 'Stopped by you.', at }, 'Stopped'],
   ];
@@ -2986,8 +2988,9 @@ describe('card actions (R39)', () => {
     ['merging its base first', { state: 'running', action: 'merge', qualifier: 'stacked', since: at, stage: 'base', detail: 'Merging master into 17000-parent-feature first.' }, 'branch', 'Merging base…'],
     ['checking its push', { state: 'running', action: 'merge', qualifier: 'upstream', since: at, stage: 'verifying' }, 'spinner', 'Checking push…'],
     ['waiting for the developer', { state: 'running', action: 'develop', qualifier: null, since: at, stage: 'waiting' }, 'question', 'Waiting for you'],
-    ['landed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'landed', detail: 'Merged into Test-Payments.', at }, 'check', 'Merged'],
-    ['halted', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'halted', detail: 'Conflicts.', at }, 'alert', 'Stopped short'],
+    ['completed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'completed', detail: 'Merged into Test-Payments.', at }, 'check', 'Merged'],
+    ['awaiting approval', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'awaiting-approval', detail: 'Merged locally; the push waits for you.', at }, 'clock', 'Awaiting approval'],
+    ['blocked', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'blocked', detail: 'Conflicts.', at }, 'alert', 'Blocked'],
     ['failed', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'failed', detail: 'Not found.', at }, 'cross', 'Did not run'],
     ['stopped', { state: 'done', action: 'merge', qualifier: 'test', outcome: 'stopped', detail: 'Stopped by you.', at }, 'square', 'Stopped'],
     ['refused', { state: 'refused', action: 'merge', qualifier: 'test', reason: 'This card has an active session.' }, 'slash', 'Not run'],
@@ -3013,11 +3016,11 @@ describe('card actions (R39)', () => {
   });
 
   it('puts what the run said about itself in the mark’s tooltip and description', () => {
-    send(message({ lanes: lanes({ unstarted: [acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts in Booking.cs.', at })] }) }));
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'blocked', detail: 'Conflicts in Booking.cs.', at })] }) }));
 
     const mark = document.querySelector<HTMLElement>('.verdict .state-mark')!;
 
-    expect(tipOf(mark)).toBe('Stopped short: Conflicts in Booking.cs.');
+    expect(tipOf(mark)).toBe('Blocked: Conflicts in Booking.cs.');
     expect(mark.getAttribute('aria-description')).toBe('Conflicts in Booking.cs.');
   });
 
@@ -3086,7 +3089,7 @@ describe('card actions (R39)', () => {
     expect(chip()?.getAttribute('draggable')).toBe('false');
   });
 
-  it('names what each action is doing while it runs and what it did when it lands', () => {
+  it('names what each action is doing while it runs and what it did when it completes', () => {
     send(message({ lanes: lanes({ unstarted: [acting({ state: 'running', action: 'review-others', qualifier: 'initial', since: at })] }) }));
 
     expect(said()).toBe('Reviewing…');
@@ -3094,7 +3097,7 @@ describe('card actions (R39)', () => {
     send(
       message({
         lanes: lanes({
-          unstarted: [acting({ state: 'done', action: 'address-review', qualifier: 'followup', outcome: 'landed', detail: 'Answered the notes.', at })],
+          unstarted: [acting({ state: 'done', action: 'address-review', qualifier: 'followup', outcome: 'completed', detail: 'Answered the notes.', at })],
         }),
       }),
     );
@@ -3216,7 +3219,7 @@ describe('workflow stages (R49)', () => {
 
   it.each([
     ['waiting to run', { state: 'available', action: 'develop', qualifier: null } as const],
-    ['finished', { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Done.', at: reported } as const],
+    ['finished', { state: 'done', action: 'develop', qualifier: null, outcome: 'completed', detail: 'Done.', at: reported } as const],
     ['with no action', undefined],
   ])('does not mark a card’s old stage stale while its action is %s', (_, action) => {
     send(message({ lanes: lanes({ build: [staged(report({ at: now - 60 * 60_000, changedAt: now - 60 * 60_000 }), action)] }) }));
@@ -3248,13 +3251,13 @@ describe('workflow stages (R49)', () => {
 
   it.each([
     ['running develop', { state: 'running', action: 'develop', qualifier: null, since: reported }, 'Developing…'],
-    ['landed develop', { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Opened the pull request.', at: reported }, 'Developed'],
+    ['completed develop', { state: 'done', action: 'develop', qualifier: null, outcome: 'completed', detail: 'Opened the pull request.', at: reported }, 'Developed'],
     ['running ship', { state: 'running', action: 'ship', qualifier: null, since: reported }, 'Shipping…'],
-    ['landed ship', { state: 'done', action: 'ship', qualifier: null, outcome: 'landed', detail: 'Shipped it.', at: reported }, 'Shipped'],
+    ['completed ship', { state: 'done', action: 'ship', qualifier: null, outcome: 'completed', detail: 'Shipped it.', at: reported }, 'Shipped'],
     ['running QA failure', { state: 'running', action: 'qa-failure', qualifier: null, since: reported }, 'Addressing QA…'],
-    ['landed QA failure', { state: 'done', action: 'qa-failure', qualifier: null, outcome: 'landed', detail: 'Fixed step 3.', at: reported }, 'Addressed'],
+    ['completed QA failure', { state: 'done', action: 'qa-failure', qualifier: null, outcome: 'completed', detail: 'Fixed step 3.', at: reported }, 'Addressed'],
     ['running QA question', { state: 'running', action: 'qa-question', qualifier: null, since: reported }, 'Answering QA…'],
-    ['landed QA question', { state: 'done', action: 'qa-question', qualifier: null, outcome: 'landed', detail: 'Rewrote step 1.', at: reported }, 'Answered'],
+    ['completed QA question', { state: 'done', action: 'qa-question', qualifier: null, outcome: 'completed', detail: 'Rewrote step 1.', at: reported }, 'Answered'],
   ] as const)('names a %s run as "%s"', (_, action, text) => {
     send(message({ lanes: lanes({ review: [{ ...liveCard, sessions: [], action }] }) }));
 
@@ -3288,7 +3291,7 @@ describe('the action history', () => {
       agent: 'claude',
       startedAt: now - 5 * 60_000,
       endedAt: now - 2 * 60_000,
-      outcome: 'landed',
+      outcome: 'completed',
       detail: '',
       title: 'Cached counts do not update',
       url: 'https://github.com/example-org/example-repo/issues/18953',
@@ -3303,9 +3306,10 @@ describe('the action history', () => {
     run({ id: 'b', qualifier: 'upstream', detail: 'Merged master into the branch.' }),
     run({ id: 'c', action: 'create-worktree', next: 'develop', trigger: 'editor' }),
     run({ id: 'd', action: 'create-worktree', trigger: 'browser', outcome: 'failed', detail: 'No worktree prompt.' }),
-    run({ id: 'e', action: 'ship', issueNumber: 4501, title: null, outcome: 'halted' }),
+    run({ id: 'e', action: 'ship', issueNumber: 4501, title: null, outcome: 'blocked' }),
     run({ id: 'f', action: 'address-review', key: 'session:17000-parent', issueNumber: null, title: null, qualifier: 'followup', outcome: 'stopped' }),
     run({ id: 'g', action: 'review-others', qualifier: 'initial', startedAt: now - 3 * 60 * 60_000, endedAt: now - 2 * 60 * 60_000 }),
+    run({ id: 'h', action: 'qa-failure', startedAt: now - 4 * 60 * 60_000, endedAt: now - 4 * 60 * 60_000 + 60_000, outcome: 'awaiting-approval' }),
   ];
 
   function openHistory(): void {
@@ -3361,11 +3365,12 @@ describe('the action history', () => {
       ['5m ago', '#18953 Cached counts do not update', 'Merge · upstream', 'Automatic', 'Merged', '3m'],
       ['5m ago', '#18953 Cached counts do not update', 'Worktree for Develop', 'Editor', 'Created', '3m'],
       ['5m ago', '#18953 Cached counts do not update', 'Worktree', 'Browser', 'Did not run', '3m'],
-      ['5m ago', '#4501', 'Ship', 'Automatic', 'Stopped short', '3m'],
+      ['5m ago', '#4501', 'Ship', 'Automatic', 'Blocked', '3m'],
       ['5m ago', 'session:17000-parent', 'Answer review · followup', 'Automatic', 'Stopped', '3m'],
       ['3h ago', '#18953 Cached counts do not update', 'Review their PR · initial', 'Automatic', 'Reviewed', '1h'],
+      ['4h ago', '#18953 Cached counts do not update', 'QA failure', 'Automatic', 'Awaiting approval', '1m'],
     ]);
-    expect(rows().map((row) => row.querySelector('.state-glyph')?.getAttribute('data-glyph'))).toEqual(['spinner', 'check', 'check', 'cross', 'alert', 'square', 'check']);
+    expect(rows().map((row) => row.querySelector('.state-glyph')?.getAttribute('data-glyph'))).toEqual(['spinner', 'check', 'check', 'cross', 'alert', 'square', 'check', 'clock']);
     expect(Array.from(panel()!.querySelectorAll('.history-detail')).map((row) => row.textContent)).toEqual(['Merged master into the branch.', 'No worktree prompt.']);
     expect(rows()[1]!.nextElementSibling?.classList.contains('history-detail')).toBe(true);
 
@@ -3443,7 +3448,7 @@ describe('run reports (R51)', () => {
     return { ...liveCard, sessions: [], action };
   }
 
-  const finished = { state: 'done', action: 'develop', qualifier: null, outcome: 'landed', detail: 'Opened the pull request.', at: now - 60_000 } as const;
+  const finished = { state: 'done', action: 'develop', qualifier: null, outcome: 'completed', detail: 'Opened the pull request.', at: now - 60_000 } as const;
 
   function showCard(): void {
     send(message({ lanes: lanes({ review: [acting({ ...finished, reportId })] }) }));
@@ -3475,7 +3480,7 @@ describe('run reports (R51)', () => {
       agent: 'claude',
       startedAt: now - 5 * 60_000,
       endedAt: now - 2 * 60_000,
-      outcome: 'landed',
+      outcome: 'completed',
       detail: '',
       title: 'Cached counts do not update',
       url: 'https://github.com/example-org/example-repo/issues/18953',
@@ -4074,7 +4079,7 @@ describe('the tooltip', () => {
               ...liveCard,
               sessions: [],
               triage: { state: 'done', action: 'merge', qualifier: 'upstream', target: null, detail: 'Rich asked for a merge.', at, stale: false },
-              action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts.', at },
+              action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'blocked', detail: 'Conflicts.', at },
             },
           ],
         }),
@@ -4088,7 +4093,7 @@ describe('the tooltip', () => {
     hover(mark);
     vi.advanceTimersByTime(120);
 
-    expect(tip()?.textContent).toBe('Stopped short: Conflicts.');
+    expect(tip()?.textContent).toBe('Blocked: Conflicts.');
 
     mark.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: words }));
     hover(words);
@@ -5322,10 +5327,10 @@ describe('the worktree in the bar', () => {
   });
 
   it('says how the last run ended, and offers to try again', () => {
-    show({ creation: { state: 'done', outcome: 'halted', detail: 'The run ended without reporting a worktree.', at } });
+    show({ creation: { state: 'done', outcome: 'blocked', detail: 'The run ended without reporting a worktree.', at } });
 
-    expect(tipOf(create())).toBe('Stopped short: The run ended without reporting a worktree. Click to try again.');
-    expect(create()!.dataset.outcome).toBe('halted');
+    expect(tipOf(create())).toBe('Blocked: The run ended without reporting a worktree. Click to try again.');
+    expect(create()!.dataset.outcome).toBe('blocked');
 
     create()!.click();
 
@@ -5346,12 +5351,12 @@ describe('the worktree in the bar', () => {
 
   // Pointing at the bar is how the worktree control is reached, so the run it started has to show without that (R45).
   it('states a worktree run asked for on its own at rest, over the last outcome of the action', () => {
-    show({ creation: { state: 'running', since: at }, action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'halted', detail: 'Conflicts.', at } });
+    show({ creation: { state: 'running', since: at }, action: { state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'blocked', detail: 'Conflicts.', at } });
 
     expect(said()).toBe('Creating worktree…');
     expect(document.querySelector<HTMLElement>('.verdict .state-mark')?.dataset.outcome).toBe('running');
 
-    show({ creation: { state: 'done', outcome: 'landed', detail: 'Made.', at }, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
+    show({ creation: { state: 'done', outcome: 'completed', detail: 'Made.', at }, action: { state: 'available', action: 'merge', qualifier: 'upstream' } });
 
     expect(said()).toBeUndefined();
   });

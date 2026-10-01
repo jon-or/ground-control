@@ -160,7 +160,7 @@ it('aggregates visible project tabs across navigation, disconnects, and reconnec
 /** One finished run with a report, as the hub lists it (R50, R51). */
 const REPORTED_RUN = {
   id: 'issue-4501@1', key: 'issue-4501', issueNumber: 4501, action: 'develop', qualifier: null, trigger: 'browser', agent: 'claude',
-  startedAt: Date.now() - 300_000, endedAt: Date.now() - 60_000, outcome: 'landed', detail: '', title: 'Issue 4501', url: null, reportId: 'issue-4501@1',
+  startedAt: Date.now() - 300_000, endedAt: Date.now() - 60_000, outcome: 'completed', detail: '', title: 'Issue 4501', url: null, reportId: 'issue-4501@1',
 };
 
 /** A 1×1 PNG, decodable, as the hub inlines a report's image. */

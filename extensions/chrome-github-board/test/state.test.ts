@@ -38,7 +38,7 @@ describe('what a message from the worker changes', () => {
   /** Opening the history drops the last list so the panel reads; an answer fills it, and anything else leaves it. */
   it('drops the history on a new request and takes the answer', () => {
     const entries = [
-      { id: 'a', key: 'issue-4501', issueNumber: 4501, action: 'merge', qualifier: null, trigger: 'browser', agent: 'claude', startedAt: 1, endedAt: 2, outcome: 'landed', detail: '', title: 'Issue 4501', url: null, reportId: null },
+      { id: 'a', key: 'issue-4501', issueNumber: 4501, action: 'merge', qualifier: null, trigger: 'browser', agent: 'claude', startedAt: 1, endedAt: 2, outcome: 'completed', detail: '', title: 'Issue 4501', url: null, reportId: null },
     ] as const;
     const answered = applyMessage(initialState(), { type: 'actionHistory', entries: [...entries] });
 

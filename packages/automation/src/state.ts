@@ -28,7 +28,7 @@ const mergeLeg = z.object({
 /** Rolling dispatch-count window, preserved across hub restarts. */
 export const DISPATCH_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** How long a base merge that did not land blocks automatic retries of the same tips (R39). */
+/** How long a base merge that did not complete blocks automatic retries of the same tips (R39). */
 export const BASE_BLOCK_MS = 30 * DISPATCH_WINDOW_MS;
 
 /** Minimum interval between automatic action checks, each of which requires fresh GitHub context. */
@@ -52,6 +52,21 @@ const legacyRun = (value: unknown): unknown => {
     : run;
 };
 
+/** Earlier outcome words, read as the current ones: `halted` covered both approval and a stop. */
+const EARLIER_RUN_OUTCOMES: Record<string, string> = { landed: 'completed', halted: 'blocked' };
+
+/** Earlier report words, which prompts written before the rename still use: a worktree run reported `ready`. */
+const EARLIER_REPORT_OUTCOMES: Record<string, string> = { done: 'completed', ready: 'completed', halted: 'blocked' };
+
+const current = (earlier: Record<string, string>) => (value: unknown): unknown =>
+  typeof value === 'string' ? (earlier[value] ?? value) : value;
+
+/** A stored run outcome, in a run record or a history entry. */
+export const runOutcome = z.preprocess(
+  current(EARLIER_RUN_OUTCOMES),
+  z.enum(['running', 'completed', 'awaiting-approval', 'blocked', 'failed', 'stopped']),
+);
+
 const actionRun = z.preprocess(legacyRun, z.object({
   key: z.string(),
   action: z.enum([...AUTOMATABLE_ACTIONS, CREATE_WORKTREE]),
@@ -69,7 +84,7 @@ const actionRun = z.preprocess(legacyRun, z.object({
   agent: z.string(),
   sessionId: z.string().nullable().default(null),
   shortId: z.string(),
-  outcome: z.enum(['running', 'landed', 'halted', 'failed', 'stopped']),
+  outcome: runOutcome,
   detail: z.string().default(''),
   auditPath: z.string().min(1).optional().catch(undefined),
   testerCommentAt: z.number().optional().catch(undefined),
@@ -147,11 +162,11 @@ export function readActionState(stored: unknown): ActionState {
 }
 
 /**
- * Session-reported outcome. `done`, or the earlier `pushed`, maps to landed; only a merge's push is checked on GitHub
- * (R39). A worktree run reports `ready` with the worktree's path (R46).
+ * Session-reported outcome; only a merge's push is checked on GitHub (R39). A completed worktree run reports the
+ * worktree's path (R46).
  */
 const actionReport = z.object({
-  outcome: z.enum(['done', 'pushed', 'halted', 'ready']),
+  outcome: z.preprocess(current(EARLIER_REPORT_OUTCOMES), z.enum(['completed', 'awaiting-approval', 'blocked'])),
   detail: z.string().min(1),
   auditPath: z.string().optional(),
   worktree: z.string().min(1).optional(),
@@ -166,10 +181,10 @@ export function readActionReport(stored: unknown): ActionReport | null {
 
 /**
  * Block automatic repeats of the action under the current revision for unchanged evidence, whatever the qualifier:
- * a follow-up review of a head the initial review already read has nothing new to read. A landed run also blocks
+ * a follow-up review of a head the initial review already read has nothing new to read. A completed run also blocks
  * changed evidence until the card's status changes after it ended, so a merge's own push cannot trigger another; a
  * reread alone is not a new request. Failed starts, older revisions, and other actions do not block; the read gate
- * limits retries. Manual requests bypass this check. A QA run that did not land also allows another after a tester
+ * limits retries. Manual requests bypass this check. A QA run that did not complete also allows another after a tester
  * comment newer than the newest one it was dispatched with, both by GitHub's clock, since a tester's new report or
  * question changes no commit (R39).
  */
@@ -192,7 +207,7 @@ export function alreadyRun(
     return false;
   }
 
-  if (run.outcome === 'landed') {
+  if (run.outcome === 'completed') {
     return (statusChangedAt ?? 0) <= (run.endedAt ?? run.startedAt);
   }
 
@@ -357,9 +372,9 @@ export function nextActionState(
   const runs = kept(state.runs);
 
   for (const [key, run] of Object.entries(state.runs)) {
-    // A base merge belongs to no card. One that did not land blocks automatic retries of its tips (R39); a branch that
+    // A base merge belongs to no card. One that did not complete blocks automatic retries of its tips (R39); a branch that
     // never moves again is abandoned, so the block ends after BASE_BLOCK_MS.
-    const kept = run.outcome === 'landed' ? DISPATCH_WINDOW_MS : BASE_BLOCK_MS;
+    const kept = run.outcome === 'completed' ? DISPATCH_WINDOW_MS : BASE_BLOCK_MS;
 
     if (run.outcome === 'running' || (isBaseKey(key) && now - (run.endedAt ?? run.startedAt) < kept)) {
       runs[key] = run;
@@ -397,9 +412,9 @@ export function cardActionOf(
 ): CardAction | undefined {
   const own = state.runs[key];
   const base = baseRunFor(state, key);
-  // The base merge started for the card is its newest fact while newer than the card's own run; one that landed is
+  // The base merge started for the card is its newest fact while newer than the card's own run; one that completed is
   // over, and the merge after it has its own record (R39).
-  const run = base !== undefined && base.outcome !== 'landed' && (own === undefined || base.startedAt > own.startedAt) ? base : own;
+  const run = base !== undefined && base.outcome !== 'completed' && (own === undefined || base.startedAt > own.startedAt) ? base : own;
   // A worktree run stands for the action it precedes while running, and where it ended short of the action; one
   // that linked its worktree is over, and the action's own record or refusal follows.
   const shown = run === undefined
@@ -408,7 +423,7 @@ export function cardActionOf(
       ? { ...run, qualifier: run.for?.qualifier ?? null, detail: `${run.merge?.destination ?? 'Base'}: ${run.detail}` }
       : run.action !== CREATE_WORKTREE
         ? run
-        : run.next === undefined || run.outcome === 'landed' ? undefined : { ...run, action: run.next };
+        : run.next === undefined || run.outcome === 'completed' ? undefined : { ...run, action: run.next };
 
   if (shown !== undefined && shown.outcome === 'running') {
     if (shown.action === CREATE_WORKTREE || shown.qualifier === BASE_MERGE) {

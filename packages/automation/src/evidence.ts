@@ -14,7 +14,7 @@ export function actionEvidence(context: TriageContext): string {
 
 /**
  * When someone other than the developer or a machine account last commented on the issue, by GitHub's clock in epoch
- * milliseconds, or null where the comments read hold none. A QA run that stopped short may run again after it (R39).
+ * milliseconds, or null where the comments read hold none. A QA run that did not complete may run again after it (R39).
  * The context holds only the newest comments, so a tester comment the developer's replies push out reads as none.
  */
 export function testerCommentAt(context: TriageContext): number | null {

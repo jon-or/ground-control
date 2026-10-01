@@ -111,6 +111,14 @@ describe('reading what is stored', () => {
     expect(state.links).toEqual({ 'claude:a': { issueNumber: 7, at: 1 } });
   });
 
+  /** Records written before approval was told apart from a stop keep their meaning. */
+  it('reads the earlier run outcomes as the current ones', () => {
+    const state = readActionState({ runs: { a: run({ outcome: 'landed' as never }), b: run({ outcome: 'halted' as never }) } });
+
+    expect(state.runs['a']?.outcome).toBe('completed');
+    expect(state.runs['b']?.outcome).toBe('blocked');
+  });
+
   it('takes a run written before the optional fields existed', () => {
     const stored = { runs: { a: { ...run(), endedAt: undefined, sessionId: undefined, detail: undefined } } };
 
@@ -119,38 +127,41 @@ describe('reading what is stored', () => {
 });
 
 describe('action reports', () => {
-  it('reads a report a run wrote, and one in the earlier pushed wording', () => {
-    expect(readActionReport({ outcome: 'done', detail: 'Merged master, 3 commits.' })).toEqual({
-      outcome: 'done',
-      detail: 'Merged master, 3 commits.',
-    });
-    expect(readActionReport({ outcome: 'pushed', detail: 'Merged master, 3 commits.' })).toEqual({
-      outcome: 'pushed',
-      detail: 'Merged master, 3 commits.',
-    });
+  it('reads each outcome a run reports', () => {
+    for (const outcome of ['completed', 'awaiting-approval', 'blocked'] as const) {
+      expect(readActionReport({ outcome, detail: 'Merged master, 3 commits.' })).toEqual({ outcome, detail: 'Merged master, 3 commits.' });
+    }
+  });
+
+  /** Prompts written before the outcomes were renamed still report `done`, `ready`, and `halted`. */
+  it('reads the earlier outcome words as the current ones', () => {
+    expect(readActionReport({ outcome: 'done', detail: 'x' })?.outcome).toBe('completed');
+    expect(readActionReport({ outcome: 'ready', worktree: 'D:/git/w', detail: 'x' })?.outcome).toBe('completed');
+    expect(readActionReport({ outcome: 'halted', detail: 'x' })?.outcome).toBe('blocked');
   });
 
   it('rejects unknown outcomes and empty explanations', () => {
+    expect(readActionReport({ outcome: 'pushed', detail: 'x' })).toBe(null);
     expect(readActionReport({ outcome: 'landed', detail: 'x' })).toBe(null);
-    expect(readActionReport({ outcome: 'pushed', detail: '' })).toBe(null);
+    expect(readActionReport({ outcome: 'completed', detail: '' })).toBe(null);
     expect(readActionReport(null)).toBe(null);
   });
 
   // A worktree run reports where it made the worktree; the path is what the hub records (R46).
   it('reads a worktree report with its path, and rejects one naming no path worth recording', () => {
-    expect(readActionReport({ outcome: 'ready', detail: 'Built.', worktree: 'd:/work/wt/refund' })).toEqual({
-      outcome: 'ready',
+    expect(readActionReport({ outcome: 'completed', detail: 'Built.', worktree: 'd:/work/wt/refund' })).toEqual({
+      outcome: 'completed',
       detail: 'Built.',
       worktree: 'd:/work/wt/refund',
     });
-    expect(readActionReport({ outcome: 'ready', detail: 'Built.', worktree: '' })).toBe(null);
-    expect(readActionReport({ outcome: 'ready', detail: 'Built.' })).toEqual({ outcome: 'ready', detail: 'Built.' });
+    expect(readActionReport({ outcome: 'completed', detail: 'Built.', worktree: '' })).toBe(null);
+    expect(readActionReport({ outcome: 'completed', detail: 'Built.' })).toEqual({ outcome: 'completed', detail: 'Built.' });
   });
 });
 
 describe('repeat-run prevention', () => {
   it('blocks a second run against the same evidence, whatever the first one came to', () => {
-    for (const outcome of ['landed', 'halted', 'stopped', 'running'] as const) {
+    for (const outcome of ['completed', 'awaiting-approval', 'blocked', 'stopped', 'running'] as const) {
       const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome }) } };
 
       expect(alreadyRun(state, 'issue:17198', '17198|4021|abc', 'merge', null)).toBe(true);
@@ -164,37 +175,41 @@ describe('repeat-run prevention', () => {
     expect(alreadyRun(state, 'issue:17198', '17198|4021|abc', 'merge', null)).toBe(false);
   });
 
+  // A run awaiting approval is not completed, so it does not wait for a status change the way a completed one does.
   it('does not block once the evidence has moved', () => {
-    const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome: 'halted' }) } };
+    for (const outcome of ['blocked', 'awaiting-approval'] as const) {
+      const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome, endedAt: NOW }) } };
 
-    expect(alreadyRun(state, 'issue:17198', '17198|4021|def', 'merge', null)).toBe(false);
+      expect(alreadyRun(state, 'issue:17198', '17198|4021|def', 'merge', null)).toBe(false);
+    }
   });
 
   // The follow-up would read the same head the initial review already read.
   it('blocks another qualifier of the same action on the same head, and not another action', () => {
-    const review = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action: 'review-others', qualifier: 'initial', outcome: 'halted' }) } };
+    const review = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action: 'review-others', qualifier: 'initial', outcome: 'blocked' }) } };
 
     expect(alreadyRun(review, 'issue:17198', '17198|4021|abc', 'review-others', null)).toBe(true);
     expect(alreadyRun(review, 'issue:17198', '17198|4021|abc', 'address-review', null)).toBe(false);
   });
 
   /** A successful merge blocks automatic repeats even when its own push changes headOid, until a new request. */
-  it('blocks a run after one landed, however far the evidence has moved, until the card’s status changes', () => {
-    const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome: 'landed', endedAt: NOW + 5 }) } };
+  it('blocks a run after one completed, however far the evidence has moved, until the card’s status changes', () => {
+    const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome: 'completed', endedAt: NOW + 5 }) } };
 
     expect(alreadyRun(state, 'issue:17198', '17198|4021|the-commit-that-merge-pushed', 'merge', null)).toBe(true);
     expect(alreadyRun(state, 'issue:17198', '17198|4021|the-commit-that-merge-pushed', 'merge', NOW + 5)).toBe(true);
     expect(alreadyRun(state, 'issue:17198', '17198|4021|the-commit-that-merge-pushed', 'merge', NOW + 6)).toBe(false);
   });
 
-  /** A tester's new report or question changes no commit, so it reopens a QA run that stopped short (R39). */
+  /** A tester's new report or question changes no commit, so it reopens a QA run that did not complete (R39). */
   // Both times are GitHub's, so a hub clock that differs from GitHub's neither repeats nor blocks a retry.
   it('allows a QA run again after a tester comment newer than the one it ran with, and only then', () => {
     const SEEN = NOW + 7_200_000;
 
-    for (const action of ['qa-failure', 'qa-question'] as const) {
-      const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action, evidence: '17198||', outcome: 'halted', startedAt: NOW, testerCommentAt: SEEN }) } };
-      const none = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action, evidence: '17198||', outcome: 'halted', startedAt: NOW }) } };
+    // A reply awaiting approval answered the comments it read; a newer one makes it stale.
+    for (const [action, outcome] of [['qa-failure', 'blocked'], ['qa-question', 'blocked'], ['qa-failure', 'awaiting-approval']] as const) {
+      const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action, evidence: '17198||', outcome, startedAt: NOW, testerCommentAt: SEEN }) } };
+      const none = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action, evidence: '17198||', outcome, startedAt: NOW }) } };
 
       expect(alreadyRun(state, 'issue:17198', '17198||', action, null, null)).toBe(true);
       expect(alreadyRun(state, 'issue:17198', '17198||', action, null, SEEN)).toBe(true);
@@ -202,19 +217,19 @@ describe('repeat-run prevention', () => {
       expect(alreadyRun(none, 'issue:17198', '17198||', action, null, NOW - 1)).toBe(false);
     }
 
-    // Other actions, a run still going, and a run that landed keep their own rules.
-    const merge = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome: 'halted', startedAt: NOW }) } };
+    // Other actions, a run still going, and a run that completed keep their own rules.
+    const merge = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome: 'blocked', startedAt: NOW }) } };
     const going = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action: 'qa-failure', evidence: '17198||', outcome: 'running', startedAt: NOW }) } };
-    const landed = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action: 'qa-failure', evidence: '17198||', outcome: 'landed', startedAt: NOW, endedAt: NOW + 5 }) } };
+    const completed = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action: 'qa-failure', evidence: '17198||', outcome: 'completed', startedAt: NOW, endedAt: NOW + 5 }) } };
 
     expect(alreadyRun(merge, 'issue:17198', '17198|4021|abc', 'merge', null, NOW + 1)).toBe(true);
     expect(alreadyRun(going, 'issue:17198', '17198||', 'qa-failure', null, NOW + 1)).toBe(true);
-    expect(alreadyRun(landed, 'issue:17198', '17198||', 'qa-failure', null, NOW + 10)).toBe(true);
+    expect(alreadyRun(completed, 'issue:17198', '17198||', 'qa-failure', null, NOW + 10)).toBe(true);
   });
 
-  /** A merge that landed before the upgrade must still stop the same request merging again. */
+  /** A merge that completed before the upgrade must still stop the same request merging again. */
   it('reads a record written before the table as the upstream merge it was', () => {
-    const stored = { runs: { 'issue:17198': { ...run({ outcome: 'landed', endedAt: NOW }), action: 'merge-upstream', qualifier: undefined } } };
+    const stored = { runs: { 'issue:17198': { ...run({ outcome: 'completed', endedAt: NOW }), action: 'merge-upstream', qualifier: undefined } } };
     const state = readActionState(stored);
 
     expect(state.runs['issue:17198']).toMatchObject({ action: 'merge', qualifier: 'upstream' });
@@ -314,7 +329,7 @@ describe('following a run', () => {
   it('keeps a link after the card run that made it is replaced or pruned', () => {
     const linked = withSession(withDispatch(EMPTY_ACTIONS, run({ issueNumber: 17198 }), NOW), 'issue:17198', 'sid', NOW);
     const replaced = withDispatch(linked, run({ issueNumber: 17198, shortId: 'next' }), NOW + 1);
-    const pruned = nextActionState([], withOutcome(replaced, 'issue:17198', 'landed', 'x', NOW + 2), true, NOW + 3);
+    const pruned = nextActionState([], withOutcome(replaced, 'issue:17198', 'completed', 'x', NOW + 2), true, NOW + 3);
 
     expect(pruned.runs).toEqual({});
     expect(pruned.links).toEqual(linked.links);
@@ -337,20 +352,20 @@ describe('following a run', () => {
   });
 
   it('settles an outcome with the time it was settled', () => {
-    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'landed', 'Merged.', NOW + 60);
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'completed', 'Merged.', NOW + 60);
 
-    expect(state.runs['issue:17198']).toMatchObject({ outcome: 'landed', detail: 'Merged.', endedAt: NOW + 60 });
+    expect(state.runs['issue:17198']).toMatchObject({ outcome: 'completed', detail: 'Merged.', endedAt: NOW + 60 });
   });
 
   it('leaves a key with no run exactly as it was', () => {
-    expect(withOutcome(EMPTY_ACTIONS, 'issue:1', 'landed', 'x', NOW)).toBe(EMPTY_ACTIONS);
+    expect(withOutcome(EMPTY_ACTIONS, 'issue:1', 'completed', 'x', NOW)).toBe(EMPTY_ACTIONS);
     expect(withSession(EMPTY_ACTIONS, 'issue:1', 'sid', NOW)).toBe(EMPTY_ACTIONS);
   });
 });
 
 describe('what a render leaves behind', () => {
   it('drops everything about a card that has left the board', () => {
-    const dispatched = withDispatch(EMPTY_ACTIONS, run({ outcome: 'landed' }), NOW);
+    const dispatched = withDispatch(EMPTY_ACTIONS, run({ outcome: 'completed' }), NOW);
     const refused = withRefusal(dispatched, 'issue:99', { kind: 'k', message: 'm' }, NOW);
     const next = nextActionState(laneWith('issue:99'), refused, true, NOW);
 
@@ -456,13 +471,13 @@ describe('what a card says about its action', () => {
   });
 
   it('keeps a finished run on a card the next reading still reads the same way', () => {
-    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Conflicts.', NOW + 5);
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'blocked', 'Conflicts.', NOW + 5);
 
     expect(cardActionOf(state, 'issue:17198', reads('merge'), null)).toEqual({
       state: 'done',
       action: 'merge',
       qualifier: 'upstream',
-      outcome: 'halted',
+      outcome: 'blocked',
       detail: 'Conflicts.',
       at: NOW + 5,
     });
@@ -470,15 +485,15 @@ describe('what a card says about its action', () => {
 
   /** A settled reading that names no action the board performs supersedes the run it no longer describes. */
   it('drops a finished run once the card reads as something else', () => {
-    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Conflicts.', NOW + 5);
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'blocked', 'Conflicts.', NOW + 5);
 
     expect(cardActionOf(state, 'issue:17198', reads(null), null)).toBeUndefined();
     expect(cardActionOf(state, 'issue:17198', reads(null), 'No worktree.')).toBeUndefined();
   });
 
-  /** A merge that landed reclassifies the card, and the outcome goes with the reading that replaced it. */
-  it('drops a landed run the same way, rather than keeping a verdict the reading has moved past', () => {
-    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'landed', 'Merged master.', NOW + 5);
+  /** A merge that completed reclassifies the card, and the outcome goes with the reading that replaced it. */
+  it('drops a completed run the same way, rather than keeping a verdict the reading has moved past', () => {
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'completed', 'Merged master.', NOW + 5);
 
     expect(cardActionOf(state, 'issue:17198', reads(null), null)).toBeUndefined();
   });
@@ -488,7 +503,7 @@ describe('what a card says about its action', () => {
    * card has to say. Reading again requires changed evidence, which is also what makes another run legitimate.
    */
   it('drops a finished run once the card has been read again, however that reading came out', () => {
-    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Conflicts.', NOW + 5);
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'blocked', 'Conflicts.', NOW + 5);
 
     expect(cardActionOf(state, 'issue:17198', reads('merge', true, NOW + 6), null)).toEqual({
       state: 'available',
@@ -500,12 +515,12 @@ describe('what a card says about its action', () => {
 
   /** Reading again must not blink the outcome out: only a settled reading supersedes it. */
   it('keeps the outcome while the card is being read again, or its reading failed', () => {
-    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Conflicts.', NOW + 5);
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'blocked', 'Conflicts.', NOW + 5);
 
     expect(cardActionOf(state, 'issue:17198', reads(null, false), null)).toMatchObject({
       state: 'done',
       action: 'merge',
-      outcome: 'halted',
+      outcome: 'blocked',
     });
   });
 
@@ -534,13 +549,13 @@ describe('what a card says about its action', () => {
     });
 
     it('reports a worktree run that ended short of the action as that action, done', () => {
-      const state = withOutcome(making('merge'), 'issue:17198', 'halted', 'No worktree reported.', NOW + 5);
+      const state = withOutcome(making('merge'), 'issue:17198', 'blocked', 'No worktree reported.', NOW + 5);
 
       expect(cardActionOf(state, 'issue:17198', reads('merge'), null)).toEqual({
         state: 'done',
         action: 'merge',
         qualifier: 'upstream',
-        outcome: 'halted',
+        outcome: 'blocked',
         detail: 'No worktree reported.',
         at: NOW + 5,
       });
@@ -550,7 +565,7 @@ describe('what a card says about its action', () => {
 
     // The action's own record or refusal follows a linked run; showing the action as done would claim it ran.
     it('says nothing about a worktree run that linked its worktree, whatever it preceded', () => {
-      const state = withOutcome(making('merge'), 'issue:17198', 'landed', 'Created d:/wt.', NOW + 5);
+      const state = withOutcome(making('merge'), 'issue:17198', 'completed', 'Created d:/wt.', NOW + 5);
 
       expect(cardActionOf(state, 'issue:17198', reads('merge'), null)).toEqual({ state: 'available', action: 'merge', qualifier: 'upstream' });
       expect(cardActionOf(withRefusal(state, 'issue:17198', { kind: 'k', message: 'Draft.' }, NOW + 6, UPSTREAM), 'issue:17198', reads('merge'), null)).toEqual({
@@ -563,7 +578,7 @@ describe('what a card says about its action', () => {
     });
 
     it('says nothing about a finished worktree run that preceded no action', () => {
-      const state = withOutcome(making(), 'issue:17198', 'halted', 'No worktree reported.', NOW + 5);
+      const state = withOutcome(making(), 'issue:17198', 'blocked', 'No worktree reported.', NOW + 5);
 
       expect(cardActionOf(state, 'issue:17198', reads('merge'), null)).toEqual({ state: 'available', action: 'merge', qualifier: 'upstream' });
     });
@@ -583,9 +598,9 @@ describe('what a card says about making its worktree', () => {
   });
 
   it('shows how the last run ended, over any refusal', () => {
-    const state = withOutcome(making, 'issue:17198', 'halted', 'No worktree reported.', NOW + 5);
+    const state = withOutcome(making, 'issue:17198', 'blocked', 'No worktree reported.', NOW + 5);
 
-    expect(worktreeCreationOf(state, 'issue:17198', 'No prompt.')).toEqual({ state: 'done', outcome: 'halted', detail: 'No worktree reported.', at: NOW + 5 });
+    expect(worktreeCreationOf(state, 'issue:17198', 'No prompt.')).toEqual({ state: 'done', outcome: 'blocked', detail: 'No worktree reported.', at: NOW + 5 });
   });
 
   it('says nothing about an action run, which is not a worktree run', () => {
@@ -595,10 +610,10 @@ describe('what a card says about making its worktree', () => {
 
 describe('what a worktree run leaves for the action after it', () => {
   it('never blocks the action: a worktree run has no PR evidence, whatever its outcome', () => {
-    const linked = withOutcome(withDispatch(EMPTY_ACTIONS, run({ action: 'create-worktree', next: 'merge' }), NOW), 'issue:17198', 'landed', 'Created.', NOW + 5);
+    const linked = withOutcome(withDispatch(EMPTY_ACTIONS, run({ action: 'create-worktree', next: 'merge' }), NOW), 'issue:17198', 'completed', 'Created.', NOW + 5);
 
     expect(alreadyRun(linked, 'issue:17198', '17198|4021|abc', 'merge', null)).toBe(false);
-    expect(alreadyRun(withOutcome(linked, 'issue:17198', 'halted', 'No worktree.', NOW + 5), 'issue:17198', '17198|4021|abc', 'merge', null)).toBe(false);
+    expect(alreadyRun(withOutcome(linked, 'issue:17198', 'blocked', 'No worktree.', NOW + 5), 'issue:17198', '17198|4021|abc', 'merge', null)).toBe(false);
   });
 });
 
@@ -634,7 +649,7 @@ describe('a base merge and a merge being checked', () => {
     expect(isBaseKey('issue:17198')).toBe(false);
     expect(mergeInto(state, 'example-org/example-repo', '17000-parent-feature')?.key).toBe(BASE);
     expect(mergeInto(state, 'example-org/example-repo', '17198-channel-mapping')).toBeUndefined();
-    expect(mergeInto({ ...state, runs: { [BASE]: baseRun({ outcome: 'landed' }) } }, 'example-org/example-repo', '17000-parent-feature')).toBeUndefined();
+    expect(mergeInto({ ...state, runs: { [BASE]: baseRun({ outcome: 'completed' }) } }, 'example-org/example-repo', '17000-parent-feature')).toBeUndefined();
   });
 
   it('shows a running base merge on its card as the card\'s merge at the base stage', () => {
@@ -650,28 +665,28 @@ describe('a base merge and a merge being checked', () => {
     });
   });
 
-  it('shows a halted base merge on its card, naming the base, over the card\'s older run', () => {
+  it('shows a blocked base merge on its card, naming the base, over the card\'s older run', () => {
     const state = {
       ...EMPTY_ACTIONS,
       runs: {
-        'issue:17198': run({ outcome: 'landed', startedAt: NOW - 10_000, endedAt: NOW - 9_000 }),
-        [BASE]: baseRun({ outcome: 'halted', endedAt: NOW + 10, detail: 'Conflicts.' }),
+        'issue:17198': run({ outcome: 'completed', startedAt: NOW - 10_000, endedAt: NOW - 9_000 }),
+        [BASE]: baseRun({ outcome: 'blocked', endedAt: NOW + 10, detail: 'Conflicts.' }),
       },
     };
 
     expect(cardActionOf(state, 'issue:17198', stackedReading, null)).toMatchObject({
       state: 'done',
       qualifier: 'stacked',
-      outcome: 'halted',
+      outcome: 'blocked',
       detail: '17000-parent-feature: Conflicts.',
     });
   });
 
-  it('shows the card\'s own merge once the base merge landed', () => {
+  it('shows the card\'s own merge once the base merge completed', () => {
     const state = {
       ...EMPTY_ACTIONS,
       runs: {
-        [BASE]: baseRun({ outcome: 'landed', endedAt: NOW + 10 }),
+        [BASE]: baseRun({ outcome: 'completed', endedAt: NOW + 10 }),
         'issue:17198': run({ qualifier: 'stacked', startedAt: NOW + 20 }),
       },
     };
@@ -685,16 +700,16 @@ describe('a base merge and a merge being checked', () => {
     expect(cardActionOf(state, 'issue:17198', reads('merge'), null)).toMatchObject({ state: 'running', stage: 'verifying' });
   });
 
-  /** No card has a base merge's key; a landed one has nothing left to block, a halted one blocks its tips. */
-  it('keeps a landed base merge a day and one that did not land for BASE_BLOCK_MS, then drops them', () => {
-    const landed = { ...EMPTY_ACTIONS, runs: { [BASE]: baseRun({ outcome: 'landed', endedAt: NOW }) } };
-    const halted = { ...EMPTY_ACTIONS, runs: { [BASE]: baseRun({ outcome: 'halted', endedAt: NOW }) } };
+  /** No card has a base merge's key; a completed one has nothing left to block, a blocked one blocks its tips. */
+  it('keeps a completed base merge a day and one that did not complete for BASE_BLOCK_MS, then drops them', () => {
+    const completed = { ...EMPTY_ACTIONS, runs: { [BASE]: baseRun({ outcome: 'completed', endedAt: NOW }) } };
+    const blocked = { ...EMPTY_ACTIONS, runs: { [BASE]: baseRun({ outcome: 'blocked', endedAt: NOW }) } };
     const at = (state: ActionState, now: number) => nextActionState(laneWith('issue:17198'), state, true, now).runs[BASE];
 
-    expect(at(landed, NOW + 1_000)).toBeDefined();
-    expect(at(landed, NOW + DISPATCH_WINDOW_MS)).toBeUndefined();
-    expect(at(halted, NOW + DISPATCH_WINDOW_MS)).toBeDefined();
-    expect(at(halted, NOW + BASE_BLOCK_MS)).toBeUndefined();
+    expect(at(completed, NOW + 1_000)).toBeDefined();
+    expect(at(completed, NOW + DISPATCH_WINDOW_MS)).toBeUndefined();
+    expect(at(blocked, NOW + DISPATCH_WINDOW_MS)).toBeDefined();
+    expect(at(blocked, NOW + BASE_BLOCK_MS)).toBeUndefined();
   });
 
   it('keeps the merge and the card it is for through a dispatch and a pass', () => {
@@ -711,20 +726,20 @@ describe('a run’s report (R51)', () => {
   it('keeps an absolute report path with the outcome, and none for a relative one', () => {
     const started = withDispatch(EMPTY_ACTIONS, run(), NOW);
 
-    expect(withOutcome(started, 'issue:17198', 'landed', 'Reviewed.', NOW + 60, REPORT).runs['issue:17198']?.auditPath).toBe(REPORT);
-    expect(withOutcome(started, 'issue:17198', 'halted', 'Stopped at the gate.', NOW + 60, REPORT).runs['issue:17198']?.auditPath).toBe(REPORT);
-    expect(withOutcome(started, 'issue:17198', 'landed', 'Reviewed.', NOW + 60, '.wip/review.md').runs['issue:17198']).not.toHaveProperty('auditPath');
+    expect(withOutcome(started, 'issue:17198', 'completed', 'Reviewed.', NOW + 60, REPORT).runs['issue:17198']?.auditPath).toBe(REPORT);
+    expect(withOutcome(started, 'issue:17198', 'blocked', 'Stopped at the gate.', NOW + 60, REPORT).runs['issue:17198']?.auditPath).toBe(REPORT);
+    expect(withOutcome(started, 'issue:17198', 'completed', 'Reviewed.', NOW + 60, '.wip/review.md').runs['issue:17198']).not.toHaveProperty('auditPath');
   });
 
   it('drops an earlier outcome’s report when a later one names none', () => {
-    const reported = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'halted', 'Gate.', NOW + 60, REPORT);
+    const reported = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'blocked', 'Gate.', NOW + 60, REPORT);
 
-    expect(withOutcome(reported, 'issue:17198', 'landed', 'Published.', NOW + 120).runs['issue:17198']).not.toHaveProperty('auditPath');
+    expect(withOutcome(reported, 'issue:17198', 'completed', 'Published.', NOW + 120).runs['issue:17198']).not.toHaveProperty('auditPath');
   });
 
   it('gives a finished run with a report the id its history entry goes by', () => {
-    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'landed', 'Merged.', NOW + 60, REPORT);
-    const plain = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'landed', 'Merged.', NOW + 60);
+    const state = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'completed', 'Merged.', NOW + 60, REPORT);
+    const plain = withOutcome(withDispatch(EMPTY_ACTIONS, run(), NOW), 'issue:17198', 'completed', 'Merged.', NOW + 60);
 
     expect(cardActionOf(state, 'issue:17198', reads('merge', false), null)).toMatchObject({ state: 'done', reportId: `issue:17198@${NOW}` });
     expect(cardActionOf(plain, 'issue:17198', reads('merge', false), null)).not.toHaveProperty('reportId');

@@ -337,7 +337,7 @@ export class Hub {
         const safe = ['action-permission-unsupported', 'action-agent-unavailable', 'action-settings-changed', 'not-a-merge',
           'action-unavailable', 'session-running', 'no-worktree', 'no-clone', 'worktree-unavailable', 'no-prompt', 'no-default-branch', 'no-pull-request', 'already-run',
           'no-base-prompt', 'merge-busy', 'base-no-pull-request', 'base-several-pull-requests', 'base-not-yours', 'base-draft', 'base-stacked', 'base-no-issue',
-          'base-halted', 'base-unreadable', 'base-unsupported', 'base-no-tip'].includes(kind ?? '');
+          'base-blocked', 'base-unreadable', 'base-unsupported', 'base-no-tip'].includes(kind ?? '');
         for (const client of this.#clients.values()) {
           client.send({ type: 'notice', level: 'info', message: safe ? message : this.#scopeMessage(message) });
         }

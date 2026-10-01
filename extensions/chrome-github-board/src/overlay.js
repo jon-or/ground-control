@@ -331,8 +331,9 @@ ${COLUMN} { margin-right: -1px !important;
 .gc-state-mark [data-glyph="spinner"] { animation: gc-mark-spin 1s linear infinite; }
 .gc-state-mark[data-outcome="running"] .gc-worktree-mark { animation: gc-mark-colour-pulse 1.8s ease-in-out infinite; }
 @keyframes gc-mark-spin { to { transform: rotate(360deg); } }
-.gc-state-mark[data-outcome="landed"] { color: var(--fgColor-success, #1a7f37); }
-.gc-state-mark[data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
+.gc-state-mark[data-outcome="completed"] { color: var(--fgColor-success, #1a7f37); }
+.gc-state-mark[data-outcome="awaiting-approval"] { color: var(--fgColor-accent, #0969da); }
+.gc-state-mark[data-outcome="blocked"] { color: var(--fgColor-attention, #9a6700); }
 .gc-state-mark[data-outcome="waiting"] { color: var(--fgColor-attention, #9a6700); }
 .gc-state-mark[data-outcome="failed"] { color: var(--gc-failed); }
 /* Colour, not opacity, so the glyph keeps its edges while it pulses (R45). */
@@ -357,8 +358,9 @@ ${COLUMN} { margin-right: -1px !important;
 .${BADGE_CLASS} button.gc-tool:hover:not([aria-disabled="true"]) { background: var(--bgColor-neutral-muted, #eaeef2);
   color: var(--fgColor-default, #1f2328); }
 .${BADGE_CLASS} button.gc-tool[aria-disabled="true"] { cursor: default; opacity: 0.5; }
-.${BADGE_CLASS} button.gc-tool[data-outcome="landed"] { color: var(--fgColor-success, #1a7f37); }
-.${BADGE_CLASS} button.gc-tool[data-outcome="halted"] { color: var(--fgColor-attention, #9a6700); }
+.${BADGE_CLASS} button.gc-tool[data-outcome="completed"] { color: var(--fgColor-success, #1a7f37); }
+.${BADGE_CLASS} button.gc-tool[data-outcome="awaiting-approval"] { color: var(--fgColor-accent, #0969da); }
+.${BADGE_CLASS} button.gc-tool[data-outcome="blocked"] { color: var(--fgColor-attention, #9a6700); }
 .${BADGE_CLASS} button.gc-tool[data-state="running"] { color: var(--fgColor-default, #1f2328);
   animation: gc-mark-pulse 1.8s ease-in-out infinite; }
 .gc-tool svg { width: 16px; height: 16px; }
@@ -2890,6 +2892,7 @@ const STATE_GLYPHS = {
   square: [['path', { d: 'M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16ZM5.75 5a.75.75 0 0 0-.75.75v4.5c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-4.5a.75.75 0 0 0-.75-.75Z', fill: 'currentColor', 'fill-rule': 'evenodd' }]],
   slash: [['path', { d: 'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM3.965 13.096a6.5 6.5 0 0 0 9.131-9.131ZM1.5 8a6.474 6.474 0 0 0 1.404 4.035l9.131-9.131A6.499 6.499 0 0 0 1.5 8Z', fill: 'currentColor' }]],
   question: [['path', { d: 'M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.92 6.085h.001a.749.749 0 1 1-1.342-.67c.169-.339.436-.701.849-.977C6.845 4.16 7.369 4 8 4a2.756 2.756 0 0 1 1.637.525c.503.377.863.965.863 1.725 0 .448-.115.83-.329 1.15-.205.307-.47.513-.692.662-.109.072-.22.138-.313.195l-.006.004a6.24 6.24 0 0 0-.26.16.952.952 0 0 0-.276.245.75.75 0 0 1-1.248-.832c.184-.264.42-.489.692-.661.103-.067.207-.132.313-.195l.007-.004c.1-.061.182-.11.258-.161a.969.969 0 0 0 .277-.245C8.96 6.514 9 6.427 9 6.25a.612.612 0 0 0-.262-.525A1.27 1.27 0 0 0 8 5.5c-.369 0-.595.09-.74.187a1.01 1.01 0 0 0-.34.398ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z', fill: 'currentColor' }]],
+  clock: [['path', { d: 'M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z', fill: 'currentColor' }]],
 };
 
 /**
@@ -2929,16 +2932,17 @@ function note(doc, text) {
   return held;
 }
 
-/** `landed` is session-reported completion, not independently verified (R39); ACTION_LANDED names it per action. */
+/** `completed` is session-reported completion, not independently verified (R39); ACTION_COMPLETED names it per action. */
 const ACTION_OUTCOMES = {
-  landed: 'Done',
-  halted: 'Stopped short',
+  completed: 'Done',
+  'awaiting-approval': 'Awaiting approval',
+  blocked: 'Blocked',
   failed: 'Did not run',
   stopped: 'Stopped',
 };
 
-/** A worktree run's outcomes: landing it is making the worktree, not a merge (R46). */
-const CREATION_OUTCOMES = { ...ACTION_OUTCOMES, landed: 'Created' };
+/** A worktree run's outcomes: completing it is making the worktree, not a merge (R46). */
+const CREATION_OUTCOMES = { ...ACTION_OUTCOMES, completed: 'Created' };
 
 /** What a running action is doing, stated at rest (R45). */
 const ACTION_RUNNING = {
@@ -2952,7 +2956,7 @@ const ACTION_RUNNING = {
 };
 
 /** What a run that reported its work complete did, by action (R39). */
-const ACTION_LANDED = {
+const ACTION_COMPLETED = {
   merge: 'Merged',
   'review-others': 'Reviewed',
   'address-review': 'Answered',
@@ -2963,7 +2967,7 @@ const ACTION_LANDED = {
 };
 
 /** The glyph each finished outcome is drawn with. */
-const OUTCOME_GLYPHS = { landed: 'check', halted: 'alert', failed: 'cross', stopped: 'square' };
+const OUTCOME_GLYPHS = { completed: 'check', 'awaiting-approval': 'clock', blocked: 'alert', failed: 'cross', stopped: 'square' };
 
 /**
  * The state a dispatched run puts in the verdict: its words, glyph, and colour. An action waiting to be run
@@ -3013,10 +3017,10 @@ function actionState(action, creation) {
   }
 
   const outcome = Object.hasOwn(OUTCOME_GLYPHS, action.outcome) ? action.outcome : 'failed';
-  const landed = outcome === 'landed' ? ACTION_LANDED[/** @type {keyof typeof ACTION_LANDED} */ (action.action)] : undefined;
+  const completed = outcome === 'completed' ? ACTION_COMPLETED[/** @type {keyof typeof ACTION_COMPLETED} */ (action.action)] : undefined;
 
   return {
-    text: landed ?? ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (outcome)],
+    text: completed ?? ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (outcome)],
     outcome,
     glyph: OUTCOME_GLYPHS[/** @type {keyof typeof OUTCOME_GLYPHS} */ (outcome)],
     detail: action.detail,
@@ -3896,14 +3900,14 @@ function historyAction(entry) {
 }
 
 /**
- * The run control's words and mark for how a run ended (R45); a worktree run that landed made its worktree.
+ * The run control's words and mark for how a run ended (R45); a worktree run that completed made its worktree.
  *
  * @param {ActionHistoryView} entry
  * @returns {{ text: string, glyph: string }}
  */
 function historyOutcome(entry) {
   /** @type {Record<string, string>} */
-  const landed = ACTION_LANDED;
+  const completed = ACTION_COMPLETED;
   /** @type {Record<string, string>} */
   const outcomes = ACTION_OUTCOMES;
   /** @type {Record<string, string>} */
@@ -3913,8 +3917,8 @@ function historyOutcome(entry) {
     return { text: 'Running…', glyph: 'spinner' };
   }
 
-  if (entry.outcome === 'landed') {
-    return { text: entry.action === 'create-worktree' ? 'Created' : landed[entry.action] ?? ACTION_OUTCOMES.landed, glyph: 'check' };
+  if (entry.outcome === 'completed') {
+    return { text: entry.action === 'create-worktree' ? 'Created' : completed[entry.action] ?? ACTION_OUTCOMES.completed, glyph: 'check' };
   }
 
   return { text: outcomes[entry.outcome] ?? entry.outcome, glyph: glyphs[entry.outcome] ?? 'check' };

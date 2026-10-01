@@ -1168,7 +1168,7 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   animation: mark-colour-pulse 1.8s ease-in-out infinite;
 }
 
-.state-mark[data-outcome='landed'] {
+.state-mark[data-outcome='completed'] {
   color: var(--vscode-charts-green);
 }
 
@@ -1176,7 +1176,11 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   color: var(--vscode-charts-yellow);
 }
 
-.state-mark[data-outcome='halted'] {
+.state-mark[data-outcome='awaiting-approval'] {
+  color: var(--vscode-charts-blue);
+}
+
+.state-mark[data-outcome='blocked'] {
   color: var(--vscode-charts-orange);
 }
 
@@ -1288,11 +1292,15 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   opacity: 0.5;
 }
 
-.tool[data-outcome='landed'] {
+.tool[data-outcome='completed'] {
   color: var(--vscode-charts-green);
 }
 
-.tool[data-outcome='halted'] {
+.tool[data-outcome='awaiting-approval'] {
+  color: var(--vscode-charts-blue);
+}
+
+.tool[data-outcome='blocked'] {
   color: var(--vscode-charts-orange);
 }
 

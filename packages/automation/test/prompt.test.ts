@@ -121,23 +121,26 @@ describe('result contract', () => {
     null,
   );
 
-  /** An unattended run reports only through the file, so a prompt that never mentions it always looks stopped short. */
+  /** An unattended run reports only through the file, so a prompt that never mentions it always looks blocked. */
   it('appends the action report contract, word for word, to a prompt that omits the path', () => {
     expect(actionPrompt('/or-merge {base} {branch} {issue} --single', values)).toBe(
       '/or-merge master 17198-channel-mapping 17198 --single' + BREAK +
         'This run is unattended. Before you finish, write JSON to C:/runs/issue-17198.json: ' +
-        '{"outcome":"done","detail":"<what happened>"} only once the work is complete, otherwise ' +
-        '{"outcome":"halted","detail":"<why it stopped>"}; add "auditPath":"<absolute path>" when the run wrote a Markdown report. ' +
+        '{"outcome":"completed","detail":"<what happened>"} once the work is complete; ' +
+        '{"outcome":"awaiting-approval","detail":"<what is ready and what approving it does>"} when the work is complete except ' +
+        'for a step the developer must approve, such as posting or publishing; otherwise ' +
+        '{"outcome":"blocked","detail":"<the question or problem that stopped it>"}. ' +
+        'Add "auditPath":"<absolute path>" when the run wrote a Markdown report. ' +
         'Write every key of whichever object you write, however the run ends, and ask no questions.',
     );
   });
 
-  it('appends the worktree report contract, word for word, naming ready and the absolute path', () => {
+  it('appends the worktree report contract, word for word, naming completed and the absolute path', () => {
     expect(worktreePrompt('/init-worktree {issue}', worktreeValues)).toBe(
       '/init-worktree 17198' + BREAK +
         'This run is unattended. Before you finish, write JSON to C:/runs/issue-17198.json: ' +
-        '{"outcome":"ready","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +
-        '{"outcome":"halted","detail":"<why no worktree>"}. ' +
+        '{"outcome":"completed","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +
+        '{"outcome":"blocked","detail":"<why no worktree>"}. ' +
         'Write every key of whichever object you write, however the run ends, and ask no questions.',
     );
   });

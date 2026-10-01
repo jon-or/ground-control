@@ -29,7 +29,7 @@ function seedState(dir: string): void {
   mkdirSync(`${dir}/activity`, { recursive: true });
   writeFileSync(`${dir}/lanes.json`, '{"placements":{"issue:1":"review"}}');
   writeFileSync(`${dir}/config.json`, '{"agents":[]}');
-  writeFileSync(`${dir}/runs/issue-1.json`, '{"outcome":"pushed"}');
+  writeFileSync(`${dir}/runs/issue-1.json`, '{"outcome":"completed"}');
   writeFileSync(`${dir}/activity/session.json`, '{"v":1}');
   writeFileSync(`${dir}/hub.log`, 'listening\n');
   writeFileSync(`${dir}/hub-exit.json`, '{"reason":"stale"}');
@@ -141,7 +141,7 @@ describe('moving the state', () => {
     expect(result).toEqual({ stateDir: to, moved: 5, leftover: [] });
     expect(d.stops).toEqual([bootstrap]);
     expect(readdirSync(to).sort()).toEqual(['activity', 'config.json', 'hub.log', 'lanes.json', 'runs']);
-    expect(readFileSync(`${to}/runs/issue-1.json`, 'utf8')).toBe('{"outcome":"pushed"}');
+    expect(readFileSync(`${to}/runs/issue-1.json`, 'utf8')).toBe('{"outcome":"completed"}');
     expect(readFileSync(`${to}/activity/session.json`, 'utf8')).toBe('{"v":1}');
     expect(readdirSync(bootstrap).sort()).toEqual(['codex-hook.mjs', 'ground-control-bridge.cmd', 'hook.mjs', 'hub-exit.json', 'hub.js', 'lanes.json.4242.tmp', 'state-dir.json']);
     expect(resolveStateDir(home, undefined, NOW)).toEqual({ stateDir: to, migratingTo: null, interruptedTo: null, problem: null });
