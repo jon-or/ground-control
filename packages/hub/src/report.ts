@@ -44,8 +44,8 @@ type Opened = { handle: FileHandle; path: string; size: number; modifiedAt: numb
 type Refused = { refused: 'absent' | 'outside' | 'network' | 'unreadable' };
 
 /**
- * Render one run's Markdown report for a client (R51). Raw HTML shows as text; only `http`/`https` links stay
- * links; an image is inlined only from a verified image file inside the report's directory, while the answer that
+ * Render one run's Markdown report for a client (R51). Raw HTML shows as text, except the collapsible sections and
+ * inline formatting tags in `KEPT_TAGS`; only `http`/`https` links stay links; an image is inlined only from a verified image file inside the report's directory, while the answer that
  * `envelope` builds stays within `REPORT_MESSAGE_LIMIT` less the routing reserve.
  */
 export async function renderReport(auditPath: string, envelope: ReportEnvelope): Promise<RenderedReport> {
@@ -152,6 +152,31 @@ async function layout(markdown: string, directory: string, envelope: ReportEnvel
   return final > budget ? { failure: `The report is too large to show on the board (${kilobytes(final)} rendered).` } : { html };
 }
 
+/** Raw HTML tags GitHub renders that a report keeps, without attributes except `open` on `details`. */
+const KEPT_TAGS = new Set(['details', 'summary', 'b', 'strong', 'i', 'em', 'code', 'kbd', 'sub', 'sup', 'br']);
+
+const TAG = /<(\/?)([a-z]+)(\s+open(?:\s*=\s*(?:""|''|"open"|'open'|open))?)?\s*(\/?)>/gi;
+
+/** Escape raw HTML, rewriting each kept tag in its canonical form so no attribute or malformed markup passes. */
+function keepTags(html: string): string {
+  let out = '';
+  let last = 0;
+
+  for (const match of html.matchAll(TAG)) {
+    const [whole, closing, name = '', open, selfClosing] = match;
+    const tag = name.toLowerCase();
+    const kept = KEPT_TAGS.has(tag) &&
+      (open === undefined || (tag === 'details' && closing === '')) &&
+      (selfClosing === '' || tag === 'br') &&
+      !(tag === 'br' && closing === '/');
+
+    out += escapeHtml(html.slice(last, match.index)) + (kept ? `<${closing}${tag}${open === undefined ? '' : ' open'}>` : escapeHtml(whole));
+    last = match.index + whole.length;
+  }
+
+  return out + escapeHtml(html.slice(last));
+}
+
 /** Bytes an inlined image adds to the JSON answer over its placeholder, alt text aside. */
 function cost(dataUri: string, source: string): number {
   return Buffer.byteLength(JSON.stringify(`<img src="${dataUri}" alt="">`), 'utf8') -
@@ -162,7 +187,7 @@ function render(tokens: Token[], images: ReadonlyMap<string, { dataUri: string }
   const marked = new Marked({
     gfm: true,
     renderer: {
-      html: ({ text }) => escapeHtml(text),
+      html: ({ text }) => keepTags(text),
       link({ href, tokens: inner }) {
         const text = this.parser.parseInline(inner);
 

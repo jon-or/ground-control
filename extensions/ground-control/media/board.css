@@ -1601,9 +1601,16 @@ body[data-motion='reduced'] #detail {
 
 /* Page header ------------------------------------------------------------- */
 
-#detail .detail-scroll > header {
+#detail .detail-scroll > header,
+#detail > .report-head {
   padding: 16px 24px;
   border-bottom: 1px solid var(--gh-border);
+}
+
+#detail > .report-head {
+  flex: none;
+  max-height: 50%;
+  overflow-y: auto;
 }
 
 /*
@@ -1894,7 +1901,8 @@ body.vscode-high-contrast .detail-label {
 }
 
 .report-back,
-.report-open {
+.report-open,
+.report-approve {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1909,7 +1917,8 @@ body.vscode-high-contrast .detail-label {
 }
 
 .report-back:hover,
-.report-open:hover:not(:disabled) {
+.report-open:hover:not(:disabled),
+.report-approve:hover {
   color: var(--gh-fg);
   background: color-mix(in srgb, var(--vscode-foreground) 8%, var(--vscode-editor-background));
 }
@@ -1919,8 +1928,14 @@ body.vscode-high-contrast .detail-label {
   opacity: 0.5;
 }
 
+.report-approve,
+.report-approve:hover {
+  color: var(--vscode-charts-blue);
+}
+
 .report-back:focus-visible,
-.report-open:focus-visible {
+.report-open:focus-visible,
+.report-approve:focus-visible {
   outline: 2px solid var(--vscode-focusBorder);
   outline-offset: -2px;
 }
@@ -2403,6 +2418,23 @@ body.vscode-high-contrast .detail-label {
   font-size: 100%;
   white-space: pre;
   background: none;
+}
+
+.markdown-body summary {
+  cursor: pointer;
+}
+
+.markdown-body kbd {
+  display: inline-block;
+  padding: 2px 4px;
+  font-family: var(--gh-mono);
+  font-size: 11px;
+  line-height: 10px;
+  vertical-align: middle;
+  border: 1px solid var(--gh-border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--gh-bg-muted);
 }
 
 .markdown-body blockquote {

@@ -202,7 +202,8 @@ async function openRowReport(page: Page): Promise<number> {
   return (await hubReads()).at(-1)!.request;
 }
 
-const reportText = (page: Page) => page.locator('#gc-history .gc-report').textContent();
+/** The report's header, which stays above the scrolling report, then the report. */
+const reportText = async (page: Page) => `${await page.locator('#gc-history .gc-report-heading').textContent()}${await page.locator('#gc-history .gc-report').textContent()}`;
 
 it('sends a report only to the tab that asked, under that tab’s own request number (R51)', async () => {
   const first = await historyTab();

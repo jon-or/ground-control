@@ -35,8 +35,13 @@
     "expected": "<input type=\"checkbox\" checked=\"\" disabled=\"\">"
   },
   {
+    "name": "keeps collapsible sections and inline formatting, open or closed",
+    "html": "<details open=\"\" ontoggle=\"alert(1)\"><summary class=\"x\"><b>Evidence</b> <i>2</i> <kbd>K</kbd> H<sub>2</sub>O x<sup>2</sup></summary><p>body</p></details><details><summary>closed</summary></details>",
+    "expected": "<details open=\"\"><summary><b>Evidence</b> <i>2</i> <kbd>K</kbd> H<sub>2</sub>O x<sup>2</sup></summary><p>body</p></details><details><summary>closed</summary></details>"
+  },
+  {
     "name": "keeps the text of unknown elements",
-    "html": "<div><span>kept</span><details><summary>also kept</summary></details></div>",
+    "html": "<div><span>kept</span><section><u>also kept</u></section></div>",
     "expected": "keptalso kept"
   }
 ]

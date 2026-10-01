@@ -3684,6 +3684,10 @@ describe('run reports (R51)', () => {
     send(report(lastRead().request));
 
     expect(document.querySelector('#detail .report-title')?.textContent).toBe('Review of #19403');
+    // The header and its controls stay put; only the body scrolls.
+    expect(document.querySelector('#detail > .report-head .report-bar')).not.toBeNull();
+    expect(document.querySelector('#detail .report-scroll .report-head')).toBeNull();
+    expect(document.querySelector('#detail .report-scroll')?.contains(body())).toBe(true);
     expect(document.querySelector('#detail .report-meta')?.textContent).toBe('review.md · modified 5m ago');
     expect(tipOf(document.querySelector('#detail .report-when'))).toBe(new Date(now - 5 * 60_000).toLocaleString());
     expect(body()!.innerHTML).toBe('<h1>Round 1</h1><p>Two findings.</p>');
@@ -3774,6 +3778,57 @@ describe('run reports (R51)', () => {
     send({ type: 'actionHistory', entries });
 
     expect(document.activeElement).toBe(document.querySelectorAll('#history .history-report')[1]);
+  });
+
+  describe('approving from the report', () => {
+    const waiting = { ...finished, action: 'qa-failure', outcome: 'awaiting-approval', detail: 'Reply drafted; publish waits for you.', reportId } as const;
+    const approve = () => named('Approve qa failure');
+
+    it('approves the card whose run wrote the report, and drops the control once the run moves on without redrawing the report', () => {
+      send(message({ lanes: lanes({ review: [acting({ ...waiting, approvable: true })] }) }));
+      control()!.click();
+      send(report(lastRead().request, '<details><summary>Evidence</summary><p>Two findings.</p></details>'));
+
+      expect(approve()?.textContent).toBe('Approve');
+      expect(tipOf(approve())).toBe('Reply drafted; publish waits for you. Click to approve: this runs the step the run prepared.');
+      expect(approve()?.nextElementSibling).toBe(named('Open in editor'));
+
+      const section = document.querySelector<HTMLDetailsElement>('#detail .report-body details')!;
+
+      section.open = true;
+      approve()!.focus();
+      approve()!.click();
+
+      expect(sent()).toContainEqual({ type: 'approveAction', key: 'issue:18953' });
+
+      send(message({ lanes: lanes({ review: [acting({ state: 'running', action: 'qa-failure', qualifier: null, since: now, approval: true })] }) }));
+
+      expect(approve()).toBeNull();
+      expect(document.querySelector('#detail .report-body details')).toBe(section);
+      expect(section.open).toBe(true);
+      expect(document.activeElement).toBe(document.querySelector('#detail .report-scroll'));
+    });
+
+    it('appears when the card’s run comes to await approval while the report is open', () => {
+      send(message({ lanes: lanes({ review: [acting(waiting)] }) }));
+      control()!.click();
+
+      expect(approve()).toBeNull();
+
+      send(message({ lanes: lanes({ review: [acting({ ...waiting, approvable: true })] }) }));
+
+      expect(approve()).not.toBeNull();
+    });
+
+    it('offers no approval for a report another run wrote', () => {
+      send(message({ lanes: lanes({ review: [acting({ ...waiting, approvable: true, reportId: 'issue:18953@1' })] }) }));
+      openHistoryFromMenu();
+      send({ type: 'actionHistory', entries: [history({})] });
+      document.querySelector<HTMLButtonElement>('#history .history-report')!.click();
+
+      expect(lastRead().id).toBe(reportId);
+      expect(approve()).toBeNull();
+    });
   });
 
   it('closes a report opened from a card once the session scope is restricted', () => {

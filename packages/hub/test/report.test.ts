@@ -59,6 +59,24 @@ describe('rendering a run report (R51)', () => {
     expect(out).toContain('&#60;script&#62;');
   });
 
+  it('keeps collapsible sections and inline formatting tags as GitHub renders them, with Markdown inside', async () => {
+    const out = await html('<details open>\n<summary><b>Evidence</b> (2)</summary>\n\n| a |\n|---|\n| 1 |\n\n</details>\n\n<DETAILS><Summary>Raw</Summary>x<br/>y</DETAILS>\n\n<details open=""><summary>a</summary></details>\n\n<details OPEN=\'open\'><summary>b</summary></details>');
+
+    expect(out).toContain('<details open>\n<summary><b>Evidence</b> (2)</summary>');
+    expect(out).toContain('<td>1</td>');
+    expect(out).toContain('</details>');
+    expect(out).toContain('<details><summary>Raw</summary>x<br>y</details>');
+    expect(out).toContain('<details open><summary>a</summary></details>');
+    expect(out).toContain('<details open><summary>b</summary></details>');
+  });
+
+  it('escapes a kept tag that carries an attribute, or a form GitHub does not render', async () => {
+    const out = await html('<details ontoggle=alert(1)><summary class="x">s</summary></details>\n\n<b open>b</b> </br> <summary/> <details open=1>');
+
+    expect(out).toContain('&#60;details ontoggle=alert(1)&#62;&#60;summary class=&#34;x&#34;&#62;s</summary></details>');
+    expect(out).toContain('&#60;b open&#62;b</b> &#60;/br&#62; &#60;summary/&#62; &#60;details open=1&#62;');
+  });
+
   it('keeps web links and turns every other link into its text', async () => {
     const out = await html('[pr](https://github.com/o/r/pull/1) [local](../../secrets.md) [js](javascript:alert(1)) [file](file:///C:/x)');
 

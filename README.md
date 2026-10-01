@@ -192,7 +192,7 @@ Both rows can name the same prompt, since one report usually mixes failures and 
 
 ### Run reports
 
-A run that names `auditPath` gets an **Open report** control on its card and in the action history, in both clients. The report is rendered from the file each time you open it, so your edits show; in VS Code, **Open in editor** opens the file. Embed screenshots by paths relative to the report, such as `![step 3](screenshots/step-3.png)`: only PNG, JPEG, GIF, and WebP files inside the report's folder are shown. Raw HTML shows as text. See [R51](docs/prd.md#r51-run-reports).
+A run that names `auditPath` gets an **Open report** control on its card and in the action history, in both clients. The report is rendered from the file each time you open it, so your edits show; in VS Code, **Open in editor** opens the file. Embed screenshots by paths relative to the report, such as `![step 3](screenshots/step-3.png)`: only PNG, JPEG, GIF, and WebP files inside the report's folder are shown. Raw HTML shows as text, except collapsible `<details>` and `<summary>` sections and inline formatting tags such as `<b>` and `<kbd>`. While the run that wrote the report awaits approval, the report offers **Approve** too. See [R51](docs/prd.md#r51-run-reports).
 
 ### Action history
 

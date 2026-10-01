@@ -677,11 +677,13 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${HISTORY_ID} .gc-history-action, #${HISTORY_ID} .gc-history-outcome { white-space: nowrap; }
 #${HISTORY_ID} .gc-history-state { display: inline-flex; align-items: center; gap: 4px; }
 #${HISTORY_ID} .gc-history-detail td { padding-top: 0; color: var(--fgColor-muted, #59636e); overflow-wrap: anywhere; }
-#${HISTORY_ID} .gc-history-report, #${HISTORY_ID} .gc-report-back { font: inherit; margin-left: 8px; padding: 0 6px;
+#${HISTORY_ID} :is(.gc-history-report, .gc-report-back, .gc-report-approve) { font: inherit; margin-left: 8px; padding: 0 6px;
   border: 1px solid var(--borderColor-default, #d1d9e0); border-radius: 4px; cursor: pointer;
   color: var(--fgColor-accent, #0969da); background: var(--bgColor-default, #ffffff); }
-#${HISTORY_ID} .gc-report-back { margin: 8px 0 0; }
-#${HISTORY_ID} .gc-history-report:focus-visible, #${HISTORY_ID} .gc-report-back:focus-visible {
+#${HISTORY_ID} .gc-report-top { position: sticky; top: 0; z-index: 1; background: var(--bgColor-default, #ffffff); }
+#${HISTORY_ID} .gc-report-bar { display: flex; gap: 8px; padding-top: 8px; }
+#${HISTORY_ID} :is(.gc-report-back, .gc-report-approve) { margin: 0; }
+#${HISTORY_ID} :is(.gc-history-report, .gc-report-back, .gc-report-approve):focus-visible {
   outline: 2px solid var(--focus-outlineColor, #0969da); outline-offset: 1px; }
 #${HISTORY_ID} .gc-report-head { padding: 8px 0; border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); }
 #${HISTORY_ID} .gc-report-head h3 { margin: 0 0 2px; font-size: 14px; font-weight: 600; }
@@ -692,7 +694,11 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 #${HISTORY_ID} .gc-report-body h1 { font-size: 18px; }
 #${HISTORY_ID} .gc-report-body h2 { font-size: 16px; }
 #${HISTORY_ID} .gc-report-body :is(h3, h4, h5, h6) { font-size: 13px; }
-#${HISTORY_ID} .gc-report-body :is(p, ul, ol, blockquote, pre, table) { margin: 0 0 10px; }
+#${HISTORY_ID} .gc-report-body :is(p, ul, ol, blockquote, pre, table, details) { margin: 0 0 10px; }
+#${HISTORY_ID} .gc-report-body summary { display: list-item; list-style: revert; cursor: pointer; }
+#${HISTORY_ID} .gc-report-body kbd { padding: 2px 4px; font-size: 11px; border: 1px solid var(--borderColor-default, #d1d9e0);
+  border-bottom-width: 2px; border-radius: 6px; background: var(--bgColor-muted, #f6f8fa);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 #${HISTORY_ID} .gc-report-body :is(ul, ol) { padding-left: 2em; list-style: revert; }
 #${HISTORY_ID} .gc-report-body blockquote { padding: 0 1em; color: var(--fgColor-muted, #59636e);
   border-left: 3px solid var(--borderColor-default, #d1d9e0); }
@@ -3316,18 +3322,21 @@ function approveButton(doc, card, actions) {
   }
 
   const approveAction = actions.approveAction;
-  const label = actionLabel(action);
-  const button = toolButton(
-    doc,
-    `Approve ${label.toLowerCase()}`,
-    `${action.detail} Approve from the editor board: this runs the step the run prepared.`,
-    thumbsupMark(doc),
-    () => approveAction(card.key),
-  );
+  const button = toolButton(doc, approveName(action), approveHint(action), thumbsupMark(doc), () => approveAction(card.key));
 
   button.classList.add('gc-run', 'gc-approve');
 
   return button;
+}
+
+/** @param {NonNullable<LanedCard['action']>} action */
+function approveName(action) {
+  return `Approve ${actionLabel(action).toLowerCase()}`;
+}
+
+/** @param {Extract<NonNullable<LanedCard['action']>, { state: 'done' }>} action */
+function approveHint(action) {
+  return `${action.detail} Approve from the editor board: this runs the step the run prepared.`;
 }
 
 /**
@@ -4162,7 +4171,7 @@ export function renderHistory(doc, state, now, actions) {
   }
 
   if (reportShown !== null) {
-    renderReport(doc, panel, body, reportShown, state.report ?? null, now, actions);
+    renderReport(doc, panel, body, reportShown, state.report ?? null, now, actions, state.snapshot);
 
     return panel;
   }
@@ -4224,8 +4233,9 @@ export function renderHistory(doc, state, now, actions) {
  * images; this is the client's own guard, identical in both boards (testing.md, client parity).
  */
 const REPORT_TAGS = new Set([
-  'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'img', 'input', 'li',
-  'ol', 'p', 'pre', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul',
+  'a', 'b', 'blockquote', 'br', 'code', 'del', 'details', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img',
+  'input', 'kbd', 'li', 'ol', 'p', 'pre', 'strong', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'th', 'thead',
+  'tr', 'ul',
 ]);
 
 /** Elements whose children are source text rather than markup; their subtrees are dropped. */
@@ -4234,6 +4244,7 @@ const REPORT_OPAQUE = new Set(['script', 'style', 'template', 'title', 'xmp', 'i
 /** Attributes kept per element; no `class`, `style`, `id`, or `srcset` on any. @type {Record<string, string[]>} */
 const REPORT_ATTRS = {
   a: ['href'],
+  details: ['open'],
   img: ['src', 'alt'],
   input: ['type', 'checked', 'disabled'],
   ol: ['start'],
@@ -4379,8 +4390,9 @@ function followReportLink(doc, event) {
  * @param {ReportState | null} report
  * @param {number} now
  * @param {Actions} actions
+ * @param {Snapshot | null} snapshot
  */
-function renderReport(doc, panel, body, shown, report, now, actions) {
+function renderReport(doc, panel, body, shown, report, now, actions, snapshot) {
   const view = `report:${shown.request}`;
 
   if (panel.dataset.view !== view) {
@@ -4396,16 +4408,30 @@ function renderReport(doc, panel, body, shown, report, now, actions) {
       closeReport(doc, actions);
     });
     body.setAttribute('aria-label', 'Report');
-    body.replaceChildren(back, node(doc, 'div', 'gc-report'));
+
+    const bar = node(doc, 'div', 'gc-report-bar');
+    // The controls and the report's header stay at the top while only the report below them scrolls.
+    const top = node(doc, 'div', 'gc-report-top');
+
+    bar.appendChild(back);
+    top.append(bar, node(doc, 'div', 'gc-report-heading'));
+    body.replaceChildren(top, node(doc, 'div', 'gc-report'));
   }
+
+  syncReportApproval(doc, body, shown.id, snapshot, actions);
 
   const answer = report !== null && report.request === shown.request && report.id === shown.id ? report.answer : null;
   const sig = answer === null ? 'reading' : 'answered';
   const content = /** @type {HTMLElement} */ (body.querySelector('.gc-report'));
+  const heading = /** @type {HTMLElement} */ (body.querySelector('.gc-report-heading'));
 
   if (panel.dataset.sig !== sig) {
     panel.dataset.sig = sig;
-    content.replaceChildren(...reportContent(doc, answer, now));
+
+    const { head, rest } = reportContent(doc, answer, now);
+
+    heading.replaceChildren(...(head === null ? [] : [head]));
+    content.replaceChildren(...rest);
   }
 
   if (reportFocus) {
@@ -4415,14 +4441,62 @@ function renderReport(doc, panel, body, shown, report, now, actions) {
 }
 
 /**
+ * Offer Approve beside Back while the card whose current run wrote the report awaits approval, as the card does (R39).
+ * Only the control is redrawn, so the report's open sections stay open.
+ *
+ * @param {Document} doc
+ * @param {HTMLElement} body
+ * @param {string} id
+ * @param {Snapshot | null} snapshot
+ * @param {Actions} actions
+ */
+function syncReportApproval(doc, body, id, snapshot, actions) {
+  const bar = /** @type {HTMLElement} */ (body.querySelector('.gc-report-bar'));
+  const current = /** @type {HTMLElement | null} */ (bar.querySelector('.gc-report-approve'));
+  const approveAction = actions.approveAction;
+  const card = snapshot?.lanes.flatMap((lane) => lane.cards).find((one) => one.action?.state === 'done' && one.action.approvable && one.action.reportId === id);
+  const action = approveAction && card?.action?.state === 'done' ? card.action : null;
+  const sig = card === undefined || action === null ? null : JSON.stringify([card.key, approveName(action), approveHint(action)]);
+
+  if ((current?.dataset.sig ?? null) === sig) {
+    return;
+  }
+
+  const focused = current !== null && current === doc.activeElement;
+
+  current?.remove();
+
+  if (card === undefined || action === null || sig === null || !approveAction) {
+    if (focused) /** @type {HTMLElement | null} */ (bar.querySelector('.gc-report-back'))?.focus();
+
+    return;
+  }
+
+  const button = node(doc, 'button', 'gc-report-approve', 'Approve');
+
+  /** @type {HTMLButtonElement} */ (button).type = 'button';
+  button.dataset.sig = sig;
+  setAccessibleName(button, approveName(action));
+  setTooltip(button, approveHint(action));
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    event.preventDefault();
+    approveAction(card.key);
+  });
+  bar.appendChild(button);
+
+  if (focused) button.focus();
+}
+
+/**
  * @param {Document} doc
  * @param {ReportMessage | null} answer
  * @param {number} now
- * @returns {HTMLElement[]}
+ * @returns {{ head: HTMLElement | null, rest: HTMLElement[] }}
  */
 function reportContent(doc, answer, now) {
   if (answer === null) {
-    return [node(doc, 'p', 'gc-empty', 'Reading the report…')];
+    return { head: null, rest: [node(doc, 'p', 'gc-empty', 'Reading the report…')] };
   }
 
   const head = node(doc, 'div', 'gc-report-head');
@@ -4436,7 +4510,7 @@ function reportContent(doc, answer, now) {
       head.appendChild(node(doc, 'p', 'gc-report-meta', answer.name));
     }
 
-    return [head, node(doc, 'p', 'gc-report-failure', answer.failure)];
+    return { head, rest: [node(doc, 'p', 'gc-report-failure', answer.failure)] };
   }
 
   const meta = node(doc, 'p', 'gc-report-meta', `${answer.name} · modified `);
@@ -4456,7 +4530,7 @@ function reportContent(doc, answer, now) {
   body.addEventListener('click', (event) => followReportLink(doc, event));
   body.addEventListener('auxclick', (event) => followReportLink(doc, event));
 
-  return [head, body];
+  return { head, rest: [body] };
 }
 
 /**

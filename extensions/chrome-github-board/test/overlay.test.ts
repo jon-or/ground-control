@@ -4966,6 +4966,10 @@ describe('run reports (R51)', () => {
     paint(document, shown({ id: 'issue-4501@1', request: lastRequest(), answer: answer('issue-4501@1', lastRequest()) }), NOW, reading);
 
     expect(panel()!.querySelector('.gc-report-head h3')?.textContent).toBe('Review round 1');
+    // Back and the header share the sticky top of the scrolling region; the body scrolls beneath them.
+    expect(panel()!.querySelector('.gc-report-top')?.contains(back())).toBe(true);
+    expect(panel()!.querySelector('.gc-report-top .gc-report-head')).not.toBeNull();
+    expect(panel()!.querySelector('.gc-report-top')?.contains(reportBody())).toBe(false);
     expect(panel()!.querySelector('.gc-report-meta')?.textContent).toBe('review-round-1.md · modified 3m ago');
     expect(tipOf(panel()!.querySelector('.gc-report-meta time'))).toBe(new Date(NOW - 3 * 60_000).toLocaleString());
     expect(reportBody()?.innerHTML).toBe('<p>All fixed.</p>');
@@ -5000,6 +5004,44 @@ describe('run reports (R51)', () => {
     paint(document, shown({ id: 'issue-4502@2', request: second, answer: answer('issue-4502@2', second, { html: '<p>Second.</p>' }) }), NOW, reading);
 
     expect(reportBody()?.textContent).toBe('Second.');
+  });
+
+  /** The hub refuses the page's click, as it does the card's; the control shows so both boards offer it (R39). */
+  it('approves from the report while its run awaits approval, and drops the control once the run moves on without redrawing the report', () => {
+    const waiting = { state: 'done', action: 'qa-failure', qualifier: null, outcome: 'awaiting-approval', detail: 'Reply drafted; publish waits for you.', at, reportId: 'issue-4501@1' } as const;
+    const withCard = (action: NonNullable<LanedCard['action']>, report: State['report']) =>
+      shown(report, { snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [card(4501, { sessions: [], action })] }], openable: [] }) });
+    const approve = () => document.querySelector<HTMLButtonElement>('#gc-history button[aria-label="Approve qa failure"]');
+
+    showCard(waiting);
+    cardReport()!.click();
+
+    const report = { id: 'issue-4501@1', request: lastRequest(), answer: answer('issue-4501@1', lastRequest(), { html: '<details><summary>Evidence</summary><p>All fixed.</p></details>' }) };
+
+    paint(document, withCard(waiting, report), NOW, reading);
+
+    expect(approve()).toBeNull();
+
+    paint(document, withCard({ ...waiting, approvable: true }, report), NOW, reading);
+
+    expect(approve()?.textContent).toBe('Approve');
+    expect(approve()?.previousElementSibling).toBe(back());
+    expect(tipOf(approve())).toBe('Reply drafted; publish waits for you. Approve from the editor board: this runs the step the run prepared.');
+
+    const section = reportBody()!.querySelector('details')!;
+
+    section.open = true;
+    approve()!.focus();
+    approve()!.click();
+
+    expect(reading.approveAction).toHaveBeenCalledWith('issue-4501');
+
+    paint(document, withCard({ state: 'running', action: 'qa-failure', qualifier: null, since: at, approval: true }, report), NOW, reading);
+
+    expect(approve()).toBeNull();
+    expect(reportBody()!.querySelector('details')).toBe(section);
+    expect(section.open).toBe(true);
+    expect(document.activeElement).toBe(back());
   });
 
   it('closes a report it shows once the session scope is restricted', () => {

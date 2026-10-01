@@ -4332,8 +4332,9 @@ document.addEventListener('keydown', (event) => {
  * images; this is the client's own guard, identical in both boards (testing.md, client parity).
  */
 const REPORT_TAGS = new Set([
-  'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'img', 'input', 'li',
-  'ol', 'p', 'pre', 'strong', 'table', 'tbody', 'td', 'th', 'thead', 'tr', 'ul',
+  'a', 'b', 'blockquote', 'br', 'code', 'del', 'details', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img',
+  'input', 'kbd', 'li', 'ol', 'p', 'pre', 'strong', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'th', 'thead',
+  'tr', 'ul',
 ]);
 
 /** Elements whose children are source text rather than markup; their subtrees are dropped. */
@@ -4342,6 +4343,7 @@ const REPORT_OPAQUE = new Set(['script', 'style', 'template', 'title', 'xmp', 'i
 /** Attributes kept per element; no `class`, `style`, `id`, or `srcset` on any. @type {Record<string, string[]>} */
 const REPORT_ATTRS = {
   a: ['href'],
+  details: ['open'],
   img: ['src', 'alt'],
   input: ['type', 'checked', 'disabled'],
   ol: ['start'],
@@ -4433,14 +4435,72 @@ function approveButton(boardCard) {
     return null;
   }
 
-  const label = actionLabel(action);
-  const button = toolButton(`Approve ${label.toLowerCase()}`, `${action.detail} Click to approve: this runs the step the run prepared.`, octicon('thumbsup'), () =>
-    vscode.postMessage({ type: 'approveAction', key: boardCard.key }),
-  );
+  const button = toolButton(approveName(action), approveHint(action), octicon('thumbsup'), () => vscode.postMessage({ type: 'approveAction', key: boardCard.key }));
 
   button.classList.add('run', 'approve');
 
   return button;
+}
+
+function approveName(action) {
+  return `Approve ${actionLabel(action).toLowerCase()}`;
+}
+
+function approveHint(action) {
+  return `${action.detail} Click to approve: this runs the step the run prepared.`;
+}
+
+/** The card whose current run wrote this report and awaits approval, so the report can approve it as the card does. */
+function reportApprovalCard(id) {
+  const cards = board?.lanes.flatMap((lane) => lane.cards) ?? [];
+
+  return cards.find((boardCard) => boardCard.action?.state === 'done' && boardCard.action.approvable && boardCard.action.reportId === id) ?? null;
+}
+
+function reportApproveButton(id) {
+  const boardCard = reportApprovalCard(id);
+
+  if (boardCard === null) {
+    return null;
+  }
+
+  const { action } = boardCard;
+  const button = reportButtonWithText('report-approve', 'thumbsup', 'Approve');
+
+  setAccessibleName(button, approveName(action));
+  setTooltip(button, approveHint(action));
+  button.dataset.sig = JSON.stringify([boardCard.key, approveName(action), approveHint(action)]);
+  button.addEventListener('click', () => vscode.postMessage({ type: 'approveAction', key: boardCard.key }));
+
+  return button;
+}
+
+/** Follow the board's cards in the report's Approve control without redrawing the report, so open sections stay open. */
+function syncReportApproval() {
+  const actions = reportFor === null ? null : document.querySelector('#detail .report-bar .detail-actions');
+
+  if (!actions) {
+    return;
+  }
+
+  const current = actions.querySelector('.report-approve');
+  const wanted = reportApproveButton(reportFor.id);
+
+  if ((current?.dataset.sig ?? null) === (wanted?.dataset.sig ?? null)) {
+    return;
+  }
+
+  const focused = current !== null && current === document.activeElement;
+
+  current?.remove();
+
+  if (wanted) {
+    actions.prepend(wanted);
+  }
+
+  if (focused) {
+    /** @type {HTMLElement | null} */ (wanted ?? document.querySelector('#detail .report-scroll'))?.focus();
+  }
 }
 
 /** A finished run with a report has a control beside the run control to open it. */
@@ -4527,7 +4587,7 @@ function paintReport(opening) {
   const grip = detailGrip(panel);
 
   setAccessibleName(grip, 'Resize report');
-  panel.replaceChildren(grip, reportPane(reportFor));
+  panel.replaceChildren(grip, ...reportPane(reportFor));
 
   if (opening || inside) {
     const fallback = reportFor.history === null ? '.detail-close' : '.report-back';
@@ -4547,7 +4607,7 @@ function reportButtonWithText(className, icon, text) {
   return button;
 }
 
-/** The report's header (title, file, modified time, controls), then its body, in one scrolling region. */
+/** The report's header (title, file, modified time, controls), which stays in place, then its body, which scrolls. */
 function reportPane({ id, history, answer }) {
   const body = el('div', 'detail-scroll report-scroll');
 
@@ -4577,6 +4637,13 @@ function reportPane({ id, history, answer }) {
   close.appendChild(octicon('x'));
   setAccessibleName(close, 'Close report');
   close.addEventListener('click', () => closeDetail());
+
+  const approve = reportApproveButton(id);
+
+  if (approve) {
+    actions.appendChild(approve);
+  }
+
   actions.append(open, close);
   bar.append(el('span', 'report-spacer'), actions);
   head.appendChild(bar);
@@ -4617,9 +4684,9 @@ function reportPane({ id, history, answer }) {
     content.appendChild(markdown);
   }
 
-  body.append(head, content);
+  body.appendChild(content);
 
-  return body;
+  return [head, body];
 }
 
 function countCards(lanes) {
@@ -4669,6 +4736,8 @@ function draw(payload) {
     historyFor = { entries: null };
     paintHistory();
   }
+
+  syncReportApproval();
 
   noticesEl.replaceChildren();
 
