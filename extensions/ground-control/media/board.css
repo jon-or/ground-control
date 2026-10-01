@@ -69,11 +69,12 @@ body.vscode-dark {
   background-clip: padding-box;
 }
 
-/* The lane heading is outside the scrolling list, so the lane reveals the thumb its cards carry. :where keeps
-   these reveals no more specific than the thumb's own hover and active states, which follow. */
+/* The lane heading is outside the scrolling list, so the lane reveals the thumb its cards carry. A conversation or
+   report panel always shows its thumb, as GitHub's pages do, since the wheel scrolls it without focus in the panel.
+   :where keeps these reveals no more specific than the thumb's own hover and active states, which follow. */
 *:hover::-webkit-scrollbar-thumb,
 :where(.lane:hover, .lane:focus-within) .lane-cards::-webkit-scrollbar-thumb,
-:where(.detail-scroll:focus-within)::-webkit-scrollbar-thumb {
+:where(.detail-scroll)::-webkit-scrollbar-thumb {
   background: var(--vscode-scrollbarSlider-background);
   background-clip: padding-box;
 }
