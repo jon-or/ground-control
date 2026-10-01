@@ -329,9 +329,24 @@ function withoutExpiredActivity(card: BoardCard, pastMyHandsAt: Record<string, n
   return { ...card, lastSession };
 }
 
+/** When the card entered the developer's queue, as its age shows it; null for a card with no issue time. */
+function queueTime(card: BoardCard): number | null {
+  const at = Date.parse(card.issue?.queuedAt ?? card.issue?.statusChangedAt ?? '');
+
+  return Number.isNaN(at) ? null : at;
+}
+
+/** Oldest in the queue first; undated cards last. `Array.prototype.sort` is stable, so ties keep merge order. */
+function byQueueTime(cards: LanedCard[]): LanedCard[] {
+  return cards
+    .map((card) => ({ card, at: queueTime(card) }))
+    .sort((a, b) => (a.at === null ? (b.at === null ? 0 : 1) : b.at === null ? -1 : a.at - b.at))
+    .map(({ card }) => card);
+}
+
 /**
- * Assign every card to one lane (R8). Return every lane, with returned cards first and merge order preserved
- * within each group.
+ * Assign every card to one lane (R8). Return every lane, with returned cards first, then each group ordered by
+ * queue time.
  */
 export function assignLanes(cards: BoardCard[], rules: BoardRules, memory: CardMemory): Lane[] {
   const onBoard = new Set(rules.boardStatuses);
@@ -354,7 +369,7 @@ export function assignLanes(cards: BoardCard[], rules: BoardRules, memory: CardM
     return {
       id,
       title: LANE_TITLES[id],
-      cards: [...laneCards.filter((card) => card.returned), ...laneCards.filter((card) => !card.returned)],
+      cards: [...byQueueTime(laneCards.filter((card) => card.returned)), ...byQueueTime(laneCards.filter((card) => !card.returned))],
     };
   });
 }

@@ -421,6 +421,80 @@ describe('the returned badge', () => {
   });
 });
 
+describe('lane order', () => {
+  const assigned = issues.filter((issue) => issue.status === '🎁 Assigned');
+
+  if (assigned.length < 3) {
+    throw new Error('lane order tests need three Assigned issues in the recording');
+  }
+
+  /** Date the Assigned issues in the order given, a day apart, oldest first. */
+  function dated(numbers: number[], field: 'queuedAt' | 'statusChangedAt' = 'queuedAt'): IssueCard[] {
+    return issues.map((issue) => {
+      const at = numbers.indexOf(issue.number);
+
+      return at === -1 ? issue : { ...issue, queuedAt: null, statusChangedAt: null, [field]: new Date(Date.UTC(2026, 8, 1 + at)).toISOString() };
+    });
+  }
+
+  function order(all: Lane[]): (number | null)[] {
+    return lane(all, 'unstarted').cards.map((c) => c.issueNumber);
+  }
+
+  it('puts the card longest in the queue at the top, against merge order', () => {
+    const numbers = assigned.map((issue) => issue.number).reverse();
+
+    expect(order(lanes(dated(numbers), []))).toEqual(numbers);
+  });
+
+  it('falls back to the status change when a card has no queue time', () => {
+    const numbers = assigned.map((issue) => issue.number).reverse();
+
+    expect(order(lanes(dated(numbers, 'statusChangedAt'), []))).toEqual(numbers);
+  });
+
+  it('prefers the queue time over the status change', () => {
+    const numbers = assigned.map((issue) => issue.number);
+    const [first, ...rest] = numbers;
+    // The first card changed status earliest but was assigned after every other card entered the queue.
+    const cards = dated(numbers).map((issue) =>
+      issue.number === first ? { ...issue, statusChangedAt: '2026-08-01T00:00:00Z', queuedAt: '2026-12-01T00:00:00Z' } : issue,
+    );
+
+    expect(order(lanes(cards, []))).toEqual([...rest, first]);
+  });
+
+  it('keeps merge order between cards queued at the same time', () => {
+    const numbers = assigned.map((issue) => issue.number);
+    const cards = issues.map((issue) => (numbers.includes(issue.number) ? { ...issue, queuedAt: '2026-09-01T00:00:00Z' } : issue));
+
+    expect(order(lanes(cards, []))).toEqual(numbers);
+  });
+
+  it('puts a card with no issue after the dated cards', () => {
+    const adHoc = sessions.find((s) => s.issueNumber === null)!;
+    const key = `session:${checkoutKeyOf(adHoc)}`;
+    const numbers = assigned.map((issue) => issue.number).reverse();
+    const keys = lane(lanes(dated(numbers), [adHoc], remember({ [key]: 'unstarted' })), 'unstarted').cards.map((c) => c.key);
+
+    expect(keys).toEqual([...numbers.map((n) => `issue:${n}`), key]);
+  });
+
+  it('puts undated cards last in merge order', () => {
+    const [first, second, ...rest] = assigned.map((issue) => issue.number);
+    const cards = dated(rest).map((issue) => (issue.number === first || issue.number === second ? { ...issue, queuedAt: null, statusChangedAt: null } : issue));
+
+    expect(order(lanes(cards, [])).slice(-2)).toEqual([first, second]);
+  });
+
+  it('keeps a returned card above an older one', () => {
+    const numbers = assigned.map((issue) => issue.number);
+    const newest = numbers.at(-1)!;
+
+    expect(order(lanes(dated(numbers), [], remember({}, [`issue:${newest}`])))[0]).toBe(newest);
+  });
+});
+
 describe('boardStatuses', () => {
   it('takes the developer own list when they set one', () => {
     expect(boardStatuses(['⚒️ Dev'])).toEqual(['⚒️ Dev']);
