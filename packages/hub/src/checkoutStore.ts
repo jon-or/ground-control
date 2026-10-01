@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { z } from 'zod';
-import { read, writeIfChanged } from './fs.js';
+import { readCached, writeIfChanged } from './fs.js';
 import { checkoutsPathOf, worktreesPathOf } from './paths.js';
 
 /**
@@ -20,7 +20,7 @@ const memory = z.record(z.string(), z.string());
 /** A directory per card key at `path`. The reader later rejects roots that no longer match their cards. */
 function makeRootStore(stateDir: string, path: string): CheckoutStore {
   const load = (): CheckoutMemory => {
-    const text = read(path);
+    const text = readCached(path);
 
     if (text === null) {
       return {};

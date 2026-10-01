@@ -2,10 +2,10 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { EMPTY_ACTIONS } from '@ground-control/core';
 import type { ActionHistoryEntry, ActionState } from '@ground-control/core';
 import { readActionHistory, readActionState } from '@ground-control/automation';
-import { read, writeIfChanged } from './fs.js';
+import { readCached, writeIfChanged } from './fs.js';
 import { actionHistoryPathOf, actionsPathOf } from './paths.js';
 
-/** Persist card action state. Reread on access to preserve manual edits and avoid restoring stale run records. */
+/** Persist card action state. Reread on access, via `readCached`, to preserve manual edits and avoid restoring stale run records. */
 export interface ActionStore {
   read(): ActionState;
   /** A failed write disables further dispatches. */
@@ -17,7 +17,7 @@ export function makeActionStore(stateDir: string): ActionStore {
 
   return {
     read(): ActionState {
-      const text = read(path);
+      const text = readCached(path);
 
       if (text === null) {
         return EMPTY_ACTIONS;
@@ -60,7 +60,7 @@ export function makeActionHistoryStore(stateDir: string): ActionHistoryStore {
         return [];
       }
 
-      const text = read(path);
+      const text = readCached(path);
 
       if (text === null) {
         return null;

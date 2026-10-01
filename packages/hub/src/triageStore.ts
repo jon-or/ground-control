@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import type { TriageState } from '@ground-control/core';
 import { readTriageState } from '@ground-control/board';
-import { read, writeIfChanged } from './fs.js';
+import { readCached, writeIfChanged } from './fs.js';
 import { triagePathOf } from './paths.js';
 
 /** Persist triage state. Read from disk on every access to preserve manual edits. */
@@ -15,7 +15,7 @@ export function makeTriageStore(stateDir: string): TriageStore {
 
   return {
     read(): TriageState {
-      const text = read(path);
+      const text = readCached(path);
 
       if (text === null) {
         return { entries: {}, failures: {} };

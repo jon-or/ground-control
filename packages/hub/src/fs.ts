@@ -17,6 +17,60 @@ export function read(path: string): string | null {
   }
 }
 
+/**
+ * A file whose change time is this close to the read may change again unseen within one timestamp tick. FAT records
+ * writes to 2 seconds; NTFS here moved in 1 ms steps (M65).
+ */
+export const RACY_MS = 2_100;
+
+const held = new Map<string, { stamp: string; text: string }>();
+
+/**
+ * `read` for files reread on every access, such as the hub's stores. A `stat` costs about a hundredth of an open under
+ * Windows Defender, so the text is kept until the file's times, size, or identity change. A file changed within
+ * `RACY_MS` of its read is read again on the next access.
+ */
+export function readCached(path: string): string | null {
+  // Taken before the stat, so a slow read cannot age a file that was fresh when stamped.
+  const now = Date.now();
+  let stamp: string;
+  let changedAt: number;
+
+  try {
+    const stats = statSync(path, { bigint: true, throwIfNoEntry: false });
+
+    if (stats === undefined) {
+      held.delete(path);
+
+      return null;
+    }
+
+    stamp = `${stats.mtimeNs}:${stats.ctimeNs}:${stats.size}:${stats.ino}`;
+    changedAt = Number((stats.mtimeNs > stats.ctimeNs ? stats.mtimeNs : stats.ctimeNs) / 1_000_000n);
+  } catch {
+    held.delete(path);
+
+    return read(path);
+  }
+
+  const kept = held.get(path);
+
+  if (kept?.stamp === stamp) {
+    return kept.text;
+  }
+
+  // Stat before reading: a change in between leaves newer text under an older stamp, which the next access replaces.
+  const text = read(path);
+
+  if (text !== null && now - changedAt > RACY_MS) {
+    held.set(path, { stamp, text });
+  } else {
+    held.delete(path);
+  }
+
+  return text;
+}
+
 /** Persist accepted configuration before using paths it records. Never truncate the previous configuration. */
 export function writeDurable(path: string, text: string): void {
   if (read(path) === text) return;
@@ -124,7 +178,7 @@ export function writeInPlace(path: string, text: string): void {
 
 /** Skip unchanged content to avoid repeated filesystem writes during rendering. */
 export function writeIfChanged(path: string, text: string): boolean {
-  if (read(path) === text) {
+  if (readCached(path) === text) {
     return false;
   }
 

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { z } from 'zod';
 import type { HistoricalSession, RetainedActivity, Session } from '@ground-control/core';
-import { read, writeIfChanged } from './fs.js';
+import { readCached, writeIfChanged } from './fs.js';
 import { statusPathOf } from './paths.js';
 
 /** Key sessions by agent and ID to avoid collisions between CLIs. */
@@ -29,7 +29,7 @@ export function makeStatusStore(stateDir: string): StatusStore {
 
   return {
     read(): Map<string, RetainedActivity> {
-      const text = read(path);
+      const text = readCached(path);
 
       if (text === null) {
         return new Map();

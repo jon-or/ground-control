@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { EMPTY_KNOWN_ISSUES, readKnownIssues } from '@ground-control/board';
 import type { KnownIssues } from '@ground-control/board';
-import { read, writeIfChanged } from './fs.js';
+import { readCached, writeIfChanged } from './fs.js';
 import { issuesPathOf } from './paths.js';
 
 /** Cache issue lookups so cards retain metadata after unassignment without another network request. */
@@ -33,7 +33,7 @@ export function makeIssueStore(stateDir: string): IssueStore {
 
   return {
     read(): KnownIssues {
-      const text = read(path);
+      const text = readCached(path);
 
       if (text === null) {
         return EMPTY_KNOWN_ISSUES;

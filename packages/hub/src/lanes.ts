@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { EMPTY_MEMORY, readMemory } from '@ground-control/board';
 import type { CardMemory } from '@ground-control/board';
-import { read, writeIfChanged } from './fs.js';
+import { readCached, writeIfChanged } from './fs.js';
 import { lanesPathOf } from './paths.js';
 
 /** Share persisted lane placement across clients so each card has one lane per machine (R8). */
@@ -16,7 +16,7 @@ export function makeLaneStore(stateDir: string): LaneStore {
 
   return {
     read(statuses: readonly string[]): CardMemory {
-      const text = read(path);
+      const text = readCached(path);
 
       if (text === null) {
         return { ...EMPTY_MEMORY, statuses: [...statuses] };

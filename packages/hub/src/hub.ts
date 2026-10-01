@@ -7,6 +7,7 @@ import type { ActionHistoryView, ActivityChange, BoardPolicy, Client, ClientHell
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
 import { actionEnabled } from '@ground-control/automation';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
+import { perRun } from './perRun.js';
 import { IssueLookup } from './issueLookup.js';
 import { makeIssueStore } from './issueStore.js';
 import type { IssueStore } from './issueStore.js';
@@ -250,6 +251,7 @@ export class Hub {
   /** In-flight checkout opens keyed by card across clients. */
   readonly #opening = new Map<string, number>();
   #clonesMemo: { key: string; at: number; clones: Clone[] } | null = null;
+  #runReaders: MachineReaders | null = null;
   #sourcesInFlight: Promise<void> | undefined;
   #sessionsInFlight: Promise<void> | undefined;
   #lastReadAt = 0;
@@ -1690,8 +1692,13 @@ export class Hub {
     this.#deps.log.warn(this.#scopeMessage(failures.map((failure) => `${failure.subject}: ${failure.message}`).join('; ')), 'sessions');
   }
 
+  /** Disk readers shared until the current synchronous run ends, so one snapshot reads each `.git` file once. */
   #readers(): MachineReaders {
-    return diskReaders(this.#deps.home, this.#deps.stateDir);
+    if (this.#runReaders === null) {
+      this.#runReaders = perRun(diskReaders(this.#deps.home, this.#deps.stateDir), () => { this.#runReaders = null; });
+    }
+
+    return this.#runReaders;
   }
 
   // — the activity signal —
@@ -1778,7 +1785,8 @@ export class Hub {
       }
 
       const path = `${normalize(card.worktree.root).replace(/\/+$/, '')}/.wip/${request.issue}/evidence.md`;
-      const ledger = this.#readers().readText(path);
+      // Past the run cache: a caller can fill the ledger and stage again within one run.
+      const ledger = diskReaders(this.#deps.home, this.#deps.stateDir).readText(path);
 
       if (ledger === null) {
         return { ok: false, reason: `No evidence ledger at ${path}.` };

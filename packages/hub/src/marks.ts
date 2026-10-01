@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { z } from 'zod';
-import { read, writeIfChanged } from './fs.js';
+import { readCached, writeIfChanged } from './fs.js';
 import { marksPathOf } from './paths.js';
 
 const marks = z.object({
@@ -29,7 +29,7 @@ export function makeMarkStore(stateDir: string): MarkStore {
 
   return {
     read(): Marks {
-      const text = read(path);
+      const text = readCached(path);
 
       if (text === null) {
         return { ...EMPTY, announcedAt: {} };
