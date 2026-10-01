@@ -99,6 +99,9 @@ function message(overrides: Partial<SnapshotMessage> = {}): SnapshotMessage {
   };
 }
 
+/** `message`, for a suite that shadows it with its own defaults. */
+const snapshotMessage = message;
+
 function send(data: BoardMessage): void {
   window.dispatchEvent(new MessageEvent('message', { data }));
 }
@@ -233,6 +236,30 @@ const toggleArchived = () => {
   }
 
   el.click();
+};
+
+/**
+ * Open the first card's menu and return the item whose label starts with `label`, closing the menu again when there is
+ * none, so a test that expects the item absent leaves no menu open.
+ */
+const cardMenuItem = (label: string): HTMLButtonElement | null => {
+  const control = document.querySelector<HTMLButtonElement>('.card-menu');
+
+  if (control === null) {
+    return null;
+  }
+
+  control.click();
+
+  const el = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button')).find((item) =>
+    item.lastChild?.nodeValue?.startsWith(label),
+  );
+
+  if (el === undefined) {
+    document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }
+
+  return el ?? null;
 };
 
 /** Each state glyph's drawing, pinned as the other client pins it so a shape changed on one side alone fails. */
@@ -2125,9 +2152,10 @@ describe('what GitHub says, and what the board adds', () => {
     const bare = { ...liveCard, sessions: [] };
 
     send(message({ lanes: lanes({ build: [bare] }) }));
-    // An eligible unread card says so and carries the reading control (R38).
+    // An eligible unread card says so and offers reading from its menu (R38).
     expect(document.querySelector('.card-foot .verdict')?.textContent).toBe('Not read');
-    expect(document.querySelector('.card-foot .tool[aria-label^="Read this card"]')).not.toBeNull();
+    expect(cardMenuItem('Read this card')).not.toBeNull();
+    document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
     send(message({ lanes: lanes({ build: [{ ...bare, triage: { state: 'running' } }] }) }));
     expect(document.querySelector<HTMLElement>('.card-foot .verdict')?.dataset.state).toBe('triaging');
@@ -2148,7 +2176,6 @@ describe('what GitHub says, and what the board adds', () => {
 
     expect(foot).not.toBeNull();
     expect(foot.querySelector('.verdict')?.textContent).toBe('Not read');
-    expect(foot.querySelector('.tool[aria-label^="Read this card"]')).not.toBeNull();
   });
 
   it('draws an empty footer where the hub reports no classifier to read with', () => {
@@ -2160,12 +2187,15 @@ describe('what GitHub says, and what the board adds', () => {
     );
 
     expect(document.querySelector('.card-foot .verdict')?.textContent).toBe('Not read');
-    expect(document.querySelector('.tool[aria-label^="Read this card"]')).toBeNull();
+    expect(cardMenuItem('Read this card')).toBeNull();
   });
 
 });
 
 describe("the card's own menu", () => {
+  // These tests are about the menu's other items; reading is covered under card triage.
+  const message = (overrides: Partial<SnapshotMessage> = {}) =>
+    snapshotMessage({ triage: { mode: 'manual', message: null, canRequest: false }, ...overrides });
   const control = () => document.querySelector<HTMLButtonElement>('.card-menu');
   const menu = () => document.querySelector<HTMLElement>('.card-popover');
   const items = () => Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button'));
@@ -2556,10 +2586,12 @@ describe('card triage (R38)', () => {
     return document.querySelector<HTMLElement>('.verdict');
   }
 
-  /** The reread control, which stands where the age does until the bar is pointed at. */
+  /** The reread item, which is rarely wanted and so waits in the card menu rather than on the bar (R45). */
   function again(): HTMLButtonElement | null {
-    return document.querySelector<HTMLButtonElement>('.tool[aria-label^="Read this card"]');
+    return cardMenuItem('Read this card');
   }
+
+  afterEach(() => document.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 
   it('shows triage progress without attention styling', () => {
     send(message({ lanes: lanes({ unstarted: [triaged({ state: 'running' })] }) }));
@@ -2694,7 +2726,10 @@ describe('card triage (R38)', () => {
     const read = again()!;
 
     expect(chip()?.textContent).toBe('Not read');
-    expect(tipOf(read)).toContain('model usage');
+    expect(read.lastChild?.nodeValue).toBe('Read this card');
+    // Pinned, as the overlay pins the same words.
+    expect(tipOf(read)).toBe('Identify the next action');
+    expect(document.querySelector('.tool[aria-label^="Read this card"]')).toBeNull();
     expect(sent()).toEqual([]);
     read.click();
     expect(sent()).toEqual([{ type: 'retriage', key: 'issue:18953' }]);
@@ -2725,6 +2760,7 @@ describe('card triage (R38)', () => {
 
     send(message({ lanes: shown, triage: { mode: 'manual', message: null, canRequest: true } }));
     expect(again()).not.toBeNull();
+    document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     send(message({ lanes: shown, triage: { mode: 'off', message: null, canRequest: false } }));
     expect(again()).toBeNull();
     send(message({ lanes: shown, triage: { mode: 'automatic', message: null, canRequest: true } }));
@@ -2756,6 +2792,7 @@ describe('card triage (R38)', () => {
 
     send(message({ lanes: shown, triage: { mode: 'manual', message: null, canRequest: true } }));
     expect(again()).not.toBeNull();
+    document.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     send(message({ lanes: shown, triage: { mode: 'off', message: null, canRequest: false } }));
     expect(chip()?.textContent).toBe(triage.state === 'done' ? 'Develop' : 'Not read');
     expect(again()).toBeNull();
@@ -2826,10 +2863,7 @@ describe('card triage (R38)', () => {
     const tail = document.querySelector('.cmdbar > .tail')!;
 
     expect(Array.from(tail.children).map((el) => el.className)).toEqual(['card-age', 'tools']);
-    expect(Array.from(tail.querySelectorAll('.tool')).map((el) => el.getAttribute('aria-label'))).toEqual([
-      'Read this card again',
-      'Open in VS Code',
-    ]);
+    expect(Array.from(tail.querySelectorAll('.tool')).map((el) => el.getAttribute('aria-label'))).toEqual(['Open in VS Code']);
   });
 
   /** Keep the paid retriage action separate from opening the classification explanation. */
@@ -2844,22 +2878,16 @@ describe('card triage (R38)', () => {
     document.querySelector<HTMLElement>('.card-age')?.click();
 
     expect(sent()).toEqual([]);
-    // Hovering to reach the control is what hides the age, so the control states it.
-    expect(tipOf(again())).toMatch(/^Read this card again\. Last read .+ ago\. Uses model usage\.$/);
-    again()!.click();
+
+    const read = again()!;
+
+    expect(read.lastChild?.nodeValue).toBe('Read this card again');
+    expect(tipOf(read)).toMatch(/^Identify the next action again\. Last read .+ ago\.$/);
+    read.click();
 
     expect(sent()).toEqual([{ type: 'retriage', key: 'issue:18953' }]);
   });
 
-  it('is not a drag handle, through the attribute the platform reflects rather than the property', () => {
-    send(
-      message({
-        lanes: lanes({ unstarted: [triaged({ state: 'done', action: 'other', qualifier: null, target: null, detail: 'Unclear.', at, stale: false })] }),
-      }),
-    );
-
-    expect(again()?.getAttribute('draggable')).toBe('false');
-  });
 });
 
 describe('card actions (R39)', () => {
@@ -2958,14 +2986,29 @@ describe('card actions (R39)', () => {
   ];
 
   for (const [action, text] of outcomes) {
-    it(`reads a ${action.outcome} run as "${text}", carrying what it said about itself`, () => {
+    const fromMenu = action.outcome === 'completed' || action.outcome === 'awaiting-approval';
+
+    it(`reads a ${action.outcome} run as "${text}", offering it again ${fromMenu ? 'only from the card menu' : 'on the bar'}`, () => {
       send(message({ lanes: lanes({ unstarted: [acting(action)] }) }));
 
       expect(said()).toBe(text);
       expect(document.querySelector<HTMLElement>('.verdict .state-mark')?.dataset['outcome']).toBe(action.outcome);
-      // Pinned, not contained: the overlay pins the same sentence, and a drift caught on one side only is
+
+      // Pinned, not contained: the overlay pins the same sentences, and a drift caught on one side only is
       // how the two clients stop matching (`docs/testing.md` parity tables).
-      expect(tipOf(chip())).toBe(`${action.detail} Click to run Merge · upstream again.`);
+      if (fromMenu) {
+        // Running a completed run again is rarely wanted, so the card menu offers it and the bar does not (R39).
+        expect(chip()).toBeNull();
+
+        const again = cardMenuItem('Run Merge · upstream again')!;
+
+        expect(tipOf(again)).toBe(`${action.detail} Start Merge · upstream again in this card’s worktree.`);
+        again.click();
+        expect(sent()).toContainEqual({ type: 'runAction', key: 'issue:18953' });
+      } else {
+        expect(tipOf(chip())).toBe(`${action.detail} Click to run Merge · upstream again.`);
+        expect(cardMenuItem('Run Merge · upstream again')).toBeNull();
+      }
     });
   }
 
@@ -3034,7 +3077,7 @@ describe('card actions (R39)', () => {
   });
 
   it('offers retry for finished actions', () => {
-    send(message({ lanes: lanes({ unstarted: [acting(outcomes[1]![0])] }) }));
+    send(message({ lanes: lanes({ unstarted: [acting(outcomes[2]![0])] }) }));
 
     chip()?.click();
 
@@ -3052,12 +3095,24 @@ describe('card actions (R39)', () => {
 
     send(message({ lanes: lanes({ unstarted: [acting({ ...waiting, approvable: true })] }) }));
 
+    // Approving is what the run waits for, so it takes the run control's place (R39).
+    expect(document.querySelectorAll('.tool.run')).toHaveLength(1);
+    expect(chip()).toBe(approve());
     expect(approve()?.getAttribute('aria-label')).toBe('Approve qa failure');
     expect(tipOf(approve())).toBe('Reply drafted; publish waits for you. Click to approve: this runs the step the run prepared.');
 
     approve()!.click();
 
     expect(sent()).toContainEqual({ type: 'approveAction', key: 'issue:18953' });
+    expect(cardMenuItem('Run QA failure again')).not.toBeNull();
+  });
+
+  /** An approval whose dispatch failed keeps its prompt, so the bar approves again and the menu runs the action again (R39). */
+  it('approves again from the bar after an approval failed to start, and runs the action again from the menu', () => {
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'done', action: 'qa-failure', qualifier: null, outcome: 'failed', detail: 'Claude Code was not found.', at, approval: true, approvable: true })] }) }));
+
+    expect(chip()?.getAttribute('aria-label')).toBe('Approve qa failure');
+    expect(cardMenuItem('Run QA failure again')).not.toBeNull();
   });
 
   it('names an approval while it runs and once it completes', () => {
@@ -3132,7 +3187,7 @@ describe('card actions (R39)', () => {
     );
 
     expect(said()).toBe('Answered');
-    expect(tipOf(chip())).toBe('Answered the notes. Click to run Answer review · followup again.');
+    expect(chip()).toBeNull();
   });
 });
 
@@ -3558,7 +3613,7 @@ describe('run reports (R51)', () => {
   });
 
   it('offers the report of a finished run beside the run control', () => {
-    showCard();
+    send(message({ lanes: lanes({ review: [acting({ ...finished, outcome: 'blocked', detail: 'Tests fail.', reportId })] }) }));
 
     expect(control()?.getAttribute('aria-label')).toBe('Open report');
     expect(tipOf(control())).toBe('Open the report this run wrote.');
@@ -4059,7 +4114,7 @@ describe('the tooltip', () => {
       el.hasAttribute('aria-label'),
     );
 
-    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual(['Read this card', 'Open in VS Code']);
+    expect(both.map((el) => el.getAttribute('aria-label'))).toEqual(['Open in VS Code']);
     expect(both.every((el) => el.getAttribute('aria-description') !== el.getAttribute('aria-label'))).toBe(true);
     // The avatar is the one that would repeat itself: named for a reader, and its tooltip says the same thing.
     expect(document.querySelector('.avatar')!.getAttribute('aria-label')).toBe('dev-2, pull request author');

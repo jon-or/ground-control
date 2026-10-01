@@ -1337,10 +1337,6 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   fill: currentColor;
 }
 
-.sync-mark {
-  fill: currentColor;
-}
-
 /* Nothing can hover on a touch screen, so lay the controls out in flow and drop the age they would cover. */
 @media (hover: none), (pointer: coarse) {
   .tail {

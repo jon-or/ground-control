@@ -477,7 +477,7 @@
             "enum": ["off", "manual", "automatic"],
             "default": "manual",
             "order": 0,
-            "markdownDescription": "Choose whether to classify cards off-machine using your model allowance, following the [mode and compatibility rules](https://github.com/jon-or/ground-control/blob/master/README.md#triage-settings)."
+            "markdownDescription": "Choose whether to classify cards off-machine, following the [mode and compatibility rules](https://github.com/jon-or/ground-control/blob/master/README.md#triage-settings)."
           },
           "groundControl.triage.dailyLimit": {
             "scope": "application",
@@ -651,7 +651,7 @@
             "type": "boolean",
             "default": false,
             "order": 1,
-            "markdownDescription": "Ask finished Claude sessions what slowed them down; uses paid model turns. See [debriefs](https://github.com/jon-or/ground-control/blob/master/README.md#debriefs)."
+            "markdownDescription": "Ask finished Claude sessions what slowed them down. See [debriefs](https://github.com/jon-or/ground-control/blob/master/README.md#debriefs)."
           },
           "groundControl.debrief.directory": {
             "scope": "machine",

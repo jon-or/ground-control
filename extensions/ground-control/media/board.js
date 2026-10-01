@@ -1165,7 +1165,7 @@ function actionState(action, creation) {
  * pointed at or focused. Both are flush right, so the controls take no width from the verdict and the run
  * control lands on the age's edge, above the session duration (R45).
  */
-function tail(boardCard, canRequest) {
+function tail(boardCard) {
   const held = document.createElement('span');
 
   held.className = 'tail';
@@ -1184,17 +1184,6 @@ function tail(boardCard, canRequest) {
   const tools = document.createElement('span');
 
   tools.className = 'tools';
-
-  if (canRequest) {
-    // Hovering to reach this control is what hides the age, so a card already read has the control state it (R45).
-    const read = boardCard.triage?.state === 'done';
-    const name = read ? 'Read this card again' : 'Read this card';
-    const detail = read
-      ? `Read this card again. Last read ${ago(Date.now() - boardCard.triage.at)} ago. Uses model usage.`
-      : 'Identify the next action. Uses model usage.';
-
-    tools.appendChild(toolButton(name, detail, syncMark(), () => vscode.postMessage({ type: 'retriage', key: boardCard.key })));
-  }
 
   if (hasCheckout(boardCard)) {
     tools.appendChild(
@@ -1216,12 +1205,6 @@ function tail(boardCard, canRequest) {
     tools.appendChild(report);
   }
 
-  const approve = approveButton(boardCard);
-
-  if (approve) {
-    tools.appendChild(approve);
-  }
-
   const run = runButton(boardCard);
 
   if (run) {
@@ -1233,9 +1216,22 @@ function tail(boardCard, canRequest) {
   return held;
 }
 
+/** The action row and qualifier the run control and the menu name (R39). */
+function actionLabel(action) {
+  return `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+}
+
+/**
+ * A run that completed, awaits approval, or can be approved runs again only from the card menu, because that is rarely
+ * wanted; an approval whose dispatch failed is approved again from the bar (R39).
+ */
+function rerunsFromMenu(action) {
+  return action?.state === 'done' && (action.outcome === 'completed' || action.outcome === 'awaiting-approval' || action.approvable === true);
+}
+
 /**
  * The card's own action, as one control (R39). Running stops it, because an interrupted merge leaves changes
- * to resolve; a current refusal states its condition and takes no press.
+ * to resolve; a current refusal states its condition and takes no press. A run awaiting approval is approved here.
  */
 function runButton(boardCard) {
   const action = boardCard.action;
@@ -1244,8 +1240,16 @@ function runButton(boardCard) {
     return null;
   }
 
+  if (action.state === 'done' && action.approvable) {
+    return approveButton(boardCard);
+  }
+
+  if (rerunsFromMenu(action)) {
+    return null;
+  }
+
   // One row per action and qualifier, so the control names both (R39).
-  const label = `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+  const label = actionLabel(action);
 
   // Read and dispatched in the hub; there is no session to stop until the dispatch returns.
   if (action.state === 'running' && action.stage === 'starting') {
@@ -1308,7 +1312,7 @@ function runButton(boardCard) {
 }
 
 /**
- * A control rather than a label: pressing it spends the developer's model allowance or dispatches an agent.
+ * A control rather than a label: pressing it opens something or dispatches an agent.
  * A control that only states a condition takes no press, so `onPress` is null there.
  */
 function toolButton(name, title, mark, onPress) {
@@ -1483,9 +1487,43 @@ function badge(kind, text, color, title, onOpen) {
   return el;
 }
 
+/**
+ * Whether this card can be classified from here. An archived or unassigned card is read-only (R9), and the hub
+ * reports through `canRequest` when no classifier or conversation source is available (R38).
+ */
+function canRequestTriage(boardCard) {
+  return (
+    board.triage?.canRequest === true &&
+    boardCard.issue != null &&
+    boardCard.issueNumber !== null &&
+    boardCard.lane !== 'archived' &&
+    boardCard.unassigned !== true
+  );
+}
+
 /** Offer available card actions; omit the menu when none can run. */
 function cardActions(boardCard) {
   const actions = [];
+
+  if (canRequestTriage(boardCard)) {
+    const read = boardCard.triage?.state === 'done';
+
+    actions.push({
+      label: read ? 'Read this card again' : 'Read this card',
+      hint: read ? `Identify the next action again. Last read ${ago(Date.now() - boardCard.triage.at)} ago.` : 'Identify the next action',
+      run: () => vscode.postMessage({ type: 'retriage', key: boardCard.key }),
+    });
+  }
+
+  if (rerunsFromMenu(boardCard.action)) {
+    const label = actionLabel(boardCard.action);
+
+    actions.push({
+      label: `Run ${label} again`,
+      hint: `${boardCard.action.detail} Start ${label} again in this card’s worktree.`,
+      run: () => vscode.postMessage({ type: 'runAction', key: boardCard.key }),
+    });
+  }
 
   if (hasCheckout(boardCard)) {
     actions.push({
@@ -1837,24 +1875,6 @@ function repoName(issue) {
 }
 
 /** GitHub's own pull-request glyph, so the badge reads as a PR rather than a second issue number. */
-/** Octicon `sync`, on the control that reads a card again. */
-function syncMark() {
-  const svg = document.createElementNS(SVG, 'svg');
-  svg.setAttribute('class', 'sync-mark');
-  svg.setAttribute('viewBox', '0 0 16 16');
-  svg.setAttribute('aria-hidden', 'true');
-
-  const path = document.createElementNS(SVG, 'path');
-  path.setAttribute(
-    'd',
-    'M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .655-.835ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z',
-  );
-
-  svg.appendChild(path);
-
-  return svg;
-}
-
 function pullRequestMark() {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('class', 'pr-mark');
@@ -2040,13 +2060,6 @@ function card(boardCard, avatarPool, placeable) {
 
   // Keep triage separate from attention styling (R38). One line states what to do; the controls that act on it
   // take the age's place at the right edge while the bar is pointed at (R45).
-  const canRequest =
-    board.triage?.canRequest === true &&
-    issue &&
-    boardCard.issueNumber !== null &&
-    boardCard.lane !== 'archived' &&
-    boardCard.unassigned !== true;
-
   // Give the Ground Control footer's first line its own accessible group name.
   const cmdbar = document.createElement('div');
 
@@ -2054,7 +2067,7 @@ function card(boardCard, avatarPool, placeable) {
   cmdbar.setAttribute('role', 'group');
   cmdbar.setAttribute('aria-label', 'Board status');
   cmdbar.appendChild(issue ? verdict(boardCard) : branchVerdict(boardCard));
-  cmdbar.appendChild(tail(boardCard, canRequest === true));
+  cmdbar.appendChild(tail(boardCard));
   foot.appendChild(cmdbar);
 
   // Session rows live in their own block, so the footer drops the tint where there is nothing to show.
@@ -4411,7 +4424,6 @@ const REPORT_HINT = 'Open the report this run wrote.';
 let reportFor = null;
 let reportRequests = 0;
 
-/** A finished run with a report has a control beside the run control to open it. */
 /** Runs the step a run awaiting approval prepared, with the prompt its result named; the click is the approval (R39). */
 function approveButton(boardCard) {
   const action = boardCard.action;
@@ -4420,16 +4432,17 @@ function approveButton(boardCard) {
     return null;
   }
 
-  const label = `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+  const label = actionLabel(action);
   const button = toolButton(`Approve ${label.toLowerCase()}`, `${action.detail} Click to approve: this runs the step the run prepared.`, octicon('thumbsup'), () =>
     vscode.postMessage({ type: 'approveAction', key: boardCard.key }),
   );
 
-  button.classList.add('approve');
+  button.classList.add('run', 'approve');
 
   return button;
 }
 
+/** A finished run with a report has a control beside the run control to open it. */
 function reportButton(boardCard) {
   const action = boardCard.action;
 

@@ -3216,12 +3216,76 @@ describe('card actions (R39)', () => {
 
     show(acting({ ...waiting, approvable: true }));
 
+    // Approving is what the run waits for, so it takes the run control's place (R39).
+    expect(document.querySelectorAll('button.gc-run')).toHaveLength(1);
+    expect(mark()).toBe(approve());
     expect(approve()?.getAttribute('aria-label')).toBe('Approve qa failure');
     expect(tipOf(approve())).toBe('Reply drafted; publish waits for you. Approve from the editor board: this runs the step the run prepared.');
 
     approve()!.click();
 
     expect(actions.approveAction).toHaveBeenCalledWith('issue-4501');
+
+    document.querySelector<HTMLElement>('.gc-lane')!.click();
+    show(acting({ ...waiting, approvable: true }));
+
+    expect(document.querySelector('.gc-lanes button[data-action="run-again"]')?.textContent).toBe('Run QA failure again');
+  });
+
+  /** An approval whose dispatch failed keeps its prompt, so the bar approves again and the menu runs the action again (R39). */
+  it('approves again from the bar after an approval failed to start, and runs the action again from the menu', () => {
+    const failed = acting({ state: 'done', action: 'qa-failure', qualifier: null, outcome: 'failed', detail: 'Claude Code was not found.', at, approval: true, approvable: true });
+
+    show(failed);
+
+    expect(mark()?.getAttribute('aria-label')).toBe('Approve qa failure');
+
+    document.querySelector<HTMLElement>('.gc-lane')!.click();
+    show(failed);
+
+    expect(document.querySelector('.gc-lanes button[data-action="run-again"]')?.textContent).toBe('Run QA failure again');
+  });
+
+  /** A paint replaces the chip and its menu, so focus is carried across or the keyboard would be dropped to the page. */
+  it('keeps keyboard focus in the lane menu across paints, and hands it back to the chip when the menu closes', () => {
+    const entry = acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'completed', detail: 'Merged master.', at });
+
+    show(entry);
+    document.querySelector<HTMLElement>('.gc-lane')!.focus();
+    document.querySelector<HTMLElement>('.gc-lane')!.click();
+    show(entry);
+
+    const items = () => [...document.querySelectorAll<HTMLButtonElement>('.gc-lanes button')];
+
+    expect(document.activeElement).toBe(items()[0]);
+
+    items()[2]!.focus();
+    show(entry);
+
+    expect(document.activeElement).toBe(items()[2]);
+
+    document.querySelector<HTMLButtonElement>('.gc-lanes button[data-action="run-again"]')!.focus();
+    document.querySelector<HTMLButtonElement>('.gc-lanes button[data-action="run-again"]')!.click();
+    show(entry);
+
+    expect(document.querySelector('.gc-lanes')).toBeNull();
+    expect(document.activeElement).toBe(document.querySelector('.gc-lane'));
+  });
+
+  /** Focus follows the item rather than its place, or Enter would press whatever moved into that place. */
+  it('hands focus to the chip when the focused menu item goes away', () => {
+    const entry = acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'completed', detail: 'Merged master.', at });
+    const reading = (canRequest: boolean) =>
+      paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [], triage: { mode: 'manual', message: null, canRequest } }) }), NOW, actions);
+
+    reading(true);
+    document.querySelector<HTMLElement>('.gc-lane')!.click();
+    reading(true);
+    document.querySelector<HTMLButtonElement>('.gc-lanes button[data-action="retriage"]')!.focus();
+    reading(false);
+
+    expect(document.querySelector('.gc-lanes button[data-action="run-again"]')).not.toBeNull();
+    expect(document.activeElement).toBe(document.querySelector('.gc-lane'));
   });
 
   it('names an approval while it runs and once it completes', () => {
@@ -3236,18 +3300,53 @@ describe('card actions (R39)', () => {
 
   /** Verify the same literal outcome words against board.js, which cannot share a runtime import. */
   it.each([
-    ['completed', 'Merged', 'Merged master.'],
-    ['awaiting-approval', 'Awaiting approval', 'Merged; the push waits for you.'],
     ['blocked', 'Blocked', 'Conflicts in Booking.cs.'],
     ['failed', 'Did not run', 'Claude Code was not found.'],
     ['stopped', 'Stopped', 'Stopped by you.'],
-  ] as const)('reads a %s run as "%s"', (outcome, text, detail) => {
+  ] as const)('reads a %s run as "%s" and offers it again on the bar', (outcome, text, detail) => {
     show(acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome, detail, at }));
 
     expect(said()).toBe(text);
     expect(mark()?.dataset.outcome).toBe(outcome);
     expect(document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')?.dataset.outcome).toBe(outcome);
     expect(tipOf(mark())).toBe(`${detail} Click to run Merge · upstream again.`);
+  });
+
+  /** Running a completed run again is rarely wanted, so the card menu offers it and the bar does not (R39). */
+  it.each([
+    ['completed', 'Merged', 'Merged master.'],
+    ['awaiting-approval', 'Awaiting approval', 'Merged; the push waits for you.'],
+  ] as const)('reads a %s run as "%s" and offers it again only from the card menu', (outcome, text, detail) => {
+    const entry = acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome, detail, at });
+
+    show(entry);
+
+    expect(said()).toBe(text);
+    expect(document.querySelector<HTMLElement>('.gc-verdict .gc-state-mark')?.dataset.outcome).toBe(outcome);
+    expect(mark()).toBeNull();
+
+    document.querySelector<HTMLElement>('.gc-lane')!.click();
+    show(entry);
+
+    const again = document.querySelector<HTMLButtonElement>('.gc-lanes button[data-action="run-again"]');
+
+    expect(again?.textContent).toBe('Run Merge · upstream again');
+    expect(again?.title).toBe(`${detail} Start Merge · upstream again in this card’s worktree.`);
+
+    again!.click();
+
+    expect(actions.runAction).toHaveBeenCalledWith('issue-4501');
+  });
+
+  it('offers no run again in the card menu for a run the bar offers again', () => {
+    const entry = acting({ state: 'done', action: 'merge', qualifier: 'upstream', outcome: 'blocked', detail: 'Conflicts.', at });
+
+    show(entry);
+    document.querySelector<HTMLElement>('.gc-lane')!.click();
+    show(entry);
+
+    expect(document.querySelector('.gc-lanes')).not.toBeNull();
+    expect(document.querySelector('.gc-lanes button[data-action="run-again"]')).toBeNull();
   });
 
   /** The qualifier names the row, so the state sits beside it rather than in its place (R45). */
@@ -3340,7 +3439,7 @@ describe('card actions (R39)', () => {
     show(acting({ state: 'done', action: 'address-review', qualifier: 'followup', outcome: 'completed', detail: 'Answered the notes.', at }));
 
     expect(said()).toBe('Answered');
-    expect(tipOf(mark())).toBe('Answered the notes. Click to run Answer review · followup again.');
+    expect(mark()).toBeNull();
   });
 });
 
@@ -3505,11 +3604,22 @@ describe('workflow stages (R49)', () => {
 });
 
 describe('card triage (R38)', () => {
-  const show = (entry: LanedCard) =>
-    paint(document, state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) }), NOW, actions);
+  const show = (entry: LanedCard) => {
+    painted = state({ snapshot: snapshot({ lanes: [{ id: 'build', title: 'Build', cards: [entry] }], openable: [] }) });
+    paint(document, painted, NOW, actions);
+  };
   const mark = () => document.querySelector<HTMLElement>('.gc-verdict');
-  /** The reread control, which stands where the age does until the bar is pointed at. */
-  const again = () => document.querySelector<HTMLButtonElement>('.gc-tool[aria-label^="Read this card"]');
+  /** The last state painted, which a menu click repaints as the content script would. */
+  let painted: State | null = null;
+  /** Open the card menu of the card with this number and return its reread item, if it has one. */
+  const readItem = (issueNumber: number) => {
+    cardElement(issueNumber).querySelector<HTMLElement>('.gc-lane')!.click();
+    paint(document, painted!, NOW, actions);
+
+    return document.querySelector<HTMLButtonElement>('.gc-lanes button[data-action="retriage"]');
+  };
+  /** The reread item of the one card shown, which is rarely wanted and so waits in the card menu (R45). */
+  const again = () => readItem(4503);
   /** The status moved at `at`, which is a different time from the reading's — a test must not pass on the wrong one. */
   const moved = (entry: LanedCard, at: string): LanedCard => ({ ...entry, issue: { ...entry.issue!, statusChangedAt: at } });
 
@@ -3582,7 +3692,8 @@ describe('card triage (R38)', () => {
 
     expect(mark()?.textContent).toBe('Not read');
     expect(tipOf(mark())).toBe('Triage failed.');
-    expect(again()).toBeNull();
+    expect(readItem(4501)).toBeNull();
+    expect(document.querySelector('.gc-lanes')).not.toBeNull();
   });
 
   /** Same failure wording as the editor board (docs/testing.md); only the remedy differs. */
@@ -3608,39 +3719,36 @@ describe('card triage (R38)', () => {
       card(4503, { sessions: [], triage: { state: 'done', action: 'develop', qualifier: null, target: null, detail: 'Pick it up.', at: NOW, stale: false } }),
     ];
 
-    paint(document, state({ snapshot: snapshot({
+    painted = state({ snapshot: snapshot({
       lanes: [{ id: 'build', title: 'Build', cards }],
       triage: { mode, message: null, canRequest },
-    }) }), NOW, actions);
+    }) });
+    paint(document, painted, NOW, actions);
 
     return [...document.querySelectorAll<HTMLElement>('.gc-verdict')];
   }
 
-  it.each(['manual', 'automatic'] as const)('offers reading beside each result in %s mode', (mode) => {
+  it.each(['manual', 'automatic'] as const)('offers reading in each card menu, and not on the bar, in %s mode', (mode) => {
     const marks = marksFor(mode, true);
 
     expect(marks.map((entry) => entry.textContent)).toEqual(['Not read', 'Not read', 'Develop']);
+    expect(document.querySelectorAll('.gc-tool[aria-label^="Read this card"]')).toHaveLength(0);
 
-    const reads = [...document.querySelectorAll<HTMLElement>('.gc-tool[aria-label^="Read this card"]')];
+    const reads = [4501, 4502, 4503].map(readItem);
 
-    // Every card carries the control, whatever it has been read as.
-    expect(reads.map((entry) => entry.getAttribute('aria-label'))).toEqual([
-      'Read this card',
-      'Read this card',
-      'Read this card again',
-    ]);
-    // Both reads spend the allowance and both clients say so; pinned here and on the editor board.
-    expect(tipOf(reads[0])).toBe('Identify the next action. Uses model usage.');
-    // Hovering to reach the control is what hides the age, so the control states it for a card already read.
-    expect(tipOf(reads[2])).toBe('Read this card again. Last read 0s ago. Uses model usage.');
+    // Every card offers it, whatever it has been read as; the editor board words it the same.
+    expect(reads.map((entry) => entry?.textContent)).toEqual(['Read this card', 'Read this card', 'Read this card again']);
+    expect(reads[0]?.title).toBe('Identify the next action');
+    expect(reads[2]?.title).toBe('Identify the next action again. Last read 0s ago.');
   });
 
-  /** Paint one read card with reading offered, the state that carries the label's own reread control. */
+  /** Paint one read card with reading offered. */
   function showRead(entry: LanedCard) {
-    paint(document, state({ snapshot: snapshot({
+    painted = state({ snapshot: snapshot({
       lanes: [{ id: 'build', title: 'Build', cards: [entry] }],
       triage: { mode: 'manual', message: null, canRequest: true },
-    }) }), NOW, actions);
+    }) });
+    paint(document, painted, NOW, actions);
   }
 
   const read = card(4503, {
@@ -3655,13 +3763,10 @@ describe('card triage (R38)', () => {
     const tail = document.querySelector('.gc-cmdbar > .gc-tail')!;
 
     expect([...tail.children].map((el) => el.className)).toEqual(['gc-age', 'gc-tools']);
-    expect([...tail.querySelectorAll('.gc-tool')].map((el) => el.getAttribute('aria-label'))).toEqual([
-      'Read this card again',
-    ]);
   });
 
   /** The worktree the card has, one press away, named for what it opens rather than for code in general. */
-  it('opens the checkout from the bar, in the order read, open, run', () => {
+  it('opens the checkout from the bar, in the order open, run', () => {
     showRead({
       ...moved(read, '2026-09-04T19:00:00Z'),
       checkout: { root: 'c:/work/4503', source: 'session', only: true },
@@ -3670,14 +3775,10 @@ describe('card triage (R38)', () => {
 
     const tools = [...document.querySelectorAll<HTMLButtonElement>('.gc-tail .gc-tool')];
 
-    expect(tools.map((el) => el.getAttribute('aria-label'))).toEqual([
-      'Read this card again',
-      'Open in VS Code',
-      'Run merge · upstream',
-    ]);
-    expect(tipOf(tools[1])).toBe('Open c:/work/4503 in VS Code');
+    expect(tools.map((el) => el.getAttribute('aria-label'))).toEqual(['Open in VS Code', 'Run merge · upstream']);
+    expect(tipOf(tools[0])).toBe('Open c:/work/4503 in VS Code');
 
-    tools[1]!.click();
+    tools[0]!.click();
 
     expect(actions.openCheckout).toHaveBeenCalledWith('issue-4503');
   });
@@ -3695,55 +3796,49 @@ describe('card triage (R38)', () => {
     expect(actions.retriage).toHaveBeenCalledWith('issue-4503');
   });
 
-  /** The control sits inside GitHub's own card, which drags and opens on click (R36). */
-  it('neither drags the card nor opens it when the reread is pressed', () => {
+  it('closes the card menu once reading is asked for', () => {
     showRead(read);
+    again()!.click();
+    paint(document, painted!, NOW, actions);
 
-    const control = again()!;
-    const opened = vi.fn();
-
-    expect(control.getAttribute('draggable')).toBe('false');
-    cardElement(4503).addEventListener('click', opened);
-
-    const press = control.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-    expect(opened).not.toHaveBeenCalled();
-    // GitHub opens the card from the link the badge sits inside, which a default press would follow.
-    expect(press).toBe(false);
+    expect(actions.retriage).toHaveBeenCalledWith('issue-4503');
+    expect(document.querySelector('.gc-lanes')).toBeNull();
   });
 
   it('removes the controls and keeps the results in off mode', () => {
     const marks = marksFor('off', false);
 
     expect(marks.map((entry) => entry.textContent)).toEqual(['Not read', 'Not read', 'Develop']);
-    expect(document.querySelectorAll('.gc-tool[aria-label^="Read this card"]')).toHaveLength(0);
+    // Each card still has a menu, for its lanes, so the absent item is a decision rather than a menu never drawn.
+    expect([4501, 4502, 4503].map((n) => readItem(n) === null && document.querySelector('.gc-lanes') !== null)).toEqual([true, true, true]);
   });
 
   /** The hub reports no classifier or conversation source through canRequest, whatever the mode (R38). */
   it('removes the controls when no classifier is available, even in automatic mode', () => {
     expect(marksFor('automatic', false).map((entry) => entry.textContent)).toEqual(['Not read', 'Not read', 'Develop']);
-    expect(document.querySelectorAll('.gc-tool[aria-label^="Read this card"]')).toHaveLength(0);
+    expect([4501, 4502, 4503].map((n) => readItem(n) === null && document.querySelector('.gc-lanes') !== null)).toEqual([true, true, true]);
   });
 
   it('sends the card key and nothing else, which is what makes it safe from a page', () => {
     marksFor('manual', true);
-    document.querySelectorAll<HTMLElement>('.gc-tool[aria-label^="Read this card"]')[0]!.click();
+    readItem(4501)!.click();
 
     expect(actions.retriage).toHaveBeenCalledWith('issue-4501');
   });
 
   it('offers no reading on an archived or unassigned card, which is read-only', () => {
-    paint(document, state({ snapshot: snapshot({
+    painted = state({ snapshot: snapshot({
       lanes: [
         { id: 'archived', title: 'Archived', cards: [card(4501, { sessions: [], lane: 'archived' })] },
         { id: 'build', title: 'Build', cards: [card(4502, { sessions: [], unassigned: true })] },
       ],
       triage: { mode: 'manual', message: null, canRequest: true },
-    }) }), NOW, actions);
+    }) });
+    paint(document, painted, NOW, actions);
 
-    // Both cards drew a footer, so the absent control is a decision rather than a card that never rendered.
+    // Both cards drew a footer, so the absent item is a decision rather than a card that never rendered.
     expect(document.querySelectorAll(`.${'gc-badge'}`)).toHaveLength(2);
-    expect(document.querySelectorAll('.gc-tool[aria-label^="Read this card"]')).toHaveLength(0);
+    expect([4501, 4502].map(readItem)).toEqual([null, null]);
   });
 
   /** Verify literal triage labels against packages/board and both clients, which cannot share runtime imports. */
@@ -4807,7 +4902,7 @@ describe('run reports (R51)', () => {
   });
 
   it('offers Open report on a card whose finished run wrote one, and on no other card', () => {
-    showCard({ state: 'done', action: 'develop', qualifier: null, outcome: 'completed', detail: 'Built it.', at, reportId: 'issue-4501@1' });
+    showCard({ state: 'done', action: 'develop', qualifier: null, outcome: 'blocked', detail: 'Tests fail.', at, reportId: 'issue-4501@1' });
 
     expect(cardReport()).not.toBeNull();
     expect(tipOf(cardReport())).toBe('Open the report this run wrote.');

@@ -433,7 +433,6 @@ span.gc-returned { margin-left: 6px; font-size: 11px; line-height: 18px; font-we
 .gc-custody-open { cursor: pointer; border-radius: 4px; }
 .gc-custody-open:hover, .gc-custody-open[aria-expanded="true"] { color: var(--fgColor-accent, #0969da); }
 .gc-custody-open:focus-visible { outline: 2px solid var(--focus-outlineColor, #0969da); outline-offset: 1px; }
-.gc-sync-mark { fill: currentColor; }
 @keyframes gc-mark-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @keyframes gc-text-pulse {
   0%, 100% { color: color-mix(in srgb, var(--fgColor-muted, #59636e) 45%, transparent); }
@@ -721,6 +720,15 @@ ${CUSTODY_CSS}
  * @type {string | null}
  */
 let openMenu = null;
+
+/**
+ * Where keyboard focus was in the lane menu before a paint rebuilt it: the card, and the item's words, or null when
+ * focus was on the lane chip that opened it. A paint replaces both the chip and the menu, which would drop focus to
+ * the page.
+ *
+ * @type {{ key: string, item: string | null } | null}
+ */
+let menuFocus = null;
 let panelOpen = false;
 
 /**
@@ -2100,9 +2108,10 @@ function movableLanes(card) {
  *
  * @param {LanedCard} card
  * @param {readonly StartableAgent[]} startable
+ * @param {boolean} canRequest
  */
-function hasCardMenu(card, startable) {
-  return movableLanes(card).length > 0 || (card.checkout != null && startable.length > 0);
+function hasCardMenu(card, startable, canRequest) {
+  return movableLanes(card).length > 0 || canRequest || rerunsFromMenu(card.action) || (card.checkout != null && startable.length > 0);
 }
 
 /**
@@ -2123,13 +2132,16 @@ function startableFor(snapshot, card) {
  * @param {LanedCard} card
  * @param {Actions} actions
  * @param {readonly StartableAgent[]} startable
+ * @param {boolean} canRequest
+ * @param {number} now
  */
-function laneMenu(doc, card, actions, startable) {
+function laneMenu(doc, card, actions, startable, canRequest, now) {
   const lanes = movableLanes(card);
-  const menu = popover(doc, 'Move to');
+  const menu = popover(doc, lanes.length > 0 ? 'Move to' : null);
 
   menu.classList.add('gc-lanes');
   menu.setAttribute('role', 'menu');
+  menu.dataset.key = card.key;
 
   for (const lane of lanes) {
     const chosen = lane === card.lane;
@@ -2155,11 +2167,51 @@ function laneMenu(doc, card, actions, startable) {
     menu.appendChild(button);
   }
 
+  /** @type {HTMLButtonElement[]} */
+  const cardItems = [];
+
+  // Both are rarely wanted, so they wait in the menu rather than on the bar (R39, R45).
+  if (canRequest) {
+    const read = card.triage?.state === 'done' ? card.triage : null;
+    const reread = item(doc, read ? 'Read this card again' : 'Read this card', () => {
+      openMenu = null;
+      actions.retriage(card.key);
+      actions.repaint();
+    });
+
+    reread.dataset.action = 'retriage';
+    reread.title = read ? `Identify the next action again. Last read ${ago(now - read.at)} ago.` : 'Identify the next action';
+    cardItems.push(reread);
+  }
+
+  if (card.action?.state === 'done' && rerunsFromMenu(card.action)) {
+    const label = actionLabel(card.action);
+    const rerun = item(doc, `Run ${label} again`, () => {
+      openMenu = null;
+      actions.runAction(card.key);
+      actions.repaint();
+    });
+
+    rerun.dataset.action = 'run-again';
+    rerun.title = `${card.action.detail} Start ${label} again in this card’s worktree.`;
+    cardItems.push(rerun);
+  }
+
+  if (cardItems.length > 0) {
+    if (menu.querySelector('button') !== null) {
+      menu.appendChild(doc.createElement('hr'));
+    }
+
+    menu.append(...cardItems);
+  }
+
   // A start needs a checkout; the bar opens it (R45), and folder selection stays in the editor (R41).
   if (card.checkout != null && startable.length > 0) {
     const root = card.checkout.root;
 
-    menu.appendChild(doc.createElement('hr'));
+    if (menu.querySelector('button') !== null) {
+      menu.appendChild(doc.createElement('hr'));
+    }
 
     // One item per startable agent, worded as the editor board words them (R42).
     for (const { agent, takesPrompt } of startable) {
@@ -2608,12 +2660,13 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest, sta
 
   lane.type = 'button';
   lane.className = 'gc-lane';
+  lane.dataset.key = card.key;
   lane.appendChild(laneMark(doc, card.lane));
   setAccessibleName(lane, `Lane: ${laneTitle}`);
 
-  if (hasCardMenu(card, startable)) {
+  if (hasCardMenu(card, startable, canRequest)) {
     lane.setAttribute('aria-haspopup', 'menu');
-    setTooltip(lane, `${laneTitle} — change lane`);
+    setTooltip(lane, movableLanes(card).length > 0 ? `${laneTitle} — change lane` : `${laneTitle} — more actions`);
     lane.addEventListener('click', (event) => {
       event.stopPropagation();
       event.preventDefault();
@@ -2630,7 +2683,7 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest, sta
 
   renderCardMarks(element, card);
   head.appendChild(verdict(doc, card, now));
-  head.appendChild(tail(doc, card, now, actions, canRequest));
+  head.appendChild(tail(doc, card, now, actions));
 
   const rows = doc.createElement('div');
 
@@ -2650,7 +2703,7 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest, sta
 
   // A card archived since the menu opened can lose every item. Clear the selection rather than hold one that
   // would reopen on its own if the card returned.
-  if (openMenu === card.key && !hasCardMenu(card, startable)) {
+  if (openMenu === card.key && !hasCardMenu(card, startable, canRequest)) {
     openMenu = null;
   }
 
@@ -2658,7 +2711,7 @@ function renderBadge(doc, element, card, now, actions, openable, canRequest, sta
     return [];
   }
 
-  const menu = laneMenu(doc, card, actions, startable);
+  const menu = laneMenu(doc, card, actions, startable, canRequest, now);
 
   (doc.body ?? doc.documentElement).appendChild(menu);
   place(menu, lane);
@@ -3042,10 +3095,9 @@ function actionState(action, creation) {
  * @param {LanedCard} card
  * @param {number} now
  * @param {Actions} actions
- * @param {boolean} canRequest
  * @returns {HTMLElement}
  */
-function tail(doc, card, now, actions, canRequest) {
+function tail(doc, card, now, actions) {
   const held = doc.createElement('span');
   const tools = doc.createElement('span');
 
@@ -3061,17 +3113,6 @@ function tail(doc, card, now, actions, canRequest) {
     ageLabel.className = 'gc-age';
     age(ageLabel, moved, now);
     held.appendChild(ageLabel);
-  }
-
-  if (canRequest) {
-    // Hovering to reach this control is what hides the age, so a card already read has the control state it (R45).
-    const read = card.triage?.state === 'done' ? card.triage : null;
-    const name = read ? 'Read this card again' : 'Read this card';
-    const detail = read
-      ? `Read this card again. Last read ${ago(now - read.at)} ago. Uses model usage.`
-      : 'Identify the next action. Uses model usage.';
-
-    tools.appendChild(toolButton(doc, name, detail, syncMark(doc), () => actions.retriage(card.key)));
   }
 
   if (card.checkout != null) {
@@ -3090,12 +3131,6 @@ function tail(doc, card, now, actions, canRequest) {
 
   if (report && actions.readReport) {
     tools.appendChild(toolButton(doc, 'Open report', 'Open the report this run wrote.', reportMark(doc), () => openReport(doc, report, actions, null)));
-  }
-
-  const approve = approveButton(doc, card, actions);
-
-  if (approve) {
-    tools.appendChild(approve);
   }
 
   const run = runButton(doc, card, actions);
@@ -3280,7 +3315,7 @@ function approveButton(doc, card, actions) {
   }
 
   const approveAction = actions.approveAction;
-  const label = `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+  const label = actionLabel(action);
   const button = toolButton(
     doc,
     `Approve ${label.toLowerCase()}`,
@@ -3289,14 +3324,35 @@ function approveButton(doc, card, actions) {
     () => approveAction(card.key),
   );
 
-  button.classList.add('gc-approve');
+  button.classList.add('gc-run', 'gc-approve');
 
   return button;
 }
 
 /**
+ * The action row and qualifier the run control and the menu name (R39).
+ *
+ * @param {NonNullable<LanedCard['action']>} action
+ * @returns {string}
+ */
+function actionLabel(action) {
+  return `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+}
+
+/**
+ * A run that completed, awaits approval, or can be approved runs again only from the card menu, because that is rarely
+ * wanted; an approval whose dispatch failed is approved again from the bar (R39).
+ *
+ * @param {LanedCard['action']} action
+ * @returns {boolean}
+ */
+function rerunsFromMenu(action) {
+  return action?.state === 'done' && (action.outcome === 'completed' || action.outcome === 'awaiting-approval' || action.approvable === true);
+}
+
+/**
  * The card's own action, as one control (R39). Running stops it, because an interrupted merge leaves changes
- * to resolve; a current refusal states its condition and takes no press.
+ * to resolve; a current refusal states its condition and takes no press. A run awaiting approval is approved here.
  *
  * @param {Document} doc
  * @param {LanedCard} card
@@ -3310,8 +3366,16 @@ function runButton(doc, card, actions) {
     return null;
   }
 
+  if (action.state === 'done' && action.approvable) {
+    return approveButton(doc, card, actions);
+  }
+
+  if (rerunsFromMenu(action)) {
+    return null;
+  }
+
   // One row per action and qualifier, so the control names both (R39).
-  const label = `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+  const label = actionLabel(action);
 
   // Read and dispatched in the hub; there is no session to stop until the dispatch returns.
   if (action.state === 'running' && action.stage === 'starting') {
@@ -3467,9 +3531,9 @@ function worktreeMark(doc) {
 }
 
 /**
- * A control rather than a label, because pressing it spends the developer's model allowance or dispatches an
- * agent. These controls live in github.com's DOM, so a page script can dispatch a click at one; the hub, not
- * this listener, is what bounds what such a click can cause (R32, R38, R39).
+ * A control rather than a label, because pressing it opens something or dispatches an agent. These controls live in
+ * github.com's DOM, so a page script can dispatch a click at one; the hub, not this listener, is what bounds what
+ * such a click can cause (R32, R38, R39).
  *
  * @param {Document} doc
  * @param {string} name
@@ -3537,21 +3601,6 @@ function laneMark(doc, lane) {
 
     svg.appendChild(shape);
   }
-
-  return svg;
-}
-
-/** Octicon `sync`, on the control that reads a card again. @param {Document} doc @returns {SVGElement} */
-function syncMark(doc) {
-  const svg = markSvg(doc, '0 0 16 16');
-  const path = doc.createElementNS(SVG_NS, 'path');
-
-  svg.setAttribute('class', 'gc-sync-mark');
-  path.setAttribute(
-    'd',
-    'M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .655-.835ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z',
-  );
-  svg.appendChild(path);
 
   return svg;
 }
@@ -4646,6 +4695,13 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     doc.documentElement.setAttribute(MOTION_ATTR, 'reduced');
   }
 
+  const active = /** @type {HTMLElement | null} */ (doc.activeElement);
+  const focusedMenu = /** @type {HTMLElement | null} */ (active?.closest?.('.gc-lanes') ?? null);
+
+  menuFocus = focusedMenu?.dataset.key !== undefined
+    ? { key: focusedMenu.dataset.key, item: active?.textContent ?? null }
+    : active?.classList?.contains('gc-lane') && active.dataset.key !== undefined ? { key: active.dataset.key, item: null } : null;
+
   // Remove previous lane menus before rendering because their cards may have disappeared. Keep the unchanged
   // board menu inside #gc-menu.
   for (const stale of doc.querySelectorAll(`body > .${POPOVER_CLASS}`)) {
@@ -4790,6 +4846,18 @@ export function paint(doc, state, now, actions, presentation = DEFAULT_PRESENTAT
     } else {
       open.push(renderCustody(doc, state, held, anchor, actions), anchor);
     }
+  }
+
+  // Focus that the rebuild dropped goes to the same item of the card's open menu, to its first item when the chip that
+  // opened it had focus, and to the chip once the menu closed or lost the item, so Enter never presses another item.
+  if (menuFocus !== null && (doc.activeElement === null || doc.activeElement === doc.body)) {
+    const { key, item } = menuFocus;
+    const menu = [...doc.querySelectorAll('body > .gc-lanes')].find((open) => open instanceof HTMLElement && open.dataset.key === key);
+    const items = menu === undefined ? [] : [...menu.querySelectorAll('button')];
+    const chip = [...doc.querySelectorAll('.gc-lane')].find((lane) => lane instanceof HTMLElement && lane.dataset.key === key);
+    const target = item === null ? items[0] : items.find((button) => button.textContent === item);
+
+    /** @type {HTMLElement | undefined} */ (target ?? chip)?.focus();
   }
 
   // Close tooltips after rebuilding so removed anchors are detected.

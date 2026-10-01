@@ -116,7 +116,7 @@ Chrome keeps snapshots in memory for the current hub connection and waits for fr
 
 ### Triage settings
 
-`triage.mode` defaults to `manual`: use **Read this card** in VS Code for an unread assigned issue, or its retry/reread control. `off` disables all classification controls and requests while retaining previous results. `automatic` reads eligible cards while a board is visible. Chrome offers the same reading and reread controls beside each result.
+`triage.mode` defaults to `manual`: use **Read this card** or **Read this card again** in the card's menu. `off` disables all classification controls and requests while retaining previous results. `automatic` reads eligible cards while a board is visible. Chrome offers the same items in the menu of the card's lane chip.
 
 Classification currently requires enabled Claude and a configured conversation source. Both boards explain missing capability; a Codex-only setup can still discover sessions. Missing capability does not start model work or consume the automatic allowance.
 
@@ -188,7 +188,7 @@ Triage reads a tester's report on a card as QA failure or QA question. A row for
 { "action": "qa-question", "qualifier": null, "prompt": "/address-qa {issue} result:{resultPath}", "automatic": false }
 ```
 
-Both rows can name the same prompt, since one report usually mixes failures and questions; separate rows let one start automatically while the other waits for a click. A run that stops for your approval before posting should write `awaiting-approval` with what approving does, and `approve` with the prompt that posts, for example `"approve": "/address-qa 19719 publish"`. The card then shows an Approve control, which runs that prompt in the card's worktree when you click it in VS Code; the GitHub page shows it but refuses the click. Without `approve`, approve in the run's session, or click the card's run control to run it again. A run that completed is not started automatically again until the issue's status changes, which is how the next QA round arrives.
+Both rows can name the same prompt, since one report usually mixes failures and questions; separate rows let one start automatically while the other waits for a click. A run that stops for your approval before posting should write `awaiting-approval` with what approving does, and `approve` with the prompt that posts, for example `"approve": "/address-qa 19719 publish"`. The card's run control then becomes an Approve control, which runs that prompt in the card's worktree when you click it in VS Code; the GitHub page shows it but refuses the click. Without `approve`, approve in the run's session. To run a completed run, or one awaiting approval, again, use **Run … again** in the card's menu. A run that completed is not started automatically again until the issue's status changes, which is how the next QA round arrives.
 
 ### Run reports
 
