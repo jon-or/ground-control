@@ -1296,7 +1296,8 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
   color: var(--vscode-charts-green);
 }
 
-.tool[data-outcome='awaiting-approval'] {
+.tool[data-outcome='awaiting-approval'],
+.tool.approve {
   color: var(--vscode-charts-blue);
 }
 

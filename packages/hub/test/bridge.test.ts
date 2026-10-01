@@ -159,6 +159,12 @@ describe('what the browser may ask the hub for', () => {
     });
   });
 
+  /** The hub, not the bridge, refuses a page's approval, so the overlay's notice states why (R39). */
+  it('forwards an approval naming a card, and refuses one that names none', () => {
+    expect(bridgeAction({ type: 'approveAction', key: 'issue:17198', prompt: 'ignored' })).toEqual({ send: { type: 'approveAction', key: 'issue:17198' } });
+    expect(bridgeAction({ type: 'approveAction', key: 42 })).toEqual({ refused: 'That card action cannot be run.' });
+  });
+
   it('refuses a createWorktree that does not name a card, rather than forwarding it', () => {
     expect(bridgeAction({ type: 'createWorktree', key: 42 })).toEqual({ refused: 'That card cannot have a worktree created for it.' });
     expect(bridgeAction({ type: 'createWorktree' })).toEqual({ refused: 'That card cannot have a worktree created for it.' });

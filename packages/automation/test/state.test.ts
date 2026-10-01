@@ -140,6 +140,11 @@ describe('action reports', () => {
     expect(readActionReport({ outcome: 'halted', detail: 'x' })?.outcome).toBe('blocked');
   });
 
+  it('reads the approval prompt a report names, and none where it is blank', () => {
+    expect(readActionReport({ outcome: 'awaiting-approval', detail: 'x', approve: '/address-qa 19719 publish' })?.approve).toBe('/address-qa 19719 publish');
+    expect(readActionReport({ outcome: 'awaiting-approval', detail: 'x', approve: '  ' })).toEqual({ outcome: 'awaiting-approval', detail: 'x' });
+  });
+
   it('rejects unknown outcomes and empty explanations', () => {
     expect(readActionReport({ outcome: 'pushed', detail: 'x' })).toBe(null);
     expect(readActionReport({ outcome: 'landed', detail: 'x' })).toBe(null);
@@ -357,6 +362,16 @@ describe('following a run', () => {
     expect(state.runs['issue:17198']).toMatchObject({ outcome: 'completed', detail: 'Merged.', endedAt: NOW + 60 });
   });
 
+  /** Approving a run that is not waiting, or approving a second time, would repeat the step (R39). */
+  it('keeps the approval prompt only on a run awaiting approval, and drops it once the run ends otherwise', () => {
+    const dispatched = withDispatch(EMPTY_ACTIONS, run(), NOW);
+    const waiting = withOutcome(dispatched, 'issue:17198', 'awaiting-approval', 'Ready to push.', NOW + 5, undefined, '/or-push 17198');
+
+    expect(waiting.runs['issue:17198']?.approve).toBe('/or-push 17198');
+    expect(withOutcome(dispatched, 'issue:17198', 'blocked', 'Conflicts.', NOW + 5, undefined, '/or-push 17198').runs['issue:17198']).not.toHaveProperty('approve');
+    expect(withOutcome(waiting, 'issue:17198', 'stopped', 'Stopped by you.', NOW + 6).runs['issue:17198']).not.toHaveProperty('approve');
+  });
+
   it('leaves a key with no run exactly as it was', () => {
     expect(withOutcome(EMPTY_ACTIONS, 'issue:1', 'completed', 'x', NOW)).toBe(EMPTY_ACTIONS);
     expect(withSession(EMPTY_ACTIONS, 'issue:1', 'sid', NOW)).toBe(EMPTY_ACTIONS);
@@ -481,6 +496,21 @@ describe('what a card says about its action', () => {
       detail: 'Conflicts.',
       at: NOW + 5,
     });
+  });
+
+  it('offers the approval of a run awaiting it that named a prompt, and marks the run that approved one', () => {
+    const dispatched = withDispatch(EMPTY_ACTIONS, run(), NOW);
+    const named = withOutcome(dispatched, 'issue:17198', 'awaiting-approval', 'Ready to push.', NOW + 5, undefined, '/or-push 17198');
+    const unnamed = withOutcome(dispatched, 'issue:17198', 'awaiting-approval', 'Ready to push.', NOW + 5);
+    const approving = withDispatch(named, run({ approval: true, approve: '/or-push 17198', startedAt: NOW + 10 }), NOW + 10);
+
+    expect(cardActionOf(named, 'issue:17198', reads('merge'), null)).toMatchObject({ state: 'done', outcome: 'awaiting-approval', approvable: true });
+    expect(cardActionOf(unnamed, 'issue:17198', reads('merge'), null)).not.toHaveProperty('approvable');
+    expect(cardActionOf(approving, 'issue:17198', reads('merge'), null)).toMatchObject({ state: 'running', approval: true });
+    const approved = withOutcome(approving, 'issue:17198', 'completed', 'Pushed.', NOW + 20);
+
+    expect(cardActionOf(approved, 'issue:17198', reads('merge', true, NOW), null)).toMatchObject({ state: 'done', outcome: 'completed', approval: true });
+    expect(cardActionOf(approved, 'issue:17198', reads('merge', true, NOW), null)).not.toHaveProperty('approvable');
   });
 
   /** A settled reading that names no action the board performs supersedes the run it no longer describes. */

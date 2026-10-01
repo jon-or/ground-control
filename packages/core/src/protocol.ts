@@ -89,6 +89,8 @@ export type ClientMessage =
   | { type: 'runAction'; key: string }
   // Stop the card action session without changing its lane.
   | { type: 'stopAction'; key: string }
+  // Run the prompt a run awaiting approval named. Only an editor click approves; a page's is refused (R39).
+  | { type: 'approveAction'; key: string }
   // Open the hub-resolved checkout. The requesting root comes from client hello.
   | { type: 'openCheckout'; key: string }
   // Run the worktree prompt for the card, then open the worktree it reports (R46).

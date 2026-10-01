@@ -28,7 +28,9 @@ import {
   ACTION_GATE_MS,
   actionEnabled,
   actionPrompt,
+  approvalPrompt,
   alreadyRun,
+  approvable,
   historyWith,
   baseKeyOf,
   basePromptValues,
@@ -149,6 +151,8 @@ interface InFlight {
   controller: AbortController;
   since: number;
   shown: 'action' | 'worktree' | null;
+  /** The approval of the card's run, which shows as that run's row rather than the card's reading. */
+  approving?: Row;
 }
 
 /** A settled run whose background process #release may stop. */
@@ -414,6 +418,109 @@ export class ActionRunner {
     return this.#request(lanes, key, true, from);
   }
 
+  /**
+   * Run the prompt the card's run named when it ended awaiting approval (R39). An editor click is the approval, as
+   * shipping's is; a page's is refused, since a page script can click. Bounded like a manual action.
+   */
+  approveAction(lanes: readonly Lane[], key: string, from: 'editor' | 'browser' = 'editor'): ReadFailure | null {
+    if (from === 'browser') {
+      return refusal('approve-from-editor', 'Approve from the editor board: approving is your decision, which the GitHub page cannot make.');
+    }
+
+    if (this.#disposed) {
+      return refusal('action-stopping', 'The board is shutting down.');
+    }
+
+    if (this.#persistenceFailure !== null) {
+      return refusal('action-stalled', this.#persistenceFailure);
+    }
+
+    const state = this.#deps.store.read();
+    const run = state.runs[key];
+
+    if (this.#runningFor(state, key) || this.#inFlight.has(key)) {
+      return refusal('action-running', 'A card action is already running.');
+    }
+
+    if (!approvable(run) || run.action === CREATE_WORKTREE) {
+      return refusal('nothing-to-approve', 'This card has no run awaiting approval that names how to approve it.');
+    }
+
+    if (this.#busy() >= this.#settings.concurrency) {
+      return refusal('action-busy', 'Concurrent card action limit reached.');
+    }
+
+    const card = lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
+
+    if (card?.worktree === undefined) {
+      return refusal('no-worktree', 'This card has no worktree to approve the run in.');
+    }
+
+    // An idle session is where the developer read what they approve; one still working could race the approval.
+    if (busySessions(card) > 0) {
+      return refusal('session-running', 'A session on this card is still working or waiting.');
+    }
+
+    // A base merge started for another card works in this worktree when this card's branch is that base (R39).
+    const repository = card.issue === null ? null : repositoryKey(card.issue.url);
+    const busy = repository === null || card.worktree.branch === null ? null : this.#mergeBusy(repository, card.worktree.branch);
+
+    if (busy !== null) {
+      return refusal(MERGE_BUSY, `${busy} Approve again when it finishes.`);
+    }
+
+    const agent = this.#agent();
+
+    if ('refusal' in agent) {
+      return refusal(agent.refusal.kind, agent.refusal.message);
+    }
+
+    const row: Row = { action: run.action, qualifier: readingQualifier(run.qualifier) };
+    const controller = new AbortController();
+
+    this.#inFlight.set(key, { controller, since: this.#deps.now(), shown: 'action', approving: row });
+    void this.#approve(key, { ...run, action: run.action, approve: run.approve }, row, card.worktree.root, run.issueNumber ?? card.issueNumber ?? 0, agent, controller.signal);
+    this.#deps.changed();
+
+    return null;
+  }
+
+  async #approve(
+    key: string,
+    run: ActionRun & { action: AutomatableAction; approve: string },
+    row: Row,
+    checkout: string,
+    issueNumber: number,
+    agent: { agent: AgentAdapter; configured: { path: string; model: string | null } },
+    signal: AbortSignal,
+  ): Promise<void> {
+    const request: Request = { asked: true, chained: false, trigger: 'editor' };
+
+    try {
+      await this.#start(key, row, request, agent, signal, {
+        runKey: key,
+        label: `the approval of ${triageLabel(row.action, row.qualifier)}`,
+        prompt: (reportPath) => approvalPrompt(run.approve, reportPath),
+        checkout,
+        issueNumber,
+        record: {
+          action: run.action,
+          qualifier: run.qualifier,
+          evidence: run.evidence,
+          approval: true,
+          // A failed dispatch keeps the prompt, so the developer can approve again (`approvable`).
+          approve: run.approve,
+          ...(run.testerCommentAt === undefined ? {} : { testerCommentAt: run.testerCommentAt }),
+        },
+      });
+    } catch (error: unknown) {
+      this.#refuse(key, request, { kind: 'action-crashed', message: error instanceof Error ? error.message : String(error) }, row);
+    } finally {
+      this.#inFlight.delete(key);
+      this.#deps.changed();
+    }
+  }
+
   #request(lanes: readonly Lane[], key: string, worktreeOnly: boolean, trigger: 'editor' | 'browser'): ReadFailure | null {
     if (this.#disposed) {
       return refusal('action-stopping', 'The board is shutting down.');
@@ -525,9 +632,11 @@ export class ActionRunner {
       cards: lane.cards.map((card): LanedCard => {
         const reading = readingOf(card, this.#settings.table);
         const starting = this.#inFlight.get(card.key);
-        const found: CardAction | undefined = starting?.shown === 'action' && reading.action !== null
-          ? { state: 'running', action: reading.action, qualifier: reading.qualifier, since: starting.since, stage: 'starting' }
-          : cardActionOf(state, card.key, reading, this.#offerRefusal(reading, card, clones));
+        const found: CardAction | undefined = starting?.approving !== undefined
+          ? { state: 'running', ...starting.approving, since: starting.since, stage: 'starting', approval: true }
+          : starting?.shown === 'action' && reading.action !== null
+            ? { state: 'running', action: reading.action, qualifier: reading.qualifier, since: starting.since, stage: 'starting' }
+            : cardActionOf(state, card.key, reading, this.#offerRefusal(reading, card, clones));
         // A run stopped on a question is still running, but nothing moves until the developer answers (R45).
         const decorated: CardAction | undefined = found?.state === 'running' && found.stage === undefined && runWaiting(state, card)
           ? { ...found, stage: 'waiting' }
@@ -938,6 +1047,7 @@ export class ActionRunner {
       report?.detail ?? 'The run ended without a readable result.',
       this.#deps.now(),
       report?.auditPath,
+      report?.approve,
     );
   }
 
@@ -1263,8 +1373,7 @@ export class ActionRunner {
     return this.#start(key, row, request, agent, signal, {
       runKey: key,
       label: triageLabel(plan.action, plan.qualifier),
-      template: promptFor(rowFor(this.#settings.table, plan.action, plan.qualifier)),
-      values: (reportPath) => promptValues(plan, checkout, reportPath),
+      prompt: withValues(promptFor(rowFor(this.#settings.table, plan.action, plan.qualifier)), (reportPath) => promptValues(plan, checkout, reportPath)),
       checkout,
       issueNumber: plan.issueNumber,
       record: {
@@ -1294,8 +1403,7 @@ export class ActionRunner {
     return this.#start(cardKey, row, request, agent, signal, {
       runKey: baseKeyOf(base.repository, base.branch),
       label: triageLabel('merge', BASE_MERGE),
-      template: promptFor(baseRowOf(this.#settings.table)),
-      values: (reportPath) => basePromptValues(base, worktree, reportPath),
+      prompt: withValues(promptFor(baseRowOf(this.#settings.table)), (reportPath) => basePromptValues(base, worktree, reportPath)),
       checkout: worktree,
       issueNumber: base.issueNumber,
       sessionIssue: cardIssue,
@@ -1320,18 +1428,18 @@ export class ActionRunner {
     spec: {
       runKey: string;
       label: string;
-      template: string | null;
-      values(reportPath: string): Parameters<typeof actionPrompt>[1];
+      /** The prompt for the run's result path, or null where its row has none. */
+      prompt: ((reportPath: string) => string) | null;
       checkout: string;
       issueNumber: number;
       /** The issue whose card shows the session, where it is not `issueNumber`. */
       sessionIssue?: number;
-      record: Pick<ActionRun, 'action' | 'qualifier' | 'evidence' | 'merge' | 'for' | 'testerCommentAt'>;
+      record: Pick<ActionRun, 'action' | 'qualifier' | 'evidence' | 'merge' | 'for' | 'testerCommentAt' | 'approval' | 'approve'>;
     },
   ): Promise<void> {
-    const { runKey, label, template, checkout, issueNumber } = spec;
+    const { runKey, label, prompt, checkout, issueNumber } = spec;
 
-    if (template === null) {
+    if (prompt === null) {
       this.#refuse(cardKey, request, {
         kind: 'no-prompt',
         message: `Set a prompt for ${label} in the action table before starting it.`,
@@ -1355,7 +1463,7 @@ export class ActionRunner {
 
     const outcome = await agent.dispatch!({
       path: configured.path,
-      prompt: actionPrompt(template, spec.values(reportPath)),
+      prompt: prompt(reportPath),
       name: dispatchName(spec.record.action, issueNumber, spec.record.qualifier),
       cwd: checkout,
       permissionMode: this.#settings.permissionMode,
@@ -1724,8 +1832,19 @@ function runWaiting(state: ActionState, card: LanedCard): boolean {
  * is refused only by one not idle: the developer reviews in an idle one (R49).
  */
 function activeSessions(card: LanedCard, action: AutomatableAction, except?: string): number {
-  return card.sessions.filter((session) => !session.finished && session.sessionId !== except &&
-    (action !== 'ship' || session.activity?.phase !== 'idle')).length;
+  return action === 'ship'
+    ? busySessions(card, except)
+    : card.sessions.filter((session) => !session.finished && session.sessionId !== except).length;
+}
+
+/** Sessions on the card working, waiting, or with no observed phase; an idle one is where the developer reviewed (R49). */
+function busySessions(card: LanedCard, except?: string): number {
+  return card.sessions.filter((session) => !session.finished && session.sessionId !== except && session.activity?.phase !== 'idle').length;
+}
+
+/** A row's prompt filled with the run's placeholders, or null where the row has none. */
+function withValues(template: string | null, values: (reportPath: string) => Parameters<typeof actionPrompt>[1]): ((reportPath: string) => string) | null {
+  return template === null ? null : (reportPath) => actionPrompt(template, values(reportPath));
 }
 
 /** The card's pull request as a worktree run needs it (R46). */

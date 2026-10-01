@@ -1283,6 +1283,138 @@ describe('what the board refuses to act on', () => {
   });
 });
 
+/** A run awaiting approval names the prompt that performs the step; an editor click runs it (R39). */
+describe('approving a run awaiting approval', () => {
+  const APPROVE = '/or-push 17198';
+
+  /** The run settles awaiting approval and its session ends, so nothing on the card is working. */
+  async function awaiting(over: Record<string, unknown> = {}): Promise<Control> {
+    const control = harness();
+    watch(control);
+    await control.pass();
+    await control.appear();
+    control.report({ outcome: 'awaiting-approval', detail: 'Merged locally; the push waits for you.', approve: APPROVE, ...over });
+    await control.finish();
+    control.dispatch = { shortId: '5c5c5c5c' };
+
+    return control;
+  }
+
+  function approve(control: Control, editor = true): Promise<void> {
+    control.hub.connect({ id: 'page-1', hostId: editor ? 'vscode' : null, workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+      if (message.type === 'notice') control.notices.push(message.message);
+    });
+    control.hub.receive({ id: 'page-1' }, { type: 'approveAction', key: control.key() });
+
+    return control.settle();
+  }
+
+  it('offers the approval, runs the named prompt in the worktree, and reads its outcome as the approval', async () => {
+    const control = await awaiting();
+    const evidence = makeActionStore(stateDir).read().runs[control.key()]?.evidence;
+    const counted = makeActionStore(stateDir).read().dispatches.length;
+
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'awaiting-approval', approvable: true });
+
+    await approve(control);
+
+    expect(control.dispatched).toHaveLength(2);
+    // A click is not an automatic attempt, so the daily limit does not count it (R39).
+    expect(makeActionStore(stateDir).read().dispatches).toHaveLength(counted);
+    expect(control.dispatched[1]).toMatchObject({ cwd: CHECKOUT, name: 'ground-control · merge upstream · #17198' });
+    expect(control.dispatched[1]?.prompt).toMatch(/^\/or-push 17198\n\nThis run is unattended\./);
+    expect(control.cardAction()).toMatchObject({ state: 'running', action: 'merge', qualifier: 'upstream', approval: true });
+
+    control.agent.sessions = [sessionOn({ sessionId: '5c5c5c5c-0000-4000-8000-000000000000' })];
+    await control.pass();
+    control.report({ outcome: 'completed', detail: 'Pushed 3 commits.' });
+    await control.finish();
+
+    expect(control.cardAction()).toEqual(expect.objectContaining({ state: 'done', outcome: 'completed', detail: 'Pushed 3 commits.', approval: true }));
+    expect(control.cardAction()).not.toHaveProperty('approvable');
+    expect(makeActionStore(stateDir).read().runs[control.key()]).toMatchObject({ approval: true, evidence });
+  });
+
+  /** A page script can click the overlay's control, so only the editor's click approves, as only it ships (R49). */
+  it('dispatches once for two clicks that arrive together', async () => {
+    const control = await awaiting();
+
+    control.hub.connect({ id: 'page-1', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => {
+      if (message.type === 'notice') control.notices.push(message.message);
+    });
+    control.hub.receive({ id: 'page-1' }, { type: 'approveAction', key: control.key() });
+    control.hub.receive({ id: 'page-1' }, { type: 'approveAction', key: control.key() });
+    await control.settle();
+
+    expect(control.dispatched).toHaveLength(2);
+    expect(control.notices.at(-1)).toBe('A card action is already running.');
+  });
+
+  /** The failed record keeps the prompt, or the developer would have to run the whole action again to approve. */
+  it('offers the approval again after its dispatch failed, and approves on the next click', async () => {
+    const control = await awaiting();
+
+    control.dispatch = { failure: { subject: 'claude', kind: 'dispatch-failed', message: 'claude exited.', remedy: 'r' } };
+    await approve(control);
+
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'failed', approval: true, approvable: true });
+
+    control.dispatch = { shortId: '5c5c5c5c' };
+    await approve(control);
+
+    expect(control.dispatched).toHaveLength(3);
+    expect(control.cardAction()).toMatchObject({ state: 'running', approval: true });
+  });
+
+  it('refuses an approval from the GitHub page', async () => {
+    const control = await awaiting();
+
+    await approve(control, false);
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.notices.at(-1)).toBe('Approve from the editor board: approving is your decision, which the GitHub page cannot make.');
+  });
+
+  it('offers and runs nothing where the result named no prompt', async () => {
+    const control = await awaiting({ approve: undefined });
+
+    expect(control.cardAction()).toMatchObject({ state: 'done', outcome: 'awaiting-approval' });
+    expect(control.cardAction()).not.toHaveProperty('approvable');
+
+    await approve(control);
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.notices.at(-1)).toBe('This card has no run awaiting approval that names how to approve it.');
+  });
+
+  /** An idle session is where the developer read what they approve; one working could race the step. */
+  it('refuses while a session on the card is working, and not while one is idle', async () => {
+    const control = await awaiting();
+    const ID = '7e7e7e7e-0000-4000-8000-000000000000';
+
+    control.agent.sessions = [sessionOn({ agent: 'claude', sessionId: ID, attachId: '7e7e7e7e' })];
+    control.agent.phases.set(ID, { phase: 'running', since: 1, at: 1, event: 'UserPromptSubmit' });
+    await control.pass();
+    await approve(control);
+
+    expect(control.dispatched).toHaveLength(1);
+    expect(control.notices.at(-1)).toBe('A session on this card is still working or waiting.');
+
+    // A session waiting on a question has not finished what the developer would approve.
+    control.agent.phases.set(ID, { phase: 'waiting', since: 2, at: 2, event: 'Notification' });
+    await control.pass();
+    await approve(control);
+
+    expect(control.dispatched).toHaveLength(1);
+
+    control.agent.phases.set(ID, { phase: 'idle', since: 2, at: 2, event: 'Stop' });
+    await control.pass();
+    await approve(control);
+
+    expect(control.dispatched).toHaveLength(2);
+  });
+});
+
 describe('following a run to its end', () => {
   it('shows running state until the session ends', async () => {
     const control = harness();

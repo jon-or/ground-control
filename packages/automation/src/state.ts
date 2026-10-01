@@ -88,6 +88,8 @@ const actionRun = z.preprocess(legacyRun, z.object({
   detail: z.string().default(''),
   auditPath: z.string().min(1).optional().catch(undefined),
   testerCommentAt: z.number().optional().catch(undefined),
+  approve: z.string().min(1).optional().catch(undefined),
+  approval: z.literal(true).optional().catch(undefined),
 }));
 
 // Drop refusals from older rules, including for actions no longer enabled.
@@ -170,6 +172,8 @@ const actionReport = z.object({
   detail: z.string().min(1),
   auditPath: z.string().optional(),
   worktree: z.string().min(1).optional(),
+  // A prompt that is only whitespace would run nothing; it offers no approval rather than voiding the report.
+  approve: z.string().trim().min(1).optional().catch(undefined),
 });
 
 /** Parse the session result file, or return null for invalid data. */
@@ -216,6 +220,15 @@ export function alreadyRun(
   }
 
   return run.evidence === evidence;
+}
+
+/**
+ * Whether the run can be approved (R39): it awaits approval with a prompt, or it is an approval whose dispatch failed,
+ * which keeps the prompt so the developer can approve again.
+ */
+export function approvable(run: ActionRun | undefined): run is ActionRun & { approve: string } {
+  return run?.approve !== undefined && run.action !== CREATE_WORKTREE &&
+    (run.outcome === 'awaiting-approval' || (run.outcome === 'failed' && run.approval === true));
 }
 
 /** Whether a card has a running action, preventing another dispatch. */
@@ -279,7 +292,8 @@ export function withDispatch(state: ActionState, run: ActionRun, now: number, co
 
 /**
  * Record an outcome if the run exists, with the report its result named (R51). Only an absolute path counts: a run's
- * directory is not kept, so a relative one has nothing to resolve against.
+ * directory is not kept, so a relative one has nothing to resolve against. Only a run awaiting approval keeps the
+ * prompt approving it runs (R39).
  */
 export function withOutcome(
   state: ActionState,
@@ -288,6 +302,7 @@ export function withOutcome(
   detail: string,
   now: number,
   auditPath?: string,
+  approve?: string,
 ): ActionState {
   const run = state.runs[key];
 
@@ -295,10 +310,11 @@ export function withOutcome(
     return state;
   }
 
-  const { auditPath: _earlier, ...rest } = run;
+  const { auditPath: _earlier, approve: _offered, ...rest } = run;
   const report = auditPath !== undefined && isAbsolute(auditPath) ? { auditPath } : {};
+  const offer = outcome === 'awaiting-approval' && approve !== undefined ? { approve } : {};
 
-  return { ...state, runs: { ...state.runs, [key]: { ...rest, outcome, detail, endedAt: now, ...report } } };
+  return { ...state, runs: { ...state.runs, [key]: { ...rest, outcome, detail, endedAt: now, ...report, ...offer } } };
 }
 
 /** Record the session ID resolved from the dispatch ID (M33), and link the session to the run's issue (R3). */
@@ -436,7 +452,7 @@ export function cardActionOf(
         ? { stage: 'worktree' as const }
         : run?.verifyingSince !== undefined ? { stage: 'verifying' as const } : {};
 
-    return { state: 'running', action: shown.action, qualifier: shown.qualifier, since: shown.startedAt, ...stage };
+    return { state: 'running', action: shown.action, qualifier: shown.qualifier, since: shown.startedAt, ...stage, ...(shown.approval ? { approval: true } : {}) };
   }
 
   if (shown !== undefined && shown.action !== CREATE_WORKTREE && shown.qualifier !== BASE_MERGE) {
@@ -448,8 +464,11 @@ export function cardActionOf(
 
     if (!superseded) {
       const report = shown.auditPath === undefined ? {} : { reportId: runIdOf(run?.key ?? key, shown.startedAt) };
+      // Only the card's own run can be approved: a base merge belongs to another card's worktree.
+      const offer = run === own && approvable(own) ? { approvable: true as const } : {};
+      const approval = shown.approval ? { approval: true as const } : {};
 
-      return { state: 'done', action: shown.action, qualifier: shown.qualifier, outcome: shown.outcome, detail: shown.detail, at: ended, ...report };
+      return { state: 'done', action: shown.action, qualifier: shown.qualifier, outcome: shown.outcome, detail: shown.detail, at: ended, ...report, ...offer, ...approval };
     }
   }
 

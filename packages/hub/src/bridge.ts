@@ -113,8 +113,8 @@ export function bridgeAction(raw: unknown): BridgeAction {
   }
 
   // Forward only the card key. Actions.runAction and stopAction apply every R39 safety check and limit, and
-  // the hub additionally requires the browser opt-in before starting one.
-  if (message.type === 'runAction' || message.type === 'stopAction') {
+  // the hub additionally requires the browser opt-in before starting one. The hub refuses a page's approval.
+  if (message.type === 'runAction' || message.type === 'stopAction' || message.type === 'approveAction') {
     return typeof message.key === 'string'
       ? { send: { type: message.type, key: message.key } }
       : { refused: 'That card action cannot be run.' };

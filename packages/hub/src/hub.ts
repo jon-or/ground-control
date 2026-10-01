@@ -576,6 +576,23 @@ export class Hub {
         return;
       }
 
+      case 'approveAction': {
+        // The runner refuses a page's approval itself; an out-of-scope card is refused before it is looked up.
+        if (connected.hello.hostId !== null && !this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === message.key))) {
+          this.#scopeRefusal(connected);
+
+          return;
+        }
+
+        const refused = this.#actions.approveAction(this.#lanes(false), message.key, connected.hello.hostId === null ? 'browser' : 'editor');
+
+        if (refused) {
+          connected.send({ type: 'notice', level: 'info', message: refused.message });
+        }
+
+        return;
+      }
+
       case 'stopAction':
         // Stopping needs no opt-in: refusing one could strand a run, and the editor's stop stays
         // unconditional. A page's stop is still bounded, because a hidden tab and an out-of-scope key are
@@ -2322,7 +2339,7 @@ export class Hub {
       shown.find((lane) => lane.id === 'build')?.cards.push({
         key, issue: null, issueNumber: null, sessions: [], lane: 'build', returned: false,
         attention: null, reason: 'Ground Control action is running.',
-        ...(action === undefined ? {} : { action: { state: 'running', action, qualifier, since: run.startedAt, ...stage } }),
+        ...(action === undefined ? {} : { action: { state: 'running', action, qualifier, since: run.startedAt, ...stage, ...(run.approval ? { approval: true as const } : {}) } }),
         ...(run.action === CREATE_WORKTREE ? { creation: { state: 'running', since: run.startedAt } } : {}),
       });
     }

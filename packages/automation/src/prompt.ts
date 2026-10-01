@@ -101,7 +101,8 @@ const ACTION_SHAPE =
   '{"outcome":"awaiting-approval","detail":"<what is ready and what approving it does>"} when the work is complete except ' +
   'for a step the developer must approve, such as posting or publishing; otherwise ' +
   '{"outcome":"blocked","detail":"<the question or problem that stopped it>"}. ' +
-  'Add "auditPath":"<absolute path>" when the run wrote a Markdown report.';
+  'Add "auditPath":"<absolute path>" when the run wrote a Markdown report, and, to awaiting-approval, ' +
+  '"approve":"<the prompt that performs the step>" when a prompt can perform it.';
 
 const WORKTREE_SHAPE =
   '{"outcome":"completed","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +
@@ -112,6 +113,16 @@ export function actionPrompt(template: string, values: PromptValues): string {
   const filled = fillTemplate(template, values);
 
   return template.includes('{resultPath}') ? filled : filled + reportContract(values.resultPath, ACTION_SHAPE);
+}
+
+/**
+ * The prompt a run awaiting approval named, which approving runs (R39). It is the session's own text, so only
+ * `{resultPath}` is filled; without it, the result contract is appended.
+ */
+export function approvalPrompt(prompt: string, resultPath: string): string {
+  return prompt.includes('{resultPath}')
+    ? prompt.replaceAll('{resultPath}', resultPath)
+    : prompt + reportContract(resultPath, ACTION_SHAPE);
 }
 
 /** Fill a worktree prompt, appending the result contract unless the prompt places `{resultPath}` itself. */

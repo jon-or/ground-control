@@ -3041,6 +3041,35 @@ describe('card actions (R39)', () => {
     expect(sent()).toContainEqual({ type: 'runAction', key: 'issue:18953' });
   });
 
+  /** The run's result named the prompt that performs the step it left; the click is the approval (R39). */
+  it('offers an approval only where the run named one, and sends it', () => {
+    const waiting = { state: 'done', action: 'qa-failure', qualifier: null, outcome: 'awaiting-approval', detail: 'Reply drafted; publish waits for you.', at } as const;
+    const approve = () => document.querySelector<HTMLButtonElement>('.tool.approve');
+
+    send(message({ lanes: lanes({ unstarted: [acting(waiting)] }) }));
+
+    expect(approve()).toBeNull();
+
+    send(message({ lanes: lanes({ unstarted: [acting({ ...waiting, approvable: true })] }) }));
+
+    expect(approve()?.getAttribute('aria-label')).toBe('Approve qa failure');
+    expect(tipOf(approve())).toBe('Reply drafted; publish waits for you. Click to approve: this runs the step the run prepared.');
+
+    approve()!.click();
+
+    expect(sent()).toContainEqual({ type: 'approveAction', key: 'issue:18953' });
+  });
+
+  it('names an approval while it runs and once it completes', () => {
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'running', action: 'qa-failure', qualifier: null, since: at, approval: true })] }) }));
+
+    expect(said()).toBe('Approving…');
+
+    send(message({ lanes: lanes({ unstarted: [acting({ state: 'done', action: 'qa-failure', qualifier: null, outcome: 'completed', detail: 'Posted the reply.', at, approval: true })] }) }));
+
+    expect(said()).toBe('Approved');
+  });
+
   /** The remedy for a refusal is a setting or the card itself, so pressing again would only refuse again. */
   it('shows action refusals without a control', () => {
     send(
@@ -3310,6 +3339,7 @@ describe('the action history', () => {
     run({ id: 'f', action: 'address-review', key: 'session:17000-parent', issueNumber: null, title: null, qualifier: 'followup', outcome: 'stopped' }),
     run({ id: 'g', action: 'review-others', qualifier: 'initial', startedAt: now - 3 * 60 * 60_000, endedAt: now - 2 * 60 * 60_000 }),
     run({ id: 'h', action: 'qa-failure', startedAt: now - 4 * 60 * 60_000, endedAt: now - 4 * 60 * 60_000 + 60_000, outcome: 'awaiting-approval' }),
+    run({ id: 'i', action: 'qa-failure', startedAt: now - 5 * 60 * 60_000, endedAt: now - 5 * 60 * 60_000 + 60_000, approval: true }),
   ];
 
   function openHistory(): void {
@@ -3369,8 +3399,9 @@ describe('the action history', () => {
       ['5m ago', 'session:17000-parent', 'Answer review · followup', 'Automatic', 'Stopped', '3m'],
       ['3h ago', '#18953 Cached counts do not update', 'Review their PR · initial', 'Automatic', 'Reviewed', '1h'],
       ['4h ago', '#18953 Cached counts do not update', 'QA failure', 'Automatic', 'Awaiting approval', '1m'],
+      ['5h ago', '#18953 Cached counts do not update', 'QA failure', 'Automatic', 'Approved', '1m'],
     ]);
-    expect(rows().map((row) => row.querySelector('.state-glyph')?.getAttribute('data-glyph'))).toEqual(['spinner', 'check', 'check', 'cross', 'alert', 'square', 'check', 'clock']);
+    expect(rows().map((row) => row.querySelector('.state-glyph')?.getAttribute('data-glyph'))).toEqual(['spinner', 'check', 'check', 'cross', 'alert', 'square', 'check', 'clock', 'check']);
     expect(Array.from(panel()!.querySelectorAll('.history-detail')).map((row) => row.textContent)).toEqual(['Merged master into the branch.', 'No worktree prompt.']);
     expect(rows()[1]!.nextElementSibling?.classList.contains('history-detail')).toBe(true);
 

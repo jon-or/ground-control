@@ -45,6 +45,7 @@ type Inbound =
   | { type: 'retriage'; key: string }
   | { type: 'runAction'; key: string }
   | { type: 'stopAction'; key: string }
+  | { type: 'approveAction'; key: string }
   | { type: 'openSession'; sessionId: string }
   | { type: 'attachSession'; sessionId: string }
   | { type: 'openChanges'; key: string }
@@ -325,6 +326,11 @@ export class BoardPanel {
 
       case 'stopAction':
         this.#tell({ type: 'stopAction', key: msg.key });
+
+        return;
+
+      case 'approveAction':
+        this.#tell({ type: 'approveAction', key: msg.key });
 
         return;
 

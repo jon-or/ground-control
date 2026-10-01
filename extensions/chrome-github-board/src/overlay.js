@@ -16,7 +16,7 @@
  * @typedef {import('@ground-control/core').ReportMessage} ReportMessage
  * @typedef {{ id: string, request: number, answer: ReportMessage | null }} ReportState
  * @typedef {{ snapshot: Snapshot | null, trouble: string | null, notice: string | null, custody?: CustodyState | null, history?: ActionHistoryView[] | null, report?: ReportState | null }} State
- * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, createWorktree: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void, readCustody?: (key: string) => void, readActionHistory?: () => void, readReport?: (id: string, request: number) => void }} Actions
+ * @typedef {{ refresh: () => void, move: (key: string, lane: LaneId) => void, repaint: () => void, watchLog: (open: boolean) => void, openCheckout: (key: string) => void, createWorktree: (key: string) => void, retriage: (key: string) => void, runAction: (key: string) => void, stopAction: (key: string) => void, approveAction?: (key: string) => void, startSession: (key: string, agent: string) => void, showCardRows: (shown: boolean) => void, openOptions?: () => void, readCustody?: (key: string) => void, readActionHistory?: () => void, readReport?: (id: string, request: number) => void }} Actions
  * @typedef {{ at: string, level: string, source: string, scope?: string, message: string }} LogEntry
  * @typedef {{ key: string, message: string, remedy: string | null, tone: 'danger' | 'default' }} Problem
  */
@@ -359,7 +359,7 @@ ${COLUMN} { margin-right: -1px !important;
   color: var(--fgColor-default, #1f2328); }
 .${BADGE_CLASS} button.gc-tool[aria-disabled="true"] { cursor: default; opacity: 0.5; }
 .${BADGE_CLASS} button.gc-tool[data-outcome="completed"] { color: var(--fgColor-success, #1a7f37); }
-.${BADGE_CLASS} button.gc-tool[data-outcome="awaiting-approval"] { color: var(--fgColor-accent, #0969da); }
+.${BADGE_CLASS} button.gc-tool[data-outcome="awaiting-approval"], .${BADGE_CLASS} button.gc-approve { color: var(--fgColor-accent, #0969da); }
 .${BADGE_CLASS} button.gc-tool[data-outcome="blocked"] { color: var(--fgColor-attention, #9a6700); }
 .${BADGE_CLASS} button.gc-tool[data-state="running"] { color: var(--fgColor-default, #1f2328);
   animation: gc-mark-pulse 1.8s ease-in-out infinite; }
@@ -2999,6 +2999,10 @@ function actionState(action, creation) {
       return { text: 'Waiting for you', outcome: 'waiting', glyph: 'question', detail: 'The run is waiting for your answer. Attach to its session to answer.' };
     }
 
+    if (action.approval) {
+      return { text: 'Approving…', outcome: 'running', glyph: 'spinner' };
+    }
+
     return action.stage === 'verifying'
       ? { text: 'Checking push…', outcome: 'running', glyph: 'spinner' }
       : { text: ACTION_RUNNING[/** @type {keyof typeof ACTION_RUNNING} */ (action.action)] ?? 'Working…', outcome: 'running', glyph: 'spinner' };
@@ -3017,7 +3021,9 @@ function actionState(action, creation) {
   }
 
   const outcome = Object.hasOwn(OUTCOME_GLYPHS, action.outcome) ? action.outcome : 'failed';
-  const completed = outcome === 'completed' ? ACTION_COMPLETED[/** @type {keyof typeof ACTION_COMPLETED} */ (action.action)] : undefined;
+  const completed = outcome !== 'completed'
+    ? undefined
+    : action.approval ? 'Approved' : ACTION_COMPLETED[/** @type {keyof typeof ACTION_COMPLETED} */ (action.action)];
 
   return {
     text: completed ?? ACTION_OUTCOMES[/** @type {keyof typeof ACTION_OUTCOMES} */ (outcome)],
@@ -3084,6 +3090,12 @@ function tail(doc, card, now, actions, canRequest) {
 
   if (report && actions.readReport) {
     tools.appendChild(toolButton(doc, 'Open report', 'Open the report this run wrote.', reportMark(doc), () => openReport(doc, report, actions, null)));
+  }
+
+  const approve = approveButton(doc, card, actions);
+
+  if (approve) {
+    tools.appendChild(approve);
   }
 
   const run = runButton(doc, card, actions);
@@ -3249,6 +3261,37 @@ function renderCustody(doc, state, card, anchor, actions) {
   }
 
   return panel;
+}
+
+/**
+ * Runs the step a run awaiting approval prepared, with the prompt its result named (R39). The hub refuses a page's
+ * click, since a page script can click; the control shows so both boards offer the same thing.
+ *
+ * @param {Document} doc
+ * @param {LanedCard} card
+ * @param {Actions} actions
+ * @returns {HTMLButtonElement | null}
+ */
+function approveButton(doc, card, actions) {
+  const action = card.action;
+
+  if (action?.state !== 'done' || !action.approvable || !actions.approveAction) {
+    return null;
+  }
+
+  const approveAction = actions.approveAction;
+  const label = `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+  const button = toolButton(
+    doc,
+    `Approve ${label.toLowerCase()}`,
+    `${action.detail} Approve from the editor board: this runs the step the run prepared.`,
+    thumbsupMark(doc),
+    () => approveAction(card.key),
+  );
+
+  button.classList.add('gc-approve');
+
+  return button;
 }
 
 /**
@@ -3526,6 +3569,23 @@ function vscodeMark(doc) {
   svg.setAttribute('class', 'gc-vscode-mark');
   path.setAttribute('class', 'gc-vscode');
   path.setAttribute('d', VSCODE_MARK);
+  svg.appendChild(path);
+
+  return svg;
+}
+
+/**
+ * The octicon thumbsup mark, from @primer/octicons 19.15.1.
+ *
+ * @param {Document} doc
+ * @returns {SVGElement}
+ */
+function thumbsupMark(doc) {
+  const svg = markSvg(doc, '0 0 16 16');
+  const path = doc.createElementNS(SVG_NS, 'path');
+
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute('d', 'M8.347.631A.75.75 0 0 1 9.123.26l.238.04a3.25 3.25 0 0 1 2.591 4.098L11.494 6h.665a3.25 3.25 0 0 1 3.118 4.167l-1.135 3.859A2.751 2.751 0 0 1 11.503 16H6.586a3.75 3.75 0 0 1-2.184-.702A1.75 1.75 0 0 1 3 16H1.75A1.75 1.75 0 0 1 0 14.25v-6.5C0 6.784.784 6 1.75 6h3.417a.25.25 0 0 0 .217-.127ZM4.75 13.649l.396.33c.404.337.914.521 1.44.521h4.917a1.25 1.25 0 0 0 1.2-.897l1.135-3.859A1.75 1.75 0 0 0 12.159 7.5H10.5a.75.75 0 0 1-.721-.956l.731-2.558a1.75 1.75 0 0 0-1.127-2.14L6.69 6.611a1.75 1.75 0 0 1-1.523.889H4.75ZM3.25 7.5h-1.5a.25.25 0 0 0-.25.25v6.5c0 .138.112.25.25.25H3a.25.25 0 0 0 .25-.25Z');
   svg.appendChild(path);
 
   return svg;
@@ -3918,7 +3978,7 @@ function historyOutcome(entry) {
   }
 
   if (entry.outcome === 'completed') {
-    return { text: entry.action === 'create-worktree' ? 'Created' : completed[entry.action] ?? ACTION_OUTCOMES.completed, glyph: 'check' };
+    return { text: entry.action === 'create-worktree' ? 'Created' : entry.approval ? 'Approved' : completed[entry.action] ?? ACTION_OUTCOMES.completed, glyph: 'check' };
   }
 
   return { text: outcomes[entry.outcome] ?? entry.outcome, glyph: glyphs[entry.outcome] ?? 'check' };

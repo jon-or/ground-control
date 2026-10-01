@@ -100,7 +100,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   };
 }
 
-const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), createWorktree: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn(), startSession: vi.fn(), showCardRows: vi.fn() };
+const actions = { refresh: vi.fn(), move: vi.fn(), repaint: vi.fn(), watchLog: vi.fn(), openCheckout: vi.fn(), createWorktree: vi.fn(), retriage: vi.fn(), runAction: vi.fn(), stopAction: vi.fn(), approveAction: vi.fn(), startSession: vi.fn(), showCardRows: vi.fn() };
 
 interface CustodyState {
   key: string;
@@ -3205,6 +3205,35 @@ describe('card actions (R39)', () => {
     expect(actions.runAction).toHaveBeenCalledWith('issue-4501');
   });
 
+  /** The board offers the same approval; the hub refuses the page's click, which a page script can make (R39). */
+  it('offers an approval only where the run named one, and passes it to the hub', () => {
+    const waiting = { state: 'done', action: 'qa-failure', qualifier: null, outcome: 'awaiting-approval', detail: 'Reply drafted; publish waits for you.', at } as const;
+    const approve = () => document.querySelector<HTMLButtonElement>('button.gc-approve');
+
+    show(acting(waiting));
+
+    expect(approve()).toBeNull();
+
+    show(acting({ ...waiting, approvable: true }));
+
+    expect(approve()?.getAttribute('aria-label')).toBe('Approve qa failure');
+    expect(tipOf(approve())).toBe('Reply drafted; publish waits for you. Approve from the editor board: this runs the step the run prepared.');
+
+    approve()!.click();
+
+    expect(actions.approveAction).toHaveBeenCalledWith('issue-4501');
+  });
+
+  it('names an approval while it runs and once it completes', () => {
+    show(acting({ state: 'running', action: 'qa-failure', qualifier: null, since: at, approval: true }));
+
+    expect(said()).toBe('Approving…');
+
+    show(acting({ state: 'done', action: 'qa-failure', qualifier: null, outcome: 'completed', detail: 'Posted the reply.', at, approval: true }));
+
+    expect(said()).toBe('Approved');
+  });
+
   /** Verify the same literal outcome words against board.js, which cannot share a runtime import. */
   it.each([
     ['completed', 'Merged', 'Merged master.'],
@@ -4563,6 +4592,7 @@ describe('the action history', () => {
     run({ id: 'f', action: 'address-review', key: 'session:17000-parent', issueNumber: null, title: null, qualifier: 'followup', outcome: 'stopped' }),
     run({ id: 'g', action: 'review-others', qualifier: 'initial', startedAt: NOW - 3 * 60 * 60_000, endedAt: NOW - 2 * 60 * 60_000 }),
     run({ id: 'h', action: 'qa-failure', startedAt: NOW - 4 * 60 * 60_000, endedAt: NOW - 4 * 60 * 60_000 + 60_000, outcome: 'awaiting-approval' }),
+    run({ id: 'i', action: 'qa-failure', startedAt: NOW - 5 * 60 * 60_000, endedAt: NOW - 5 * 60 * 60_000 + 60_000, approval: true }),
   ];
 
   /** Open the menu and choose the item, repainting after each click as the content script would. */
@@ -4621,8 +4651,9 @@ describe('the action history', () => {
       ['5m ago', 'session:17000-parent', 'Answer review · followup', 'Automatic', 'Stopped', '3m'],
       ['3h ago', '#4501 Issue 4501', 'Review their PR · initial', 'Automatic', 'Reviewed', '1h'],
       ['4h ago', '#4501 Issue 4501', 'QA failure', 'Automatic', 'Awaiting approval', '1m'],
+      ['5h ago', '#4501 Issue 4501', 'QA failure', 'Automatic', 'Approved', '1m'],
     ]);
-    expect(rows().map((row) => row.querySelector('.gc-state-glyph')?.getAttribute('data-glyph'))).toEqual(['spinner', 'check', 'check', 'cross', 'alert', 'square', 'check', 'clock']);
+    expect(rows().map((row) => row.querySelector('.gc-state-glyph')?.getAttribute('data-glyph'))).toEqual(['spinner', 'check', 'check', 'cross', 'alert', 'square', 'check', 'clock', 'check']);
     expect([...panel()!.querySelectorAll('.gc-history-detail')].map((row) => row.textContent)).toEqual(['Merged master into the branch.', 'No worktree prompt.']);
     expect(rows()[1]!.nextElementSibling?.classList.contains('gc-history-detail')).toBe(true);
 

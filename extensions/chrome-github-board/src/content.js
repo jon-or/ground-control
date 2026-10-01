@@ -106,6 +106,7 @@
     retriage: (key) => post({ type: 'retriage', key }),
     runAction: (key) => post({ type: 'runAction', key }),
     stopAction: (key) => post({ type: 'stopAction', key }),
+    approveAction: (key) => post({ type: 'approveAction', key }),
     startSession: (key, agent) => post({ type: 'startSession', key, agent }),
     readCustody: (key) => {
       state = helpers.applyMessage(state, { type: 'custodyPending', key });

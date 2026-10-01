@@ -95,6 +95,8 @@ export interface ActionHistoryEntry {
   detail: string;
   /** The absolute Markdown report the run's result named (R51). Never sent to a client. */
   auditPath?: string | undefined;
+  /** The run approved the card's previous run (R39). */
+  approval?: true | undefined;
 }
 
 /**
@@ -189,6 +191,10 @@ export interface ActionRun {
   auditPath?: string | undefined;
   /** A QA run's newest tester comment time, by GitHub's clock, when it was dispatched (R39); absent where it had none. */
   testerCommentAt?: number | undefined;
+  /** On a run awaiting approval: the prompt its result named, which approving runs (R39). */
+  approve?: string | undefined;
+  /** This run is the approval of the card's previous run, running the prompt that run named (R39). */
+  approval?: true | undefined;
 }
 
 /**
@@ -231,6 +237,8 @@ export interface ActionRefusalRecord {
 export interface ActionReport {
   outcome: 'completed' | 'awaiting-approval' | 'blocked';
   detail: string;
+  /** With `awaiting-approval`: the prompt that performs the step awaiting approval, run when the developer approves. */
+  approve?: string | undefined;
   /** Optional report path for display. */
   auditPath?: string | undefined;
   worktree?: string | undefined;
@@ -278,9 +286,12 @@ export type CardAction = { action: AutomatableAction; qualifier: TriageQualifier
    * merged into the pull request's base first, which `detail` names; `verifying` while GitHub is checked for a
    * merge's push (R39); and `waiting` while the run's session waits for the developer, such as on a question (R45).
    */
-  | { state: 'running'; since: number; stage?: 'starting' | 'worktree' | 'base' | 'verifying' | 'waiting'; detail?: string }
-  /** `reportId` reads the run's report (R51); absent where it has none or session scope hides it. */
-  | { state: 'done'; outcome: ActionOutcome; detail: string; at: number; reportId?: string }
+  | { state: 'running'; since: number; stage?: 'starting' | 'worktree' | 'base' | 'verifying' | 'waiting'; detail?: string; approval?: true }
+  /**
+   * `reportId` reads the run's report (R51); absent where it has none or session scope hides it. `approvable` marks a
+   * run awaiting approval whose result named the prompt approving runs; `approval` marks the run that approved one.
+   */
+  | { state: 'done'; outcome: ActionOutcome; detail: string; at: number; reportId?: string; approvable?: true; approval?: true }
 );
 
 /** The id a run's history entry and its report go by: the run's state key and start time (R50, R51). */

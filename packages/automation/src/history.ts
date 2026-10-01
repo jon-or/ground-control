@@ -23,6 +23,7 @@ const entry = z.object({
   outcome: runOutcome,
   detail: z.string(),
   auditPath: z.string().min(1).optional().catch(undefined),
+  approval: z.literal(true).optional().catch(undefined),
 });
 
 /** Parse stored history, dropping entries it cannot read one by one. */
@@ -62,6 +63,7 @@ export function historyWith(history: readonly ActionHistoryEntry[], state: Actio
       outcome: run.outcome,
       detail: run.detail,
       ...(run.auditPath === undefined ? {} : { auditPath: run.auditPath }),
+      ...(run.approval ? { approval: true as const } : {}),
     };
 
     byId.set(id, next);

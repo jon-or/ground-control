@@ -37,6 +37,13 @@ describe('the action history (R50)', () => {
     expect(readActionHistory({ entries: [{ ...reported[0], auditPath: '' }] })[0]?.auditPath).toBeUndefined();
   });
 
+  it('marks the run that approved another, through a write and a read', () => {
+    const [entry] = historyWith([], state({ 'issue:17198': run({ outcome: 'completed', endedAt: NOW, approval: true }) }), NOW);
+
+    expect(entry?.approval).toBe(true);
+    expect(readActionHistory({ entries: [entry] })[0]?.approval).toBe(true);
+  });
+
   it('reads entries written with the earlier outcome words as the current ones', () => {
     const [entry] = historyWith([], state({ 'issue:17198': run({ outcome: 'completed', endedAt: NOW }) }), NOW);
 

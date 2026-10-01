@@ -1133,6 +1133,10 @@ function actionState(action, creation) {
       return { text: 'Waiting for you', outcome: 'waiting', glyph: 'question', detail: 'The run is waiting for your answer. Attach to its session to answer.' };
     }
 
+    if (action.approval) {
+      return { text: 'Approving…', outcome: 'running', glyph: 'spinner' };
+    }
+
     return action.stage === 'verifying'
       ? { text: 'Checking push…', outcome: 'running', glyph: 'spinner' }
       : { text: ACTION_RUNNING[action.action] ?? 'Working…', outcome: 'running', glyph: 'spinner' };
@@ -1150,7 +1154,7 @@ function actionState(action, creation) {
     return { text: 'Not run', outcome: 'refused', glyph: 'slash', detail: action.reason };
   }
 
-  const completed = action.outcome === 'completed' ? ACTION_COMPLETED[action.action] : undefined;
+  const completed = action.outcome === 'completed' ? (action.approval ? 'Approved' : ACTION_COMPLETED[action.action]) : undefined;
   const outcome = Object.hasOwn(OUTCOME_GLYPHS, action.outcome) ? action.outcome : 'failed';
 
   return { text: completed ?? ACTION_OUTCOMES[outcome], outcome, glyph: OUTCOME_GLYPHS[outcome], detail: action.detail };
@@ -1210,6 +1214,12 @@ function tail(boardCard, canRequest) {
 
   if (report) {
     tools.appendChild(report);
+  }
+
+  const approve = approveButton(boardCard);
+
+  if (approve) {
+    tools.appendChild(approve);
   }
 
   const run = runButton(boardCard);
@@ -2724,6 +2734,9 @@ const OCTICONS = {
   'arrow-left': [
     'M7.78 12.53a.75.75 0 0 1-1.06 0L2.47 8.28a.75.75 0 0 1 0-1.06l4.25-4.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L4.81 7h7.44a.75.75 0 0 1 0 1.5H4.81l2.97 2.97a.75.75 0 0 1 0 1.06Z',
   ],
+  thumbsup: [
+    'M8.347.631A.75.75 0 0 1 9.123.26l.238.04a3.25 3.25 0 0 1 2.591 4.098L11.494 6h.665a3.25 3.25 0 0 1 3.118 4.167l-1.135 3.859A2.751 2.751 0 0 1 11.503 16H6.586a3.75 3.75 0 0 1-2.184-.702A1.75 1.75 0 0 1 3 16H1.75A1.75 1.75 0 0 1 0 14.25v-6.5C0 6.784.784 6 1.75 6h3.417a.25.25 0 0 0 .217-.127ZM4.75 13.649l.396.33c.404.337.914.521 1.44.521h4.917a1.25 1.25 0 0 0 1.2-.897l1.135-3.859A1.75 1.75 0 0 0 12.159 7.5H10.5a.75.75 0 0 1-.721-.956l.731-2.558a1.75 1.75 0 0 0-1.127-2.14L6.69 6.611a1.75 1.75 0 0 1-1.523.889H4.75ZM3.25 7.5h-1.5a.25.25 0 0 0-.25.25v6.5c0 .138.112.25.25.25H3a.25.25 0 0 0 .25-.25Z',
+  ],
   copy: [
     'M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z',
   ],
@@ -4182,7 +4195,7 @@ function historyOutcome(entry) {
   }
 
   if (entry.outcome === 'completed') {
-    return { text: entry.action === 'create-worktree' ? 'Created' : ACTION_COMPLETED[entry.action] ?? ACTION_OUTCOMES.completed, glyph: 'check' };
+    return { text: entry.action === 'create-worktree' ? 'Created' : entry.approval ? 'Approved' : ACTION_COMPLETED[entry.action] ?? ACTION_OUTCOMES.completed, glyph: 'check' };
   }
 
   return { text: ACTION_OUTCOMES[entry.outcome] ?? entry.outcome, glyph: OUTCOME_GLYPHS[entry.outcome] ?? 'check' };
@@ -4399,6 +4412,24 @@ let reportFor = null;
 let reportRequests = 0;
 
 /** A finished run with a report has a control beside the run control to open it. */
+/** Runs the step a run awaiting approval prepared, with the prompt its result named; the click is the approval (R39). */
+function approveButton(boardCard) {
+  const action = boardCard.action;
+
+  if (action?.state !== 'done' || !action.approvable) {
+    return null;
+  }
+
+  const label = `${ACTION_LABELS[action.action] ?? action.action}${action.qualifier ? ` · ${action.qualifier}` : ''}`;
+  const button = toolButton(`Approve ${label.toLowerCase()}`, `${action.detail} Click to approve: this runs the step the run prepared.`, octicon('thumbsup'), () =>
+    vscode.postMessage({ type: 'approveAction', key: boardCard.key }),
+  );
+
+  button.classList.add('approve');
+
+  return button;
+}
+
 function reportButton(boardCard) {
   const action = boardCard.action;
 

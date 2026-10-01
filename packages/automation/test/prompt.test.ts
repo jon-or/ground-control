@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionPrompt, basePromptValues, dispatchName, promptValues, worktreePrompt, worktreePromptValues } from '../src/prompt.js';
+import { actionPrompt, approvalPrompt, basePromptValues, dispatchName, promptValues, worktreePrompt, worktreePromptValues } from '../src/prompt.js';
 import { fillTemplate } from '@ground-control/core';
 import type { ActionPlan } from '../src/plan.js';
 
@@ -130,7 +130,8 @@ describe('result contract', () => {
         '{"outcome":"awaiting-approval","detail":"<what is ready and what approving it does>"} when the work is complete except ' +
         'for a step the developer must approve, such as posting or publishing; otherwise ' +
         '{"outcome":"blocked","detail":"<the question or problem that stopped it>"}. ' +
-        'Add "auditPath":"<absolute path>" when the run wrote a Markdown report. ' +
+        'Add "auditPath":"<absolute path>" when the run wrote a Markdown report, and, to awaiting-approval, ' +
+        '"approve":"<the prompt that performs the step>" when a prompt can perform it. ' +
         'Write every key of whichever object you write, however the run ends, and ask no questions.',
     );
   });
@@ -151,6 +152,24 @@ describe('result contract', () => {
     );
     expect(worktreePrompt('/init-worktree {issue} --report {resultPath}', worktreeValues)).toBe(
       '/init-worktree 17198 --report C:/runs/issue-17198.json',
+    );
+  });
+
+  /** The session wrote the approval prompt, so no other placeholder is the board's to fill (R39). */
+  it('fills only the result path in an approval prompt, and appends the contract where it has none', () => {
+    expect(approvalPrompt('/address-qa 19719 publish {issue} result:{resultPath}', 'C:/runs/issue-19719.json')).toBe(
+      '/address-qa 19719 publish {issue} result:C:/runs/issue-19719.json',
+    );
+    expect(approvalPrompt('/address-qa 19719 publish', 'C:/runs/issue-19719.json')).toBe(
+      '/address-qa 19719 publish' + BREAK +
+        'This run is unattended. Before you finish, write JSON to C:/runs/issue-19719.json: ' +
+        '{"outcome":"completed","detail":"<what happened>"} once the work is complete; ' +
+        '{"outcome":"awaiting-approval","detail":"<what is ready and what approving it does>"} when the work is complete except ' +
+        'for a step the developer must approve, such as posting or publishing; otherwise ' +
+        '{"outcome":"blocked","detail":"<the question or problem that stopped it>"}. ' +
+        'Add "auditPath":"<absolute path>" when the run wrote a Markdown report, and, to awaiting-approval, ' +
+        '"approve":"<the prompt that performs the step>" when a prompt can perform it. ' +
+        'Write every key of whichever object you write, however the run ends, and ask no questions.',
     );
   });
 });
