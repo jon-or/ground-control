@@ -52,8 +52,6 @@ export interface Snapshot {
   needs: { logins: { detected: string[] } } | null;
   /** Optional for older hubs. Configured assignee logins; the overlay matches them against a project's filter (R36). */
   owners?: string[];
-  /** Optional for older hubs. False under a restricted session scope, where a client closes any report it shows (R51). */
-  reports?: boolean;
   /** Snapshot timestamp, not the last successful source-read time (R25). */
   fetchedAt: string;
 }

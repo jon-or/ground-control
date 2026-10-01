@@ -153,22 +153,17 @@ describe('session scope at the hub boundary', () => {
     expectPrivateAbsent([h.editor, h.browser, h.logs.messages]);
   });
 
-  it('removes excluded derived checkouts and refuses stale checkout and session requests without echoing private data', async () => {
-    const h = harness({ sessions: [live(true)] });
+  // Scope decides which cards show, never what a shown card holds: an issue card always shows (R2).
+  it('keeps an excluded session and checkout on the issue card they belong to, and opens them', async () => {
+    const h = harness({ sessions: [live(true)], scope: { excludeDirectories: [`${home}/private-checkout`] } });
     await h.ready();
-    expect(latest(h.editor).lanes.flatMap((lane) => lane.cards)[0]?.checkout?.root).toContain('private-checkout');
-    h.editor.length = h.browser.length = 0;
-    h.configure({ excludeDirectories: [`${home}/private-checkout`] });
-    await settle();
-    h.hub.receive(h.client, { type: 'setCheckout', key: 'issue:1', root: `${home}/private-checkout` });
-    h.hub.receive(h.client, { type: 'openCheckout', key: 'issue:1' });
+    const card = latest(h.editor).lanes.flatMap((lane) => lane.cards).find((one) => one.key === 'issue:1');
+    expect(card?.sessions.map((session) => session.sessionId)).toEqual(['private-session-id']);
+    expect(card?.checkout?.root).toContain('private-checkout');
+    expect(latest(h.browser).lanes).toEqual(latest(h.editor).lanes);
     h.hub.receive(h.client, { type: 'open', sessionId: 'private-session-id', extensionReady: true });
     await settle();
-    expect(h.editor.some((message) => message.type === 'notice')).toBe(true);
-    expect(h.host.checkoutsPlanned).toEqual([]);
-    expect(h.host.planned).toEqual([]);
-    expect(h.editor.some((message) => message.type === 'perform')).toBe(false);
-    expectPrivateAbsent([h.editor, h.browser]);
+    expect(h.host.planned).toHaveLength(1);
   });
 
   it('hides history in both clients and refuses a stale resume link', async () => {
@@ -200,7 +195,7 @@ describe('session scope at the hub boundary', () => {
     await settle();
     expect(windows).toBe(1);
     h.editor.length = h.browser.length = 0;
-    h.configure({ excludeDirectories: [`${home}/private-checkout`] });
+    h.configure({ showHistory: false });
     release();
     await settle();
     expect(h.editor.some((message) => message.type === 'perform')).toBe(false);
@@ -241,6 +236,33 @@ describe('session scope at the hub boundary', () => {
     expectPrivateAbsent([h.editor, h.browser]);
   });
 
+  it('keeps a stop control for a hidden card without counting it shown: its report is refused and a base merge names no branch', async () => {
+    const h = harness({ assigned: [], sessions: [live(true)], scope: { excludeDirectories: [`${home}/private-checkout`] } });
+    const startedAt = Date.parse('2026-08-29T10:40:00Z');
+    const run = {
+      action: 'merge' as const, revision: ACTION_REVISION, evidence: 'test-evidence', startedAt, endedAt: null, agent: 'fake',
+      sessionId: 'private-session-id', shortId: 'private-session-id', outcome: 'running' as const, detail: 'Working in private-checkout.',
+    };
+    h.actions.write({
+      runs: {
+        'issue:1': { ...run, key: 'issue:1', qualifier: 'upstream', auditPath: `${home}/private-checkout/review.md` },
+        'merge:work/repo#private-branch': {
+          ...run, key: 'merge:work/repo#private-branch', qualifier: 'base', for: { key: 'issue:2', qualifier: null },
+          merge: { repository: 'work/repo', source: 'master', sourceSha: '', destination: 'private-branch', target: '' },
+        },
+      },
+      refusals: {}, gates: {}, dispatches: [], links: {},
+    });
+    await h.ready();
+    const cards = latest(h.editor).lanes.flatMap((lane) => lane.cards);
+    expect(cards.map((card) => [card.key, card.action?.state])).toEqual([['issue:1', 'running'], ['issue:2', 'running']]);
+    expectPrivateAbsent([h.editor, h.browser]);
+    h.editor.length = 0;
+    h.hub.receive(h.client, { type: 'readReport', id: `issue:1@${startedAt}`, request: 1 });
+    await settle();
+    expect(h.editor.find((message) => message.type === 'report')).toMatchObject({ failure: 'Reports are hidden by session scope.' });
+  });
+
   it('keeps a useful session failure without forwarding excluded diagnostic details', async () => {
     const h = harness({
       sessions: [live()], scope: { excludeDirectories: [`${home}/private-checkout`] },
@@ -248,6 +270,8 @@ describe('session scope at the hub boundary', () => {
     });
     await h.ready();
     expect(latest(h.editor).failures.some((failure) => failure.kind === 'session-read-failed')).toBe(true);
-    expectPrivateAbsent([h.editor, h.browser, h.logs.messages]);
+    expectPrivateAbsent([h.editor, h.browser]);
+    // The hub log keeps its lines whole under any scope.
+    expect(h.logs.messages.some((message) => message.includes('Cannot read private-checkout for private-session-id'))).toBe(true);
   });
 });

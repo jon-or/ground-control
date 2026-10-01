@@ -110,7 +110,7 @@ Repository rules accept `owner/repo`, `host/owner/repo`, HTTPS URLs, `ssh://git@
 
 Directory rules require absolute paths and include descendants at directory boundaries. They match the session's working directory and canonical checkout root, including worktrees. Windows drive and UNC paths ignore case and separator differences; POSIX paths preserve case. Symlink aliases are not resolved.
 
-`sessions.showHistory` and `sessions.showAdHoc` default to true. Turning them off hides saved session rows or cards without confirmed issues. Scope filters client snapshots and opening routes; it does not stop all underlying roster/history reads or erase existing logs. The hub retains complete live-session evidence to prevent duplicate work and keeps stop controls for work it started, with excluded session details removed.
+`sessions.showHistory` and `sessions.showAdHoc` default to true. Turning them off hides saved session rows or cards without confirmed issues. Scope decides only which cards show: an issue card always shows with all its sessions and details, and scope hides a card with no issue whose sessions it excludes. It does not stop underlying roster/history reads or redact the hub log. The hub retains complete live-session evidence to prevent duplicate work and keeps stop controls for work it started on a card no longer shown, without its details.
 
 Chrome keeps snapshots in memory for the current hub connection and waits for fresh data after either the bridge or hub disconnects. A disconnected tab may retain its already displayed snapshot, marked stale, until the hub confirms current state.
 

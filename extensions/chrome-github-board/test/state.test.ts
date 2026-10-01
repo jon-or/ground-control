@@ -62,25 +62,14 @@ describe('what a message from the worker changes', () => {
     expect(applyMessage(initialState(), { type: 'reportPending', id: 'issue-4501@1' })).toEqual(initialState());
   });
 
-  it('drops the report it holds on a snapshot under a restricted session scope', () => {
-    const held = applyMessage(initialState(), { type: 'reportPending', id: 'issue-4501@1', request: 1 });
-
-    expect(applyMessage(held, { type: 'snapshot', snapshot: { ...SNAPSHOT, reports: true } }).report).toEqual(held.report);
-    expect(applyMessage(held, { type: 'snapshot', snapshot: SNAPSHOT }).report).toEqual(held.report);
-    expect(applyMessage(held, { type: 'changed', snapshot: { ...SNAPSHOT, reports: false } }).report).toBeNull();
-  });
-
-  // History read before the restriction carries details scope now hides; history read after it is kept.
-  it('drops the history it holds when the session scope becomes restricted, and only then', () => {
+  it('keeps the report and history it holds across snapshots', () => {
     const entries = [{ id: 'a' }] as unknown as ActionHistoryView[];
-    const open = applyMessage(applyMessage(initialState(), { type: 'snapshot', snapshot: SNAPSHOT }), { type: 'actionHistory', entries });
-    const restricted = applyMessage(open, { type: 'snapshot', snapshot: { ...SNAPSHOT, reports: false } });
+    const held = applyMessage(applyMessage(initialState(), { type: 'reportPending', id: 'issue-4501@1', request: 1 }), { type: 'actionHistory', entries });
+    const changed = applyMessage(held, { type: 'changed', snapshot: SNAPSHOT });
 
-    expect(restricted.history).toBeNull();
-
-    const reread = applyMessage(restricted, { type: 'actionHistory', entries });
-
-    expect(applyMessage(reread, { type: 'changed', snapshot: { ...SNAPSHOT, reports: false } }).history).toEqual(entries);
+    expect(changed.report).toEqual(held.report);
+    expect(changed.history).toEqual(entries);
+    expect(changed.snapshot).toBe(SNAPSHOT);
   });
 
   it('starts out saying nothing has answered', () => {

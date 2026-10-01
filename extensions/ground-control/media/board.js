@@ -4715,28 +4715,9 @@ function render(payload) {
 }
 
 function draw(payload) {
-  const before = board;
-
   board = payload;
   openable = new Set(payload.openable ?? []);
   startable = payload.startable ?? [];
-
-  // A restricted session scope closes the report shown, which the hub would now refuse, and, once the scope becomes
-  // restricted, drops the history read before it, whose details scope now hides; the history is read again (R50, R51).
-  const restricted = payload.reports === false && before?.reports !== false;
-
-  if (payload.reports === false && reportFor !== null) {
-    if (reportFor.history === null) {
-      closeDetail();
-    } else {
-      reportFor.history = null;
-      backToHistory();
-    }
-  } else if (restricted && historyFor !== null) {
-    historyFor = { entries: null };
-    paintHistory();
-  }
-
   syncReportApproval();
 
   noticesEl.replaceChildren();

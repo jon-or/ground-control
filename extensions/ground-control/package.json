@@ -397,7 +397,7 @@
             "items": { "type": "string" },
             "default": [],
             "order": 10,
-            "markdownDescription": "Repositories to show, combined with directory includes using the [session scope rules](https://github.com/jon-or/ground-control/blob/master/README.md#session-scope)."
+            "markdownDescription": "Repositories whose session-only cards show, combined with directory includes using the [session scope rules](https://github.com/jon-or/ground-control/blob/master/README.md#session-scope). Issue cards always show."
           },
           "groundControl.sessions.excludeRepositories": {
             "scope": "application",
@@ -405,7 +405,7 @@
             "items": { "type": "string" },
             "default": [],
             "order": 11,
-            "markdownDescription": "Repositories to hide; exclusions override includes and also hide sessions whose repository is unknown."
+            "markdownDescription": "Repositories whose session-only cards are hidden; exclusions override includes and also hide session-only cards whose repository is unknown. Issue cards always show."
           },
           "groundControl.sessions.includeDirectories": {
             "scope": "application",
@@ -413,7 +413,7 @@
             "items": { "type": "string" },
             "default": [],
             "order": 12,
-            "markdownDescription": "Absolute directories and descendants to show, combined with repository includes."
+            "markdownDescription": "Absolute directories and descendants whose session-only cards show, combined with repository includes."
           },
           "groundControl.sessions.excludeDirectories": {
             "scope": "application",
@@ -421,7 +421,7 @@
             "items": { "type": "string" },
             "default": [],
             "order": 13,
-            "markdownDescription": "Absolute directories and descendants to hide, overriding includes."
+            "markdownDescription": "Absolute directories and descendants whose session-only cards are hidden, overriding includes."
           },
           "groundControl.sessions.showHistory": {
             "scope": "application",

@@ -25,14 +25,8 @@ export function initialState() {
  * @returns {State}
  */
 export function applyMessage(state, message) {
-  // A snapshot under a restricted session scope closes the report shown, which the hub would now refuse, and, once
-  // the scope becomes restricted, drops the history read before it, whose details scope now hides (R50, R51).
   if (message.type === 'snapshot' || message.type === 'changed') {
-    const snapshot = message.snapshot ?? null;
-    const hidden = snapshot?.reports === false;
-    const restricted = hidden && state.snapshot?.reports !== false;
-
-    return { ...state, snapshot, report: hidden ? null : state.report, history: restricted ? null : state.history };
+    return { ...state, snapshot: message.snapshot ?? null };
   }
 
   if (message.type === 'trouble') {

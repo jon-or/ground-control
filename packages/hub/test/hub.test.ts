@@ -2120,22 +2120,23 @@ describe('opening a historical session', () => {
     return h;
   }
   const ask = (h: Harness, client: ReturnType<typeof connect>['client']) => h.hub.receive(client, { type: 'open', sessionId: 'past', extensionReady: true });
-  it('checks full roster conflicts without returning excluded session records', async () => {
+  // Scope hides no session on an issue card (R2), so an excluded one is on the roster and openable there.
+  it('checks full roster conflicts, and treats an excluded session on an issue card as shown', async () => {
     const h = setup();
     connect(h);
     await h.hub.refresh('asked');
     h.hub.configure(h.config({ sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeDirectories: ['/private'] } }));
     h.agent.sessions = [fakeSession({ sessionId: 'hidden-live', cwd: '/private/work', checkoutRoot: '/private/work', issueNumber: 42, repository: 'github.com/org/repo' })];
     expect(await h.hub.sessionCheck('past')).toEqual({ allowed: true, targetActive: false, cardActive: true });
-    expect(await h.hub.roster()).toEqual([]);
-    expect(await h.hub.sessionCheck('hidden-live')).toEqual({ allowed: false, targetActive: false, cardActive: false });
+    expect((await h.hub.roster())?.map((session) => session.sessionId)).toEqual(['hidden-live']);
+    expect(await h.hub.sessionCheck('hidden-live')).toEqual({ allowed: true, targetActive: true, cardActive: true });
     expect(await h.hub.sessionCheck('unknown')).toEqual({ allowed: false, targetActive: false, cardActive: false });
     h.agent.sessions = [fakeSession({ sessionId: 'elsewhere', issueNumber: 42, repository: 'github.com/other/repo' })];
     expect(await h.hub.sessionCheck('past')).toEqual({ allowed: true, targetActive: false, cardActive: false });
     h.agent.sessions = [fakeSession({ sessionId: 'past', cwd: past.cwd, checkoutRoot: past.cwd, issueNumber: 42, repository: 'github.com/org/repo' })];
     expect(await h.hub.sessionCheck('past')).toEqual({ allowed: true, targetActive: true, cardActive: true });
     h.agent.sessions = [fakeSession({ sessionId: 'past', cwd: '/private/work', checkoutRoot: '/private/work', issueNumber: 42, repository: 'github.com/org/repo' })];
-    expect(await h.hub.sessionCheck('past')).toEqual({ allowed: false, targetActive: false, cardActive: false });
+    expect(await h.hub.sessionCheck('past')).toEqual({ allowed: true, targetActive: true, cardActive: true });
     h.agent.failure = { subject: 'fake', kind: 'unreadable', message: 'failed', remedy: 'retry' };
     expect(await h.hub.sessionCheck('past')).toBeNull();
     h.hub.dispose();

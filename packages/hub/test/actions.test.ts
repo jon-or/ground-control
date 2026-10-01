@@ -1678,35 +1678,17 @@ describe('following a run to its end', () => {
 });
 
 describe('the developer asking by hand', () => {
-  it('keeps excluded live sessions in automatic and manual duplicate checks', async () => {
+  it('keeps an excluded live session on its issue card and in automatic and manual duplicate checks', async () => {
     const control = harness({}, [issue()], [sessionOn({ checkoutRoot: CHECKOUT })]);
     control.hub.configure({ ...config(), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeDirectories: [CHECKOUT] } });
     watch(control);
     await control.pass();
-    expect(control.snapshot().lanes.flatMap((lane) => lane.cards).flatMap((card) => card.sessions)).toEqual([]);
+    expect(control.snapshot().lanes.flatMap((lane) => lane.cards).flatMap((card) => card.sessions).map((session) => session.sessionId)).toEqual([sessionOn().sessionId]);
     expect(control.dispatched).toEqual([]);
     control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
     await control.settle();
     expect(control.dispatched).toEqual([]);
     expect(control.notices).toContain('This card has an active session.');
-    control.hub.dispose();
-  });
-
-  it('rechecks checkout scope after a held manual context read', async () => {
-    const control = harness(NO_PROMPT);
-    watch(control);
-    await control.pass();
-    let release!: () => void;
-    control.contextHolding = new Promise<void>((resolve) => { release = resolve; });
-    const reads = control.reads.length;
-    control.hub.receive({ id: 'board-1' }, { type: 'runAction', key: control.key() });
-    await control.settle();
-    expect(control.reads).toHaveLength(reads + 1);
-    control.hub.configure({ ...config(NO_PROMPT), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeDirectories: [CHECKOUT] } });
-    release();
-    await control.settle();
-    expect(control.dispatched).toEqual([]);
-    expect(control.notices).toContain('No worktree for this issue. Set groundControl.worktree.prompt so one can be created.');
     control.hub.dispose();
   });
 
@@ -3131,16 +3113,13 @@ describe('the action history', () => {
     expect(historyOf(control).map((entry) => [entry.action, entry.trigger])).toEqual([['merge', 'browser']]);
   });
 
-  it('hides what every run reported, running ones included, under a restricted session scope', async () => {
+  it('keeps what a run reported under a restricted session scope while scope shows its card', async () => {
     const control = harness();
     watch(control);
     await control.pass();
-
-    expect(historyOf(control)[0]!.detail).toBe(`Working in ${CHECKOUT}.`);
-
     control.hub.configure({ ...config(), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeRepositories: ['github.com/example-org/elsewhere'] } });
 
-    expect(historyOf(control).map((entry) => [entry.outcome, entry.detail])).toEqual([['running', 'Session details are hidden by session scope.']]);
+    expect(historyOf(control).map((entry) => [entry.outcome, entry.detail])).toEqual([['running', `Working in ${CHECKOUT}.`]]);
   });
 
   it('leaves a history file it cannot read as it is, rather than replacing it with what it can see', async () => {
@@ -3213,7 +3192,6 @@ describe('run reports (R51)', () => {
 
     expect(action?.state === 'done' && action.reportId).toBe(entry.id);
     expect(entry.reportId).toBe(entry.id);
-    expect(control.snapshot().reports).toBe(true);
     expect(Object.keys(entry)).not.toContain('auditPath');
     expect(JSON.stringify(control.snapshot())).not.toContain('review.md');
   });
@@ -3268,19 +3246,24 @@ describe('run reports (R51)', () => {
     expect(historyOf(control)[0]!.reportId).toBeNull();
   });
 
-  it('hides reports and refuses reading one under a restricted session scope', async () => {
+  it('offers and reads a report under a restricted session scope while it shows the card, and refuses once it does not', async () => {
     const control = harness();
-    await completedWith(control, reportIn('# Round 1'));
+    const path = reportIn('# Round 1');
+    await completedWith(control, path);
     const id = historyOf(control)[0]!.id;
 
     control.hub.configure({ ...config(), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeRepositories: ['github.com/example-org/elsewhere'] } });
 
     const action = control.cardAction();
 
-    expect(action?.state === 'done' && action.reportId).toBeUndefined();
-    expect(historyOf(control)[0]!.reportId).toBeNull();
-    // Clients close a report already shown on this flag.
-    expect(control.snapshot().reports).toBe(false);
+    expect(action).toMatchObject({ state: 'done', reportId: id, detail: expect.not.stringContaining('hidden by session scope') });
+    expect(historyOf(control)[0]!.reportId).toBe(id);
+    expect(await answered(control, id, 'vscode')).toMatchObject({ type: 'report', id, failure: null, path });
+
+    control.cards = [];
+    await control.pass();
+
+    expect(historyOf(control)[0]).toMatchObject({ reportId: null, detail: 'Session details are hidden by session scope.' });
     // Open in editor asks the hub each time, so an editor gets no path to open once scope hides the report.
     const refused = read(control, id, 'vscode');
 
@@ -3288,15 +3271,17 @@ describe('run reports (R51)', () => {
     expect(refused).not.toHaveProperty('path');
   });
 
-  it('refuses a report whose read the session scope narrowed while it was rendered', async () => {
+  it('refuses a report whose card the session scope stopped showing while it was rendered', async () => {
     const control = harness();
     await completedWith(control, reportIn('# Round 1'));
     const id = historyOf(control)[0]!.id;
     const answers: HubMessage[] = [];
     control.hub.connect({ id: 'reader', hostId: 'vscode', workspaceRoot: null, residentRoutes: [], watching: true }, (message) => answers.push(message));
+    control.cards = [];
 
     control.hub.receive({ id: 'reader' }, { type: 'readReport', id, request: 3 });
     control.hub.configure({ ...config(), sessionScope: { ...DEFAULT_SESSION_SCOPE, excludeRepositories: ['github.com/example-org/elsewhere'] } });
+    await control.pass();
     await new Promise((settle) => setTimeout(settle, 50));
 
     expect(answers.filter((message) => message.type === 'report')).toEqual([

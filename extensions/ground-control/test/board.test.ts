@@ -3831,56 +3831,6 @@ describe('run reports (R51)', () => {
     });
   });
 
-  it('closes a report opened from a card once the session scope is restricted', () => {
-    showCard();
-    control()!.click();
-    send(report(lastRead().request));
-
-    expect(body()!.innerHTML).toContain('Two findings.');
-
-    send(message({ lanes: lanes({ review: [acting(finished)] }), reports: false }));
-
-    expect(panel()).toBeNull();
-    expect(document.querySelectorAll('[inert]')).toHaveLength(0);
-  });
-
-  it('returns a report opened from the history to a history read again once the scope is restricted', () => {
-    openHistoryFromMenu();
-    send({ type: 'actionHistory', entries: [history({ detail: 'Working in d:/private/checkout.' })] });
-    document.querySelector<HTMLButtonElement>('#history .history-report')!.click();
-    send(report(lastRead().request));
-    api.postMessage.mockClear();
-
-    send(message({ lanes: lanes({}), reports: false }));
-
-    expect(panel()).toBeNull();
-    expect(document.getElementById('history')!.textContent).not.toContain('d:/private/checkout');
-    expect(document.querySelector('#history .history-note')?.textContent).toBe('Reading action history…');
-    expect(sent()).toContainEqual({ type: 'readActionHistory' });
-
-    send({ type: 'actionHistory', entries: [history({ reportId: null })] });
-
-    expect(document.querySelectorAll('#history .history-row')).toHaveLength(1);
-    expect(document.querySelectorAll('#history .history-report')).toHaveLength(0);
-  });
-
-  it('drops an open history read before the scope was restricted', () => {
-    send(message({ lanes: lanes({}) }));
-    openHistoryFromMenu();
-    send({ type: 'actionHistory', entries: [history({ detail: 'Working in d:/private/checkout.' })] });
-
-    send(message({ lanes: lanes({}), reports: false }));
-
-    expect(document.getElementById('history')!.textContent).not.toContain('d:/private/checkout');
-    expect(document.querySelector('#history .history-note')?.textContent).toBe('Reading action history…');
-
-    // A later restricted board keeps the history read under the restriction.
-    send({ type: 'actionHistory', entries: [history({ reportId: null })] });
-    send(message({ lanes: lanes({}), reports: false }));
-
-    expect(document.querySelectorAll('#history .history-row')).toHaveLength(1);
-  });
-
   it('closes on Escape from the history and gives the board back', () => {
     openHistoryFromMenu();
     send({ type: 'actionHistory', entries: [history({})] });

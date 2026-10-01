@@ -319,7 +319,7 @@ export class Hub {
       resultCommand: resultCommand(bundlePathOf(deps.home)),
       store: deps.actions,
       ...(deps.actionHistory === undefined ? {} : { history: deps.actionHistory }),
-      log: this.#scopedLog(),
+      log: deps.log,
       currentCard: (key) => this.#lanes(false).flatMap((lane) => lane.cards).find((card) => card.key === key),
       agents: deps.registries.agents,
       sources: deps.registries.sources,
@@ -688,12 +688,6 @@ export class Hub {
     const card = this.snapshot().lanes.flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
     const root = card?.checkout?.root;
 
-    const full = this.#lanes(false).flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
-    if (full?.sessions.some((session) => !session.finished && !this.#sessionAllowed(session))) {
-      this.#scopeRefusal(client);
-      return;
-    }
-
     if (card === undefined || root === undefined) {
       client.send({
         type: 'notice',
@@ -812,11 +806,6 @@ export class Hub {
     const readers = this.#readers();
     const wanted = card.issue === null ? null : repositoryKey(card.issue.url);
     const chosen = normalize(root);
-
-    if (!this.#rootAllowed(chosen)) {
-      this.#scopeRefusal(client);
-      return;
-    }
 
     // Require absolute paths because the hub and editor have different working directories.
     if (!isAbsolute(chosen) || wanted === null || repositoryOf(chosen, readers.readText) !== wanted) {
@@ -1455,7 +1444,7 @@ export class Hub {
     // returning its identity; the selected saved session must itself remain within scope.
     const historical = this.#history.find((session) => session.sessionId === sessionId);
     const allowed = visible || (historical !== undefined && !sessions.some((session) => session.sessionId === sessionId && !session.finished) &&
-      this.#scope().showHistory && this.#sessionAllowed(historical) &&
+      this.#scope().showHistory &&
       (this.#items()?.cards ?? []).some((issue) => issue.number === historical.issueNumber && repositoryKey(issue.url) === historical.repository));
     if (!allowed || target === undefined) return { allowed: false, targetActive: false, cardActive: false };
     return {
@@ -1707,7 +1696,7 @@ export class Hub {
       return;
     }
 
-    this.#deps.log.warn(this.#scopeMessage(failures.map((failure) => `${failure.subject}: ${failure.message}`).join('; ')), 'sessions');
+    this.#deps.log.warn(failures.map((failure) => `${failure.subject}: ${failure.message}`).join('; '), 'sessions');
   }
 
   /** Disk readers shared until the current synchronous run ends, so one snapshot reads each `.git` file once. */
@@ -1847,20 +1836,21 @@ export class Hub {
 
   /**
    * The action history for a client, newest first, with each card's title and address where the board holds the card
-   * (R50). Session scope hides what a run reported, as it does on the card.
+   * (R50). Session scope hides what a run reported only where it hides the run's card.
    */
   #actionHistory(): ActionHistoryView[] {
     const cards = new Map(this.#lanes(false).flatMap((lane) => lane.cards).map((card) => [card.key, card]));
-    const hidden = restrictedSessionScope(this.#scope());
+    const shown = this.#shownCardKeys();
 
     // A browser frame holds at most a megabyte, so the answer is bounded in rows and in each row's detail.
     return this.#actions.history().slice(0, HISTORY_SENT).map(({ auditPath, ...entry }) => {
       const issue = cards.get(entry.key)?.issue ?? null;
       const detail = entry.detail.length > HISTORY_DETAIL_SENT ? `${entry.detail.slice(0, HISTORY_DETAIL_SENT - 1)}…` : entry.detail;
+      const hidden = shown !== null && !shown.has(entry.key);
 
       return {
         ...entry,
-        // A run's detail and report name its checkout, which scope hides wherever it appears.
+        // Scope hides a run's detail and report only where it hides the run's card.
         detail: hidden ? 'Session details are hidden by session scope.' : detail,
         title: issue?.title ?? null,
         url: issue?.url ?? null,
@@ -1871,22 +1861,22 @@ export class Hub {
 
   /**
    * Answer one client's report read (R51). The id names a run whose result recorded the report; it is looked up, never
-   * used as a path. Scope is checked again after the read, since it can change while the file is rendered.
+   * used as a path. Scope must show the run's card; it is checked again after the read, since it can change meanwhile.
    */
   async #readReport(client: Connected, id: string, request: number): Promise<void> {
     const refuse = (failure: string, title: string | null = null, name: string | null = null): void =>
       client.send({ type: 'report', id, request, title, name, failure });
 
-    if (restrictedSessionScope(this.#scope())) {
-      refuse('Reports are hidden by session scope.');
-
-      return;
-    }
-
     const run = this.#actions.reportOf(id);
 
     if (run === null) {
       refuse('That run has no report.');
+
+      return;
+    }
+
+    if (!this.#cardShown(run.key)) {
+      refuse('Reports are hidden by session scope.');
 
       return;
     }
@@ -1903,7 +1893,7 @@ export class Hub {
       return;
     }
 
-    if (restrictedSessionScope(this.#scope())) {
+    if (!this.#cardShown(run.key)) {
       refuse('Reports are hidden by session scope.');
 
       return;
@@ -2085,19 +2075,9 @@ export class Hub {
     return agentHome === undefined ? route : { ...route, agentHome };
   }
 
+  /** Notices are not a card's content, so a restricted scope still words them without what a run named. */
   #scopeMessage(message: string): string {
     return restrictedSessionScope(this.#scope()) ? 'Session details are hidden by session scope. Check the session settings before retrying.' : message;
-  }
-
-  #scopedLog(): Logger {
-    const log = this.#deps.log;
-    return {
-      ...log,
-      debug: (message, scope) => log.debug(this.#scopeMessage(message), scope),
-      info: (message, scope) => log.info(this.#scopeMessage(message), scope),
-      warn: (message, scope) => log.warn(this.#scopeMessage(message), scope),
-      error: (message, scope) => log.error(this.#scopeMessage(message), scope),
-    };
   }
 
   /** Why a browser start cannot run, or null when it may. */
@@ -2183,7 +2163,7 @@ export class Hub {
 
   /**
    * The working tree with `branch` checked out in a clone of `repository`, where a stacked pull request's base is
-   * merged (R39). Refused where none or several have it, scope excludes it, or a session is running in it.
+   * merged (R39). Refused where none or several have it, or a session is running in it.
    */
   #branchWorktree(repository: string, branch: string): { root: string } | { refusal: string } {
     const readers = this.#readers();
@@ -2201,10 +2181,6 @@ export class Hub {
       return { refusal: `${trees.length} worktrees have ${branch} checked out; remove all but one.` };
     }
 
-    if (!this.#rootAllowed(tree.root)) {
-      return { refusal: `The ${branch} worktree is outside the session settings.` };
-    }
-
     const root = dirKey(tree.root);
     const busy = (this.#sessions?.sessions ?? []).some((session) => !session.finished && session.checkoutRoot !== null && dirKey(session.checkoutRoot) === root);
 
@@ -2213,7 +2189,7 @@ export class Hub {
 
   /**
    * Record the worktree a run reported for a card (R46), once git registers the directory in a clone of the
-   * card's repository and scope admits it. The reason is returned where it cannot be recorded.
+   * card's repository. The reason is returned where it cannot be recorded.
    */
   #linkWorktree(key: string, reported: string): string | null {
     const card = this.#lanes(false).flatMap((lane) => lane.cards).find((candidate) => candidate.key === key);
@@ -2228,10 +2204,6 @@ export class Hub {
     }
 
     const root = normalize(reported);
-
-    if (!this.#rootAllowed(root)) {
-      return `The run reported ${root}, which the session settings exclude.`;
-    }
 
     // The reported directory is scanned as a root itself, so a worktree in a clone the hub never saw still registers.
     const found = worktreeIndex([...this.#worktreeScan().roots, root], this.#readers(), null).byRoot.get(dirKey(root));
@@ -2253,6 +2225,22 @@ export class Hub {
     return null;
   }
 
+  /**
+   * The keys of the cards whose content a client is shown, or null where scope restricts nothing. A stop control kept
+   * for a run on a card no longer shown has no issue and no session, and shows nothing of the run.
+   */
+  #shownCardKeys(): Set<string> | null {
+    if (!restrictedSessionScope(this.#scope())) return null;
+
+    const shown = this.#lanes(true).flatMap((lane) => lane.cards).filter((card) => card.issue !== null || card.sessions.length > 0);
+
+    return new Set(shown.map((card) => card.key));
+  }
+
+  #cardShown(key: string): boolean {
+    return this.#shownCardKeys()?.has(key) ?? true;
+  }
+
   #scopeRefusal(client: Connected): void {
     client.send({ type: 'notice', level: 'warning', message: 'This session or checkout is not available under the current session settings.' });
   }
@@ -2262,15 +2250,6 @@ export class Hub {
     if (!restrictedSessionScope(scope)) return true;
     const checkoutRoot = 'checkoutRoot' in session ? session.checkoutRoot : findCheckout(session.cwd, this.#readers().readText)?.root ?? null;
     return sessionInScope(scope, { ...session, checkoutRoot });
-  }
-
-  #rootAllowed(root: string): boolean {
-    if (!restrictedSessionScope(this.#scope())) return true;
-    const readers = this.#readers();
-    return sessionInScope(this.#scope(), {
-      cwd: root, checkoutRoot: findCheckout(root, readers.readText)?.root ?? null,
-      repository: repositoryOf(root, readers.readText),
-    });
   }
 
   /** Sessions the board dispatched, placed on the issue they were dispatched for (R3). */
@@ -2286,25 +2265,24 @@ export class Hub {
     // Relink here too: a link recorded since the last roster read applies without waiting for the next one.
     const all = this.#linked(this.#sessions?.sessions ?? []);
     const linkedHistory = this.#linked(this.#history);
-    const sessions = projected ? all.filter((session) => this.#sessionAllowed(session)) : all;
-    const history = projected ? (scope.showHistory ? linkedHistory.filter((session) => this.#sessionAllowed(session)) : []) : linkedHistory;
-    const unassigned = items === null ? new Map<number, IssueCard>() : this.#issues.known(sessions, new Set(cards.map((card) => card.number)));
-    const laned = assignLanes(mergeBoard(cards, sessions, history, unassigned, this.#deps.status.read()), {
+    // Scope decides only which session-only cards show (R2): an issue card shows all its sessions. A card for an
+    // unassigned issue exists only through a session, so only an in-scope session raises one.
+    const history = projected && !scope.showHistory ? [] : linkedHistory;
+    const raising = projected ? all.filter((session) => this.#sessionAllowed(session)) : all;
+    const unassigned = items === null ? new Map<number, IssueCard>() : this.#issues.known(raising, new Set(cards.map((card) => card.number)));
+    const laned = assignLanes(mergeBoard(cards, all, history, unassigned, this.#deps.status.read()), {
       boardStatuses: this.#config.boardStatuses, statusLanes: this.#config.statusLanes, logins: items?.owners ?? [],
     }, this.#memory());
     const checked = withCheckouts(withTriage(laned, this.#deps.triage.read(), this.#triage.running(), this.#deps.clock.now()),
-      this.#deps.checkouts.read(), this.#readers(), this.#worktreeScan()).map((lane) => ({ ...lane, cards: lane.cards.map((card) => {
-        const result = { ...card };
-        // Scope hides a directory wherever it appears, or an excluded worktree would still be named and openable.
-        if (result.checkout && !this.#rootAllowed(result.checkout.root)) delete result.checkout;
-        if (result.worktree && !this.#rootAllowed(result.worktree.root)) delete result.worktree;
-        return result;
-      }) }));
+      this.#deps.checkouts.read(), this.#readers(), this.#worktreeScan());
     const lanes = this.#actions.decorate(checked);
     if (!projected) return lanes;
     const internal = this.#lanes(false);
     const full = new Map(internal.flatMap((lane) => lane.cards).map((card) => [card.key, card]));
-    const shown = lanes.map((lane) => ({ ...lane, cards: lane.cards.filter((card) => scope.showAdHoc || card.issue !== null).map((card) => {
+    // A session-only card shows where every session on it is in scope, so none of its derived fields names an excluded one.
+    const shownCard = (card: Lane['cards'][number]) => card.issue !== null ||
+      (scope.showAdHoc && card.sessions.every((session) => this.#sessionAllowed(session)));
+    const shown = lanes.map((lane) => ({ ...lane, cards: lane.cards.filter(shownCard).map((card) => {
       const original = full.get(card.key);
       const result = { ...card };
       if (result.lastSession && original?.sessions.some((session) => !session.finished)) {
@@ -2313,17 +2291,6 @@ export class Hub {
       }
       if (original?.action) result.action = original.action;
       else delete result.action;
-      if (restrictedSessionScope(scope)) {
-        // A report names the checkout and holds what the run found, which scope hides (R51).
-        if (result.action?.state === 'done') {
-          const { reportId: _hidden, ...done } = result.action;
-          result.action = { ...done, detail: 'Action finished. Session details are hidden by session scope.' };
-        }
-        if (result.action?.state === 'refused') result.action = { ...result.action, reason: 'This action was refused. The reason is hidden by session scope.' };
-        // A worktree run's detail names the directory it made, and a refusal names the clones it found.
-        if (result.creation?.state === 'done') result.creation = { ...result.creation, detail: 'The worktree run finished. Session details are hidden by session scope.' };
-        if (result.creation?.state === 'refused') result.creation = { ...result.creation, reason: 'A worktree cannot be made under the current session settings.' };
-      }
       return result;
     }) }));
     const present = new Set(shown.flatMap((lane) => lane.cards).map((card) => card.key));
@@ -2334,8 +2301,9 @@ export class Hub {
       // A worktree run shows as the action it precedes; one asked for alone shows on the worktree control (R46).
       const action = run.action === CREATE_WORKTREE ? run.next : run.action;
       const qualifier = run.for?.qualifier ?? (run.qualifier === BASE_MERGE ? null : run.qualifier);
+      // Under a restricted scope a card that is not shown keeps its stop control but names no branch.
       const stage = run.for !== undefined && run.merge !== undefined
-        ? { stage: 'base' as const, detail: `Merging ${run.merge.source} into ${run.merge.destination} first.` }
+        ? restrictedSessionScope(scope) ? { stage: 'base' as const } : { stage: 'base' as const, detail: `Merging ${run.merge.source} into ${run.merge.destination} first.` }
         : run.action === CREATE_WORKTREE ? { stage: 'worktree' as const } : run.verifyingSince !== undefined ? { stage: 'verifying' as const } : {};
       shown.find((lane) => lane.id === 'build')?.cards.push({
         key, issue: null, issueNumber: null, sessions: [], lane: 'build', returned: false,
@@ -2430,7 +2398,6 @@ export class Hub {
         (this.#sessions?.failures.length ?? 0) > 0,
       needs: this.#needs(),
       owners: items?.owners ?? [],
-      reports: !restrictedSessionScope(this.#scope()),
       fetchedAt: new Date(now).toISOString(),
     };
   }
