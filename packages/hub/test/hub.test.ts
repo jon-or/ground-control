@@ -23,7 +23,7 @@ import type { LogEntry } from '@ground-control/core';
 import { defaultConfig } from '../src/registry.js';
 import { captureLog, fakeClock, fakeHost, fakeReaders, fakeSession, loggedOf, reportingAgent, tempHome } from './helpers.js';
 import type { FakeAgentControl, FakeHostControl } from './helpers.js';
-import type { DebriefForkInput, DebriefForkResult, DebriefSignal } from '@ground-control/core';
+import type { DebriefForkInput, DebriefForkResult, DebriefSignal, HistoricalSession } from '@ground-control/core';
 import type { DebriefLogEntry, DebriefState, DebriefStore } from '../src/debriefStore.js';
 
 let home: string;
@@ -3720,5 +3720,117 @@ describe('friction debriefs (R52)', () => {
     expect(latest(inbox).sessions?.count).toBe(2);
     h.hub.dispose();
   });
+  const REPO = 'github.com/example-org/example-repo';
+  const FAILED = { ok: false as const, error: { kind: 'query-failed' as const, message: 'GitHub failed.', remedy: 'Try again.' } };
+
+  /**
+   * Closed Claude sessions a few minutes old, oldest first, beside a live session that raises a card for unassigned issue
+   * 600. Only `linked` is placed on issue 18941 by a dispatch record rather than by its branch.
+   */
+  function departures(fetch: Fetch) {
+    const agent = debriefingAgent();
+    mkdirSync(join(home, '.claude', 'skills', 'friction-review'), { recursive: true });
+    writeFileSync(join(home, '.claude', 'skills', 'friction-review', 'prompt.md'), 'Report friction in {{scope}}.');
+    makeActionStore(stateDir).write({ runs: {}, refusals: {}, gates: {}, dispatches: [], links: { 'claude:linked': { issueNumber: 18941, at: 1 } } });
+    const store = memoryStore();
+    const h = harness({ debriefStore: () => store }, {
+      agent: agent.control, fetch, readCard: async (_config, _owner, _name, number) => ({ ok: true, value: card(number) }),
+    });
+    const now = h.clock.clock.now();
+    const closed = (sessionId: string, issueNumber: number | null, repository: string | null, minutes: number): HistoricalSession => ({
+      agent: 'claude', sessionId, title: null, cwd: `d:/work/${sessionId}`, branch: null, issueNumber, repository, updatedAt: now - minutes * MINUTE,
+    });
+    agent.control.adapter.listHistory = async () => ({ sessions: [
+      closed('on-board', 18941, REPO, 9), closed('unknown-repo', 18941, null, 8), closed('linked', null, REPO, 7),
+      closed('unassigned', 600, REPO, 6), closed('other-repo', 18941, 'github.com/other-org/other-repo', 5),
+      closed('off-board', 500, REPO, 4), closed('no-issue', null, null, 3),
+    ], failure: null });
+    const stopped = { phase: 'idle' as const, since: now - MINUTE, at: now - MINUTE, event: 'Stop' };
+    agent.control.sessions = [fakeSession({ agent: 'claude', sessionId: 'live-600', issueNumber: 600, repository: REPO, details: { kind: 'interactive' }, activity: stopped })];
+    agent.control.phases.set('live-600', stopped);
+    h.hub.configure(h.config({ debrief: { enabled: true, directory: '', promptPath: '', codexScript: '' } }));
+
+    return { agent, h };
+  }
+
+  /** Fire a scan and answer every fork it starts, one at a time. */
+  async function scanAll(agent: ReturnType<typeof debriefingAgent>, h: Harness, rewindMs = 0): Promise<string[]> {
+    h.clock.advance(-rewindMs);
+    h.clock.fire(60_000);
+
+    for (let round = 0; round < 8; round++) {
+      await settle();
+      agent.release({ friction: [], subagents: [], cache: null });
+      await settle();
+    }
+
+    return agent.forks.map((fork) => fork.sessionId);
+  }
+
+  it('forks a closed session at once when it has no issue or a watched board shows no card for its issue, and waits for one whose card is shown', async () => {
+    const { agent, h } = departures(async () => ({ ok: true, value: { ...ISSUES, cards: [card(18941)] } }));
+    const { client, inbox } = connect(h);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+    await settle();
+    await settle();
+    expect(latest(inbox).lanes.flatMap((lane) => lane.cards).map((shown) => shown.issueNumber).sort((left, right) => left! - right!)).toEqual([600, 18941]);
+
+    // Fire the scan 30 seconds after the board's last read, so it takes the board's roster and cards.
+    expect(await scanAll(agent, h, 30_000)).toEqual(['other-repo', 'off-board', 'no-issue']);
+    h.hub.dispose();
+  });
+
+  it('waits for a closed session with an issue while a source of the watched board fails, though it keeps the cards it read', async () => {
+    let fail = false;
+    const { agent, h } = departures(async () => (fail ? FAILED : { ok: true, value: { ...ISSUES, cards: [card(18941)] } }));
+    const { client, inbox } = connect(h);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+    await settle();
+    fail = true;
+    h.clock.advance(MINUTE);
+    await h.hub.refresh('asked');
+    await settle();
+    expect(latest(inbox).lanes.flatMap((lane) => lane.cards).map((shown) => shown.issueNumber)).toContain(18941);
+
+    expect(await scanAll(agent, h, 30_000)).toEqual(['no-issue']);
+    h.hub.dispose();
+  });
+
+  it('waits for a closed session with an issue after the source settings change, until the new settings are read', async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const { agent, h } = departures(async (config) => {
+      if (config.repo === 'example-org/other-repo') await held;
+      return { ok: true, value: { ...ISSUES, cards: [card(18941)] } };
+    });
+    const { client } = connect(h);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+    await settle();
+    h.clock.advance(1_001);
+    h.hub.receive(client, { type: 'configure', config: h.config({ debrief: { enabled: true, directory: '', promptPath: '', codexScript: '' }, sources: { github: { repo: 'example-org/other-repo', logins: ['dev-1'] } } }) });
+    await settle();
+
+    expect(await scanAll(agent, h, 30_000)).toEqual(['no-issue']);
+
+    release();
+    await settle();
+    await settle();
+    await h.hub.roster();
+    await settle();
+
+    expect(await scanAll(agent, h, 30_000)).toEqual(['no-issue', 'other-repo', 'off-board']);
+    h.hub.dispose();
+  });
+
+  it('forks a closed session with no issue at once while no board is watched, and waits for one with an issue', async () => {
+    const { agent, h } = departures(async () => ({ ok: true, value: { ...ISSUES, cards: [card(18941)] } }));
+
+    expect(await scanAll(agent, h)).toEqual(['no-issue']);
+    h.hub.dispose();
+  });
+
 });
 

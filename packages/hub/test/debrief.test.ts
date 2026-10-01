@@ -67,7 +67,7 @@ function rig(): Rig {
     runner: undefined as unknown as DebriefRunner,
     deps: undefined as unknown as DebriefDeps,
     clock: { now: NOW },
-    sessions: { live: [], history: [], unreadable: new Set() },
+    sessions: { live: [], history: [], unreadable: new Set(), offBoard: new Set() },
     ranges: new Map(),
     reads: [],
     forks: [],
@@ -190,6 +190,19 @@ describe('which sessions a scan debriefs', () => {
 
     expect(r.forks.map((fork) => fork.sessionId)).toEqual([A]);
     expect(r.store.logs.map((entry) => [entry.sessionId, entry.friction])).toEqual([[A, []]]);
+  });
+
+  it('forks a closed session off the board without the 45-minute wait, but not one on the board, one past the cache, or a live one', async () => {
+    const r = rig();
+    r.sessions!.live = [idle('c1', 1)];
+    r.sessions!.history = [closed(A, 1), closed(B, 1), closed('d1', 61)];
+    r.sessions!.offBoard = new Set([A, 'c1', 'd1']);
+    for (const id of [A, B, 'c1', 'd1']) r.ranges.set(id, range('m-12'));
+    r.answers.push(answered([]));
+
+    await r.runner.scan();
+
+    expect(r.forks.map((fork) => fork.sessionId)).toEqual([A]);
   });
 
   it('skips a session too recent, past the cache, still working, a live background job, and another agent', async () => {

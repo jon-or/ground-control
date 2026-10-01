@@ -238,6 +238,9 @@ export class Hub {
 
   /** Retain each source's last successful read independently of other source failures (R24). */
   readonly #readings = new Map<string, SourceReading>();
+  /** Sources whose last read started under the current source settings and succeeded; only these show a debrief the board (R52). */
+  readonly #readUnderSettings = new Set<string>();
+  #sourceSettings = 0;
   /** Track source outage start times, retry deadlines, and notification state. */
   readonly #outages = new Map<string, Outage>();
   #lastTickAt = 0;
@@ -1060,6 +1063,10 @@ export class Hub {
     this.#broadcast();
     // Refresh sources only when their settings change; every client restates settings on connection.
     const reason = same(before.sources, parsed.config.sources) && same(boardPolicyOf(before), boardPolicyOf(parsed.config)) ? 'visible' : 'settings';
+    if (reason === 'settings') {
+      this.#sourceSettings++;
+      this.#readUnderSettings.clear();
+    }
     if (sessionsChanged) {
       void this.#refreshSources(reason);
       void this.#refreshSessions(true);
@@ -1122,6 +1129,7 @@ export class Hub {
         live: this.#sessions.sessions,
         history: this.#history,
         unreadable: new Set([...this.#sessions.failures, ...this.#historyFailures].map((failure) => failure.subject)),
+        offBoard: this.#offBoard(this.#history, this.#boardRead()),
       };
     }
 
@@ -1136,7 +1144,32 @@ export class Hub {
       live: roster.sessions,
       history: history.sessions,
       unreadable: new Set([...roster.failures, ...history.failures].map((failure) => failure.subject)),
+      offBoard: this.#offBoard(history.sessions, false),
     };
+  }
+
+  /** Whether every source's last read succeeded in full under the current settings, so an issue missing from the board has left it. */
+  #boardRead(): boolean {
+    const sources = [...this.#triageSources()];
+
+    return sources.length > 0 && sources.every((id) => {
+      const items = this.#readings.get(id)?.items;
+      return this.#readUnderSettings.has(id) && items != null && !items.truncated;
+    });
+  }
+
+  /**
+   * Closed sessions a debrief need not wait for (R52): those linked to no issue, and, when `board` is true because a watched
+   * board has read all its sources, those whose issue has no card on it.
+   */
+  #offBoard(history: readonly HistoricalSession[], board: boolean): Set<string> {
+    const cards = board ? this.#lanes(false).flatMap((lane) => lane.cards).filter((card) => card.issue !== null) : null;
+    const shown = (session: HistoricalSession) => cards === null || cards.some((card) => {
+      const repository = repositoryKey(card.issue!.url);
+      return card.issueNumber === session.issueNumber && (session.repository === null || repository === null || session.repository === repository);
+    });
+
+    return new Set(this.#linked(history).filter((session) => session.issueNumber === null || !shown(session)).map((session) => session.sessionId));
   }
 
   #triageSources(): ReadonlySet<string> {
@@ -1543,6 +1576,7 @@ export class Hub {
 
   async #readSource(source: WorkSource): Promise<void> {
     const startedAt = this.#deps.clock.now();
+    const settings = this.#sourceSettings;
     const reading = await source.read().catch(
       (error: unknown): SourceReading => ({
         items: null,
@@ -1577,6 +1611,9 @@ export class Hub {
     const items = reading.items ?? (reading.failure ? held?.items ?? null : null);
 
     this.#readings.set(source.id, { ...reading, items });
+
+    if (settings === this.#sourceSettings && reading.failure === null) this.#readUnderSettings.add(source.id);
+    else this.#readUnderSettings.delete(source.id);
 
     const took = now - startedAt;
 

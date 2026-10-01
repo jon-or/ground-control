@@ -2,7 +2,7 @@ import { DEBRIEF_ENV, DEFAULT_DEBRIEF, frictionAnswer, isAbsolute, join, normali
 import type { AgentAdapter, AgentConfig, DebriefRange, DebriefSettings, DebriefSignal, HistoricalSession, Logger, MachineReaders, Session, TextOutcome } from '@ground-control/core';
 import type { CodexDebriefState, DebriefLogEntry, DebriefState, DebriefStore, SessionDebriefState } from './debriefStore.js';
 
-/** A session is debriefed this long after its last finished turn (R52). */
+/** A session is debriefed this long after its last finished turn, unless it is closed and off the board (R52). */
 export const DEBRIEF_IDLE_MS = 45 * 60 * 1000;
 
 /** Past this age the one-hour prompt cache has expired; the session is skipped rather than run cold. */
@@ -33,6 +33,8 @@ export interface DebriefSessions {
   history: readonly HistoricalSession[];
   /** Agents whose roster or history read failed; their idle sessions cannot be told apart from absent ones. */
   unreadable: ReadonlySet<string>;
+  /** History sessions debriefed without the idle wait: those with no issue, and, while a board is read, those whose issue has no card. */
+  offBoard: ReadonlySet<string>;
 }
 
 export interface DebriefDeps {
@@ -54,6 +56,8 @@ interface Candidate {
   cwd: string;
   /** Last finished turn: the Stop marker for a live session, the transcript write for a closed one. */
   lastAt: number;
+  /** How long after `lastAt` the session is due. */
+  waitMs: number;
 }
 
 /** The settings one scan uses throughout, so a change mid-scan cannot mix two configurations. */
@@ -95,13 +99,13 @@ export function dueSessions(sessions: DebriefSessions, state: DebriefState, now:
     // Without a Stop marker the hub cannot tell a long tool call from a finished turn.
     if (activity?.event !== 'Stop' || (activity.backgroundTasks ?? 0) > 0) continue;
 
-    candidates.push({ sessionId: session.sessionId, cwd: session.cwd, lastAt: activity.at });
+    candidates.push({ sessionId: session.sessionId, cwd: session.cwd, lastAt: activity.at, waitMs: DEBRIEF_IDLE_MS });
   }
 
   for (const session of sessions.history) {
     if (session.agent !== CLAUDE || live.has(session.sessionId)) continue;
 
-    candidates.push({ sessionId: session.sessionId, cwd: session.cwd, lastAt: session.updatedAt });
+    candidates.push({ sessionId: session.sessionId, cwd: session.cwd, lastAt: session.updatedAt, waitMs: sessions.offBoard.has(session.sessionId) ? 0 : DEBRIEF_IDLE_MS });
   }
 
   return candidates
@@ -109,7 +113,7 @@ export function dueSessions(sessions: DebriefSessions, state: DebriefState, now:
       const age = now - candidate.lastAt;
       const attemptedAt = state.sessions[candidate.sessionId]?.attemptedAt;
 
-      return age >= DEBRIEF_IDLE_MS && age < DEBRIEF_EXPIRY_MS && (!attemptedAt || now - Date.parse(attemptedAt) >= DEBRIEF_RETRY_MS);
+      return age >= candidate.waitMs && age < DEBRIEF_EXPIRY_MS && (!attemptedAt || now - Date.parse(attemptedAt) >= DEBRIEF_RETRY_MS);
     })
     .sort((left, right) => left.lastAt - right.lastAt);
 }
@@ -138,7 +142,7 @@ function codexDue(held: CodexDebriefState, now: number): boolean {
 }
 
 /**
- * Debrief finished Claude sessions (R52): fork each idle session once its work passes the floor, and append what the
+ * Debrief finished Claude sessions (R52): fork each one once it is due and its work passes the floor, and append what the
  * fork reports to the log. The only writer of the debrief state and log.
  */
 export class DebriefRunner {
