@@ -388,6 +388,35 @@ describe('hub process', () => {
     expect(hub.output()).toContain('Hub command failed');
   });
 
+  /** A run records its result at exit, when no hub may be running; the command must not start one (R39). */
+  it('writes a run result without starting a hub, and refuses a malformed one', async () => {
+    const home = tempHome();
+    const to = join(home, 'issue-19719.json').replace(/\\/g, '/');
+    const recorded = run(home, 'result', 'awaiting-approval', '--to', to, '--detail', 'Reply drafted.', '--approve', '/address-qa 19719 publish');
+
+    expect(await recorded.ended).toBe(0);
+    expect(recorded.output()).toBe('Result recorded: awaiting-approval.\n');
+    expect(JSON.parse(readFileSync(to, 'utf8'))).toEqual({ outcome: 'awaiting-approval', detail: 'Reply drafted.', approve: '/address-qa 19719 publish' });
+    expect(existsSync(hubJsonPath(home))).toBe(false);
+
+    const refused = run(home, 'result', 'done', '--to', to, '--detail', 'x');
+
+    expect(await refused.ended).toBe(1);
+    expect(refused.output()).toMatch(/^Usage: result <completed\|awaiting-approval\|blocked>/);
+    expect(JSON.parse(readFileSync(to, 'utf8'))).toMatchObject({ outcome: 'awaiting-approval' });
+
+    // The run's text is not the entry's own option, even where it looks like one.
+    const literal = run(home, 'result', 'blocked', '--to', to, '--detail=--home=x is not a home');
+
+    expect(await literal.ended).toBe(0);
+    expect(JSON.parse(readFileSync(to, 'utf8'))).toEqual({ outcome: 'blocked', detail: '--home=x is not a home' });
+
+    const unwritten = run(home, 'result', 'blocked', '--to', join(home, 'missing', 'issue-1.json').replace(/\\/g, '/'), '--detail', 'x');
+
+    expect(await unwritten.ended).toBe(2);
+    expect(unwritten.output()).toMatch(/^Result not recorded: /);
+  });
+
   it('ends itself when nobody has connected for the idle span', async () => {
     const home = tempHome();
     const hub = run(home, '--idle-ms=300');

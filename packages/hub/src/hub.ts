@@ -5,7 +5,7 @@ import { BASE_MERGE, CREATE_WORKTREE, runTextCli, DEFAULT_SESSION_SCOPE, MANUAL_
 import type { WorktreeScan } from '@ground-control/board';
 import type { ActionHistoryView, ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, CustodyHistory, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StageAnswer, StageRequest, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
-import { actionEnabled } from '@ground-control/automation';
+import { actionEnabled, resultCommand } from '@ground-control/automation';
 import { activityAcknowledgement, activityNotice, pruneMarkers, syncActivity } from './activityInstall.js';
 import { perRun } from './perRun.js';
 import { IssueLookup } from './issueLookup.js';
@@ -34,7 +34,7 @@ import { configureAgentHomes, configureHosts, configureSources, defaultConfig } 
 import { acceptAgentHomes, defaultAgentHomes } from './agentHomes.js';
 import type { Registries } from './registry.js';
 import { readLogTail } from './logger.js';
-import { logPathOf } from './paths.js';
+import { bundlePathOf, logPathOf } from './paths.js';
 
 /** Inject the clock to test both polling intervals without waiting. */
 export interface HubClock {
@@ -316,6 +316,7 @@ export class Hub {
     this.#triage.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources(), this.#config.actions.testBranchPattern);
     this.#actions = new ActionRunner({
       stateDir: deps.stateDir,
+      resultCommand: resultCommand(bundlePathOf(deps.home)),
       store: deps.actions,
       ...(deps.actionHistory === undefined ? {} : { history: deps.actionHistory }),
       log: this.#scopedLog(),

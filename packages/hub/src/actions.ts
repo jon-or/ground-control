@@ -96,6 +96,8 @@ export interface ActionDeps {
   branchWorktree(repository: string, branch: string): { root: string } | { refusal: string };
   /** The issue a branch name links to under the configured pattern, or null. */
   issueOfBranch(branch: string): number | null;
+  /** The command an unattended run records its result with (`resultCommand`). */
+  resultCommand: string;
 }
 
 /** Time allowed for the CLI to print its dispatch ID (M33). */
@@ -500,7 +502,7 @@ export class ActionRunner {
       await this.#start(key, row, request, agent, signal, {
         runKey: key,
         label: `the approval of ${triageLabel(row.action, row.qualifier)}`,
-        prompt: (reportPath) => approvalPrompt(run.approve, reportPath),
+        prompt: (reportPath) => approvalPrompt(run.approve, reportPath, this.#deps.resultCommand),
         checkout,
         issueNumber,
         record: {
@@ -1373,7 +1375,7 @@ export class ActionRunner {
     return this.#start(key, row, request, agent, signal, {
       runKey: key,
       label: triageLabel(plan.action, plan.qualifier),
-      prompt: withValues(promptFor(rowFor(this.#settings.table, plan.action, plan.qualifier)), (reportPath) => promptValues(plan, checkout, reportPath)),
+      prompt: withValues(promptFor(rowFor(this.#settings.table, plan.action, plan.qualifier)), (reportPath) => promptValues(plan, checkout, reportPath), this.#deps.resultCommand),
       checkout,
       issueNumber: plan.issueNumber,
       record: {
@@ -1403,7 +1405,7 @@ export class ActionRunner {
     return this.#start(cardKey, row, request, agent, signal, {
       runKey: baseKeyOf(base.repository, base.branch),
       label: triageLabel('merge', BASE_MERGE),
-      prompt: withValues(promptFor(baseRowOf(this.#settings.table)), (reportPath) => basePromptValues(base, worktree, reportPath)),
+      prompt: withValues(promptFor(baseRowOf(this.#settings.table)), (reportPath) => basePromptValues(base, worktree, reportPath), this.#deps.resultCommand),
       checkout: worktree,
       issueNumber: base.issueNumber,
       sessionIssue: cardIssue,
@@ -1668,7 +1670,7 @@ export class ActionRunner {
 
     const outcome = await agent.dispatch!({
       path: configured.path,
-      prompt: worktreePrompt(template, worktreePromptValues(card, clone.cwd, reportPath, pullRequest)),
+      prompt: worktreePrompt(template, worktreePromptValues(card, clone.cwd, reportPath, pullRequest), this.#deps.resultCommand),
       name: dispatchName(CREATE_WORKTREE, card.issueNumber),
       cwd: clone.cwd,
       permissionMode: this.#settings.permissionMode,
@@ -1843,8 +1845,12 @@ function busySessions(card: LanedCard, except?: string): number {
 }
 
 /** A row's prompt filled with the run's placeholders, or null where the row has none. */
-function withValues(template: string | null, values: (reportPath: string) => Parameters<typeof actionPrompt>[1]): ((reportPath: string) => string) | null {
-  return template === null ? null : (reportPath) => actionPrompt(template, values(reportPath));
+function withValues(
+  template: string | null,
+  values: (reportPath: string) => Parameters<typeof actionPrompt>[1],
+  command: string,
+): ((reportPath: string) => string) | null {
+  return template === null ? null : (reportPath) => actionPrompt(template, values(reportPath), command);
 }
 
 /** The card's pull request as a worktree run needs it (R46). */

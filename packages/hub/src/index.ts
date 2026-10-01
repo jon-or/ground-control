@@ -33,6 +33,7 @@ export type { HubServer, HubServerDeps, ServableHub, ServerClock } from './serve
 export { fingerprintOf, readHubRecord, recordedHub, sendStage, stopHub } from './discover.js';
 export type { HubIdentity, HubRecord, LiveHub, StageSent } from './discover.js';
 export { STAGE_EXIT, STAGE_USAGE, parseStageArgs, stageOutcome } from './stageCommand.js';
+export { RESULT_EXIT, RESULT_USAGE, parseResultArgs, recordResult } from './resultCommand.js';
 export { LOGS_KEPT, LOG_LIMIT_BYTES, openLog, rotateLog } from './log.js';
 export { BACKFILL_BYTES, fileSink, makeLogger, readLogTail } from './logger.js';
 export type { LoggerDeps } from './logger.js';

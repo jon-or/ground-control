@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import {
   BROWSERS,
@@ -6,8 +7,10 @@ import {
   installChromeHost,
   makeLogger,
   parseBrowsers,
+  parseResultArgs,
   parseStageArgs,
   realChromeHostDeps,
+  recordResult,
   sendStage,
   serveHub,
   stageOutcome,
@@ -35,6 +38,17 @@ function flag(argv: readonly string[], name: string): string | null {
   return match.includes('=') ? match.slice(match.indexOf('=') + 1) : '';
 }
 
+/** Git Bash's root as `cygpath -m /` prints it, which it puts in place of a leading `/` (M33); null elsewhere. */
+function msysRoot(): string | null {
+  if (process.platform !== 'win32' || process.env.MSYSTEM === undefined) return null;
+
+  try {
+    return execFileSync('cygpath', ['-m', '/'], { encoding: 'utf8', timeout: 5_000, windowsHide: true }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const home = flag(argv, 'home') || homedir();
   const inheritAgentEnv = flag(argv, 'home') === null || flag(argv, 'inherit-agent-env') !== null;
@@ -60,6 +74,27 @@ async function main(argv: readonly string[]): Promise<number> {
 
     (outcome.code === 0 ? process.stdout : process.stderr).write(`${outcome.line}
 `);
+
+    return outcome.code;
+  }
+
+  // `result <outcome> --to <path> --detail <text>` writes an unattended run's result file, which the hub reads when
+  // the run ends (R39). It needs no running hub.
+  // Its arguments are the run's own text, so only a `--home=` before the subcommand is removed.
+  const first = argv.findIndex((argument) => !argument.startsWith('--home='));
+
+  if (argv[first] === 'result') {
+    const request = parseResultArgs(argv.slice(first + 1), msysRoot());
+
+    if ('usage' in request) {
+      process.stderr.write(`${request.usage}\n`);
+
+      return 1;
+    }
+
+    const outcome = recordResult(request);
+
+    (outcome.code === 0 ? process.stdout : process.stderr).write(`${outcome.line}\n`);
 
     return outcome.code;
   }

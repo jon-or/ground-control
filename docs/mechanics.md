@@ -156,7 +156,7 @@ An absolute `createFileSystemWatcher` outside the workspace was exercised in a d
 
 ### Claude background dispatch and attach
 
-**Records M1 and M33. Runtime/source, 2026-09-01 and 2026-09-05–08; later probes CLI 2.1.261, argument handling 2026-09-16 on CLI 2.1.273, process lifetime 2026-09-29 on CLI 2.1.285. Used by actions.**
+**Records M1 and M33. Runtime/source, 2026-09-01 and 2026-09-05–08; later probes CLI 2.1.261, argument handling 2026-09-16 on CLI 2.1.273, process lifetime 2026-09-29 on CLI 2.1.285, environment 2026-10-01 on CLI 2.1.286. Used by actions.**
 
 ```text
 claude --bg --permission-mode <mode> -n <name> <prompt>
@@ -167,6 +167,10 @@ stderr: Starting background service…
 The eight-character ID is a prefix of `sessionId` on the next roster read. `--bg` warns and ignores `--session-id`; the caller cannot select the new ID. Parse stdout separately from startup diagnostics. The printed format is undocumented.
 
 A leading slash in the prompt invokes a command/skill. Text on later lines of the same prompt reaches what the slash invokes. Probing `/probe source:master target:feature` with a trailing paragraph, a command's `$ARGUMENTS` expanded to the arguments and the paragraph while `$1` took only its own token; a skill invoked the same way received both. A command body reading positional arguments alone therefore drops appended text, so Ground Control's appended result contract reaches skills and `$ARGUMENTS` commands but not positional-only ones. An unknown slash command still starts an idle session, writing warnings without a user turn. Successful dispatch is not successful work. Git Bash rewrote `/gc-nonexistent-probe hello` into a Git-install path; pass arguments without shell/MSYS rewriting. The CLI runner refuses batch shims rather than silently adding a shell.
+
+A background session takes its environment from the background service, not from the `claude --bg` call. On CLI 2.1.286 (2026-10-01), a dispatch that started the service with `GC_ENV_PROBE=probe-7731` saw that value; a second dispatch with `GC_ENV_PROBE=second-4410`, while the service ran, also saw `probe-7731`. An environment variable therefore cannot carry a per-run value such as the result path; the prompt carries it.
+
+From Git Bash, a native program receives an argument that starts with `/`, or has `/` after `=`, with Git's root put in place of the slash: `/address-qa 19719 publish` arrived as `C:/Program Files/Git/address-qa 19719 publish`, and `--approve=/x` as `--approve=C:/Program Files/Git/x` (2026-10-01). `cygpath -m /` prints that root; `MSYSTEM` is set in such a shell. A slash later in an argument, as in `see /tmp/x`, was unchanged. PowerShell passes these arguments unchanged.
 
 Permission probes requested Write and Bash in a scratch repository:
 

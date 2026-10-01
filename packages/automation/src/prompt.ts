@@ -86,50 +86,65 @@ export function worktreePromptValues(
 }
 
 /**
- * Result-file contract appended to a prompt that does not name `{resultPath}` itself. An unattended run reports
- * no other way, so the board states the contract instead of requiring it in every developer prompt.
+ * A path quoted so Bash and PowerShell both pass it unchanged. Single quotes stop `$` expansion, but neither shell
+ * escapes an apostrophe in them the same way, so a path with one takes double quotes unless it also has `$`, `` ` ``, or `"`.
  */
-function reportContract(resultPath: string, shape: string): string {
+function quotedPath(path: string): string {
+  const forward = path.replaceAll('\\', '/');
+
+  return forward.includes("'") && !/[$`"]/.test(forward) ? `"${forward}"` : `'${forward}'`;
+}
+
+/** How a run reaches the hub bundle's `result` command: `node 'C:/Users/dev/.claude/ground-control/hub.js' result`. */
+export function resultCommand(bundlePath: string): string {
+  return `node ${quotedPath(bundlePath)} result`;
+}
+
+/**
+ * Result contract appended to a prompt that does not name `{resultPath}` itself. An unattended run reports no other
+ * way, so the board states the contract instead of requiring it in every developer prompt.
+ */
+function reportContract(command: string, resultPath: string, shape: string): string {
   return (
-    `\n\nThis run is unattended. Before you finish, write JSON to ${resultPath}: ${shape} ` +
-    'Write every key of whichever object you write, however the run ends, and ask no questions.'
+    '\n\nThis run is unattended. Before you finish, however the run ends, record its result by running ' +
+    `${command} <outcome> --to ${quotedPath(resultPath)} --detail '<text>', quoting each value so your shell passes it ` +
+    `unchanged, and ask no questions. ${shape}`
   );
 }
 
 const ACTION_SHAPE =
-  '{"outcome":"completed","detail":"<what happened>"} once the work is complete; ' +
-  '{"outcome":"awaiting-approval","detail":"<what is ready and what approving it does>"} when the work is complete except ' +
-  'for a step the developer must approve, such as posting or publishing; otherwise ' +
-  '{"outcome":"blocked","detail":"<the question or problem that stopped it>"}. ' +
-  'Add "auditPath":"<absolute path>" when the run wrote a Markdown report, and, to awaiting-approval, ' +
-  '"approve":"<the prompt that performs the step>" when a prompt can perform it.';
+  'The outcome is completed once the work is complete; awaiting-approval when the work is complete except for a step ' +
+  'the developer must approve, such as posting or publishing, with a detail saying what is ready and what approving ' +
+  "does; otherwise blocked, with a detail naming the question or problem that stopped it. Add --audit '<absolute path>' " +
+  "when the run wrote a Markdown report, and, to awaiting-approval, --approve '<the prompt that performs the step>' " +
+  'when a prompt can perform it.';
 
 const WORKTREE_SHAPE =
-  '{"outcome":"completed","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +
-  '{"outcome":"blocked","detail":"<why no worktree>"}.';
+  "The outcome is completed, with --worktree '<absolute path of the worktree>', once the worktree exists; otherwise " +
+  'blocked, with a detail saying why there is no worktree.';
 
 /** Fill an action prompt, appending the result contract unless the prompt places `{resultPath}` itself. */
-export function actionPrompt(template: string, values: PromptValues): string {
+export function actionPrompt(template: string, values: PromptValues, command: string): string {
   const filled = fillTemplate(template, values);
 
-  return template.includes('{resultPath}') ? filled : filled + reportContract(values.resultPath, ACTION_SHAPE);
+  return template.includes('{resultPath}') ? filled : filled + reportContract(command, values.resultPath, ACTION_SHAPE);
 }
 
 /**
  * The prompt a run awaiting approval named, which approving runs (R39). It is the session's own text, so only
  * `{resultPath}` is filled; without it, the result contract is appended.
  */
-export function approvalPrompt(prompt: string, resultPath: string): string {
+export function approvalPrompt(prompt: string, resultPath: string, command: string): string {
   return prompt.includes('{resultPath}')
     ? prompt.replaceAll('{resultPath}', resultPath)
-    : prompt + reportContract(resultPath, ACTION_SHAPE);
+    : prompt + reportContract(command, resultPath, ACTION_SHAPE);
 }
 
 /** Fill a worktree prompt, appending the result contract unless the prompt places `{resultPath}` itself. */
-export function worktreePrompt(template: string, values: WorktreePromptValues): string {
+export function worktreePrompt(template: string, values: WorktreePromptValues, command: string): string {
   const filled = fillTemplate(template, values);
 
-  return template.includes('{resultPath}') ? filled : filled + reportContract(values.resultPath, WORKTREE_SHAPE);
+  return template.includes('{resultPath}') ? filled : filled + reportContract(command, values.resultPath, WORKTREE_SHAPE);
 }
 
 /** Display name identifying the board-started run, its row, and the issue. */

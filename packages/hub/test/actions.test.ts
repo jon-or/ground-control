@@ -37,7 +37,7 @@ import { makeCheckoutStore, makeWorktreeStore } from '../src/checkoutStore.js';
 import { makeActionHistoryStore, makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeStatusStore } from '../src/statusStore.js';
-import { actionReportPathOf } from '../src/paths.js';
+import { actionReportPathOf, bundlePathOf } from '../src/paths.js';
 import { REPORT_FILE_LIMIT } from '../src/report.js';
 import { captureLog, cloneAt, fakeClock, fakeSession, reportingAgent, tempHome, worktreeAt } from './helpers.js';
 
@@ -756,7 +756,9 @@ describe('dispatching a card action', () => {
     });
     expect(control.dispatched[0]?.prompt).toMatch(/^\/or-merge master 17198-channel-mapping 17198 --single\n\n/);
     // A prompt that never names the result file still reports, or every unattended run settles as blocked.
-    expect(control.dispatched[0]?.prompt).toContain(`write JSON to ${actionReportPathOf(stateDir, control.key())}`);
+    expect(control.dispatched[0]?.prompt).toContain(
+      `node '${bundlePathOf(home).replace(/\\/g, '/')}' result <outcome> --to '${actionReportPathOf(stateDir, control.key())}'`,
+    );
   });
 
   it('does not dispatch disabled actions', async () => {
@@ -1092,7 +1094,7 @@ describe('the action table', () => {
     expect(control.dispatched).toHaveLength(1);
     expect(control.dispatched[0]).toMatchObject({ cwd: CHECKOUT, name: 'ground-control · review-others initial · #17198' });
     expect(control.dispatched[0]?.prompt).toMatch(/^\/review-pr 4021 17198-channel-mapping\n\n/);
-    expect(control.dispatched[0]?.prompt).toContain('"outcome":"completed"');
+    expect(control.dispatched[0]?.prompt).toContain('The outcome is completed once the work is complete');
     expect(control.cardAction()).toMatchObject({ state: 'running', action: 'review-others', qualifier: 'initial' });
   });
 
@@ -2022,8 +2024,8 @@ describe('making the worktree an action needs', () => {
 
     const prompt = control.dispatched[0]?.prompt ?? '';
 
-    expect(prompt).toContain(`write JSON to ${actionReportPathOf(stateDir, control.key())}`);
-    expect(prompt).toContain('"outcome":"completed"');
+    expect(prompt).toContain(`result <outcome> --to '${actionReportPathOf(stateDir, control.key())}'`);
+    expect(prompt).toContain("completed, with --worktree '<absolute path of the worktree>'");
   });
 
   it('records the worktree the run reports, then starts the action in it as the same attempt', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionPrompt, approvalPrompt, basePromptValues, dispatchName, promptValues, worktreePrompt, worktreePromptValues } from '../src/prompt.js';
+import { actionPrompt, approvalPrompt, basePromptValues, dispatchName, promptValues, resultCommand, worktreePrompt, worktreePromptValues } from '../src/prompt.js';
 import { fillTemplate } from '@ground-control/core';
 import type { ActionPlan } from '../src/plan.js';
 
@@ -114,6 +114,7 @@ const BREAK = '\n\n';
 
 describe('result contract', () => {
   const values = promptValues(PLAN, 'd:/work/repo.worktrees/17198-channel-mapping', 'C:/runs/issue-17198.json');
+  const command = resultCommand('C:\\Users\\dev/.claude/ground-control/hub.js');
   const worktreeValues = worktreePromptValues(
     { issueNumber: 17198, issue: { title: 'Channel mapping drops the last row', url: 'https://example.invalid/17198' } },
     'd:/work/repo',
@@ -121,55 +122,63 @@ describe('result contract', () => {
     null,
   );
 
-  /** An unattended run reports only through the file, so a prompt that never mentions it always looks blocked. */
+  /** An unattended run reports only through the command, so a prompt that never mentions it always looks blocked. */
   it('appends the action report contract, word for word, to a prompt that omits the path', () => {
-    expect(actionPrompt('/or-merge {base} {branch} {issue} --single', values)).toBe(
+    expect(actionPrompt('/or-merge {base} {branch} {issue} --single', values, command)).toBe(
       '/or-merge master 17198-channel-mapping 17198 --single' + BREAK +
-        'This run is unattended. Before you finish, write JSON to C:/runs/issue-17198.json: ' +
-        '{"outcome":"completed","detail":"<what happened>"} once the work is complete; ' +
-        '{"outcome":"awaiting-approval","detail":"<what is ready and what approving it does>"} when the work is complete except ' +
-        'for a step the developer must approve, such as posting or publishing; otherwise ' +
-        '{"outcome":"blocked","detail":"<the question or problem that stopped it>"}. ' +
-        'Add "auditPath":"<absolute path>" when the run wrote a Markdown report, and, to awaiting-approval, ' +
-        '"approve":"<the prompt that performs the step>" when a prompt can perform it. ' +
-        'Write every key of whichever object you write, however the run ends, and ask no questions.',
+        'This run is unattended. Before you finish, however the run ends, record its result by running ' +
+        "node 'C:/Users/dev/.claude/ground-control/hub.js' result <outcome> --to 'C:/runs/issue-17198.json' --detail '<text>', " +
+        'quoting each value so your shell passes it unchanged, and ask no questions. ' +
+        'The outcome is completed once the work is complete; awaiting-approval when the work is complete except for a step the developer must approve, such as posting or publishing, with a detail saying what ' +
+        'is ready and what approving does; otherwise blocked, with a detail naming the question or problem that stopped ' +
+        "it. Add --audit '<absolute path>' when the run wrote a Markdown report, and, to awaiting-approval, " +
+        "--approve '<the prompt that performs the step>' when a prompt can perform it.",
     );
   });
 
   it('appends the worktree report contract, word for word, naming completed and the absolute path', () => {
-    expect(worktreePrompt('/init-worktree {issue}', worktreeValues)).toBe(
+    expect(worktreePrompt('/init-worktree {issue}', worktreeValues, command)).toBe(
       '/init-worktree 17198' + BREAK +
-        'This run is unattended. Before you finish, write JSON to C:/runs/issue-17198.json: ' +
-        '{"outcome":"completed","worktree":"<absolute path of the worktree>","detail":"<what happened>"}, or ' +
-        '{"outcome":"blocked","detail":"<why no worktree>"}. ' +
-        'Write every key of whichever object you write, however the run ends, and ask no questions.',
+        'This run is unattended. Before you finish, however the run ends, record its result by running ' +
+        "node 'C:/Users/dev/.claude/ground-control/hub.js' result <outcome> --to 'C:/runs/issue-17198.json' --detail '<text>', " +
+        'quoting each value so your shell passes it unchanged, and ask no questions. ' +
+        "The outcome is completed, with --worktree '<absolute path of the worktree>', once the worktree exists; otherwise " +
+        'blocked, with a detail saying why there is no worktree.',
     );
   });
 
+  /** Bash and PowerShell escape an apostrophe inside single quotes differently, so neither form would parse in both. */
+  it('double-quotes a path with an apostrophe, and single-quotes one that could also expand', () => {
+    const prompt = actionPrompt('/merge', { ...values, resultPath: "C:/Users/O'Brien/runs/issue-1.json" }, resultCommand("C:\\Users\\O'Brien/hub.js"));
+
+    expect(prompt).toContain(`node "C:/Users/O'Brien/hub.js" result <outcome> --to "C:/Users/O'Brien/runs/issue-1.json" --detail`);
+    expect(resultCommand('C:/Users/dev$qa/hub.js')).toBe("node 'C:/Users/dev$qa/hub.js' result");
+    expect(resultCommand("C:/Users/O'$x/hub.js")).toBe("node 'C:/Users/O'$x/hub.js' result");
+  });
+
   it('leaves a prompt that places the path itself exactly as written', () => {
-    expect(actionPrompt('/or-merge {branch} --report {resultPath}', values)).toBe(
+    expect(actionPrompt('/or-merge {branch} --report {resultPath}', values, command)).toBe(
       '/or-merge 17198-channel-mapping --report C:/runs/issue-17198.json',
     );
-    expect(worktreePrompt('/init-worktree {issue} --report {resultPath}', worktreeValues)).toBe(
+    expect(worktreePrompt('/init-worktree {issue} --report {resultPath}', worktreeValues, command)).toBe(
       '/init-worktree 17198 --report C:/runs/issue-17198.json',
     );
   });
 
   /** The session wrote the approval prompt, so no other placeholder is the board's to fill (R39). */
   it('fills only the result path in an approval prompt, and appends the contract where it has none', () => {
-    expect(approvalPrompt('/address-qa 19719 publish {issue} result:{resultPath}', 'C:/runs/issue-19719.json')).toBe(
+    expect(approvalPrompt('/address-qa 19719 publish {issue} result:{resultPath}', 'C:/runs/issue-19719.json', command)).toBe(
       '/address-qa 19719 publish {issue} result:C:/runs/issue-19719.json',
     );
-    expect(approvalPrompt('/address-qa 19719 publish', 'C:/runs/issue-19719.json')).toBe(
+    expect(approvalPrompt('/address-qa 19719 publish', 'C:/runs/issue-19719.json', command)).toBe(
       '/address-qa 19719 publish' + BREAK +
-        'This run is unattended. Before you finish, write JSON to C:/runs/issue-19719.json: ' +
-        '{"outcome":"completed","detail":"<what happened>"} once the work is complete; ' +
-        '{"outcome":"awaiting-approval","detail":"<what is ready and what approving it does>"} when the work is complete except ' +
-        'for a step the developer must approve, such as posting or publishing; otherwise ' +
-        '{"outcome":"blocked","detail":"<the question or problem that stopped it>"}. ' +
-        'Add "auditPath":"<absolute path>" when the run wrote a Markdown report, and, to awaiting-approval, ' +
-        '"approve":"<the prompt that performs the step>" when a prompt can perform it. ' +
-        'Write every key of whichever object you write, however the run ends, and ask no questions.',
+        'This run is unattended. Before you finish, however the run ends, record its result by running ' +
+        "node 'C:/Users/dev/.claude/ground-control/hub.js' result <outcome> --to 'C:/runs/issue-19719.json' --detail '<text>', " +
+        'quoting each value so your shell passes it unchanged, and ask no questions. ' +
+        'The outcome is completed once the work is complete; awaiting-approval when the work is complete except for a step the developer must approve, such as posting or publishing, with a detail saying what ' +
+        'is ready and what approving does; otherwise blocked, with a detail naming the question or problem that stopped ' +
+        "it. Add --audit '<absolute path>' when the run wrote a Markdown report, and, to awaiting-approval, " +
+        "--approve '<the prompt that performs the step>' when a prompt can perform it.",
     );
   });
 });
