@@ -156,10 +156,10 @@ export class DebriefRunner {
   /** The last condition logged, so a scan repeating it every minute says it once. */
   #said = '';
   /**
-   * State a write could not store. No model call starts until it is stored, so a failed write can neither repeat paid
-   * work nor reset a retry count.
+   * Log lines and state a write could not store. No model call starts until they are stored, so a failed write can
+   * neither discard a paid answer, repeat paid work, nor reset a retry count.
    */
-  #unsaved: { dir: string; state: DebriefState } | null = null;
+  #unsaved: { dir: string; lines: DebriefLogEntry[]; state: DebriefState } | null = null;
 
   constructor(deps: DebriefDeps) {
     this.#deps = deps;
@@ -241,7 +241,11 @@ export class DebriefRunner {
 
     if (scan === null) return;
 
-    let state = this.#stored(scan);
+    const stored = this.#stored(scan);
+
+    if (stored === null) return;
+
+    let state = this.#reconciled(scan, stored);
 
     if (state === null) return;
 
@@ -264,33 +268,29 @@ export class DebriefRunner {
       if (next === null || !this.#current(scan)) break;
 
       tried.add(next.candidate.sessionId);
-      const outcome = await this.#debrief(scan, state, next.candidate, next.range);
-
-      state = outcome.state;
-
-      // A debrief recovered from the log leaves the work after it to consider now, while the session is in its window.
-      if (outcome.recovered) tried.delete(next.candidate.sessionId);
-
+      state = await this.#debrief(scan, state, next.candidate, next.range);
       state = await this.#askCodex(scan, state);
     }
   }
 
-  /** The state to scan with: one a write could not store, once it is stored, else the file's. */
+  /**
+   * The state to scan with: one a write could not store, once it is stored, else the file's. What a write could not
+   * store goes to the directory it came from, even after the setting moved, so a held answer is not lost.
+   */
   #stored(scan: ScanSettings): DebriefState | null {
     const unsaved = this.#unsaved;
 
-    if (unsaved !== null && unsaved.dir === scan.dir) {
-      if (!scan.store.writeState(unsaved.state)) {
-        this.#say('unsaved', `${scan.dir}/state.json cannot be written; debriefs wait until it can.`, 'warn');
+    if (unsaved !== null) {
+      this.#unsaved = DebriefRunner.#persist(unsaved.dir === scan.dir ? scan.store : this.#deps.store(unsaved.dir), unsaved.dir, unsaved.state, unsaved.lines);
+
+      if (this.#unsaved !== null) {
+        this.#say('unsaved', `${DebriefRunner.#unwritten(this.#unsaved)} cannot be written; debriefs wait until it can.`, 'warn');
         return null;
       }
 
-      this.#unsaved = null;
-      return unsaved.state;
+      if (unsaved.dir === scan.dir) return unsaved.state;
     }
 
-    // Settings moved to another directory; the unstored state belongs to the old one.
-    this.#unsaved = null;
     const state = scan.store.readState();
 
     if (state === null) this.#say('bad-state', `${scan.dir}/state.json cannot be read; debriefs wait until it can.`, 'warn');
@@ -327,52 +327,71 @@ export class DebriefRunner {
     return range;
   }
 
-  /** A successful debrief of `range`: the session's record moves past it, and its Codex threads wait to be asked. */
-  static #covered(state: DebriefState, candidate: Candidate, range: DebriefRange, at: string): DebriefState {
+  /**
+   * Bring the state up to the log. A hub that stopped between appending a line and storing the state leaves the log
+   * ahead: a Claude line becomes its session's last debrief whether or not the session is still in its window, and a
+   * Codex line moves its thread's `--since` past it. A log that cannot be read stops the scan.
+   */
+  #reconciled(scan: ScanSettings, state: DebriefState): DebriefState | null {
+    const logged = scan.store.logged();
+
+    if ('unreadable' in logged) {
+      this.#say('bad-log', `${scan.dir}/log cannot be read, so what was debriefed is unknown; debriefs wait until it can.`, 'warn');
+      return null;
+    }
+
+    let next = state;
+
+    for (const [sessionId, line] of logged.claude) {
+      const held = next.sessions[sessionId];
+
+      if (held?.debriefedAt && line.at <= held.debriefedAt) continue;
+
+      this.#deps.log.info(`${sessionId} is in the debrief log through ${line.throughMessageUuid}; recording it`, 'debrief');
+      next = DebriefRunner.#shown(DebriefRunner.#covered(next, sessionId, line.cwd, line.throughMessageUuid, line.delegated, line.at), sessionId, line.subagents, line.startedAt);
+    }
+
+    for (const [thread, line] of logged.codex) {
+      const held = next.codex[thread];
+
+      if (held === undefined || (held.debriefedAt !== null && line.at <= held.debriefedAt)) continue;
+
+      next = { ...next, codex: { ...next.codex, [thread]: { ...held, debriefedAt: line.at } } };
+    }
+
+    return next === state ? state : this.#save(scan, next);
+  }
+
+  /** A successful debrief through `through`: the session's record moves past it, and its Codex threads wait to be asked. */
+  static #covered(state: DebriefState, sessionId: string, cwd: string, through: string | null, delegated: readonly string[], at: string): DebriefState {
     const codex = { ...state.codex };
 
-    for (const thread of range.delegated) {
+    for (const thread of delegated) {
       const held = codex[thread];
 
       // A thread the command said is not Codex's has neither a debrief nor an error.
       if (held !== undefined && !held.pending && held.debriefedAt === null && held.lastError === null) continue;
 
-      codex[thread] = { parentSessionId: candidate.sessionId, cwd: candidate.cwd, debriefedAt: held?.debriefedAt ?? null, lastError: held?.lastError ?? null, pending: true, attempts: 0, attemptedAt: null };
+      codex[thread] = { parentSessionId: sessionId, cwd, debriefedAt: held?.debriefedAt ?? null, lastError: held?.lastError ?? null, pending: true, attempts: 0, attemptedAt: null };
     }
 
     return {
       ...state,
       sessions: {
         ...state.sessions,
-        [candidate.sessionId]: { throughMessageUuid: range.throughMessageUuid, debriefedAt: at, attempts: 0, lastError: null, attemptedAt: null, attemptedThrough: null },
+        [sessionId]: { throughMessageUuid: through, debriefedAt: at, attempts: 0, lastError: null, attemptedAt: null, attemptedThrough: null },
       },
       codex,
     };
   }
 
-  async #debrief(scan: ScanSettings, state: DebriefState, candidate: Candidate, range: DebriefRange): Promise<{ state: DebriefState; recovered: boolean }> {
+  /** The subagents a debrief that started at `startedAt` was shown, recorded as debriefed then. */
+  static #shown(state: DebriefState, sessionId: string, agentIds: readonly string[], startedAt: string): DebriefState {
+    return { ...state, subagents: { ...state.subagents, ...Object.fromEntries(agentIds.map((agentId) => [`${sessionId}/${agentId}`, startedAt])) } };
+  }
+
+  async #debrief(scan: ScanSettings, state: DebriefState, candidate: Candidate, range: DebriefRange): Promise<DebriefState> {
     const held = state.sessions[candidate.sessionId];
-
-    // A hub that stopped between appending a line and storing the state leaves the log ahead of the state.
-    const logged = scan.store.logged(candidate.sessionId);
-
-    if ('unreadable' in logged) {
-      this.#deps.log.warn(`${scan.dir}/log cannot be read, so whether ${candidate.sessionId} was debriefed is unknown; it waits`, 'debrief');
-      return { state, recovered: false };
-    }
-
-    const latest = logged.latest;
-
-    if (latest !== null && (!held?.debriefedAt || latest.at > held.debriefedAt)) {
-      this.#deps.log.info(`${candidate.sessionId} is in the debrief log through ${latest.throughMessageUuid}; recording it`, 'debrief');
-      const recovered = this.#save(scan, {
-        ...state,
-        sessions: { ...state.sessions, [candidate.sessionId]: { throughMessageUuid: latest.throughMessageUuid, debriefedAt: latest.at, attempts: 0, lastError: null, attemptedAt: null, attemptedThrough: null } },
-        subagents: { ...state.subagents, ...Object.fromEntries(latest.subagents.map((agentId) => [`${candidate.sessionId}/${agentId}`, latest.startedAt])) },
-      });
-
-      return { state: recovered, recovered: true };
-    }
 
     const forkId = this.#deps.newId();
     // One clock read: the fork chooses subagents by it, and a success records it as their last debrief.
@@ -404,25 +423,9 @@ export class DebriefRunner {
     }
 
     const at = new Date(this.#deps.now()).toISOString();
-    const entry: DebriefLogEntry | null = 'failure' in result ? null : {
-      v: 1,
-      at,
-      provider: 'claude',
-      sessionId: candidate.sessionId,
-      parentSessionId: null,
-      cwd: candidate.cwd,
-      fromMessageUuid: held?.throughMessageUuid ?? null,
-      throughMessageUuid: range.throughMessageUuid,
-      skills: range.skills,
-      toolCalls: range.toolCalls,
-      cache: result.cache,
-      friction: result.friction,
-      startedAt,
-      subagents: result.subagents,
-    };
-    const error = 'failure' in result ? result.failure.message : scan.store.appendLog(entry!) ? null : `could not append to ${scan.dir}/log`;
 
-    if (error !== null) {
+    if ('failure' in result) {
+      const error = result.failure.message;
       const attempts = held?.attemptedThrough === range.throughMessageUuid ? held.attempts + 1 : 1;
       const next: DebriefState = {
         ...state,
@@ -441,16 +444,33 @@ export class DebriefRunner {
 
       this.#deps.log.warn(`debrief of ${candidate.sessionId} failed (attempt ${attempts} of ${DEBRIEF_ATTEMPT_LIMIT}): ${error}`, 'debrief');
 
-      return { state: this.#save(scan, next), recovered: false };
+      return this.#save(scan, next);
     }
 
-    this.#deps.log.info(`debriefed ${candidate.sessionId}: ${entry!.friction.length} friction reports`, 'debrief');
+    const entry: DebriefLogEntry = {
+      v: 1,
+      at,
+      provider: 'claude',
+      sessionId: candidate.sessionId,
+      parentSessionId: null,
+      cwd: candidate.cwd,
+      fromMessageUuid: held?.throughMessageUuid ?? null,
+      throughMessageUuid: range.throughMessageUuid,
+      skills: range.skills,
+      toolCalls: range.toolCalls,
+      cache: result.cache,
+      friction: result.friction,
+      startedAt,
+      subagents: result.subagents,
+      delegated: range.delegated,
+    };
+
+    this.#deps.log.info(`debriefed ${candidate.sessionId}: ${entry.friction.length} friction reports`, 'debrief');
 
     // A subagent's later work is what it wrote after this fork started.
-    const covered = DebriefRunner.#covered(state, candidate, range, at);
-    const subagents = { ...covered.subagents, ...Object.fromEntries(('failure' in result ? [] : result.subagents).map((agentId) => [`${prefix}${agentId}`, startedAt])) };
+    const covered = DebriefRunner.#covered(state, candidate.sessionId, candidate.cwd, range.throughMessageUuid, range.delegated, at);
 
-    return { state: this.#save(scan, { ...covered, subagents }), recovered: false };
+    return this.#save(scan, DebriefRunner.#shown(covered, candidate.sessionId, result.subagents, startedAt), [entry]);
   }
 
   /**
@@ -473,10 +493,11 @@ export class DebriefRunner {
       if (!this.#current(scan)) break;
 
       const held = current.codex[thread]!;
-      const outcome = await this.#deps.runCodex(scan.codexScript, thread, scan.promptPath, held.debriefedAt, DEBRIEF_TIMEOUT_MS, this.#abort.signal);
+      const debriefedAt = held.debriefedAt;
+      const outcome = await this.#deps.runCodex(scan.codexScript, thread, scan.promptPath, debriefedAt, DEBRIEF_TIMEOUT_MS, this.#abort.signal);
       const at = new Date(this.#deps.now()).toISOString();
       let error: string | null = null;
-      let debriefedAt = held.debriefedAt;
+      let line: DebriefLogEntry | null = null;
 
       if (outcome.ok) {
         let answer;
@@ -488,13 +509,10 @@ export class DebriefRunner {
         }
 
         if (answer?.success) {
-          const logged = scan.store.appendLog({
+          line = {
             v: 1, at, provider: 'codex', sessionId: thread, parentSessionId: held.parentSessionId, cwd: held.cwd,
             fromMessageUuid: null, throughMessageUuid: null, skills: null, toolCalls: null, cache: null, friction: answer.data,
-          });
-
-          if (logged) debriefedAt = at;
-          else error = `could not append to ${scan.dir}/log`;
+          };
         } else {
           error = `the Codex debrief answer was not the friction JSON: ${outcome.text.slice(0, 200)}`;
         }
@@ -504,25 +522,37 @@ export class DebriefRunner {
 
       const attempts = error === null ? 0 : held.attempts + 1;
       const next: CodexDebriefState = error === null
-        ? { ...held, debriefedAt, lastError: null, pending: false, attempts, attemptedAt: null }
-        : { ...held, lastError: error, pending: attempts < DEBRIEF_ATTEMPT_LIMIT, attempts, attemptedAt: at };
+        ? { ...held, debriefedAt: line === null ? debriefedAt : at, lastError: null, pending: false, attempts, attemptedAt: null }
+        : { ...held, debriefedAt, lastError: error, pending: attempts < DEBRIEF_ATTEMPT_LIMIT, attempts, attemptedAt: at };
 
       if (error !== null) this.#deps.log.warn(`Codex debrief of ${thread} failed (attempt ${attempts} of ${DEBRIEF_ATTEMPT_LIMIT}): ${error}`, 'debrief');
 
-      current = this.#save(scan, { ...current, codex: { ...current.codex, [thread]: next } });
+      current = this.#save(scan, { ...current, codex: { ...current.codex, [thread]: next } }, line === null ? [] : [line]);
     }
 
     return current;
   }
 
-  /** Store the new state; one that cannot be stored is held, and stops model calls until a later scan stores it. */
-  #save(scan: ScanSettings, next: DebriefState): DebriefState {
-    if (!scan.store.writeState(next)) {
-      this.#unsaved = { dir: scan.dir, state: next };
-      this.#deps.log.warn(`could not write ${scan.dir}/state.json; debriefs wait until it can be written`, 'debrief');
-    }
+  /** Append the lines, then store the state; what cannot be stored is held, and stops model calls until a later scan stores it. */
+  #save(scan: ScanSettings, next: DebriefState, lines: DebriefLogEntry[] = []): DebriefState {
+    this.#unsaved = DebriefRunner.#persist(scan.store, scan.dir, next, lines);
+
+    if (this.#unsaved !== null) this.#deps.log.warn(`could not write ${DebriefRunner.#unwritten(this.#unsaved)}; debriefs wait until it can be written`, 'debrief');
 
     return next;
+  }
+
+  /** What is left unstored: the lines from the first that could not be appended, and the state, or null when all is stored. */
+  static #persist(store: DebriefStore, dir: string, state: DebriefState, lines: readonly DebriefLogEntry[]): { dir: string; lines: DebriefLogEntry[]; state: DebriefState } | null {
+    const failed = lines.findIndex((line) => !store.appendLog(line));
+
+    if (failed >= 0) return { dir, lines: lines.slice(failed), state };
+
+    return store.writeState(state) ? null : { dir, lines: [], state };
+  }
+
+  static #unwritten(unsaved: { dir: string; lines: readonly DebriefLogEntry[] }): string {
+    return unsaved.lines.length > 0 ? `${unsaved.dir}/log` : `${unsaved.dir}/state.json`;
   }
 }
 

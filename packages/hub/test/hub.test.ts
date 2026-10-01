@@ -21,7 +21,7 @@ import { lanesPathOf, logPathOf } from '../src/paths.js';
 import { DEFAULT_SESSION_SCOPE, bootstrapDirOf } from '@ground-control/core';
 import type { LogEntry } from '@ground-control/core';
 import { defaultConfig } from '../src/registry.js';
-import { captureLog, fakeClock, fakeHost, fakeReaders, fakeSession, reportingAgent, tempHome } from './helpers.js';
+import { captureLog, fakeClock, fakeHost, fakeReaders, fakeSession, loggedOf, reportingAgent, tempHome } from './helpers.js';
 import type { FakeAgentControl, FakeHostControl } from './helpers.js';
 import type { DebriefForkInput, DebriefForkResult, DebriefSignal } from '@ground-control/core';
 import type { DebriefLogEntry, DebriefState, DebriefStore } from '../src/debriefStore.js';
@@ -3608,10 +3608,7 @@ describe('friction debriefs (R52)', () => {
       readState: () => structuredClone(state),
       writeState: (next) => { state = structuredClone(next); return true; },
       appendLog: (entry) => { logs.push(entry); return true; },
-      logged: (sessionId) => {
-        const last = logs.filter((entry) => entry.sessionId === sessionId).at(-1);
-        return { latest: last === undefined ? null : { throughMessageUuid: last.throughMessageUuid!, at: last.at, startedAt: last.startedAt ?? last.at, subagents: last.subagents ?? [] } };
-      },
+      logged: () => loggedOf(logs),
     };
   }
 

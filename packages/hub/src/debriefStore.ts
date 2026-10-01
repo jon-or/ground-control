@@ -63,17 +63,26 @@ export interface DebriefLogEntry {
   startedAt?: string;
   /** A Claude line's subagents the fork was shown and may have asked. */
   subagents?: string[];
+  /** A Claude line's agent-delegate threads in the range, which a recovery from the log sets pending again. */
+  delegated?: string[];
 }
 
-/** The newest Claude line for a session, none, or a log that could not be read. */
-export type LoggedReading = { latest: LoggedDebrief | null } | { unreadable: true };
+/** The newest line for each Claude session and each Codex thread, or a log that could not be read. */
+export type LoggedReading = { claude: ReadonlyMap<string, LoggedDebrief>; codex: ReadonlyMap<string, LoggedDebrief> } | { unreadable: true };
 
-/** The newest debrief of a session the log holds; `subagents` is empty for a line written before they were recorded. */
+/** The newest debrief of a session the log holds; lists a line does not carry are empty. */
 export interface LoggedDebrief {
-  throughMessageUuid: string;
+  /** Always set on a Claude line; null on a Codex line. */
+  throughMessageUuid: string | null;
   at: string;
+  cwd: string;
   startedAt: string;
   subagents: string[];
+  delegated: string[];
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
 export interface DebriefStore {
@@ -81,8 +90,8 @@ export interface DebriefStore {
   readState(): DebriefState | null;
   writeState(state: DebriefState): boolean;
   appendLog(entry: DebriefLogEntry): boolean;
-  /** The newest Claude line for this session in the two newest log files. */
-  logged(sessionId: string): LoggedReading;
+  /** The newest line of each session in the two newest log files. */
+  logged(): LoggedReading;
 }
 
 /** Whether the file exists and its last byte is not a newline. */
@@ -153,16 +162,16 @@ export function makeDebriefStore(dir: string): DebriefStore {
       }
     },
 
-    logged(sessionId) {
+    logged() {
       let names: string[];
 
       try {
         names = readdirSync(`${dir}/log`).filter((name) => /^\d{4}-\d{2}\.jsonl$/.test(name)).sort().slice(-2);
       } catch (error) {
-        return missing(error) ? { latest: null } : { unreadable: true };
+        return missing(error) ? { claude: new Map(), codex: new Map() } : { unreadable: true };
       }
 
-      let latest: LoggedDebrief | null = null;
+      const latest = { claude: new Map<string, LoggedDebrief>(), codex: new Map<string, LoggedDebrief>() };
 
       for (const name of names) {
         let text;
@@ -175,22 +184,36 @@ export function makeDebriefStore(dir: string): DebriefStore {
         }
 
         for (const line of text.split('\n')) {
-          if (!line.includes(sessionId)) continue;
+          let parsed: unknown;
 
           try {
-            const entry = JSON.parse(line) as Partial<DebriefLogEntry>;
-
-            if (entry.provider === 'claude' && entry.sessionId === sessionId && typeof entry.throughMessageUuid === 'string' && typeof entry.at === 'string' && (latest === null || entry.at > latest.at)) {
-              const subagents = Array.isArray(entry.subagents) ? entry.subagents.filter((id): id is string => typeof id === 'string') : [];
-              latest = { throughMessageUuid: entry.throughMessageUuid, at: entry.at, startedAt: typeof entry.startedAt === 'string' ? entry.startedAt : entry.at, subagents };
-            }
+            parsed = JSON.parse(line);
           } catch {
             // A line cut short by a stopped write holds no debrief.
+            continue;
           }
+
+          if (typeof parsed !== 'object' || parsed === null) continue;
+
+          const entry = parsed as Partial<DebriefLogEntry>;
+
+          const through = typeof entry.throughMessageUuid === 'string' ? entry.throughMessageUuid : null;
+          const byId = entry.provider === 'claude' && through !== null ? latest.claude : entry.provider === 'codex' ? latest.codex : null;
+
+          if (byId === null || typeof entry.sessionId !== 'string' || typeof entry.at !== 'string' || (byId.get(entry.sessionId)?.at ?? '') >= entry.at) continue;
+
+          byId.set(entry.sessionId, {
+            throughMessageUuid: through,
+            at: entry.at,
+            cwd: typeof entry.cwd === 'string' ? entry.cwd : '',
+            startedAt: typeof entry.startedAt === 'string' ? entry.startedAt : entry.at,
+            subagents: strings(entry.subagents),
+            delegated: strings(entry.delegated),
+          });
         }
       }
 
-      return { latest };
+      return latest;
     },
   };
 }

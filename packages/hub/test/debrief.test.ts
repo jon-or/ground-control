@@ -6,7 +6,7 @@ import { DebriefRunner, promptFor, underHome } from '../src/debrief.js';
 import type { DebriefDeps, DebriefSessions } from '../src/debrief.js';
 import { EMPTY_DEBRIEF_STATE, makeDebriefStore } from '../src/debriefStore.js';
 import type { DebriefLogEntry, DebriefState, DebriefStore } from '../src/debriefStore.js';
-import { captureLog, fakeReaders, fakeSession, tempHome } from './helpers.js';
+import { captureLog, fakeReaders, fakeSession, loggedOf, tempHome } from './helpers.js';
 
 const MINUTE = 60_000;
 const NOW = 1_790_000_000_000;
@@ -95,12 +95,7 @@ function rig(): Rig {
         state.store.logs.push(entry);
         return true;
       },
-      logged: (sessionId) => {
-        if (state.store.logUnreadable) return { unreadable: true };
-        const lines = state.store.logs.filter((entry) => entry.provider === 'claude' && entry.sessionId === sessionId);
-        const last = lines.at(-1);
-        return { latest: last === undefined ? null : { throughMessageUuid: last.throughMessageUuid!, at: last.at, startedAt: last.startedAt ?? last.at, subagents: last.subagents ?? [] } };
-      },
+      logged: () => (state.store.logUnreadable ? { unreadable: true } : loggedOf(state.store.logs)),
     },
   };
   const adapter: AgentAdapter = {
@@ -169,7 +164,7 @@ describe('which sessions a scan debriefs', () => {
   it('forks a live session 45 minutes after its Stop, in its directory, and logs what it reports', async () => {
     const r = rig();
     r.sessions!.live = [idle(A, 45)];
-    r.ranges.set(A, range('m-12'));
+    r.ranges.set(A, range('m-12', 12, [THREAD]));
     r.answers.push(answered());
 
     await r.runner.scan();
@@ -179,7 +174,7 @@ describe('which sessions a scan debriefs', () => {
     expect(r.store.logs).toEqual([{
       v: 1, at: '2026-09-21T14:13:20.000Z', provider: 'claude', sessionId: A, parentSessionId: null, cwd: 'd:/work/a',
       fromMessageUuid: null, throughMessageUuid: 'm-12', skills: ['skill-a'], toolCalls: 12,
-      cache: { read: 75_491, created: 4_023, costUsd: 0.048 }, friction: FRICTION, startedAt: '2026-09-21T14:13:20.000Z', subagents: [],
+      cache: { read: 75_491, created: 4_023, costUsd: 0.048 }, friction: FRICTION, startedAt: '2026-09-21T14:13:20.000Z', subagents: [], delegated: [THREAD],
     }]);
     expect(r.store.state?.sessions[A]).toEqual({ throughMessageUuid: 'm-12', debriefedAt: '2026-09-21T14:13:20.000Z', attempts: 0, lastError: null, attemptedAt: null, attemptedThrough: null });
   });
@@ -407,6 +402,68 @@ describe('which sessions a scan debriefs', () => {
     expect(r.store.logs.at(-1)).toMatchObject({ fromMessageUuid: 'm-12', throughMessageUuid: 'm-24' });
   });
 
+  it('asks the Codex threads of a recovered debrief, each only about turns after its own logged line', async () => {
+    const r = rig();
+    r.files.add(SCRIPT);
+    r.sessions!.live = [idle(A, 45)];
+    r.ranges.set(A, range('m-12'));
+    r.store.logs.push(
+      { ...answeredLine(A), throughMessageUuid: 'm-12', at: '2026-09-21T13:10:00.000Z', delegated: [THREAD, 'later'] },
+      { ...answeredLine(THREAD), provider: 'codex', parentSessionId: A, throughMessageUuid: null, at: '2026-09-21T13:11:00.000Z' },
+    );
+    r.codexAnswers.push({ ok: false, reason: 'failed', detail: 'no turn since', exitCode: 3 }, { ok: true, text: JSON.stringify({ friction: [] }) });
+
+    await r.runner.scan();
+
+    expect(r.forks).toEqual([]);
+    expect(r.codex).toEqual([[SCRIPT, THREAD, PROMPT, '2026-09-21T13:11:00.000Z'], [SCRIPT, 'later', PROMPT, null]]);
+    expect(r.store.state?.codex[THREAD]).toMatchObject({ debriefedAt: '2026-09-21T13:11:00.000Z', pending: false, lastError: null });
+    expect(r.store.state?.codex.later).toMatchObject({ parentSessionId: A, pending: false, debriefedAt: '2026-09-21T14:13:20.000Z' });
+    expect(r.store.logs.filter((entry) => entry.provider === 'codex').map((entry) => entry.sessionId)).toEqual([THREAD, 'later']);
+  });
+
+  it('takes up a logged debrief and asks its Codex threads after the session has left its window', async () => {
+    const r = rig();
+    r.files.add(SCRIPT);
+    r.sessions!.live = [idle(A, 61)];
+    r.ranges.set(A, range('m-12'));
+    r.store.logs.push({ ...answeredLine(A), cwd: 'd:/work/a', throughMessageUuid: 'm-12', at: '2026-09-21T13:10:00.000Z', delegated: [THREAD] });
+    r.codexAnswers.push({ ok: true, text: JSON.stringify({ friction: [] }) });
+
+    await r.runner.scan();
+
+    expect(r.forks).toEqual([]);
+    expect(r.store.state?.sessions[A]).toMatchObject({ throughMessageUuid: 'm-12', debriefedAt: '2026-09-21T13:10:00.000Z' });
+    expect(r.codex).toEqual([[SCRIPT, THREAD, PROMPT, null]]);
+    expect(r.store.state?.codex[THREAD]).toMatchObject({ parentSessionId: A, cwd: 'd:/work/a', pending: false });
+  });
+
+  it('writes an answer held by a failed append to the directory it came from after the setting moves', async () => {
+    const r = rig();
+    const other = { ...r.store, logs: [] as DebriefLogEntry[], appendLog: (entry: DebriefLogEntry) => (other.logs.push(entry), true), writeState: () => true, readState: () => structuredClone(EMPTY_DEBRIEF_STATE), logged: () => loggedOf([]) };
+    const runner = new DebriefRunner({ ...r.deps, store: (dir) => (dir === DIR ? r.store : other) });
+    runner.configure(SETTINGS, [{ id: 'claude', path: 'claude-cli' }]);
+    r.sessions!.live = [idle(A, 45)];
+    r.ranges.set(A, range('m-12'));
+    r.store.failAppend = true;
+    r.answers.push(answered());
+
+    await runner.scan();
+    runner.configure({ ...SETTINGS, directory: '/elsewhere' }, [{ id: 'claude', path: 'claude-cli' }]);
+    await runner.scan();
+
+    expect(r.forks).toHaveLength(1);
+    expect(r.messages).toContain(`${DIR}/log cannot be written; debriefs wait until it can.`);
+
+    r.store.failAppend = false;
+    r.answers.push(answered([]));
+    await runner.scan();
+
+    expect(r.store.logs).toEqual([expect.objectContaining({ sessionId: A, throughMessageUuid: 'm-12', friction: FRICTION })]);
+    expect(r.store.state?.sessions[A]).toMatchObject({ throughMessageUuid: 'm-12' });
+    expect(other.logs).toEqual([expect.objectContaining({ sessionId: A, throughMessageUuid: 'm-12', friction: [] })]);
+  });
+
   it('forks nothing while the log cannot be read, since whether a range was debriefed is unknown', async () => {
     const r = rig();
     r.sessions!.live = [idle(A, 45)];
@@ -416,7 +473,7 @@ describe('which sessions a scan debriefs', () => {
     await r.runner.scan();
 
     expect(r.forks).toEqual([]);
-    expect(r.messages).toContain(`${DIR}/log cannot be read, so whether ${A} was debriefed is unknown; it waits`);
+    expect(r.messages).toContain(`${DIR}/log cannot be read, so what was debriefed is unknown; debriefs wait until it can.`);
   });
 
   it('skips a session that aged past the cache while an earlier fork ran', async () => {
@@ -495,16 +552,31 @@ describe('a failed debrief', () => {
     expect(r.store.state?.sessions[A]).toMatchObject({ attempts: 1, attemptedThrough: 'm-50', lastError: 'timed out after 300s' });
   });
 
-  it('counts a log line it could not write as a failure, and keeps the range for the next attempt', async () => {
+  it('holds an answer whose log line could not be written, forks nothing until it is written, and does not ask again', async () => {
     const r = rig();
-    r.sessions!.live = [idle(A, 45)];
+    r.sessions!.live = [idle(A, 45), idle(B, 45)];
     r.ranges.set(A, range('m-12'));
+    r.ranges.set(B, range('m-20'));
     r.store.failAppend = true;
     r.answers.push(answered());
 
     await r.runner.scan();
+    r.clock.now += 5 * MINUTE;
+    r.sessions!.live = [idle(A, 50), idle(B, 50)];
+    await r.runner.scan();
 
-    expect(r.store.state?.sessions[A]).toMatchObject({ throughMessageUuid: null, attempts: 1, lastError: `could not append to ${DIR}/log` });
+    expect(r.forks.map((fork) => fork.sessionId)).toEqual([A]);
+    expect(r.store.logs).toEqual([]);
+    expect(r.store.state?.sessions[A]).toBeUndefined();
+    expect(r.messages).toContain(`${DIR}/log cannot be written; debriefs wait until it can.`);
+
+    r.store.failAppend = false;
+    r.answers.push(answered([]));
+    await r.runner.scan();
+
+    expect(r.forks.map((fork) => fork.sessionId)).toEqual([A, B]);
+    expect(r.store.logs.map((entry) => [entry.sessionId, entry.throughMessageUuid, entry.friction])).toEqual([[A, 'm-12', FRICTION], [B, 'm-20', []]]);
+    expect(r.store.state?.sessions[A]).toMatchObject({ throughMessageUuid: 'm-12', attempts: 0, lastError: null });
   });
 });
 
@@ -671,6 +743,57 @@ describe('the Codex threads a session delegated to', () => {
     expect(r.store.logs.map((entry) => [entry.provider, entry.sessionId])).toEqual([['claude', A], ['codex', 'broken']]);
   });
 
+  it('asks a thread whose line the state lost only about turns after that line, so it is not paid for twice', async () => {
+    const r = rig();
+    r.files.add(SCRIPT);
+    r.store.state!.codex[THREAD] = { parentSessionId: A, cwd: 'd:/work/a', debriefedAt: '2026-09-21T12:00:00.000Z', lastError: null, pending: true, attempts: 0, attemptedAt: null };
+    r.store.logs.push({ ...answeredLine(THREAD), provider: 'codex', parentSessionId: A, throughMessageUuid: null, at: '2026-09-21T13:00:00.000Z' });
+    r.codexAnswers.push({ ok: false, reason: 'failed', detail: 'no turn since', exitCode: 3 });
+
+    await r.runner.scan();
+
+    expect(r.codex).toEqual([[SCRIPT, THREAD, PROMPT, '2026-09-21T13:00:00.000Z']]);
+    expect(r.store.logs).toHaveLength(1);
+    expect(r.store.state?.codex[THREAD]).toMatchObject({ debriefedAt: '2026-09-21T13:00:00.000Z', pending: false });
+  });
+
+  it('holds a Codex answer whose line could not be written, and asks nothing more until it is written', async () => {
+    const r = rig();
+    r.files.add(SCRIPT);
+    r.store.state!.codex[THREAD] = { parentSessionId: A, cwd: 'd:/work/a', debriefedAt: null, lastError: null, pending: true, attempts: 0, attemptedAt: null };
+    r.store.state!.codex.other = { parentSessionId: A, cwd: 'd:/work/a', debriefedAt: null, lastError: null, pending: true, attempts: 0, attemptedAt: null };
+    r.store.failAppend = true;
+    r.codexAnswers.push({ ok: true, text: JSON.stringify({ friction: [SANDBOX] }) });
+
+    await r.runner.scan();
+    r.clock.now += 10 * MINUTE;
+    await r.runner.scan();
+
+    expect(r.codex.map(([, thread]) => thread)).toEqual([THREAD]);
+    expect(r.store.state?.codex[THREAD]).toMatchObject({ pending: true });
+
+    r.store.failAppend = false;
+    r.codexAnswers.push({ ok: false, reason: 'failed', detail: 'not Codex', exitCode: 3 });
+    await r.runner.scan();
+
+    expect(r.codex.map(([, thread]) => thread)).toEqual([THREAD, 'other']);
+    expect(r.store.logs).toEqual([expect.objectContaining({ provider: 'codex', sessionId: THREAD, friction: [SANDBOX], at: AT })]);
+    expect(r.store.state?.codex[THREAD]).toMatchObject({ debriefedAt: AT, pending: false });
+  });
+
+  it('asks no Codex thread while the log cannot be read', async () => {
+    const r = rig();
+    r.files.add(SCRIPT);
+    r.store.state!.codex[THREAD] = { parentSessionId: A, cwd: 'd:/work/a', debriefedAt: null, lastError: null, pending: true, attempts: 0, attemptedAt: null };
+    r.store.logUnreadable = true;
+
+    await r.runner.scan();
+
+    expect(r.codex).toEqual([]);
+    expect(r.store.state?.codex[THREAD]).toMatchObject({ pending: true, attempts: 0 });
+    expect(r.messages).toContain(`${DIR}/log cannot be read, so what was debriefed is unknown; debriefs wait until it can.`);
+  });
+
   it('keeps threads waiting while the Codex command does not exist, and refuses an answer that is not the friction JSON', async () => {
     const r = rig();
     r.sessions!.live = [idle(A, 45)];
@@ -744,26 +867,32 @@ describe('the debrief files', () => {
     const store = makeDebriefStore(dir);
 
     expect(store.readState()).toBeNull();
-    expect(store.logged(A)).toEqual({ latest: null });
+    expect(store.logged()).toEqual({ claude: new Map(), codex: new Map() });
 
     const entry = (provider: 'claude' | 'codex', sessionId: string, through: string | null): DebriefLogEntry => ({
-      v: 1, at: '2026-09-30T18:04:11.000Z', provider, sessionId, parentSessionId: null, cwd: '', fromMessageUuid: null,
+      v: 1, at: '2026-09-30T18:04:11.000Z', provider, sessionId, parentSessionId: null, cwd: 'd:/work/a', fromMessageUuid: null,
       throughMessageUuid: through, skills: null, toolCalls: null, cache: null, friction: [],
     });
-    store.appendLog(entry('claude', A, 'm-12'));
     store.appendLog({ ...entry('claude', A, 'm-30'), at: '2026-09-30T19:00:00.000Z' });
-    store.appendLog(entry('codex', B, 'm-40'));
-    writeFileSync(join(dir, 'log', '2026-09.jsonl'), `{"cut ${A}`, { flag: 'a' });
+    store.appendLog(entry('claude', A, 'm-12'));
+    store.appendLog(entry('codex', B, null));
+    store.appendLog(entry('claude', B, null));
+    writeFileSync(join(dir, 'log', '2026-09.jsonl'), `null\n7\n"${A}"\n{"cut ${A}`, { flag: 'a' });
 
-    expect(store.logged(A)).toEqual({ latest: { throughMessageUuid: 'm-30', at: '2026-09-30T19:00:00.000Z', startedAt: '2026-09-30T19:00:00.000Z', subagents: [] } });
-    store.appendLog({ ...entry('claude', A, 'm-31'), at: '2026-09-30T19:30:00.000Z', startedAt: '2026-09-30T19:28:00.000Z', subagents: ['a1'] });
-    expect(store.logged(A)).toEqual({ latest: { throughMessageUuid: 'm-31', at: '2026-09-30T19:30:00.000Z', startedAt: '2026-09-30T19:28:00.000Z', subagents: ['a1'] } });
-    expect(store.logged(B)).toEqual({ latest: null });
+    const base = { cwd: 'd:/work/a', subagents: [], delegated: [] };
+    const first = store.logged();
+    expect(first).toEqual({
+      claude: new Map([[A, { ...base, throughMessageUuid: 'm-30', at: '2026-09-30T19:00:00.000Z', startedAt: '2026-09-30T19:00:00.000Z' }]]),
+      codex: new Map([[B, { ...base, throughMessageUuid: null, at: '2026-09-30T18:04:11.000Z', startedAt: '2026-09-30T18:04:11.000Z' }]]),
+    });
+
+    store.appendLog({ ...entry('claude', A, 'm-31'), at: '2026-09-30T19:30:00.000Z', startedAt: '2026-09-30T19:28:00.000Z', subagents: ['a1'], delegated: [THREAD] });
+    expect(store.logged()).toMatchObject({ claude: new Map([[A, { ...base, throughMessageUuid: 'm-31', at: '2026-09-30T19:30:00.000Z', startedAt: '2026-09-30T19:28:00.000Z', subagents: ['a1'], delegated: [THREAD] }]]) });
 
     // A log file that exists but cannot be read leaves the answer unknown.
     rmSync(join(dir, 'log', '2026-09.jsonl'));
     mkdirSync(join(dir, 'log', '2026-09.jsonl'));
-    expect(store.logged(A)).toEqual({ unreadable: true });
+    expect(store.logged()).toEqual({ unreadable: true });
   });
 
   it('reports a write it could not make', () => {

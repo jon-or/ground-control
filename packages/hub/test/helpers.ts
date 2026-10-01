@@ -20,6 +20,7 @@ import type {
 import type { LogEntry, LogFloor, Logger } from '@ground-control/core';
 import { bootstrapDirOf } from '@ground-control/core';
 import { makeLogger } from '../src/logger.js';
+import type { DebriefLogEntry, LoggedDebrief, LoggedReading } from '../src/debriefStore.js';
 
 /** Collect entries through watch. Hub construction applies stored logLevel, so tests requiring debug entries must configure it on the hub. */
 export function captureLog(level: LogFloor = 'debug'): { log: Logger; entries: LogEntry[]; messages: string[] } {
@@ -36,6 +37,20 @@ export function captureLog(level: LogFloor = 'debug'): { log: Logger; entries: L
 }
 
 /** Use isolated homes so tests cannot overwrite the developer's shared hub state. */
+/** What `DebriefStore.logged` reads from these lines: the newest of each Claude session and Codex thread. */
+export function loggedOf(logs: readonly DebriefLogEntry[]): LoggedReading {
+  const latest = { claude: new Map<string, LoggedDebrief>(), codex: new Map<string, LoggedDebrief>() };
+
+  for (const entry of logs) {
+    latest[entry.provider].set(entry.sessionId, {
+      throughMessageUuid: entry.throughMessageUuid, at: entry.at, cwd: entry.cwd, startedAt: entry.startedAt ?? entry.at,
+      subagents: entry.subagents ?? [], delegated: entry.delegated ?? [],
+    });
+  }
+
+  return latest;
+}
+
 export function tempHome(): { home: string; dispose: () => void } {
   const home = mkdtempSync(join(tmpdir(), 'gc-hub-'));
 
