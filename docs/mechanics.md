@@ -1067,6 +1067,29 @@ The model received the message as a peer instruction, explicitly not the human u
 
 Control messages included rename, notify_when_idle, and peer_message_status. A child of a session received `CLAUDE_CODE_MESSAGING_SOCKET` and `CLAUDE_CODE_MESSAGING_TOKEN`, using a childToken distinct from peerToken. These are undocumented capabilities to recheck before adoption.
 
+### Test file reads under Windows Defender
+
+**Record M65. Runtime, 2026-10-01, Windows 11 26200, Node 24.14.0, Vitest 3.2.7, Defender real-time protection on. Current use.**
+
+| Operation on a small file | Per call |
+|---|---|
+| `readFileSync` of a `.json`, `.ts`, `.md`, or extensionless file, in `%TEMP%` or the repository | 0.35–0.45 ms |
+| The same read in a folder excluded from Defender | 0.03 ms |
+| `readFileSync` of a `.js` file, or a file of 2 bytes or less | 0.02–0.03 ms |
+| `statSync` | 0.003–0.008 ms |
+
+The cost is in the open, which Defender scans; the cheap `.js` reads suggest an extension exclusion this account cannot list. Before `readCached`, `actions.test.ts` made 217,926 sync reads, about 1,400 per test, 54 of its 67 profiled seconds. With `RACY_MS` at 50 ms, `readCached` cut that to 129,383 and the per-run reader cache to 101,678. At 2.1 s, to cover FAT, the file makes 113,424, since most state files a test writes are read again within the window; `actions.json` stays near 46,000 either way.
+
+Vitest's worker reads replies only when its event loop turns, and birpc 2.4.0 fails a call unanswered after a fixed 60 seconds (`DEFAULT_TIMEOUT`, not configurable through Vitest). `actions.test.ts` settled on microtasks alone and first yielded about 145 tests in, so at 61–76 seconds the forks pool failed with `Timeout calling "onTaskUpdate"` while every test passed. With a `setImmediate` yield after each test, the same file ran 78 seconds without the error.
+
+| `packages/hub` (Vitest duration) | `actions.test.ts` | Whole package |
+|---|---|---|
+| Before, in `%TEMP%` | 76 s, timeout error | 71 s, timeout error |
+| In excluded `gc-tests` only | 15 s | 14 s |
+| `readCached` (`RACY_MS` 50 ms) and run reader cache, in `%TEMP%` | 36 s | 34 s |
+| Both, `RACY_MS` 50 ms | 10 s | 11 s |
+| Both, `RACY_MS` 2.1 s | 13 s | 12 s |
+
 ## Remaining verification and design work
 
 **Record M19 consolidates open experimental questions.** Resolved observations belong in their topic sections above. Product choices belong in [PRD open decisions](prd.md#open-product-decisions).

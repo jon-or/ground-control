@@ -66,6 +66,8 @@ Use literal expected results independent of the implementation. Do not derive th
 
 Tests make no external network requests. Loopback is allowed only to a listener the test created on `127.0.0.1` with port `0`; no fixed ports or developer services. Downloads needed to install test tools are setup, not test traffic.
 
+Every Vitest config sets `env: testTemp()` from `tools/vitest-temp.ts`, which points `TEMP`, `TMP`, and `TMPDIR` at a `gc-tests` folder under the system temp directory. On Windows, excluding that folder from Defender cuts a small file's read from about 0.4 ms to 0.03 ms (M65); the exclusion is optional, per machine, and needs an elevated `Add-MpPreference -ExclusionPath "$env:TEMP\gc-tests"`. Do not exclude all of `%TEMP%` or `node.exe`. `packages/hub/test/setup.ts` yields one macrotask after each test, because a file that settles on microtasks alone for 60 seconds fails the forks pool with `Timeout calling "onTaskUpdate"` (M65).
+
 Record external fixtures from real responses or files. Store the recording procedure in the fixture directory's README. Trim external response structure only by deleting whole nodes; do not invent plausible API payloads. A test may derive a nullable scalar case from a recording when the API cannot produce it on demand, with an explanation in the test.
 
 Internal protocol payloads are different: construct them from the project's own types. Type changes must fail client-test typechecking. Fixtures cast to internal types also need a checked key list, such as `satisfies Record<keyof T, true>`, and row validation so new fields cannot silently become `undefined`.

@@ -1,9 +1,11 @@
 import { defineConfig } from 'vitest/config';
+import { testTemp } from '../../tools/vitest-temp.js';
 
 // Measure unit coverage for overlay, state, and preference policy. Playwright tests Chrome messaging and observers in
 // worker.js and content.js.
 export default defineConfig({
   test: {
+    env: testTemp(),
     environment: 'jsdom',
     include: ['test/**/*.test.ts'],
     testTimeout: 60_000,

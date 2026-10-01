@@ -1,7 +1,9 @@
 import { defineConfig } from 'vitest/config';
+import { testTemp } from '../../tools/vitest-temp.js';
 
 export default defineConfig({
   test: {
+    env: testTemp(),
     environment: 'jsdom',
     include: ['test/**/*.test.ts'],
     coverage: {
