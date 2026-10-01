@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AgentAdapter, DebriefForkInput, DebriefForkResult, DebriefRange, HistoricalSession, Session, TextOutcome } from '@ground-control/core';
-import { DebriefRunner, underHome } from '../src/debrief.js';
+import { DebriefRunner, promptFor, underHome } from '../src/debrief.js';
 import type { DebriefDeps, DebriefSessions } from '../src/debrief.js';
 import { EMPTY_DEBRIEF_STATE, makeDebriefStore } from '../src/debriefStore.js';
 import type { DebriefLogEntry, DebriefState, DebriefStore } from '../src/debriefStore.js';
@@ -57,7 +57,7 @@ interface Rig {
 }
 
 const FRICTION = [{ what: 'init-worktree failed', source: 'skill:init-worktree', workaround: 'removed the binding', cost: '6 tool calls', evidence: 'appcmd error', fix: 'init-worktree step 4: remove the binding' }];
-const answered = (friction = FRICTION): DebriefForkResult => ({ friction, cache: { read: 75_491, created: 4_023, costUsd: 0.048 } });
+const answered = (friction = FRICTION, subagents: string[] = []): DebriefForkResult => ({ friction, subagents, cache: { read: 75_491, created: 4_023, costUsd: 0.048 } });
 
 const SETTINGS = { enabled: true, directory: '', promptPath: '', codexScript: '' };
 
@@ -99,7 +99,7 @@ function rig(): Rig {
         if (state.store.logUnreadable) return { unreadable: true };
         const lines = state.store.logs.filter((entry) => entry.provider === 'claude' && entry.sessionId === sessionId);
         const last = lines.at(-1);
-        return { latest: last === undefined ? null : { throughMessageUuid: last.throughMessageUuid!, at: last.at } };
+        return { latest: last === undefined ? null : { throughMessageUuid: last.throughMessageUuid!, at: last.at, startedAt: last.startedAt ?? last.at, subagents: last.subagents ?? [] } };
       },
     },
   };
@@ -174,12 +174,12 @@ describe('which sessions a scan debriefs', () => {
 
     await r.runner.scan();
 
-    expect(r.forks).toEqual([{ path: 'claude-cli', sessionId: A, forkId: 'fork-1', cwd: 'd:/work/a', prompt: 'Report friction in the whole conversation.', timeoutMs: 300_000, signal: expect.any(AbortSignal) }]);
+    expect(r.forks).toEqual([{ path: 'claude-cli', sessionId: A, forkId: 'fork-1', cwd: 'd:/work/a', prompt: 'Report friction in the whole conversation.', timeoutMs: 600_000, signal: expect.any(AbortSignal), readers: expect.objectContaining({ home: HOME }), subagentsDebriefed: {}, now: NOW }]);
     expect(r.store.dirs).toEqual([DIR]);
     expect(r.store.logs).toEqual([{
       v: 1, at: '2026-09-21T14:13:20.000Z', provider: 'claude', sessionId: A, parentSessionId: null, cwd: 'd:/work/a',
       fromMessageUuid: null, throughMessageUuid: 'm-12', skills: ['skill-a'], toolCalls: 12,
-      cache: { read: 75_491, created: 4_023, costUsd: 0.048 }, friction: FRICTION,
+      cache: { read: 75_491, created: 4_023, costUsd: 0.048 }, friction: FRICTION, startedAt: '2026-09-21T14:13:20.000Z', subagents: [],
     }]);
     expect(r.store.state?.sessions[A]).toEqual({ throughMessageUuid: 'm-12', debriefedAt: '2026-09-21T14:13:20.000Z', attempts: 0, lastError: null, attemptedAt: null, attemptedThrough: null });
   });
@@ -254,6 +254,24 @@ describe('which sessions a scan debriefs', () => {
     expect(r.store.logs.map((entry) => [entry.fromMessageUuid, entry.throughMessageUuid])).toEqual([['m-5', 'm-12']]);
   });
 
+  it('records when each subagent the fork was shown was debriefed, and hands those times to the next fork of the session', async () => {
+    const r = rig();
+    r.sessions!.live = [idle(A, 45), idle(B, 45)];
+    r.ranges.set(A, range('m-12'));
+    r.ranges.set(B, range('m-20'));
+    r.store.state!.subagents = { [`${B}/z9`]: '2026-09-21T10:00:00.000Z' };
+    r.answers.push(answered([], ['a1', 'b2']), answered([]));
+
+    await r.runner.scan();
+
+    expect(r.forks.map((fork) => [fork.sessionId, fork.subagentsDebriefed])).toEqual([[A, {}], [B, { z9: '2026-09-21T10:00:00.000Z' }]]);
+    expect(r.store.state?.subagents).toEqual({
+      [`${B}/z9`]: '2026-09-21T10:00:00.000Z',
+      [`${A}/a1`]: '2026-09-21T14:13:20.000Z',
+      [`${A}/b2`]: '2026-09-21T14:13:20.000Z',
+    });
+  });
+
   it('debriefs a session again for the work after its last debriefed message', async () => {
     const r = rig();
     r.sessions!.live = [idle(A, 45)];
@@ -265,6 +283,7 @@ describe('which sessions a scan debriefs', () => {
 
     expect(r.reads).toEqual([[A, 'm-12']]);
     expect(r.forks[0]?.prompt).toBe('Report friction in the work after the user message that begins "Now merge the base <and> "ship" it".');
+    expect(promptFor('in {{scope}}.', { ...range('m-1'), fromPrompt: "Fix $& and $' in the regex" })).toBe('in the work after the user message that begins "Fix $& and $\' in the regex".');
     expect(r.store.logs[0]).toMatchObject({ fromMessageUuid: 'm-12', throughMessageUuid: 'm-40', toolCalls: 15 });
     expect(r.store.state?.sessions[A]?.throughMessageUuid).toBe('m-40');
   });
@@ -373,11 +392,14 @@ describe('which sessions a scan debriefs', () => {
     const r = rig();
     r.sessions!.live = [idle(A, 45)];
     r.ranges.set(A, range('m-24', 14));
-    r.store.logs.push({ ...answeredLine(A), throughMessageUuid: 'm-12', at: '2026-09-21T13:10:00.000Z' });
+    r.store.logs.push({ ...answeredLine(A), throughMessageUuid: 'm-12', at: '2026-09-21T13:10:00.000Z', startedAt: '2026-09-21T13:08:00.000Z', subagents: ['a1'] });
 
     r.answers.push(answered([]));
 
     await r.runner.scan();
+
+    // The recovered line's subagents keep the fork start as their last debrief, and the next fork is told so.
+    expect(r.forks[0]?.subagentsDebriefed).toEqual({ a1: '2026-09-21T13:08:00.000Z' });
 
     // In the same scan, since the session may leave its window by the next.
     expect(r.forks).toHaveLength(1);
@@ -690,15 +712,19 @@ describe('the debrief files', () => {
     const dir = join(home, 'debrief');
     const store = makeDebriefStore(dir);
 
-    expect(store.readState()).toEqual({ v: 1, sessions: {}, codex: {} });
+    expect(store.readState()).toEqual({ v: 1, sessions: {}, codex: {}, subagents: {} });
 
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'state.json'), '{"v":2}');
     expect(store.readState()).toBeNull();
 
-    const state: DebriefState = { v: 1, sessions: { [A]: { throughMessageUuid: 'm-12', debriefedAt: '2026-09-30T18:04:11.000Z', attempts: 0, lastError: null, attemptedAt: null, attemptedThrough: null } }, codex: {} };
+    const state: DebriefState = { v: 1, sessions: { [A]: { throughMessageUuid: 'm-12', debriefedAt: '2026-09-30T18:04:11.000Z', attempts: 0, lastError: null, attemptedAt: null, attemptedThrough: null } }, codex: {}, subagents: { [`${A}/a1`]: '2026-09-30T18:00:00.000Z' } };
     expect(store.writeState(state)).toBe(true);
     expect(store.readState()).toEqual(state);
+
+    // A state written before subagents were tracked reads with none.
+    writeFileSync(join(dir, 'state.json'), JSON.stringify({ v: 1, sessions: {}, codex: {} }));
+    expect(store.readState()).toEqual({ v: 1, sessions: {}, codex: {}, subagents: {} });
 
     const entry = (at: string): DebriefLogEntry => ({
       v: 1, at, provider: 'claude', sessionId: A, parentSessionId: null, cwd: 'd:/work/a', fromMessageUuid: null,
@@ -729,7 +755,9 @@ describe('the debrief files', () => {
     store.appendLog(entry('codex', B, 'm-40'));
     writeFileSync(join(dir, 'log', '2026-09.jsonl'), `{"cut ${A}`, { flag: 'a' });
 
-    expect(store.logged(A)).toEqual({ latest: { throughMessageUuid: 'm-30', at: '2026-09-30T19:00:00.000Z' } });
+    expect(store.logged(A)).toEqual({ latest: { throughMessageUuid: 'm-30', at: '2026-09-30T19:00:00.000Z', startedAt: '2026-09-30T19:00:00.000Z', subagents: [] } });
+    store.appendLog({ ...entry('claude', A, 'm-31'), at: '2026-09-30T19:30:00.000Z', startedAt: '2026-09-30T19:28:00.000Z', subagents: ['a1'] });
+    expect(store.logged(A)).toEqual({ latest: { throughMessageUuid: 'm-31', at: '2026-09-30T19:30:00.000Z', startedAt: '2026-09-30T19:28:00.000Z', subagents: ['a1'] } });
     expect(store.logged(B)).toEqual({ latest: null });
 
     // A log file that exists but cannot be read leaves the answer unknown.
@@ -743,7 +771,7 @@ describe('the debrief files', () => {
     writeFileSync(blocked, 'not a directory');
     const store = makeDebriefStore(blocked);
 
-    expect(store.writeState({ v: 1, sessions: {}, codex: {} })).toBe(false);
+    expect(store.writeState({ v: 1, sessions: {}, codex: {}, subagents: {} })).toBe(false);
     expect(store.appendLog({ v: 1, at: '2026-09-30T18:04:11.000Z', provider: 'claude', sessionId: A, parentSessionId: null, cwd: '', fromMessageUuid: null, throughMessageUuid: null, skills: null, toolCalls: null, cache: null, friction: [] })).toBe(false);
   });
 });

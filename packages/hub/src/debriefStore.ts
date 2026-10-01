@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs';
 import { z } from 'zod';
 import type { DebriefCache, FrictionEntry } from '@ground-control/core';
 import { writeAtomic } from './fs.js';
@@ -35,13 +35,15 @@ const debriefState = z.object({
   v: z.literal(1),
   sessions: z.record(z.string(), sessionState),
   codex: z.record(z.string(), codexState),
+  /** When each subagent a fork was shown was last debriefed, keyed `<sessionId>/<agentId>`. */
+  subagents: z.record(z.string(), z.string()).default({}),
 });
 
 export type SessionDebriefState = z.infer<typeof sessionState>;
 export type CodexDebriefState = z.infer<typeof codexState>;
 export type DebriefState = z.infer<typeof debriefState>;
 
-export const EMPTY_DEBRIEF_STATE: DebriefState = { v: 1, sessions: {}, codex: {} };
+export const EMPTY_DEBRIEF_STATE: DebriefState = { v: 1, sessions: {}, codex: {}, subagents: {} };
 
 /** One line of `log/YYYY-MM.jsonl`, the contract the daily analyzer reads. */
 export interface DebriefLogEntry {
@@ -57,10 +59,22 @@ export interface DebriefLogEntry {
   toolCalls: number | null;
   cache: DebriefCache | null;
   friction: FrictionEntry[];
+  /** A Claude line's fork start, which the subagents it was shown record as their last debrief. */
+  startedAt?: string;
+  /** A Claude line's subagents the fork was shown and may have asked. */
+  subagents?: string[];
 }
 
 /** The newest Claude line for a session, none, or a log that could not be read. */
-export type LoggedReading = { latest: { throughMessageUuid: string; at: string } | null } | { unreadable: true };
+export type LoggedReading = { latest: LoggedDebrief | null } | { unreadable: true };
+
+/** The newest debrief of a session the log holds; `subagents` is empty for a line written before they were recorded. */
+export interface LoggedDebrief {
+  throughMessageUuid: string;
+  at: string;
+  startedAt: string;
+  subagents: string[];
+}
 
 export interface DebriefStore {
   /** The state, empty when the file does not exist, or null when it exists and cannot be read. */
@@ -69,6 +83,26 @@ export interface DebriefStore {
   appendLog(entry: DebriefLogEntry): boolean;
   /** The newest Claude line for this session in the two newest log files. */
   logged(sessionId: string): LoggedReading;
+}
+
+/** Whether the file exists and its last byte is not a newline. */
+function endsInsideLine(path: string): boolean {
+  let file: number;
+
+  try {
+    file = openSync(path, 'r');
+  } catch {
+    return false;
+  }
+
+  try {
+    const size = fstatSync(file).size;
+    const last = Buffer.alloc(1);
+
+    return size > 0 && readSync(file, last, 0, 1, size - 1) === 1 && last[0] !== 0x0a;
+  } finally {
+    closeSync(file);
+  }
 }
 
 function missing(error: unknown): boolean {
@@ -110,7 +144,9 @@ export function makeDebriefStore(dir: string): DebriefStore {
     appendLog(entry) {
       try {
         mkdirSync(`${dir}/log`, { recursive: true });
-        appendFileSync(`${dir}/log/${entry.at.slice(0, 7)}.jsonl`, `${JSON.stringify(entry)}\n`);
+        const path = `${dir}/log/${entry.at.slice(0, 7)}.jsonl`;
+        // A write cut short leaves a line without its newline; starting a fresh line keeps this one readable.
+        appendFileSync(path, `${endsInsideLine(path) ? '\n' : ''}${JSON.stringify(entry)}\n`);
         return true;
       } catch {
         return false;
@@ -126,7 +162,7 @@ export function makeDebriefStore(dir: string): DebriefStore {
         return missing(error) ? { latest: null } : { unreadable: true };
       }
 
-      let latest: { throughMessageUuid: string; at: string } | null = null;
+      let latest: LoggedDebrief | null = null;
 
       for (const name of names) {
         let text;
@@ -145,7 +181,8 @@ export function makeDebriefStore(dir: string): DebriefStore {
             const entry = JSON.parse(line) as Partial<DebriefLogEntry>;
 
             if (entry.provider === 'claude' && entry.sessionId === sessionId && typeof entry.throughMessageUuid === 'string' && typeof entry.at === 'string' && (latest === null || entry.at > latest.at)) {
-              latest = { throughMessageUuid: entry.throughMessageUuid, at: entry.at };
+              const subagents = Array.isArray(entry.subagents) ? entry.subagents.filter((id): id is string => typeof id === 'string') : [];
+              latest = { throughMessageUuid: entry.throughMessageUuid, at: entry.at, startedAt: typeof entry.startedAt === 'string' ? entry.startedAt : entry.at, subagents };
             }
           } catch {
             // A line cut short by a stopped write holds no debrief.

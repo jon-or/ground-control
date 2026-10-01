@@ -1,6 +1,7 @@
+import { copyFileSync, mkdirSync, rmSync } from 'node:fs';
 import { z } from 'zod';
 import { DEBRIEF_ENV, frictionAnswer } from '@ground-control/core';
-import type { DebriefForkInput, DebriefForkResult, DebriefRange, DebriefSignal, ExecJson, MachineReaders, ReadFailure } from '@ground-control/core';
+import type { DebriefForkInput, DebriefForkResult, DebriefRange, DebriefSignal, ExecJson, FrictionEntry, MachineReaders, ReadFailure } from '@ground-control/core';
 import { findTranscript } from './claude.js';
 import { CLAUDE_AGENT_ID, CLAUDE_DISPLAY_NAME } from './ids.js';
 
@@ -182,34 +183,49 @@ function unfenced(text: string): string {
   return fenced?.[1] ?? text;
 }
 
-/** `--output-format json` prints the result object, or an array of stream events ending with it. */
-export function readDebriefOutput(value: unknown): DebriefForkResult {
-  const candidate = Array.isArray(value) ? [...(value as unknown[])].reverse().find((item) => printResult.safeParse(item).success) : value;
-  const parsed = printResult.safeParse(candidate);
+type PrintResult = z.infer<typeof printResult>;
 
-  if (!parsed.success) return { failure: failure('debrief-unreadable', `${CLAUDE_DISPLAY_NAME} returned no debrief result.`) };
+const failed = (result: PrintResult): boolean => result.is_error === true || (result.subtype !== undefined && result.subtype !== 'success');
 
-  const result = parsed.data;
-
-  if (result.is_error === true || (result.subtype !== undefined && result.subtype !== 'success')) {
-    return { failure: failure('debrief-refused', `${CLAUDE_DISPLAY_NAME} did not finish the debrief${result.subtype ? ` (${result.subtype})` : ''}.`) };
-  }
-
-  let answer;
+function frictionOf(result: PrintResult): FrictionEntry[] | null {
+  if (failed(result)) return null;
 
   try {
-    answer = frictionAnswer.safeParse(JSON.parse(unfenced(result.result ?? '')));
+    const answer = frictionAnswer.safeParse(JSON.parse(unfenced(result.result ?? '')));
+    return answer.success ? answer.data : null;
   } catch {
-    answer = null;
+    return null;
   }
+}
 
-  if (!answer?.success) {
-    return { failure: failure('debrief-unparsable', `The debrief answer was not the friction JSON: ${(result.result ?? '').slice(0, 200)}`) };
+/**
+ * `--output-format json` prints the result object, or an array of stream events. A fork that waits on its subagents
+ * prints several results: interim ones, the answer, and an empty one after it (M64). The answer is the last result
+ * that parses as the friction JSON; the last result carries the run's cost and token counts.
+ */
+export function readDebriefOutput(value: unknown): DebriefForkResult {
+  const results = (Array.isArray(value) ? (value as unknown[]) : [value]).flatMap((item) => {
+    const parsed = printResult.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const last = results.at(-1);
+
+  if (last === undefined) return { failure: failure('debrief-unreadable', `${CLAUDE_DISPLAY_NAME} returned no debrief result.`) };
+
+  const friction = results.map(frictionOf).reverse().find((answer) => answer !== null) ?? null;
+
+  if (friction === null) {
+    if (failed(last)) return { failure: failure('debrief-refused', `${CLAUDE_DISPLAY_NAME} did not finish the debrief${last.subtype ? ` (${last.subtype})` : ''}.`) };
+
+    const said = results.map((result) => result.result ?? '').reverse().find((text) => text.trim() !== '') ?? '';
+
+    return { failure: failure('debrief-unparsable', `The debrief answer was not the friction JSON: ${said.slice(0, 200)}`) };
   }
 
   return {
-    friction: answer.data,
-    cache: result.usage === undefined ? null : { read: result.usage.cache_read_input_tokens, created: result.usage.cache_creation_input_tokens, costUsd: result.total_cost_usd ?? 0 },
+    friction,
+    subagents: [],
+    cache: last.usage === undefined ? null : { read: last.usage.cache_read_input_tokens, created: last.usage.cache_creation_input_tokens, costUsd: last.total_cost_usd ?? 0 },
   };
 }
 
@@ -221,7 +237,116 @@ function subagentTexts(readers: MachineReaders, transcriptPath: string): string[
   return names.filter((name) => name.endsWith('.jsonl')).flatMap((name) => readers.readText(`${dir}/${name}`) ?? []);
 }
 
-export function makeClaudeDebrief(run: ExecJson, environment: () => NodeJS.ProcessEnv): DebriefSignal {
+/** Copying and removing the fork's subagent transcripts, injected so tests need no disk. */
+export interface DebriefFiles {
+  copyFile(from: string, to: string): void;
+  remove(path: string): void;
+}
+
+const DISK_FILES: DebriefFiles = {
+  copyFile: (from, to) => {
+    mkdirSync(to.slice(0, to.lastIndexOf('/')), { recursive: true });
+    copyFileSync(from, to);
+  },
+  // A transcript or a shell's directory inside the copy can hold it briefly after the fork exits.
+  remove: (path) => rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }),
+};
+
+/** A subagent older than this has a cold cache; the fork is not shown it, so it cannot message it. */
+export const SUBAGENT_WINDOW_MS = 55 * 60 * 1000;
+
+/** `codex` threads are debriefed through agent-delegate; `Explore` and `Plan` subagents cannot be resumed. */
+const UNASKED_AGENT_TYPES = new Set(['codex', 'Explore', 'Plan']);
+
+const subagentMeta = z.object({ agentType: z.string().optional(), description: z.string().optional() });
+
+export interface SubagentChoice {
+  agentId: string;
+  description: string;
+  /** What the prompt asks it about. */
+  scope: string;
+  transcript: string;
+  meta: string;
+}
+
+/**
+ * The subagents the fork may message: resumable ones whose transcript was written within the cache window and that have
+ * a message since their last debrief (`debriefed`, by agent ID). One debriefed before is asked about the work after
+ * the first message it received since (M64).
+ */
+export function chooseSubagents(readers: MachineReaders, dir: string, debriefed: Readonly<Record<string, string>>, now: number): SubagentChoice[] {
+  const choices: SubagentChoice[] = [];
+
+  for (const name of (readers.listDir(dir) ?? []).sort()) {
+    const agentId = /^agent-(.+)\.jsonl$/.exec(name)?.[1];
+
+    if (agentId === undefined) continue;
+
+    const transcript = `${dir}/${name}`;
+    const meta = `${dir}/agent-${agentId}.meta.json`;
+    let parsed;
+
+    try {
+      parsed = subagentMeta.safeParse(JSON.parse(readers.readText(meta) ?? ''));
+    } catch {
+      continue;
+    }
+
+    if (!parsed.success || parsed.data.agentType === undefined || UNASKED_AGENT_TYPES.has(parsed.data.agentType)) continue;
+
+    const records = recordsOf(readers.readText(transcript) ?? '').filter((entry) => entry.timestamp !== undefined);
+    const last = Math.max(...records.map((entry) => Date.parse(entry.timestamp!)).filter((at) => !Number.isNaN(at)));
+
+    if (!Number.isFinite(last) || now - last >= SUBAGENT_WINDOW_MS) continue;
+
+    const since = debriefed[agentId];
+    let scope = 'all of your work in this conversation';
+
+    if (since !== undefined) {
+      // A subagent works again only on a new message; records without one hold nothing the last debrief missed.
+      const opening = records.filter((entry) => Date.parse(entry.timestamp!) > Date.parse(since)).map(userTextOf).find((text) => text !== null && text.trim() !== '');
+
+      if (opening === undefined || opening === null) continue;
+
+      scope = `the work after the message that begins "${opening.trimStart().slice(0, PROMPT_EXCERPT)}"`;
+    }
+
+    choices.push({ agentId, description: parsed.data.description?.trim() || parsed.data.agentType, scope, transcript, meta });
+  }
+
+  return choices;
+}
+
+/** The prompt's `{{subagents}}`: a line per subagent the fork may message, or `none`. */
+export function subagentLines(choices: readonly SubagentChoice[]): string {
+  return choices.length === 0 ? 'none' : choices.map((choice) => `- \`${choice.agentId}\` (${choice.description}): ${choice.scope}`).join('\n');
+}
+
+/**
+ * A fork copies only the main transcript; a subagent it messages resumes from `<project>/<forkId>/subagents/`, so the
+ * chosen subagents' files are copied there for the run and removed after it (M64).
+ */
+async function withSubagents<T>(project: string, forkId: string, choices: readonly SubagentChoice[], files: DebriefFiles, run: () => Promise<T>): Promise<T> {
+  if (choices.length === 0) return run();
+
+  const forkDir = `${project}/${forkId}`;
+
+  try {
+    for (const choice of choices) {
+      for (const file of [choice.transcript, choice.meta]) files.copyFile(file, `${forkDir}/subagents/${file.slice(file.lastIndexOf('/') + 1)}`);
+    }
+
+    return await run();
+  } finally {
+    try {
+      files.remove(forkDir);
+    } catch {
+      // Failing a finished debrief would pay for it again; a copy left behind is named for a fork no roster lists.
+    }
+  }
+}
+
+export function makeClaudeDebrief(run: ExecJson, environment: () => NodeJS.ProcessEnv, files: DebriefFiles = DISK_FILES): DebriefSignal {
   return {
     transcriptWrittenAt: (readers, session) => findTranscript(readers.home, session.cwd, session.sessionId, readers, environment())?.writtenAt ?? null,
 
@@ -233,15 +358,32 @@ export function makeClaudeDebrief(run: ExecJson, environment: () => NodeJS.Proce
     },
 
     async fork(input) {
-      const outcome = await run(input.path, debriefArgs(input), {
-        env: { ...environment(), [DEBRIEF_ENV]: '1' },
-        cwd: input.cwd,
-        stdin: input.prompt,
-        timeoutMs: input.timeoutMs,
-        signal: input.signal,
-      });
+      const env = environment();
+      const transcript = findTranscript(input.readers.home, input.cwd, input.sessionId, input.readers, env);
+      const project = transcript === null ? null : transcript.path.slice(0, transcript.path.lastIndexOf('/'));
+      // The fork's directory is removed afterwards, so it must never be the session's own.
+      const choices = project === null || input.forkId === input.sessionId ? [] : chooseSubagents(input.readers, `${project}/${input.sessionId}/subagents`, input.subagentsDebriefed, input.now);
+      // A function replacement keeps `$&` and the like in quoted messages literal.
+      const prompt = input.prompt.replaceAll('{{subagents}}', () => subagentLines(choices));
+      let outcome;
 
-      return outcome.ok ? readDebriefOutput(outcome.value) : { failure: failure(`debrief-${outcome.reason}`, `${CLAUDE_DISPLAY_NAME} could not run the debrief: ${outcome.detail}`) };
+      try {
+        outcome = await withSubagents(project ?? '', input.forkId, choices, files, () => run(input.path, debriefArgs(input), {
+          env: { ...env, [DEBRIEF_ENV]: '1' },
+          cwd: input.cwd,
+          stdin: prompt,
+          timeoutMs: input.timeoutMs,
+          signal: input.signal,
+        }));
+      } catch (error) {
+        return { failure: failure('debrief-subagents', `The session's subagent transcripts could not be copied for the debrief: ${error instanceof Error ? error.message : String(error)}`) };
+      }
+
+      if (!outcome.ok) return { failure: failure(`debrief-${outcome.reason}`, `${CLAUDE_DISPLAY_NAME} could not run the debrief: ${outcome.detail}`) };
+
+      const result = readDebriefOutput(outcome.value);
+
+      return 'failure' in result ? result : { ...result, subagents: choices.map((choice) => choice.agentId) };
     },
   };
 }

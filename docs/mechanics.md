@@ -249,6 +249,8 @@ An inline `... on User { name }` fragment on GitHub's `Actor` fields returned pr
 
 A fork of an open VS Code session read 75,491 tokens from cache and wrote 4,023, at $0.048. A fork of a print-mode session read 27,702 and wrote 26,129. Passing `--model`, `--effort`, `--disallowedTools`, `--mcp-config`, or `--strict-mcp-config` changes the prompt prefix and loses the cache. A live `--bg` job refuses `-p --resume` until `claude stop`. Evidence: scratch probes; the recorded output is `packages/agent-claude/test/fixtures/debrief-output.json`.
 
+Without `--max-turns`, a fork that messages the session's subagents found none: `SendMessage` answered `No transcript found for agent ID`, because the fork looks up subagent transcripts under its own session ID and copies only the main transcript. With `<project>/<sessionId>/subagents/` copied to `<project>/<forkId>/subagents/` first, each subagent resumed and its report arrived in the same `-p` run; the original and copied subagent transcripts were unchanged afterwards (md5). The stream then held three `result` events: an interim note that the fork was waiting for a report, the answer, and an empty `result`. Runs cost $0.84–$1.14 on a new session with no cache, so the figure is not comparable with the cached forks above. Evidence: scratch spike on 2026-09-30, reported by the `~/.claude` session and recorded in its debrief design notes; no recording was kept.
+
 ## Codex
 
 ### Codex roster and history

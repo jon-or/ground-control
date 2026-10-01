@@ -57,6 +57,12 @@ export interface DebriefForkInput {
   prompt: string;
   timeoutMs: number;
   signal: AbortSignal;
+  /** Finds the session's transcript, beside which its subagent transcripts are. */
+  readers: MachineReaders;
+  /** When each of the session's subagents was last debriefed, by agent ID. */
+  subagentsDebriefed: Readonly<Record<string, string>>;
+  /** Epoch milliseconds, for the subagents' cache window. */
+  now: number;
 }
 
 export interface DebriefCache {
@@ -65,7 +71,8 @@ export interface DebriefCache {
   costUsd: number;
 }
 
-export type DebriefForkResult = { friction: FrictionEntry[]; cache: DebriefCache | null } | { failure: ReadFailure };
+/** `subagents` names the subagents the fork was shown and may have asked. */
+export type DebriefForkResult = { friction: FrictionEntry[]; subagents: string[]; cache: DebriefCache | null } | { failure: ReadFailure };
 
 /** Agent side of a friction debrief: reading a session's transcript range and forking the session to ask about it. */
 export interface DebriefSignal {

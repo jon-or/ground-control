@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DebriefForkInput, ExecJson, ExecOptions, ExecOutcome, MachineReaders } from '@ground-control/core';
-import { debriefArgs, debriefRange, makeClaudeDebrief, readDebriefOutput } from '../src/debrief.js';
+import { chooseSubagents, debriefArgs, debriefRange, makeClaudeDebrief, readDebriefOutput, subagentLines } from '../src/debrief.js';
 import { fixture } from './helpers.js';
 
 interface Recorded {
@@ -83,7 +83,7 @@ describe('the transcript range a debrief covers', () => {
 
 describe('the answer a debrief fork prints', () => {
   it('reads the recorded stream events: the friction and the cache use', () => {
-    expect(readDebriefOutput(output)).toEqual({ friction: [], cache: { read: 27702, created: 26129, costUsd: 0.4357966 } });
+    expect(readDebriefOutput(output)).toEqual({ friction: [], subagents: [], cache: { read: 27702, created: 26129, costUsd: 0.4357966 } });
   });
 
   const result = (over: Record<string, unknown>): unknown => ({ type: 'result', subtype: 'success', is_error: false, ...over });
@@ -92,10 +92,26 @@ describe('the answer a debrief fork prints', () => {
   it('takes a single result object, a bare array, and JSON in a code fence, and keeps each item as answered', () => {
     const extra = { ...entry, severity: 2 };
 
-    expect(readDebriefOutput(result({ result: JSON.stringify({ friction: [entry] }) }))).toEqual({ friction: [entry], cache: null });
+    expect(readDebriefOutput(result({ result: JSON.stringify({ friction: [entry] }) }))).toEqual({ friction: [entry], subagents: [], cache: null });
     expect(readDebriefOutput(result({ result: `\`\`\`json\n${JSON.stringify([extra])}\n\`\`\`` }))).toEqual({
-      friction: [extra], cache: null,
+      friction: [extra], subagents: [], cache: null,
     });
+  });
+
+  // Derived from the recorded result event: a fork waiting on subagents printed three results, an interim note, the
+  // answer, and an empty one (DESIGN.md, spike of 2026-09-30); no recording of that run was kept.
+  it('takes the last result that is the friction JSON, and the cost of the last result', () => {
+    const recorded = output.at(-1) as Record<string, unknown>;
+    const interim = { ...recorded, result: 'Still waiting for the report from subagent a1.', total_cost_usd: 0.4, usage: { cache_read_input_tokens: 10, cache_creation_input_tokens: 5 } };
+    const answer = { ...recorded, result: JSON.stringify({ friction: [entry] }), total_cost_usd: 0.9, usage: { cache_read_input_tokens: 20, cache_creation_input_tokens: 6 } };
+    const trailing = { ...recorded, result: '', total_cost_usd: 1.1, usage: { cache_read_input_tokens: 30, cache_creation_input_tokens: 7 } };
+
+    expect(readDebriefOutput([...output.slice(0, -1), interim, answer, trailing])).toEqual({ friction: [entry], subagents: [], cache: { read: 30, created: 7, costUsd: 1.1 } });
+    // An early empty answer, before a subagent reported, gives way to the later one.
+    const early = { ...answer, result: JSON.stringify({ friction: [] }) };
+    expect(readDebriefOutput([early, interim, answer, trailing])).toMatchObject({ friction: [entry] });
+    expect(readDebriefOutput([interim, trailing])).toMatchObject({ failure: { kind: 'debrief-unparsable', message: expect.stringContaining('Still waiting for the report') } });
+    expect(readDebriefOutput([answer, { ...trailing, subtype: 'error_during_execution', is_error: true }])).toMatchObject({ friction: [entry] });
   });
 
   it('refuses an unfinished turn, prose, an item missing a field or leaving one blank, and output with no result', () => {
@@ -114,23 +130,106 @@ describe('the answer a debrief fork prints', () => {
   });
 });
 
+const home = '/home/dev';
+const project = `${home}/.claude/projects/-work-42-example`;
+const agents = `${project}/${SESSION}/subagents`;
+const FORK = '11111111-2222-4333-8444-555555555555';
+/** The recorded delegating subagent's last record is at 21:01:38; the other's is before 20:00. */
+const NOW = Date.parse('2026-09-30T21:30:00.000Z');
+// Derived: the recorded skeleton keeps no meta files, so each subagent's type and description are set here.
+const meta = (agentType: string | null, description: string): string => JSON.stringify({ ...(agentType === null ? {} : { agentType }), description });
+const files: Record<string, string> = {
+  [`${project}/${SESSION}.jsonl`]: main,
+  [`${agents}/agent-a1.jsonl`]: subagents[0] ?? '',
+  [`${agents}/agent-a1.meta.json`]: meta('general-purpose', 'Finder: tests'),
+  [`${agents}/agent-b2.jsonl`]: subagents[0] ?? '',
+  [`${agents}/agent-b2.meta.json`]: meta('Explore', 'Find the callers'),
+  [`${agents}/agent-c3.jsonl`]: subagents[0] ?? '',
+  [`${agents}/agent-c3.meta.json`]: meta('codex', 'Finder: correctness'),
+  [`${agents}/agent-d4.jsonl`]: subagents[1] ?? '',
+  [`${agents}/agent-d4.meta.json`]: meta('general-purpose', 'Early research'),
+  [`${agents}/agent-e5.jsonl`]: subagents[0] ?? '',
+  [`${agents}/agent-e5.meta.json`]: meta(null, 'No type'),
+};
+const readers: MachineReaders = {
+  home,
+  stateDir: `${home}/.claude/ground-control`,
+  readText: (path) => files[path] ?? null,
+  mtime: (path) => (path in files ? 1_790_000_000_000 : null),
+  listDir: (path) => {
+    if (path === `${home}/.claude/projects`) return ['-work-42-example'];
+    if (path === agents) return Object.keys(files).filter((file) => file.startsWith(`${agents}/`)).map((file) => file.slice(agents.length + 1));
+    return null;
+  },
+  readTail: () => null,
+  readHead: () => null,
+};
+
+/** Readers that find no transcript, for forks whose subagent handling is not under test. */
+const nowhere: MachineReaders = { ...readers, listDir: () => null };
+
 function input(over: Partial<DebriefForkInput> = {}): DebriefForkInput {
   return {
     path: 'claude',
     sessionId: SESSION,
-    forkId: '11111111-2222-4333-8444-555555555555',
+    forkId: FORK,
     cwd: '/work/42-example',
     prompt: 'What slowed you down?',
-    timeoutMs: 300_000,
+    timeoutMs: 600_000,
     signal: new AbortController().signal,
+    readers: nowhere,
+    subagentsDebriefed: {},
+    now: NOW,
     ...over,
   };
 }
 
+describe('the subagents a fork may message', () => {
+  it('offers a resumable subagent written within the cache window, and leaves out codex, Explore, Plan, untyped and older ones', () => {
+    expect(chooseSubagents(readers, agents, {}, NOW).map((choice) => [choice.agentId, choice.description, choice.scope])).toEqual([
+      ['a1', 'Finder: tests', 'all of your work in this conversation'],
+    ]);
+    expect(chooseSubagents(readers, agents, {}, Date.parse('2026-09-30T21:56:38.906Z'))).toEqual([]);
+  });
+
+  // Derived: the recorded subagent has no message after its tool results, so the later work is appended here.
+  it('asks a subagent debriefed before only about the work after the first message it received since, and skips one with none', () => {
+    const later = [
+      { type: 'user', uuid: 'later-1', timestamp: '2026-09-30T21:10:00.000Z', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_x', content: 'ok' }] } },
+      { type: 'user', uuid: 'later-2', timestamp: '2026-09-30T21:11:00.000Z', message: { content: `Recheck the fix. ${'Look again. '.repeat(20)}` } },
+    ];
+    const resumed: MachineReaders = { ...readers, readText: (path) => (path === `${agents}/agent-a1.jsonl` ? `${files[path]}\n${lines(later)}` : readers.readText(path)) };
+
+    expect(chooseSubagents(resumed, agents, { a1: '2026-09-30T21:05:00.000Z' }, NOW)[0]?.scope).toBe(`the work after the message that begins "${`Recheck the fix. ${'Look again. '.repeat(20)}`.slice(0, 200)}"`);
+    expect(chooseSubagents(readers, agents, { a1: '2026-09-30T21:05:00.000Z' }, NOW)).toEqual([]);
+
+    // Records since the last debrief with no new message, such as a late tool result, hold nothing new.
+    const quiet: MachineReaders = { ...readers, readText: (path) => (path === `${agents}/agent-a1.jsonl` ? `${files[path]}\n${lines(later.slice(0, 1))}` : readers.readText(path)) };
+    expect(chooseSubagents(quiet, agents, { a1: '2026-09-30T21:05:00.000Z' }, NOW)).toEqual([]);
+  });
+
+  it('fills the prompt with a line per subagent, or none', () => {
+    expect(subagentLines(chooseSubagents(readers, agents, {}, NOW))).toBe('- `a1` (Finder: tests): all of your work in this conversation');
+    expect(subagentLines([])).toBe('none');
+  });
+
+  it('keeps replacement patterns in a subagent line literal when filling the prompt', async () => {
+    const tricky: MachineReaders = { ...readers, readText: (path) => (path === `${agents}/agent-a1.meta.json` ? meta('general-purpose', 'Check $& and $` handling') : readers.readText(path)) };
+    const prompts: (string | undefined)[] = [];
+
+    await makeClaudeDebrief(async (_path, _args, options) => {
+      prompts.push(options?.stdin);
+      return { ok: true, value: output };
+    }, () => ({}), { copyFile: () => undefined, remove: () => undefined }).fork(input({ readers: tricky, prompt: 'Ask: {{subagents}}' }));
+
+    expect(prompts).toEqual(['Ask: - `a1` (Check $& and $` handling): all of your work in this conversation']);
+  });
+});
+
 describe('the debrief fork', () => {
   it('resumes the session as a transient fork with the chosen ID, and passes nothing that changes the prompt prefix', () => {
     expect(debriefArgs(input())).toEqual([
-      '-p', '--resume', SESSION, '--fork-session', '--session-id', '11111111-2222-4333-8444-555555555555',
+      '-p', '--resume', SESSION, '--fork-session', '--session-id', FORK,
       '--no-session-persistence', '--output-format', 'json',
     ]);
   });
@@ -143,13 +242,91 @@ describe('the debrief fork', () => {
     };
     const debrief = makeClaudeDebrief(run, () => ({ PATH: '/bin', CLAUDE_CONFIG_DIR: '/profiles/work' }));
 
-    expect(await debrief.fork(input())).toEqual({ friction: [], cache: { read: 27702, created: 26129, costUsd: 0.4357966 } });
+    expect(await debrief.fork(input({ prompt: 'Subagents:\n{{subagents}}' }))).toEqual({ friction: [], subagents: [], cache: { read: 27702, created: 26129, costUsd: 0.4357966 } });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.[0]).toBe('claude');
     expect(calls[0]?.[2]).toMatchObject({
-      cwd: '/work/42-example', stdin: 'What slowed you down?', timeoutMs: 300_000,
+      cwd: '/work/42-example', stdin: 'Subagents:\nnone', timeoutMs: 600_000,
       env: { PATH: '/bin', CLAUDE_CONFIG_DIR: '/profiles/work', FRICTION_DEBRIEF: '1' },
     });
+  });
+
+  /** Copies and removals the fork asked for, in order, failing a copy when told to. */
+  function recordingFiles(failCopy = false) {
+    const done: string[] = [];
+    return {
+      done,
+      files: {
+        copyFile: (from: string, to: string) => {
+          done.push(`copy ${from} -> ${to}`);
+          if (failCopy) throw new Error('EBUSY: resource busy or locked');
+        },
+        remove: (path: string) => { done.push(`remove ${path}`); },
+      },
+    };
+  }
+
+  const copied = [
+    `copy ${agents}/agent-a1.jsonl -> ${project}/${FORK}/subagents/agent-a1.jsonl`,
+    `copy ${agents}/agent-a1.meta.json -> ${project}/${FORK}/subagents/agent-a1.meta.json`,
+  ];
+  const removed = `remove ${project}/${FORK}`;
+
+  it('copies only the offered subagents under the fork, names them in the prompt, and removes the copy however the run ends', async () => {
+    const outcomes: (() => Promise<ExecOutcome>)[] = [
+      async () => ({ ok: true, value: output }),
+      async () => ({ ok: false, reason: 'failed', detail: 'timed out after 600s' }),
+      async () => { throw new Error('spawn crashed'); },
+    ];
+    const results: unknown[] = [];
+
+    for (const outcome of outcomes) {
+      const log = recordingFiles();
+      const prompts: (string | undefined)[] = [];
+      const debrief = makeClaudeDebrief(async (_path, _args, options) => {
+        log.done.push('run');
+        prompts.push(options?.stdin);
+        return outcome();
+      }, () => ({}), log.files);
+
+      results.push(await debrief.fork(input({ readers, prompt: '{{subagents}}' })).catch(() => 'threw'));
+
+      expect(log.done).toEqual([...copied, 'run', removed]);
+      expect(prompts).toEqual(['- `a1` (Finder: tests): all of your work in this conversation']);
+    }
+
+    expect(results[0]).toMatchObject({ subagents: ['a1'] });
+  });
+
+  it('keeps a finished debrief whose copy cannot be removed, and never copies over the session itself', async () => {
+    const stuck = { copyFile: () => undefined, remove: () => { throw new Error('EBUSY'); } };
+
+    expect(await makeClaudeDebrief(async () => ({ ok: true, value: output }), () => ({}), stuck).fork(input({ readers }))).toMatchObject({ friction: [], subagents: ['a1'] });
+
+    const log = recordingFiles();
+    await makeClaudeDebrief(async () => ({ ok: true, value: output }), () => ({}), log.files).fork(input({ readers, forkId: SESSION }));
+    expect(log.done).toEqual([]);
+  });
+
+  it('copies nothing when no subagent is offered, and does not run when the copy fails', async () => {
+    const bare = recordingFiles();
+    const runs: string[] = [];
+    const run: ExecJson = async () => {
+      runs.push('run');
+      return { ok: true, value: output };
+    };
+
+    await makeClaudeDebrief(run, () => ({}), bare.files).fork(input({ readers, now: Date.parse('2026-10-01T00:00:00.000Z') }));
+    expect(bare.done).toEqual([]);
+    expect(runs).toEqual(['run']);
+
+    const broken = recordingFiles(true);
+
+    expect(await makeClaudeDebrief(run, () => ({}), broken.files).fork(input({ readers }))).toMatchObject({
+      failure: { kind: 'debrief-subagents', message: expect.stringContaining('EBUSY') },
+    });
+    expect(runs).toEqual(['run']);
+    expect(broken.done.at(-1)).toBe(removed);
   });
 
   it('reports a process failure as a debrief failure', async () => {
@@ -160,26 +337,6 @@ describe('the debrief fork', () => {
 });
 
 describe('reading a session transcript from disk', () => {
-  const home = '/home/dev';
-  const project = `${home}/.claude/projects/-work-42-example`;
-  const files: Record<string, string> = {
-    [`${project}/${SESSION}.jsonl`]: main,
-    [`${project}/${SESSION}/subagents/agent-a1.jsonl`]: subagents[0] ?? '',
-    [`${project}/${SESSION}/subagents/agent-a1.meta.json`]: '{}',
-  };
-  const readers: MachineReaders = {
-    home,
-    stateDir: `${home}/.claude/ground-control`,
-    readText: (path) => files[path] ?? null,
-    mtime: (path) => (path in files ? 1_790_000_000_000 : null),
-    listDir: (path) => {
-      if (path === `${home}/.claude/projects`) return ['-work-42-example'];
-      if (path === `${project}/${SESSION}/subagents`) return ['agent-a1.jsonl', 'agent-a1.meta.json'];
-      return null;
-    },
-    readTail: () => null,
-    readHead: () => null,
-  };
   const debrief = makeClaudeDebrief(async () => ({ ok: false, reason: 'failed', detail: 'unused' }), () => ({}));
   const session = { sessionId: SESSION, cwd: '/work/42-example' };
 

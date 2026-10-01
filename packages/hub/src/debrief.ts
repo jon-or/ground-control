@@ -17,8 +17,8 @@ export const DEBRIEF_ATTEMPT_LIMIT = 3;
 /** Wait after a failed attempt before the next. */
 export const DEBRIEF_RETRY_MS = 5 * 60 * 1000;
 
-/** One fork, or one Codex debrief command, runs at most this long. */
-export const DEBRIEF_TIMEOUT_MS = 5 * 60 * 1000;
+/** One fork, or one Codex debrief command, runs at most this long; a fork waits on the subagents it asks. */
+export const DEBRIEF_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** How often the hub scans for idle sessions. */
 export const DEBRIEF_SCAN_MS = 60 * 1000;
@@ -121,7 +121,8 @@ export function dueSessions(sessions: DebriefSessions, state: DebriefState, now:
 export function promptFor(template: string, range: DebriefRange): string {
   const scope = range.fromPrompt === null ? 'the whole conversation' : `the work after the user message that begins "${range.fromPrompt}"`;
 
-  return template.replaceAll('{{scope}}', scope);
+  // A function replacement keeps `$&` and the like in the quoted message literal.
+  return template.replaceAll('{{scope}}', () => scope);
 }
 
 /** Whether a range read for a due session is worth a fork. */
@@ -367,12 +368,18 @@ export class DebriefRunner {
       const recovered = this.#save(scan, {
         ...state,
         sessions: { ...state.sessions, [candidate.sessionId]: { throughMessageUuid: latest.throughMessageUuid, debriefedAt: latest.at, attempts: 0, lastError: null, attemptedAt: null, attemptedThrough: null } },
+        subagents: { ...state.subagents, ...Object.fromEntries(latest.subagents.map((agentId) => [`${candidate.sessionId}/${agentId}`, latest.startedAt])) },
       });
 
       return { state: recovered, recovered: true };
     }
 
     const forkId = this.#deps.newId();
+    // One clock read: the fork chooses subagents by it, and a success records it as their last debrief.
+    const startedMs = this.#deps.now();
+    const startedAt = new Date(startedMs).toISOString();
+    const prefix = `${candidate.sessionId}/`;
+    const subagentsDebriefed = Object.fromEntries(Object.entries(state.subagents).filter(([key]) => key.startsWith(prefix)).map(([key, at]) => [key.slice(prefix.length), at]));
 
     this.#deps.log.info(`debriefing ${candidate.sessionId}: ${range.toolCalls} tool calls since ${held?.throughMessageUuid ?? 'the start'}`, 'debrief');
     this.#forks.add(forkId);
@@ -388,6 +395,9 @@ export class DebriefRunner {
         prompt: promptFor(scan.prompt, range),
         timeoutMs: DEBRIEF_TIMEOUT_MS,
         signal: this.#abort.signal,
+        readers: this.#deps.readers(),
+        subagentsDebriefed,
+        now: startedMs,
       });
     } finally {
       this.#forks.delete(forkId);
@@ -407,6 +417,8 @@ export class DebriefRunner {
       toolCalls: range.toolCalls,
       cache: result.cache,
       friction: result.friction,
+      startedAt,
+      subagents: result.subagents,
     };
     const error = 'failure' in result ? result.failure.message : scan.store.appendLog(entry!) ? null : `could not append to ${scan.dir}/log`;
 
@@ -434,7 +446,11 @@ export class DebriefRunner {
 
     this.#deps.log.info(`debriefed ${candidate.sessionId}: ${entry!.friction.length} friction reports`, 'debrief');
 
-    return { state: this.#save(scan, DebriefRunner.#covered(state, candidate, range, at)), recovered: false };
+    // A subagent's later work is what it wrote after this fork started.
+    const covered = DebriefRunner.#covered(state, candidate, range, at);
+    const subagents = { ...covered.subagents, ...Object.fromEntries(('failure' in result ? [] : result.subagents).map((agentId) => [`${prefix}${agentId}`, startedAt])) };
+
+    return { state: this.#save(scan, { ...covered, subagents }), recovered: false };
   }
 
   /**

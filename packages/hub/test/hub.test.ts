@@ -3600,7 +3600,7 @@ describe('friction debriefs (R52)', () => {
   }
 
   function memoryStore(): DebriefStore & { logs: DebriefLogEntry[] } {
-    let state: DebriefState = { v: 1, sessions: {}, codex: {} };
+    let state: DebriefState = { v: 1, sessions: {}, codex: {}, subagents: {} };
     const logs: DebriefLogEntry[] = [];
 
     return {
@@ -3610,7 +3610,7 @@ describe('friction debriefs (R52)', () => {
       appendLog: (entry) => { logs.push(entry); return true; },
       logged: (sessionId) => {
         const last = logs.filter((entry) => entry.sessionId === sessionId).at(-1);
-        return { latest: last === undefined ? null : { throughMessageUuid: last.throughMessageUuid!, at: last.at } };
+        return { latest: last === undefined ? null : { throughMessageUuid: last.throughMessageUuid!, at: last.at, startedAt: last.startedAt ?? last.at, subagents: last.subagents ?? [] } };
       },
     };
   }
@@ -3710,7 +3710,7 @@ describe('friction debriefs (R52)', () => {
 
     expect(latest(inbox).sessions?.count).toBe(1);
 
-    agent.release({ friction: [], cache: null });
+    agent.release({ friction: [], subagents: [], cache: null });
     await settle();
 
     expect(store.logs.map((entry) => entry.sessionId)).toEqual([SESSION]);
