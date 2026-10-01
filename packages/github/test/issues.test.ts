@@ -71,6 +71,8 @@ describe('fetchAssignedIssues', () => {
       statusColor: 'GRAY',
       // Null because this recording predates the selection, which is exactly what an older recording must read as.
       statusChangedAt: null,
+      // Null for the same reason, and the recording predates the assignment events.
+      queuedAt: null,
       assignees: ['dev-1', 'dev-1-bot'],
       avatar: { login: 'dev-1', url: 'https://avatars.githubusercontent.com/dev-1?s=40', source: 'issue' },
       // No linked account is configured here, so the bot is a second person.
@@ -108,6 +110,63 @@ describe('fetchAssignedIssues', () => {
     expect(value.cards.find((c) => c.number === 18953)?.statusChangedAt).toBe('2026-09-04T13:53:36Z');
     // Keep other fixture timestamps null to verify per-card mapping.
     expect(value.cards.filter((c) => c.statusChangedAt !== null)).toHaveLength(1);
+  });
+
+  describe('queuedAt', () => {
+    type Event = { __typename: string; createdAt: string; assignee: { login: string } | null };
+    type Assigned = { data: { cards: { nodes: { number: number; assignments: { nodes: Event[] } }[] } } };
+
+    const logins = ['dev-1', 'dev-1-bot'];
+
+    async function queuedOf(page: unknown) {
+      const value = await unwrap(config({ logins }), runnerOf(page));
+
+      return Object.fromEntries(value.cards.map((c) => [c.number, c.queuedAt]));
+    }
+
+    function eventsOf(page: Assigned, number: number): { nodes: Event[] } {
+      return page.data.cards.nodes.find((n) => n.number === number)!.assignments;
+    }
+
+    it("dates each card from the later of its status change and the developer's current assignment", async () => {
+      expect(await queuedOf(fixture('assignments'))).toEqual({
+        // Assigned for review six days after the status moved.
+        19934: '2026-10-01T15:53:47Z',
+        // Assigned with nine others, then the status moved.
+        19769: '2026-09-23T17:42:06Z',
+        // Reassigned after an earlier assignment ended.
+        19703: '2026-09-30T17:51:45Z',
+        19231: '2026-08-26T17:51:17Z',
+        // Unassigned from one login, then assigned to the other seven minutes later.
+        18655: '2026-10-01T15:08:45Z',
+        16106: '2026-09-30T19:25:50Z',
+      });
+    });
+
+    it('keeps the status change where the read events start mid-assignment', async () => {
+      const page = structuredClone(fixture('assignments')) as Assigned;
+      const events = eventsOf(page, 19934);
+
+      events.nodes = events.nodes.filter((event) => event.assignee?.login !== 'dev-1');
+
+      expect((await queuedOf(page))[19934]).toBe('2026-09-25T15:57:29Z');
+    });
+
+    it('dates a card off the project board from the assignment alone', async () => {
+      expect((await queuedOf(withProject('assignments', { value: null })))[19934]).toBe('2026-10-01T15:53:47Z');
+    });
+
+    it("keeps an assignment continuous across a handover between the developer's logins within one second", async () => {
+      // Derived from 18655's recorded events: the other login's assignment moves to the unassignment's second and
+      // ahead of it, as GitHub orders a handover. Only the timeline order then tells which came first.
+      const page = withProject('assignments', { value: null }) as unknown as Assigned;
+      const events = eventsOf(page, 18655);
+      const [first, unassigned, handover] = events.nodes as [Event, Event, Event];
+
+      events.nodes = [first, { ...handover, createdAt: unassigned.createdAt }, unassigned];
+
+      expect((await queuedOf(page))[18655]).toBe('2026-08-11T19:01:02Z');
+    });
   });
 
   it('uses the linked pull request author for a review card', async () => {
@@ -738,6 +797,8 @@ describe('fetchIssue', () => {
       status: '🚀 Releasable',
       statusColor: 'GRAY',
       statusChangedAt: '2026-07-30T18:37:03Z',
+      // Unassigned, so only the status change dates it.
+      queuedAt: '2026-07-30T18:37:03Z',
       assignees: [],
       avatar: null,
       pullRequest: {

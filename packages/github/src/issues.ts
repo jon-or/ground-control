@@ -163,10 +163,55 @@ export function fieldProblemOf(item: ProjectItem, cfg: GithubConfig): string | n
   return null;
 }
 
+/**
+ * When the developer's current assignment began: undo the events newest first until none of their logins is
+ * assigned. Null where no login is assigned, or the read events start mid-assignment.
+ */
+function assignedSince(node: SearchNode, logins: readonly string[]): string | null {
+  const own = new Set(logins.map((login) => login.toLowerCase()));
+  const held = new Set(node.assignees.nodes.map((actor) => actor.login.toLowerCase()).filter((login) => own.has(login)));
+  // The timeline is in event order, which also orders events within one second.
+  const events = [...(node.assignments?.nodes ?? [])].reverse();
+
+  if (held.size === 0) {
+    return null;
+  }
+
+  for (const event of events) {
+    const login = event.assignee?.login?.toLowerCase();
+
+    if (login === undefined || !own.has(login)) {
+      continue;
+    }
+
+    if (event.__typename === 'AssignedEvent') {
+      held.delete(login);
+
+      if (held.size === 0) {
+        return event.createdAt;
+      }
+    } else if (event.__typename === 'UnassignedEvent') {
+      held.add(login);
+    }
+  }
+
+  return null;
+}
+
+/** The card entered the developer's queue at the later of its status change and their assignment. */
+function queuedAt(statusChangedAt: string | null, assigned: string | null): string | null {
+  if (statusChangedAt === null || assigned === null) {
+    return statusChangedAt ?? assigned;
+  }
+
+  return Date.parse(assigned) > Date.parse(statusChangedAt) ? assigned : statusChangedAt;
+}
+
 function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
   const people = resolveNode(node, cfg);
   const item = itemOf(node, cfg);
   const status = item?.fieldValueByName?.name ?? null;
+  const statusChangedAt = item?.fieldValueByName?.updatedAt ?? null;
 
   return {
     number: node.number,
@@ -178,7 +223,8 @@ function toCard(node: SearchNode, cfg: GithubConfig): IssueCard {
     url: node.url,
     status,
     statusColor: item?.fieldValueByName?.color ?? null,
-    statusChangedAt: item?.fieldValueByName?.updatedAt ?? null,
+    statusChangedAt,
+    queuedAt: queuedAt(statusChangedAt, assignedSince(node, cfg.logins)),
     assignees: people.assignees.map((a) => a.login),
     ...selectCardAvatars(people, cfg, status),
     pullRequest: selectPullRequest(people),

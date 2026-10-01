@@ -3659,6 +3659,26 @@ describe('card triage (R38)', () => {
     expect(document.querySelector('.gc-age')).toBeNull();
   });
 
+  // A review assigned 17 minutes ago on a status set six days ago has waited 17 minutes for the developer.
+  it('ages the card from when it entered the queue, not the older status move, and follows a reassignment', () => {
+    const queued = (at: number): LanedCard => {
+      const entry = moved(card(4501, {
+        sessions: [],
+        triage: { state: 'done', action: 'review-others', qualifier: 'initial', target: null, detail: 'Review it.', at: NOW, stale: false },
+      }), new Date(NOW - 6 * 86_400_000).toISOString());
+
+      return { ...entry, issue: { ...entry.issue!, queuedAt: new Date(at).toISOString() } };
+    };
+
+    show(queued(NOW - 2 * 3_600_000));
+
+    expect(document.querySelector('.gc-age')?.textContent).toBe('2h');
+
+    show(queued(NOW - 17 * 60_000));
+
+    expect(document.querySelector('.gc-age')?.textContent).toBe('17m');
+  });
+
   it('advances the status age where it stands, on the same clock as a session duration', () => {
     show(
       moved(card(4501, {

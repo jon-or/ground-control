@@ -14,6 +14,11 @@ export interface IssueCard {
   statusColor: string | null;
   /** Last status-change time, or null off the project board; triggers triage (R38). */
   statusChangedAt: string | null;
+  /**
+   * When the card entered the developer's queue: the later of `statusChangedAt` and the start of their current
+   * assignment. Null where neither is known; a snapshot cached by an older hub omits it.
+   */
+  queuedAt?: string | null;
   assignees: string[];
   /** The developer's assignee when the issue is shared (`sharedAssignment`), otherwise the avatar policy's choice (R5). */
   avatar: CardAvatar | null;

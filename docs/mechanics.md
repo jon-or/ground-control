@@ -743,7 +743,7 @@ Measured GraphQL cost with `rateLimit { cost }`:
 | Same nested fields, `first:10` | 13 |
 | Same nested fields, `first:5` | 8 |
 
-The shipped query fetches five closing references. At a 300-second poll, cost 8 is 96 points/hour against the recorded 5,000/hour allowance. Wall time was 1,019 ms before and 1,167 ms with the rollup. Requested page sizes affect cost even when few results return. The measured maximum was one closing PR per issue; nine of thirteen issues had none.
+Adding the issue's last 20 assignment and unassignment events (`timelineItems(last:20, itemTypes:[ASSIGNED_EVENT, UNASSIGNED_EVENT])`) measured 1 point more on 2026-10-01 (16 assigned issues, cost 7 to 8), and `last:50` measured the same. The shipped query fetches five closing references. At a 300-second poll, cost 8 is 96 points/hour against the recorded 5,000/hour allowance. Wall time was 1,019 ms before and 1,167 ms with the rollup. Requested page sizes affect cost even when few results return. The measured maximum was one closing PR per issue; nine of thirteen issues had none.
 
 Ordering of `closedByPullRequestsReferences` was not established. Sorting the fetched five by updatedAt cannot guarantee the globally newest PR when more than five exist. Preserve this limit in claims about selection.
 

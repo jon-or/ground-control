@@ -123,6 +123,18 @@ const searchNode = z.object({
     })
     .optional(),
   projectItems: z.object({ nodes: z.array(projectItem) }),
+  // Older fixtures omit assignment events. An assignee of a kind without a login, or a deleted one, reads as null.
+  assignments: z
+    .object({
+      nodes: z.array(
+        z.object({
+          __typename: z.string(),
+          createdAt: z.string(),
+          assignee: z.object({ login: z.string().optional() }).nullable().default(null),
+        }),
+      ),
+    })
+    .optional(),
 });
 
 export const searchResponse = z.object({

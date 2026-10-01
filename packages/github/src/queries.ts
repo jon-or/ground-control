@@ -1,7 +1,12 @@
 /** cards applies the project filter; assignedTotal omits it to count excluded assigned issues. */
+
+/** An assignment event's assignee, of any kind that has a login. */
+const ASSIGNEE = 'assignee{ ... on User{ login } ... on Bot{ login } ... on Mannequin{ login } }';
+
 /**
  * Shared card fields: five closing PRs bound cost (M48), statusCheckRollup feeds triage, $status names the status
- * field, and the project's field(name:) lookup tells a missing or differently typed field from an unset value.
+ * field, and the project's field(name:) lookup tells a missing or differently typed field from an unset value. The
+ * last 20 assignment events date the developer's assignment for the card's queue age.
  */
 const ISSUE_FIELDS = `
   number title url state updatedAt
@@ -9,6 +14,11 @@ const ISSUE_FIELDS = `
   repository{ nameWithOwner }
   author{ login avatarUrl(size:40) }
   assignees(first:10){ nodes{ login avatarUrl(size:40) } }
+  assignments: timelineItems(last:20, itemTypes:[ASSIGNED_EVENT, UNASSIGNED_EVENT]){ nodes{
+    __typename
+    ... on AssignedEvent{ createdAt ${ASSIGNEE} }
+    ... on UnassignedEvent{ createdAt ${ASSIGNEE} }
+  }}
   pullRequests: closedByPullRequestsReferences(first:5){ nodes{
     number url state updatedAt isDraft reviewDecision
     author{ login avatarUrl(size:40) }

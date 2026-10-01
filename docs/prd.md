@@ -106,7 +106,9 @@ The footer's first line is one command bar: the card's lane, what to do about it
 |---|---|---|
 | Lane (overlay) | Pictogram, in the lane's colour, on a button edge that opens the lane menu | unchanged |
 | Verdict | Triage action and qualifier, or the workflow stage's note (R49), then a mark for the dispatched run's state | unchanged |
-| Tail | Time in the current status, right-aligned | Open checkout, create worktree (R46), report (R51), run or approve |
+| Tail | Time in the developer's queue, right-aligned | Open checkout, create worktree (R46), report (R51), run or approve |
+
+The queue time runs from the later of the card's last status change and the start of the developer's current assignment, so a review assigned today on a pull request whose status moved last week reads as today's. An assignment counts from the first of the developer's logins assigned, through any later unassignment of all of them. The source reads an issue's last 20 assignment events; where those start mid-assignment, the status change alone dates the card, and a card off the project board with neither shows no age.
 
 The verdict is the only element that shrinks: a long qualifier truncates its words rather than moving a control, and the state mark after them keeps its width. The tail is one slot painted two ways, so revealing the controls changes no width and the run control lands where the age was, above the session duration below it. Reveal keys on the bar, not the card, so passing over a title arms nothing. Controls stay in the tab order while hidden and appear on keyboard focus; where the device cannot hover, the tail lays the controls out and drops the age.
 
@@ -421,7 +423,7 @@ Read status and assignment events alongside comments. Consecutive changes by the
 
 The qualifier refines the action from PR facts, never from the model: initial or followup for review and answer review, and upstream, stacked, or test for merge (R39). Use the developer's own submitted reviews, comments, and replies to distinguish initial review from follow-up. Reviews by other people or bots do not establish a prior round for the developer. Ignore draft reviews. Do not use `reviewDecision` as triage evidence; lane arrival uses it separately (R8).
 
-The explanation describes status and responsibility, not technical implementation. Address the developer as “you”; use colleagues' first names, or logins where GitHub has no name, with a linked account (R28) named as the account it links to. Do not invent counts from a partial conversation. Other covers waiting with no identified action. The action is visible; the explanation and classification time are on hover. The age beside it is time in the current status (R45).
+The explanation describes status and responsibility, not technical implementation. Address the developer as “you”; use colleagues' first names, or logins where GitHub has no name, with a linked account (R28) named as the account it links to. Do not invent counts from a partial conversation. Other covers waiting with no identified action. The action is visible; the explanation and classification time are on hover. The age beside it is time in the developer's queue (R45).
 
 Mark triage stale when issue/PR evidence changes. Age alone does not invalidate it. Automatically reread only on eligibility, status, or assignee changes; other changes mark it stale without spending another model call. Triage never moves a card.
 

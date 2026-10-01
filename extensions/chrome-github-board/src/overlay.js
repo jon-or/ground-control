@@ -3104,8 +3104,9 @@ function tail(doc, card, now, actions) {
   held.className = 'gc-tail';
   tools.className = 'gc-tools';
 
-  // Status age is null outside project boards because GitHub records no move timestamp.
-  const moved = card.issue?.statusChangedAt ? Date.parse(card.issue.statusChangedAt) : NaN;
+  // Time in the developer's queue; an older hub sends only the status change, which is null off project boards.
+  const queued = card.issue?.queuedAt ?? card.issue?.statusChangedAt;
+  const moved = queued ? Date.parse(queued) : NaN;
 
   if (Number.isFinite(moved)) {
     const ageLabel = doc.createElement('span');
@@ -4579,6 +4580,7 @@ function badgeSignature(card, openable, canRequest) {
     card.triage,
     card.action,
     card.issue?.statusChangedAt ?? null,
+    card.issue?.queuedAt ?? null,
     card.issue?.avatar ?? null,
     // Session links carry the editor's scheme, so a changed scheme rebuilds the footer.
     uriScheme,

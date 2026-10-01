@@ -2651,6 +2651,22 @@ describe('card triage (R38)', () => {
     expect(document.querySelector('.card-age')).toBeNull();
   });
 
+  // A review assigned 17 minutes ago on a status set six days ago has waited 17 minutes for the developer.
+  it('ages the card from when it entered the queue, not the older status move', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-01T16:10:47Z'));
+
+    try {
+      const card = triaged({ state: 'done', action: 'review-others', qualifier: 'initial', target: null, detail: 'Review it.', at, stale: false }, '2026-09-25T15:57:29Z');
+
+      send(message({ lanes: lanes({ unstarted: [{ ...card, issue: { ...card.issue!, queuedAt: '2026-10-01T15:53:47Z' } }] }) }));
+
+      expect(document.querySelector('.tail .card-age')?.textContent).toBe('17m');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('advances the status age where it stands, on the clock the durations run on', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-06T19:00:00Z'));

@@ -1170,8 +1170,9 @@ function tail(boardCard) {
 
   held.className = 'tail';
 
-  // Status age is null outside project boards because GitHub records no move timestamp.
-  const moved = boardCard.issue?.statusChangedAt ? Date.parse(boardCard.issue.statusChangedAt) : NaN;
+  // Time in the developer's queue; an older hub sends only the status change, which is null off project boards.
+  const queued = boardCard.issue?.queuedAt ?? boardCard.issue?.statusChangedAt;
+  const moved = queued ? Date.parse(queued) : NaN;
 
   if (Number.isFinite(moved)) {
     const ageLabel = document.createElement('span');

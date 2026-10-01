@@ -1,0 +1,715 @@
+{
+  "data": {
+    "cards": {
+      "issueCount": 16,
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": "Y3Vyc29yOjE2"
+      },
+      "nodes": [
+        {
+          "number": 19934,
+          "title": "Channel mapping drops rows past the first page",
+          "url": "https://github.com/example-org/example-repo/issues/19934",
+          "state": "OPEN",
+          "updatedAt": "2026-10-01T15:53:47Z",
+          "issueType": {
+            "name": "Feature",
+            "color": "BLUE"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "author": {
+            "login": "dev-2",
+            "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-1?s=40"
+              }
+            ]
+          },
+          "assignments": {
+            "nodes": [
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-25T11:03:59Z",
+                "assignee": {
+                  "login": "dev-3"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-25T12:28:46Z",
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-25T15:57:31Z",
+                "assignee": {
+                  "login": "dev-3"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-25T15:57:31Z",
+                "assignee": {
+                  "login": "dev-2"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-10-01T15:53:47Z",
+                "assignee": {
+                  "login": "dev-1"
+                }
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": [
+              {
+                "number": 19952,
+                "url": "https://github.com/example-org/example-repo/pull/19952",
+                "state": "OPEN",
+                "updatedAt": "2026-09-25T15:54:58Z",
+                "isDraft": false,
+                "reviewDecision": "REVIEW_REQUIRED",
+                "author": {
+                  "login": "dev-2",
+                  "avatarUrl": "https://avatars.githubusercontent.com/dev-2?s=40"
+                },
+                "commits": {
+                  "nodes": [
+                    {
+                      "commit": {
+                        "oid": "083d79761d71d061cd07439431b64a0f738019fd",
+                        "statusCheckRollup": {
+                          "state": "SUCCESS"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  },
+                  "field": {
+                    "__typename": "ProjectV2SingleSelectField"
+                  }
+                },
+                "fieldValueByName": {
+                  "name": "🔍 Dev Review",
+                  "color": "GRAY",
+                  "updatedAt": "2026-09-25T15:57:29Z"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 19769,
+          "title": "Channel mapping overwrites a manual edit",
+          "url": "https://github.com/example-org/example-repo/issues/19769",
+          "state": "OPEN",
+          "updatedAt": "2026-09-29T16:44:42Z",
+          "issueType": {
+            "name": "Task",
+            "color": "YELLOW"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "author": {
+            "login": "dev-4",
+            "avatarUrl": "https://avatars.githubusercontent.com/dev-4?s=40"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-3",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-3?s=40"
+              },
+              {
+                "login": "dev-5",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-5?s=40"
+              },
+              {
+                "login": "dev-6",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-6?s=40"
+              },
+              {
+                "login": "dev-7",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-7?s=40"
+              },
+              {
+                "login": "dev-4",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-4?s=40"
+              },
+              {
+                "login": "dev-8",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-8?s=40"
+              },
+              {
+                "login": "dev-9",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-9?s=40"
+              },
+              {
+                "login": "dev-10",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-10?s=40"
+              },
+              {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-1?s=40"
+              }
+            ]
+          },
+          "assignments": {
+            "nodes": [
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:08Z",
+                "assignee": {
+                  "login": "dev-4"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:09Z",
+                "assignee": {
+                  "login": "dev-10"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:09Z",
+                "assignee": {
+                  "login": "dev-1"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:09Z",
+                "assignee": {
+                  "login": "dev-5"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:09Z",
+                "assignee": {
+                  "login": "dev-7"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:09Z",
+                "assignee": {
+                  "login": "dev-11"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:26Z",
+                "assignee": {
+                  "login": "dev-8"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:26Z",
+                "assignee": {
+                  "login": "dev-9"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:26Z",
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-18T15:55:26Z",
+                "assignee": {
+                  "login": "dev-3"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-24T18:59:06Z",
+                "assignee": {
+                  "login": "dev-11"
+                }
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": []
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  },
+                  "field": {
+                    "__typename": "ProjectV2SingleSelectField"
+                  }
+                },
+                "fieldValueByName": {
+                  "name": "🎁 Assigned",
+                  "color": "GRAY",
+                  "updatedAt": "2026-09-23T17:42:06Z"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 19703,
+          "title": "Channel mapping sends before the template renders",
+          "url": "https://github.com/example-org/example-repo/issues/19703",
+          "state": "OPEN",
+          "updatedAt": "2026-09-30T17:51:45Z",
+          "issueType": {
+            "name": "Bug",
+            "color": "RED"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "author": {
+            "login": "dev-1-bot",
+            "avatarUrl": "https://avatars.githubusercontent.com/dev-1-bot?s=40"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-1?s=40"
+              }
+            ]
+          },
+          "assignments": {
+            "nodes": [
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-15T21:03:11Z",
+                "assignee": {
+                  "login": "dev-1"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-16T17:30:27Z",
+                "assignee": {
+                  "login": "dev-1"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-17T13:37:18Z",
+                "assignee": {
+                  "login": "dev-12"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-17T14:39:28Z",
+                "assignee": {
+                  "login": "dev-12"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-24T12:08:01Z",
+                "assignee": {
+                  "login": "dev-13"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-30T15:43:55Z",
+                "assignee": {
+                  "login": "dev-13"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-30T15:43:55Z",
+                "assignee": {
+                  "login": "dev-14"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-09-30T17:51:44Z",
+                "assignee": {
+                  "login": "dev-14"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-09-30T17:51:45Z",
+                "assignee": {
+                  "login": "dev-1"
+                }
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": [
+              {
+                "number": 19716,
+                "url": "https://github.com/example-org/example-repo/pull/19716",
+                "state": "OPEN",
+                "updatedAt": "2026-09-29T22:39:52Z",
+                "isDraft": false,
+                "reviewDecision": "APPROVED",
+                "author": {
+                  "login": "dev-1-bot",
+                  "avatarUrl": "https://avatars.githubusercontent.com/dev-1-bot?s=40"
+                },
+                "commits": {
+                  "nodes": [
+                    {
+                      "commit": {
+                        "oid": "dd3ce8e25b92cd34131f023a49cdfde144922568",
+                        "statusCheckRollup": {
+                          "state": "SUCCESS"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  },
+                  "field": {
+                    "__typename": "ProjectV2SingleSelectField"
+                  }
+                },
+                "fieldValueByName": {
+                  "name": "⚒️ Dev",
+                  "color": "GRAY",
+                  "updatedAt": "2026-09-30T17:51:40Z"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 19231,
+          "title": "Booking export drops rows past the first page",
+          "url": "https://github.com/example-org/example-repo/issues/19231",
+          "state": "OPEN",
+          "updatedAt": "2026-08-28T12:57:45Z",
+          "issueType": {
+            "name": "Bug",
+            "color": "RED"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "author": {
+            "login": "dev-1-bot",
+            "avatarUrl": "https://avatars.githubusercontent.com/dev-1-bot?s=40"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-3",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-3?s=40"
+              },
+              {
+                "login": "dev-6",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-6?s=40"
+              },
+              {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-1?s=40"
+              }
+            ]
+          },
+          "assignments": {
+            "nodes": [
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-25T19:41:22Z",
+                "assignee": {
+                  "login": "dev-1"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-26T17:50:52Z",
+                "assignee": {
+                  "login": "dev-6"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-26T17:50:56Z",
+                "assignee": {
+                  "login": "dev-3"
+                }
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": []
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  },
+                  "field": {
+                    "__typename": "ProjectV2SingleSelectField"
+                  }
+                },
+                "fieldValueByName": {
+                  "name": "🆕 New",
+                  "color": "GRAY",
+                  "updatedAt": "2026-08-26T17:51:17Z"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 18655,
+          "title": "Listing sync fails silently on an empty result",
+          "url": "https://github.com/example-org/example-repo/issues/18655",
+          "state": "OPEN",
+          "updatedAt": "2026-10-01T15:08:47Z",
+          "issueType": {
+            "name": "Bug",
+            "color": "RED"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "author": {
+            "login": "dev-6",
+            "avatarUrl": "https://avatars.githubusercontent.com/dev-6?s=40"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1-bot",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-1-bot?s=40"
+              }
+            ]
+          },
+          "assignments": {
+            "nodes": [
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-11T19:01:02Z",
+                "assignee": {
+                  "login": "dev-1"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-10-01T15:01:37Z",
+                "assignee": {
+                  "login": "dev-1"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-10-01T15:08:45Z",
+                "assignee": {
+                  "login": "dev-1-bot"
+                }
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": [
+              {
+                "number": 20151,
+                "url": "https://github.com/example-org/example-repo/pull/20151",
+                "state": "OPEN",
+                "updatedAt": "2026-10-01T15:08:30Z",
+                "isDraft": false,
+                "reviewDecision": "REVIEW_REQUIRED",
+                "author": {
+                  "login": "dev-1-bot",
+                  "avatarUrl": "https://avatars.githubusercontent.com/dev-1-bot?s=40"
+                },
+                "commits": {
+                  "nodes": [
+                    {
+                      "commit": {
+                        "oid": "6b1222c25db0cbb7f2765c44a9bc8bfe361605c5",
+                        "statusCheckRollup": {
+                          "state": "SUCCESS"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  },
+                  "field": {
+                    "__typename": "ProjectV2SingleSelectField"
+                  }
+                },
+                "fieldValueByName": {
+                  "name": "⚒️ Dev",
+                  "color": "GRAY",
+                  "updatedAt": "2026-10-01T15:08:44Z"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "number": 16106,
+          "title": "Channel mapping counts archived records twice",
+          "url": "https://github.com/example-org/example-repo/issues/16106",
+          "state": "OPEN",
+          "updatedAt": "2026-08-11T18:07:39Z",
+          "issueType": {
+            "name": "Bug",
+            "color": "RED"
+          },
+          "repository": {
+            "nameWithOwner": "example-org/example-repo"
+          },
+          "author": {
+            "login": "dev-5",
+            "avatarUrl": "https://avatars.githubusercontent.com/dev-5?s=40"
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dev-1",
+                "avatarUrl": "https://avatars.githubusercontent.com/dev-1?s=40"
+              }
+            ]
+          },
+          "assignments": {
+            "nodes": [
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-04-02T16:25:19Z",
+                "assignee": {
+                  "login": "dev-15"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-04-02T16:25:19Z",
+                "assignee": {
+                  "login": "dev-16"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-04-03T11:03:17Z",
+                "assignee": {
+                  "login": "dev-15"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-04-03T11:03:17Z",
+                "assignee": {
+                  "login": "dev-16"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-07-28T18:31:22Z",
+                "assignee": {
+                  "login": "dev-4"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "createdAt": "2026-08-11T18:06:54Z",
+                "assignee": {
+                  "login": "dev-1"
+                }
+              },
+              {
+                "__typename": "UnassignedEvent",
+                "createdAt": "2026-08-11T18:06:54Z",
+                "assignee": {
+                  "login": "dev-4"
+                }
+              }
+            ]
+          },
+          "pullRequests": {
+            "nodes": []
+          },
+          "projectItems": {
+            "nodes": [
+              {
+                "project": {
+                  "number": 3,
+                  "owner": {
+                    "login": "example-org"
+                  },
+                  "field": {
+                    "__typename": "ProjectV2SingleSelectField"
+                  }
+                },
+                "fieldValueByName": {
+                  "name": "⚒️ Dev",
+                  "color": "GRAY",
+                  "updatedAt": "2026-09-30T19:25:50Z"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "assignedTotal": {
+      "issueCount": 16
+    }
+  }
+}

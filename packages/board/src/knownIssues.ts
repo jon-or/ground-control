@@ -53,6 +53,7 @@ const issueCard = z.object({
   status: z.string().nullable(),
   statusColor: z.string().nullable(),
   statusChangedAt: z.string().nullable(),
+  queuedAt: z.string().nullable().optional(),
   assignees: z.array(z.string()),
   avatar: avatar.nullable(),
   coAssignees: z.array(avatar).optional(),
@@ -66,7 +67,7 @@ function pinnedAvatar({ aliasOf, ...actor }: z.infer<typeof avatar>): NonNullabl
 
 /** Check the schema against IssueCard and omit absent optional keys for exactOptionalPropertyTypes. */
 function pinned(parsed: z.infer<typeof issueCard>): IssueCard {
-  const { repository, state, avatar: face, coAssignees, ...rest } = parsed;
+  const { repository, state, queuedAt, avatar: face, coAssignees, ...rest } = parsed;
 
   return {
     ...rest,
@@ -74,6 +75,7 @@ function pinned(parsed: z.infer<typeof issueCard>): IssueCard {
     ...(coAssignees === undefined ? {} : { coAssignees: coAssignees.map(pinnedAvatar) }),
     ...(repository === undefined ? {} : { repository }),
     ...(state === undefined ? {} : { state }),
+    ...(queuedAt === undefined ? {} : { queuedAt }),
   };
 }
 

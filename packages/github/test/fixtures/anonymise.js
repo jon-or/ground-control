@@ -111,6 +111,7 @@ function anonymiseResponse(response, logins, owners = ownerMap()) {
       ...(node.author ? [node.author] : []),
       ...(node.assignees?.nodes ?? []),
       ...(node.pullRequests?.nodes ?? []).map((pr) => pr.author).filter(Boolean),
+      ...(node.assignments?.nodes ?? []).map((event) => event.assignee).filter((actor) => actor?.login),
     ]) {
       actor.login = logins.of(actor.login);
 
@@ -129,7 +130,7 @@ function assertScrubbed(recorded, written, logins) {
   const identifyingActorValues = (actor) =>
     actor && !/^dev-\d+(-[a-z0-9-]+)?$/.test(actor.login) ? [actor.login, actor.avatarUrl] : [];
 
-  const fromProfiles = recorded.flatMap((r) => (r?.data?.user ? [r.data.user.login, r.data.user.name, r.data.user.avatarUrl] : []));
+  const fromProfiles = recorded.flatMap((r) => identifyingActorValues(r?.data?.user).concat(identifyingActorValues(r?.data?.user).length ? [r.data.user.name] : []));
   const fromNodes = recorded.flatMap((r) =>
     issueNodesOf(r).flatMap((n) => [
       n.title === title(n.number) ? null : n.title,
@@ -137,6 +138,7 @@ function assertScrubbed(recorded, written, logins) {
       ...(n.projectItems?.nodes ?? []).map((item) => recordedOwner(item.project)),
       ...identifyingActorValues(n.author),
       ...(n.assignees?.nodes ?? []).flatMap(identifyingActorValues),
+      ...(n.assignments?.nodes ?? []).flatMap((event) => identifyingActorValues(event.assignee)),
       ...(n.pullRequests?.nodes ?? []).flatMap((pr) => [
         pr.url?.startsWith(`https://github.com/${REPO}/`) ? null : pr.url,
         ...identifyingActorValues(pr.author),
