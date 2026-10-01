@@ -187,6 +187,31 @@ describe('repeat-run prevention', () => {
     expect(alreadyRun(state, 'issue:17198', '17198|4021|the-commit-that-merge-pushed', 'merge', NOW + 6)).toBe(false);
   });
 
+  /** A tester's new report or question changes no commit, so it reopens a QA run that stopped short (R39). */
+  // Both times are GitHub's, so a hub clock that differs from GitHub's neither repeats nor blocks a retry.
+  it('allows a QA run again after a tester comment newer than the one it ran with, and only then', () => {
+    const SEEN = NOW + 7_200_000;
+
+    for (const action of ['qa-failure', 'qa-question'] as const) {
+      const state = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action, evidence: '17198||', outcome: 'halted', startedAt: NOW, testerCommentAt: SEEN }) } };
+      const none = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action, evidence: '17198||', outcome: 'halted', startedAt: NOW }) } };
+
+      expect(alreadyRun(state, 'issue:17198', '17198||', action, null, null)).toBe(true);
+      expect(alreadyRun(state, 'issue:17198', '17198||', action, null, SEEN)).toBe(true);
+      expect(alreadyRun(state, 'issue:17198', '17198||', action, null, SEEN + 1)).toBe(false);
+      expect(alreadyRun(none, 'issue:17198', '17198||', action, null, NOW - 1)).toBe(false);
+    }
+
+    // Other actions, a run still going, and a run that landed keep their own rules.
+    const merge = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ outcome: 'halted', startedAt: NOW }) } };
+    const going = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action: 'qa-failure', evidence: '17198||', outcome: 'running', startedAt: NOW }) } };
+    const landed = { ...EMPTY_ACTIONS, runs: { 'issue:17198': run({ action: 'qa-failure', evidence: '17198||', outcome: 'landed', startedAt: NOW, endedAt: NOW + 5 }) } };
+
+    expect(alreadyRun(merge, 'issue:17198', '17198|4021|abc', 'merge', null, NOW + 1)).toBe(true);
+    expect(alreadyRun(going, 'issue:17198', '17198||', 'qa-failure', null, NOW + 1)).toBe(true);
+    expect(alreadyRun(landed, 'issue:17198', '17198||', 'qa-failure', null, NOW + 10)).toBe(true);
+  });
+
   /** A merge that landed before the upgrade must still stop the same request merging again. */
   it('reads a record written before the table as the upstream merge it was', () => {
     const stored = { runs: { 'issue:17198': { ...run({ outcome: 'landed', endedAt: NOW }), action: 'merge-upstream', qualifier: undefined } } };

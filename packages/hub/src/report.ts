@@ -20,9 +20,13 @@ export const REPORT_ROUTING_RESERVE = 1024;
 /** Images considered for one report; the rest show as placeholders unread. */
 export const REPORT_IMAGES_CONSIDERED = 100;
 
+/**
+ * `path` is the canonical file the board verified. A failure carries it only where the file is readable but cannot be
+ * shown on the board, so a refused path never reaches the editor.
+ */
 export type RenderedReport =
-  | { ok: true; name: string; modifiedAt: number; html: string }
-  | { ok: false; name: string | null; failure: string };
+  | { ok: true; name: string; path: string; modifiedAt: number; html: string }
+  | { ok: false; name: string | null; path?: string; failure: string };
 
 /** The whole answer for a given HTML, so its size can be counted before the HTML is chosen. */
 export type ReportEnvelope = (html: string) => unknown;
@@ -61,7 +65,7 @@ export async function renderReport(auditPath: string, envelope: ReportEnvelope):
 
   try {
     if (opened.size > REPORT_FILE_LIMIT) {
-      return { ok: false, name, failure: `The report is ${kilobytes(opened.size)}, more than the ${kilobytes(REPORT_FILE_LIMIT)} the board shows.` };
+      return { ok: false, name, path: opened.path, failure: `The report is ${kilobytes(opened.size)}, more than the ${kilobytes(REPORT_FILE_LIMIT)} the board shows.` };
     }
 
     markdown = (await readBounded(opened.handle, REPORT_FILE_LIMIT)).toString('utf8');
@@ -76,10 +80,12 @@ export async function renderReport(auditPath: string, envelope: ReportEnvelope):
   try {
     const html = await layout(markdown, directory, envelope);
 
-    return 'failure' in html ? { ok: false, name, failure: html.failure } : { ok: true, name, modifiedAt: opened.modifiedAt, html: html.html };
+    return 'failure' in html
+      ? { ok: false, name, path: opened.path, failure: html.failure }
+      : { ok: true, name, path: opened.path, modifiedAt: opened.modifiedAt, html: html.html };
   } catch {
     // A pathological document, such as thousands of nested quotes, can exhaust the parser's stack.
-    return { ok: false, name, failure: 'The report could not be rendered.' };
+    return { ok: false, name, path: opened.path, failure: 'The report could not be rendered.' };
   }
 }
 

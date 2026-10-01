@@ -8,7 +8,7 @@ import type {
   TriageQualifier,
 } from '@ground-control/core';
 import { actionEnabled, needsBaseMerge, planAction, planBaseMerge, promptFor } from '../src/plan.js';
-import { actionEvidence } from '../src/evidence.js';
+import { actionEvidence, testerCommentAt } from '../src/evidence.js';
 
 
 function row(over: Partial<ActionRow> = {}): ActionRow {
@@ -232,6 +232,29 @@ describe('what evidence a run is authorised against', () => {
   });
 });
 
+describe('when a tester last commented (R39)', () => {
+  const comment = (author: string | null, createdAt: string) => ({ author, authorName: null, authorAssociation: null, body: '', createdAt });
+
+  it('takes the newest comment by anyone but the developer', () => {
+    const comments = [comment('tester-1', '2026-09-02T00:00:00Z'), comment('tester-2', '2026-09-01T00:00:00Z'), comment('Dev-1-Bot', '2026-09-03T00:00:00Z')];
+
+    expect(testerCommentAt(context(null, { comments }))).toBe(Date.parse('2026-09-02T00:00:00Z'));
+  });
+
+  // The context reads the last five comments; replies that push the tester's out must not read as new input.
+  it('ignores machine accounts', () => {
+    const comments = [comment('tester-1', '2026-09-01T00:00:00Z'), comment('github-project-automation[bot]', '2026-09-02T00:00:00Z'), comment('orez-codebot', '2026-09-03T00:00:00Z'), comment(null, '2026-09-04T00:00:00Z')];
+
+    expect(testerCommentAt(context(null, { comments }))).toBe(Date.parse('2026-09-01T00:00:00Z'));
+  });
+
+  it('is none where the comments read are all the developer’s', () => {
+    const comments = Array.from({ length: 5 }, (_, day) => comment('dev-1', `2026-09-0${day + 1}T00:00:00Z`));
+
+    expect(testerCommentAt(context(null, { comments }))).toBeNull();
+  });
+});
+
 describe('whether an action is turned on', () => {
   it('is off for an action turned off, and one with nothing to run', () => {
     expect(actionEnabled(row({ automatic: false, prompt: '/x' }))).toBe(false);
@@ -346,6 +369,17 @@ describe('develop and ship, which work on the issue (R49)', () => {
       role: 'author',
       defaultOid: '',
     });
+  });
+
+  it('records a QA plan’s newest tester comment, and none for other workflows', () => {
+    const comments = [{ author: 'tester-1', authorName: null, authorAssociation: null, body: 'Step 3 fails.', createdAt: '2026-09-02T00:00:00Z' }];
+    const planned = (action: 'qa-failure' | 'develop') =>
+      planAction({ action, qualifier: null, target: null, context: context(null, { comments }), lane: 'review', liveSessions: 0, testBranchPattern: '^Test-' });
+    const qa = planned('qa-failure');
+    const develop = planned('develop');
+
+    expect(qa.ok && qa.plan.testerCommentAt).toBe(Date.parse('2026-09-02T00:00:00Z'));
+    expect(develop.ok && 'testerCommentAt' in develop.plan).toBe(false);
   });
 
   it('fills the prompt from the developer’s own open pull request, and ignores anyone else’s', () => {

@@ -187,6 +187,8 @@ export interface ActionRun {
   detail: string;
   /** The absolute Markdown report the result file named (R51); absent where it named none or a relative path. */
   auditPath?: string | undefined;
+  /** A QA run's newest tester comment time, by GitHub's clock, when it was dispatched (R39); absent where it had none. */
+  testerCommentAt?: number | undefined;
 }
 
 /**

@@ -72,6 +72,7 @@ const actionRun = z.preprocess(legacyRun, z.object({
   outcome: z.enum(['running', 'landed', 'halted', 'failed', 'stopped']),
   detail: z.string().default(''),
   auditPath: z.string().min(1).optional().catch(undefined),
+  testerCommentAt: z.number().optional().catch(undefined),
 }));
 
 // Drop refusals from older rules, including for actions no longer enabled.
@@ -168,7 +169,9 @@ export function readActionReport(stored: unknown): ActionReport | null {
  * a follow-up review of a head the initial review already read has nothing new to read. A landed run also blocks
  * changed evidence until the card's status changes after it ended, so a merge's own push cannot trigger another; a
  * reread alone is not a new request. Failed starts, older revisions, and other actions do not block; the read gate
- * limits retries. Manual requests bypass this check.
+ * limits retries. Manual requests bypass this check. A QA run that did not land also allows another after a tester
+ * comment newer than the newest one it was dispatched with, both by GitHub's clock, since a tester's new report or
+ * question changes no commit (R39).
  */
 export function alreadyRun(
   state: ActionState,
@@ -176,6 +179,7 @@ export function alreadyRun(
   evidence: string,
   action: AutomatableAction,
   statusChangedAt: number | null,
+  testerCommentAt: number | null = null,
 ): boolean {
   const run = state.runs[key];
 
@@ -190,6 +194,10 @@ export function alreadyRun(
 
   if (run.outcome === 'landed') {
     return (statusChangedAt ?? 0) <= (run.endedAt ?? run.startedAt);
+  }
+
+  if ((action === 'qa-failure' || action === 'qa-question') && run.outcome !== 'running' && testerCommentAt !== null && testerCommentAt > (run.testerCommentAt ?? -Infinity)) {
+    return false;
   }
 
   return run.evidence === evidence;

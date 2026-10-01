@@ -7,7 +7,7 @@ import type {
   TriageContext,
   TriageQualifier,
 } from '@ground-control/core';
-import { actionEvidence } from './evidence.js';
+import { actionEvidence, testerCommentAt } from './evidence.js';
 
 /** Specific action refusal and remedy (R25). */
 export interface ActionRefusal {
@@ -38,6 +38,8 @@ export interface ActionPlan {
   role: PullRequestRole;
   /** The default branch's tip when the card was read; empty where the source does not read it. */
   defaultOid: string;
+  /** A QA plan's newest tester comment time (R39); absent for other actions and where there is none. */
+  testerCommentAt?: number;
 }
 
 export type ActionDecision = { ok: true; plan: ActionPlan } | { ok: false; refusal: ActionRefusal };
@@ -166,6 +168,7 @@ function planWorkflow(input: PlanInput): ActionDecision {
 
   const pr = context.pullRequest;
   const own = pr !== null && pr.state === 'OPEN' && isDeveloperLogin(pr.author, context.logins) ? pr : null;
+  const tester = action === 'qa-failure' || action === 'qa-question' ? testerCommentAt(context) : null;
 
   return {
     ok: true,
@@ -182,6 +185,7 @@ function planWorkflow(input: PlanInput): ActionDecision {
       target: '',
       role: 'author',
       defaultOid: context.defaultOid ?? '',
+      ...(tester === null ? {} : { testerCommentAt: tester }),
     },
   };
 }

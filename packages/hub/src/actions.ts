@@ -47,6 +47,7 @@ import {
   promptValues,
   readActionReport,
   sessionLinks,
+  testerCommentAt,
   withDispatch,
   withOutcome,
   withRefusal,
@@ -1055,7 +1056,7 @@ export class ActionRunner {
 
       // Check persisted runs separately from fresh context. Manual retries bypass this check and retain the
       // previous outcome; a chained run follows its own worktree run's record.
-      if (!request.asked && !request.chained && alreadyRun(this.#deps.store.read(), key, decision.plan.evidence, action, statusChangedAt(card))) {
+      if (!request.asked && !request.chained && alreadyRun(this.#deps.store.read(), key, decision.plan.evidence, action, statusChangedAt(card), testerCommentAt(reading.context))) {
         this.#refuse(key, request, {
           kind: 'already-run',
           message: 'This action already ran for the card’s current state.',
@@ -1265,7 +1266,13 @@ export class ActionRunner {
       values: (reportPath) => promptValues(plan, checkout, reportPath),
       checkout,
       issueNumber: plan.issueNumber,
-      record: { action: plan.action, qualifier: plan.qualifier, evidence: plan.evidence, ...(merge === undefined ? {} : { merge }) },
+      record: {
+        action: plan.action,
+        qualifier: plan.qualifier,
+        evidence: plan.evidence,
+        ...(merge === undefined ? {} : { merge }),
+        ...(plan.testerCommentAt === undefined ? {} : { testerCommentAt: plan.testerCommentAt }),
+      },
     });
   }
 
@@ -1318,7 +1325,7 @@ export class ActionRunner {
       issueNumber: number;
       /** The issue whose card shows the session, where it is not `issueNumber`. */
       sessionIssue?: number;
-      record: Pick<ActionRun, 'action' | 'qualifier' | 'evidence' | 'merge' | 'for'>;
+      record: Pick<ActionRun, 'action' | 'qualifier' | 'evidence' | 'merge' | 'for' | 'testerCommentAt'>;
     },
   ): Promise<void> {
     const { runKey, label, template, checkout, issueNumber } = spec;

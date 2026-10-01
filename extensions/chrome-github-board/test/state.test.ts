@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Snapshot } from '@ground-control/core';
+import type { ActionHistoryView, Snapshot } from '@ground-control/core';
 import {
   LOG_LIMIT,
   applyMessage,
@@ -60,6 +60,27 @@ describe('what a message from the worker changes', () => {
     expect(applyMessage(initialState(), answer)).toEqual(initialState());
     expect(applyMessage(asked, answer).report).toEqual({ id: 'issue-4501@1', request: 2, answer });
     expect(applyMessage(initialState(), { type: 'reportPending', id: 'issue-4501@1' })).toEqual(initialState());
+  });
+
+  it('drops the report it holds on a snapshot under a restricted session scope', () => {
+    const held = applyMessage(initialState(), { type: 'reportPending', id: 'issue-4501@1', request: 1 });
+
+    expect(applyMessage(held, { type: 'snapshot', snapshot: { ...SNAPSHOT, reports: true } }).report).toEqual(held.report);
+    expect(applyMessage(held, { type: 'snapshot', snapshot: SNAPSHOT }).report).toEqual(held.report);
+    expect(applyMessage(held, { type: 'changed', snapshot: { ...SNAPSHOT, reports: false } }).report).toBeNull();
+  });
+
+  // History read before the restriction carries details scope now hides; history read after it is kept.
+  it('drops the history it holds when the session scope becomes restricted, and only then', () => {
+    const entries = [{ id: 'a' }] as unknown as ActionHistoryView[];
+    const open = applyMessage(applyMessage(initialState(), { type: 'snapshot', snapshot: SNAPSHOT }), { type: 'actionHistory', entries });
+    const restricted = applyMessage(open, { type: 'snapshot', snapshot: { ...SNAPSHOT, reports: false } });
+
+    expect(restricted.history).toBeNull();
+
+    const reread = applyMessage(restricted, { type: 'actionHistory', entries });
+
+    expect(applyMessage(reread, { type: 'changed', snapshot: { ...SNAPSHOT, reports: false } }).history).toEqual(entries);
   });
 
   it('starts out saying nothing has answered', () => {

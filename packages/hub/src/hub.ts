@@ -1867,8 +1867,11 @@ export class Hub {
 
     const label = run.action === CREATE_WORKTREE ? 'Worktree' : triageLabel(run.action, null);
     const title = run.issueNumber === null ? label : `${label} · #${run.issueNumber}`;
-    const editor = client.hello.hostId !== null ? { path: run.auditPath } : {};
-    const rendered = await renderReport(run.auditPath, (html) => ({ type: 'report', id, request, title, name: basename(run.auditPath), modifiedAt: Number.MAX_SAFE_INTEGER, html, failure: null, ...editor }));
+    const toEditor = client.hello.hostId !== null;
+    const rendered = await renderReport(run.auditPath, (html) => ({
+      type: 'report', id, request, title, name: basename(run.auditPath), modifiedAt: Number.MAX_SAFE_INTEGER, html, failure: null,
+      ...(toEditor ? { path: run.auditPath } : {}),
+    }));
 
     if (this.#disposed) {
       return;
@@ -1879,6 +1882,9 @@ export class Hub {
 
       return;
     }
+
+    // The editor gets only the path the read verified, so a refused or unreadable path is never opened.
+    const editor = toEditor && rendered.path !== undefined ? { path: rendered.path } : {};
 
     client.send(rendered.ok
       ? { type: 'report', id, request, title, name: rendered.name, modifiedAt: rendered.modifiedAt, html: rendered.html, failure: null, ...editor }
@@ -2398,6 +2404,7 @@ export class Hub {
         (this.#sessions?.failures.length ?? 0) > 0,
       needs: this.#needs(),
       owners: items?.owners ?? [],
+      reports: !restrictedSessionScope(this.#scope()),
       fetchedAt: new Date(now).toISOString(),
     };
   }

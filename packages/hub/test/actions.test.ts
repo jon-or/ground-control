@@ -38,6 +38,7 @@ import { makeActionHistoryStore, makeActionStore } from '../src/actionStore.js';
 import { makeIssueStore } from '../src/issueStore.js';
 import { makeStatusStore } from '../src/statusStore.js';
 import { actionReportPathOf } from '../src/paths.js';
+import { REPORT_FILE_LIMIT } from '../src/report.js';
 import { captureLog, cloneAt, fakeClock, fakeSession, reportingAgent, tempHome, worktreeAt } from './helpers.js';
 
 let home: string;
@@ -138,6 +139,8 @@ interface Control {
   pr: Partial<TriagePullRequest> | null;
   /** Per-issue changes to `pr`, for boards with more than one card. */
   prs: Record<number, Partial<TriagePullRequest>>;
+  /** The issue comments the fresh read answers. */
+  comments: TriageContext['comments'];
   /** Classifier result requesting a merge (R39). */
   classified: { action: TriageAction; detail: string; target: string | null };
   /** Every context read the runner made, so a gate that should have stopped one is visible. */
@@ -273,6 +276,7 @@ function harness(
     ],
     pr: {},
     prs: {},
+    comments: [],
     classified: { action: 'merge', detail: 'Behind master.', target: null },
     reads: [],
     readThrows: false,
@@ -360,7 +364,7 @@ function harness(
         body: '',
         status: card.status,
         stateEvents: [],
-        comments: [],
+        comments: control.comments,
         pullRequest: control.pr === null ? null : pullRequest({ ...control.pr, ...control.prs[card.number] }),
         assignees: card.assignees,
         logins: ['dev-1'],
@@ -905,6 +909,40 @@ describe('dispatching a card action', () => {
 
     // And once the branch moves under it, the same card is dispatched for again.
     control.pr = { headOid: 'ffffffffffffffffffffffffffffffffffffffff' };
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(2);
+  });
+
+  /** A tester's new comment changes no commit, yet it is new input for a QA run that stopped short (R39). */
+  it('runs a halted QA action again after a tester comments, and not after the developer does', async () => {
+    const control = harness({ table: [{ action: 'qa-failure', qualifier: null, prompt: '/address-qa {issue} result:{resultPath}', automatic: true }] });
+    control.classified = { action: 'qa-failure', detail: 'Step 3 failed on Test-C.', target: null };
+    const at = (offset: number) => new Date(control.clock.clock.now() + offset).toISOString();
+    control.comments = [{ author: 'tester-1', authorName: null, authorAssociation: null, body: 'Step 3 fails.', createdAt: at(-60_000) }];
+    watch(control);
+    await control.pass();
+    await control.appear();
+    control.report({ outcome: 'halted', detail: 'Which step 3 result is expected?' });
+    await control.finish();
+
+    expect(control.dispatched).toHaveLength(1);
+
+    control.comments = [...control.comments, { author: 'dev-1', authorName: null, authorAssociation: null, body: 'Looking.', createdAt: at(0) }];
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(1);
+
+    // GitHub's clock two hours ahead of the hub's: the comment reopens the run once, not on every pass.
+    control.comments = [...control.comments, { author: 'tester-1', authorName: null, authorAssociation: null, body: 'It should save.', createdAt: at(7_200_000) }];
+    await control.pass(PAST_GATE);
+
+    expect(control.dispatched).toHaveLength(2);
+
+    await control.appear();
+    control.report({ outcome: 'halted', detail: 'Still unclear.' });
+    await control.finish();
+    control.comments = [...control.comments, { author: 'github-project-automation[bot]', authorName: null, authorAssociation: null, body: 'Moved.', createdAt: at(7_300_000) }];
     await control.pass(PAST_GATE);
 
     expect(control.dispatched).toHaveLength(2);
@@ -3009,6 +3047,7 @@ describe('run reports (R51)', () => {
 
     expect(action?.state === 'done' && action.reportId).toBe(entry.id);
     expect(entry.reportId).toBe(entry.id);
+    expect(control.snapshot().reports).toBe(true);
     expect(Object.keys(entry)).not.toContain('auditPath');
     expect(JSON.stringify(control.snapshot())).not.toContain('review.md');
   });
@@ -3027,6 +3066,23 @@ describe('run reports (R51)', () => {
     expect(editor?.type === 'report' && editor.failure === null && editor.html).toContain('src="data:image/png;base64,');
     expect(browser).toMatchObject({ type: 'report', id, name: 'review.md', failure: null });
     expect(browser).not.toHaveProperty('path');
+  });
+
+  it('gives an editor the path of a report too large to show', async () => {
+    const control = harness();
+    const path = reportIn('x'.repeat(REPORT_FILE_LIMIT + 1));
+    await landedWith(control, path);
+
+    expect(await answered(control, historyOf(control)[0]!.id, 'vscode')).toMatchObject({ failure: expect.stringMatching(/^The report is \d+ kB/), path });
+  });
+
+  it('gives an editor no path for a report it cannot read', async () => {
+    const control = harness();
+    await landedWith(control, join(CHECKOUT, '.wip', 'gone.md'));
+    const refused = await answered(control, historyOf(control)[0]!.id, 'vscode');
+
+    expect(refused).toMatchObject({ failure: 'The report file is missing or cannot be read.' });
+    expect(refused).not.toHaveProperty('path');
   });
 
   it('refuses an id no run recorded a report under', async () => {
@@ -3057,6 +3113,8 @@ describe('run reports (R51)', () => {
 
     expect(action?.state === 'done' && action.reportId).toBeUndefined();
     expect(historyOf(control)[0]!.reportId).toBeNull();
+    // Clients close a report already shown on this flag.
+    expect(control.snapshot().reports).toBe(false);
     // Open in editor asks the hub each time, so an editor gets no path to open once scope hides the report.
     const refused = read(control, id, 'vscode');
 

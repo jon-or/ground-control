@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ActionHistoryView, CardStage, Custody, IssueCard, Lane, LaneId, LanedCard, ReportMessage, Session, Snapshot } from '@ground-control/core';
+import { applyMessage, initialState } from '../src/state.js';
 import { LANE_SHAPES, LANE_TITLES, LOG_LIMIT, ago, agentIcon, agentTitle, appendLog, assigneeStackOf, HUB_DATA_LABEL, cardsByIssue, clear, clearHub, filterBox, filterText, foldedRows, historyShown, issueRefOf, paint, sessionLabel, setLogOpen, tickDurations, viewerLogin } from '../src/overlay.js';
 
 /**
@@ -4848,6 +4849,29 @@ describe('run reports (R51)', () => {
     paint(document, shown({ id: 'issue-4502@2', request: second, answer: answer('issue-4502@2', second, { html: '<p>Second.</p>' }) }), NOW, reading);
 
     expect(reportBody()?.textContent).toBe('Second.');
+  });
+
+  it('closes a report it shows once the session scope is restricted', () => {
+    openHistory();
+    rowButtons()[0]!.click();
+    paint(document, shown({ id: 'issue-4501@1', request: lastRequest(), answer: answer('issue-4501@1', lastRequest()) }), NOW, reading);
+
+    expect(reportBody()?.textContent).toBe('All fixed.');
+
+    // The restricted snapshot arrives before the history read again, so the list read earlier must not show.
+    const open = shown({ id: 'issue-4501@1', request: lastRequest(), answer: answer('issue-4501@1', lastRequest()) }, { history: entries.map((entry) => ({ ...entry, detail: 'Working in d:/private/checkout.' })) });
+    const restricted = applyMessage({ ...initialState(), ...open }, { type: 'snapshot', snapshot: snapshot({ reports: false }) });
+    paint(document, restricted, NOW, reading);
+
+    expect(back()).toBeNull();
+    expect(reportBody()).toBeNull();
+    expect(panel()!.textContent).not.toContain('d:/private/checkout');
+    expect(panel()!.querySelector('.gc-empty')?.textContent).toBe('Reading action history…');
+
+    paint(document, applyMessage(restricted, { type: 'actionHistory', entries: entries.map((entry) => ({ ...entry, reportId: null })) }), NOW, reading);
+
+    expect(panel()!.querySelectorAll('.gc-history-row')).toHaveLength(3);
+    expect(rowButtons()).toEqual([]);
   });
 
   it('shows a failure as text', () => {

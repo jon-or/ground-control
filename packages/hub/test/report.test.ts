@@ -195,7 +195,7 @@ describe('rendering a run report (R51)', () => {
   }, 30_000);
 
   it('says a report too deeply nested to parse could not be rendered', async () => {
-    expect(await render(`${'> '.repeat(10_000)}text`)).toEqual({ ok: false, name: 'review.md', failure: 'The report could not be rendered.' });
+    expect(await render(`${'> '.repeat(10_000)}text`)).toEqual({ ok: false, name: 'review.md', path: join(round, 'review.md'), failure: 'The report could not be rendered.' });
   });
 
   it('says so where the report is gone', async () => {
@@ -204,7 +204,10 @@ describe('rendering a run report (R51)', () => {
 
   it('refuses a path that is not absolute, or a device or network path', async () => {
     for (const path of ['review.md', '\\\\?\\C:\\x\\review.md', '\\\\server\\share\\review.md']) {
-      expect(await renderReport(path, envelope)).toMatchObject({ ok: false, failure: 'The run named its report by a path the board does not read.' });
+      const refused = await renderReport(path, envelope);
+
+      expect(refused).toMatchObject({ ok: false, failure: 'The run named its report by a path the board does not read.' });
+      expect(refused).not.toHaveProperty('path');
     }
   });
 

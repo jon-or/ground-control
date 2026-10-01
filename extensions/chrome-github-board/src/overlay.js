@@ -4039,6 +4039,14 @@ export function renderHistory(doc, state, now, actions) {
   const panel = existing ?? buildHistory(doc, actions);
   const body = /** @type {HTMLElement} */ (panel.querySelector('.gc-history-scroll'));
 
+  // A restricted session scope closes the report for the list, whose Report controls it has hidden too (R51).
+  if (reportShown !== null && state.snapshot?.reports === false) {
+    reportShown = null;
+    reportFocus = false;
+    reportReturn = null;
+    delete panel.dataset.sig;
+  }
+
   if (reportShown !== null) {
     renderReport(doc, panel, body, reportShown, state.report ?? null, now, actions);
 
