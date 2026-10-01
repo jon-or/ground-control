@@ -651,7 +651,7 @@
             "type": "boolean",
             "default": false,
             "order": 1,
-            "markdownDescription": "Ask each finished Claude session, in any project, what slowed it down: 45 minutes after its last turn, a one-turn fork of the session reports its friction to the debrief log. Each debrief is a paid model turn, read mostly from the session's prompt cache. See [debriefs](https://github.com/jon-or/ground-control/blob/master/README.md#debriefs)."
+            "markdownDescription": "Ask finished Claude sessions what slowed them down; uses paid model turns. See [debriefs](https://github.com/jon-or/ground-control/blob/master/README.md#debriefs)."
           },
           "groundControl.debrief.directory": {
             "scope": "machine",
