@@ -5,7 +5,7 @@ import type { ReadFailure } from './types.js';
 /** Friction debrief settings (R52). Empty paths resolve to the hub's defaults under the user's home. */
 export interface DebriefSettings {
   enabled: boolean;
-  /** Directory holding `state.json`, `log/`, `proposals.jsonl` and `report.md`. */
+  /** Directory holding `state.json`, `log/`, and the analyzer's `report.md` and `fixes/summary.json`. */
   directory: string;
   /** The debrief prompt; `{{scope}}` in it names the work the debrief covers. */
   promptPath: string;
@@ -21,11 +21,11 @@ export const DEBRIEF_ENV = 'FRICTION_DEBRIEF';
 const answered = z.string().refine((value) => value.trim() !== '');
 
 /**
- * One problem a debriefed session reports. The analyzer groups by `source` and counts `cost`, so all six fields must be
- * filled; the log keeps the item as answered, including fields this build does not know.
+ * One problem a debriefed session reports. The analyzer groups by `source` and counts `cost`, so these five fields must
+ * be filled; the log keeps the item as answered, including `fix` from older prompts and fields this build does not know.
  */
 export const frictionEntry = z
-  .object({ what: answered, source: answered, workaround: answered, cost: answered, evidence: answered, fix: answered })
+  .object({ what: answered, source: answered, workaround: answered, cost: answered, evidence: answered })
   .passthrough();
 
 export type FrictionEntry = z.infer<typeof frictionEntry>;

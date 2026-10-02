@@ -114,12 +114,19 @@ describe('the answer a debrief fork prints', () => {
     expect(readDebriefOutput([answer, { ...trailing, subtype: 'error_during_execution', is_error: true }])).toMatchObject({ friction: [entry] });
   });
 
+  it('accepts an item without fix, and keeps a fix an item still carries, even a blank one', () => {
+    const { fix: _fix, ...unfixed } = entry;
+    const blank = { ...entry, fix: ' ' };
+
+    expect(readDebriefOutput(result({ result: JSON.stringify({ friction: [unfixed, entry, blank] }) }))).toEqual({ friction: [unfixed, entry, blank], subagents: [], cache: null });
+  });
+
   it('refuses an unfinished turn, prose, an item missing a field or leaving one blank, and output with no result', () => {
     expect(readDebriefOutput(result({ subtype: 'error_max_turns', is_error: true }))).toMatchObject({ failure: { kind: 'debrief-refused' } });
     expect(readDebriefOutput(result({ result: 'I hit no friction.' }))).toMatchObject({ failure: { kind: 'debrief-unparsable' } });
     expect(readDebriefOutput(result({ result: JSON.stringify({ friction: [{ what: 'x' }] }) }))).toMatchObject({ failure: { kind: 'debrief-unparsable' } });
-    // The analyzer groups by source and counts cost, so every field must be filled.
-    for (const field of ['what', 'source', 'workaround', 'cost', 'evidence', 'fix']) {
+    // The analyzer groups by source and counts cost, so every field it reads must be filled.
+    for (const field of ['what', 'source', 'workaround', 'cost', 'evidence']) {
       const partial = { ...entry, [field]: ' ' };
       const { [field]: _dropped, ...missing } = entry as Record<string, string>;
 

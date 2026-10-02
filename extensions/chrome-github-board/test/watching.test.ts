@@ -270,6 +270,35 @@ it('sends a report only to the tab that asked, under that tab’s own request nu
   expect(offsite).toEqual([]);
 });
 
+it('badges the menu with the friction fixes to review and opens their report by a request number alone (R52)', async () => {
+  const page = await context.newPage();
+  await page.goto(BOARD);
+  await expect.poll(() => page.locator('#gc-menu').count(), { timeout: 20_000 }).toBe(1);
+
+  await answerAsHub({
+    type: 'snapshot',
+    snapshot: { lanes: [], issues: null, sessions: null, openable: [], startable: [], hooks: null, failures: [], stale: false, needs: null, frictionFixes: 2, fetchedAt: new Date().toISOString() },
+  });
+  await expect.poll(() => page.locator('#gc-menu .gc-menu-count').textContent()).toBe('2');
+  expect(await page.locator('#gc-menu button').first().getAttribute('aria-label')).toBe('Ground Control, 2 friction fixes to review');
+
+  await page.locator('#gc-menu button').first().click();
+  await page.getByRole('menuitem', { name: '2 friction fixes to review' }).click();
+
+  const frictionReads = async () => ((await worker.evaluate('probe.messages.filter(m => m.type === "readFrictionReport")')) as Record<string, unknown>[]);
+
+  await expect.poll(async () => (await frictionReads()).length).toBe(1);
+
+  const read = (await frictionReads())[0]!;
+
+  expect(Object.keys(read).sort()).toEqual(['request', 'type']);
+  await answerAsHub({ type: 'report', id: 'friction', request: read.request, title: 'Friction review', name: 'report.md', modifiedAt: Date.now() - 60_000, html: '<p>Two fixes.</p>', failure: null });
+  await expect.poll(() => reportText(page)).toBe('Friction reviewreport.md · modified 1m agoTwo fixes.');
+
+  await page.close();
+  expect(offsite).toEqual([]);
+});
+
 it('loads an image the hub inlined into a report', async () => {
   const page = await historyTab();
 

@@ -593,6 +593,10 @@ figure[${ACTOR_ATTR}] > :not(.${ACTOR_CLASS}) { display: none !important; }
 .${ACTOR_CLASS} img[hidden] { display: none !important; }
 #${MENU_ID} { display: inline-flex; gap: 4px; }
 #${MENU_ID} .gc-collapse { padding-left: 6px; padding-right: 6px; }
+/* The your-turn accent of a card waiting for the developer, carrying the friction fixes to review (R52). */
+#${MENU_ID} .gc-menu-count { margin-left: 6px; min-width: 20px; padding: 0 6px; border-radius: 10px;
+  font-size: 12px; font-weight: 500; line-height: 18px; text-align: center;
+  color: var(--fgColor-onEmphasis, #ffffff); background: var(--bgColor-accent-emphasis, #0969da); }
 #${MENU_ID} button[data-stale="true"]::after { content: ""; width: 6px; height: 6px; margin-left: 6px;
   border-radius: 50%; background: var(--bgColor-attention-emphasis, #bf8700); }
 #${MENU_FALLBACK_ID} { display: flex; justify-content: flex-end; margin: 8px 16px; }
@@ -1794,6 +1798,29 @@ function collapseButton(doc, host, actions) {
 /** The menu item and the options checkbox share this name: one choice, two places to make it. */
 export const HUB_DATA_LABEL = 'Show hub data on cards';
 
+/** The `id` the hub answers a friction report under (`FRICTION_REPORT_ID` in core); the page names no path (R52). */
+export const FRICTION_REPORT_ID = 'friction';
+
+/**
+ * The fixes the friction analyzer's report holds for review (R52), worded as the editor board words them.
+ *
+ * @param {number} count
+ */
+export function frictionWords(count) {
+  return `${count} friction ${count === 1 ? 'fix' : 'fixes'} to review`;
+}
+
+/**
+ * The count to show, or 0 for none, an older hub, or a value that is not a positive whole number.
+ *
+ * @param {Snapshot | null} snapshot
+ */
+function frictionCount(snapshot) {
+  const count = snapshot?.frictionFixes;
+
+  return typeof count === 'number' && Number.isSafeInteger(count) && count > 0 ? count : 0;
+}
+
 /**
  * Show snapshot age and installation status above the menu items. Display failures as visible notices (R25).
  * With hub data off the board has no connection to report on: the panel offers the choice itself and Settings.
@@ -1819,8 +1846,11 @@ export function renderMenu(doc, state, now, actions, cardRows) {
   // Exclude age from the menu signature; the timer updates it in place. Preserve items under the pointer
   // across scans.
   const stale = cardRows && (state.trouble !== null || (snapshot?.stale ?? false));
+  // Hub data, so shown only with it on, as the menu's other hub items are; the overlay has no board header (R36, R52).
+  const fixes = cardRows && actions.readReport ? frictionCount(snapshot) : 0;
   const sig = JSON.stringify([
     stale,
+    fixes,
     panelOpen,
     logOpen,
     snapshot === null,
@@ -1856,6 +1886,17 @@ export function renderMenu(doc, state, now, actions, cardRows) {
 
   button.textContent = 'Ground Control';
   button.dataset.stale = String(stale);
+
+  if (fixes > 0) {
+    const count = doc.createElement('span');
+
+    count.className = 'gc-menu-count';
+    count.setAttribute('aria-hidden', 'true');
+    count.textContent = String(fixes);
+    button.appendChild(count);
+    setAccessibleName(button, `Ground Control, ${frictionWords(fixes)}`);
+  }
+
   button.setAttribute('aria-haspopup', 'menu');
   button.setAttribute('aria-expanded', String(panelOpen));
   button.addEventListener('click', (event) => {
@@ -1905,6 +1946,11 @@ export function renderMenu(doc, state, now, actions, cardRows) {
     }
 
     panel.appendChild(doc.createElement('hr'));
+
+    if (fixes > 0) {
+      panel.appendChild(item(doc, frictionWords(fixes), () => openReport(doc, FRICTION_REPORT_ID, actions, null)));
+      panel.appendChild(doc.createElement('hr'));
+    }
   }
 
   // A checked item keeps its label: flipping the verb as well would say the opposite of its own mark.

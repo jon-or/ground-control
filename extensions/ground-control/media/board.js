@@ -6,6 +6,23 @@ const metaEl = document.getElementById('meta');
 const noticesEl = document.getElementById('notices');
 
 const boardMenuEl = document.getElementById('board-menu');
+const frictionEl = document.getElementById('friction');
+
+/** The `id` the hub answers a friction report under (`FRICTION_REPORT_ID` in core). */
+const FRICTION_REPORT_ID = 'friction';
+const FRICTION_HINT = 'Open the friction review report.';
+
+/** The fixes the friction analyzer's report holds for review (R52): `1 friction fix to review`, `3 friction fixes to review`. */
+function frictionWords(count) {
+  return `${count} friction ${count === 1 ? 'fix' : 'fixes'} to review`;
+}
+
+/** The count to show, or 0 for none, an older hub, or a value that is not a positive whole number. */
+function frictionCount(payload) {
+  const count = payload?.frictionFixes;
+
+  return Number.isSafeInteger(count) && count > 0 ? count : 0;
+}
 
 /** Custom tooltip text. Geometry and timing match GitHub (mechanics M35); both client suites verify parity. */
 const TIP_ATTR = 'data-gc-tip';
@@ -4545,7 +4562,8 @@ function openReport(id, opener, history) {
   reportRequests += 1;
   reportFor = { id, request: reportRequests, opener, history, answer: null };
   paintReport(true);
-  vscode.postMessage({ type: 'readReport', id, request: reportRequests });
+  // The friction report is named by no run; the hub reads it from its own debrief directory (R52).
+  vscode.postMessage(id === FRICTION_REPORT_ID ? { type: 'readFrictionReport', request: reportRequests } : { type: 'readReport', id, request: reportRequests });
 }
 
 /** Only the latest read is drawn; an earlier answer can arrive after a later open. */
@@ -4727,6 +4745,20 @@ function applyLayout() {
   queueEl.hidden = !queue;
   document.body.dataset.layout = layout;
 }
+
+/** The header's friction indicator (R52), hidden while nothing awaits review. Its text is its accessible name. */
+function drawFriction(count) {
+  frictionEl.hidden = count === 0;
+
+  if (count > 0 && frictionEl.dataset.count !== String(count)) {
+    frictionEl.dataset.count = String(count);
+    frictionEl.textContent = frictionWords(count);
+  }
+}
+
+frictionEl.addEventListener('click', () => openReport(FRICTION_REPORT_ID, frictionEl, null));
+setTooltip(frictionEl, FRICTION_HINT);
+frictionEl.setAttribute('aria-description', FRICTION_HINT);
 
 function chooseLayout(next) {
   if (next === layout) {
@@ -5236,25 +5268,62 @@ function rowFor(boardCard, entry, section) {
   return el;
 }
 
+/**
+ * The one row that is not a card: the friction fixes awaiting review, after the cards in Waiting for you (R52, R53).
+ * Its columns stay, empty, so it lines up with the card rows.
+ */
+let frictionRowEl = null;
+
+function frictionRow(count) {
+  if (frictionRowEl?.dataset.count === String(count)) {
+    return frictionRowEl;
+  }
+
+  const el = document.createElement('div');
+  const title = document.createElement('button');
+  const empty = () => document.createElement('span');
+
+  el.className = 'queue-row friction-row';
+  el.setAttribute('role', 'listitem');
+  el.dataset.count = String(count);
+  title.type = 'button';
+  title.className = 'q-title';
+  title.textContent = frictionWords(count);
+  setTooltip(title, FRICTION_HINT);
+  title.setAttribute('aria-description', FRICTION_HINT);
+  title.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openReport(FRICTION_REPORT_ID, title, null);
+  });
+  el.append(empty(), title, empty(), empty(), empty(), empty(), empty(), empty());
+  el.addEventListener('click', (event) => {
+    if (!event.target.closest('button')) {
+      title.click();
+    }
+  });
+  frictionRowEl = el;
+
+  return el;
+}
+
 /** Draw the queue from the hub's sections, reusing the rows whose content has not changed. */
-function drawQueue(queue, cards) {
+function drawQueue(queue, cards, frictionFixes) {
   const shown = new Set();
-  const sections = queue.sections.map((section) =>
-    syncSection(
-      section.id,
-      section.cards.flatMap((entry) => {
-        const boardCard = cards.get(entry.key);
+  const sections = queue.sections.map((section) => {
+    const rows = section.cards.flatMap((entry) => {
+      const boardCard = cards.get(entry.key);
 
-        if (!boardCard?.issue) {
-          return [];
-        }
+      if (!boardCard?.issue) {
+        return [];
+      }
 
-        shown.add(entry.key);
+      shown.add(entry.key);
 
-        return [rowFor(boardCard, entry, section.id)];
-      }),
-    ),
-  );
+      return [rowFor(boardCard, entry, section.id)];
+    });
+
+    return syncSection(section.id, section.id === 'waiting' && frictionFixes > 0 ? [...rows, frictionRow(frictionFixes)] : rows);
+  });
 
   for (const key of [...rowEls.keys()]) {
     if (!shown.has(key)) {
@@ -5370,6 +5439,8 @@ function draw(payload) {
     metaEl.append(' · could not refresh');
   }
 
+  drawFriction(frictionCount(payload));
+
   for (const failure of payload.failures) {
     notice(failure.message, failure.remedy, true);
   }
@@ -5432,11 +5503,11 @@ function draw(payload) {
     if (!payload.queue) {
       emptyEl.textContent = 'The running hub predates the queue view. Reload the window to update it.';
       reconcile(queueEl, [emptyEl]);
-    } else if (countCards(payload.lanes) === 0 && payload.queue.done.length === 0) {
+    } else if (countCards(payload.lanes) === 0 && payload.queue.done.length === 0 && frictionCount(payload) === 0) {
       emptyEl.textContent = emptyText(payload);
       reconcile(queueEl, [emptyEl]);
     } else {
-      drawQueue(payload.queue, new Map(payload.lanes.flatMap((lane) => lane.cards).map((boardCard) => [boardCard.key, boardCard])));
+      drawQueue(payload.queue, new Map(payload.lanes.flatMap((lane) => lane.cards).map((boardCard) => [boardCard.key, boardCard])), frictionCount(payload));
     }
 
     followMenu();

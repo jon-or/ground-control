@@ -240,6 +240,12 @@ describe('what the browser may ask the hub for', () => {
     expect(bridgeAction({ type: 'readReport', id: 'issue:17198@1', request: 1.5 })).toEqual({ refused: 'That report cannot be read.' });
   });
 
+  it('forwards a friction report read with its request number alone, dropping any path or id the page adds (R52)', () => {
+    expect(bridgeAction({ type: 'readFrictionReport', request: 5, path: 'C:/secret.md', id: 'issue:1@1', dir: 'C:/elsewhere' })).toEqual({ send: { type: 'readFrictionReport', request: 5 } });
+    expect(bridgeAction({ type: 'readFrictionReport', request: 1.5 })).toEqual({ refused: 'That report cannot be read.' });
+    expect(bridgeAction({ type: 'readFrictionReport' })).toEqual({ refused: 'That report cannot be read.' });
+  });
+
   it('refuses everything else by name', () => {
     expect(bridgeAction({ type: 'configure', config: {} })).toEqual({ refused: 'The overlay may not send configure.' });
     expect(bridgeAction({ type: 'hello' })).toEqual({ refused: 'The overlay may not send hello.' });

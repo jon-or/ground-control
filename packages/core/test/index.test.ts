@@ -26,6 +26,7 @@ describe('the package public surface', () => {
       'DEFAULT_WORKTREE',
       'EMPTY_ACTIONS',
       'EMPTY_TRIAGE',
+      'FRICTION_REPORT_ID',
       'GROUND_CONTROL_DIR',
       'HOOK_STATE_DIR_SOURCE',
       'IDLE_EXIT_CEILING_MS',

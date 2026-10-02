@@ -118,7 +118,8 @@
     },
     readReport: (id, request) => {
       state = helpers.applyMessage(state, { type: 'reportPending', id, request });
-      post({ type: 'readReport', id, request });
+      // The friction report is named by no run; the hub reads it from its own debrief directory (R52).
+      post(id === overlay.FRICTION_REPORT_ID ? { type: 'readFrictionReport', request } : { type: 'readReport', id, request });
     },
     showCardRows: (shown) => showCardRows(shown),
     openOptions: () => { if (onProject()) post({ type: 'openOptions' }); },

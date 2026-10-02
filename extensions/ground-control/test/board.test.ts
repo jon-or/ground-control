@@ -180,6 +180,7 @@ beforeAll(async () => {
     <header>
       <div id="layout"><button id="layout-lanes" type="button" aria-pressed="true">Lanes</button><button id="layout-queue" type="button" aria-pressed="false">Queue</button></div>
       <div id="meta"></div>
+      <button id="friction" type="button" hidden></button>
       <button id="board-menu" type="button"></button>
     </header>
     <div id="notices"></div><main id="lanes" tabindex="-1"></main><main id="queue" hidden></main>
@@ -5985,5 +5986,123 @@ describe('queue view (R53)', () => {
 
     expect(document.activeElement?.className).toBe('acknowledge');
     toggle('done');
+  });
+});
+
+describe('friction fixes to review (R52)', () => {
+  const indicator = () => document.getElementById('friction') as HTMLButtonElement;
+  const named = (name: string) => document.querySelector<HTMLButtonElement>(`#detail button[aria-label="${name}"]`);
+  const escape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const waitingCard: LanedCard = { ...liveCard, key: 'issue:9', issueNumber: 9, issue: { ...liveCard.issue!, number: 9, title: 'Issue 9', pullRequest: null }, sessions: [], lane: 'build' };
+  const queue = { sections: [{ id: 'waiting' as const, cards: [{ key: 'issue:9', since: 1, running: false }] }, { id: 'working' as const, cards: [] }, { id: 'unstarted' as const, cards: [] }, { id: 'icebox' as const, cards: [] }], done: [] };
+  const waitingRows = () => Array.from(document.querySelectorAll<HTMLElement>("#queue .queue-section[data-section='waiting'] .queue-row"));
+
+  type ReadFriction = { type: 'readFrictionReport'; request: number };
+
+  function lastRead(): ReadFriction {
+    const read = sent().filter((m) => (m as { type: string }).type === 'readFrictionReport').at(-1) as ReadFriction | undefined;
+
+    if (read === undefined) {
+      throw new Error('the board sent no readFrictionReport');
+    }
+
+    return read;
+  }
+
+  afterEach(() => {
+    escape();
+    send({ type: 'layout', layout: 'lanes' });
+    send(message());
+  });
+
+  it.each([
+    ['an older hub', {}],
+    ['none to review', { frictionFixes: 0 }],
+    ['a count that is not a whole number', { frictionFixes: 1.5 }],
+  ] as const)('shows nothing in the header for %s', (_, over) => {
+    send(message({ frictionFixes: 2 }));
+    send(message(over as Partial<SnapshotMessage>));
+
+    expect(indicator().hidden).toBe(true);
+  });
+
+  it('names the count in the header, in the singular for one, as its accessible name', () => {
+    send(message({ frictionFixes: 3 }));
+
+    expect(indicator().hidden).toBe(false);
+    expect(indicator().textContent).toBe('3 friction fixes to review');
+    expect(indicator().getAttribute('aria-label')).toBeNull();
+    expect(indicator().getAttribute('aria-description')).toBe('Open the friction review report.');
+    expect(tipOf(indicator())).toBe('Open the friction review report.');
+
+    send(message({ frictionFixes: 1 }));
+
+    expect(indicator().textContent).toBe('1 friction fix to review');
+  });
+
+  it('asks the hub for the friction report by no path, shows it, and opens it in the editor by its id with no Approve', () => {
+    send(message({ frictionFixes: 2 }));
+    api.postMessage.mockClear();
+    indicator().click();
+
+    const read = lastRead();
+
+    expect(read).toEqual({ type: 'readFrictionReport', request: read.request });
+    expect(sent().filter((m) => (m as { type: string }).type === 'readReport')).toEqual([]);
+    expect(document.querySelector('#detail .detail-note')?.textContent).toBe('Reading the report…');
+
+    send({ type: 'report', id: 'friction', request: read.request, title: 'Friction review', name: 'report.md', modifiedAt: Date.now() - 60_000, html: '<table><tbody><tr><td>fx-1</td></tr></tbody></table>', failure: null });
+
+    expect(document.querySelector('#detail .report-title')?.textContent).toBe('Friction review');
+    expect(document.querySelector('#detail .report-body')?.innerHTML).toBe('<table><tbody><tr><td>fx-1</td></tr></tbody></table>');
+    expect(document.querySelectorAll('#detail button')).toHaveLength(3);
+    expect(named('Approve')).toBeNull();
+    expect(named('Back to history')).toBeNull();
+
+    named('Open in editor')!.click();
+
+    expect(sent()).toContainEqual({ type: 'openReport', id: 'friction' });
+
+    named('Close report')!.click();
+
+    expect(document.activeElement).toBe(indicator());
+  });
+
+  it('ignores a run report answer under the same request number', () => {
+    send(message({ frictionFixes: 2 }));
+    indicator().click();
+    send({ type: 'report', id: 'issue:9@1', request: lastRead().request, title: 'Review', name: 'review.md', modifiedAt: 1, html: '<p>other</p>', failure: null });
+
+    expect(document.querySelector('#detail .report-body')).toBeNull();
+    expect(document.querySelector('#detail .detail-note')?.textContent).toBe('Reading the report…');
+  });
+
+  it('lists one row in Waiting for you after the card rows, the one that is not a card, and opens the report from it', () => {
+    send({ type: 'layout', layout: 'queue' });
+    send(message({ lanes: lanes({ build: [waitingCard] }), queue, frictionFixes: 4 }));
+
+    const rows = waitingRows();
+
+    expect(rows.map((row) => row.querySelector('.q-title')?.textContent)).toEqual(['Issue 9', '4 friction fixes to review']);
+    expect(rows[1]!.dataset.key).toBeUndefined();
+    expect(rows[1]!.children).toHaveLength(8);
+    expect(rows[1]!.querySelector('.q-title')!.getAttribute('aria-description')).toBe('Open the friction review report.');
+    expect(document.querySelector("#queue .queue-section[data-section='waiting'] .lane-count")?.textContent).toBe('2');
+
+    api.postMessage.mockClear();
+    rows[1]!.click();
+
+    expect(sent()).toEqual([{ type: 'readFrictionReport', request: expect.any(Number) }]);
+  });
+
+  it('draws the row with no cards on the board, and none once nothing awaits review', () => {
+    send({ type: 'layout', layout: 'queue' });
+    send(message({ queue: { ...queue, sections: queue.sections.map((section) => ({ ...section, cards: [] })) }, frictionFixes: 1 }));
+
+    expect(waitingRows().map((row) => row.querySelector('.q-title')?.textContent)).toEqual(['1 friction fix to review']);
+
+    send(message({ lanes: lanes({ build: [waitingCard] }), queue, frictionFixes: 0 }));
+
+    expect(waitingRows().map((row) => row.querySelector('.q-title')?.textContent)).toEqual(['Issue 9']);
   });
 });

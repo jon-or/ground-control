@@ -173,6 +173,13 @@ export function bridgeAction(raw: unknown): BridgeAction {
       : { refused: 'That report cannot be read.' };
   }
 
+  // Forward only the request number; the hub reads the report from its own debrief directory (R52).
+  if (message.type === 'readFrictionReport') {
+    return Number.isSafeInteger(message.request)
+      ? { send: { type: 'readFrictionReport', request: message.request as number } }
+      : { refused: 'That report cannot be read.' };
+  }
+
   return { refused: `The overlay may not send ${String(message.type)}.` };
 }
 

@@ -158,6 +158,44 @@ h1 {
   outline-offset: -1px;
 }
 
+/* Friction fixes awaiting review (R52): the your-turn blue of a card waiting for the developer, as a dot beside the words. */
+#friction {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.1rem 0.55rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--vscode-foreground);
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#friction[hidden] {
+  display: none;
+}
+
+#friction::before {
+  content: '';
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+}
+
+#friction:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+#friction:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
+
 /* Keep the board menu visible because it is the only access to board actions. */
 #board-menu {
   flex: none;
@@ -915,8 +953,18 @@ body[data-motion='reduced'] .session[data-phase='running'] .session-label {
 
   .card-menu,
   #board-menu,
+  #friction,
   .tool {
     color: ButtonText;
+  }
+
+  #friction,
+  #friction::before {
+    border-color: Highlight;
+  }
+
+  #friction::before {
+    background: Highlight;
   }
 
   /* Retain dot fill to distinguish live and ended sessions in forced colors. */

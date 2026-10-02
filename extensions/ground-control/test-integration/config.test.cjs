@@ -1,5 +1,5 @@
 const assert = require('node:assert');
-const { readFileSync } = require('node:fs');
+const { mkdirSync, readFileSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const vscode = require('vscode');
 
@@ -428,5 +428,25 @@ describe('what this window is told about starting a session on a card', () => {
       startable.some((offered) => offered.agent === 'claude'),
       `expected Claude among the startable agents, got ${JSON.stringify(startable)}`,
     );
+  });
+});
+
+/** The hub reads the analyzer's summary from the debrief directory this window configures, debriefs on or off (R52). */
+describe('friction fixes to review', () => {
+  const dir = join(process.env.GC_TEST_HOME, 'friction-test');
+
+  after(async () => {
+    await settings().update('debrief.directory', undefined, vscode.ConfigurationTarget.Global);
+  });
+
+  it('reaches the snapshot from the configured directory, and leaves it when the directory has none', async () => {
+    mkdirSync(join(dir, 'fixes'), { recursive: true });
+    writeFileSync(join(dir, 'fixes', 'summary.json'), JSON.stringify({ v: 1, generatedAt: new Date().toISOString(), toReview: 2 }));
+
+    await settings().update('debrief.directory', dir, vscode.ConfigurationTarget.Global);
+    await untilSnapshot((s) => s.frictionFixes === 2, 'no snapshot carried the summary count');
+
+    await settings().update('debrief.directory', undefined, vscode.ConfigurationTarget.Global);
+    await untilSnapshot((s) => s.frictionFixes === 0, 'the count outlived the directory that held it');
   });
 });

@@ -46,6 +46,6 @@ describe('a report path whose link changes while it is read (R51)', () => {
     writeFileSync(join(round, 'review.md'), '# Round 1');
     realpath.mockResolvedValue(String.raw`\\server\share\review.md`);
 
-    expect(await renderReport(join(round, 'review.md'), envelope)).toEqual({ ok: false, name: 'review.md', failure: 'The run named its report by a path the board does not read.' });
+    expect(await renderReport(join(round, 'review.md'), envelope)).toEqual({ ok: false, name: 'review.md', failure: 'The report is named by a path the board does not read.' });
   });
 });

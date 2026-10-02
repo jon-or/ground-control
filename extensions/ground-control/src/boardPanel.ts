@@ -72,6 +72,8 @@ type Inbound =
   | { type: 'readActionHistory' }
   // The hub answers this board alone with the rendered report; the path stays in the extension host (R51).
   | { type: 'readReport'; id: unknown; request: unknown }
+  // The friction analyzer's report, which the hub reads from its own debrief directory (R52).
+  | { type: 'readFrictionReport'; request: unknown }
   // Open the file the latest read of this report named.
   | { type: 'openReport'; id: unknown }
   // A link inside rendered conversation HTML. Only http(s) is opened.
@@ -92,7 +94,7 @@ function cardLabel(card: { issueNumber: number | null; issue: { title: string } 
   return checkout.only ? named : `${named} (${basename(checkout.root)})`;
 }
 
-/** Report ids are the hub's run ids: a state key and a start time, never a path. */
+/** Report ids are the hub's run ids, a state key and a start time, or the friction report's; never a path. */
 function isReportId(id: unknown): id is string {
   return typeof id === 'string' && id.length > 0 && id.length <= 512;
 }
@@ -299,6 +301,13 @@ export class BoardPanel {
       case 'readReport':
         if (isReportId(msg.id) && Number.isSafeInteger(msg.request) && (msg.request as number) >= 0) {
           this.#tell({ type: 'readReport', id: msg.id, request: msg.request as number });
+        }
+
+        return;
+
+      case 'readFrictionReport':
+        if (Number.isSafeInteger(msg.request) && (msg.request as number) >= 0) {
+          this.#tell({ type: 'readFrictionReport', request: msg.request as number });
         }
 
         return;
@@ -640,6 +649,7 @@ export class BoardPanel {
     <button id="layout-queue" type="button" aria-pressed="false">Queue</button>
   </div>
   <div id="meta"></div>
+  <button id="friction" type="button" hidden></button>
   <button id="board-menu" type="button"></button>
 </header>
 <div id="notices"></div>

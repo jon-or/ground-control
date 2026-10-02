@@ -270,34 +270,35 @@ function latest(inbox: HubMessage[]): Snapshot {
 
 describe('what the hub polls', () => {
   it('polls only while a client is watching', async () => {
+    // The friction summary read (R52) runs once a minute whether or not a board is watched; the rest are polling.
     const h = harness();
 
-    expect(h.clock.cadences()).toEqual([]);
+    expect(h.clock.cadences()).toEqual([60_000]);
 
     const { client } = connect(h, hello({ watching: false }));
 
-    expect(h.clock.cadences()).toEqual([]);
+    expect(h.clock.cadences()).toEqual([60_000]);
 
     h.hub.receive(client, { type: 'watching', watching: true });
     await settle();
 
     // Assert literal polling intervals: 30-second sessions, five-minute sources, and a five-second maintenance tick.
-    expect(h.clock.cadences()).toEqual([5_000, 30_000, 300_000]);
+    expect(h.clock.cadences()).toEqual([5_000, 30_000, 60_000, 300_000]);
 
     h.hub.receive(client, { type: 'watching', watching: false });
 
-    expect(h.clock.cadences()).toEqual([]);
+    expect(h.clock.cadences()).toEqual([60_000]);
   });
 
   it('stops polling when the last watching client disconnects', () => {
     const h = harness();
     const { client } = connect(h);
 
-    expect(h.clock.cadences()).toHaveLength(3);
+    expect(h.clock.cadences()).toHaveLength(4);
 
     h.hub.disconnect(client);
 
-    expect(h.clock.cadences()).toEqual([]);
+    expect(h.clock.cadences()).toEqual([60_000]);
   });
 
   /** Use separate timers for network sources and local CLI reads (M2). */
@@ -333,7 +334,7 @@ describe('what the hub polls', () => {
     await settle();
 
     // Expect configured source/session timers plus the fixed maintenance tick.
-    expect(h.clock.cadences()).toEqual([5_000, 5_000, 60_000]);
+    expect(h.clock.cadences()).toEqual([5_000, 5_000, 60_000, 60_000]);
   });
 
   /** Coalesce repeated refresh clicks into one roster read. */
@@ -1408,7 +1409,7 @@ describe('network outage and recovery', () => {
     const h = harness();
     const { client } = connect(h, hello({ watching: false }));
 
-    expect(h.clock.cadences()).toEqual([]);
+    expect(h.clock.cadences()).toEqual([60_000]);
 
     h.hub.receive(client, { type: 'watching', watching: true });
 
@@ -1977,11 +1978,11 @@ describe('a client changing its mind', () => {
     const h = harness();
     const { client } = connect(h);
 
-    expect(h.clock.cadences()).toHaveLength(3);
+    expect(h.clock.cadences()).toHaveLength(4);
 
     h.hub.receive(client, { type: 'hello', hello: hello({ watching: false, workspaceRoot: 'd:/checkouts/other' }) });
 
-    expect(h.clock.cadences()).toEqual([]);
+    expect(h.clock.cadences()).toEqual([60_000]);
 
     const session = fakeSession();
     h.agent.sessions = [session];
@@ -1991,7 +1992,7 @@ describe('a client changing its mind', () => {
     h.hub.receive(client, { type: 'open', sessionId: session.sessionId, extensionReady: true });
     await settle();
 
-    expect(h.clock.cadences()).toHaveLength(3);
+    expect(h.clock.cadences()).toHaveLength(4);
     expect(h.host.planned[0]?.workspaceRoot).toBe('d:/checkouts/other');
   });
 
@@ -2553,7 +2554,7 @@ describe('a client that opened a log viewer', () => {
 
     h.hub.receive(client, { type: 'watchLog', watching: true });
 
-    expect(h.clock.cadences()).toEqual([]);
+    expect(h.clock.cadences()).toEqual([60_000]);
   });
 });
 
@@ -3650,10 +3651,10 @@ describe('friction debriefs (R52)', () => {
     const h = harness();
 
     h.hub.configure(h.config({ debrief: { enabled: true, directory: '', promptPath: '', codexScript: '' } }));
-    expect(h.clock.cadences()).toEqual([60_000]);
+    expect(h.clock.cadences()).toEqual([60_000, 60_000]);
 
     h.hub.configure(h.config({ debrief: { enabled: false, directory: '', promptPath: '', codexScript: '' } }));
-    expect(h.clock.cadences()).toEqual([]);
+    expect(h.clock.cadences()).toEqual([60_000]);
 
     h.hub.configure(h.config({ debrief: { enabled: true, directory: '', promptPath: '', codexScript: '' } }));
     h.hub.dispose();
@@ -3930,5 +3931,121 @@ describe('the queue view (R53)', () => {
     await settle();
 
     expect(JSON.parse(readFileSync(lanesPathOf(stateDir), 'utf8')).placements).toEqual({ 'issue:11': 'icebox' });
+  });
+});
+
+describe('friction fixes to review (R52)', () => {
+  const debriefDir = () => join(home, '.claude', '.wip', 'debrief');
+
+  function writeSummary(dir: string, text: string): void {
+    mkdirSync(join(dir, 'fixes'), { recursive: true });
+    writeFileSync(join(dir, 'fixes', 'summary.json'), text);
+  }
+
+  function writeReport(dir: string, markdown: string): string {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'report.md'), markdown);
+
+    return join(dir, 'report.md');
+  }
+
+  /** Let the real file read settle; it resolves on the thread pool, not a timer. */
+  const read = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await settle();
+  };
+
+  async function reportFor(h: Harness, who: ClientHello, message: Record<string, unknown> = { type: 'readFrictionReport', request: 4 }): Promise<HubMessage | undefined> {
+    const { client, inbox } = connect(h, who);
+
+    h.hub.receive(client, message as never);
+    await read();
+
+    return inbox.find((one) => one.type === 'report');
+  }
+
+  it('reads the summary at start and every minute with debriefs off, sending each changed count to every board', async () => {
+    writeSummary(debriefDir(), JSON.stringify({ v: 1, generatedAt: '2026-10-02T06:00:00.000Z', toReview: 3 }));
+    const h = harness();
+    await read();
+    const { inbox } = connect(h, hello({ watching: false }));
+
+    expect(h.hub.snapshot().frictionFixes).toBe(3);
+    expect(latest(inbox).frictionFixes).toBe(3);
+
+    writeSummary(debriefDir(), JSON.stringify({ v: 1, generatedAt: '2026-10-02T07:00:00.000Z', toReview: 1 }));
+    const before = inbox.length;
+    h.clock.fire(60_000);
+    await read();
+
+    expect(inbox.length).toBe(before + 1);
+    expect(latest(inbox).frictionFixes).toBe(1);
+
+    // An unchanged count sends nothing.
+    h.clock.fire(60_000);
+    await read();
+    expect(inbox.length).toBe(before + 1);
+    h.hub.dispose();
+  });
+
+  it('shows none for an invalid summary, logs it once, and reads the directory a configure names', async () => {
+    writeSummary(debriefDir(), JSON.stringify({ v: 2, generatedAt: '2026-10-02T06:00:00.000Z', toReview: 3 }));
+    const h = harness();
+    await read();
+    h.clock.fire(60_000);
+    await read();
+
+    expect(h.hub.snapshot().frictionFixes).toBe(0);
+    expect(h.logged.filter((line) => line.includes('is not a version 1 summary'))).toHaveLength(1);
+
+    const elsewhere = join(home, 'notes', 'debrief');
+    writeSummary(elsewhere, JSON.stringify({ v: 1, generatedAt: '2026-10-02T06:00:00.000Z', toReview: 6 }));
+    h.hub.configure(h.config({ debrief: { enabled: false, directory: elsewhere, promptPath: '', codexScript: '' } }));
+    await read();
+
+    expect(h.hub.snapshot().frictionFixes).toBe(6);
+    h.hub.dispose();
+  });
+
+  it('renders report.md from the configured directory, with its path for an editor and without it for the browser', async () => {
+    const path = writeReport(debriefDir(), '# Friction review\n\n| Fix | Decision |\n|---|---|\n| fx-1 | |\n\n<details><summary>fx-1</summary>\n\nWhy.\n\n</details>\n');
+    const h = harness();
+
+    const editor = await reportFor(h, hello({ id: 'editor-1' }));
+    const browser = await reportFor(h, hello({ id: 'browser-1', hostId: null }));
+
+    expect(editor).toMatchObject({ type: 'report', id: 'friction', request: 4, title: 'Friction review', name: 'report.md', failure: null, path });
+    expect(editor?.type === 'report' && editor.failure === null && editor.html).toContain('<details><summary>fx-1</summary>');
+    expect(editor?.type === 'report' && editor.failure === null && editor.html).toContain('<table>');
+    expect(browser).toMatchObject({ type: 'report', id: 'friction', request: 4, name: 'report.md', failure: null });
+    expect(browser).not.toHaveProperty('path');
+    h.hub.dispose();
+  });
+
+  it('reads only its own report.md, whatever path or id the request carries', async () => {
+    const other = join(home, 'secret.md');
+    writeFileSync(other, '# Secret');
+    writeReport(debriefDir(), '# Friction review');
+    const h = harness();
+
+    const answer = await reportFor(h, hello({ id: 'editor-1' }), { type: 'readFrictionReport', request: 2, path: other, id: 'issue:1@1' });
+
+    expect(answer).toMatchObject({ id: 'friction', request: 2, name: 'report.md', failure: null });
+    expect(answer?.type === 'report' && answer.failure === null && answer.html).toContain('Friction review');
+    expect(answer?.type === 'report' && answer.failure === null && answer.html).not.toContain('Secret');
+    h.hub.dispose();
+  });
+
+  it('refuses a missing report with no path, and gives an editor the path of one too large to show', async () => {
+    const h = harness();
+    const missing = await reportFor(h, hello({ id: 'editor-1' }));
+
+    expect(missing).toEqual({ type: 'report', id: 'friction', request: 4, title: 'Friction review', name: 'report.md', failure: 'The report file is missing or cannot be read.' });
+
+    const path = writeReport(debriefDir(), 'x'.repeat(512 * 1024 + 1));
+    const large = await reportFor(h, hello({ id: 'editor-2' }));
+
+    expect(large).toMatchObject({ id: 'friction', failure: expect.stringMatching(/^The report is \d+ kB, more than the 512 kB the board shows\.$/), path });
+    h.hub.dispose();
   });
 });

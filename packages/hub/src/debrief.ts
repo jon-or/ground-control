@@ -82,6 +82,11 @@ export function underHome(value: string, home: string, fallback: string): string
   return isAbsolute(path) ? path : join(home, path);
 }
 
+/** The debrief directory: the runner's `state.json` and `log/`, and the analyzer's report and summary (R52). */
+export function debriefDirectory(settings: DebriefSettings, home: string): string {
+  return underHome(settings.directory, home, '.claude/.wip/debrief');
+}
+
 /**
  * Choose the sessions in the debrief window now, oldest first, so the one nearest cache expiry runs first. Whether one
  * has work since its last debrief is the range read's decision, since a turn can finish while its debrief runs.
@@ -219,7 +224,7 @@ export class DebriefRunner {
     }
 
     const home = this.#deps.home;
-    const dir = underHome(this.#settings.directory, home, '.claude/.wip/debrief');
+    const dir = debriefDirectory(this.#settings, home);
     const promptPath = underHome(this.#settings.promptPath, home, '.claude/skills/friction-review/prompt.md');
     const prompt = this.#deps.readers().readText(promptPath);
 

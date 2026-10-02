@@ -54,6 +54,8 @@ export interface Snapshot {
   owners?: string[];
   /** Optional for older hubs. The editor's queue view: cards by who holds them now, and ended visits (R53). */
   queue?: QueueView;
+  /** Optional for older hubs. Friction fixes the analyzer's report holds for review; 0 shows nothing (R52). */
+  frictionFixes?: number;
   /** Snapshot timestamp, not the last successful source-read time (R25). */
   fetchedAt: string;
 }
@@ -113,7 +115,9 @@ export type ClientMessage =
   // Read the action history (R50). Answered to the requesting client alone.
   | { type: 'readActionHistory' }
   // Read one run's report by its run id, never a path (R51). `request` pairs the answer with the latest read.
-  | { type: 'readReport'; id: string; request: number };
+  | { type: 'readReport'; id: string; request: number }
+  // Read the friction analyzer's report from the hub's debrief directory; the client names no path (R51, R52).
+  | { type: 'readFrictionReport'; request: number };
 
 export type HubMessage =
   | { type: 'snapshot'; snapshot: Snapshot }
@@ -128,11 +132,15 @@ export type HubMessage =
   | { type: 'custody'; key: string; custody: Custody | null; failure: string | null }
   // Answer one readActionHistory, newest first.
   | { type: 'actionHistory'; entries: ActionHistoryView[] }
-  // Answer one readReport to the client that asked (R51).
+  // Answer one readReport or readFrictionReport to the client that asked (R51).
   | ReportMessage;
 
+/** The `id` of a friction report's answer. Run ids hold `@`, so none equals it. */
+export const FRICTION_REPORT_ID = 'friction';
+
 /**
- * One run's report, rendered from Markdown by the hub, or why it cannot be shown (R51). `name` is the file's base
+ * One run's report, or the friction report under `FRICTION_REPORT_ID`, rendered from Markdown by the hub, or why it
+ * cannot be shown (R51). `name` is the file's base
  * name; `modifiedAt` is epoch milliseconds. `html` still needs the client's report sanitizer. `path`, the file
  * itself, goes to editor clients only, whose extension host opens it; the webview and the browser never see it.
  */

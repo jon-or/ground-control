@@ -667,7 +667,7 @@
             "type": "string",
             "default": "",
             "order": 2,
-            "markdownDescription": "Directory holding `state.json`, `log/` and the daily analyzer's files; empty uses `~/.claude/.wip/debrief`."
+            "markdownDescription": "Directory holding `state.json`, `log/`, and the friction analyzer's `report.md` and `fixes/summary.json`, whose count of fixes to review the board shows whether or not debriefs are enabled; empty uses `~/.claude/.wip/debrief`."
           },
           "groundControl.debrief.promptPath": {
             "scope": "machine",

@@ -5156,3 +5156,83 @@ describe('run reports (R51)', () => {
     });
   });
 });
+
+describe('friction fixes to review (R52)', () => {
+  const reading = { ...actions, readActionHistory: vi.fn(), readReport: vi.fn() };
+  const control = () => document.querySelector<HTMLButtonElement>('#gc-menu button')!;
+  const menuItems = () => [...document.querySelectorAll<HTMLButtonElement>('#gc-menu .gc-popover button[role]')];
+  const reportBody = () => document.querySelector<HTMLElement>('#gc-history .gc-report-body');
+
+  function openMenu(shown: State, using: typeof reading | typeof actions = reading): void {
+    paint(document, shown, NOW, using);
+    control().click();
+    paint(document, shown, NOW, using);
+  }
+
+  beforeEach(() => {
+    reading.readActionHistory.mockReset();
+    reading.readReport.mockReset();
+    reading.repaint.mockReset();
+  });
+
+  it('carries the count as a badge on the menu control, named with it, and lists the same words as an item', () => {
+    openMenu(state({ snapshot: snapshot({ frictionFixes: 3 }) }));
+
+    expect(control().querySelector('.gc-menu-count')?.textContent).toBe('3');
+    expect(control().querySelector('.gc-menu-count')?.getAttribute('aria-hidden')).toBe('true');
+    expect(control().getAttribute('aria-label')).toBe('Ground Control, 3 friction fixes to review');
+    expect(menuItems().map((entry) => entry.textContent)).toEqual(['3 friction fixes to review', '✓Show hub data on cards', 'Show log', 'Refresh', 'Action history']);
+    expect(menuItems().find((entry) => entry.textContent === '3 friction fixes to review')?.getAttribute('role')).toBe('menuitem');
+  });
+
+  it('says one in the singular', () => {
+    openMenu(state({ snapshot: snapshot({ frictionFixes: 1 }) }));
+
+    expect(control().getAttribute('aria-label')).toBe('Ground Control, 1 friction fix to review');
+    expect(menuItems().map((entry) => entry.textContent)).toContain('1 friction fix to review');
+  });
+
+  it.each([
+    ['an older hub', {}],
+    ['none to review', { frictionFixes: 0 }],
+    ['a count that is not a whole number', { frictionFixes: 2.5 }],
+  ] as const)('shows no badge or item for %s', (_, over) => {
+    openMenu(state({ snapshot: snapshot(over as Partial<Snapshot>) }));
+
+    expect(control().querySelector('.gc-menu-count')).toBeNull();
+    expect(control().getAttribute('aria-label')).toBeNull();
+    expect(menuItems().map((entry) => entry.textContent)).toEqual(['✓Show hub data on cards', 'Show log', 'Refresh', 'Action history']);
+  });
+
+  it('shows neither with hub data off, or where the content script cannot read a report', () => {
+    paint(document, state({ snapshot: snapshot({ frictionFixes: 3 }) }), NOW, reading, { animations: true, replaceAvatars: true, cardRows: false, pairConversations: false });
+
+    expect(control().querySelector('.gc-menu-count')).toBeNull();
+
+    openMenu(state({ snapshot: snapshot({ frictionFixes: 3 }) }), actions);
+
+    expect(control().querySelector('.gc-menu-count')).toBeNull();
+    expect(menuItems().map((entry) => entry.textContent)).not.toContain('3 friction fixes to review');
+  });
+
+  it('opens the friction report read-only in the history sidebar from the item', () => {
+    const shown = state({ snapshot: snapshot({ frictionFixes: 2 }), history: [] });
+
+    openMenu(shown);
+    menuItems().find((entry) => entry.textContent === '2 friction fixes to review')!.click();
+
+    expect(reading.readReport).toHaveBeenCalledTimes(1);
+    const [id, request] = reading.readReport.mock.calls[0]! as [string, number];
+
+    expect(id).toBe('friction');
+
+    const answer: ReportMessage = { type: 'report', id: 'friction', request, title: 'Friction review', name: 'report.md', modifiedAt: NOW - 60_000, html: '<details><summary>fx-1</summary><p>Why.</p></details>', failure: null };
+
+    paint(document, { ...shown, report: { id: 'friction', request, answer } }, NOW, reading);
+
+    expect(document.querySelector('#gc-history .gc-report-heading')?.textContent).toContain('Friction review');
+    expect(reportBody()?.innerHTML).toBe('<details><summary>fx-1</summary><p>Why.</p></details>');
+    expect([...document.querySelectorAll<HTMLButtonElement>('#gc-history .gc-report-bar button')].map((button) => button.textContent)).toEqual(['Back to history']);
+    expect(document.querySelector('#gc-menu .gc-popover')).toBeNull();
+  });
+});

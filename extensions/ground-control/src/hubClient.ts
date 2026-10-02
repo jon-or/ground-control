@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { FRICTION_REPORT_ID } from '@ground-control/core';
 import type { ClientHello, ClientMessage, HubConfig, HubMessage, Session, SessionCheck, Snapshot } from '@ground-control/core';
 import { HubTransport } from '@ground-control/hub';
 import type { Ensured } from '@ground-control/hub';
@@ -8,7 +9,7 @@ import { host } from './registry.js';
 import { boardRoot, perform, refuse } from './resident.js';
 
 /**
- * The hub's answer to one readDetail, readCustody, readActionHistory, or readReport, forwarded to whichever board
+ * The hub's answer to one readDetail, readCustody, readActionHistory, readReport, or readFrictionReport, forwarded to whichever board
  * asked for it. A report's path stays in the extension host.
  */
 export type DetailMessage = Extract<HubMessage, { type: 'detail' | 'custody' | 'actionHistory' | 'report' }>;
@@ -138,7 +139,7 @@ export class HubClient {
         clearTimeout(timer);
         settle(path);
       });
-      this.#transport.send({ type: 'readReport', id, request });
+      this.#transport.send(id === FRICTION_REPORT_ID ? { type: 'readFrictionReport', request } : { type: 'readReport', id, request });
     });
   }
 

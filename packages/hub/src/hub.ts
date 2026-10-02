@@ -1,7 +1,7 @@
 import { assignLanes, buildCustody, checkEvidence, linkSessions, mergeBoard, nextMemory, nextVisits, queueView, triageLabel, withAcknowledged, withCheckouts, withPlacement, withStage, withTriage, withoutPlacement } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
-import { BASE_MERGE, CREATE_WORKTREE, runTextCli, DEFAULT_SESSION_SCOPE, MANUAL_ACTIONS, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, issueNumberFrom, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex, worktreesOf } from '@ground-control/core';
+import { BASE_MERGE, CREATE_WORKTREE, FRICTION_REPORT_ID, runTextCli, DEFAULT_SESSION_SCOPE, MANUAL_ACTIONS, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, issueNumberFrom, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex, worktreesOf } from '@ground-control/core';
 import type { WorktreeScan } from '@ground-control/board';
 import type { ActionHistoryView, ActivityChange, BoardPolicy, Client, ClientHello, ClientMessage, Clone, CustodyHistory, DetailSubject, HistoricalSession, HostAdapter, HostWindow, HubConfig, HubMessage, IssueCard, ItemDetail, Lane, LaneId, Logger, MachineReaders, OpenRoute, ReadFailure, Session, SessionsSnapshot, Snapshot, SourceReading, StageAnswer, StageRequest, StartableAgent, WorkItems, WorkSource } from '@ground-control/core';
 import { DEFAULT_URI_SCHEME, VSCODE_HOST_ID } from '@ground-control/host-vscode';
@@ -22,7 +22,8 @@ import type { CheckoutStore } from './checkoutStore.js';
 import type { ActionHistoryStore, ActionStore } from './actionStore.js';
 import { renderReport } from './report.js';
 import { TriageRunner } from './triage.js';
-import { DEBRIEF_SCAN_MS, DebriefRunner, codexDebriefEnv } from './debrief.js';
+import { DEBRIEF_SCAN_MS, DebriefRunner, codexDebriefEnv, debriefDirectory } from './debrief.js';
+import { FRICTION_SUMMARY_MS, FrictionFixes, frictionReportPath, realFrictionRead } from './frictionFixes.js';
 import type { DebriefDeps, DebriefSessions } from './debrief.js';
 import { makeDebriefStore } from './debriefStore.js';
 import { makeTriageStore } from './triageStore.js';
@@ -79,6 +80,8 @@ export interface HubDeps {
   debriefStore?: DebriefDeps['store'];
   /** Run the Codex debrief command (R52); absent runs it with this process's executable as Node. */
   runCodexDebrief?: DebriefDeps['runCodex'];
+  /** Read the friction analyzer's summary (R52); absent reads the file. Rejects with `ENOENT` for a missing one. */
+  readFrictionSummary?: (path: string) => Promise<string>;
   /** Inject activity installation to isolate tests from agent settings. */
   syncActivity(registries: Registries, wanted: 'install' | 'remove', home: string, stateDir: string, enabled?: ReadonlySet<string>): ActivityState;
 }
@@ -287,10 +290,14 @@ export class Hub {
   readonly #debrief: DebriefRunner;
   /** The debrief scan, armed only while debriefs are enabled (R52). */
   #debriefTimer: NodeJS.Timeout | null = null;
+  /** Friction fixes awaiting review, read once a minute whether or not debriefs are enabled (R52). */
+  readonly #frictionFixes: FrictionFixes;
+  #frictionTimer: NodeJS.Timeout | null = null;
   readonly #issues: IssueLookup;
 
   constructor(deps: HubDeps) {
     this.#deps = deps;
+    this.#frictionFixes = new FrictionFixes({ log: deps.log, readFile: deps.readFrictionSummary ?? realFrictionRead });
 
     // Load saved settings so Chrome can start a configured hub without an editor open (R35, R36).
     this.#visits = deps.visits ?? memoryVisitStore();
@@ -368,6 +375,7 @@ export class Hub {
       newId: () => randomUUID(),
     });
     this.#armDebrief();
+    this.#frictionTimer = deps.clock.setInterval(() => this.#readFrictionFixes(), FRICTION_SUMMARY_MS);
     this.#issues = new IssueLookup({
       store: deps.issues,
       sources: () => this.#enabledSources(),
@@ -514,6 +522,14 @@ export class Hub {
         void this.#readReport(connected, message.id, message.request).catch((error: unknown) => {
           this.#deps.log.warn(`reading report ${message.id} failed: ${error instanceof Error ? error.message : String(error)}`, 'actions');
           connected.send({ type: 'report', id: message.id, request: message.request, title: null, name: null, failure: 'The report could not be read.' });
+        });
+
+        return;
+
+      case 'readFrictionReport':
+        void this.#readFrictionReport(connected, message.request).catch((error: unknown) => {
+          this.#deps.log.warn(`reading the friction report failed: ${error instanceof Error ? error.message : String(error)}`, 'debrief');
+          connected.send({ type: 'report', id: FRICTION_REPORT_ID, request: message.request, title: null, name: null, failure: 'The report could not be read.' });
         });
 
         return;
@@ -1116,6 +1132,8 @@ export class Hub {
     this.#sourcesRefused = refused;
     this.#triage?.configure(this.#config.triage, this.#config.agents, this.#config.statusLanes, this.#triageSources(), this.#config.actions.testBranchPattern);
     if (this.#debrief) this.#armDebrief();
+    // The debrief directory may have changed.
+    this.#readFrictionFixes();
 
     return [...configureHosts(this.#deps.registries, this.#config.hosts), ...refused];
   }
@@ -1132,6 +1150,13 @@ export class Hub {
       this.#deps.clock.clearInterval(this.#debriefTimer);
       this.#debriefTimer = null;
     }
+  }
+
+  /** Read the analyzer's summary and send the boards a changed count (R52). */
+  #readFrictionFixes(): void {
+    void this.#frictionFixes.read(debriefDirectory(this.#config.debrief, this.#deps.home)).then((changed) => {
+      if (changed) this.#broadcast();
+    });
   }
 
   /**
@@ -1980,6 +2005,31 @@ export class Hub {
       : { type: 'report', id, request, title, name: rendered.name, failure: rendered.failure, ...editor });
   }
 
+  /**
+   * Answer one client's friction report read (R51, R52): the analyzer's `report.md` in the configured debrief
+   * directory, rendered as a run's report is. It belongs to no card, so session scope does not hide it.
+   */
+  async #readFrictionReport(client: Connected, request: number): Promise<void> {
+    const id = FRICTION_REPORT_ID;
+    const title = 'Friction review';
+    const toEditor = client.hello.hostId !== null;
+    const path = frictionReportPath(debriefDirectory(this.#config.debrief, this.#deps.home));
+    const rendered = await renderReport(path, (html) => ({
+      type: 'report', id, request, title, name: basename(path), modifiedAt: Number.MAX_SAFE_INTEGER, html, failure: null,
+      ...(toEditor ? { path } : {}),
+    }));
+
+    if (this.#disposed) {
+      return;
+    }
+
+    const editor = toEditor && rendered.path !== undefined ? { path: rendered.path } : {};
+
+    client.send(rendered.ok
+      ? { type: 'report', id, request, title, name: rendered.name, modifiedAt: rendered.modifiedAt, html: rendered.html, failure: null, ...editor }
+      : { type: 'report', id, request, title, name: rendered.name, failure: rendered.failure, ...editor });
+  }
+
   /** Plan session routes in the host and send resident routes to the requesting client. */
   async #open(client: Connected, sessionId: string, extensionReady: boolean, handedOver = false, resumeToken?: string): Promise<void> {
     const revision = this.#profileRevision;
@@ -2472,6 +2522,7 @@ export class Hub {
       needs: this.#needs(),
       owners: items?.owners ?? [],
       queue: queueView(lanes, this.#visits.read(), now),
+      frictionFixes: this.#frictionFixes.count(),
       fetchedAt: new Date(now).toISOString(),
     };
   }
@@ -2700,6 +2751,11 @@ export class Hub {
     if (this.#debriefTimer !== null) {
       this.#deps.clock.clearInterval(this.#debriefTimer);
       this.#debriefTimer = null;
+    }
+
+    if (this.#frictionTimer !== null) {
+      this.#deps.clock.clearInterval(this.#frictionTimer);
+      this.#frictionTimer = null;
     }
 
     while (this.#timers.length > 0) {

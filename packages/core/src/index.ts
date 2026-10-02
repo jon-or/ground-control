@@ -69,7 +69,7 @@ export type {
   TriageThread,
 } from './triage.js';
 export { CHROME_EXTENSION_ID, NATIVE_HOST_NAME } from './chrome.js';
-export { PROTOCOL } from './protocol.js';
+export { FRICTION_REPORT_ID, PROTOCOL } from './protocol.js';
 export type { BoardMessage, Client, ClientHello, ClientMessage, HubMessage, ReportMessage, SessionCheck, Snapshot, SnapshotMessage } from './protocol.js';
 export { LOG_FLOORS, LOG_LEVELS, formatLogLine, meetsLevel, parseLogLines } from './log.js';
 export type { LogEntry, LogFloor, LogLevel, LogSource, Logger } from './log.js';

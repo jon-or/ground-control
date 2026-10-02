@@ -52,13 +52,13 @@ export async function renderReport(auditPath: string, envelope: ReportEnvelope):
   const name = basename(auditPath);
 
   if (!isAbsolute(auditPath) || networkPath(auditPath)) {
-    return { ok: false, name, failure: 'The run named its report by a path the board does not read.' };
+    return { ok: false, name, failure: 'The report is named by a path the board does not read.' };
   }
 
   const opened = await openVerified(auditPath, null);
 
   if ('refused' in opened) {
-    return { ok: false, name, failure: opened.refused === 'network' ? 'The run named its report by a path the board does not read.' : 'The report file is missing or cannot be read.' };
+    return { ok: false, name, failure: opened.refused === 'network' ? 'The report is named by a path the board does not read.' : 'The report file is missing or cannot be read.' };
   }
 
   let markdown: string;

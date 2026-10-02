@@ -114,6 +114,7 @@ async function revive(state: unknown): Promise<void> {
     <header>
       <div id="layout"><button id="layout-lanes" type="button" aria-pressed="true">Lanes</button><button id="layout-queue" type="button" aria-pressed="false">Queue</button></div>
       <div id="meta"></div>
+      <button id="friction" type="button" hidden></button>
       <button id="board-menu" type="button"></button>
     </header>
     <div id="notices"></div><main id="lanes"></main><main id="queue" hidden></main>

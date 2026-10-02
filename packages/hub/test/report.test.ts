@@ -224,7 +224,7 @@ describe('rendering a run report (R51)', () => {
     for (const path of ['review.md', '\\\\?\\C:\\x\\review.md', '\\\\server\\share\\review.md']) {
       const refused = await renderReport(path, envelope);
 
-      expect(refused).toMatchObject({ ok: false, failure: 'The run named its report by a path the board does not read.' });
+      expect(refused).toMatchObject({ ok: false, failure: 'The report is named by a path the board does not read.' });
       expect(refused).not.toHaveProperty('path');
     }
   });

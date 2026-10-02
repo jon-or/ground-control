@@ -265,7 +265,7 @@ chrome.runtime.onConnect.addListener((port) => {
       return;
     }
 
-    if (message?.type === 'readReport') {
+    if (message?.type === 'readReport' || message?.type === 'readFrictionReport') {
       if (!Number.isSafeInteger(message.request)) return;
       reportRequests += 1;
       reportReads.set(reportRequests, { port, token: reports.get(port)?.token ?? 0, request: message.request });
