@@ -92,6 +92,12 @@ describe('what the browser may ask the hub for', () => {
     });
   });
 
+  /** The overlay has no queue view (R53), so it neither restores a lane nor acknowledges a visit. */
+  it('refuses the queue view messages', () => {
+    expect(bridgeAction({ type: 'unplace', key: 'issue-4501' })).toEqual({ refused: 'The overlay may not send unplace.' });
+    expect(bridgeAction({ type: 'acknowledgeVisit', id: 'issue-4501@1' })).toEqual({ refused: 'The overlay may not send acknowledgeVisit.' });
+  });
+
   /** Chrome opens sessions through editor URLs (R36). */
   it('refuses session opening and provides browser instructions', () => {
     expect(bridgeAction({ type: 'open', sessionId: 'a-session' })).toEqual({

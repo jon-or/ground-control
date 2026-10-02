@@ -1830,7 +1830,7 @@ function followMenu() {
   }
 
   if (!openMenu.anchor.isConnected) {
-    const anchor = cardEls.get(openMenu.key)?.el.querySelector('.card-menu');
+    const anchor = (layout === 'queue' ? rowEls : cardEls).get(openMenu.key)?.el.querySelector('.card-menu');
 
     // Check DOM connection, not the card cache: archived cards can be cached offscreen and return zero-sized
     // bounds.
@@ -4689,6 +4689,609 @@ function reportPane({ id, history, answer }) {
   return [head, body];
 }
 
+/*
+ * Queue view (R53): the same cards as the lanes, placed by who holds them now. The hub chooses each card's section and
+ * order; this script only draws the rows.
+ */
+
+const queueEl = document.getElementById('queue');
+const layoutLanesEl = document.getElementById('layout-lanes');
+const layoutQueueEl = document.getElementById('layout-queue');
+
+/** `lanes` or `queue`, as the extension last said; the lanes until it does. */
+let layout = 'lanes';
+
+const QUEUE_TITLES = { waiting: 'Waiting for you', working: 'Working', unstarted: 'Unstarted', icebox: 'Icebox', done: 'Done' };
+
+/** Section ids whose rows are hidden, kept in webview state. Icebox and Done start collapsed. */
+let queueCollapsed = new Set(['icebox', 'done']);
+
+/** Section containers and row elements, kept across renders so a refresh keeps scroll, focus, and an open menu. */
+const queueShells = new Map();
+const rowEls = new Map();
+const doneEls = new Map();
+
+/** A Done row names its runs by action; a worktree run is not one of the triage actions. */
+const VISIT_ACTION_WORDS = { ...ACTION_LABELS, 'create-worktree': 'Worktree' };
+
+function saveState() {
+  vscode.setState({ payload: board, showArchived, animations, custodyTab, queueCollapsed: [...queueCollapsed] });
+}
+
+function applyLayout() {
+  const queue = layout === 'queue';
+
+  layoutLanesEl.setAttribute('aria-pressed', String(!queue));
+  layoutQueueEl.setAttribute('aria-pressed', String(queue));
+  lanesEl.hidden = queue;
+  queueEl.hidden = !queue;
+  document.body.dataset.layout = layout;
+}
+
+function chooseLayout(next) {
+  if (next === layout) {
+    return;
+  }
+
+  layout = next;
+  closeMenu(false);
+  closeCustody(false);
+  vscode.postMessage({ type: 'setLayout', layout });
+  applyLayout();
+
+  if (board) {
+    render(board);
+  }
+}
+
+/** Whether the session can be opened or attached from this window. */
+function reachable(session) {
+  return (typeof session.attachId === 'string' && !session.finished) || openable.has(session.sessionId);
+}
+
+/** Which operation opening the session is, so a row redraws when it changes. */
+function sessionRoute(session) {
+  return `${typeof session.attachId === 'string' && !session.finished ? 'attach' : 'open'}:${session.sessionId}`;
+}
+
+function openSessionOf(session) {
+  vscode.postMessage(
+    typeof session.attachId === 'string' && !session.finished
+      ? { type: 'attachSession', sessionId: session.sessionId }
+      : { type: 'openSession', sessionId: session.sessionId },
+  );
+}
+
+const WAITING_PHASES = ['failed', 'waiting', 'idle'];
+
+/** The live session that waits on the developer, the most urgent first, else the saved one holding the attention. */
+function waitingSession(boardCard) {
+  for (const phase of WAITING_PHASES) {
+    const live = boardCard.sessions.find((session) => !session.finished && session.activity?.phase === phase && reachable(session));
+
+    if (live) {
+      return live;
+    }
+  }
+
+  const saved = boardCard.lastSession;
+
+  return saved && boardCard.retainedAttention && openable.has(saved.sessionId) ? saved : null;
+}
+
+function runningSession(boardCard) {
+  const live = boardCard.sessions.filter((session) => !session.finished && reachable(session));
+
+  return live.find((session) => session.activity?.phase === 'running') ?? live[0] ?? null;
+}
+
+/**
+ * What activating a row opens (R53): in Waiting for you the run's report, else the waiting session, else the checkout a
+ * finished branch is in; in Working the running session; otherwise the issue conversation.
+ */
+function rowTarget(boardCard, section) {
+  const conversation = { hint: 'Read this issue’s conversation.', route: 'conversation', run: (event, opener) => openIssueFrom(event, boardCard, opener) };
+
+  if (section === 'waiting') {
+    const action = boardCard.action;
+
+    if (action?.state === 'done' && action.reportId) {
+      return { hint: 'Open the report this run wrote.', route: `report:${action.reportId}`, run: (_event, opener) => openReport(action.reportId, opener, false) };
+    }
+
+    const session = waitingSession(boardCard);
+
+    if (session) {
+      return { hint: 'Open the session waiting for you.', route: sessionRoute(session), run: () => openSessionOf(session) };
+    }
+
+    if (boardCard.stage?.stage === 'review' && hasCheckout(boardCard)) {
+      return { hint: openCheckoutHint(boardCard), route: 'checkout', run: () => vscode.postMessage({ type: 'openCheckout', key: boardCard.key }) };
+    }
+  }
+
+  if (section === 'working') {
+    const session = runningSession(boardCard);
+
+    if (session) {
+      return { hint: 'Open the running session.', route: sessionRoute(session), run: () => openSessionOf(session) };
+    }
+  }
+
+  return conversation;
+}
+
+/** The error kind a failed session reported, in words. */
+function failedWords(boardCard) {
+  const failed = boardCard.sessions.find((session) => session.activity?.phase === 'failed')?.activity ?? boardCard.lastSession?.retained;
+
+  return failed?.error && typeof failed.error.kind === 'string' ? failed.error.kind.replace(/_/g, ' ') : '';
+}
+
+/** The triage result (R38, R53): the action triage named, with when it read the card, the same in every section. */
+function queueAction(boardCard) {
+  const triage = boardCard.triage;
+
+  if (triage?.state === 'running') {
+    return { text: 'Reading…', at: null };
+  }
+
+  return triage?.state === 'done'
+    ? { text: `${TRIAGE_LABELS[triage.action] ?? triage.action}${triage.qualifier ? ` · ${triage.qualifier}` : ''}`, at: triage.at }
+    : { text: 'Not read', at: null };
+}
+
+/** The run the card's action row started, running or finished, which a workflow stage can choose apart from triage. */
+function queueRun(boardCard) {
+  const action = boardCard.action;
+
+  return action?.state === 'running' || action?.state === 'done' ? actionLabel(action) : '';
+}
+
+/**
+ * A column's words, then the time that dates them, muted and ticking with the board clock, then any note. The note
+ * comes last so a narrow column truncates it and never the time.
+ */
+function timedCell(className, text, at, detail = '') {
+  const cell = document.createElement('span');
+  const said = document.createElement('span');
+
+  cell.className = `q-cell ${className}`;
+  said.className = 'q-words';
+  said.textContent = text;
+  cell.appendChild(said);
+
+  if (typeof at === 'number' && Number.isFinite(at)) {
+    const when = document.createElement('span');
+
+    when.className = 'q-age';
+    age(when, at);
+    cell.appendChild(when);
+  }
+
+  if (detail) {
+    cell.appendChild(note(detail));
+  }
+
+  return cell;
+}
+
+/**
+ * Where the card stands, as words and a muted note (R53): why a waiting card waits, what a working card's run is
+ * doing, and below Working that nothing has started, noting a refusal.
+ */
+function queueState(boardCard, section, running) {
+  const action = boardCard.action;
+  const said = (text, detail = '', failed = false) => ({ text, note: [detail, running ? 'still running' : ''].filter(Boolean).join(' · '), failed });
+
+  if (section === 'waiting') {
+    if (boardCard.attention === 'failed') {
+      return said('Failed', failedWords(boardCard), true);
+    }
+
+    if (boardCard.attention === 'blocked') {
+      // Whether this window can open the session decides what a click does, not what the state says.
+      const session = boardCard.sessions.find((one) => !one.finished && one.activity?.phase === 'waiting');
+
+      return said('Needs you', session && typeof session.details?.state === 'string' ? session.details.state : '');
+    }
+
+    if (action?.state === 'running' && action.stage === 'waiting') {
+      return said('Waiting for you');
+    }
+
+    if (action?.state === 'done') {
+      return said(actionState(action, null).text);
+    }
+
+    return said('Your turn');
+  }
+
+  if (section === 'working') {
+    return said(actionState(action, boardCard.creation)?.text ?? 'Working');
+  }
+
+  return said('Not started', action?.state === 'refused' ? 'not run' : '');
+}
+
+/** The row's menu: the card's own actions, its sessions, and Icebox or Restore, the one placement the queue offers. */
+function queueActions(boardCard) {
+  const actions = cardActions(boardCard);
+
+  for (const session of boardCard.sessions) {
+    if (reachable(session)) {
+      actions.push({
+        label: `Open ${sessionLabel(session)}`,
+        hint: `${agentTitle(session.agent)} session, ${rowWords(session)}.`,
+        run: () => openSessionOf(session),
+      });
+    }
+  }
+
+  const saved = boardCard.lastSession;
+
+  if (saved && !boardCard.sessions.some((session) => !session.finished) && openable.has(saved.sessionId)) {
+    actions.push({
+      label: `Resume ${saved.title ?? basename(saved.cwd)}`,
+      hint: 'Resume the last session on this card.',
+      run: () => vscode.postMessage({ type: 'openSession', sessionId: saved.sessionId }),
+    });
+  }
+
+  actions.push(
+    boardCard.lane === 'icebox'
+      ? {
+          label: 'Restore',
+          hint: 'Take this card out of Icebox; its status and pull request place it again.',
+          run: () => vscode.postMessage({ type: 'restoreCard', key: boardCard.key }),
+        }
+      : { label: 'Icebox', hint: 'Set this card aside in Icebox.', run: () => move(boardCard.key, 'icebox') },
+  );
+
+  return actions;
+}
+
+function queueMenuControl(boardCard) {
+  const el = document.createElement('button');
+
+  el.type = 'button';
+  el.className = 'card-menu';
+  setTooltip(el, 'More actions');
+  setAccessibleName(el, `More actions for ${cardName(boardCard)}`);
+  wireMenuControl(el, boardCard.key, `Actions for ${cardName(boardCard)}`, () => queueActions(boardCard));
+
+  return el;
+}
+
+/** One card's row. A click on it outside its controls presses its title, which opens what the row is about. */
+function queueRow(boardCard, entry, section) {
+  const el = document.createElement('div');
+  const issue = boardCard.issue;
+
+  el.className = 'queue-row';
+  el.setAttribute('role', 'listitem');
+  el.dataset.key = boardCard.key;
+  el.dataset.section = section;
+
+  // The issue column holds the number and, right after it, the selected pull request (R5).
+  const number = document.createElement('span');
+  const shown = document.createElement('span');
+
+  number.className = 'q-issue';
+  shown.className = 'q-number';
+  shown.textContent = `#${boardCard.issueNumber}`;
+  number.appendChild(shown);
+
+  if (issue.repository) {
+    setTooltip(shown, `${issue.repository} #${boardCard.issueNumber}`);
+  }
+
+  if (issue.pullRequest) {
+    const chip = badge('pull-request', `#${issue.pullRequest.number}`, null, null, (event) => {
+      event.stopPropagation();
+      openPullRequestFrom(event, boardCard, chip);
+    });
+
+    chip.prepend(pullRequestMark());
+    setAccessibleName(chip, `Read pull request #${issue.pullRequest.number}, ${issue.pullRequest.state.toLowerCase()}`);
+    number.appendChild(chip);
+  }
+
+  const target = rowTarget(boardCard, section);
+  const title = document.createElement('button');
+
+  title.type = 'button';
+  title.className = 'q-title';
+  title.textContent = issue.title;
+  setTooltip(title, target.hint);
+  title.setAttribute('aria-description', target.hint);
+  title.addEventListener('click', (event) => {
+    event.stopPropagation();
+    target.run(event, title);
+  });
+
+  const named = queueAction(boardCard);
+  const doing = timedCell('q-action', named.text, named.at);
+  const run = timedCell('q-run', queueRun(boardCard), null);
+
+  // The time in the state: since the card entered its section, or its queue time below Working.
+  const said = queueState(boardCard, section, entry.running);
+  const state = timedCell('q-state', said.text, entry.since, said.note);
+
+  if (said.failed) {
+    state.dataset.failed = 'true';
+  }
+
+  if (boardCard.action?.state === 'refused') {
+    setTooltip(state, boardCard.action.reason);
+  }
+
+  const held = boardCard.stage;
+  // The reported stage, then its step and note; the time is the report's.
+  const stage = held
+    ? timedCell('q-stage', held.note || held.step ? `${STAGE_TITLES[held.stage] ?? held.stage} · ${stageLine(held)}` : stageLine(held), held.changedAt)
+    : timedCell('q-stage', '', null);
+
+  if (stage.textContent) {
+    setTooltip(stage, stageTitle(held, Date.now(), false));
+  }
+
+  // The controls alone: every time on the row sits beside the status it dates.
+  const end = tail(boardCard);
+
+  end.querySelector('.card-age')?.remove();
+
+  el.append(number, title, doing, run, state, stage, end, queueMenuControl(boardCard));
+  el.addEventListener('click', (event) => {
+    if (!event.target.closest('button')) {
+      title.click();
+    }
+  });
+
+  return el;
+}
+
+/** One ended visit (R53): what it ran, how the card left, and how long it was on the board. */
+function doneRow(visit) {
+  const el = document.createElement('div');
+
+  el.className = 'queue-row done-row';
+  el.setAttribute('role', 'listitem');
+  el.dataset.visit = visit.id;
+
+  const number = document.createElement('span');
+  const shown = document.createElement('span');
+
+  number.className = 'q-issue';
+  shown.className = 'q-number';
+  shown.textContent = `#${visit.issueNumber}`;
+  number.appendChild(shown);
+
+  const title = document.createElement('button');
+  const hint = 'Show the action history.';
+
+  title.type = 'button';
+  title.className = 'q-title';
+  title.textContent = visit.title;
+  setTooltip(title, hint);
+  title.setAttribute('aria-description', hint);
+  title.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openHistory();
+  });
+
+  const ran = timedCell('q-run', visit.actions.length === 0 ? 'No runs' : visit.actions.map((action) => VISIT_ACTION_WORDS[action] ?? action).join(' → '), null);
+
+  // How the card left and when, then how long the visit lasted.
+  const left = timedCell('q-state', visit.left, visit.endedAt, `visit lasted ${ago(visit.endedAt - visit.startedAt)}`);
+
+  setTooltip(left, `On the board from ${new Date(visit.startedAt).toLocaleString()} to ${new Date(visit.endedAt).toLocaleString()}.`);
+
+  const end = document.createElement('span');
+
+  end.className = 'tail';
+
+  if (visit.unattended) {
+    const acknowledge = document.createElement('button');
+
+    acknowledge.type = 'button';
+    acknowledge.className = 'acknowledge';
+    acknowledge.textContent = 'Acknowledge';
+    setTooltip(acknowledge, 'This visit never waited for you. Take it out of Done.');
+    setAccessibleName(acknowledge, `Acknowledge #${visit.issueNumber}`);
+    acknowledge.addEventListener('click', (event) => {
+      event.stopPropagation();
+      vscode.postMessage({ type: 'acknowledgeVisit', id: visit.id });
+    });
+    end.appendChild(acknowledge);
+  }
+
+  // A card that left has no triage or stage on the board; the columns stay, empty, so every section lines up.
+  const empty = () => document.createElement('span');
+
+  el.append(number, title, empty(), ran, left, empty(), end, empty());
+  el.addEventListener('click', (event) => {
+    if (!event.target.closest('button')) {
+      title.click();
+    }
+  });
+
+  return el;
+}
+
+/** Column names, the same for every section (R53). */
+const QUEUE_COLUMNS = ['Issue', 'Title', 'Triage', 'Run', 'State', 'Stage', '', ''];
+
+let columnsEl = null;
+
+function queueColumns() {
+  if (columnsEl === null) {
+    columnsEl = document.createElement('div');
+    columnsEl.className = 'queue-row queue-columns';
+    columnsEl.setAttribute('aria-hidden', 'true');
+
+    for (const name of QUEUE_COLUMNS) {
+      const cell = document.createElement('span');
+
+      cell.textContent = name;
+      columnsEl.appendChild(cell);
+    }
+  }
+
+  return columnsEl;
+}
+
+function queueShell(id) {
+  const el = document.createElement('section');
+
+  el.className = 'queue-section';
+  el.dataset.section = id;
+
+  const head = document.createElement('button');
+
+  head.type = 'button';
+  head.className = 'queue-head';
+
+  const chevron = document.createElement('span');
+
+  chevron.className = 'chevron';
+  chevron.setAttribute('aria-hidden', 'true');
+
+  const name = document.createElement('span');
+
+  name.className = 'queue-name';
+  name.textContent = QUEUE_TITLES[id];
+
+  const count = document.createElement('span');
+
+  count.className = 'badge lane-count';
+
+  head.append(chevron, name, count);
+  head.addEventListener('click', () => {
+    if (queueCollapsed.has(id)) {
+      queueCollapsed.delete(id);
+    } else {
+      queueCollapsed.add(id);
+    }
+
+    saveState();
+
+    if (board) {
+      render(board);
+    }
+  });
+
+  const list = document.createElement('div');
+
+  list.className = 'queue-rows';
+  list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', QUEUE_TITLES[id]);
+
+  const empty = document.createElement('p');
+
+  empty.className = 'lane-empty';
+  empty.textContent = 'Nothing here';
+
+  el.append(head, list);
+
+  const shell = { el, head, count, list, empty };
+
+  queueShells.set(id, shell);
+
+  return shell;
+}
+
+function syncSection(id, rows) {
+  const shell = queueShells.get(id) ?? queueShell(id);
+  const collapsed = queueCollapsed.has(id);
+
+  shell.count.textContent = String(rows.length);
+  shell.head.setAttribute('aria-expanded', String(!collapsed));
+  shell.el.dataset.collapsed = String(collapsed);
+  reconcile(shell.list, collapsed ? [] : rows.length === 0 ? [shell.empty] : rows);
+
+  return shell.el;
+}
+
+/** The row element for this card, rebuilt only when what it draws has changed. */
+function rowFor(boardCard, entry, section) {
+  // The reason and the click target read fields the card signature leaves out, such as a failure's error kind.
+  const target = rowTarget(boardCard, section);
+  const sig = JSON.stringify([signature(boardCard), section, entry.since, entry.running, queueAction(boardCard), queueRun(boardCard), queueState(boardCard, section, entry.running), target.hint, target.route]);
+  const known = rowEls.get(boardCard.key);
+
+  if (known && known.sig === sig) {
+    return known.el;
+  }
+
+  if (openMenu?.key === boardCard.key && known?.actions !== JSON.stringify(queueActions(boardCard))) {
+    closeMenu(false);
+  }
+
+  const el = queueRow(boardCard, entry, section);
+
+  known?.el.remove();
+  rowEls.set(boardCard.key, { el, sig, actions: JSON.stringify(queueActions(boardCard)) });
+
+  return el;
+}
+
+/** Draw the queue from the hub's sections, reusing the rows whose content has not changed. */
+function drawQueue(queue, cards) {
+  const shown = new Set();
+  const sections = queue.sections.map((section) =>
+    syncSection(
+      section.id,
+      section.cards.flatMap((entry) => {
+        const boardCard = cards.get(entry.key);
+
+        if (!boardCard?.issue) {
+          return [];
+        }
+
+        shown.add(entry.key);
+
+        return [rowFor(boardCard, entry, section.id)];
+      }),
+    ),
+  );
+
+  for (const key of [...rowEls.keys()]) {
+    if (!shown.has(key)) {
+      rowEls.get(key).el.remove();
+      rowEls.delete(key);
+    }
+  }
+
+  const ended = new Set(queue.done.map((visit) => visit.id));
+
+  for (const id of [...doneEls.keys()]) {
+    if (!ended.has(id)) {
+      doneEls.delete(id);
+    }
+  }
+
+  sections.unshift(queueColumns());
+  sections.push(syncSection('done', queue.done.map((visit) => {
+    const sig = JSON.stringify(visit);
+    const known = doneEls.get(visit.id);
+
+    if (known?.sig === sig) {
+      return known.el;
+    }
+
+    const el = doneRow(visit);
+
+    doneEls.set(visit.id, { el, sig });
+
+    return el;
+  })));
+  reconcile(queueEl, sections);
+}
+
+layoutLanesEl.addEventListener('click', () => chooseLayout('lanes'));
+layoutQueueEl.addEventListener('click', () => chooseLayout('queue'));
+
 function countCards(lanes) {
   return lanes.reduce((total, lane) => total + lane.cards.length, 0);
 }
@@ -4708,7 +5311,7 @@ function render(payload) {
   vscode.postMessage({
     type: 'drew',
     lanes: lanesEl.querySelectorAll('.lane').length,
-    cards: lanesEl.querySelectorAll('.card').length,
+    cards: layout === 'queue' ? queueEl.querySelectorAll('.queue-row[data-key]').length : lanesEl.querySelectorAll('.card').length,
     notices: noticesEl.childElementCount,
     meta: metaEl.textContent,
   });
@@ -4739,7 +5342,7 @@ function draw(payload) {
     showArchived = false;
   }
 
-  vscode.setState({ payload, showArchived, animations, custodyTab });
+  saveState();
 
   const shown = payload.lanes.filter((lane) => lane.id !== 'archived' || showArchived);
 
@@ -4823,6 +5426,24 @@ function draw(payload) {
       cardEls.get(key).el.remove();
       cardEls.delete(key);
     }
+  }
+
+  if (layout === 'queue') {
+    if (!payload.queue) {
+      emptyEl.textContent = 'The running hub predates the queue view. Reload the window to update it.';
+      reconcile(queueEl, [emptyEl]);
+    } else if (countCards(payload.lanes) === 0 && payload.queue.done.length === 0) {
+      emptyEl.textContent = emptyText(payload);
+      reconcile(queueEl, [emptyEl]);
+    } else {
+      drawQueue(payload.queue, new Map(payload.lanes.flatMap((lane) => lane.cards).map((boardCard) => [boardCard.key, boardCard])));
+    }
+
+    followMenu();
+    followCustody();
+    tickDurations();
+
+    return;
   }
 
   if (countCards(payload.lanes) === 0) {
@@ -4914,7 +5535,24 @@ window.addEventListener('message', (event) => {
   if (message.type === 'presentation') {
     animations = message.animations !== false;
     applyMotion();
-    vscode.setState({ payload: board, showArchived, animations, custodyTab });
+    saveState();
+    return;
+  }
+
+  if (message.type === 'layout') {
+    const next = message.layout === 'queue' ? 'queue' : 'lanes';
+
+    if (next !== layout) {
+      layout = next;
+      closeMenu(false);
+      closeCustody(false);
+      applyLayout();
+
+      if (board) {
+        render(board);
+      }
+    }
+
     return;
   }
 
@@ -4982,6 +5620,10 @@ paintLogs(false);
 // Read before the payload guard: a stored board too old to draw does not make the developer's Archived choice stale.
 showArchived = restored?.showArchived === true;
 animations = restored?.animations !== false;
+
+if (Array.isArray(restored?.queueCollapsed)) {
+  queueCollapsed = new Set(restored.queueCollapsed.filter((id) => typeof id === 'string'));
+}
 applyMotion();
 
 if (isCurrentPayload(restored?.payload)) {

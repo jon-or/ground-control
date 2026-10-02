@@ -1,4 +1,4 @@
-import { assignLanes, buildCustody, checkEvidence, linkSessions, mergeBoard, nextMemory, triageLabel, withCheckouts, withPlacement, withStage, withTriage } from '@ground-control/board';
+import { assignLanes, buildCustody, checkEvidence, linkSessions, mergeBoard, nextMemory, nextVisits, queueView, triageLabel, withAcknowledged, withCheckouts, withPlacement, withStage, withTriage, withoutPlacement } from '@ground-control/board';
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import { BASE_MERGE, CREATE_WORKTREE, runTextCli, DEFAULT_SESSION_SCOPE, MANUAL_ACTIONS, clonesOf, compilePattern, dirKey, diskReaders, fillTemplate, findCheckout, issueNumberFrom, fetchSessions, fetchSessionHistory, isAbsolute, newSessionValues, normalize, parseHubConfig, repositoryKey, repositoryOf, resolveAgentHomes, restrictedSessionScope, rosterIsStale, rowFor, sessionInScope, unreportedSessions, worktreeIndex, worktreesOf } from '@ground-control/core';
@@ -13,6 +13,8 @@ import { makeIssueStore } from './issueStore.js';
 import type { IssueStore } from './issueStore.js';
 import type { ActivityState } from './activityInstall.js';
 import type { LaneStore } from './lanes.js';
+import { makeVisitStore, memoryVisitStore } from './visitStore.js';
+import type { VisitStore } from './visitStore.js';
 import { ActionRunner } from './actions.js';
 import { makeActionHistoryStore, makeActionStore } from './actionStore.js';
 import { makeCheckoutStore, makeWorktreeStore } from './checkoutStore.js';
@@ -59,6 +61,8 @@ export interface HubDeps {
   actions: ActionStore;
   /** Every run the board started (R50); absent keeps none. */
   actionHistory?: ActionHistoryStore;
+  /** Each card's visits to the board (R53); absent keeps them in memory. */
+  visits?: VisitStore;
   /** Cached issue lookups for sessions that outlast assignment (R9). */
   issues: IssueStore;
   /** Retained phases preserve card attention after a session closes (R6). */
@@ -194,6 +198,7 @@ export function realHubDeps(
     checkouts,
     worktrees,
     actionHistory: makeActionHistoryStore(stateDir),
+    visits: makeVisitStore(stateDir),
     settings,
     log,
     syncActivity: (regs, wanted, where, state, enabled) => syncActivity(regs.agents, wanted, where, state, false, enabled),
@@ -220,6 +225,7 @@ export interface Configured {
  */
 export class Hub {
   readonly #deps: HubDeps;
+  readonly #visits: VisitStore;
   readonly #clients = new Map<string, Connected>();
   readonly #watchers: { dispose(): void }[] = [];
   readonly #timers: NodeJS.Timeout[] = [];
@@ -287,6 +293,7 @@ export class Hub {
     this.#deps = deps;
 
     // Load saved settings so Chrome can start a configured hub without an editor open (R35, R36).
+    this.#visits = deps.visits ?? memoryVisitStore();
     const stored = deps.settings.read();
 
     this.#stored = stored && 'failure' in stored ? stored.failure : null;
@@ -518,6 +525,16 @@ export class Hub {
 
       case 'move':
         this.#move(message.key, message.lane);
+
+        return;
+
+      case 'unplace':
+        this.#unplace(message.key);
+
+        return;
+
+      case 'acknowledgeVisit':
+        this.#acknowledgeVisit(message.id);
 
         return;
 
@@ -1059,14 +1076,15 @@ export class Hub {
       this.#retime(true);
     }
 
-    // Broadcast corrected settings immediately; refresh throttling could otherwise retain an obsolete error.
-    this.#broadcast();
-    // Refresh sources only when their settings change; every client restates settings on connection.
+    // Refresh sources only when their settings change; every client restates settings on connection. Reads made under
+    // the old settings stop counting as complete before the broadcast below, which ends visits on a complete read.
     const reason = same(before.sources, parsed.config.sources) && same(boardPolicyOf(before), boardPolicyOf(parsed.config)) ? 'visible' : 'settings';
     if (reason === 'settings') {
       this.#sourceSettings++;
       this.#readUnderSettings.clear();
     }
+    // Broadcast corrected settings immediately; refresh throttling could otherwise retain an obsolete error.
+    this.#broadcast();
     if (sessionsChanged) {
       void this.#refreshSources(reason);
       void this.#refreshSessions(true);
@@ -1815,6 +1833,24 @@ export class Hub {
     this.#broadcast();
   }
 
+  /** Restore a card to the lane its status and pull request give it (R53). */
+  #unplace(key: string): void {
+    if (!this.#lanes(true).some((lane) => lane.cards.some((card) => card.key === key))) return;
+    this.#deps.lanes.write(withoutPlacement(this.#memory(), key));
+    this.#deps.log.info(`${key} restored`, 'lanes');
+    this.#broadcast();
+  }
+
+  /** Take an ended visit out of Done (R53). */
+  #acknowledgeVisit(id: string): void {
+    const memory = this.#visits.read();
+    const next = withAcknowledged(memory, id);
+
+    if (next === memory) return;
+    this.#visits.write(next);
+    this.#broadcast();
+  }
+
   /**
    * Record a workflow stage a developer's skill reports (R49). Entering Review needs the worktree's evidence ledger to
    * give every row evidence (R23). An issue no card has yet is recorded and a source read asked for.
@@ -2435,6 +2471,7 @@ export class Hub {
         (this.#sessions?.failures.length ?? 0) > 0,
       needs: this.#needs(),
       owners: items?.owners ?? [],
+      queue: queueView(lanes, this.#visits.read(), now),
       fetchedAt: new Date(now).toISOString(),
     };
   }
@@ -2576,9 +2613,16 @@ export class Hub {
       return;
     }
 
+    const internal = this.#lanes(false);
+
+    // Before the snapshot, which draws the queue from the visits: a card that just left is in Done at once. Only a
+    // full read of every source shows that a card missing from it has left the board.
+    // A refused source's cards are gone from the read without having left, so any refusal makes the read incomplete.
+    const complete = this.#sourcesRefused.length === 0 && this.#boardRead();
+    this.#visits.write(nextVisits(internal, this.#visits.read(), complete, this.#deps.clock.now(), this.#config.queue.doneDays, this.#actions.history()));
+
     const base = this.snapshot();
 
-    const internal = this.#lanes(false);
     this.#persist(internal);
 
     for (const id of [...this.#clients.keys()]) {

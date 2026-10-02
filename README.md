@@ -15,6 +15,8 @@ A personal board for assigned GitHub issues and local Claude Code and Codex sess
 
 Working lanes are Unstarted, Plan, Build, Review, and Icebox. Archived contains work outside the configured membership set. [Arrival rules](docs/prd.md#r8-arrival-and-manual-placement) determine placement until you move a card.
 
+The board header's **Queue** switch lists the issue cards by who holds them instead: Waiting for you, Working, Unstarted, and Icebox, then Done, which lists each visit, one card's time on the board from arrival to departure, after it ends. Ad-hoc and archived cards stay in the lanes. A card waiting on you is at the top whatever else runs on it; the rows carry no attention colour or motion except a failure. Done keeps a visit that never waited on you until you acknowledge it, and any other for `queue.doneDays` days (default 7). See [the queue view](docs/prd.md#r53-queue-view).
+
 Automated takeover, resuming after tab closure or usage limits, and automatic stage movement remain [future requirements](docs/prd.md#future-workflow-requirements).
 
 ## Install and configure

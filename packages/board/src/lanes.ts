@@ -330,7 +330,7 @@ function withoutExpiredActivity(card: BoardCard, pastMyHandsAt: Record<string, n
 }
 
 /** When the card entered the developer's queue, as its age shows it; null for a card with no issue time. */
-function queueTime(card: BoardCard): number | null {
+export function queueTime(card: BoardCard): number | null {
   const at = Date.parse(card.issue?.queuedAt ?? card.issue?.statusChangedAt ?? '');
 
   return Number.isNaN(at) ? null : at;
@@ -391,6 +391,17 @@ export function withPlacement(memory: CardMemory, key: string, lane: LaneId): Ca
     stages,
     seen: memory.seen.includes(key) ? memory.seen : [...memory.seen, key],
   };
+}
+
+/** Clear a manual placement, so status and pull request evidence place the card again (R8, R53). */
+export function withoutPlacement(memory: CardMemory, key: string): CardMemory {
+  if (memory.placements[key] === undefined) {
+    return memory;
+  }
+
+  const { [key]: _cleared, ...placements } = memory.placements;
+
+  return { ...memory, placements, seen: memory.seen.includes(key) ? memory.seen : [...memory.seen, key] };
 }
 
 /**

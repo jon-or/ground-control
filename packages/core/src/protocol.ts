@@ -1,4 +1,4 @@
-import type { Lane, LaneId } from './board.js';
+import type { Lane, LaneId, QueueView } from './board.js';
 import type { HubConfig } from './config.js';
 import type { ActionHistoryView } from './actions.js';
 import type { Custody } from './custody.js';
@@ -52,6 +52,8 @@ export interface Snapshot {
   needs: { logins: { detected: string[] } } | null;
   /** Optional for older hubs. Configured assignee logins; the overlay matches them against a project's filter (R36). */
   owners?: string[];
+  /** Optional for older hubs. The editor's queue view: cards by who holds them now, and ended visits (R53). */
+  queue?: QueueView;
   /** Snapshot timestamp, not the last successful source-read time (R25). */
   fetchedAt: string;
 }
@@ -78,6 +80,10 @@ export type ClientMessage =
   | { type: 'watching'; watching: boolean }
   | { type: 'refresh' }
   | { type: 'move'; key: string; lane: LaneId }
+  // Clear the card's manual lane, so status and pull request evidence place it again (R8, R53).
+  | { type: 'unplace'; key: string }
+  // Take an ended visit out of Done (R53).
+  | { type: 'acknowledgeVisit'; id: string }
   // Read extensionReady per open request because activation can complete after hello. handedOver prevents routing a cross-window request onward (M45).
   | { type: 'open'; sessionId: string; extensionReady: boolean; handedOver?: boolean; resumeToken?: string }
   // Paid classification: validate the card key and rate-limit repeated requests.
@@ -148,6 +154,8 @@ export type BoardMessage =
   | { type: 'logs'; streaming: boolean }
   // Persistent archive visibility from the extension, retained across webview closure.
   | { type: 'showArchived'; shown: boolean }
+  // The developer's layout choice, kept across windows and restarts (R53).
+  | { type: 'layout'; layout: 'lanes' | 'queue' }
   // Editor presentation settings; the webview mirrors them as body data attributes for the stylesheet.
   | { type: 'presentation'; animations: boolean }
   // First-run choices still owed; hooks and triage stay off until they are made (R26).

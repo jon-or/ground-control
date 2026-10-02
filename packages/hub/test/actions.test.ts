@@ -459,6 +459,7 @@ function config(actions: Partial<HubConfig['actions']> = {}): HubConfig {
     newSession: { prompt: '' },
     custody: { stages: [], bots: [] },
     debrief: { enabled: false, directory: '', promptPath: '', codexScript: '' },
+    queue: { doneDays: 7 },
     installActivity: false,
     triage: { enabled: true, concurrency: 2, timeoutMs: 60_000 },
     actions: {

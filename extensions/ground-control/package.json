@@ -298,6 +298,15 @@
             "order": 8,
             "markdownDescription": "Logins whose status moves are automation. The custody popup counts their send-backs separately and never names them as holders. A login ending in `[bot]` is always automation."
           },
+          "groundControl.queue.doneDays": {
+            "scope": "application",
+            "type": "number",
+            "default": 7,
+            "minimum": 1,
+            "maximum": 90,
+            "order": 9,
+            "markdownDescription": "Days the queue view's **Done** section keeps a visit whose card waited for you at some point. A visit that never waited for you stays until you acknowledge it."
+          },
           "groundControl.animations": {
             "scope": "application",
             "type": "boolean",

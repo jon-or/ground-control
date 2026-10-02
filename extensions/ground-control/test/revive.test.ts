@@ -112,10 +112,11 @@ async function revive(state: unknown): Promise<void> {
   document.head.innerHTML = `<style>${readFileSync(resolve('media/board.css'), 'utf8')}</style>`;
   document.body.innerHTML = `
     <header>
+      <div id="layout"><button id="layout-lanes" type="button" aria-pressed="true">Lanes</button><button id="layout-queue" type="button" aria-pressed="false">Queue</button></div>
       <div id="meta"></div>
       <button id="board-menu" type="button"></button>
     </header>
-    <div id="notices"></div><main id="lanes"></main>
+    <div id="notices"></div><main id="lanes"></main><main id="queue" hidden></main>
   `;
 
   // Through a variable, as `board.test.ts` does: a literal path to a plain JS file has no declaration to find.

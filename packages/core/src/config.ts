@@ -56,7 +56,19 @@ export interface HubConfig {
   custody: CustodySettings;
   /** Friction debriefs of finished Claude sessions (R52). */
   debrief: DebriefSettings;
+  /** The editor's queue view (R53). */
+  queue: QueueSettings;
 }
+
+/** How long Done keeps a visit whose card entered Waiting for you (R53); an unattended one stays until acknowledged. */
+export interface QueueSettings {
+  doneDays: number;
+}
+
+export const DEFAULT_QUEUE: QueueSettings = { doneDays: 7 };
+
+/** Longest Done retention a setting may ask for. */
+export const QUEUE_DONE_DAYS_CEILING = 90;
 
 /** Hub log rotation and dispatch-output retention. Markers and settings backups are safety state with fixed limits. */
 export interface LogSettings {
@@ -323,6 +335,11 @@ export const hubConfig = z.object({
     })
     .catch({ ...DEFAULT_DEBRIEF })
     .default({ ...DEFAULT_DEBRIEF }),
+  // Absent from a configuration written by a client that predates the queue view.
+  queue: z
+    .object({ doneDays: bounded(DEFAULT_QUEUE.doneDays, 1, QUEUE_DONE_DAYS_CEILING).transform(Math.trunc) })
+    .catch({ ...DEFAULT_QUEUE })
+    .default({ ...DEFAULT_QUEUE }),
 });
 
 /** Parse client configuration or return a classified failure for display (R25). */

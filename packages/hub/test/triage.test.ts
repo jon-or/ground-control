@@ -252,6 +252,7 @@ function hubConfig(
     newSession: { prompt: '' },
     custody: { stages: [], bots: [] },
     debrief: { enabled: false, directory: '', promptPath: '', codexScript: '' },
+    queue: { doneDays: 7 },
     installActivity: false,
     triage,
     actions: { permissionMode: 'manual', concurrency: 1, dailyLimit: 0, fromBrowser: false, resultTimeoutMs: 1_800_000, table: [], testBranchPattern: '^Test-' },

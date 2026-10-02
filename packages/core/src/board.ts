@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CardAction, WorktreeCreation } from './actions.js';
+import type { CardAction, DispatchedAction, WorktreeCreation } from './actions.js';
 import type { CardCheckout } from './checkout.js';
 import type { IssueCard } from './cards.js';
 import type { CardTriage } from './triage.js';
@@ -143,4 +143,49 @@ export interface Lane {
   id: LaneId;
   title: string;
   cards: LanedCard[];
+}
+
+/** The queue view's sections, top to bottom, before Done (R53). */
+export const QUEUE_SECTIONS = ['waiting', 'working', 'unstarted', 'icebox'] as const;
+
+export type QueueSectionId = (typeof QUEUE_SECTIONS)[number];
+
+/**
+ * One card in a queue section: when it entered the section, or its queue time in Unstarted and Icebox, and, in Waiting
+ * for you, whether work still runs on it.
+ */
+export interface QueuedCard {
+  key: string;
+  since: number | null;
+  running: boolean;
+}
+
+/** One section's cards in display order. */
+export interface QueueSection {
+  id: QueueSectionId;
+  cards: QueuedCard[];
+}
+
+/** A card's ended time on the board, from arrival to departure (R53). */
+export interface DoneVisit {
+  /** The card key and visit start, which together name one visit. */
+  id: string;
+  issueNumber: number;
+  title: string;
+  url: string;
+  repository: string | null;
+  startedAt: number;
+  endedAt: number;
+  /** The card never entered Waiting for you during the visit; it stays in Done until acknowledged. */
+  unattended: boolean;
+  /** The runs the visit started, oldest first. */
+  actions: DispatchedAction[];
+  /** How the card left: its last status, closed, or unassigned. */
+  left: string;
+}
+
+/** What the queue view draws (R53): the sections, then the ended visits newest first. */
+export interface QueueView {
+  sections: QueueSection[];
+  done: DoneVisit[];
 }

@@ -99,3 +99,7 @@ export function actionReportPathOf(stateDir: string, key: string): string {
 export function issuesPathOf(stateDir: string): string {
   return `${stateDir}/issues.json`;
 }
+
+export function visitsPathOf(stateDir: string): string {
+  return `${stateDir}/visits.json`;
+}

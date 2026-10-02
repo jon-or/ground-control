@@ -9,8 +9,10 @@ export {
   nextMemory,
   readMemory,
   statusLanes,
+  queueTime,
   withPlacement,
   withStage,
+  withoutPlacement,
   DEFAULT_BOARD_STATUSES,
   DEFAULT_STATUS_LANES,
   EMPTY_MEMORY,
@@ -19,6 +21,8 @@ export {
   STAGE_NOTE_LIMIT,
   STAGE_RELEASE_MARGIN_MS,
 } from './lanes.js';
+export { ENDED_VISIT_LIMIT, EMPTY_VISITS, nextVisits, queueSectionOf, queueView, queued, readVisits, withAcknowledged } from './queue.js';
+export type { EndedVisit, OpenVisit, VisitMemory, VisitRun } from './queue.js';
 export { checkEvidence } from './stageEvidence.js';
 export type { EvidenceCheck } from './stageEvidence.js';
 export type { BoardCard } from './types.js';

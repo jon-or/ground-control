@@ -17,6 +17,9 @@ export const VIEW_TYPE = 'groundControl.board';
 /** Persist archive visibility beyond the lifetime of the webview tab. */
 export const SHOW_ARCHIVED_KEY = 'groundControl.showArchived';
 
+/** The lane or queue layout the developer chose (R53), kept across windows and restarts. */
+export const LAYOUT_KEY = 'groundControl.layout';
+
 /** Dragged conversation-panel width in pixels, retained across boards and windows. */
 export const DETAIL_WIDTH_KEY = 'groundControl.detailWidth';
 
@@ -42,6 +45,9 @@ type Inbound =
   | { type: 'openIssue'; number: number }
   | { type: 'openPullRequest'; number: number }
   | { type: 'moveCard'; key: string; lane: LaneId }
+  | { type: 'restoreCard'; key: string }
+  | { type: 'acknowledgeVisit'; id: string }
+  | { type: 'setLayout'; layout: unknown }
   | { type: 'retriage'; key: string }
   | { type: 'runAction'; key: string }
   | { type: 'stopAction'; key: string }
@@ -247,6 +253,7 @@ export class BoardPanel {
       case 'ready':
         this.#postLogs();
         this.#post({ type: 'showArchived', shown: this.#memento.get<boolean>(SHOW_ARCHIVED_KEY, false) });
+        this.#post({ type: 'layout', layout: this.#memento.get<string>(LAYOUT_KEY) === 'queue' ? 'queue' : 'lanes' });
         this.#postPresentation();
         this.#postReading();
 
@@ -311,6 +318,23 @@ export class BoardPanel {
 
       case 'moveCard':
         this.#tell({ type: 'move', key: msg.key, lane: msg.lane });
+
+        return;
+
+      case 'restoreCard':
+        this.#tell({ type: 'unplace', key: msg.key });
+
+        return;
+
+      case 'acknowledgeVisit':
+        this.#tell({ type: 'acknowledgeVisit', id: msg.id });
+
+        return;
+
+      case 'setLayout':
+        if (msg.layout === 'lanes' || msg.layout === 'queue') {
+          void this.#memento.update(LAYOUT_KEY, msg.layout);
+        }
 
         return;
 
@@ -611,11 +635,16 @@ export class BoardPanel {
 <body>
 <header>
   <h1>Ground Control</h1>
+  <div id="layout" role="group" aria-label="Layout">
+    <button id="layout-lanes" type="button" aria-pressed="true">Lanes</button>
+    <button id="layout-queue" type="button" aria-pressed="false">Queue</button>
+  </div>
   <div id="meta"></div>
   <button id="board-menu" type="button"></button>
 </header>
 <div id="notices"></div>
 <main id="lanes" aria-live="polite"></main>
+<main id="queue" aria-live="polite" hidden></main>
 <script nonce="${n}" src="${media('board.js')}"></script>
 </body>
 </html>`;

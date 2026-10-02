@@ -190,6 +190,7 @@ Threading: `home` locates agent defaults, agent settings, and hook writers; `sta
 | `triage.json` | Results, evidence, trigger, revision and retry state |
 | `triage-usage.json` | Automatic attempt timestamps for the rolling 24-hour limit |
 | `action-history.json` | Every run's start, trigger, and outcome, 90 days and at most 500 runs (R50) |
+| `visits.json` | Open visits by card key, with their section, when they entered it, and their runs; ended visits for Done, every unattended one and at most 200 others (R53) |
 | `actions.json` | Runs, including base merges keyed `merge:owner/name#branch` and kept a day after they complete or 30 days after they end otherwise, retry delays, authorization evidence, daily ledger, and dispatched-session links |
 | `checkouts.json` | Explicit checkout picks by card |
 | `worktrees.json` | The worktree each provisioning run reported, by card (R46) |
@@ -331,6 +332,8 @@ The authoritative message types are in [protocol.ts](../packages/core/src/protoc
 | `configure` | Validated application settings | Refused |
 | `watching`, `refresh` | Visibility and refresh | Allowed |
 | `move` | Card key and valid lane | Allowed |
+| `unplace` | Clear a card's manual lane (R53) | Refused |
+| `acknowledgeVisit` | Take an ended visit out of Done (R53) | Refused |
 | `open` | Session ID, extension readiness, optional handover flag | Use editor URI instead |
 | `retriage` | Explicit card classification | Allowed, metered and watching-gated |
 | `runAction`, `stopAction` | Dispatch or stop a card action | Allowed; a start needs `actions.fromBrowser` |
@@ -451,6 +454,12 @@ A stage record carries `note`, `step`, `at` (latest report), `changedAt` (the re
 ## Action history
 
 `ActionRun.trigger` records who started a run: `automatic` from `#due`, `editor` or `browser` from the hub's `runAction` and `createWorktree` by the client's host, and for a chained request the trigger of the record it follows (the worktree run, or the base merge). After every successful `actions.json` write, `ActionRunner.#recordHistory` folds the runs into `action-history.json` with `historyWith`: an entry per run, keyed `<key>@<startedAt>`, updated while the run is in the state and kept as it last was once replaced; retention is `HISTORY_RETENTION_MS` and `HISTORY_LIMIT`. It reads the history only when the runs differ from the last ones it folded. A history file that exists but cannot be read returns null from the store and is left untouched; a failed read or write is logged once until one succeeds, and dispatch continues. An answer carries the newest 200 entries with details clipped to 400 characters, under the browser frame's megabyte. `readActionHistory` is answered with `ActionHistoryView`s, newest first, each with the card's title and address from the full lanes, and with the detail replaced under a restricted session scope.
+
+## Queue view
+
+`packages/board/src/queue.ts` owns R53's decisions. `queueSectionOf` places a `LanedCard`, or returns null for an ad-hoc or archived card. `nextVisits` folds the internal lanes into `VisitMemory`: it opens a visit for a card that arrived, dated in its first section by `enteredAt` (a running action's or worktree run's `since`, a finished run's `at`, a review stage's `since`, else the read, never later than now), dates a later move to another section at the read, marks `waited` when the section is Waiting for you, appends the runs `action-history.json` holds for the card key since the visit started, and ends a visit whose card is archived in a status outside the membership set or, when its `complete` argument holds, absent or archived as unassigned. It drops an attended ended visit after `queue.doneDays` or past the newest `ENDED_VISIT_LIMIT` (200), and keeps an unattended one until `withAcknowledged`. `queueView` builds `Snapshot.queue`: the four sections with each card's key, the time it entered its section (queue time in Unstarted and Icebox), and whether work still runs on a waiting card, then the ended visits with their runs.
+
+`Hub.#broadcast` writes the visits from the unprojected lanes before it builds the snapshot, with `complete` true only while no source setting is refused and `#boardRead()` holds, so a card that left is in Done in the same broadcast; `configure` clears `#readUnderSettings` before its broadcast, so reads made under replaced settings never count; `snapshot()` reads them back for `queueView` over the projected lanes. `unplace` applies `withoutPlacement` from the lane package, and `acknowledgeVisit` writes `withAcknowledged`; both broadcast, and the bridge refuses both because the overlay has no queue view. The VS Code panel keeps the layout in the `groundControl.layout` memento and sends it as `layout`; the webview sends `setLayout`, `restoreCard`, and `acknowledgeVisit`. The webview draws `#queue` beside `#lanes`, hides one, keeps its section and row elements across renders by the card signature, and stores collapsed sections in webview state.
 
 ## Run reports
 

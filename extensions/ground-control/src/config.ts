@@ -91,6 +91,7 @@ export function readHubConfig(userDir: string): HubConfig {
       promptPath: cfg.get<string>('debrief.promptPath', ''),
       codexScript: cfg.get<string>('debrief.codexScript', ''),
     },
+    queue: { doneDays: numberOr(cfg.get<unknown>('queue.doneDays'), 7) },
   };
 }
 

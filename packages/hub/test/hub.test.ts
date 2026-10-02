@@ -7,6 +7,7 @@ import type { ActivityState } from '../src/activityInstall.js';
 import { Hub } from '../src/hub.js';
 import type { HubDeps } from '../src/hub.js';
 import { makeLaneStore } from '../src/lanes.js';
+import { makeVisitStore } from '../src/visitStore.js';
 import { makeTriageStore } from '../src/triageStore.js';
 import { makeCheckoutStore, makeWorktreeStore } from '../src/checkoutStore.js';
 import { makeActionStore } from '../src/actionStore.js';
@@ -3834,3 +3835,100 @@ describe('friction debriefs (R52)', () => {
 
 });
 
+
+describe('the queue view (R53)', () => {
+  /** A board whose source returns whatever `read` holds at the time of each read. */
+  function reading(read: { cards: IssueCard[]; truncated?: boolean }) {
+    const h = harness({ visits: makeVisitStore(stateDir) }, { fetch: async () => ({ ok: true, value: { ...ISSUES, cards: read.cards, truncated: read.truncated ?? false } }) });
+    const { client, inbox } = connect(h);
+
+    h.hub.receive(client, { type: 'configure', config: h.config() });
+
+    return { h, client, inbox };
+  }
+
+  async function reread(h: Harness, client: ReturnType<typeof connect>['client']): Promise<void> {
+    h.clock.advance(2_000);
+    h.hub.receive(client, { type: 'refresh' });
+    await settle();
+  }
+
+  it('places each card and records its visit', async () => {
+    const { inbox } = reading({ cards: [card(11), card(12)] });
+    await settle();
+
+    expect(latest(inbox).queue?.sections.find((section) => section.id === 'unstarted')?.cards.map((one) => one.key)).toEqual(['issue:11', 'issue:12']);
+    expect(Object.keys(JSON.parse(readFileSync(join(stateDir, 'visits.json'), 'utf8')).open)).toEqual(['issue:11', 'issue:12']);
+  });
+
+  it('ends the visit of a card a full read no longer returns, and lists it in Done until acknowledged', async () => {
+    const read = { cards: [card(11), card(12)] };
+    const { h, client, inbox } = reading(read);
+    await settle();
+
+    read.cards = [card(11)];
+    await reread(h, client);
+
+    const done = latest(inbox).queue?.done ?? [];
+
+    expect(done.map((visit) => [visit.issueNumber, visit.unattended, visit.left])).toEqual([[12, true, 'Left your board']]);
+
+    h.hub.receive(client, { type: 'acknowledgeVisit', id: done[0]!.id });
+    await settle();
+
+    expect(latest(inbox).queue?.done).toEqual([]);
+  });
+
+  it('keeps the visit of a card a truncated read leaves out', async () => {
+    const read = { cards: [card(11), card(12)], truncated: false };
+    const { h, client, inbox } = reading(read);
+    await settle();
+
+    read.cards = [card(11)];
+    read.truncated = true;
+    await reread(h, client);
+
+    expect(latest(inbox).queue?.done).toEqual([]);
+    expect(Object.keys(JSON.parse(readFileSync(join(stateDir, 'visits.json'), 'utf8')).open)).toContain('issue:12');
+  });
+
+  it('ends no visit when a source setting is refused and its cards drop out of the read', async () => {
+    const { h, client, inbox } = reading({ cards: [card(11)] });
+    await settle();
+
+    h.hub.receive(client, { type: 'configure', config: h.config({ sources: { github: { repo: '' } } }) });
+    await settle();
+
+    expect(latest(inbox).failures.map((f) => f.kind)).toContain('bad-config');
+    expect(latest(inbox).queue?.done).toEqual([]);
+    expect(Object.keys(JSON.parse(readFileSync(join(stateDir, 'visits.json'), 'utf8')).open)).toEqual(['issue:11']);
+  });
+
+  it('restores an iceboxed card to the lane its status gives it', async () => {
+    const { h, client, inbox } = reading({ cards: [card(11)] });
+    await settle();
+
+    h.hub.receive(client, { type: 'move', key: 'issue:11', lane: 'icebox' });
+    await settle();
+    expect(latest(inbox).queue?.sections.find((section) => section.id === 'icebox')?.cards.map((one) => one.key)).toEqual(['issue:11']);
+
+    h.hub.receive(client, { type: 'unplace', key: 'issue:11' });
+    await settle();
+
+    expect(JSON.parse(readFileSync(lanesPathOf(stateDir), 'utf8')).placements).toEqual({});
+    expect(latest(inbox).queue?.sections.find((section) => section.id === 'unstarted')?.cards.map((one) => one.key)).toEqual(['issue:11']);
+    expect(h.logged).toContain('issue:11 restored');
+  });
+
+  it('restores nothing for a card the board does not show', async () => {
+    const { h, client } = reading({ cards: [card(11)] });
+    await settle();
+    h.hub.receive(client, { type: 'move', key: 'issue:11', lane: 'icebox' });
+    await settle();
+
+    h.hub.receive(client, { type: 'unplace', key: 'issue:99' });
+    await settle();
+
+    expect(JSON.parse(readFileSync(lanesPathOf(stateDir), 'utf8')).placements).toEqual({ 'issue:11': 'icebox' });
+  });
+});

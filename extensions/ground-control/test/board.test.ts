@@ -178,10 +178,11 @@ beforeAll(async () => {
   document.head.innerHTML = `<style>${readFileSync(resolve('media/board.css'), 'utf8')}</style>`;
   document.body.innerHTML = `
     <header>
+      <div id="layout"><button id="layout-lanes" type="button" aria-pressed="true">Lanes</button><button id="layout-queue" type="button" aria-pressed="false">Queue</button></div>
       <div id="meta"></div>
       <button id="board-menu" type="button"></button>
     </header>
-    <div id="notices"></div><main id="lanes" tabindex="-1"></main>
+    <div id="notices"></div><main id="lanes" tabindex="-1"></main><main id="queue" hidden></main>
   `;
 
   const boardScript = '../media/board.js';
@@ -286,7 +287,7 @@ describe('board webview', () => {
     const image = avatar.querySelector<HTMLImageElement>('img')!;
     const renderedSession = card.querySelector<HTMLElement>('.session')!;
 
-    expect(api.setState).toHaveBeenCalledWith({ payload, showArchived: false, animations: true, custodyTab: 'health' });
+    expect(api.setState).toHaveBeenCalledWith({ payload, showArchived: false, animations: true, custodyTab: 'health', queueCollapsed: ['icebox', 'done'] });
     expect(card.querySelector('.status')?.textContent).toBe('Dev Review');
     expect(card.querySelector('.type')?.textContent).toBe('Bug');
     // Nothing on hover: a chip that is its own whole fact has nothing left to say when it is pointed at.
@@ -5714,5 +5715,275 @@ describe('the custody popup', () => {
     answer({ custody: { ...custody, truncated: true } });
     expect(popup()!.querySelector('.custody-note')!.textContent).toBe('The timeline was cut short; the newest moves are missing.');
     expect(popup()!.querySelector('.custody-tabs')).not.toBeNull();
+  });
+});
+
+describe('queue view (R53)', () => {
+  const working = (phase: 'running' | 'waiting' | 'idle' | 'failed', id: string, extra: Partial<Session> = {}): Session => ({
+    ...session,
+    sessionId: id,
+    activity: { phase, since: Date.parse('2026-09-01T19:00:00Z'), at: Date.parse('2026-09-01T19:00:00Z'), event: 'Stop' },
+    ...extra,
+  });
+  const issueOf = (number: number, title: string) => ({ ...liveCard.issue!, number, title, pullRequest: null });
+  const queueCard = (number: number, over: Partial<LanedCard> = {}): LanedCard => ({
+    ...liveCard,
+    key: `issue:${number}`,
+    issueNumber: number,
+    issue: issueOf(number, `Issue ${number}`),
+    sessions: [],
+    lane: 'build',
+    ...over,
+  });
+  const failed = queueCard(1, {
+    attention: 'failed',
+    sessions: [working('failed', 'failed-1', { activity: { phase: 'failed', since: 1, at: 1, event: 'StopFailure', error: { kind: 'usage_limit_exceeded', message: null } } })],
+  });
+  const blocked = queueCard(2, { attention: 'blocked', sessions: [working('waiting', 'waiting-2'), working('running', 'running-2')] });
+  const reviewed = queueCard(3, { action: { state: 'done', action: 'review-others', qualifier: 'followup', outcome: 'completed', detail: 'Posted.', at: 1 } });
+  const running = queueCard(4, {
+    issue: { ...issueOf(4, 'Issue 4'), pullRequest: liveCard.issue!.pullRequest },
+    attention: 'running',
+    sessions: [working('running', 'running-4')],
+    action: { state: 'running', action: 'develop', qualifier: null, since: 1 },
+    stage: { stage: 'build', note: 'implement retry', step: { n: 2, of: 3 }, at: 1, changedAt: 1, since: 1, history: [] },
+  });
+  const unstarted = queueCard(5, { lane: 'unstarted', triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Assigned.', at: Date.now() - 2 * 3_600_000, stale: false } as NonNullable<LanedCard['triage']> });
+  const iced = queueCard(6, { lane: 'icebox' });
+  const view = {
+    sections: [
+      { id: 'waiting' as const, cards: [{ key: 'issue:1', since: 1, running: false }, { key: 'issue:2', since: 2, running: true }, { key: 'issue:3', since: 3, running: false }] },
+      { id: 'working' as const, cards: [{ key: 'issue:4', since: 4, running: false }] },
+      { id: 'unstarted' as const, cards: [{ key: 'issue:5', since: null, running: false }] },
+      { id: 'icebox' as const, cards: [{ key: 'issue:6', since: null, running: false }] },
+    ],
+    done: [
+      { id: 'issue:7@1', issueNumber: 7, title: 'Shipped alone', url: 'u', repository: null, startedAt: 0, endedAt: 3_600_000, unattended: true, actions: ['develop' as const, 'ship' as const], left: '🔍 Dev Review · left your board' },
+      { id: 'issue:8@1', issueNumber: 8, title: 'Shipped with me', url: 'u', repository: null, startedAt: 0, endedAt: 60_000, unattended: false, actions: [], left: 'Closed' },
+    ],
+  };
+  const queueMessage = (over: Partial<SnapshotMessage> = {}) =>
+    message({ lanes: lanes({ build: [failed, blocked, reviewed, running], unstarted: [unstarted], icebox: [iced] }), queue: view, ...over });
+  const section = (id: string) => document.querySelector<HTMLElement>(`#queue .queue-section[data-section='${id}']`);
+  const row = (key: string) => document.querySelector<HTMLElement>(`#queue .queue-row[data-key='${key}']`);
+  /** A cell's words, without the time beside them. */
+  const words = (el: Element) => Array.from(el.childNodes).filter((node) => !(node instanceof HTMLElement && node.classList.contains('q-age'))).map((node) => node.textContent).join(' ').replace(/\s+/g, ' ').trim();
+  const cell = (key: string, name: string) => row(key)!.querySelector<HTMLElement>(`.q-${name}`)!;
+  const reason = (key: string) => words(cell(key, 'state'));
+  const when = (el: Element) => el.querySelector('.q-age')?.textContent ?? null;
+  const toggle = (id: string) => section(id)!.querySelector<HTMLElement>('.queue-head')!.click();
+
+  beforeEach(() => {
+    send({ type: 'layout', layout: 'queue' });
+    send(queueMessage());
+    api.postMessage.mockClear();
+  });
+
+  afterEach(() => {
+    send({ type: 'layout', layout: 'lanes' });
+  });
+
+  it('switches layout from the header and tells the extension the choice', () => {
+    send({ type: 'layout', layout: 'lanes' });
+    api.postMessage.mockClear();
+
+    document.getElementById('layout-queue')!.click();
+
+    expect(sent()).toEqual([{ type: 'setLayout', layout: 'queue' }]);
+    expect(document.getElementById('queue')!.hidden).toBe(false);
+    expect(document.getElementById('lanes')!.hidden).toBe(true);
+    expect(document.getElementById('layout-queue')!.getAttribute('aria-pressed')).toBe('true');
+
+    document.getElementById('layout-lanes')!.click();
+
+    expect(sent()).toContainEqual({ type: 'setLayout', layout: 'lanes' });
+    expect(document.getElementById('queue')!.hidden).toBe(true);
+    expect(getComputedStyle(document.getElementById('queue')!).display).toBe('none');
+    expect(document.querySelectorAll('#lanes .card')).toHaveLength(6);
+  });
+
+  it('draws the sections in the hub order, with Icebox and Done collapsed until opened', () => {
+    expect(Array.from(document.querySelectorAll<HTMLElement>('#queue .queue-section')).map((el) => [el.dataset.section, el.querySelector('.lane-count')!.textContent])).toEqual([
+      ['waiting', '3'], ['working', '1'], ['unstarted', '1'], ['icebox', '1'], ['done', '2'],
+    ]);
+    expect(Array.from(section('waiting')!.querySelectorAll<HTMLElement>('.queue-row')).map((el) => el.dataset.key)).toEqual(['issue:1', 'issue:2', 'issue:3']);
+    expect(row('issue:6')).toBeNull();
+    expect(section('icebox')!.querySelector('.queue-head')!.getAttribute('aria-expanded')).toBe('false');
+
+    toggle('icebox');
+
+    expect(row('issue:6')).not.toBeNull();
+    expect(api.setState).toHaveBeenLastCalledWith(expect.objectContaining({ queueCollapsed: ['done'] }));
+
+    toggle('icebox');
+  });
+
+  it('keeps the action, the state, and the stage each in its own column in every section', () => {
+    const shipping = queueCard(10, {
+      stage: { stage: 'review', note: '', at: 1, changedAt: 1, since: 1, history: [] },
+      triage: { state: 'done', action: 'develop', qualifier: null, detail: 'Assigned.', at: Date.now() - 60_000, stale: false } as NonNullable<LanedCard['triage']>,
+      action: { state: 'running', action: 'ship', qualifier: null, since: 1 },
+    });
+
+    send(queueMessage({
+      lanes: lanes({ build: [failed, blocked, reviewed, running, shipping], unstarted: [unstarted], icebox: [iced] }),
+      queue: { ...view, sections: view.sections.map((one) => (one.id === 'working' ? { ...one, cards: [...one.cards, { key: 'issue:10', since: 1, running: false }] } : one)) },
+    }));
+
+    expect(['issue:1', 'issue:2', 'issue:3', 'issue:4', 'issue:5', 'issue:10'].map((key) => [words(cell(key, 'action')), words(cell(key, 'run')), reason(key), words(cell(key, 'stage'))])).toEqual([
+      ['Not read', '', 'Failed usage limit exceeded', ''],
+      ['Not read', '', 'Needs you editing tests · still running', ''],
+      ['Not read', 'Review their PR · followup', 'Reviewed', ''],
+      ['Not read', 'Develop', 'Developing…', 'Build · 2/3 Implement retry'],
+      ['Develop', '', 'Not started', ''],
+      ['Develop', 'Ship', 'Shipping…', 'Ready for your review'],
+    ]);
+    expect(when(cell('issue:10', 'action'))).toBe('1m');
+    expect(Array.from(document.querySelectorAll('#queue .queue-columns span')).map((el) => el.textContent)).toEqual(['Issue', 'Title', 'Triage', 'Run', 'State', 'Stage', '', '']);
+    expect(cell('issue:1', 'state').dataset.failed).toBe('true');
+    expect(cell('issue:2', 'state').dataset.failed).toBeUndefined();
+    expect(document.querySelector('#queue [data-attention]')).toBeNull();
+  });
+
+  it('puts each time beside the status it dates, and never in place of another', () => {
+    const now = Date.now();
+
+    send(queueMessage({
+      queue: { ...view, sections: [{ id: 'working', cards: [{ key: 'issue:4', since: now - 34 * 60_000, running: false }] }, { id: 'unstarted', cards: [{ key: 'issue:5', since: now - 3 * 86_400_000, running: false }] }] },
+      lanes: lanes({ build: [{ ...running, stage: { ...running.stage!, changedAt: now - 5 * 60_000 } }], unstarted: [unstarted] }),
+    }));
+
+    expect(when(cell('issue:5', 'action'))).toBe('2h');
+    expect(when(cell('issue:5', 'state'))).toBe('3d');
+    expect(when(cell('issue:4', 'state'))).toBe('34m');
+    expect(when(cell('issue:4', 'stage'))).toBe('5m');
+    expect(when(cell('issue:4', 'action'))).toBeNull();
+    expect(row('issue:4')!.querySelector('.tail .card-age')).toBeNull();
+  });
+
+  it('shows a reported stage in Stage only, with or without a note', () => {
+    const bare = queueCard(9, { stage: { stage: 'review', note: '', at: 1, changedAt: 1, since: 1, history: [] } });
+    const noted = queueCard(10, { stage: { stage: 'review', note: 'ready for your review', at: 1, changedAt: 1, since: 1, history: [] } });
+
+    send(message({ lanes: lanes({ review: [bare, noted] }), queue: { sections: [{ id: 'waiting', cards: [{ key: 'issue:9', since: 1, running: false }, { key: 'issue:10', since: 1, running: false }] }], done: [] } }));
+
+    expect([reason('issue:9'), words(cell('issue:9', 'stage'))]).toEqual(['Your turn', 'Ready for your review']);
+    expect([reason('issue:10'), words(cell('issue:10', 'stage'))]).toEqual(['Your turn', 'Review · Ready for your review']);
+  });
+
+  it('opens what a row is about: the waiting session, the running session, or the conversation', () => {
+    cell('issue:2', 'state').click();
+    row('issue:4')!.click();
+    row('issue:5')!.querySelector<HTMLElement>('.q-title')!.click();
+
+    expect(sent()).toEqual([
+      { type: 'openSession', sessionId: 'waiting-2' },
+      { type: 'openSession', sessionId: 'running-4' },
+      { type: 'readDetail', key: 'issue:5', subject: 'issue' },
+    ]);
+  });
+
+  it('offers Icebox from the row menu, and Restore on an iceboxed card', () => {
+    const choose = (key: string, label: string) => {
+      row(key)!.querySelector<HTMLElement>('.card-menu')!.click();
+      const item = Array.from(document.querySelectorAll<HTMLButtonElement>('.card-popover button')).find((one) => one.lastChild?.nodeValue === label);
+
+      if (item === undefined) throw new Error(`no ${label} item`);
+      item.click();
+    };
+
+    choose('issue:5', 'Icebox');
+    toggle('icebox');
+    choose('issue:6', 'Restore');
+
+    expect(sent()).toEqual([{ type: 'moveCard', key: 'issue:5', lane: 'icebox' }, { type: 'restoreCard', key: 'issue:6' }]);
+    toggle('icebox');
+  });
+
+  it('lists ended visits with their runs, and acknowledges only an unattended one', () => {
+    toggle('done');
+
+    const rows = Array.from(section('done')!.querySelectorAll<HTMLElement>('.done-row'));
+
+    expect(rows.map((el) => [words(el.querySelector('.q-run')!), words(el.querySelector('.q-state')!)])).toEqual([
+      ['Develop → Ship', '🔍 Dev Review · left your board visit lasted 1h'],
+      ['No runs', 'Closed visit lasted 1m'],
+    ]);
+    expect(rows.map((el) => el.children.length)).toEqual([8, 8]);
+    expect(row('issue:4')!.children.length).toBe(8);
+    expect(Array.from(row('issue:4')!.querySelector('.q-issue')!.children).map((el) => el.textContent)).toEqual(['#4', '#19403']);
+    expect(rows[1]!.querySelector('.acknowledge')).toBeNull();
+
+    rows[0]!.querySelector<HTMLElement>('.acknowledge')!.click();
+
+    expect(sent()).toEqual([{ type: 'acknowledgeVisit', id: 'issue:7@1' }]);
+    toggle('done');
+  });
+
+  it('says so when the hub sends no queue, on an empty board too', () => {
+    const { queue: _none, ...older } = queueMessage();
+
+    send(older as SnapshotMessage);
+
+    expect(document.getElementById('queue')!.textContent).toBe('The running hub predates the queue view. Reload the window to update it.');
+
+    const { queue: _empty, ...nothing } = message();
+
+    send(nothing as SnapshotMessage);
+
+    expect(document.getElementById('queue')!.textContent).toBe('The running hub predates the queue view. Reload the window to update it.');
+  });
+
+  it('opens a waiting run report before its session', () => {
+    const reported = queueCard(3, {
+      sessions: [working('idle', 'idle-3')],
+      attention: 'your-turn',
+      action: { state: 'done', action: 'review-others', qualifier: 'followup', outcome: 'completed', detail: 'Posted.', at: 1, reportId: 'issue:3@1' },
+    });
+
+    send(queueMessage({ lanes: lanes({ build: [failed, blocked, reported, running], unstarted: [unstarted], icebox: [iced] }) }));
+    row('issue:3')!.click();
+
+    expect(sent()).toContainEqual({ type: 'readReport', id: 'issue:3@1', request: expect.any(Number) });
+    expect(sent()).not.toContainEqual({ type: 'openSession', sessionId: 'idle-3' });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  });
+
+  it('names what a waiting session reported even where this window cannot open it, and opens the conversation instead', () => {
+    send(queueMessage({ openable: [] }));
+    api.postMessage.mockClear();
+
+    expect(reason('issue:2')).toBe('Needs you editing tests · still running');
+
+    row('issue:2')!.click();
+
+    expect(sent()).toEqual([{ type: 'readDetail', key: 'issue:2', subject: 'issue' }]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  });
+
+  it('redraws a row whose session changes from a run to attach to into one to open', () => {
+    const attachable = { ...running, sessions: [working('running', 'running-4', { attachId: 'abc' })] };
+
+    send(queueMessage({ lanes: lanes({ build: [failed, blocked, reviewed, attachable], unstarted: [unstarted], icebox: [iced] }) }));
+    send(queueMessage());
+    api.postMessage.mockClear();
+    row('issue:4')!.click();
+
+    expect(sent()).toEqual([{ type: 'openSession', sessionId: 'running-4' }]);
+  });
+
+  it('redraws a reason whose failure changed, and keeps focus in Done across an unchanged board', () => {
+    const relimited = { ...failed, sessions: [working('failed', 'failed-1', { activity: { phase: 'failed', since: 1, at: 1, event: 'StopFailure', error: { kind: 'authentication_failed', message: null } } })] };
+
+    send(queueMessage({ lanes: lanes({ build: [relimited, blocked, reviewed, running], unstarted: [unstarted], icebox: [iced] }) }));
+
+    expect(reason('issue:1')).toBe('Failed authentication failed');
+
+    toggle('done');
+    section('done')!.querySelector<HTMLElement>('.acknowledge')!.focus();
+    send(queueMessage());
+
+    expect(document.activeElement?.className).toBe('acknowledge');
+    toggle('done');
   });
 });

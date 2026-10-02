@@ -124,6 +124,40 @@ h1 {
   color: var(--vscode-list-warningForeground, var(--vscode-descriptionForeground));
 }
 
+/* The layout switch (R53): two pressed-state buttons, plain text, no colour of their own. */
+#layout {
+  flex: none;
+  display: inline-flex;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+#layout button {
+  padding: 0.05rem 0.6rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--vscode-descriptionForeground);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+#layout button + button {
+  border-left: 1px solid var(--vscode-panel-border);
+}
+
+#layout button[aria-pressed='true'] {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+#layout button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
 /* Keep the board menu visible because it is the only access to board actions. */
 #board-menu {
   flex: none;
@@ -3222,4 +3256,318 @@ body.vscode-dark .markdown-body .pl-ent {
   padding-top: 0;
   color: var(--vscode-descriptionForeground);
   overflow-wrap: anywhere;
+}
+
+/* Queue view (R53) -------------------------------------------------------- */
+
+/*
+ * One column of sections, top to bottom. Position states whether a card runs, waits, or has not started, so rows carry
+ * no attention colour, border, tint, or motion; Failed alone keeps its colour.
+ */
+main[hidden] {
+  display: none;
+}
+
+#queue:not([hidden]) {
+  display: block;
+}
+
+#queue {
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 1rem;
+}
+
+.queue-section + .queue-section {
+  margin-top: 0.75rem;
+}
+
+.queue-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.25rem 0.25rem;
+  font: inherit;
+  color: var(--vscode-foreground);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.queue-head:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.queue-head:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.queue-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.queue-section[data-section='icebox'] .queue-name,
+.queue-section[data-section='done'] .queue-name {
+  color: var(--vscode-descriptionForeground);
+}
+
+.chevron {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-right: 1.5px solid var(--vscode-descriptionForeground);
+  border-bottom: 1.5px solid var(--vscode-descriptionForeground);
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.queue-section[data-collapsed='true'] .chevron {
+  transform: rotate(-45deg);
+}
+
+.queue-rows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.15rem;
+}
+
+.queue-rows .lane-empty {
+  margin: 0.25rem 0;
+  padding: 0.5rem 0;
+}
+
+.queue-row {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.1fr) minmax(0, 0.9fr) 5rem 1.5rem;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 1.75rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.queue-row:not(.queue-columns):hover,
+.queue-row:not(.queue-columns):focus-within {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* One line of column names over every section, so each column means the same thing in all of them. */
+.queue-columns {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 1.5rem;
+  font-size: 0.72rem;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  border-radius: 0;
+  cursor: default;
+}
+
+
+.q-number {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.q-title {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  font: inherit;
+  color: var(--vscode-foreground);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.q-title:hover {
+  text-decoration: underline;
+}
+
+.q-title:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+/* Words, then their time, then a note: the words and the note shrink to an ellipsis, the time never does. */
+.q-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.q-cell > .q-words,
+.q-cell > .note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The note takes only the width the words and time leave, so it gives up its width before the words give up any. */
+.q-cell > .q-words {
+  flex: 0 1 auto;
+}
+
+.q-cell > .note {
+  flex: 1 1 0;
+}
+
+.q-cell > .q-age {
+  flex: none;
+}
+
+.q-state .note,
+.q-run,
+.q-stage {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.q-state[data-failed='true'] {
+  font-weight: 600;
+  color: var(--vscode-errorForeground);
+}
+
+/* The number, then the pull request; a column too narrow for both puts the pull request under the number. */
+.q-issue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.4rem;
+  min-width: 0;
+}
+
+.q-issue .badge {
+  --gc-badge: var(--vscode-descriptionForeground) !important;
+  background: none;
+}
+
+.queue-row .tail {
+  min-width: 0;
+}
+
+.queue-row:hover .card-age,
+.queue-row:focus-within .card-age {
+  opacity: 0;
+}
+
+.queue-row:hover .tools,
+.queue-row:focus-within .tools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.q-age {
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+}
+
+.queue-row .tool,
+.queue-row .tool[data-outcome] {
+  color: var(--vscode-descriptionForeground);
+}
+
+.queue-row .tool[data-state='running'] {
+  animation: none;
+}
+
+.queue-row .card-menu {
+  opacity: 0;
+}
+
+.queue-row:hover .card-menu,
+.queue-row:focus-within .card-menu,
+.queue-row .card-menu[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.acknowledge {
+  padding: 0 0.5rem;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  color: var(--vscode-foreground);
+  background: none;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.acknowledge:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+.acknowledge:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* A narrow panel keeps the number, title, and time on one line and puts action, state, and stage under the title. */
+@media (max-width: 42rem) {
+  .queue-row {
+    grid-template-columns: 4.75rem minmax(0, 1fr) 5rem 1.5rem;
+    row-gap: 0;
+  }
+
+  .queue-row .q-issue {
+    grid-row: 1 / span 2;
+    align-self: start;
+  }
+
+  .queue-columns {
+    display: none;
+  }
+
+  .queue-row .q-action {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .queue-row .q-run {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .queue-row .q-state {
+    grid-column: 2;
+    grid-row: 4;
+  }
+
+  .queue-row .q-stage {
+    grid-column: 2;
+    grid-row: 5;
+  }
+
+  .queue-row .tail {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .queue-row > :last-child {
+    grid-column: 4;
+    grid-row: 1;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .queue-row .card-menu {
+    opacity: 1;
+  }
 }
